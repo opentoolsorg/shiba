@@ -24,6 +24,8 @@ import { SkillsView } from "./SkillsView";
 import { ExtensionMcpServersView } from "./ExtensionMcpServersView";
 import { WorkspaceConnectorsPanel } from "./WorkspaceConnectorsPanel";
 import { SlackInstallationsPanel } from "./SlackInstallationsPanel";
+import { SlackCoworkerPanel } from "./SlackCoworkerPanel";
+import { FounderStripeReads } from "./FounderStripeReads";
 
 function IntegrationRow({
   name,
@@ -138,6 +140,7 @@ interface IntegrationsViewProps {
   allowPersonalScope?: boolean;
   onPersonalScope?: () => void;
   onChooseWorkspace?: () => void;
+  onAdoptSlackTask?: (task: string) => void;
 }
 const UNREAD_PRIVATE_BINDINGS: IntegrationBindingInputs = { setupLoading: true, mailboxCount: undefined, mailboxLoading: true,
   gmailConnected: null, gmailLoading: true, externalMcpServerCount: undefined, externalMcpCatalogConnections: undefined, externalMcpLoading: true };
@@ -150,6 +153,8 @@ export function IntegrationsView(props: IntegrationsViewProps): JSX.Element {
 
 function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspaceId: string }): JSX.Element {
   const [showSlack, setShowSlack] = useState(false);
+  const [showCoworker, setShowCoworker] = useState(false);
+  const [showStripe, setShowStripe] = useState(false);
   return <div className="min-w-0 space-y-4"><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
     actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
     allowPersonalScope={props.allowPersonalScope} onPersonalScope={props.onPersonalScope} />
@@ -158,6 +163,14 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
         {showSlack ? "Close Slack installation setup" : "Manage Slack installations"}
       </button>
       {showSlack && <SlackInstallationsPanel workspaceId={props.workspaceId} actorId={props.actorId} />}
+    </section>}
+    {props.actorId && props.onAdoptSlackTask && <section className="p-4">
+      <button type="button" aria-expanded={showCoworker} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowCoworker((shown) => !shown)}>{showCoworker ? "Close Slack coworker" : "Review my Slack task drafts"}</button>
+      {showCoworker && <SlackCoworkerPanel workspaceId={props.workspaceId} actorId={props.actorId} onAdoptTask={props.onAdoptSlackTask} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showStripe} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowStripe((shown) => !shown)}>{showStripe ? "Close Stripe read setup" : "Review private Stripe reads"}</button>
+      {showStripe && <FounderStripeReads workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowStripe(false)} />}
     </section>}</div>;
 }
 

@@ -11,6 +11,8 @@ The November 4 [shared-context and employee report](docs/shared-context-employee
 
 The [November 5 contract index](docs/verification/team-contracts-completion-20261105.md) tracks native member execution, workspace app accounts and founder schedules. Their authority and receipts live in D1; they do not inherit the deployment operator's credentials or billing. Optional funded text sessions use a separate default-off Workers AI service with explicit operator consent, per-member limits and human-reviewed input. A founder connector timer creates an occurrence; the original native requester and a current manager still perform the existing action review and execution steps. Neither path exposes an approval tool to an agent.
 
+The [v3 product extension](docs/verification/four-priorities-v3-20261105.md) adds source-attested fixed Ads reads and a separate native restricted-key Stripe read lane, rather than widening OAuth credentials. Managed Slack identity grants only private self-authored draft intake; native room sharing and execution still require human actions. Funded model adapters retain permanent requester/workspace reservations. Computer refresh and archive export retain their separate display/control and native read authorities.
+
 **Companions:** `spec/GOAL.md` (product contract — *currently contradicted by
 the tree*, see `PLAN.md` §17.2 T27) · `design.md` (visual design system, not
 this) · `PLAN.md` §17 (parity roadmap).

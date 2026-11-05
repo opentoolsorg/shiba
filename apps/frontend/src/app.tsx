@@ -460,6 +460,7 @@ export function App(): React.JSX.Element {
   const selectedOnboardingTaskText = useRef<string | null>(null);
   const initialComposerPrompt = useRef(task);
   const [pendingOnboardingDraft, setPendingOnboardingDraft] = useState<SelectedOnboardingDraft | null>(null);
+  const [incomingSlackTask, setIncomingSlackTask] = useState<{ id: string; workspaceId: string; actorId: string; text: string } | null>(null);
   const [publishPullRequest, setPublishPullRequest] = useState(false);
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
   const [runSetup, setRunSetup] = useState(false);
@@ -650,6 +651,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const workspaceAuthorityReady = !teamIdentityAvailable || teamDirectory.verified;
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
   const teamWorkspace = teamDirectory.workspaces.find(item => item.workspaceId === teamWorkspaceId);
+  const currentSlackTask = incomingSlackTask?.workspaceId === teamWorkspaceId && incomingSlackTask.actorId === orchestratorName?.trim().toLowerCase() ? incomingSlackTask : null;
+  useEffect(() => setIncomingSlackTask(null), [teamWorkspaceId, orchestratorName]);
   const privateDataEnabled = signedIn && workspaceAuthorityReady && !teamDirectory.error && !teamWorkspaceId && !restrictedTeamMember;
   setSavedLibraryActor(privateDataEnabled ? orchestratorName : null);
   const savedRepos = useSavedRepos(privateDataEnabled ? orchestratorName : null);
@@ -659,6 +662,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const activeSurfaceKey = JSON.stringify([signedIn ? orchestratorName : null, teamWorkspaceId, privateDataEnabled]);
   const activeSurfaceScopeRef = useRef({ key: activeSurfaceKey });
   if (activeSurfaceScopeRef.current.key !== activeSurfaceKey) activeSurfaceScopeRef.current = { key: activeSurfaceKey };
+  const slackTaskSurface = activeSurfaceScopeRef.current;
+  const adoptSlackTask = (text: string) => {
+    if (activeSurfaceScopeRef.current !== slackTaskSurface || !signedIn || !teamWorkspaceId || !orchestratorName || typeof text !== "string" || !text.trim()) return;
+    setIncomingSlackTask({ id: crypto.randomUUID(), workspaceId: teamWorkspaceId, actorId: orchestratorName.trim().toLowerCase(), text });
+    setMainView("threads");
+    setConversationMode("work");
+  };
   const [sharedRoomId, setSharedRoomId] = useState<string | undefined>();
   const [sharedHandoffId, setSharedHandoffId] = useState<string | undefined>();
   const [sharedEmployeeId, setSharedEmployeeId] = useState<string | undefined>();
@@ -2847,7 +2857,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               }}
             />
           ) : mainView === "threads" && teamWorkspaceId ? (
-            <CollaborationView key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} initialRoomId={sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} onRoomChange={setSharedRoomId}
+            <CollaborationView key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} initialRoomId={sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={setSharedRoomId}
               renderApproval={(handoff) => teamWorkspaceId && handoff.senderActorId === `human:${orchestratorName?.trim().toLowerCase()}` ? <RoomApprovalReview workspaceId={teamWorkspaceId} workspaceName={teamWorkspace?.name} roomId={handoff.roomId} handoffId={handoff.handoffId} actorId={orchestratorName?.trim().toLowerCase() ?? null} /> : null}
               renderExecution={(handoff) => <RoomExecutionPanel key={`${handoff.handoffId}:${handoff.runId}:${handoff.execution?.approvalStatus}`} workspaceId={teamWorkspaceId} roomId={handoff.roomId} handoffId={handoff.handoffId} runId={handoff.runId} />} />
           ) : mainView === "threads" ? (
@@ -3478,7 +3488,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               }}
             />
           ) : mainView === "collaboration" ? (
-            <CollaborationView key={`${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} initialRoomId={sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} onRoomChange={setSharedRoomId}
+            <CollaborationView key={`${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} initialRoomId={sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={setSharedRoomId}
               renderApproval={(handoff) => teamWorkspaceId && handoff.senderActorId === `human:${orchestratorName?.trim().toLowerCase()}` ? <RoomApprovalReview workspaceId={teamWorkspaceId} workspaceName={teamWorkspace?.name} roomId={handoff.roomId} handoffId={handoff.handoffId} actorId={orchestratorName?.trim().toLowerCase() ?? null} /> : null}
               renderExecution={(handoff) => <RoomExecutionPanel key={`${handoff.handoffId}:${handoff.runId}:${handoff.execution?.approvalStatus}`} workspaceId={teamWorkspaceId || undefined} roomId={handoff.roomId} handoffId={handoff.handoffId} runId={handoff.runId} />} />
           ) : mainView === "team" ? (
@@ -3516,7 +3526,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (
-            <IntegrationsView onNavigate={openView} actorId={orchestratorName ?? undefined} workspaceId={teamWorkspaceId || undefined} workspaceName={teamWorkspace?.name} workspaceRole={teamWorkspace?.membership.role} allowPersonalScope={!restrictedTeamMember} onPersonalScope={() => teamDirectory.selectWorkspace("")} onChooseWorkspace={() => openView("team")} />
+            <IntegrationsView onNavigate={openView} onAdoptSlackTask={adoptSlackTask} actorId={orchestratorName ?? undefined} workspaceId={teamWorkspaceId || undefined} workspaceName={teamWorkspace?.name} workspaceRole={teamWorkspace?.membership.role} allowPersonalScope={!restrictedTeamMember} onPersonalScope={() => teamDirectory.selectWorkspace("")} onChooseWorkspace={() => openView("team")} />
           ) : mainView === "remote" ? (
             <RemoteAccessView />
           ) : null}

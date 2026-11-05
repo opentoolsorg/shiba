@@ -2,8 +2,11 @@ import { ReadGateError, type ReadOperationId } from "./types.js";
 
 /** User data is only strict variables. Query text, endpoints, headers and filters are never inputs. */
 export const LINEAR_TEAM_QUERY = "query ShibaTeamIssues($id: String!, $first: Int!, $includeArchived: Boolean!) { team(id: $id) { id name issues(first: $first, includeArchived: $includeArchived) { nodes { id identifier title url updatedAt state { id name type } } pageInfo { hasNextPage endCursor } } } }";
+export const GOOGLE_ADS_QUERY = "SELECT campaign.id, campaign.name, segments.date, metrics.impressions, metrics.clicks, metrics.cost_micros FROM campaign WHERE segments.date >= '{startDate}' AND segments.date <= '{endDate}' ORDER BY segments.date, campaign.id LIMIT 25";
 const text={type:"string",minLength:1,maxLength:200};
 export const OPERATION_SCHEMAS: Record<ReadOperationId,Record<string,unknown>> = {
+  "googleads.campaign_daily_metrics":{type:"object",additionalProperties:false,required:["customerId","loginCustomerId","startDate","endDate"],properties:{customerId:{type:"string",pattern:"^[0-9]{10}$"},loginCustomerId:{type:"string",pattern:"^[0-9]{10}$"},startDate:{type:"string",pattern:"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},endDate:{type:"string",pattern:"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}}},
+  "figma.list_comments":{type:"object",additionalProperties:false,required:["fileKey"],properties:{fileKey:{...text,pattern:"^[A-Za-z0-9_-]+$"}}},
   "figma.get_file_metadata":{type:"object",additionalProperties:false,required:["fileKey"],properties:{fileKey:{...text,pattern:"^[A-Za-z0-9_-]+$"}}},
   "linear.list_issues_by_team_id":{type:"object",additionalProperties:false,required:["team_id","first","include_archived"],properties:{team_id:text,first:{type:"integer",minimum:1,maximum:25},include_archived:{type:"boolean"}}},
   "github.list_pull_requests":{type:"object",additionalProperties:false,required:["owner","repo","perPage","state"],properties:{owner:{...text,pattern:"^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"},repo:{...text,pattern:"^(?!\\.{1,2}$)[A-Za-z0-9_.-]+$"},perPage:{type:"integer",minimum:1,maximum:25},state:{type:"string",enum:["open","closed","all"]}}},
@@ -14,12 +17,21 @@ function exact(row:Record<string,unknown>,keys:string[]) {if(Object.keys(row).le
 function string(value:unknown,pattern?:RegExp) {if(typeof value!=="string"||value.length<1||value.length>200||value.trim()!==value||/[\u0000-\u001f]/u.test(value)||(pattern&&!pattern.test(value)))throw new ReadGateError("read_gate_arguments_invalid",400);return value;}
 function count(value:unknown){if(!Number.isInteger(value)||Number(value)<1||Number(value)>25)throw new ReadGateError("read_gate_arguments_invalid",400);return Number(value);}
 export function validateReadArguments(id:ReadOperationId,value:unknown):Record<string,unknown>{const row=object(value);
-  if(id==="figma.get_file_metadata"){exact(row,["fileKey"]);return{fileKey:string(row.fileKey,/^[A-Za-z0-9_-]+$/)};}
+  if(id==="googleads.campaign_daily_metrics"){
+    exact(row,["customerId","loginCustomerId","startDate","endDate"]);
+    const customerId=string(row.customerId,/^[0-9]{10}$/),loginCustomerId=string(row.loginCustomerId,/^[0-9]{10}$/),startDate=string(row.startDate,/^\d{4}-\d{2}-\d{2}$/),endDate=string(row.endDate,/^\d{4}-\d{2}-\d{2}$/);
+    const start=Date.parse(`${startDate}T00:00:00Z`),end=Date.parse(`${endDate}T00:00:00Z`);
+    if(!Number.isFinite(start)||!Number.isFinite(end)||new Date(start).toISOString().slice(0,10)!==startDate||new Date(end).toISOString().slice(0,10)!==endDate||end<start||end-start>29*86400000)throw new ReadGateError("read_gate_arguments_invalid",400);
+    return{customerId,loginCustomerId,startDate,endDate};
+  }
+  if(id==="figma.get_file_metadata"||id==="figma.list_comments"){exact(row,["fileKey"]);return{fileKey:string(row.fileKey,/^[A-Za-z0-9_-]+$/)};}
   if(id==="linear.list_issues_by_team_id"){exact(row,["team_id","first","include_archived"]);if(typeof row.include_archived!=="boolean")throw new ReadGateError("read_gate_arguments_invalid",400);return{team_id:string(row.team_id),first:count(row.first),include_archived:row.include_archived};}
   if(id==="github.list_pull_requests"){exact(row,["owner","repo","perPage","state"]);if(!["open","closed","all"].includes(String(row.state)))throw new ReadGateError("read_gate_arguments_invalid",400);return{owner:string(row.owner,/^(?!\.{1,2}$)[A-Za-z0-9_.-]+$/),repo:string(row.repo,/^(?!\.{1,2}$)[A-Za-z0-9_.-]+$/),perPage:count(row.perPage),state:row.state};}
   throw new ReadGateError("read_gate_operation_unavailable",400);
 }
 export function providerRequest(id:ReadOperationId,args:Record<string,unknown>):{url:string;method:"GET"|"POST";body?:string}{
+  if(id==="googleads.campaign_daily_metrics"){const valid=validateReadArguments(id,args);return{url:`https://googleads.googleapis.com/v25/customers/${valid.customerId}/googleAds:search`,method:"POST",body:JSON.stringify({query:GOOGLE_ADS_QUERY.replace("{startDate}",String(valid.startDate)).replace("{endDate}",String(valid.endDate))})};}
+  if(id==="figma.list_comments")return{url:`https://api.figma.com/v1/files/${encodeURIComponent(String(args.fileKey))}/comments`,method:"GET"};
   if(id==="figma.get_file_metadata")return{url:`https://api.figma.com/v1/files/${encodeURIComponent(String(args.fileKey))}/meta`,method:"GET"};
   if(id==="linear.list_issues_by_team_id")return{url:"https://api.linear.app/graphql",method:"POST",body:JSON.stringify({query:LINEAR_TEAM_QUERY,variables:{id:args.team_id,first:args.first,includeArchived:args.include_archived}})};
   if(id==="github.list_pull_requests"){const valid=validateReadArguments(id,args);const url=new URL(`https://api.github.com/repos/${encodeURIComponent(String(valid.owner))}/${encodeURIComponent(String(valid.repo))}/pulls`);url.searchParams.set("per_page",String(valid.perPage));url.searchParams.set("state",String(valid.state));url.searchParams.set("page","1");return{url:url.href,method:"GET"};}
