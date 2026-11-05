@@ -669,6 +669,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     setMainView("threads");
     setConversationMode("work");
   };
+  const openSlackHandoff = (roomId: string, handoffId: string) => {
+    if (activeSurfaceScopeRef.current !== slackTaskSurface || !signedIn || !teamWorkspaceId || !orchestratorName ||
+      !/^room_[a-f0-9]{24}$/.test(roomId) || !/^scx_[a-f0-9]{32}$/.test(handoffId)) return;
+    setIncomingSlackTask(null); setSharedRoomId(roomId); setSharedHandoffId(handoffId); setSharedEmployeeId(undefined);
+    setShowFirstRun(false); setMainView("threads"); setConversationMode("work");
+  };
   const stageTeamSetupTask = (draft: TeamOnboardingTask) => {
     if (activeSurfaceScopeRef.current !== slackTaskSurface || !signedIn || !teamWorkspaceId || !orchestratorName ||
       draft.workspaceId !== teamWorkspaceId || draft.actorId !== orchestratorName.trim().toLowerCase() || draft.expiresAt <= Date.now()) return;
@@ -3534,7 +3540,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (
-            <IntegrationsView onNavigate={openView} onAdoptSlackTask={adoptSlackTask} actorId={orchestratorName ?? undefined} workspaceId={teamWorkspaceId || undefined} workspaceName={teamWorkspace?.name} workspaceRole={teamWorkspace?.membership.role} allowPersonalScope={!restrictedTeamMember} onPersonalScope={() => teamDirectory.selectWorkspace("")} onChooseWorkspace={() => openView("team")} />
+            <IntegrationsView onNavigate={openView} onAdoptSlackTask={adoptSlackTask} onOpenSlackHandoff={openSlackHandoff} actorId={orchestratorName ?? undefined} workspaceId={teamWorkspaceId || undefined} workspaceName={teamWorkspace?.name} workspaceRole={teamWorkspace?.membership.role} allowPersonalScope={!restrictedTeamMember} onPersonalScope={() => teamDirectory.selectWorkspace("")} onChooseWorkspace={() => openView("team")} />
           ) : mainView === "remote" ? (
             <RemoteAccessView />
           ) : null}

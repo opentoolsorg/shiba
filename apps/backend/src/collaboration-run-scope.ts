@@ -26,6 +26,7 @@ export async function teamHandoffWorkspaceId(env: Env, handoffId: string): Promi
 export async function resolveTeamHandoffRunScope(env: Env, input: {
   handoffId: string; actorId: string; executorAgentName: string; employeeId: string; employeeVersion: number;
   task: string; expectedWorkspaceId?: string; approvalId?: string;
+  personalExecution?: unknown;
 }): Promise<{ orgId: string; workspaceId: string } | null> {
   if (!env.AGENT_AUDIT || !input.actorId || !input.employeeId || !Number.isSafeInteger(input.employeeVersion)) return null;
   try {
@@ -53,8 +54,8 @@ export async function resolveTeamHandoffRunScope(env: Env, input: {
         !await canReadCollaborationRoom(env, { ...scope, roomId: handoff.roomId }, userId)) return null;
     const contextCurrent = input.approvalId
       ? await isCollaborationApprovalDispatchable(env, { handoffId: input.handoffId, approvalId: input.approvalId,
-        employeeId: input.employeeId, employeeVersion: input.employeeVersion, task: input.task })
-      : await isCollaborationContextQueueable(env, scope, handoff.roomId, handoff.handoffId, input.task);
+        employeeId: input.employeeId, employeeVersion: input.employeeVersion, task: input.task, personalExecution: input.personalExecution })
+      : await isCollaborationContextQueueable(env, scope, handoff.roomId, handoff.handoffId, input.task, input.personalExecution);
     if (!contextCurrent) return null;
     return { orgId: collaborationEmployeeOrgId(scope), workspaceId };
   } catch { return null; }

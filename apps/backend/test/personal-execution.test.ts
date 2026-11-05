@@ -15,8 +15,10 @@ import { createCustomAgent } from "../src/custom-agents-store.js";
 import { verifyInternalRequest } from "../src/edge-identity.js";
 
 const claim = vi.hoisted(() => ({ allowed: true, calls: 0, hook: undefined as (() => void | Promise<void>) | undefined }));
+const sourceFence = vi.hoisted(() => ({ allowed: true, calls: 0 }));
 const routed = vi.hoisted(() => ({ fetch: undefined as ((name: string, request: Request) => Promise<Response>) | undefined }));
 vi.mock("../src/personal-execution-claim.js", () => ({ validatePersonalExecutionClaim: async () => { claim.calls++; await claim.hook?.(); return claim.allowed; } }));
+vi.mock("../src/slack-coworker-store.js", async (original) => ({ ...await original<typeof import("../src/slack-coworker-store.js")>(), isSlackCoworkerClaimSourceCurrent: async () => { sourceFence.calls++; return sourceFence.allowed; } }));
 vi.mock("agents/routing", async (original) => ({ ...await original<typeof import("agents/routing")>(), getAgentByName: async (_namespace: unknown, name: string) => ({ fetch: (input: Request | string) => {
   if (!routed.fetch) throw new Error("Unexpected agent lookup in personal foundation fixture.");
   return routed.fetch(name, input instanceof Request ? input : new Request(input));
@@ -31,7 +33,7 @@ interface FixtureStorage {
   list<T>(options: { prefix: string }): Promise<Map<string, T>>;
   transaction<T>(operation: (tx: FixtureStorage) => Promise<T>): Promise<T>;
 }
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); for (const db of databases.splice(0)) db.close(); claim.allowed = true; claim.calls = 0; claim.hook = undefined; routed.fetch = undefined; });
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); for (const db of databases.splice(0)) db.close(); claim.allowed = true; claim.calls = 0; claim.hook = undefined; sourceFence.allowed = true; sourceFence.calls = 0; routed.fetch = undefined; });
 
 function req(path: string, method = "GET", body?: unknown, headers: Record<string, string> = {}) {
   return new Request(`${BASE}${path}`, { method, headers: { Origin: BASE, "Content-Type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -197,6 +199,20 @@ describe("personal execution ownership foundations with signed native sessions",
     expect((await f.local("claim", {}, machine.adapterToken)).status).toBe(409);
     expect(f.map.get("run:personal-job")).toMatchObject({ status: "pending" });
     expect(f.map.get("run:personal-job")).not.toHaveProperty("claimToken");
+  });
+
+  it("does not claim when retained source authority changes during final mailbox reads", async () => {
+    const f = await fixture(), machine = await f.ready(), snapshot = await f.grant(machine);
+    expect((await f.dispatchJob(snapshot)).status).toBe(200);
+    const before = claim.calls;
+    claim.hook = () => { if (claim.calls === before + 1) sourceFence.allowed = false; };
+    const response = await f.local("claim", {}, machine.adapterToken);
+    expect(response.status).toBe(409);
+    expect(claim.calls).toBe(before + 1);
+    expect(sourceFence.calls).toBe(1);
+    expect(f.map.get("run:personal-job")).toMatchObject({ status: "pending" });
+    expect(f.map.get("run:personal-job")).not.toHaveProperty("claimToken");
+    expect(await revalidatePersonalExecutionSnapshot(f.env, snapshot)).toBe(true);
   });
 
   it("cannot reset a claimed run through a late concurrent duplicate dispatch", async () => {

@@ -45,6 +45,7 @@ import { randomHex } from "./mailbox-store.js";
 import type { Env } from "./env.js";
 import { isPersonalOwnerCurrent, personalComputerMatches, personalGrantFence, isPublicPersonalRepository } from "./personal-execution-store.js";
 import { validatePersonalExecutionClaim } from "./personal-execution-claim.js";
+import { isSlackCoworkerClaimSourceCurrent } from "./slack-coworker-store.js";
 
 const RECORD_PREFIX = "run:";
 const MAX_LOCAL_EVENT_BATCH = 64;
@@ -456,9 +457,13 @@ export class LocalDispatch extends DurableObject<Env> {
           const current = await tx.get<LocalDispatchRecord>(`${RECORD_PREFIX}${pending.envelope.sandboxId}`);
           const computer = await tx.get<ComputerRecord>(`${COMPUTER_PREFIX}${machineId}`);
           const proof = current?.envelope.personalExecution;
-          if (!current || current.status !== "pending" || !proof || !computer?.personalExecution || current.targetMachineId !== machineId ||
+          if (!current || current.status !== "pending" || JSON.stringify(current.envelope) !== JSON.stringify(pending.envelope) || !proof || !computer?.personalExecution || current.targetMachineId !== machineId ||
             !personalComputerMatches(toConnectedComputer(computer, Date.now()), computer.personalExecution.scope, proof.snapshot) ||
             !await personalGrantFence(this.env, computer.personalExecution.scope, proof.snapshot) || proof.approvedUntil <= Date.now()) return null;
+          // Recheck the retained Slack source in D1 after mailbox reads. D1 and
+          // this DO are separate stores, so this narrows the revocation window
+          // without claiming atomicity. The signed approval was checked above.
+          if (!await isSlackCoworkerClaimSourceCurrent(this.env, proof, current.envelope.task) || proof.approvedUntil <= Date.now() || proof.snapshot.expiresAt <= Date.now()) return null;
           const claimToken = crypto.randomUUID();
           await tx.put(`${RECORD_PREFIX}${current.envelope.sandboxId}`, { ...current, status: "claimed", claimToken, claimedAt: Date.now() });
           return { envelope: current.envelope, claimToken };

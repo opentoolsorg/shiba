@@ -88,6 +88,15 @@ describe("Slack coworker authority at real collaboration context boundaries", ()
     const f = await fixture(slack);
     const frozen = await freezeCollaborationContext(f.env, f.scope, ROOM, f.handoffId, TASK, ["selected_fact"], []);
     expect(frozen.digest).toMatch(/^[a-f0-9]{64}$/);
+    if (slack) {
+      // A v1 receipt has no reviewed task, provider, or audience proof.
+      expect(await isSlackCoworkerExecutionCurrent(f.env, f.handoffId, f.scope, ROOM)).toBe(false);
+      expect(await isCollaborationContextQueueable(f.env, f.scope, ROOM, f.handoffId, frozen.task)).toBe(false);
+      await bindCollaborationContextApproval(f.env, f.handoffId, APPROVAL, frozen.task);
+      await linkCollaborationHandoffRun(f.env, f.scope, f.handoffId, APPROVAL, `agent-tool:${APPROVAL}`);
+      expect(await isCollaborationApprovalDispatchable(f.env, { handoffId: f.handoffId, approvalId: APPROVAL, employeeId: "helper", employeeVersion: 1, task: frozen.task })).toBe(false);
+      return;
+    }
     expect(await isSlackCoworkerExecutionCurrent(f.env, f.handoffId, f.scope, ROOM)).toBe(true);
     const queueable = () => isCollaborationContextQueueable(f.env, f.scope, ROOM, f.handoffId, frozen.task);
     expect(await queueable()).toBe(true);
@@ -110,6 +119,12 @@ describe("Slack coworker authority at real collaboration context boundaries", ()
   it.each([true, false])("withholds a frozen human assignment after intake revocation (Slack: %s)", async (slack) => {
     const f = await fixture(slack, true);
     const assignment = () => readCollaborationHumanAssignment(f.env, f.scope, ROOM, f.handoffId);
+    if (slack) {
+      expect(await isSlackCoworkerExecutionCurrent(f.env, f.handoffId, f.scope, ROOM)).toBe(false);
+      expect(await isCollaborationContextCurrent(f.env, f.handoffId)).toBe(false);
+      expect(await assignment()).toBeNull();
+      return;
+    }
     expect(await isSlackCoworkerExecutionCurrent(f.env, f.handoffId, f.scope, ROOM)).toBe(true);
     expect(await isCollaborationContextCurrent(f.env, f.handoffId)).toBe(true);
     const before = await assignment();

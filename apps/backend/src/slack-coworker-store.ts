@@ -2,6 +2,7 @@ import type { WorkspaceNativeMember } from "./workspace-native-authority.js";
 import { slackInstallationGuard, type SlackInstallationEnv } from "./slack-installations-store.js";
 import type { SlackInstallationSnapshot } from "@shiba/shared";
 import { SlackInstallationError } from "./slack-installations-crypto.js";
+import { personalExecutionEnabled } from "./personal-execution-store.js";
 
 const idPattern = /^[A-Za-z0-9_-]{1,128}$/;
 const secretPattern = /^[a-f0-9]{64}$/;
@@ -77,7 +78,8 @@ export async function readSlackCoworkerState(env: SlackInstallationEnv, member: 
      JOIN slack_installations i ON i.id=g.installation_id AND i.workspace_id=g.workspace_id AND i.app_id=g.app_id AND i.team_id=g.team_id AND i.generation=g.generation AND i.state='active' AND i.token_cipher IS NOT NULL AND (i.token_expires_at IS NULL OR i.token_expires_at>${nowSql})
      WHERE g.workspace_id=? AND g.account_id=? AND b.member_version=? AND b.member_role=? AND g.status='active' AND g.expires_at>${nowSql} AND ${m.sql} LIMIT 16)) AS grants`).bind(...args,...args,...args).first<{challenges:string;bindings:string;grants:string}>();
   if(!row)fail();
-  return {challenges:JSON.parse(row.challenges),bindings:JSON.parse(row.bindings),grants:JSON.parse(row.grants),executionAvailable:false};
+  const executionAvailable=personalExecutionEnabled(env);
+  return {challenges:JSON.parse(row.challenges),bindings:JSON.parse(row.bindings),grants:JSON.parse(row.grants),executionAvailable,...(!executionAvailable?{executionUnavailableReason:"personal_local_runtime_not_configured"}:{})};
 }
 const tsPattern=/^\d{1,16}\.\d{1,9}$/;
 /** Explicitly authorizes only future self-authored app mentions at one exact Slack thread. */
@@ -122,7 +124,7 @@ export async function invalidateSlackCoworkerMessage(env:SlackInstallationEnv,in
     env.AGENT_AUDIT.prepare(`UPDATE slack_coworker_drafts SET status='invalidated',text='' WHERE app_id=? AND team_id=? AND channel_id=? AND message_ts=? AND status='pending'`).bind(installation.appId,installation.teamId,channel,messageTs),
   ]);
 }
-function draftGuard(member:WorkspaceNativeMember) {
+export function slackCoworkerDraftGuard(member:WorkspaceNativeMember) {
  const m=memberGuard(member);
  return {sql:`d.workspace_id=? AND d.account_id=? AND d.status='pending' AND ${m.sql}
   AND EXISTS(SELECT 1 FROM slack_coworker_intake_grants g JOIN slack_coworker_bindings b ON b.id=g.binding_id
@@ -132,13 +134,13 @@ function draftGuard(member:WorkspaceNativeMember) {
   values:[member.workspaceId,member.accountId,...m.values,member.accountId,member.userId,member.version,member.role]};
 }
 export async function readSlackCoworkerDrafts(env:SlackInstallationEnv,member:WorkspaceNativeMember) {
- const g=draftGuard(member);
+ const g=slackCoworkerDraftGuard(member);
  return (await env.AGENT_AUDIT.prepare(`SELECT d.id,d.text,d.channel_id AS channelId,d.thread_ts AS threadTs,d.message_ts AS messageTs,d.team_id AS teamId,d.slack_user_id AS slackUserId,d.event_id AS eventId FROM slack_coworker_drafts d WHERE ${g.sql} ORDER BY d.created_at DESC LIMIT 100`).bind(...g.values).all()).results;
 }
 /** Adoption copies the statement into a native composer; it never queues, approves or executes work. */
 export async function adoptSlackCoworkerDraft(env:SlackInstallationEnv,member:WorkspaceNativeMember,id:string) {
  if(!/^sd_[a-f0-9]{32}$/.test(id))fail();
- const g=draftGuard(member);
+ const g=slackCoworkerDraftGuard(member);
  const row=await env.AGENT_AUDIT.prepare(`SELECT d.id,d.text,d.channel_id AS channelId,d.thread_ts AS threadTs,d.message_ts AS messageTs,d.team_id AS teamId,d.slack_user_id AS slackUserId,d.event_id AS eventId FROM slack_coworker_drafts d WHERE d.id=? AND ${g.sql}`).bind(id,...g.values).first<{id:string;text:string}>();
  if(!row)fail();
  const update=await env.AGENT_AUDIT.prepare(`UPDATE slack_coworker_drafts AS d SET status='adopted',text='' WHERE d.id=? AND d.text=? AND ${g.sql}`).bind(id,row.text,...g.values).run();
@@ -169,7 +171,7 @@ async function executionSchema(env: SlackInstallationEnv) {
 /** One draft has one submission attempt; an uncertain queue result is never automatically replayed. */
 export async function claimSlackCoworkerExecution(env: SlackInstallationEnv, member: WorkspaceNativeMember, selection: SlackCoworkerExecutionSelection) {
   await executionSchema(env);
-  const guard = draftGuard(member);
+  const guard = slackCoworkerDraftGuard(member);
   const draft = await env.AGENT_AUDIT.prepare(`SELECT d.text FROM slack_coworker_drafts d WHERE d.id=? AND ${guard.sql}`)
     .bind(selection.id, ...guard.values).first<{ text: string }>();
   if (!draft) fail();
@@ -185,17 +187,18 @@ export async function finishSlackCoworkerExecution(env: SlackInstallationEnv, ha
   await env.AGENT_AUDIT.prepare("UPDATE slack_coworker_execution_receipts SET state=? WHERE handoff_id=? AND state='dispatching'").bind(state, handoffId).run();
 }
 /** Reserved IDs fail closed even when a receipt/table is missing. Legacy handoffs are unaffected. */
-export async function isSlackCoworkerExecutionCurrent(env: SlackInstallationEnv, handoffId: string, scope: { workspaceId: string; userId: string }, roomId: string) {
+export async function isSlackCoworkerExecutionCurrent(env: SlackInstallationEnv, handoffId: string, scope: { workspaceId: string; userId: string }, roomId: string, task?: string, approvalId?: string, personalExecution?: unknown) {
   if (!handoffId.startsWith("scx_")) return true;
+  try { return await (await import("./slack-coworker-execution.js")).isSlackCoworkerV2Current(env, handoffId, scope, roomId, task, approvalId, personalExecution); }
+  catch { return false; }
+}
+
+/** Final D1-only source check for an already-verified personal mailbox claim. */
+export async function isSlackCoworkerClaimSourceCurrent(env: SlackInstallationEnv, proof: { handoffId: string; approvalId: string; snapshot: { workspaceId: string; actorId: string } }, task: string): Promise<boolean> {
+  if (!proof.handoffId.startsWith("scx_")) return true;
   try {
-    if (env.SLACK_INSTALLATIONS_ENABLED?.trim() !== "true") return false;
-    const receipt = await env.AGENT_AUDIT.prepare("SELECT * FROM slack_coworker_execution_receipts WHERE handoff_id=? AND workspace_id=? AND state IN ('dispatching','queued')")
-      .bind(handoffId, scope.workspaceId).first<SlackExecutionReceipt>();
-    if (!receipt) return false;
-    const member = JSON.parse(receipt.member_json) as WorkspaceNativeMember;
-    const selection = JSON.parse(receipt.selection_json) as SlackCoworkerExecutionSelection;
-    if (member.workspaceId !== scope.workspaceId || member.userId !== scope.userId || member.accountId !== receipt.account_id || selection.roomId !== roomId) return false;
-    const guard = draftGuard(member);
-    return Boolean(await env.AGENT_AUDIT.prepare(`SELECT 1 FROM slack_coworker_drafts d WHERE d.id=? AND ${guard.sql}`).bind(receipt.draft_id, ...guard.values).first());
+    const row = await env.AGENT_AUDIT.prepare("SELECT room_id FROM collaboration_handoffs WHERE tenant_id='self-hosted' AND workspace_id=? AND handoff_id=?")
+      .bind(proof.snapshot.workspaceId, proof.handoffId).first<{ room_id: string }>();
+    return Boolean(row && await isSlackCoworkerExecutionCurrent(env, proof.handoffId, { workspaceId: proof.snapshot.workspaceId, userId: proof.snapshot.actorId }, row.room_id, task, proof.approvalId, proof.snapshot));
   } catch { return false; }
 }
