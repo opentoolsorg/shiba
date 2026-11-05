@@ -67,8 +67,8 @@ carry file metadata rather than document bodies.
 ## Current scope
 
 These are repository-based draft workflows and a bounded role-artifact increment
-toward the combined product goal of Viktor-like AI employees in an Overlay-like
-shared workspace with bot collaboration. Use a real approved content or project
+toward the combined product goal of Viktor-like AI employees in a shared
+workspace with bot collaboration. Use a real approved content or project
 repository; general business workspaces, shared goal/task ownership and scoped
 bot handoffs remain part of the [larger employee goal](ai-employees.md). Role
 instructions do not grant a Bot new browser, mailbox, social, CRM or analytics

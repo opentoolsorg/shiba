@@ -34,7 +34,7 @@ export function toSkillDirectoryItem(skill: Skill): SkillDirectoryItem {
   };
 }
 
-/** Wire contracts for Overlay-compatible, workspace-scoped extension skills. */
+/** Wire contracts for workspace-scoped extension skills. */
 export type ExtensionSkillScope = "personal" | "workspace";
 export type ExtensionSkillView = ExtensionSkillScope | "archived";
 

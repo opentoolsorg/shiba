@@ -1,7 +1,6 @@
 # Final working-state recheck
 
-Rechecked on 2026-10-28 in `/workspace/shiba`, branch
-`codex/overlay-parity-audit`. The repository gate counts below supersede earlier
+Rechecked on 2026-10-28 in `/workspace/shiba`. The repository gate counts below supersede earlier
 unit totals. Current employee deliverable acceptance and its fresh
 browser/Electron results are tracked in
 [employee-deliverables.md](employee-deliverables.md). Rows marked “prior” are
@@ -129,8 +128,7 @@ page are blocked by the proxy. No live Morph call, student eligibility, credits,
 or speed/quality claim was verified. See [Morph tooling](morph-tooling.md).
 
 The Reason Machines site was also blocked, so exact feature parity against it
-was not established. The earlier [reference comparison](overlay-reference.md)
-records the available comparison evidence and remaining gaps.
+was not established.
 
 The saved environment draft includes reproducible installation/startup,
 desktop tools, Morph skill restoration, and requested network/credential

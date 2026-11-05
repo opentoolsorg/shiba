@@ -1,12 +1,10 @@
 # Production acceptance and remaining work
 
-Reviewed on 2026-10-28 on `codex/overlay-parity-audit`. This is an acceptance
+Reviewed on 2026-10-28. This is an acceptance
 checklist, not a production certification. The current evidence supports a
 working local development environment and specific local bot/thread flows.
-**Production readiness and full Overlay parity remain NOT VERIFIED.**
+**Production readiness and full reference-product parity remain NOT VERIFIED.**
 
-The [reference audit](overlay-reference.md) contains both architecture diagrams,
-the complete 19-category comparison, source traces and features to avoid copying.
 The [runtime report](runtime-e2e.md) records actual browser/service results and
 the [integration audit](integrations-audit.md) records storage, MCP and scheduler
 boundaries. The final implementation report should be used for combined test
@@ -20,7 +18,7 @@ totals after all concurrent changes have been integrated.
 | Approval and credentials | An independent run of the four suites below passes 43 tests. Legacy custom-profile `auto_approve` settings no longer dispatch HTTP/chat tasks without a pending approval; missing profiles fail explicitly. The egress and core-loop suites check scoped credentials and pre-approval non-execution with fakes. | A live container startup/egress capture or production approval identity verification. An approved bounded subagent plan is separate from arbitrary new work. |
 | Coding and review loop | The existing browser harness passes its mock GitHub/synthetic execution assertions, including findings rendered in the dashboard. | A real clone, model call, diff, PR, review comment or container. Its approval action uses the API, not an Approve-button click. |
 | Public API isolation | Source and focused tests show explicit bearer credentials retain their org/scopes; grouped v1 operations are gated before dispatch; API-key calls to shared runtime stores fail with `501 tenant_runtime_unavailable`. | A completed organization-to-runtime-storage model. A deliberate refusal must not be described as working tenant runtime support. |
-| Thread/run identity | Custom agents are bot definitions; named web sessions are persistent per-user conversations; coding runs are executions. The compatibility v1 thread surface still projects runs, including actual child lineage. | One canonical conversation registry shared by every UI and v1 operation, full transcripts, compaction, conversation archive/restore or Overlay's main-thread policy. |
+| Thread/run identity | Custom agents are bot definitions; named web sessions are persistent per-user conversations; coding runs are executions. The compatibility v1 thread surface still projects runs, including actual child lineage. | One canonical conversation registry shared by every UI and v1 operation, full transcripts, compaction, conversation archive/restore or a main-thread policy. |
 | Frontend accessibility | The exercised local form has labels/errors and fits one phone-width viewport. Focused component tests cover particular states. | Complete keyboard traversal/focus restoration, screen-reader output, reduced-motion behavior, zoom/reflow or an accessibility audit of all views. |
 | Build and deployment | Local builds, type checks and a Worker bundle dry run can establish development/package compatibility for their exact revision and options. | A passing hosted CI run, image startup, deployment, migration/rollback, backup recovery or live operational SLOs. The environment draft and its publication are separate from deploying Shiba. |
 
@@ -78,13 +76,11 @@ be used merely to make a test appear complete.
 
 Keep Shiba's Worker/Durable Object/D1 architecture, mandatory approvals,
 repository-scoped Git egress, provider-specific credential boundary and explicit
-unsupported-capability responses. Adapt Overlay's separation of bot definition,
+unsupported-capability responses. Keep the separation of bot definition,
 conversation identity and run identity, server ownership checks and durable
 execution state where useful.
 
-Do not transplant Overlay's vendors, visual identity, broad tool permissions,
+Do not transplant a reference product's vendors, visual identity, broad tool permissions,
 SaaS billing, connector catalog or document platform just to match a checklist.
-At the inspected Overlay revision, external-agent/control-plane/remote-run/cloud
-environment features are default-disabled; their source presence is not a
-production reference result. Full visual or feature equality is not established
+Full visual or feature equality is not established
 by this audit or by the local passing checks.

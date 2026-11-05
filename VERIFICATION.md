@@ -1190,7 +1190,7 @@ Audit findings T1-T7 / D9-D12-D13 against `devin/1791266355-tests-dx`.
 
 ## 2026-11-01 — Documentation workspace refresh (local)
 
-- Added a responsive Starlight header, section navigation, and documentation styling inspired by Capy and Overlay while retaining Shiba's cream/navy identity and native search, theme control, and mobile sidebar.
+- Added a responsive Starlight header, section navigation, and documentation styling inspired by Capy while retaining Shiba's cream/navy identity and native search, theme control, and mobile sidebar.
 - Reorganized the existing URLs into Get started, Employees & work, Workspace, Integrations, Self-hosting, Developer reference, and Help. Rebuilt `/docs/overview/` as the welcome page; legacy `/welcome/` redirects there.
 - Added Employees and Skills guides, rewrote Quickstart, and reconciled Threads/results guidance with the marketing branch's implementation. This branch offers Engineering, Marketing, Research, and Operations presets; Design/QA use custom profiles. Skills remain browser-local notes.
 - Updated built-marketing assertions for the existing employee positioning. Sitemap verification now excludes explicitly noindex redirects and design previews.
