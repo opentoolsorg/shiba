@@ -24,7 +24,7 @@ specifies.
 The peer product remains a single-tenant-per-user product with its own commercial interest, so
 their shipping is evidence that a mechanism exists, not proof that the terms
 question is settled for us. The §3 reasoning is narrowed here, not deleted. Read
-§3 before planning. The hosted-competitor precedent stays visible.
+§3 before planning. The Hoplite precedent stays visible.
 
 ---
 
@@ -266,7 +266,7 @@ Each provable by a test:
 ## Documentation changes
 
 - `PLAN.md §3`: replace the blanket prohibition with the broker design. Keep the
-  hosted-competitor precedent and the terms citation. State plainly that the change of
+  Hoplite precedent and the terms citation. State plainly that the change of
   position is because a broker mechanism exists, and that the narrowness
   (broker a token, never proxy inference) is what makes it acceptable.
 - `harness/claude-code.ts` and `harness/codex.ts` docstrings: both currently say
@@ -293,6 +293,6 @@ Each provable by a test:
 - No `authMode` field on `AgentHarness`. Separate harnesses.
 - No durable credential in a sandbox under any circumstance.
 - No silent legacy-to-broker migration.
-- No deletion of the hosted-competitor precedent from §3.
+- No deletion of the Hoplite precedent from §3.
 - No broker work that delays or destabilizes Phases 1 through 8, which remain
   independent and ship regardless.

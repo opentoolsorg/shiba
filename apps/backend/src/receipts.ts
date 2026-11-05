@@ -1,5 +1,5 @@
 /**
- * Append-only evidence log. The receipt record and bounds
+ * Cloudbox-style append-only evidence log. The receipt record and bounds
  * live in @shiba/shared (re-exported below); the secret-redacting write
  * helpers stay backend-only.
  */

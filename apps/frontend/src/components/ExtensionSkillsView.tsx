@@ -1,5 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from "react";
-import { Archive, Check, Eye, Loader2, Pencil, Plus, RotateCcw, Search, Sparkles, ToggleLeft, ToggleRight, Trash2, Users, UserRound, X } from "lucide-react";
+import {
+  Archive,
+  Check,
+  ChevronRight,
+  Eye,
+  Loader2,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Search,
+  Sparkles,
+  ToggleLeft,
+  ToggleRight,
+  Trash2,
+  Users,
+  UserRound,
+  X,
+} from "lucide-react";
 import type { ExtensionSkillRecord, ExtensionSkillScope, ExtensionSkillView } from "@shiba/shared";
 import {
   archiveExtensionSkill,
@@ -10,6 +27,7 @@ import {
   restoreExtensionSkill,
   updateExtensionSkill,
 } from "../extension-skills";
+import { EmptyState, MainCard, type Scope } from "./ui/ContextPanel";
 
 const VIEWS: Array<{ id: ExtensionSkillView; label: string }> = [
   { id: "personal", label: "Personal" },
@@ -29,11 +47,16 @@ interface DialogState {
   skill?: ExtensionSkillRecord;
 }
 
-const CONTROL = "min-h-11 inline-flex items-center justify-center gap-2 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-50";
-const FIELD = "min-h-11 w-full border border-[var(--border-1)] bg-[var(--input)] px-3 py-2 text-sm text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] focus:outline focus:outline-2 focus:outline-[var(--ring)]";
-
-export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onOpenRunSkills?: () => void; embedded?: boolean } = {}): JSX.Element {
-  const [view, setView] = useState<ExtensionSkillView>("personal");
+export function ExtensionSkillsView({
+  onOpenRunSkills,
+  embedded = false,
+  scope = "personal",
+}: {
+  onOpenRunSkills?: () => void;
+  embedded?: boolean;
+  scope?: Scope;
+} = {}): JSX.Element {
+  const [view, setView] = useState<ExtensionSkillView>(scope === "workspace" ? "workspace" : "personal");
   const [skills, setSkills] = useState<ExtensionSkillRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -62,14 +85,20 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
 
   useEffect(() => {
     void load();
-    return () => { loadGeneration.current += 1; };
+    return () => {
+      loadGeneration.current += 1;
+    };
   }, [load]);
 
   const filteredSkills = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     if (!needle) return skills;
-    return skills.filter((skill) => [skill.name, skill.description, skill.instructions]
-      .join(" ").toLocaleLowerCase().includes(needle));
+    return skills.filter((skill) =>
+      [skill.name, skill.description, skill.instructions]
+        .join(" ")
+        .toLocaleLowerCase()
+        .includes(needle)
+    );
   }, [skills, query]);
 
   const save = async (values: FormValues) => {
@@ -128,12 +157,12 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
     setBusyId(skill._id);
     setMutationError(null);
     setNotice(null);
-    setSkills((current) => current.map((item) => item._id === skill._id ? { ...item, enabled } : item));
+    setSkills((current) => current.map((item) => (item._id === skill._id ? { ...item, enabled } : item)));
     try {
       await updateExtensionSkill(skill._id, { enabled });
       setNotice(enabled ? `Enabled “${skill.name}”.` : `Disabled “${skill.name}”.`);
     } catch (cause) {
-      setSkills((current) => current.map((item) => item._id === skill._id ? { ...item, enabled: skill.enabled } : item));
+      setSkills((current) => current.map((item) => (item._id === skill._id ? { ...item, enabled: skill.enabled } : item)));
       setMutationError(cause instanceof Error ? cause.message : "Skill state could not be saved.");
     } finally {
       setBusyId(null);
@@ -141,82 +170,157 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
   };
 
   const canCreate = view !== "archived";
+  const scopeCrumb = scope === "workspace" || view === "workspace" ? "Workspace" : "Personal";
+  const crumbs = [scopeCrumb, "Extensions", "Skills"];
 
   return (
-    <section aria-labelledby="extension-skills-title" className="flex min-h-0 flex-1 flex-col bg-[var(--bg)] text-[var(--fg)]">
-      <header className="shrink-0 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 py-4 lg:px-8">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 id="extension-skills-title" className={embedded ? "sr-only" : "text-xl text-[var(--fg)]"}>Skills</h2>
-            <p className={embedded ? "sr-only" : "mt-1 max-w-2xl text-xs text-[var(--muted-foreground-2)]"}>
-              Reusable instructions for Shiba agents. Keep skills personal or share them with your workspace.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {onOpenRunSkills ? <button type="button" className={CONTROL} onClick={onOpenRunSkills}>Run-attached skills</button> : null}
-            {canCreate ? (
-              <button type="button" className={`${CONTROL} border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-text)] hover:opacity-90`} onClick={() => { setMutationError(null); setDialog({ mode: "create" }); }}>
-                <Plus size={14} /> New Skill
-              </button>
-            ) : null}
-          </div>
-        </div>
+    <MainCard className="bg-white dark:bg-zinc-900">
+      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
+          <ol className="flex items-center gap-1.5 min-w-0">
+            {crumbs.map((crumb, idx) => {
+              const isLast = idx === crumbs.length - 1;
+              return (
+                <li key={`${crumb}-${idx}`} className="flex items-center gap-1.5 min-w-0">
+                  {idx > 0 ? (
+                    <ChevronRight className="size-3.5 text-[#71717a] shrink-0 dark:text-zinc-500" strokeWidth={1.5} aria-hidden="true" />
+                  ) : null}
+                  <span
+                    className={isLast ? "truncate text-[14px] font-medium text-[#0a0a0a] dark:text-zinc-100" : "truncate text-[14px] text-[#71717a] dark:text-zinc-400"}
+                    aria-current={isLast ? "page" : undefined}
+                  >
+                    {crumb}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <div role="tablist" aria-label="Skill scope" className="flex border border-[var(--border-1)] bg-[var(--bg)]">
-            {VIEWS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={view === item.id}
-                className={`min-h-11 px-3 text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${view === item.id ? "bg-[var(--card)] font-semibold text-[var(--fg)] shadow-[var(--sh-card)]" : "text-[var(--muted-foreground-2)] hover:bg-[var(--secondary)]"}`}
-                onClick={() => { setView(item.id); setNotice(null); setMutationError(null); }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <label className="relative flex min-w-0 flex-1 items-center sm:max-w-xs">
-            <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-3 text-[var(--muted-foreground-2)]" />
-            <input aria-label="Search skills" placeholder="Search skills…" value={query} onChange={(event) => setQuery(event.target.value)} className={`${FIELD} pl-9`} />
-          </label>
+        <div className="flex items-center gap-2">
+          {onOpenRunSkills ? (
+            <button
+              type="button"
+              onClick={onOpenRunSkills}
+              className="inline-flex h-7 items-center rounded-md border border-[#e4e4e7] px-2.5 text-xs font-medium text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            >
+              Run-attached skills
+            </button>
+          ) : null}
+          {canCreate ? (
+            <button
+              type="button"
+              onClick={() => {
+                setMutationError(null);
+                setDialog({ mode: "create" });
+              }}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              <Plus className="size-3.5" /> New Skill
+            </button>
+          ) : null}
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 lg:px-8 lg:py-7">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-3">
-          <aside aria-label="Using skills with employees" className="border border-[var(--border-1)] bg-[var(--card)] p-4 text-xs text-[var(--muted-foreground-2)]">
-            <p className="font-medium text-[var(--fg)]">Skills for your employees</p>
-            <p className="mt-1">Enabled skills can be discovered and read during Work, including connected app tasks. Personal skills stay with your account; Workspace skills are shared with workspace members. Disabled and archived skills are unavailable to agents.</p>
-            <p className="mt-2">Review instructions before enabling them. Skills provide guidance; app connections, tool grants and human approvals are configured separately. For an approved coding run, use Run-attached skills to review, activate and pin a specific version.</p>
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#e4e4e7] px-4 py-2.5 dark:border-zinc-800">
+        <div role="tablist" aria-label="Skill scope" className="flex h-7 items-center gap-0.5 rounded-md bg-[#f4f4f5] p-0.5 dark:bg-zinc-800/80">
+          {VIEWS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={view === item.id}
+              className={`flex h-6 items-center rounded px-2.5 text-xs font-medium transition-colors ${
+                view === item.id
+                  ? "bg-white text-[#0a0a0a] shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
+                  : "text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-200"
+              }`}
+              onClick={() => {
+                setView(item.id);
+                setNotice(null);
+                setMutationError(null);
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="relative flex items-center">
+          <Search className="pointer-events-none absolute left-2.5 size-3.5 text-[#71717a] dark:text-zinc-400" />
+          <input
+            aria-label="Search skills"
+            placeholder="Search skills…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="h-7 w-48 rounded-md border border-[#e4e4e7] bg-[#f4f4f5] pl-8 pr-2.5 text-xs text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100"
+          />
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+          <aside aria-label="Using skills with employees" className="rounded-lg border border-[#e4e4e7] bg-[#fafafa] p-3.5 text-xs text-[#71717a] dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-400">
+            <p className="font-medium text-[#0a0a0a] dark:text-zinc-100">Skills for your employees</p>
+            <p className="mt-1">
+              Enabled skills can be discovered and read during Work, including connected app tasks. Personal skills stay with your account; Workspace skills are shared with workspace members. Disabled and archived skills are unavailable to agents.
+            </p>
+            <p className="mt-1.5">
+              Review instructions before enabling them. Skills provide guidance; app connections, tool grants and human approvals are configured separately. For an approved coding run, use Run-attached skills to review, activate and pin a specific version.
+            </p>
           </aside>
-          {notice ? <p role="status" className="text-xs text-[var(--success)]">{notice}</p> : null}
-          {mutationError ? <p role="alert" className="text-xs text-[var(--destructive)]">{mutationError}</p> : null}
+
+          {notice ? <p role="status" className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{notice}</p> : null}
+          {mutationError ? <p role="alert" className="text-xs font-medium text-red-600 dark:text-red-400">{mutationError}</p> : null}
           {loadError ? (
-            <div className="flex items-center gap-3 border border-[var(--destructive)]/40 bg-[var(--destructive-soft)] p-3 text-xs">
+            <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
               <p role="alert" className="flex-1">{loadError}</p>
-              <button type="button" className="min-h-11 px-3 underline" disabled={loading} onClick={() => void load()}>Retry</button>
+              <button type="button" className="font-semibold underline" disabled={loading} onClick={() => void load()}>Retry</button>
             </div>
           ) : null}
 
           {loading ? (
-            <div role="status" className="flex min-h-52 items-center justify-center text-[var(--muted-foreground-2)]"><Loader2 size={20} className="animate-spin" /> <span className="sr-only">Loading skills…</span></div>
-          ) : filteredSkills.length === 0 ? (
-            <div className="flex min-h-64 flex-col items-center justify-center gap-3 border border-dashed border-[var(--border-2)] bg-[var(--section)] px-6 text-center">
-              <Sparkles size={36} strokeWidth={1.25} className="text-[var(--muted-foreground-3)]" />
-              <div>
-                <p className="text-sm font-medium">{skills.length === 0 ? "No skills yet" : "No matching skills"}</p>
-                <p className="mt-1 max-w-sm text-xs text-[var(--muted-foreground-2)]">
-                  {skills.length === 0 ? "Create reusable instructions that Shiba agents can load when they apply." : "Try another name, description, or instruction keyword."}
-                </p>
-              </div>
-              {skills.length === 0 && canCreate ? <button type="button" className={CONTROL} onClick={() => { setMutationError(null); setDialog({ mode: "create" }); }}><Plus size={14} /> New Skill</button> : null}
+            <div role="status" className="flex min-h-52 items-center justify-center text-[#71717a]">
+              <Loader2 className="size-5 animate-spin" />
+              <span className="sr-only">Loading skills…</span>
             </div>
+          ) : filteredSkills.length === 0 ? (
+            <EmptyState
+              icon={Sparkles}
+              title={skills.length === 0 ? "No skills yet" : "No matching skills"}
+              description={
+                skills.length === 0
+                  ? "Create reusable instructions that are automatically injected into every conversation"
+                  : "Try another name, description, or instruction keyword."
+              }
+              action={
+                skills.length === 0 && canCreate ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMutationError(null);
+                      setDialog({ mode: "create" });
+                    }}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                  >
+                    <Plus className="size-3.5" /> New Skill
+                  </button>
+                ) : null
+              }
+            />
           ) : (
             <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {filteredSkills.map((skill) => (
-                <SkillCard key={skill._id} skill={skill} busy={busyId === skill._id} onEdit={() => { setMutationError(null); setDialog({ mode: "edit", skill }); }} onToggle={(event) => void toggle(skill, event)} />
+                <SkillCard
+                  key={skill._id}
+                  skill={skill}
+                  busy={busyId === skill._id}
+                  onEdit={() => {
+                    setMutationError(null);
+                    setDialog({ mode: "edit", skill });
+                  }}
+                  onToggle={(event) => void toggle(skill, event)}
+                />
               ))}
             </ul>
           )}
@@ -231,16 +335,23 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
           onClose={() => setDialog(null)}
           onSave={save}
           onDelete={remove}
-          onMove={(skill, to) => perform(skill, () => moveExtensionSkill(skill._id, to), to === "workspace" ? "Shared with your workspace." : "Moved to Personal.")}
+          onMove={(skill, to) =>
+            perform(skill, () => moveExtensionSkill(skill._id, to), to === "workspace" ? "Shared with your workspace." : "Moved to Personal.")
+          }
           onArchive={(skill) => perform(skill, () => archiveExtensionSkill(skill._id), "Skill archived.")}
           onRestore={(skill) => perform(skill, () => restoreExtensionSkill(skill._id), "Skill restored.")}
         />
       ) : null}
-    </section>
+    </MainCard>
   );
 }
 
-function SkillCard({ skill, busy, onEdit, onToggle }: {
+function SkillCard({
+  skill,
+  busy,
+  onEdit,
+  onToggle,
+}: {
   skill: ExtensionSkillRecord;
   busy: boolean;
   onEdit: () => void;
@@ -249,34 +360,74 @@ function SkillCard({ skill, busy, onEdit, onToggle }: {
   const archivedScope = skill.archivedAt !== undefined ? skill.archivedFromScope ?? skill.scope ?? "personal" : skill.scope ?? "personal";
   const scopeLabel = skill.archivedAt !== undefined ? `Archived · ${archivedScope}` : archivedScope === "workspace" ? "Workspace" : "Personal";
   return (
-    <li className="group relative flex min-h-52 flex-col border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)] transition-colors hover:border-[var(--border-2)]">
+    <li className="group relative flex min-h-48 flex-col rounded-xl border border-[#e4e4e7] bg-white p-4 shadow-sm transition-all hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
       <div className="flex min-w-0 items-start gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center border border-[var(--border-1)] bg-[var(--section)] text-[var(--primary)]"><Sparkles size={15} strokeWidth={1.75} /></div>
-        <button type="button" onClick={onEdit} className="min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">
-          <span className="block truncate text-sm font-medium text-[var(--fg)]">{skill.name || "Untitled"}</span>
-          <span className="mt-1 line-clamp-2 block min-h-8 text-xs leading-relaxed text-[var(--muted-foreground-2)]">{skill.description}</span>
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
+          <Sparkles className="size-4" strokeWidth={1.75} />
+        </div>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-zinc-400"
+        >
+          <span className="block truncate text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100">{skill.name || "Untitled"}</span>
+          <span className="mt-0.5 line-clamp-2 block text-xs text-[#71717a] dark:text-zinc-400">{skill.description || "No description provided."}</span>
         </button>
-        <span title={skill.enabled ? "Enabled" : "Disabled"} className={`mt-1.5 size-2 shrink-0 rounded-full ${skill.enabled ? "bg-[var(--success)]" : "bg-[var(--muted-foreground-3)]"}`} />
+        <span
+          title={skill.enabled ? "Enabled" : "Disabled"}
+          className={`mt-1 size-2 shrink-0 rounded-full ${skill.enabled ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"}`}
+        />
       </div>
-      <div className="mt-3 flex-1 border-t border-[var(--border-1)] pt-3">
-        <p className="line-clamp-3 whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-[var(--muted-foreground-2)]">{skill.instructions || "No instructions yet."}</p>
+
+      <div className="mt-3 flex-1 rounded-md bg-[#f4f4f5] p-2.5 dark:bg-zinc-800/60">
+        <p className="line-clamp-3 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-[#52525b] dark:text-zinc-400">
+          {skill.instructions || "No instructions yet."}
+        </p>
       </div>
-      <div className="mt-3 flex min-h-11 items-center justify-between gap-2 border-t border-[var(--border-1)] pt-2">
-        <span className="truncate text-[10px] text-[var(--muted-foreground-2)]">{scopeLabel}{skill.version > 1 ? ` · v${skill.version}` : ""}</span>
+
+      <div className="mt-3 flex items-center justify-between border-t border-[#e4e4e7] pt-2.5 dark:border-zinc-800">
+        <span className="truncate text-[11px] text-[#71717a] dark:text-zinc-500">
+          {scopeLabel}
+          {skill.version > 1 ? ` · v${skill.version}` : ""}
+        </span>
         <div className="flex shrink-0 items-center gap-1">
           {skill.archivedAt === undefined && skill.permissions?.canEdit !== false ? (
-            <button type="button" aria-label={`${skill.enabled ? "Disable" : "Enable"} ${skill.name}`} title={skill.enabled ? "Disable" : "Enable"} disabled={busy} onClick={onToggle} className="min-h-11 min-w-11 inline-flex items-center justify-center text-[var(--muted-foreground-2)] hover:bg-[var(--secondary)] hover:text-[var(--fg)] disabled:opacity-50">
-              {skill.enabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+            <button
+              type="button"
+              aria-label={`${skill.enabled ? "Disable" : "Enable"} ${skill.name}`}
+              title={skill.enabled ? "Disable" : "Enable"}
+              disabled={busy}
+              onClick={onToggle}
+              className="flex size-7 items-center justify-center rounded text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            >
+              {skill.enabled ? <ToggleRight className="size-4 text-emerald-600 dark:text-emerald-400" /> : <ToggleLeft className="size-4" />}
             </button>
           ) : null}
-          <button type="button" aria-label={`${skill.permissions?.canEdit === false ? "View" : "Edit"} ${skill.name}`} title={skill.permissions?.canEdit === false ? "View" : "Edit"} onClick={onEdit} className="min-h-11 min-w-11 inline-flex items-center justify-center text-[var(--muted-foreground-2)] hover:bg-[var(--secondary)] hover:text-[var(--fg)]">{skill.permissions?.canEdit === false ? <Eye size={14} /> : <Pencil size={14} />}</button>
+          <button
+            type="button"
+            aria-label={`${skill.permissions?.canEdit === false ? "View" : "Edit"} ${skill.name}`}
+            title={skill.permissions?.canEdit === false ? "View" : "Edit"}
+            onClick={onEdit}
+            className="flex size-7 items-center justify-center rounded text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          >
+            {skill.permissions?.canEdit === false ? <Eye className="size-3.5" /> : <Pencil className="size-3.5" />}
+          </button>
         </div>
       </div>
     </li>
   );
 }
 
-function SkillDialog({ state, error, onClose, onSave, onDelete, onMove, onArchive, onRestore }: {
+function SkillDialog({
+  state,
+  error,
+  onClose,
+  onSave,
+  onDelete,
+  onMove,
+  onArchive,
+  onRestore,
+}: {
   state: DialogState;
   error: string | null;
   onClose: () => void;
@@ -309,12 +460,16 @@ function SkillDialog({ state, error, onClose, onSave, onDelete, onMove, onArchiv
   useEffect(() => {
     nameRef.current?.focus();
     nameRef.current?.select();
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  const update = <K extends keyof FormValues>(key: K, value: FormValues[K]) => setValues((current) => ({ ...current, [key]: value }));
+  const update = <K extends keyof FormValues>(key: K, value: FormValues[K]) =>
+    setValues((current) => ({ ...current, [key]: value }));
+
   const submit = async () => {
     if (saving) return;
     setSaving(true);
@@ -323,17 +478,25 @@ function SkillDialog({ state, error, onClose, onSave, onDelete, onMove, onArchiv
       setSaved(true);
       window.setTimeout(onClose, 250);
     } catch {
-      // The inline error is supplied by the parent mutation state.
+      // The error is handled by mutation state
     } finally {
       setSaving(false);
     }
   };
+
   const deleteSkill = async () => {
     if (!skill || deleting) return;
     setDeleting(true);
-    try { await onDelete(skill); onClose(); } catch { /* Parent displays the request error. */ }
-    finally { setDeleting(false); }
+    try {
+      await onDelete(skill);
+      onClose();
+    } catch {
+      // Error handled by parent
+    } finally {
+      setDeleting(false);
+    }
   };
+
   const scopeAction = async (operation: () => Promise<void>) => {
     if (actionBusy || !skill) return;
     setActionBusy(true);
@@ -342,55 +505,193 @@ function SkillDialog({ state, error, onClose, onSave, onDelete, onMove, onArchiv
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[var(--overlay)] p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section role="dialog" aria-modal="true" aria-labelledby="extension-skill-dialog-title" className="flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col border border-[var(--border-2)] bg-[var(--card)] shadow-[var(--sh-sheet)]">
-        <header className="flex shrink-0 items-center justify-between border-b border-[var(--border-1)] px-5 py-4">
-          <h3 id="extension-skill-dialog-title" className="text-sm font-semibold">{!canEdit ? "View Skill" : state.mode === "edit" ? "Edit Skill" : "New Skill"}</h3>
-          <button type="button" aria-label="Close" className="min-h-11 min-w-11 inline-flex items-center justify-center text-[var(--muted-foreground-2)] hover:bg-[var(--secondary)]" onClick={onClose}><X size={16} /></button>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-[1px]"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="extension-skill-dialog-title"
+        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col rounded-xl border border-[#e4e4e7] bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        <header className="flex shrink-0 items-center justify-between border-b border-[#e4e4e7] px-5 py-3.5 dark:border-zinc-800">
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-7 items-center justify-center rounded-md bg-[#f4f4f5] text-[#71717a] dark:bg-zinc-800 dark:text-zinc-300">
+              <Pencil className="size-3.5" />
+            </div>
+            <div>
+              <h3 id="extension-skill-dialog-title" className="text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100">
+                {!canEdit ? "View Skill" : state.mode === "edit" ? "Edit Skill" : "New Skill"}
+              </h3>
+              <p className="text-[11px] text-[#71717a] dark:text-zinc-400">
+                Instructions your agents can use.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-label="Close"
+            className="flex size-7 items-center justify-center rounded-md text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            onClick={onClose}
+          >
+            <X className="size-4" />
+          </button>
         </header>
 
         {skill ? (
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--border-1)] px-5 py-3">
-            <span className="text-xs text-[var(--muted-foreground-2)]">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[#e4e4e7] px-5 py-2.5 bg-[#fafafa] dark:border-zinc-800 dark:bg-zinc-900/60">
+            <span className="text-xs text-[#71717a] dark:text-zinc-400">
               {archived ? "Archived" : scope === "workspace" ? "Shared with the workspace" : "Only you"}
             </span>
-            <div className="flex flex-wrap gap-2">
-              {!archived && canMove ? <button type="button" disabled={actionBusy} onClick={() => void scopeAction(() => onMove(skill, scope === "workspace" ? "personal" : "workspace"))} className="min-h-11 inline-flex items-center gap-1.5 border border-[var(--border-1)] px-3 text-xs hover:bg-[var(--secondary)] disabled:opacity-50">{scope === "workspace" ? <UserRound size={13} /> : <Users size={13} />}{scope === "workspace" ? "Move to Personal" : "Share to Workspace"}</button> : null}
+            <div className="flex flex-wrap gap-1.5">
+              {!archived && canMove ? (
+                <button
+                  type="button"
+                  disabled={actionBusy}
+                  onClick={() =>
+                    void scopeAction(() => onMove(skill, scope === "workspace" ? "personal" : "workspace"))
+                  }
+                  className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                >
+                  {scope === "workspace" ? <UserRound className="size-3.5" /> : <Users className="size-3.5" />}
+                  {scope === "workspace" ? "Move to Personal" : "Share to Workspace"}
+                </button>
+              ) : null}
               {archived
-                ? canRestore ? <button type="button" disabled={actionBusy} onClick={() => void scopeAction(() => onRestore(skill))} className="min-h-11 inline-flex items-center gap-1.5 border border-[var(--border-1)] px-3 text-xs hover:bg-[var(--secondary)] disabled:opacity-50"><RotateCcw size={13} /> Restore</button> : null
-                : canArchive ? <button type="button" disabled={actionBusy} onClick={() => void scopeAction(() => onArchive(skill))} className="min-h-11 inline-flex items-center gap-1.5 border border-[var(--border-1)] px-3 text-xs hover:bg-[var(--secondary)] disabled:opacity-50"><Archive size={13} /> Archive</button> : null}
+                ? canRestore ? (
+                    <button
+                      type="button"
+                      disabled={actionBusy}
+                      onClick={() => void scopeAction(() => onRestore(skill))}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-200"
+                    >
+                      <RotateCcw className="size-3.5" /> Restore
+                    </button>
+                  ) : null
+                : canArchive ? (
+                    <button
+                      type="button"
+                      disabled={actionBusy}
+                      onClick={() => void scopeAction(() => onArchive(skill))}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-200"
+                    >
+                      <Archive className="size-3.5" /> Archive
+                    </button>
+                  ) : null}
             </div>
           </div>
         ) : null}
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
-          <label className="block space-y-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">Name</span>
-            <input ref={nameRef} aria-label="Name" disabled={!canEdit} value={values.name} onChange={(event) => update("name", event.target.value)} placeholder="e.g. Concise Responder" className={FIELD} />
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-[#0a0a0a] dark:text-zinc-200">Name</span>
+            <input
+              ref={nameRef}
+              aria-label="Name"
+              disabled={!canEdit}
+              value={values.name}
+              onChange={(e) => update("name", e.target.value)}
+              placeholder="My skill"
+              className="h-8 w-full rounded-md border border-[#e4e4e7] bg-[#f4f4f5] px-2.5 text-xs text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100"
+            />
           </label>
-          <label className="block space-y-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">Description</span>
-            <input aria-label="Description" disabled={!canEdit} value={values.description} onChange={(event) => update("description", event.target.value)} placeholder="Brief description of what this skill does" className={FIELD} />
+
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-[#0a0a0a] dark:text-zinc-200">Description</span>
+            <input
+              aria-label="Description"
+              disabled={!canEdit}
+              value={values.description}
+              onChange={(e) => update("description", e.target.value)}
+              placeholder="What should this skill help with?"
+              className="h-8 w-full rounded-md border border-[#e4e4e7] bg-[#f4f4f5] px-2.5 text-xs text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100"
+            />
           </label>
-          <label className="block space-y-1.5">
-            <span className="flex items-center justify-between gap-2 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]"><span>Instructions</span><span className="font-normal normal-case tracking-normal">Markdown supported</span></span>
-            <textarea aria-label="Instructions" disabled={!canEdit} rows={12} value={values.instructions} onChange={(event) => update("instructions", event.target.value)} placeholder={"Describe what the AI should do differently when this skill is active.\n\nExample:\n- Keep answers concise\n- Use a formal tone"} className="min-h-48 w-full resize-y border border-[var(--border-1)] bg-[var(--input)] px-3 py-2.5 font-mono text-xs leading-relaxed text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] focus:outline focus:outline-2 focus:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-70" />
+
+          <label className="block space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-[#0a0a0a] dark:text-zinc-200">Instructions</span>
+              <span className="text-[11px] text-[#71717a] dark:text-zinc-500">Markdown supported</span>
+            </div>
+            <textarea
+              aria-label="Instructions"
+              disabled={!canEdit}
+              rows={8}
+              value={values.instructions}
+              onChange={(e) => update("instructions", e.target.value)}
+              placeholder="Markdown is supported."
+              className="w-full resize-y rounded-md border border-[#e4e4e7] bg-[#f4f4f5] p-2.5 font-mono text-xs leading-relaxed text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100"
+            />
           </label>
+
+          <div className="flex items-center justify-between rounded-lg border border-[#e4e4e7] p-3 dark:border-zinc-800">
+            <div>
+              <span className="text-xs font-medium text-[#0a0a0a] dark:text-zinc-200">Active</span>
+              <p className="text-[11px] text-[#71717a] dark:text-zinc-400">
+                Make this skill available to your agents.
+              </p>
+            </div>
+            {canEdit ? (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={values.enabled}
+                aria-label={values.enabled ? "Enabled" : "Disabled"}
+                onClick={() => update("enabled", !values.enabled)}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100"
+              >
+                {values.enabled ? (
+                  <ToggleRight className="size-6 text-emerald-600 dark:text-emerald-400" />
+                ) : (
+                  <ToggleLeft className="size-6" />
+                )}
+                <span>{values.enabled ? "Enabled" : "Disabled"}</span>
+              </button>
+            ) : (
+              <span className="text-xs text-[#71717a]">{values.enabled ? "Enabled" : "Disabled"}</span>
+            )}
+          </div>
         </div>
 
-        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-[var(--border-1)] px-5 py-3">
-          <div className="flex flex-wrap items-center gap-3">
-            {canEdit ? <button type="button" role="switch" aria-checked={values.enabled} onClick={() => update("enabled", !values.enabled)} className="min-h-11 inline-flex items-center gap-2 px-2 text-xs text-[var(--muted-foreground-2)] hover:text-[var(--fg)]">
-              {values.enabled ? <ToggleRight size={18} className="text-[var(--primary)]" /> : <ToggleLeft size={18} />}{values.enabled ? "Enabled" : "Disabled"}
-            </button> : <span className="min-h-11 inline-flex items-center gap-2 px-2 text-xs text-[var(--muted-foreground-2)]">{values.enabled ? "Enabled" : "Disabled"}</span>}
-            {skill && canDelete ? <button type="button" onClick={() => void deleteSkill()} disabled={deleting} className="min-h-11 inline-flex items-center gap-1.5 px-2 text-xs text-[var(--muted-foreground-2)] hover:text-[var(--destructive)] disabled:opacity-50">{deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}Delete</button> : null}
+        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-[#e4e4e7] px-5 py-3 dark:border-zinc-800">
+          <div>
+            {skill && canDelete ? (
+              <button
+                type="button"
+                onClick={() => void deleteSkill()}
+                disabled={deleting}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
+              >
+                {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                Delete
+              </button>
+            ) : null}
           </div>
-          <div className="flex items-center gap-3">
-            {error ? <span role="alert" className="max-w-48 text-xs text-[var(--destructive)]">{error}</span> : null}
-            {canEdit ? <button type="button" onClick={() => void submit()} disabled={saving} className={`${CONTROL} border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-text)] hover:opacity-90`}>
-              {saving ? <Loader2 size={13} className="animate-spin" /> : saved ? <Check size={13} /> : null}
-              {saving ? "Saving…" : saved ? "Saved" : state.mode === "edit" ? "Save" : "Create"}
-            </button> : null}
+
+          <div className="flex items-center gap-2">
+            {error ? <span role="alert" className="text-xs text-red-600 dark:text-red-400">{error}</span> : null}
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-7 items-center rounded-md border border-[#e4e4e7] px-3 text-xs font-medium text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            {canEdit ? (
+              <button
+                type="button"
+                aria-label={state.mode === "edit" ? "Save" : "Create"}
+                onClick={() => void submit()}
+                disabled={saving}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                {saving ? <Loader2 className="size-3.5 animate-spin" /> : saved ? <Check className="size-3.5" /> : null}
+                {saving ? "Saving…" : saved ? "Saved" : state.mode === "edit" ? "Save" : "Create skill"}
+              </button>
+            ) : null}
           </div>
         </footer>
       </section>

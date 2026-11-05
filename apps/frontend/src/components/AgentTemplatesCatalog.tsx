@@ -17,7 +17,7 @@ export function AgentTemplatesCatalog({ onUse, workspaceId }: { onUse: (template
   const [bundleRecipe, setBundleRecipe] = useState<EmployeeBundle | null>(null);
   const [exportProfile, setExportProfile] = useState<{ employeeId: string; expectedVersion: number } | null>(null);
   const [myProfiles, setMyProfiles] = useState<Record<string, { employeeId: string; expectedVersion: number; codingModel?: string }>>({});
-  const categories = ["all", "product", "engineering", "ops", "community", "my"];
+  const categories = ["all", "product", "engineering", "ops", "competitor-inspired", "my"];
   useEffect(() => {
     if (category !== "my") return;
     let current = true;

@@ -141,4 +141,13 @@ describe("ProvidersView sign-in", () => {
     expect(route.textContent).toContain("Configured API credential");
     expect(route.textContent).not.toContain("ChatGPT plan");
   });
+
+  it("renders Overlay breadcrumbs in the header", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? snapshot() : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));
+    render(<ProvidersView scope="workspace" />);
+    const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(nav.textContent).toContain("Workspace");
+    expect(nav.textContent).toContain("Extensions");
+    expect(nav.textContent).toContain("Providers");
+  });
 });

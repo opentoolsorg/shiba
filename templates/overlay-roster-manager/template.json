@@ -1,9 +1,9 @@
 {
-  "id": "roster-manager",
+  "id": "overlay-roster-manager",
   "name": "Shiba Roster Manager",
   "description": "Help maintain a clear roster of agents, ownership, and handoff responsibilities.",
   "categories": [
-    "community",
+    "competitor-inspired",
     "ops"
   ],
   "appearance": "🗂️",

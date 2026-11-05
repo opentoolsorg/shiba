@@ -43,7 +43,7 @@ The shared view excludes the diff and other private run data. A summary is cappe
 
 This slice has no VM snapshots, video, or Linear/Sentry OAuth. Intake is by paste or webhook JSON. Sandbox concurrency remains capped at `max_instances: 5` in `wrangler.jsonc`.
 
-## REST API
+## Capy-compatible REST API
 
 Every `/api/v1/*` route requires the same authenticated Access session as `/api/runs` and targets the caller's own orchestrator. Use `?session=<sessionId>` to select an owned session. Thread creation also accepts `session` in its JSON body.
 

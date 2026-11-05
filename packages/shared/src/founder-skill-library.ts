@@ -1,5 +1,5 @@
 /**
- * Founder skill pack: installable library entries (draft on install)
+ * Viktor-style founder skill pack: installable library entries (draft on install)
  * with schedule, Slack digest, and integration requirements.
  */
 import { z } from "zod";

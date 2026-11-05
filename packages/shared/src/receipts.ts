@@ -1,5 +1,5 @@
 /**
- * Append-only evidence log. A run is the receipts, not a
+ * Cloudbox-style append-only evidence log. A run is the receipts, not a
  * final envelope: init → clone/configure/code/collect → submit|error, plus
  * advisory grades. Bounded so DO state cannot grow without limit.
  */

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { toast } from "sonner";
+import { Laptop, Plus, RefreshCw, X } from "lucide-react";
 import {
   formatDesktopConnectionLabel,
   formatDesktopHarnessSummary,
@@ -21,9 +22,9 @@ type FleetState =
 type Identity = { kind: "checking" } | { kind: "ok"; agent: string } | { kind: "down"; message: string };
 
 const STATUS_DOT: Record<ComputerStatus, string> = {
-  idle: "bg-[var(--success)]",
-  busy: "bg-[var(--warning)] animate-pulse",
-  offline: "bg-[var(--muted-foreground-3)]/50",
+  idle: "bg-emerald-500",
+  busy: "bg-amber-500 animate-pulse",
+  offline: "bg-zinc-400 dark:bg-zinc-600",
 };
 
 function ago(ms: number): string {
@@ -63,17 +64,17 @@ function PairingModal({ pairing, onClose }: { pairing: PairingTokenResponse; onC
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="pairing-heading"
-        className="w-full max-w-xl bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] shadow-[var(--sh-card)] p-5 flex flex-col gap-4"
+        className="w-full max-w-xl rounded-xl border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-[#121214] shadow-xl p-5 flex flex-col gap-4"
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h3 id="pairing-heading" className="text-sm font-semibold text-[var(--fg)]">Add computer</h3>
-            <p className="text-xs text-[var(--muted-foreground-2)] mt-0.5">
+            <h3 id="pairing-heading" className="text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100">Add computer</h3>
+            <p className="text-xs text-[#71717a] dark:text-zinc-400 mt-0.5">
               Run this on the machine you want to pair. The token works once; the daemon then connects outbound only.
             </p>
           </div>
@@ -81,23 +82,23 @@ function PairingModal({ pairing, onClose }: { pairing: PairingTokenResponse; onC
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="text-xs text-[var(--muted-foreground-2)] hover:text-[var(--fg)] border border-[var(--border-1)] px-2 py-1 rounded-[var(--radius-button)]"
+            className="size-7 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors"
           >
-            ✕
+            <X className="size-4" aria-hidden="true" />
           </button>
         </div>
-        <pre className="text-[11px] font-mono bg-[var(--panel)] border border-[var(--border-1)] p-3 whitespace-pre-wrap break-all text-[var(--fg)] select-all">
+        <pre className="text-[11px] font-mono bg-[#f4f4f5] dark:bg-zinc-900 border border-[#e4e4e7] dark:border-zinc-800 rounded-lg p-3 whitespace-pre-wrap break-all text-[#0a0a0a] dark:text-zinc-100 select-all">
           {pairing.connectCommand}
         </pre>
         <div className="flex items-center justify-between gap-3">
-          <span className={`text-xs font-mono ${expired ? "text-[var(--destructive)]" : "text-[var(--muted-foreground-2)]"}`} aria-live="polite">
+          <span className={`text-xs font-mono ${expired ? "text-red-500" : "text-[#71717a] dark:text-zinc-400"}`} aria-live="polite">
             {expired ? "Token expired — close and generate a new one" : `Expires in ${countdown(remaining)}`}
           </span>
           <button
             type="button"
             onClick={copy}
             disabled={expired}
-            className="text-xs font-semibold text-white bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] disabled:opacity-40 px-3 py-1.5 rounded-[var(--radius-button)] transition-colors"
+            className="h-8 px-3 rounded-lg text-xs font-medium bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-[#27272a] dark:hover:bg-zinc-200 transition-colors disabled:opacity-40"
           >
             Copy command
           </button>
@@ -113,13 +114,9 @@ export function RemoteAccessView(): JSX.Element {
   const [pairing, setPairing] = useState<PairingTokenResponse | null>(null);
   const [pairingBusy, setPairingBusy] = useState(false);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
-  // T63 — present only inside the desktop shell on the configured origin.
   const { bridge, status: desktopStatus, refresh: refreshDesktop } = useDesktopStatus();
-  // The bridge owns signed-out/disabled; the existing 404 empty state covers "disabled".
   const showConnectThisComputer = shouldShowConnect(bridge !== undefined, desktopStatus);
-
   const mounted = useRef(true);
-  // Polls and post-pair/revoke reloads overlap; only the latest load may apply.
   const [loads] = useState(createLatest);
 
   const load = useCallback(async () => {
@@ -129,7 +126,6 @@ export function RemoteAccessView(): JSX.Element {
     };
     try {
       const res = await fetch("/api/computers", { cache: "no-store" });
-      // 404: the Worker has no fleet routes because SHIBA_LOCAL_RUNTIME is off.
       if (res.status === 404) return apply({ kind: "disabled" });
       if (!res.ok) return apply({ kind: "error", message: `GET /api/computers failed with ${res.status}.` });
       const body = (await res.json()) as { computers?: ConnectedComputer[] };
@@ -180,8 +176,6 @@ export function RemoteAccessView(): JSX.Element {
     }
   };
 
-  // One-click pairing: the modal's manual connect command stays available as
-  // "Add another computer"; this path hands the token straight to the shell.
   const connectThisComputer = async () => {
     if (!bridge) return;
     setPairingBusy(true);
@@ -236,18 +230,18 @@ export function RemoteAccessView(): JSX.Element {
   const online = computers.filter((c) => c.status !== "offline").length;
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#fafafa] dark:bg-[#0c0c0e] text-[#0a0a0a] dark:text-zinc-100">
+      <div className="border-b border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-[#121214] px-6 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
         <div>
-          <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
+          <h2 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100 flex items-center gap-2">
             <span>Remote Access</span>
             {fleet.kind === "ready" ? (
-              <span className="text-xs font-mono px-2 py-0.5 rounded-[var(--radius-button)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] border border-[color-mix(in_oklch,var(--success)_30%,transparent)]">
+              <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
                 {online}/{computers.length} online
               </span>
             ) : null}
           </h2>
-          <p className="text-xs text-[var(--muted-foreground-2)]">
+          <p className="text-xs text-[#71717a] dark:text-zinc-400 mt-0.5">
             Pair local machines with one command. Daemons connect outbound — no open ports on your computer.
           </p>
         </div>
@@ -257,7 +251,7 @@ export function RemoteAccessView(): JSX.Element {
               type="button"
               onClick={() => void connectThisComputer()}
               disabled={pairingBusy}
-              className="text-xs font-semibold text-white bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] disabled:opacity-40 px-3 py-1.5 rounded-[var(--radius-button)] transition-colors"
+              className="h-8 px-3 rounded-lg text-xs font-medium bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-[#27272a] dark:hover:bg-zinc-200 transition-colors disabled:opacity-40"
             >
               {pairingBusy ? "Connecting…" : "Connect this computer"}
             </button>
@@ -268,8 +262,8 @@ export function RemoteAccessView(): JSX.Element {
             disabled={fleet.kind !== "ready" || pairingBusy}
             className={
               bridge
-                ? "text-xs font-medium text-[var(--fg)] border border-[var(--border-1)] hover:bg-[var(--secondary)] disabled:opacity-40 px-3 py-1.5 rounded-[var(--radius-button)] transition-colors"
-                : "text-xs font-semibold text-white bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] disabled:opacity-40 px-3 py-1.5 rounded-[var(--radius-button)] transition-colors"
+                ? "h-8 px-3 rounded-lg border border-[#e4e4e7] dark:border-zinc-700 bg-white dark:bg-zinc-800 text-xs font-medium text-[#0a0a0a] dark:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-700/50 transition-colors disabled:opacity-40"
+                : "h-8 px-3 rounded-lg text-xs font-medium bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-[#27272a] dark:hover:bg-zinc-200 transition-colors disabled:opacity-40"
             }
           >
             {pairingBusy && !bridge ? "Generating…" : bridge ? "Add another computer" : "Add computer"}
@@ -277,30 +271,30 @@ export function RemoteAccessView(): JSX.Element {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 lg:p-8">
-        <div className="max-w-6xl mx-auto flex flex-col gap-6">
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-5xl mx-auto flex flex-col gap-6">
           <section aria-labelledby="connections-heading" className="flex flex-col gap-3">
-            <div className="pb-1 border-b border-[var(--border-1)]">
-              <h3 id="connections-heading" className="text-sm font-semibold text-[var(--fg)]">Connections</h3>
+            <div className="pb-1 border-b border-[#e4e4e7] dark:border-zinc-800">
+              <h3 id="connections-heading" className="text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100">Connections</h3>
             </div>
-            <div className="bg-[var(--card)] border border-[var(--border-1)] p-4 rounded-[var(--radius-button)] shadow-[var(--sh-card)] grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div className="rounded-xl border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 shadow-xs grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div className="flex items-center gap-2">
                 <span
-                  className={`size-2 rounded-full ${identity.kind === "ok" ? "bg-[var(--success)]" : identity.kind === "down" ? "bg-[var(--destructive)]" : "bg-[var(--muted-foreground-3)]/50"}`}
+                  className={`size-2 rounded-full ${identity.kind === "ok" ? "bg-emerald-500" : identity.kind === "down" ? "bg-red-500" : "bg-zinc-400"}`}
                   aria-hidden="true"
                 />
-                <span className="text-[var(--muted-foreground-2)]">Worker endpoint</span>
-                <span className="font-mono text-[var(--fg)] truncate">
+                <span className="text-[#71717a] dark:text-zinc-400">Worker endpoint</span>
+                <span className="font-mono text-[#0a0a0a] dark:text-zinc-200 truncate">
                   {identity.kind === "ok" ? "reachable" : identity.kind === "down" ? identity.message : "checking…"}
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-[var(--muted-foreground-2)]">Signed in as</span>
-                <span className="font-mono text-[var(--fg)] truncate">{identity.kind === "ok" ? identity.agent : "—"}</span>
+                <span className="text-[#71717a] dark:text-zinc-400">Signed in as</span>
+                <span className="font-mono text-[#0a0a0a] dark:text-zinc-200 truncate">{identity.kind === "ok" ? identity.agent : "—"}</span>
               </div>
               {bridge ? (
                 <div
-                  className="sm:col-span-2 flex flex-col gap-1 border-t border-[var(--border-1)] pt-3"
+                  className="sm:col-span-2 flex flex-col gap-1 border-t border-[#e4e4e7] dark:border-zinc-800 pt-3"
                   role="status"
                   aria-live="polite"
                 >
@@ -308,24 +302,24 @@ export function RemoteAccessView(): JSX.Element {
                     <span
                       className={`size-2 rounded-full shrink-0 ${
                         desktopStatus?.state === "idle"
-                          ? "bg-[var(--success)]"
+                          ? "bg-emerald-500"
                           : desktopStatus?.state === "busy"
-                            ? "bg-[var(--warning)] animate-pulse"
+                            ? "bg-amber-500 animate-pulse"
                             : desktopStatus?.state === "starting"
-                              ? "bg-[var(--warning)]"
-                              : "bg-[var(--muted-foreground-3)]/50"
+                              ? "bg-amber-500"
+                              : "bg-zinc-400"
                       }`}
                       aria-hidden="true"
                     />
-                    <span className="text-[var(--muted-foreground-2)]">This app</span>
-                    <span className="font-mono text-[var(--fg)] truncate">
+                    <span className="text-[#71717a] dark:text-zinc-400">This app</span>
+                    <span className="font-mono text-[#0a0a0a] dark:text-zinc-200 truncate">
                       {desktopStatus
                         ? formatDesktopConnectionLabel(desktopStatus)
                         : "Checking desktop connection…"}
                     </span>
                   </div>
                   {desktopStatus?.harnesses?.length ? (
-                    <p className="text-[10px] font-mono text-[var(--muted-foreground-2)] pl-4">
+                    <p className="text-[10px] font-mono text-[#71717a] dark:text-zinc-400 pl-4">
                       Harnesses: {formatDesktopHarnessSummary(desktopStatus.harnesses)}
                     </p>
                   ) : null}
@@ -335,23 +329,24 @@ export function RemoteAccessView(): JSX.Element {
           </section>
 
           <section aria-labelledby="computers-heading" className="flex flex-col gap-3">
-            <div className="flex items-center justify-between pb-1 border-b border-[var(--border-1)]">
-              <h3 id="computers-heading" className="text-sm font-semibold text-[var(--fg)]">Computers</h3>
-              <span className="text-xs font-mono text-[var(--muted-foreground-2)]">
+            <div className="flex items-center justify-between pb-1 border-b border-[#e4e4e7] dark:border-zinc-800">
+              <h3 id="computers-heading" className="text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100">Computers</h3>
+              <span className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
                 {computers.length} paired · refreshes every {POLL_MS / 1000}s
               </span>
             </div>
 
             {fleet.kind === "loading" ? (
-              <p className="text-xs text-[var(--muted-foreground-2)] py-6 text-center">Loading fleet…</p>
+              <p className="text-xs text-[#71717a] dark:text-zinc-400 py-6 text-center">Loading fleet…</p>
             ) : fleet.kind === "error" ? (
               <LoadErrorState message={fleet.message} onRetry={() => void load()} />
             ) : fleet.kind === "disabled" || computers.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] text-center p-6">
-                <h4 className="text-sm font-semibold text-[var(--fg)]">
+              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 text-center p-6">
+                <Laptop className="size-8 text-[#71717a] dark:text-zinc-500 mb-2" strokeWidth={1.5} />
+                <h4 className="text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100">
                   {fleet.kind === "disabled" ? "Local runtime is disabled" : "No computers paired"}
                 </h4>
-                <p className="text-xs text-[var(--muted-foreground-2)] max-w-sm mt-0.5">
+                <p className="text-xs text-[#71717a] dark:text-zinc-400 max-w-sm mt-0.5">
                   {fleet.kind === "disabled" ? (
                     <>
                       Set <code className="font-mono">SHIBA_LOCAL_RUNTIME=1</code> on the Worker to pair local daemons.
@@ -366,52 +361,52 @@ export function RemoteAccessView(): JSX.Element {
                 {computers.map((c) => (
                   <li
                     key={c.machineId}
-                    className="bg-[var(--card)] border border-[var(--border-1)] p-4 rounded-[var(--radius-button)] shadow-[var(--sh-card)] flex flex-col gap-2"
+                    className="rounded-xl border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 shadow-xs flex flex-col gap-2"
                   >
                     <div className="flex items-center gap-2">
                       <span className={`size-2 rounded-full shrink-0 ${STATUS_DOT[c.status]}`} title={c.status} aria-hidden="true" />
-                      <span className="text-sm font-semibold text-[var(--fg)] truncate flex-1">{c.hostname}</span>
+                      <span className="text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100 truncate flex-1">{c.hostname}</span>
                       {desktopStatus?.machineId === c.machineId ? (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-[var(--radius-button)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] border border-[color-mix(in_oklch,var(--success)_30%,transparent)]">
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
                           This computer
                         </span>
                       ) : null}
-                      <span className="text-[10px] font-mono uppercase text-[var(--muted-foreground-2)]">{c.status}</span>
+                      <span className="text-[10px] font-mono uppercase text-[#71717a] dark:text-zinc-400">{c.status}</span>
                     </div>
-                    <div className="text-[11px] font-mono text-[var(--muted-foreground-2)] flex flex-wrap gap-x-3">
+                    <div className="text-[11px] font-mono text-[#71717a] dark:text-zinc-400 flex flex-wrap gap-x-3">
                       <span>{c.platform}</span>
                       <span>v{c.daemonVersion}</span>
                       <span>seen {ago(c.lastHeartbeat)}</span>
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {c.harnesses.length === 0 ? (
-                        <span className="text-[10px] text-[var(--muted-foreground-2)]">no harnesses detected</span>
+                        <span className="text-[10px] text-[#71717a] dark:text-zinc-400">no harnesses detected</span>
                       ) : (
                         c.harnesses.map((h) => (
                           <span
                             key={h}
-                            className="text-[10px] font-mono px-1.5 py-0.5 rounded-[var(--radius-button)] bg-[var(--primary-soft)] text-[var(--primary)] border border-[var(--primary)]/20"
+                            className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-[#f4f4f5] dark:bg-zinc-800 text-[#0a0a0a] dark:text-zinc-200 border border-[#e4e4e7] dark:border-zinc-700"
                           >
                             {h}
                           </span>
                         ))
                       )}
                     </div>
-                    <div className="flex justify-end gap-2 pt-1">
+                    <div className="flex justify-end gap-2 pt-1 border-t border-[#e4e4e7]/60 dark:border-zinc-800/60 mt-1">
                       {confirmRevoke === c.machineId ? (
                         <>
-                          <span className="text-[11px] text-[var(--destructive)] self-center">Revoke {c.hostname}?</span>
+                          <span className="text-[11px] text-red-500 self-center">Revoke {c.hostname}?</span>
                           <button
                             type="button"
                             onClick={() => setConfirmRevoke(null)}
-                            className="text-xs text-[var(--fg)] bg-[var(--card)] hover:bg-[var(--secondary)] border border-[var(--border-1)] px-2.5 py-1 rounded-[var(--radius-button)]"
+                            className="h-7 px-2 rounded-md text-xs border border-[#e4e4e7] dark:border-zinc-700 bg-white dark:bg-zinc-800 text-[#0a0a0a] dark:text-zinc-200 hover:bg-[#f4f4f5] transition-colors"
                           >
                             Cancel
                           </button>
                           <button
                             type="button"
                             onClick={() => void revoke(c)}
-                            className="text-xs font-semibold text-[var(--destructive-text)] bg-[var(--destructive)] hover:opacity-90 px-2.5 py-1 rounded-[var(--radius-button)]"
+                            className="h-7 px-2 rounded-md text-xs font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors"
                           >
                             Confirm revoke
                           </button>
@@ -420,7 +415,7 @@ export function RemoteAccessView(): JSX.Element {
                         <button
                           type="button"
                           onClick={() => setConfirmRevoke(c.machineId)}
-                          className="text-xs text-[var(--destructive)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive)]/5 hover:bg-[var(--destructive-soft)] px-2.5 py-1 rounded-[var(--radius-button)]"
+                          className="h-7 px-2 rounded-md text-xs text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-950/20 hover:bg-red-100 transition-colors"
                         >
                           Revoke
                         </button>

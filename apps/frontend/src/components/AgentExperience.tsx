@@ -125,8 +125,23 @@ export function AgentConversationEmpty({ name, slug, role, examples = [], onPref
   return <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center"><AgentAvatar name={name} slug={slug} role={role} large /><h2 className="text-base font-medium text-[var(--fg)]">{name}</h2><p className="max-w-md text-sm leading-relaxed text-[var(--muted-foreground-2)]">This is the beginning of your conversation. Messages are stored in your Shiba workspace.</p><p className="max-w-md text-xs leading-relaxed text-[var(--muted-foreground-2)]">Planning can start now. Every sandbox execution requires human approval. Publishing completed changes requires a separate approval.</p>{examples.length ? <div className="mt-4 flex max-w-xl flex-wrap justify-center gap-2">{examples.map((prompt) => <button type="button" key={prompt} disabled={prefillDisabled} title={prefillDisabled ? "Clear your draft to use an example" : undefined} className={`${viewButtonClass} text-left font-normal disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => onPrefill(prompt)}>{prompt}</button>)}</div> : null}</div>;
 }
 
-export function AgentDetailsPanel({ agent, onClose, onEdit }: { agent?: CustomAgentWire; onClose: () => void; onEdit: () => void }) {
+export function AgentDetailsPanel({
+  agent,
+  onClose,
+  onEdit,
+  ownerName,
+  computerInfo,
+  initialTab = "details",
+}: {
+  agent?: CustomAgentWire;
+  onClose: () => void;
+  onEdit: () => void;
+  ownerName?: string;
+  computerInfo?: string;
+  initialTab?: "details" | "library" | "computer";
+}) {
   const panelRef = useRef<HTMLElement>(null);
+  const [activeTab, setActiveTab] = useState<"details" | "library" | "computer">(initialTab);
   useEffect(() => {
     if (window.innerWidth < 1280) panelRef.current?.scrollIntoView?.({ block: "nearest", behavior: "instant" });
   }, []);
@@ -135,16 +150,112 @@ export function AgentDetailsPanel({ agent, onClose, onEdit }: { agent?: CustomAg
   const template = EMPLOYEE_TEMPLATES.find((item) => item.id === role);
   const rows = [
     { label: "Model", preview: agent?.config.codingModel || "Workspace default", value: agent?.config.codingModel || "Uses the workspace model default." },
-    { label: "Instructions", preview: agent?.config.instructions.slice(0, 70) || "Workspace instructions", value: agent?.config.instructions || "Use the workspace instructions." },
+    { label: "Instructions", preview: agent?.config.instructions ? agent.config.instructions.slice(0, 70) : "Workspace instructions", value: agent?.config.instructions || "Use the workspace instructions." },
     { label: "Tools", preview: agent?.config.toolScopes?.length ? `${agent.config.toolScopes.length} scopes` : "Harness defaults", value: agent?.config.toolScopes?.length ? agent.config.toolScopes.join(", ") : "Tools are provided by the selected harness and workspace. No fixed tool count is available." },
     { label: "Advanced", preview: "Human approval", value: `Harness: ${agent?.config.harness ?? "Workspace default"}\nSandbox: ${agent?.config.sandboxProvider ?? "Workspace default"}\nApproval policy: Explicit human approval` },
   ];
-  return <aside ref={panelRef} id="agent-details" aria-label="Agent details" className="flex w-full min-w-0 shrink-0 flex-col border-t border-[var(--border-1)] bg-[var(--chrome)] p-5 text-[var(--fg)] xl:w-[370px] xl:overflow-y-auto xl:border-l xl:border-t-0">
-    <button type="button" className={`${quietButton} self-end`} aria-label="Close agent details" onClick={onClose}><X aria-hidden="true" className="size-4" /></button>
-    <div className="flex flex-col items-center gap-3 py-5 text-center"><AgentAvatar name={name} slug={agent?.slug} role={role} large /><h2 className="text-lg font-medium tracking-tight">{name}</h2><p className="text-xs font-medium text-[var(--muted-foreground-2)]">{agent ? employeeRoleLabel(role) : "Shiba"} · Runs on {agent?.config.harness ?? "workspace default"}</p><p className="line-clamp-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--muted-foreground-2)]">{agent?.config.instructions || template?.description || "Helps with tasks in your approved repository."}</p></div>
-    <section aria-label="Agent information">
-      <h3 className="mb-2 text-xs font-medium text-[var(--muted-foreground-2)]">Configuration</h3>
-      <div className="divide-y divide-[var(--border-1)] text-sm">{rows.map((row) => <details key={row.label} className="group"><summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-lg py-3 focus-visible:outline-2 focus-visible:outline-[var(--ring)] [&::-webkit-details-marker]:hidden"><span>{row.label}</span><span className="ml-auto max-w-40 truncate text-xs text-[var(--muted-foreground-2)]">{row.preview}</span><ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)] group-open:rotate-90" /></summary><p className="whitespace-pre-wrap break-words pb-4 text-xs leading-relaxed text-[var(--muted-foreground-2)]">{row.value}</p></details>)}</div><button type="button" className={`${viewButtonClass} mt-4 w-full`} onClick={onEdit}>Manage agents</button>
-    </section>
-  </aside>;
+  return (
+    <aside
+      ref={panelRef}
+      id="agent-details"
+      aria-label="Agent details"
+      className="flex w-full min-w-0 shrink-0 flex-col border-t border-[var(--border-1)] bg-[var(--chrome)] p-5 text-[var(--fg)] xl:w-[370px] xl:overflow-y-auto xl:border-l xl:border-t-0"
+    >
+      <button type="button" className={`${quietButton} self-end`} aria-label="Close agent details" onClick={onClose}>
+        <X aria-hidden="true" className="size-4" />
+      </button>
+      <div className="flex flex-col items-center gap-3 py-5 text-center">
+        <AgentAvatar name={name} slug={agent?.slug} role={role} large />
+        <h2 className="text-lg font-medium tracking-tight">{name}</h2>
+        <p className="text-xs font-medium text-[var(--muted-foreground-2)]">
+          {ownerName ? `${ownerName} · ` : ""}
+          {agent ? employeeRoleLabel(role) : "Shiba"} · Runs on {agent?.config.harness ?? "workspace default"}
+        </p>
+        <p className="line-clamp-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--muted-foreground-2)]">
+          {agent?.config.instructions || template?.description || "Add a description"}
+        </p>
+      </div>
+
+      <div role="tablist" aria-label="Agent details tabs" className="flex w-full border-b border-[var(--border-1)]">
+        {(["details", "library", "computer"] as const).map((tab) => {
+          const label = tab === "details" ? "Details" : tab === "library" ? "Library" : "Computer";
+          const isSelected = activeTab === tab;
+          return (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              id={`agent-tab-${tab}`}
+              aria-selected={isSelected}
+              aria-controls={`agent-panel-${tab}`}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 pb-2 text-[13px] font-medium transition-colors border-b-2 -mb-px ${
+                isSelected
+                  ? "border-[var(--primary)] text-[var(--fg)] font-semibold"
+                  : "border-transparent text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {activeTab === "details" ? (
+          <div role="tabpanel" id="agent-panel-details" aria-labelledby="agent-tab-details" className="pt-4 flex flex-col gap-4">
+            <section aria-label="Agent information">
+              <h3 className="mb-2 text-xs font-medium text-[var(--muted-foreground-2)]">Configuration</h3>
+              <div className="divide-y divide-[var(--border-1)] text-sm">
+                {rows.map((row) => (
+                  <details key={row.label} className="group">
+                    <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-lg py-3 focus-visible:outline-2 focus-visible:outline-[var(--ring)] [&::-webkit-details-marker]:hidden">
+                      <span>{row.label}</span>
+                      <span className="ml-auto max-w-40 truncate text-xs text-[var(--muted-foreground-2)]">{row.preview}</span>
+                      <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)] group-open:rotate-90" />
+                    </summary>
+                    <p className="whitespace-pre-wrap break-words pb-4 text-xs leading-relaxed text-[var(--muted-foreground-2)]">{row.value}</p>
+                  </details>
+                ))}
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {activeTab === "library" ? (
+          <div role="tabpanel" id="agent-panel-library" aria-labelledby="agent-tab-library" className="pt-4 flex flex-col gap-2">
+            <h3 className="text-xs font-medium text-[var(--muted-foreground-2)]">Library</h3>
+            {agent?.config.expectedDeliverables && agent.config.expectedDeliverables.length > 0 ? (
+              <ul className="flex flex-col gap-1.5" aria-label="Agent deliverables">
+                {agent.config.expectedDeliverables.map((item) => (
+                  <li key={item} className="flex items-center gap-2 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-mono text-[var(--fg)]">
+                    <span className="truncate">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="py-6 text-center text-xs text-[var(--muted-foreground-2)]">No files yet</p>
+            )}
+          </div>
+        ) : null}
+
+        {activeTab === "computer" ? (
+          <div role="tabpanel" id="agent-panel-computer" aria-labelledby="agent-tab-computer" className="pt-4 flex flex-col gap-2">
+            <h3 className="text-xs font-medium text-[var(--muted-foreground-2)]">Computer</h3>
+            {computerInfo || agent?.config.sandboxProvider ? (
+              <div className="rounded-md border border-[var(--border-1)] bg-[var(--card)] p-3 text-xs text-[var(--fg)]">
+                <div className="font-medium">{computerInfo ?? `Sandbox: ${agent?.config.sandboxProvider ?? "default"}`}</div>
+                <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">Harness: {agent?.config.harness ?? "opencode"}</div>
+                {agent?.config.connectionId ? <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">Connection: {agent.config.connectionId}</div> : null}
+              </div>
+            ) : (
+              <p className="py-6 text-center text-xs text-[var(--muted-foreground-2)]">No computer</p>
+            )}
+          </div>
+        ) : null}
+      </div>
+
+      <button type="button" className={`${viewButtonClass} mt-4 w-full`} onClick={onEdit}>Manage agents</button>
+    </aside>
+  );
 }

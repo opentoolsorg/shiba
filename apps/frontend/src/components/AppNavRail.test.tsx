@@ -35,6 +35,7 @@ function renderRail(extra?: Partial<Parameters<typeof AppNavRail>[0]>) {
       sessions={sessions}
       selectedSessionId="run-1"
       onSelectSession={onSelectSession}
+      variant="sheet"
       {...extra}
     />,
   );
@@ -49,7 +50,7 @@ describe("workspaceLabel", () => {
   });
 });
 
-describe("AppNavRail non-work views (expanded desktop sidebar & compact rail)", () => {
+describe("AppNavRail mobile sheet (full navigation with thread list)", () => {
   it("renders Shiba wordmark and navigates to work on click", () => {
     const { onNavigate } = renderRail();
     const wordmark = screen.getByRole("link", { name: "Shiba Home" });
@@ -68,7 +69,7 @@ describe("AppNavRail non-work views (expanded desktop sidebar & compact rail)", 
     expect(screen.queryByRole("tablist")).toBeNull();
   });
 
-  it.each(["rail", "sheet"] as const)("starts a new thread from the %s", (variant) => {
+  it.each(["sheet"] as const)("starts a new thread from the %s", (variant) => {
     const onNewTask = vi.fn();
     const onClose = vi.fn();
     renderRail({ variant, onNewTask, onClose });
@@ -130,16 +131,16 @@ describe("AppNavRail non-work views (expanded desktop sidebar & compact rail)", 
 
   it("shows a skeleton while threads are loading and an empty state after", () => {
     const { rerender } = render(
-      <AppNavRail activeView="tasks" onNavigate={vi.fn()} sessions={[]} threadsLoading />,
+      <AppNavRail activeView="tasks" variant="sheet" onNavigate={vi.fn()} sessions={[]} threadsLoading />,
     );
     expect(screen.getByLabelText("Loading threads")).toBeTruthy();
     expect(screen.queryByText(/No threads yet/)).toBeNull();
 
-    rerender(<AppNavRail activeView="tasks" onNavigate={vi.fn()} sessions={[]} threadsLoading={false} />);
+    rerender(<AppNavRail activeView="tasks" variant="sheet" onNavigate={vi.fn()} sessions={[]} threadsLoading={false} />);
     expect(screen.getByText(/No threads yet/)).toBeTruthy();
   });
 
-  it.each(["rail", "sheet"] as const)("puts navigation, agents, approvals and full-height threads in one scrolling region for %s", (variant) => {
+  it.each(["sheet"] as const)("puts navigation, agents, approvals and full-height threads in one scrolling region for %s", (variant) => {
     const { onSelectSession } = renderRail({ variant, onNewAgentThread: vi.fn() });
     const content = screen.getByRole("region", { name: "Sidebar navigation" });
     expect(content.className).toContain("min-h-0");
@@ -160,62 +161,6 @@ describe("AppNavRail non-work views (expanded desktop sidebar & compact rail)", 
     expect(profile.parentElement?.parentElement?.className).toContain("shrink-0");
   });
 
-  it("keeps the desktop rail off the phone layout", () => {
-    renderRail();
-    const rail = screen.getByRole("complementary", { name: "Primary Left Rail" });
-    expect(rail.className).toContain("hidden");
-    expect(rail.className).toContain("lg:flex");
-  });
-
-  it("shows only the full sidebar when desktop navigation is expanded", () => {
-    renderRail({ onToggleCollapse: vi.fn() });
-    expect(screen.getByRole("region", { name: "Sidebar navigation" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Shiba Home" })).toBeTruthy();
-    expect(screen.queryByRole("navigation", { name: "App Icon Rail" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Chat & Threads" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Collapse sidebar" }).getAttribute("aria-expanded")).toBe("true");
-  });
-
-  it("shows only the accessible compact rail when collapsed, with a way to reopen on every view", () => {
-    const onToggleCollapse = vi.fn();
-    const { onNavigate } = renderRail({ activeView: "tasks", collapsed: true, onToggleCollapse });
-    const aside = screen.getByRole("complementary", { name: "Primary Left Rail" });
-    const compact = screen.getByRole("navigation", { name: "App Icon Rail" });
-    expect(aside.getAttribute("aria-hidden")).toBeNull();
-    expect(screen.queryByRole("region", { name: "Sidebar navigation" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Shiba Home" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Collapse sidebar" })).toBeNull();
-    const expand = within(compact).getByRole("button", { name: "Expand sidebar" });
-    expect(expand.getAttribute("aria-expanded")).toBe("false");
-    expect(expand.getAttribute("aria-controls")).toBe(aside.id);
-    expect(expand.className).toContain("size-11");
-    fireEvent.click(within(compact).getByRole("button", { name: "Tasks" }));
-    expect(onNavigate).toHaveBeenCalledWith("tasks");
-    fireEvent.click(expand);
-    expect(onToggleCollapse).toHaveBeenCalledOnce();
-  });
-
-  it("alternates navigation modes without duplicate controls and transfers keyboard focus to the current toggle", () => {
-    function Navigation() {
-      const [collapsed, setCollapsed] = useState(false);
-      return <AppNavRail activeView="tasks" onNavigate={vi.fn()} collapsed={collapsed} onToggleCollapse={() => setCollapsed((value) => !value)} />;
-    }
-    render(<Navigation />);
-    for (let cycle = 0; cycle < 3; cycle++) {
-      const collapse = screen.getByRole("button", { name: "Collapse sidebar" });
-      collapse.focus();
-      fireEvent.click(collapse);
-      const expand = screen.getByRole("button", { name: "Expand sidebar" });
-      expect(document.activeElement).toBe(expand);
-      expect(screen.queryByRole("region", { name: "Sidebar navigation" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "Collapse sidebar" })).toBeNull();
-      fireEvent.click(expand);
-      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Collapse sidebar" }));
-      expect(screen.queryByRole("navigation", { name: "App Icon Rail" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "Expand sidebar" })).toBeNull();
-    }
-  });
-
   it("keeps the mobile sheet fully expanded regardless of the desktop collapse preference", () => {
     const onClose = vi.fn();
     const onToggleCollapse = vi.fn();
@@ -232,66 +177,41 @@ describe("AppNavRail non-work views (expanded desktop sidebar & compact rail)", 
     expect(onToggleCollapse).not.toHaveBeenCalled();
   });
 
-  it("retains sidebar focus for an external shortcut toggle without stealing focus from the main view", () => {
-    const props = { activeView: "tasks" as const, onNavigate: vi.fn(), onToggleCollapse: vi.fn() };
-    const { rerender } = render(<><AppNavRail {...props} collapsed={false} /><input aria-label="Main task" /></>);
-    screen.getByRole("button", { name: "New thread" }).focus();
-    rerender(<><AppNavRail {...props} collapsed /><input aria-label="Main task" /></>);
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Expand sidebar" }));
-    const task = screen.getByRole("textbox", { name: "Main task" });
-    task.focus();
-    rerender(<><AppNavRail {...props} collapsed={false} /><input aria-label="Main task" /></>);
-    expect(document.activeElement).toBe(task);
-  });
-
   it("opens custom agents from its dedicated navigation, not More", () => {
     const onNavigate = vi.fn<(view: AppNavView) => void>();
-    render(<AppNavRail activeView="custom-agents" onNavigate={onNavigate} sessions={[]} />);
+    render(<AppNavRail activeView="custom-agents" onNavigate={onNavigate} sessions={[]} variant="rail" />);
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
     expect(onNavigate).toHaveBeenCalledWith("custom-agents");
     fireEvent.click(screen.getByRole("button", { name: "More" }));
     expect(screen.queryByRole("menuitem", { name: "Agents" })).toBeNull();
   });
 
-  it.each(["rail", "sheet"] as const)("exposes integrations, skills and MCP outside More in the %s", (variant) => {
+  it("exposes integrations, skills and MCP in the sheet", () => {
     const onNavigate = vi.fn();
     const onClose = vi.fn();
-    const { rerender } = render(<AppNavRail activeView="agents" onNavigate={onNavigate} variant={variant} onClose={onClose} />);
+    const { rerender } = render(<AppNavRail activeView="agents" onNavigate={onNavigate} variant="sheet" onClose={onClose} />);
     for (const [label, id] of [["Integrations", "integrations"], ["Skills", "skills"], ["MCP", "agents"]] as const) {
-      const button = screen.getByRole("button", { name: label });
-      fireEvent.click(button);
+      fireEvent.click(screen.getByRole("button", { name: label }));
       expect(onNavigate).toHaveBeenLastCalledWith(id);
-      rerender(<AppNavRail activeView={id} onNavigate={onNavigate} variant={variant} onClose={onClose} />);
+      rerender(<AppNavRail activeView={id} onNavigate={onNavigate} variant="sheet" onClose={onClose} />);
       expect(screen.getByRole("button", { name: label }).getAttribute("aria-current")).toBe("page");
-      expect(screen.getByRole("button", { name: "More" })).toBeTruthy();
     }
-    if (variant === "sheet") expect(onClose).toHaveBeenCalledTimes(3);
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(screen.queryByRole("menuitem", { name: "MCP" })).toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Providers" })).toBeTruthy();
+    expect(onClose).toHaveBeenCalledTimes(3);
   });
 
   it("labels the account remote-page link truthfully", () => {
     const onNavigate = vi.fn();
-    render(<AppNavRail activeView="tasks" onNavigate={onNavigate} sessions={[]} />);
+    render(<AppNavRail activeView="tasks" onNavigate={onNavigate} sessions={[]} variant="rail" />);
     fireEvent.click(screen.getByRole("button", { name: "Workspace profile" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Remote access" }));
     expect(onNavigate).toHaveBeenCalledWith("remote");
     expect(screen.queryByText("Open desktop app")).toBeNull();
   });
-
-  it("makes Tool policy reachable from More and labels its active view", () => {
-    const { onNavigate } = renderRail({ activeView: "employee-tools" });
-    const more = screen.getByRole("button", { name: "Tool policy" });
-    fireEvent.click(more);
-    fireEvent.click(screen.getByRole("menuitem", { name: "Tool policy" }));
-    expect(onNavigate).toHaveBeenCalledExactlyOnceWith("employee-tools");
-  });
 });
 
-describe("AppNavRail desktop compact 52px icon rail (activeView === 'work')", () => {
+describe("AppNavRail desktop 52px icon rail (every view)", () => {
   it("renders ~52px transparent desktop icon rail on work view with round logo mark top", () => {
-    const { onNavigate } = renderRail({ activeView: "work" });
+    const { onNavigate } = renderRail({ activeView: "work", variant: "rail" });
     const aside = screen.getByRole("complementary", { name: "Primary Left Rail" });
     expect(aside.className).toContain("w-[52px]");
     expect(aside.className).toContain("bg-transparent");
@@ -305,11 +225,11 @@ describe("AppNavRail desktop compact 52px icon rail (activeView === 'work')", ()
     expect(onNavigate).toHaveBeenCalledWith("work");
   });
 
-  it("stacks primary buttons: Work, Agents, Chat, and More with active pill on Work", () => {
-    const { onNavigate } = renderRail({ activeView: "work" });
+  it("stacks primary buttons: Work, Agents, Chats, and More with active pill on Work", () => {
+    const { onNavigate } = renderRail({ activeView: "work", variant: "rail" });
     const workBtn = screen.getByRole("button", { name: "Work" });
     const agentsBtn = screen.getByRole("button", { name: "Agents" });
-    const chatBtn = screen.getByRole("button", { name: "Chat" });
+    const chatBtn = screen.getByRole("button", { name: "Chats" });
     const moreBtn = screen.getByRole("button", { name: "More" });
 
     expect(workBtn.getAttribute("aria-current")).toBe("page");
@@ -329,24 +249,71 @@ describe("AppNavRail desktop compact 52px icon rail (activeView === 'work')", ()
     expect(moreBtn).toBeTruthy();
   });
 
-  it("opens More popover on work rail listing remaining nav items and includes workspace switcher", () => {
+  it.each([
+    ["Extensions", "integrations"],
+    ["Mailbox", "inbox"],
+    ["Memory", "memory"],
+    ["Automations", "automations"],
+    ["Insights", "dashboard"],
+  ] as const)("More menu routes %s to %s", (label, id) => {
     const onNavigate = vi.fn();
+    render(<AppNavRail activeView="work" onNavigate={onNavigate} variant="rail" />);
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: label }));
+    expect(onNavigate).toHaveBeenCalledWith(id);
+  });
+
+  it.each([
+    ["custom-agents", "Agents"],
+    ["employee-tools", "Agents"],
+    ["swarm", "Agents"],
+    ["tasks", "Agents"],
+    ["threads", "Chats"],
+    ["collaboration", "Chats"],
+    ["memory", "More"],
+    ["analytics", "More"],
+    ["settings", "Settings"],
+  ] as const)("marks the %s view under the %s rail item on every view", (view, item) => {
+    render(<AppNavRail activeView={view} onNavigate={vi.fn()} variant="rail" />);
+    expect(screen.getByRole("button", { name: item }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("button", { name: "Work" }).getAttribute("aria-current")).toBeNull();
+  });
+
+  it("lists workspaces in the account menu with a check on the current one", () => {
+    const onNavigate = vi.fn();
+    const onSelectWorkspace = vi.fn();
+    const workspaces = [{ workspaceId: "ws_1", name: "Design team", version: 1, createdAt: 1, membership: { workspaceId: "ws_1", userId: "a@b.co", role: "owner", version: 1, joinedAt: 1 } }];
     render(
-      <AppNavRail
-        activeView="work"
-        onNavigate={onNavigate}
-        workspaceSwitcher={<div data-testid="test-ws-switcher">Switcher</div>}
-      />,
+      <AppNavRail activeView="threads" onNavigate={onNavigate} variant="rail" accountEmail="a@b.co" workspaces={workspaces as never} selectedWorkspaceId="ws_1" onSelectWorkspace={onSelectWorkspace} onSignOut={vi.fn()} />,
     );
+    fireEvent.click(screen.getByRole("button", { name: /workspace/i }));
+    expect(screen.getByRole("menuitemradio", { name: "Design team" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("menuitemradio", { name: "Personal workspace" }).getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Create workspace" }));
+    expect(onNavigate).toHaveBeenCalledWith("team");
+    fireEvent.click(screen.getByRole("button", { name: /workspace/i }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Personal workspace" }));
+    expect(onSelectWorkspace).toHaveBeenCalledWith("");
+    fireEvent.click(screen.getByRole("button", { name: /workspace/i }));
+    expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeTruthy();
+  });
 
-    const moreBtn = screen.getByRole("button", { name: "More" });
-    fireEvent.click(moreBtn);
-
-    expect(screen.getByTestId("test-ws-switcher")).toBeTruthy();
-    const tasksMenuItem = screen.getByRole("menuitem", { name: "Tasks" });
-    expect(tasksMenuItem).toBeTruthy();
-    fireEvent.click(tasksMenuItem);
-    expect(onNavigate).toHaveBeenCalledWith("tasks");
+  it("keeps the desktop rail off the phone layout and keeps sidebar toggle focus across collapse", () => {
+    function Navigation() {
+      const [collapsed, setCollapsed] = useState(false);
+      return <AppNavRail activeView="tasks" variant="rail" onNavigate={vi.fn()} collapsed={collapsed} onToggleCollapse={() => setCollapsed((value) => !value)} />;
+    }
+    render(<Navigation />);
+    const rail = screen.getByRole("complementary", { name: "Primary Left Rail" });
+    expect(rail.className).toContain("hidden");
+    expect(rail.className).toContain("lg:flex");
+    for (let cycle = 0; cycle < 2; cycle++) {
+      const collapse = screen.getByRole("button", { name: "Collapse sidebar" });
+      collapse.focus();
+      fireEvent.click(collapse);
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Expand sidebar" }));
+      fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    }
   });
 
   it("renders bottom utilities and workspace profile popover on work view", () => {
@@ -358,6 +325,7 @@ describe("AppNavRail desktop compact 52px icon rail (activeView === 'work')", ()
     render(
       <AppNavRail
         activeView="work"
+        variant="rail"
         onNavigate={onNavigate}
         sidebarPanelId="work-panel"
         theme="light"

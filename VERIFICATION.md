@@ -1,6 +1,6 @@
 # Verification Results
 
-**2026-10-31 — PR #166 External MCP coworker + skills library + Spaces.**
+**2026-10-31 — PR #166 External MCP coworker + skills library + Spaces (branch `cursor/viktor-skills-spaces-scaffold-13c5`).**
 
 *Code-proven locally:*
 - **Spaces index:** `spaces_index.updated_at` uses `MAX(updated_at, ?)` on rename/touch; create inserts the D1 row before DO `init` and rolls the index back when init or template application fails; item routes refuse writes after index delete (`spaces-index-store.test.ts`, `spaces-routes.test.ts`).
@@ -15,7 +15,7 @@
 
 *Commands run for this slice:* targeted vitest (`spaces-*`, `skill-library*`, `mcp-coworker-contract`, `mcp-gateway`, `mcp-run-tools`, `IntegrationsView`, `SkillLibraryCards`, `SpacesView`) + `pnpm typecheck`.
 
-**2026-10-25 — P12 hosted-agent parity: T72 opt-in repo setup, plus T71 and T87 (branch `capy-parity`).**
+**2026-10-25 — P12 Capy parity: T72 opt-in repo setup, plus T71 and T87 (branch `capy-parity`).**
 
 *T72 (owner chose opt-in per run):*
 - `runSetup` is part of the approval hash and threaded like `testCommand`: approval, queue input, hash check, replay compare, run record, mint evidence, dispatch envelope.
@@ -54,7 +54,7 @@
 - `scripts.refresh`, named `entries` and the Setup tab (T74) aren't built.
 - Dictation was not tried in a real browser.
 
-**2026-10-24 — P12 hosted-agent parity: T67 reasoning effort + T68 per-run environment variables (branch `capy-parity`).**
+**2026-10-24 — P12 Capy parity: T67 reasoning effort + T68 per-run environment variables (branch `capy-parity`).**
 
 *T67:*
 - The effort chip lists only levels the selected harness accepts.
@@ -249,7 +249,7 @@ Multi-agent pass closing VERIFICATION_PLAN.md §3 gaps and finishing the Inter +
 
 **2026-09-19 (missions + quality gates surfaces — 407 tests)**
 
-Agent-parity surfaces, verified live on `wrangler dev` (:8788):
+Factory/Droid-parity surfaces, verified live on `wrangler dev` (:8788):
 
 - **Missions** (`dashboard/src/components/MissionsView.tsx`): standing goals as `mission: true` automations — a scheduled trigger carries a `run_when` gate ("does this goal still have unfinished work?") plus a manual check-in trigger. `Automation.mission` added to the record, `CreateAutomationInput`, and create path (`src/automations.ts`); `publicAutomation` serializes it. Live-verified: `POST /api/automations` with `mission:true` → stored, listed, serialized; `POST /api/automations/{id}/run` fired the check-in and the queue refused (400 — automations request `publishPullRequest`, no `GITHUB_TOKEN` locally: fail-closed as designed). Honest scope: recurring gated check-ins, not checkpointed multi-day processes — no resumable agent memory between runs.
 - **Quality Gates** (`dashboard/src/components/GatesView.tsx`): Code Review / QA / Security Review cards that build typed task prompts and queue through the same `POST /api/runs` approval path. Live-verified: security gate prompt → `200`, `approvalId` issued, pending approval persisted. No bypass — a human still approves before a container starts.
@@ -1190,7 +1190,7 @@ Audit findings T1-T7 / D9-D12-D13 against `devin/1791266355-tests-dx`.
 
 ## 2026-11-01 — Documentation workspace refresh (local)
 
-- Added a responsive Starlight header, section navigation, and documentation styling while retaining Shiba's cream/navy identity and native search, theme control, and mobile sidebar.
+- Added a responsive Starlight header, section navigation, and documentation styling inspired by Capy and Overlay while retaining Shiba's cream/navy identity and native search, theme control, and mobile sidebar.
 - Reorganized the existing URLs into Get started, Employees & work, Workspace, Integrations, Self-hosting, Developer reference, and Help. Rebuilt `/docs/overview/` as the welcome page; legacy `/welcome/` redirects there.
 - Added Employees and Skills guides, rewrote Quickstart, and reconciled Threads/results guidance with the marketing branch's implementation. This branch offers Engineering, Marketing, Research, and Operations presets; Design/QA use custom profiles. Skills remain browser-local notes.
 - Updated built-marketing assertions for the existing employee positioning. Sitemap verification now excludes explicitly noindex redirects and design previews.

@@ -1,5 +1,7 @@
-/** Owner-scoped, self-hostable memory notes and source references. */
+/** Owner-scoped, self-hostable memory notes and source references in clean panel style. */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type JSX } from "react";
+import { Database, FileText, Search, Upload } from "lucide-react";
+import { EmptyState } from "./ui/ContextPanel";
 
 type SourceKind = "note" | "document" | "conversation" | "reference" | "other";
 export interface MemorySource {
@@ -52,11 +54,11 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const FIELD =
-  "w-full border border-[var(--line)] bg-[var(--paper)] px-2.5 py-2 text-sm text-[var(--ink)] placeholder:text-[var(--ink-2)] focus:outline-none focus:border-[var(--navy)]";
+  "w-full border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400";
 const BUTTON =
-  "border border-[var(--line)] bg-[var(--card)] px-3 py-1.5 text-xs text-[var(--ink)] shadow-[2px_2px_0_var(--paper-shadow)] hover:bg-[var(--panel-2)] disabled:opacity-50";
+  "border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-[#0a0a0a] dark:text-zinc-100 rounded-lg hover:bg-[#f4f4f5] dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors";
 const PRIMARY =
-  "border border-[var(--navy)] bg-[var(--navy)] px-3 py-1.5 text-xs text-white shadow-[2px_2px_0_var(--paper-shadow)] hover:bg-[var(--navy-2)] disabled:opacity-50";
+  "bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-xs font-medium rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors shadow-xs";
 const KINDS: SourceKind[] = ["note", "document", "conversation", "reference", "other"];
 
 export function MemorySourcesView(): JSX.Element {
@@ -336,21 +338,21 @@ export function MemorySourcesView(): JSX.Element {
   return (
     <section
       aria-label="Workspace memory sources"
-      className="flex flex-col gap-4 text-[var(--ink)]"
+      className="flex flex-col gap-4 text-[#0a0a0a] dark:text-zinc-100"
     >
-      <header className="border border-[var(--line)] bg-[var(--card)] shadow-[2px_2px_0_var(--paper-shadow)]">
-        <div className="flex items-center justify-between border-b border-[var(--line)] bg-[var(--paper-title)] px-3 py-2 text-xs font-mono text-[var(--paper-title-fg)]">
+      <header className="border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 shadow-xs overflow-hidden">
+        <div className="flex items-center justify-between border-b border-[#e4e4e7] dark:border-zinc-800 bg-[#fafafa] dark:bg-zinc-800/60 px-4 py-2.5 text-xs font-mono text-[#71717a] dark:text-zinc-400">
           <span>WORKSPACE MEMORY · OWNER PRIVATE</span>
-          <button className="text-[10px] underline" onClick={() => void load()} type="button">
+          <button className="text-[11px] underline hover:text-[#0a0a0a] dark:hover:text-zinc-100 transition-colors" onClick={() => void load()} type="button">
             Sync
           </button>
         </div>
-        <div className="p-3 text-sm">
-          <p>
+        <div className="p-4 text-sm">
+          <p className="text-[13px] text-[#0a0a0a] dark:text-zinc-200">
             Private extracted text is stored in Shiba’s local SQLite-backed Durable Object; uploaded file versions stay in private storage. Retrieval
             uses local keyword ranking; source text is treated as untrusted reference data.
           </p>
-          <p className="mt-1 text-xs text-[var(--ink-2)]">
+          <p className="mt-1 text-xs text-[#71717a] dark:text-zinc-400">
             {activeCount} active sources · default retention is 365 days · “Keep until deleted”
             removes the expiry.
           </p>
@@ -360,42 +362,48 @@ export function MemorySourcesView(): JSX.Element {
       {error ? (
         <div
           role="alert"
-          className="border border-[var(--danger)] p-2 text-sm text-[var(--danger)]"
+          className="border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/60 p-3 rounded-xl text-xs text-rose-800 dark:text-rose-300"
         >
           {error}
         </div>
       ) : null}
       {notice ? (
-        <div role="status" className="border border-[var(--ok)] p-2 text-sm text-[var(--ok)]">
+        <div role="status" className="border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/60 p-3 rounded-xl text-xs text-emerald-800 dark:text-emerald-300">
           {notice}
         </div>
       ) : null}
 
-      <form onSubmit={(event) => void upload(event)} className="flex flex-col gap-2 border border-[var(--line)] bg-[var(--card)] p-3">
-        <h3 className="font-serif text-lg">Upload source file</h3>
-        <p className="text-xs">TXT and Markdown only, UTF-8, at most 40000 bytes. PDF, Office, archives, HTML and SVG are unsupported. Files become ready after validation and private storage succeed. Recall expiry excludes text; original files remain stored until Delete.</p>
-        <label className="text-xs">TXT or Markdown file
-          <input ref={uploadInput} type="file" accept=".txt,.md,text/plain,text/markdown" disabled={busy} onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} />
+      <form onSubmit={(event) => void upload(event)} className="flex flex-col gap-2.5 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs">
+        <h3 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100">Upload source file</h3>
+        <p className="text-xs text-[#71717a] dark:text-zinc-400">TXT and Markdown only, UTF-8, at most 40000 bytes. PDF, Office, archives, HTML and SVG are unsupported. Files become ready after validation and private storage succeed. Recall expiry excludes text; original files remain stored until Delete.</p>
+        <label className="text-xs font-medium text-[#71717a] dark:text-zinc-400 flex flex-col gap-1.5">TXT or Markdown file
+          <input ref={uploadInput} type="file" accept=".txt,.md,text/plain,text/markdown" disabled={busy} onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} className="text-xs text-[#71717a] dark:text-zinc-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-[#f4f4f5] dark:file:bg-zinc-800 file:text-[#0a0a0a] dark:file:text-zinc-100 hover:file:bg-zinc-200 dark:hover:file:bg-zinc-700" />
         </label>
-        <button type="submit" disabled={busy || !uploadFile} className={PRIMARY}>{uploadBusy.current ? "Validating and storing…" : "Upload file"}</button>
+        <div className="flex justify-start pt-1">
+          <button type="submit" disabled={busy || !uploadFile} className={PRIMARY}>{uploadBusy.current ? "Validating and storing…" : "Upload file"}</button>
+        </div>
       </form>
-      {cleanupPending.length ? <section aria-label="Pending file cleanup" className="border border-[var(--line)] p-3 text-xs">
-        <p>These removed or uncommitted file versions are excluded from retrieval. Stored file deletion is pending.</p>
-        {cleanupPending.map((item) => <p key={item.id}>{item.filename} <button type="button" disabled={busy} className={BUTTON} onClick={() => void retryCleanup(item.id)}>Retry file cleanup</button></p>)}
+      {cleanupPending.length ? <section aria-label="Pending file cleanup" className="border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 rounded-xl p-3.5 text-xs">
+        <p className="text-amber-800 dark:text-amber-300 font-medium">These removed or uncommitted file versions are excluded from retrieval. Stored file deletion is pending.</p>
+        <div className="mt-2 flex flex-col gap-1">
+          {cleanupPending.map((item) => <p key={item.id} className="flex items-center gap-2">{item.filename} <button type="button" disabled={busy} className={BUTTON} onClick={() => void retryCleanup(item.id)}>Retry file cleanup</button></p>)}
+        </div>
       </section> : null}
-      {uploadsPending.length ? <section aria-label="Unresolved uploads" className="border border-[var(--line)] p-3 text-xs">
+      {uploadsPending.length ? <section aria-label="Unresolved uploads" className="border border-[#e4e4e7] dark:border-zinc-800 bg-[#fafafa] dark:bg-zinc-900 rounded-xl p-3.5 text-xs text-[#71717a] dark:text-zinc-400">
         <p>These uploads have no committed new version. Reload to check progress. Interrupted writes require operator reconciliation; cleanup cannot safely delete an upload still in progress.</p>
-        {uploadsPending.map((item) => <p key={item.id}>{item.filename}</p>)}
+        <div className="mt-2 flex flex-col gap-1">
+          {uploadsPending.map((item) => <p key={item.id}>{item.filename}</p>)}
+        </div>
       </section> : null}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.8fr)]">
         <form
           onSubmit={(event) => void save(event)}
-          className="flex flex-col gap-2 border border-[var(--line)] bg-[var(--card)] p-3 shadow-[2px_2px_0_var(--paper-shadow)]"
+          className="flex flex-col gap-2.5 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs"
         >
-          <h3 className="font-serif text-lg">{editing ? "Edit source" : "Add to memory"}</h3>
-          {editingVersion !== null ? <p className="text-xs">Current source version: {editingVersion}. Saving corrections creates a new immutable version.</p> : null}
-          <label className="text-xs font-mono">
+          <h3 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100">{editing ? "Edit source" : "Add to memory"}</h3>
+          {editingVersion !== null ? <p className="text-xs text-[#71717a] dark:text-zinc-400">Current source version: {editingVersion}. Saving corrections creates a new immutable version.</p> : null}
+          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
             TITLE
             <input
               required
@@ -405,7 +413,7 @@ export function MemorySourcesView(): JSX.Element {
               onChange={(event) => setTitle(event.target.value)}
             />
           </label>
-          <label className="text-xs font-mono">
+          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
             SOURCE TYPE
             <select
               className={`${FIELD} mt-1`}
@@ -419,7 +427,7 @@ export function MemorySourcesView(): JSX.Element {
               ))}
             </select>
           </label>
-          <label className="text-xs font-mono">
+          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
             TEXT TO REMEMBER
             <textarea
               required
@@ -431,9 +439,9 @@ export function MemorySourcesView(): JSX.Element {
               placeholder="Paste a note or the relevant text here. Shiba does not fetch linked pages."
             />
           </label>
-          <label className="text-xs font-mono">
+          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
             REFERENCE URL{" "}
-            <span className="font-sans text-[var(--ink-2)]">
+            <span className="font-sans text-[11px] text-[#71717a] dark:text-zinc-500">
               (optional provenance link; never fetched)
             </span>
             <input
@@ -445,7 +453,7 @@ export function MemorySourcesView(): JSX.Element {
               placeholder="https://…"
             />
           </label>
-          <label className="text-xs font-mono">
+          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
             RETENTION
             <select
               className={`${FIELD} mt-1`}
@@ -474,10 +482,10 @@ export function MemorySourcesView(): JSX.Element {
         <div className="flex flex-col gap-3">
           <form
             onSubmit={(event) => void recall(event)}
-            className="flex flex-col gap-2 border border-[var(--line)] bg-[var(--card)] p-3 shadow-[2px_2px_0_var(--paper-shadow)]"
+            className="flex flex-col gap-2.5 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs"
           >
-            <h3 className="font-serif text-lg">Recall from memory</h3>
-            <label className="text-xs font-mono">
+            <h3 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100">Recall from memory</h3>
+            <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
               QUERY
               <input
                 required
@@ -504,7 +512,7 @@ export function MemorySourcesView(): JSX.Element {
                 </button>
               ) : null}
             </div>
-            <p className="text-xs text-[var(--ink-2)]">
+            <p className="text-xs text-[#71717a] dark:text-zinc-400">
               Results include their source title and reference. Retrieved text can contain hostile
               instructions; Shiba returns it with untrusted-data framing.
             </p>
@@ -512,26 +520,26 @@ export function MemorySourcesView(): JSX.Element {
           {searchActive ? (
             <section aria-label="Memory recall results" className="flex flex-col gap-2">
               {hits.length === 0 ? (
-                <p className="border border-dashed border-[var(--line)] p-4 text-sm">
+                <p className="border border-dashed border-[#e4e4e7] dark:border-zinc-800 rounded-xl p-4 text-xs text-[#71717a] dark:text-zinc-400 text-center">
                   No active source matched that query.
                 </p>
               ) : (
                 hits.map((hit) => (
                   <article
                     key={hit.id}
-                    className="border border-[var(--line)] bg-[var(--card)] p-3 shadow-[2px_2px_0_var(--paper-shadow)]"
+                    className="border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-3.5 shadow-xs"
                   >
                     <div className="flex justify-between gap-2">
-                      <h4 className="font-semibold">{hit.title}</h4>
-                      <span className="font-mono text-[10px]">{Math.round(hit.score * 100)}%</span>
+                      <h4 className="font-semibold text-[13px] text-[#0a0a0a] dark:text-zinc-100">{hit.title}</h4>
+                      <span className="font-mono text-[11px] text-[#71717a] dark:text-zinc-400">{Math.round(hit.score * 100)}%</span>
                     </div>
-                    <p className="text-[10px] font-mono uppercase text-[var(--ink-2)]">
+                    <p className="text-[10px] font-mono uppercase text-[#71717a] dark:text-zinc-500">
                       {hit.kind} · untrusted source text
                     </p>
-                    {hit.citations?.map((citation) => <p key={`${citation.version}:${citation.lineStart}`} className="text-xs break-all">v{citation.version} · line {citation.lineStart}{citation.section ? ` · ${citation.section}` : ""}{citation.textTruncated ? " · excerpt" : ""} · SHA-256 {citation.sha256}</p>)}
+                    {hit.citations?.map((citation) => <p key={`${citation.version}:${citation.lineStart}`} className="text-xs break-all text-[#71717a] dark:text-zinc-400">v{citation.version} · line {citation.lineStart}{citation.section ? ` · ${citation.section}` : ""}{citation.textTruncated ? " · excerpt" : ""} · SHA-256 {citation.sha256}</p>)}
                     {hit.referenceUrl ? (
                       <a
-                        className="text-xs text-[var(--navy)] underline break-all"
+                        className="text-xs text-blue-600 dark:text-blue-400 underline break-all"
                         href={hit.referenceUrl}
                         target="_blank"
                         rel="noreferrer"
@@ -539,7 +547,7 @@ export function MemorySourcesView(): JSX.Element {
                         {hit.referenceUrl}
                       </a>
                     ) : null}
-                    <pre className="mt-2 whitespace-pre-wrap break-words border border-[var(--line)] bg-[var(--paper)] p-2 text-xs font-sans">
+                    <pre className="mt-2 whitespace-pre-wrap break-words border border-[#e4e4e7] dark:border-zinc-800 rounded-lg bg-[#fafafa] dark:bg-zinc-800/60 p-2.5 text-xs font-sans text-[#0a0a0a] dark:text-zinc-200">
                       {hit.content}
                     </pre>
                   </article>
@@ -552,47 +560,48 @@ export function MemorySourcesView(): JSX.Element {
 
       <section
         aria-label="Workspace projects"
-        className="flex flex-col gap-3 border border-[var(--line)] bg-[var(--card)] p-3 shadow-[2px_2px_0_var(--paper-shadow)]"
+        className="flex flex-col gap-3 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs"
       >
         <div>
-          <h3 className="font-serif text-xl">Project context</h3>
-          <p className="text-xs text-[var(--ink-2)]">
+          <h3 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100">Project context</h3>
+          <p className="text-xs text-[#71717a] dark:text-zinc-400">
             Projects select existing sources and employee defaults. Nothing is fetched from
             reference URLs. Edits affect future approvals; approved tasks keep their frozen
             snapshots.
           </p>
         </div>
-        <form onSubmit={(event) => void saveProject(event)} className="grid gap-2 md:grid-cols-2">
-          <label className="text-xs font-mono">
+        <form onSubmit={(event) => void saveProject(event)} className="grid gap-3 md:grid-cols-2">
+          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
             PROJECT NAME
             <input
               required
               maxLength={120}
               aria-label="Project name"
-              className={`${FIELD} mt-1`}
+              className={`${FIELD} mt-1 font-sans`}
               value={projectName}
               onChange={(event) => setProjectName(event.target.value)}
             />
           </label>
-          <label className="text-xs font-mono">
+          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
             PURPOSE
             <textarea
               maxLength={1000}
               aria-label="Project purpose"
-              className={`${FIELD} mt-1`}
+              className={`${FIELD} mt-1 font-sans resize-y`}
+              rows={2}
               value={projectPurpose}
               onChange={(event) => setProjectPurpose(event.target.value)}
             />
           </label>
           <fieldset className="flex flex-col gap-1 text-xs md:col-span-2">
-            <legend className="font-mono">APPROVED SOURCES (MAX 8)</legend>
+            <legend className="font-mono text-[#71717a] dark:text-zinc-400 mb-1">APPROVED SOURCES (MAX 8)</legend>
             {sources.length ? (
               sources.map((source) => {
                 const active =
                   source.disabledAt === null &&
                   (source.expiresAt === null || source.expiresAt > Date.now());
                 return (
-                  <label key={source.id} className="flex items-center gap-2">
+                  <label key={source.id} className="flex items-center gap-2 text-[#0a0a0a] dark:text-zinc-200">
                     <input
                       type="checkbox"
                       disabled={!active && !projectSourceIds.includes(source.id)}
@@ -605,38 +614,38 @@ export function MemorySourcesView(): JSX.Element {
                         )
                       }
                     />
-                    {source.title}
-                    {active ? "" : " · unavailable"}
+                    <span>{source.title}</span>
+                    {active ? "" : <span className="text-[#71717a] dark:text-zinc-500">· unavailable</span>}
                   </label>
                 );
               })
             ) : (
-              <span className="text-[var(--ink-2)]">Add a memory source first.</span>
+              <span className="text-[#71717a] dark:text-zinc-500">Add a memory source first.</span>
             )}
           </fieldset>
-          <label className="text-xs font-mono">
+          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
             DEFAULT EMPLOYEE ID
             <input
               maxLength={128}
               aria-label="Default employee ID"
-              className={`${FIELD} mt-1`}
+              className={`${FIELD} mt-1 font-sans`}
               value={projectAgent}
               onChange={(event) => setProjectAgent(event.target.value)}
               placeholder="Optional; apply explicitly in composer"
             />
           </label>
-          <label className="text-xs font-mono">
+          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
             DEFAULT HARNESS
             <input
               maxLength={64}
               aria-label="Default harness"
-              className={`${FIELD} mt-1`}
+              className={`${FIELD} mt-1 font-sans`}
               value={projectHarness}
               onChange={(event) => setProjectHarness(event.target.value)}
               placeholder="Optional; apply explicitly in composer"
             />
           </label>
-          <div className="flex gap-2 md:col-span-2">
+          <div className="flex gap-2 md:col-span-2 pt-1">
             <button disabled={busy} className={PRIMARY} type="submit">
               {projectEditing ? "Save project" : "Create project"}
             </button>
@@ -648,15 +657,15 @@ export function MemorySourcesView(): JSX.Element {
           </div>
         </form>
         {projects.length ? (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 pt-1">
             {projects.map((project) => (
               <article
                 key={project.id}
-                className="flex flex-wrap items-center justify-between gap-2 border border-[var(--line)] p-2 text-sm"
+                className="flex flex-wrap items-center justify-between gap-2 border border-[#e4e4e7] dark:border-zinc-800 rounded-lg p-2.5 text-xs bg-[#fafafa] dark:bg-zinc-800/50"
               >
                 <div>
-                  <strong>{project.name}</strong>
-                  <p className="text-xs text-[var(--ink-2)]">
+                  <strong className="text-[13px] text-[#0a0a0a] dark:text-zinc-100">{project.name}</strong>
+                  <p className="text-xs text-[#71717a] dark:text-zinc-400">
                     v{project.version} · {project.sourceIds.length} sources ·{" "}
                     {project.disabledAt === null ? "active" : "disabled"}
                   </p>
@@ -677,19 +686,21 @@ export function MemorySourcesView(): JSX.Element {
             ))}
           </div>
         ) : (
-          <p className="text-xs text-[var(--ink-2)]">No projects saved.</p>
+          <p className="text-xs text-[#71717a] dark:text-zinc-500">No projects saved.</p>
         )}
       </section>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2.5">
         <div className="flex items-center justify-between">
-          <h3 className="font-serif text-xl">Sources you control</h3>
-          <span className="font-mono text-[10px] text-[var(--ink-2)]">{sources.length} stored</span>
+          <h3 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100">Sources you control</h3>
+          <span className="font-mono text-[11px] text-[#71717a] dark:text-zinc-400">{sources.length} stored</span>
         </div>
         {sources.length === 0 ? (
-          <p className="border border-dashed border-[var(--line)] p-5 text-sm text-[var(--ink-2)]">
-            No private sources saved. Add a note above to give Shiba durable, inspectable context.
-          </p>
+          <EmptyState
+            icon={Database}
+            title="No private sources saved"
+            description="Add a note or upload a TXT/Markdown file to give Shiba durable, inspectable context."
+          />
         ) : (
           sources.map((source) => {
             const expired = source.expiresAt !== null && source.expiresAt <= Date.now();
@@ -697,12 +708,12 @@ export function MemorySourcesView(): JSX.Element {
             return (
               <article
                 key={source.id}
-                className="border border-[var(--line)] bg-[var(--card)] p-3 shadow-[2px_2px_0_var(--paper-shadow)]"
+                className="border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <h4 className="font-semibold">{source.title}</h4>
-                    <p className="font-mono text-[10px] uppercase text-[var(--ink-2)]">
+                    <h4 className="font-semibold text-[13px] text-[#0a0a0a] dark:text-zinc-100">{source.title}</h4>
+                    <p className="font-mono text-[11px] uppercase text-[#71717a] dark:text-zinc-400">
                       {source.kind} · {state} ·{" "}
                       {source.retentionDays === null
                         ? "manual deletion"
@@ -710,10 +721,10 @@ export function MemorySourcesView(): JSX.Element {
                           ? `expires ${new Date(source.expiresAt).toLocaleDateString()}`
                           : "retention deadline unavailable"}
                     </p>
-                    {source.ingestion ? <p className="text-xs break-all">Extraction: {source.ingestion.state} · version {source.version} · {source.ingestion.bytes} bytes · SHA-256 {source.sha256}</p> : <p className="text-xs">Pasted note; upload TXT/Markdown to pin an immutable task source.</p>}
+                    {source.ingestion ? <p className="text-xs break-all text-[#71717a] dark:text-zinc-400">Extraction: {source.ingestion.state} · version {source.version} · {source.ingestion.bytes} bytes · SHA-256 {source.sha256}</p> : <p className="text-xs text-[#71717a] dark:text-zinc-400">Pasted note; upload TXT/Markdown to pin an immutable task source.</p>}
                     {source.referenceUrl ? (
                       <a
-                        className="text-xs text-[var(--navy)] underline break-all"
+                        className="text-xs text-blue-600 dark:text-blue-400 underline break-all"
                         href={source.referenceUrl}
                         target="_blank"
                         rel="noreferrer"
@@ -722,7 +733,7 @@ export function MemorySourcesView(): JSX.Element {
                       </a>
                     ) : null}
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1.5 shrink-0">
                     <button type="button" className={BUTTON} onClick={() => edit(source)}>
                       Inspect / edit
                     </button>
@@ -739,18 +750,18 @@ export function MemorySourcesView(): JSX.Element {
                     <button
                       type="button"
                       disabled={busy}
-                      className="border border-[var(--danger)] px-2 py-1 text-xs text-[var(--danger)]"
+                      className="border border-rose-200 dark:border-rose-900 px-2.5 py-1 text-xs text-rose-600 dark:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors"
                       onClick={() => void remove(source)}
                     >
                       Delete
                     </button>
                   </div>
                 </div>
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-xs text-[var(--ink-2)]">
+                <details className="mt-2.5">
+                  <summary className="cursor-pointer text-xs text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100">
                     Inspect stored text
                   </summary>
-                  <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words border border-[var(--line)] bg-[var(--paper)] p-2 text-xs font-sans">
+                  <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words border border-[#e4e4e7] dark:border-zinc-800 rounded-lg bg-[#fafafa] dark:bg-zinc-800/60 p-2.5 text-xs font-sans text-[#0a0a0a] dark:text-zinc-200">
                     {source.content}
                   </pre>
                 </details>

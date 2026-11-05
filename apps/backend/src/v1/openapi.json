@@ -3,7 +3,7 @@
   "info": {
     "title": "Shiba public API",
     "version": "1.0.0",
-    "description": "Self-hosted /api/v1 surface with stable, predictable resource names. Authentication uses org-scoped API keys (Bearer shk_\u2026) minted in the dashboard."
+    "description": "Self-hosted /api/v1 surface aligned with Capy resource names where practical. Authentication uses org-scoped API keys (Bearer shk_\u2026) minted in the dashboard."
   },
   "servers": [
     {

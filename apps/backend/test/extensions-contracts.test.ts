@@ -51,7 +51,7 @@ describe("extension scopes", () => {
 });
 
 describe("extension schemas and safe list projections", () => {
-  it("parses skills and keeps instructions out of directory items", () => {
+  it("parses Overlay-shaped skills and keeps instructions out of directory items", () => {
     const skill = skillSchema.parse({
       id: "skill-1", userId: "user-a", name: "Review", description: "Review code", instructions: "Long prompt",
       createdAt: 1, updatedAt: 2,

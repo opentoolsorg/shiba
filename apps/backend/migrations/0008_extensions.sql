@@ -1,5 +1,5 @@
 -- The existing `skills` table stores Shiba's reviewed, versioned authored
--- skills. Extension skills have a different lifecycle and shape, so
+-- skills. Overlay's extension skills have a different lifecycle and shape, so
 -- they use `extension_skills` instead of colliding with that deployed table.
 CREATE TABLE IF NOT EXISTS extension_skills (
   id TEXT PRIMARY KEY,

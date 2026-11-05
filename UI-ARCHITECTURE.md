@@ -216,7 +216,7 @@ run view
 
 Three rules for this view specifically:
 
-**The approval card is the primary object, not a modal.** t3code and the reference agent both
+**The approval card is the primary object, not a modal.** t3code and Roomote both
 put it inline in the timeline. A modal interrupts; an inline card is part of the
 record of what was approved and what happened next.
 

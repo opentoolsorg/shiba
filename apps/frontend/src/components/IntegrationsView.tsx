@@ -8,6 +8,7 @@
  * supported yet — no fake toggles.
  */
 import { useEffect, useMemo, useState, type JSX, type ReactNode } from "react";
+import { ChevronRight, Plus } from "lucide-react";
 import type { AcpProvidersSnapshot, McpCapabilityDirectoryEntry, McpCapabilityInvocationReceipt } from "@shiba/shared";
 import { type SetupStatus, useMailboxes, useSetupStatus } from "../live-status";
 import { useSavedSkills } from "../saved";
@@ -23,6 +24,7 @@ import type { IntegrationBindingInputs } from "../integration-connection-binding
 import { SkillsView } from "./SkillsView";
 import { ExtensionMcpServersView } from "./ExtensionMcpServersView";
 import { WorkspaceConnectorsPanel } from "./WorkspaceConnectorsPanel";
+import { MainCard, type Scope } from "./ui/ContextPanel";
 
 function IntegrationRow({
   name,
@@ -127,15 +129,19 @@ function linearChip(linear: SetupStatus["linear"] | undefined, loading: boolean)
   return <ToneChip tone="neutral" label="Not set up" />;
 }
 
+export interface IntegrationsViewProps {
+  onNavigate?: (view: AppNavView) => void;
+  initialTab?: "skills" | "mcp" | "connectors";
+  actorId?: string | null;
+  scope?: Scope;
+}
+
 export function IntegrationsView({
   onNavigate,
   initialTab,
   actorId,
-}: {
-  onNavigate?: (view: AppNavView) => void;
-  initialTab?: "skills" | "mcp" | "connectors";
-  actorId?: string | null;
-}): JSX.Element {
+  scope = "personal",
+}: IntegrationsViewProps): JSX.Element {
   const setup = useSetupStatus();
   const mailboxes = useMailboxes();
   const savedSkills = useSavedSkills();
@@ -491,63 +497,109 @@ export function IntegrationsView({
     return items;
   }, [status, mailboxes.state, providers, savedSkills, toolDirectory, libraryCatalog, spacesCatalog]);
 
+  const scopeCrumb = scope === "workspace" ? "Workspace" : "Personal";
+  const sectionCrumb = activeTab === "skills" ? "Skills" : activeTab === "mcp" ? "MCP Servers" : "Connectors";
+  const crumbs = [scopeCrumb, "Extensions", sectionCrumb];
+
   return (
-    <div className="min-h-0 min-w-0 w-full flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-      <div className="min-w-0 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex flex-col items-start justify-between gap-3 lg:flex-row lg:gap-4">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
-            <span>Integrations</span>
-          </h2>
-          <p className="text-xs text-[var(--muted-foreground-2)]">
-            Third-party apps and channels your agents can reach — connect once, use everywhere.
-          </p>
-        </div>
-        {activeTab === "connectors" ? <div className="flex min-w-0 w-full flex-wrap gap-2 lg:w-auto lg:max-w-[60%] lg:justify-end">
-          {showCapabilityCatalog ? (
+    <MainCard className="bg-white dark:bg-zinc-900">
+      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
+          <ol className="flex items-center gap-1.5 min-w-0">
+            {crumbs.map((crumb, idx) => {
+              const isLast = idx === crumbs.length - 1;
+              return (
+                <li key={`${crumb}-${idx}`} className="flex items-center gap-1.5 min-w-0">
+                  {idx > 0 ? (
+                    <ChevronRight className="size-3.5 text-[#71717a] shrink-0 dark:text-zinc-500" strokeWidth={1.5} aria-hidden="true" />
+                  ) : null}
+                  <span
+                    className={isLast ? "truncate text-[14px] font-medium text-[#0a0a0a] dark:text-zinc-100" : "truncate text-[14px] text-[#71717a] dark:text-zinc-400"}
+                    aria-current={isLast ? "page" : undefined}
+                  >
+                    {crumb}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {activeTab === "connectors" ? (
             <button
               type="button"
               onClick={() => {
-                setup.reload();
-                mailboxes.reload();
-                setCatalogRefresh((value) => value + 1);
+                const input = document.querySelector('input[aria-label="Search app accounts"]') || document.querySelector('input[aria-label="Search integrations"]');
+                if (input instanceof HTMLElement) {
+                  input.focus();
+                  input.scrollIntoView({ behavior: "smooth", block: "center" });
+                }
               }}
-              className="min-h-11 max-w-full whitespace-normal border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
-              aria-label="Refresh integration status"
+              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
-              Refresh status
+              <Plus className="size-3.5" /> New Connector
             </button>
           ) : null}
-          {!showCapabilityCatalog ? (
+        </div>
+      </header>
+
+      <div className="min-h-0 min-w-0 w-full flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+        <div className="min-w-0 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex flex-col items-start justify-between gap-3 lg:flex-row lg:gap-4">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
+              <span>Integrations</span>
+            </h2>
+            <p className="text-xs text-[var(--muted-foreground-2)]">
+              Third-party apps and channels your agents can reach — connect once, use everywhere.
+            </p>
+          </div>
+          {activeTab === "connectors" ? <div className="flex min-w-0 w-full flex-wrap gap-2 lg:w-auto lg:max-w-[60%] lg:justify-end">
+            {showCapabilityCatalog ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setup.reload();
+                  mailboxes.reload();
+                  setCatalogRefresh((value) => value + 1);
+                }}
+                className="min-h-11 max-w-full whitespace-normal border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
+                aria-label="Refresh integration status"
+              >
+                Refresh status
+              </button>
+            ) : null}
+            {!showCapabilityCatalog ? (
+              <button
+                type="button"
+                onClick={() => setShowSetupDetails((shown) => !shown)}
+                className="min-h-11 max-w-full whitespace-normal border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
+                aria-pressed={showSetupDetails}
+              >
+                {showSetupDetails ? "Hide setup details" : "Show setup details"}
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={() => setShowSetupDetails((shown) => !shown)}
+              onClick={() => {
+                setShowCapabilityCatalog((shown) => !shown);
+                if (!showCapabilityCatalog) setShowSetupDetails(false);
+              }}
               className="min-h-11 max-w-full whitespace-normal border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
-              aria-pressed={showSetupDetails}
+              aria-pressed={showCapabilityCatalog}
             >
-              {showSetupDetails ? "Hide setup details" : "Show setup details"}
+              {showCapabilityCatalog ? "Back to integration catalog" : "Browse capability catalog"}
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              setShowCapabilityCatalog((shown) => !shown);
-              if (!showCapabilityCatalog) setShowSetupDetails(false);
-            }}
-            className="min-h-11 max-w-full whitespace-normal border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
-            aria-pressed={showCapabilityCatalog}
-          >
-            {showCapabilityCatalog ? "Back to integration catalog" : "Browse capability catalog"}
-          </button>
-        </div> : null}
-      </div>
-      <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8" role="tablist" aria-label="Integration category">
-        {([['skills', 'Skills'], ['mcp', 'MCP servers'], ['connectors', 'Connectors']] as const).map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={activeTab === id} onClick={() => selectTab(id)} className={`min-h-11 shrink-0 border-b-2 px-3 text-xs font-semibold transition-colors ${activeTab === id ? "border-[var(--primary)] text-[var(--primary)]" : "border-transparent text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-      {activeTab === "skills" ? <SkillsView embedded /> : activeTab === "mcp" ? <ExtensionMcpServersView /> : showCapabilityCatalog ? (
+          </div> : null}
+        </div>
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8" role="tablist" aria-label="Integration category">
+          {([['skills', 'Skills'], ['mcp', 'MCP servers'], ['connectors', 'Connectors']] as const).map(([id, label]) => (
+            <button key={id} type="button" role="tab" aria-selected={activeTab === id} onClick={() => selectTab(id)} className={`min-h-11 shrink-0 border-b-2 px-3 text-xs font-semibold transition-colors ${activeTab === id ? "border-[var(--primary)] text-[var(--primary)]" : "border-transparent text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {activeTab === "skills" ? <SkillsView embedded scope={scope} /> : activeTab === "mcp" ? <ExtensionMcpServersView scope={scope} /> : showCapabilityCatalog ? (
         <div className="min-h-0 flex-1">
           {providersError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{providersError} Provider state may be stale. Retry refresh before relying on the last displayed state.</p> : null}
           {toolDirectoryError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{toolDirectoryError} MCP schemas are withheld from the dashboard directory.</p> : null}
@@ -723,6 +775,7 @@ export function IntegrationsView({
           <WorkspaceConnectorsPanel bindingInputs={bindingInputs} actorId={actorId} onManagePermissions={() => onNavigate?.("employee-tools")} onChanged={() => setCatalogRefresh((value) => value + 1)} />
         </>
       )}
-    </div>
+      </div>
+    </MainCard>
   );
 }

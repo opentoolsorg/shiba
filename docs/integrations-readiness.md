@@ -77,7 +77,7 @@ for the registered employee approval path.
 
 OpenConnector's Shiba adapter currently addresses accounts by authenticated user;
 it has no separate workspace-owned connection identity or transfer lifecycle.
-Shared workspace service accounts therefore remain a product gap.
+Overlay-style shared workspace service accounts therefore remain a product gap.
 Joining a team must not expose another member's personal connected accounts.
 
 Sources: [adapter](../apps/backend/src/integrations/openconnector-provider.ts),
@@ -141,7 +141,29 @@ Sources: [draft installation](../apps/backend/src/skill-library/install.ts),
 [employee turn exposure](../apps/backend/src/agents/orchestrator.ts) and
 [founder setup](../apps/backend/src/founder-skills-routes.ts).
 
-## Acceptance limits
+## Overlay comparison and acceptance limits
+
+Reference checked against official Overlay commit
+[`1e1892e301506d08afcfce8bf9c670a6296940be`](https://github.com/LayerNorm/overlay-web/tree/1e1892e301506d08afcfce8bf9c670a6296940be).
+Its [Extensions documentation](https://github.com/LayerNorm/overlay-web/blob/1e1892e301506d08afcfce8bf9c670a6296940be/docs/help/extensions.mdx)
+groups connectors, skills and MCP, separates personal/workspace scope and provides
+disconnect and sharing controls. Its actual
+[apps UI](https://github.com/LayerNorm/overlay-web/blob/1e1892e301506d08afcfce8bf9c670a6296940be/src/features/integrations/components/IntegrationsView.tsx)
+and [MCP UI](https://github.com/LayerNorm/overlay-web/blob/1e1892e301506d08afcfce8bf9c670a6296940be/src/features/integrations/components/McpServersView.tsx)
+persist setup, open sign-in windows and refresh scoped account state. These are
+useful setup patterns; Shiba retains its own explicit approval and grant rules.
+Overlay's Composio/Executor integration counts do not describe OpenConnector.
+
+Overlay's [release inventory](https://github.com/LayerNorm/overlay-web/blob/1e1892e301506d08afcfce8bf9c670a6296940be/FEATURES.md)
+also distinguishes implemented/default-enabled features from provider credentials,
+permissions and actual adapters. Some advertised runtime modes are disabled or
+retired, and native Computers require a configured funded provider. Source review
+does not establish hosted-product parity or successful real-account execution.
+
+The reference's first-party material is AGPL-3.0-only; its separate
+[trademark policy](https://github.com/LayerNorm/overlay-web/blob/1e1892e301506d08afcfce8bf9c670a6296940be/TRADEMARKS.md)
+restricts branding and trade dress. This comparison uses original Shiba
+implementation and wording; no reference assets or source were copied.
 
 Local tests can establish setup, isolation, revocation and approval behavior with
 fixtures. Real acceptance additionally needs a deployed matching revision,

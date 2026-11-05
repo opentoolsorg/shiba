@@ -86,7 +86,7 @@ describe("marketing landing page", () => {
     expect(missing).toEqual([]);
   });
 
-  test("carries no third-party branding or scraped assets", () => {
+  test("carries no Capy branding or scraped assets", () => {
     expect(html().toLowerCase()).not.toContain("capy");
   });
 });

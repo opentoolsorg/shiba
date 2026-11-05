@@ -71,8 +71,15 @@ import { ApprovalsView } from "./components/ApprovalsView";
 import { InboxTab } from "./components/InboxTab";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { MemoryTab } from "./components/MemoryTab";
-import { SettingsModal } from "./components/SettingsModal";
-import type { SettingsSectionId } from "./components/settings-sections";
+import { SettingsPage, SettingsPanel } from "./components/SettingsPage";
+import { MainCard, type Scope } from "./components/ui/ContextPanel";
+import { AgentsPanel } from "./components/AgentsPanel";
+import { ChatsPanel } from "./components/ChatsPanel";
+import { ExtensionsPanel } from "./components/ExtensionsPanel";
+import { MailboxPanel, type MailboxCounts, type MailboxPanelItem } from "./components/MailboxPanel";
+import { MemoryPanel, type MemoryCounts } from "./components/MemoryPanel";
+import { InsightsPanel } from "./components/InsightsPanel";
+import { AutomationsPanel } from "./components/AutomationsView";
 import { TaskComposer } from "./components/TaskComposer";
 import { TaskHistory, type TaskHistoryItem } from "./components/TaskHistory";
 import { PullRequestCard } from "./components/PullRequestCard";
@@ -434,7 +441,7 @@ export function App(): React.JSX.Element {
   }, []);
   const [mainView, setMainView] = useState<MainView>(() => {
     const view = viewFromUrl();
-    return view && view !== "settings" ? view : DEFAULT_VIEW;
+    return view ?? DEFAULT_VIEW;
   });
   const currentNavigation = useRef({ view: mainView });
   if (currentNavigation.current.view !== mainView) currentNavigation.current = { view: mainView };
@@ -504,21 +511,24 @@ export function App(): React.JSX.Element {
     if (notice) toast(notice);
   }, [notice]);
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
-  const [memoryInitialView, setMemoryInitialView] = useState<"facts" | "sources">("facts");
-  // Settings is a popup, not a full view — every nav path that
-  // would land on "settings" opens the modal over the current view instead.
-  const [settingsModalOpen, setSettingsModalOpen] = useState(() => viewFromUrl() === "settings");
-  // Last section the user had open in the settings modal — reopening lands
-  // where they left off; deep links (e.g. the wizard's Models step) override it.
-  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>("account");
+  const [memoryView, setMemoryView] = useState<"facts" | "sources" | "sessions">("facts");
+  const [memoryCounts, setMemoryCounts] = useState<Partial<MemoryCounts>>({});
+  const [mailboxFolder, setMailboxFolder] = useState("inbox");
+  const [mailboxAddress, setMailboxAddress] = useState("");
+  const [mailboxCounts, setMailboxCounts] = useState<Partial<MailboxCounts>>({});
+  const [mailboxes, setMailboxes] = useState<MailboxPanelItem[]>([]);
+  const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
+  // Settings is a full page; the section lives in ?section= and "Back to app" returns to the previous view.
+  const [settingsSection, setSettingsSection] = useState<string>(() =>
+    typeof window === "undefined" ? "account" : new URLSearchParams(window.location.search).get("section") || "account");
+  const previousViewRef = useRef<MainView>(DEFAULT_VIEW);
   const openView = useCallback((view: AppNavView) => {
     setShowFirstRun(false);
-    // Settings is a popup, not a routable view — every nav path opens the modal.
-    if (view === "settings") {
-      setSettingsModalOpen(true);
-      return;
-    }
+    if (view === "settings") previousViewRef.current = currentNavigation.current.view === "settings" ? previousViewRef.current : currentNavigation.current.view;
     setMainView(view);
+  }, []);
+  const closeSettings = useCallback(() => {
+    setMainView((view) => (view === "settings" ? previousViewRef.current : view));
   }, []);
   // Once visited, the mailbox stays mounted (hidden) — its local state
   // (search text, selected thread, drafts) survives nav switches.
@@ -628,20 +638,25 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   useEffect(() => {
     const path = pathForView(mainView);
     const first = !urlSynced.current;
+    if (mainView === "settings") {
+      const target = `${path}?section=${encodeURIComponent(settingsSection)}`;
+      if (window.location.pathname + window.location.search === target) { urlSynced.current = true; return; }
+      if (first || window.location.pathname === path) router.history.replace(target);
+      else router.history.push(target);
+      urlSynced.current = true;
+      return;
+    }
     urlSynced.current = true;
     if (window.location.pathname === path) return;
     if (first) router.history.replace(path + window.location.search);
     else router.history.push(path);
-  }, [mainView, router]);
+  }, [mainView, settingsSection, router]);
 
   useEffect(() => {
     const onPop = () => {
       const view = viewFromUrl();
-      if (view === "settings") setSettingsModalOpen(true);
-      else {
-        setMainView(view ?? DEFAULT_VIEW);
-        setSettingsModalOpen(false);
-      }
+      setMainView(view ?? DEFAULT_VIEW);
+      if (view === "settings") setSettingsSection(new URLSearchParams(window.location.search).get("section") || "account");
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -680,6 +695,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [teamWorkspaceId, orchestratorName]);
   const teamWorkspace = teamDirectory.workspaces.find(item => item.workspaceId === teamWorkspaceId);
   const privateDataEnabled = signedIn && workspaceAuthorityReady && !teamDirectory.error && !teamWorkspaceId && !restrictedTeamMember;
+  const scope: Scope = teamWorkspaceId ? "workspace" : "personal";
+  const handleScopeChange = (next: Scope) => {
+    if (teamDirectory.loading) return;
+    if (next === "personal") { flushDraft(); teamDirectory.selectWorkspace(""); return; }
+    const rememberedId = orchestratorName ? lastTeamWorkspace(orchestratorName.trim().toLowerCase()) : "";
+    const remembered = rememberedId ? teamDirectory.workspaces.find((item) => item.workspaceId === rememberedId) : undefined;
+    const target = remembered ?? (teamDirectory.workspaces.length === 1 ? teamDirectory.workspaces[0] : undefined);
+    if (target) { flushDraft(); teamDirectory.selectWorkspace(target.workspaceId); } else openView("team");
+  };
   setSavedLibraryActor(privateDataEnabled ? orchestratorName : null);
   const savedRepos = useSavedRepos(privateDataEnabled ? orchestratorName : null);
   const savedSkills = useSavedSkills(privateDataEnabled ? orchestratorName : null);
@@ -933,7 +957,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // Better-auth lane sign-out: clears the session cookie, then re-runs
   // whoami — the 401 that follows lands on AuthScreen again.
   const handleSignOut = useCallback(async () => {
-    setSettingsModalOpen(false);
+    closeSettings();
     flushDraft();
     await authClient.signOut().catch(() => {});
     firstRunProgressClient.current?.reset();
@@ -1215,7 +1239,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
   // Waking from background or regaining network: reconnect now instead of
   // waiting out the socket's backoff, and refetch runs/approvals/identity.
-  useEffect(() => { setSettingsModalOpen(false); setShowClearModal(false); setShowOnboardingModal(false); }, [orchestratorName, teamWorkspaceId]);
+  useEffect(() => { setShowClearModal(false); setShowOnboardingModal(false); }, [orchestratorName, teamWorkspaceId]);
   const hiddenAt = useRef<number | null>(null);
   useEffect(() => {
     const revive = (force: boolean) => {
@@ -1928,23 +1952,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // Keyboard shortcut listener: Cmd/Ctrl+Enter submits, Escape closes modals
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (settingsModalOpen) {
-        if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-          e.preventDefault();
-          setSettingsModalOpen(false);
-          return;
-        }
-        if (
-          e.key.toLowerCase() === "d" &&
-          !e.metaKey &&
-          !e.ctrlKey &&
-          !e.altKey &&
-          !isEditableTarget(e.target)
-        ) {
-          toggleTheme();
-        }
-        return;
-      }
       if (e.key === "Escape") {
         setShowClearModal(false);
         setShowShortcutsModal(false);
@@ -1970,6 +1977,21 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         return;
       }
       if (isEditableTarget(e.target)) return;
+      if (e.altKey && !e.metaKey && !e.ctrlKey && /^Digit[1-7]$/.test(e.code)) {
+        const target = (["work", "custom-agents", "threads", "integrations", "inbox", "memory", "settings"] as const)[Number(e.code.slice(5)) - 1];
+        if (target) { e.preventDefault(); openView(target); }
+        return;
+      }
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === "c" || e.key === "C") && currentNavigation.current.view === "work") {
+        const input = document.querySelector<HTMLInputElement>('input[placeholder*="Add a task"]');
+        if (input) { e.preventDefault(); input.focus(); }
+        return;
+      }
+      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey && currentNavigation.current.view === "threads") {
+        const composer = document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea');
+        if (composer) { e.preventDefault(); composer.focus(); }
+        return;
+      }
       if ((e.key === "j" || e.key === "k") && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const list = sessionsNavRef.current;
         if (list.length === 0) return;
@@ -1989,7 +2011,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         toggleActiveSidebar();
       } else if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
-        setSettingsModalOpen(true);
+        if (currentNavigation.current.view === "settings") closeSettings(); else openView("settings");
       } else if (e.key.toLowerCase() === "d" && !e.metaKey && !e.ctrlKey && !e.altKey) {
         toggleTheme();
       } else if (e.key === "[") {
@@ -2012,7 +2034,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     toggleActiveSidebar,
     toggleSessionsCollapsed,
     toggleTheme,
-    settingsModalOpen,
+    closeSettings,
+    openView,
     commandMenuOpen,
     showShortcutsModal,
     showClearModal,
@@ -2549,11 +2572,69 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ? `Live connection lost: ${agent.connectionError.message ?? "unknown"}. Reconnecting…`
           : null;
 
+  const panelProps = { scope, onScopeChange: handleScopeChange } as const;
+  const isNavId = (id: string): id is AppNavView => APP_NAV_ITEMS.some((item) => item.id === id);
+  const privateData = privateDataEnabled && sessionRegistryOwner === orchestratorName;
+  let destinationPanel: React.ReactNode = null;
+  if (mainView === "custom-agents" || mainView === "employee-tools" || mainView === "swarm" || mainView === "tasks") {
+    destinationPanel = (
+      <AgentsPanel
+        {...panelProps}
+        active={mainView === "custom-agents" ? customAgentId : mainView}
+        onSelect={(id) => { if (id === "employee-tools" || id === "swarm" || id === "tasks") openView(id); }}
+        agents={privateDataEnabled ? customAgentRecords : []}
+        threads={visibleWebSessions}
+        ownerName={orchestratorName ?? undefined}
+        workspaceName={teamWorkspace?.name}
+        onSelectAgent={() => openView("custom-agents")}
+        onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
+        onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
+        onNewAgent={() => openView("custom-agents")}
+      />
+    );
+  } else if (mainView === "threads" || mainView === "collaboration") {
+    destinationPanel = (
+      <ChatsPanel
+        {...panelProps}
+        active={selectedRunId ?? selectedSessionId}
+        onSelect={(id) => { void handleSelectSession(id); openView("threads"); }}
+        sessions={privateData ? sessions : []}
+        onNewChat={() => { void handleNewTask(); }}
+        onSearchClick={() => setCommandMenuOpen(true)}
+      />
+    );
+  } else if (["integrations", "skills", "agents", "providers", "spaces"].includes(mainView)) {
+    destinationPanel = <ExtensionsPanel {...panelProps} active={mainView} onSelect={(id) => { if (isNavId(id)) openView(id); }} onSearchClick={() => setCommandMenuOpen(true)} />;
+  } else if (mainView === "inbox") {
+    destinationPanel = (
+      <MailboxPanel
+        {...panelProps}
+        active={mailboxFolder}
+        onSelect={setMailboxFolder}
+        counts={teamWorkspaceId ? undefined : mailboxCounts}
+        mailboxes={teamWorkspaceId ? [] : mailboxes}
+        selectedMailbox={mailboxAddress}
+        onSelectMailbox={setMailboxAddress}
+      />
+    );
+  } else if (mainView === "memory") {
+    destinationPanel = <MemoryPanel {...panelProps} active={memoryView} onSelect={(id) => setMemoryView(id as "facts" | "sources" | "sessions")} counts={teamWorkspaceId ? undefined : memoryCounts} />;
+  } else if (["dashboard", "analytics", "activity", "diff", "approvals"].includes(mainView)) {
+    destinationPanel = <InsightsPanel {...panelProps} active={mainView} onSelect={(id) => { if (isNavId(id)) openView(id); }} pendingApprovalsCount={teamWorkspaceId ? 0 : pendingApprovals.length + visibleStoredApprovals.length} />;
+  } else if (mainView === "automations") {
+    destinationPanel = <AutomationsPanel {...panelProps} active={selectedAutomationId ?? ""} onSelect={setSelectedAutomationId} />;
+  } else if (mainView === "settings") {
+    destinationPanel = <SettingsPanel {...panelProps} active={settingsSection} onSelect={setSettingsSection} onBack={closeSettings} />;
+  }
+
   return (
     <div className="h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)] font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-text)] flex pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       {/* LEFT: app navigation rail (lg+; phones use the sheet below) */}
       <AppNavRail
         workspaceSwitcher={<WorkspaceSwitcher workspaces={teamDirectory.workspaces} selectedWorkspaceId={teamWorkspaceId} loading={teamDirectory.loading} onSelect={(id) => { flushDraft(); teamDirectory.selectWorkspace(id); }} onManage={() => openView("team")} />}
+        workspaces={teamDirectory.workspaces}
+        selectedWorkspaceId={teamWorkspaceId}
+        onSelectWorkspace={(id) => { flushDraft(); teamDirectory.selectWorkspace(id); }}
         collapsed={mainView === "work" ? workPanelCollapsed : sessionsCollapsed}
         sidebarPanelId={mainView === "work" ? "work-panel" : undefined}
         activeView={mainView}
@@ -2743,33 +2824,31 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           </div>
         ) : null}
 
-        <div className="flex-1 flex min-w-0 min-h-0">
+        <div className={`flex-1 flex min-w-0 min-h-0 ${mainView === "work" ? "" : "gap-2 p-2"}`}>
+          {destinationPanel && mainView !== "work" && !sessionsCollapsed ? <div className="hidden lg:flex">{destinationPanel}</div> : null}
+          <MainCard className={mainView === "work" || mainView === "settings" ? "!rounded-none !border-0 !bg-transparent !shadow-none" : ""}>
           {inboxMounted && privateDataEnabled ? (
             <div
-              className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]"
+              className="flex flex-1 flex-col h-full min-h-0 overflow-hidden"
               style={mainView === "inbox" ? undefined : { display: "none" }}
             >
-              <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
-                    <span>Mailbox</span>
-                  </h2>
-                  <p className="text-xs text-[var(--muted-foreground-2)]">
-                    Cloudflare Email Routing, inbound triage, and approval-gated outbound send.
-                  </p>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 lg:p-8">
-                <div className="max-w-6xl mx-auto">
-                  <InboxTab key={orchestratorName ?? "signed-out"} onOpenApprovals={() => setMainView("approvals")} />
-                </div>
-              </div>
+              <InboxTab
+                key={orchestratorName ?? "signed-out"}
+                scope={scope}
+                activeFolder={mailboxFolder}
+                onSelectFolder={setMailboxFolder}
+                mailboxFilter={mailboxAddress}
+                onSelectMailbox={setMailboxAddress}
+                onCountsChange={setMailboxCounts}
+                onMailboxesChange={(items) => setMailboxes(items.map((item) => ({ ...item, label: item.label ?? undefined })))}
+                onOpenApprovals={() => setMainView("approvals")}
+              />
             </div>
           ) : null}
 {showFirstRun && privateDataEnabled ? (
             <ConversationalOnboarding key={orchestratorName ?? "pending"} progress={firstRunProgress}
               onUpdate={updateFirstRunProgress} onResume={resumeFirstRunProgress} onRefresh={refreshFirstRunProgress}
-              onDismiss={dismissOutcomeSetup} onClose={() => setShowFirstRun(false)} onNavigate={(view) => { if (view === "memory") setMemoryInitialView("sources"); openView(view); }}
+              onDismiss={dismissOutcomeSetup} onClose={() => setShowFirstRun(false)} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }}
               onLegacyGuide={() => { setShowFirstRun(false); setShowLegacyFirstRun(true); }}
               onConfigureEmployee={(templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); }}
               onUseDraft={applyOnboardingDraft} employees={customAgentRecords} draftScope={orchestratorName ?? undefined} />
@@ -2788,28 +2867,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   <SessionsSidebar
                     title="Work"
                     scope={teamWorkspaceId ? "workspace" : "personal"}
-                    onScopeChange={(scope) => {
-                      if (teamDirectory.loading) return;
-                      if (scope === "personal") {
-                        flushDraft();
-                        teamDirectory.selectWorkspace("");
-                      } else {
-                        const rememberedId = orchestratorName ? lastTeamWorkspace(orchestratorName.trim().toLowerCase()) : "";
-                        const rememberedWorkspace = rememberedId
-                          ? teamDirectory.workspaces.find((w) => w.workspaceId === rememberedId)
-                          : undefined;
-
-                        if (rememberedWorkspace) {
-                          flushDraft();
-                          teamDirectory.selectWorkspace(rememberedWorkspace.workspaceId);
-                        } else if (teamDirectory.workspaces.length === 1) {
-                          flushDraft();
-                          teamDirectory.selectWorkspace(teamDirectory.workspaces[0]!.workspaceId);
-                        } else {
-                          openView("team");
-                        }
-                      }
-                    }}
+                    onScopeChange={handleScopeChange}
                     activeNav={workViewMode}
                     onNavChange={setWorkViewMode}
                     onSearchClick={() => setCommandMenuOpen(true)}
@@ -3520,25 +3578,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               liveHarness
             />
           ) : mainView === "memory" ? (
-            <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-              <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
-                    <span>Agent Memory</span>
-                  </h2>
-                  <p className="text-xs text-[var(--muted-foreground-2)]">
-                    Private workspace sources with local keyword recall, plus legacy agent facts and sessions.
-                  </p>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 lg:p-8">
-                <div className="max-w-6xl mx-auto">
-                  <MemoryTab initialViewMode={memoryInitialView} />
-                </div>
-              </div>
-            </div>
+            <MemoryTab
+              activeView={memoryView}
+              onSelectView={setMemoryView}
+              scope={scope}
+              onCountsChange={(counts) => setMemoryCounts((current) => ({ ...current, ...counts }))}
+            />
           ) : mainView === "automations" ? (
-            <AutomationsView />
+            <AutomationsView scope={scope} sidebarCollapsed={sessionsCollapsed} onToggleSidebar={toggleSessionsCollapsed} selectedAutomationId={selectedAutomationId} onSelectAutomation={setSelectedAutomationId} />
           ) : mainView === "swarm" ? (
             <SwarmDeskView
               runs={retainedRuns}
@@ -3616,44 +3663,28 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <IntegrationsView onNavigate={openView} actorId={orchestratorName ?? undefined} />
           ) : mainView === "remote" ? (
             <RemoteAccessView />
-          ) : null}
-
-          {/* SETTINGS — popup over the current view */}
-          {settingsModalOpen && privateDataEnabled ? (
-            <SettingsModal key={orchestratorName ?? "signed-out"}
-              isOpen
-              initialSection={settingsInitialSection}
-              onSectionChange={setSettingsInitialSection}
-              onClose={() => setSettingsModalOpen(false)}
-              onFocusRestore={() => {
-                if (window.matchMedia("(max-width: 1023px)").matches) {
-                  mobileNavTriggerRef.current?.focus();
-                }
-              }}
-              onOpenSessions={() => {
-                setMainView("threads");
-                if (window.matchMedia("(min-width: 1024px)").matches) {
-                  setSessionsCollapsed((collapsed) => {
-                    if (collapsed) {
-                      try {
-                        localStorage.setItem("shiba:sidebar-collapsed", "false");
-                      } catch {
-                        // Ignore storage errors in private mode.
-                      }
-                    }
-                    return false;
-                  });
-                } else {
-                  setMobileSessionsOpen(true);
-                }
-              }}
-              onNavigate={(view) => {
-                setSettingsModalOpen(false);
-                openView(view);
-              }}
+          ) : mainView === "settings" ? (
+            <SettingsPage
+              key={orchestratorName ?? "signed-out"}
+              withPanel={false}
+              section={settingsSection}
+              onSectionChange={setSettingsSection}
+              onBack={closeSettings}
+              onNavigate={openView}
               onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
+              scope={scope}
+              onScopeChange={handleScopeChange}
+              actorId={orchestratorName?.trim().toLowerCase() ?? null}
+              workspaceId={teamWorkspaceId || undefined}
+              invitationToken={invitationToken}
+              onInvitationAccepted={(id) => { setInvitationToken(""); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }}
+              onSelectWorkspace={(id) => { void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }}
+              onChanged={() => { void teamDirectory.refresh(); }}
+              onOpenChat={() => openView("threads")}
+              onOpenWork={() => openView("work")}
             />
           ) : null}
+          </MainCard>
 
           {/* CLEAR HISTORY CONFIRMATION MODAL */}
           {showClearModal && privateDataEnabled ? (
@@ -3702,8 +3733,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               openView("custom-agents");
             }}
             onOpenModels={() => {
-              setSettingsInitialSection("models");
-              setSettingsModalOpen(true);
+              setSettingsSection("models");
+              openView("settings");
             }}
             onOpenChecklist={() => setShowOnboardingModal(true)}
           /> : null}

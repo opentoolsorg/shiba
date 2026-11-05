@@ -48,7 +48,7 @@ Everyday copy across 16 guides decreased from 10,156 to 4,355 whitespace-delimit
 - New references: `task-settings.md`, `remote-access-setup.md`, `automation-reference.md`, `review-reference.md`, `github-setup.md`, `slack-setup.md`, `telegram-setup.md`, `discord-setup.md`, `linear-setup.md`, `runtime-limits.md`, `implementation-status.md`.
 - `apps/web/astro.config.mjs`, `components/starlight/Header.astro`, `styles/docs-shell.css`: clearer audience navigation; removed unused welcome styling. The unused `DocsWelcome.astro` component was deleted.
 - `pages/index.astro`, `components/HeroDemo.astro`, `components/AgentCast.astro`: company-wide positioning and honest custom Finance/Revenue examples; simulated controls retained.
-- `pages/why-shiba.astro`, `waitlist.astro`: shorter story, practical evaluation questions, clearer signup copy without changing submission behavior.
+- `pages/why-shiba.astro`, `open-source-devin-alternative.astro`, `waitlist.astro`: shorter story, practical evaluation questions, clearer signup copy without changing submission behavior.
 - `pages/integrations.astro`, `data/integrations.ts`, `pages/network.astro`, `pages/blog/index.astro`: consistent company-work language and canonical catalog copy.
 - `layouts/MarketingPage.astro`, `components/starlight/Head.astro`, `pages/llms.txt.ts`, `README.md`, `scripts/generate-og.mjs`, and the generated social image: aligned descriptions, links, and public previews.
 - `.agents/product-marketing.md`: records audience, voice, and source-grounded feature boundaries. `.gitignore` allows that repo-authored context file.

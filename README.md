@@ -176,7 +176,7 @@ One installation is single-tenant and account-owned. No Python backend, Docker C
 
 ## Platform ceiling
 
-Cloudflare Containers max out at **`standard-4` (4 vCPU / 12 GiB / 20 GB)** — see [Containers limits](https://developers.cloudflare.com/containers/platform/limits/). Heavy builds and large monorepo test suites are out of reach on this platform, by design. Do not expect larger hosted machine sizes (16 vCPU / 128 GB) here.
+Cloudflare Containers max out at **`standard-4` (4 vCPU / 12 GiB / 20 GB)** — see [Containers limits](https://developers.cloudflare.com/containers/platform/limits/). Heavy builds and large monorepo test suites are out of reach on this platform, by design. Do not expect Capy-class machine sizes (16 vCPU / 128 GB) here.
 
 ## Configuration and models
 

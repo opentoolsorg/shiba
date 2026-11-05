@@ -180,4 +180,30 @@ describe("ExtensionSkillsView", () => {
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
+
+  it("renders breadcrumbs and exact empty state contract", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    render(<ExtensionSkillsView scope="personal" />);
+    const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(nav).toBeTruthy();
+    expect(nav.textContent).toContain("Personal");
+    expect(nav.textContent).toContain("Extensions");
+    expect(nav.textContent).toContain("Skills");
+
+    await screen.findByText("No skills yet");
+    expect(
+      screen.getByText(
+        "Create reusable instructions that are automatically injected into every conversation"
+      )
+    ).toBeTruthy();
+
+    const newSkillBtns = screen.getAllByRole("button", { name: "New Skill" });
+    expect(newSkillBtns.length).toBeGreaterThan(0);
+    fireEvent.click(newSkillBtns[0]!);
+
+    expect(screen.getByText("Instructions your agents can use.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("Instructions your agents can use.")).toBeNull();
+  });
 });

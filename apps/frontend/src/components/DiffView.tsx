@@ -1,4 +1,4 @@
-import { FileText, GitCompareArrows } from "lucide-react";
+import { ChevronRight, FileText, GitCompareArrows, PanelLeft } from "lucide-react";
 import { type JSX, useMemo, useState } from "react";
 import type { VMRun } from "../types";
 import {
@@ -13,6 +13,7 @@ import { HarnessSessionPanel } from "./HarnessSessionPanel";
 import { ReviewFindings } from "./ReviewFindings";
 import { SubagentTree } from "./SubagentTree";
 import { RunLivePanel } from "./RunLivePanel";
+import { MainCard, type Scope } from "./ui/ContextPanel";
 
 export interface DiffViewProps {
   runs: VMRun[];
@@ -24,6 +25,10 @@ export interface DiffViewProps {
   error?: string | null;
   /** Poll the live session diff while a local harness run is in flight. */
   liveHarness?: boolean;
+  scope?: Scope;
+  sidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
+  className?: string;
 }
 
 function runHasDiff(run: VMRun): boolean {
@@ -44,6 +49,10 @@ export function DiffView({
   loading = false,
   error = null,
   liveHarness = false,
+  scope = "personal",
+  sidebarCollapsed = false,
+  onToggleSidebar,
+  className = "",
 }: DiffViewProps): JSX.Element {
   const [internalSelectedId, setInternalSelectedId] = useState<string>(() =>
     preferredRunId(runs, selectedRunId),
@@ -74,26 +83,59 @@ export function DiffView({
     onSelectRun?.(runId);
   };
 
+  const scopeLabel = scope === "workspace" ? "Workspace" : "Personal";
+
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-      {/* Top Header */}
-      <div className="border-b border-[var(--border-1)] bg-[var(--chrome)] px-4 sm:px-6 py-2 min-h-14 flex flex-wrap items-center justify-between gap-3 shrink-0">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--muted-foreground-2)]">
-          <span>Personal</span><span aria-hidden="true">&gt;</span>
-          <h1 className="font-sans font-medium text-[var(--fg)]">Pull requests</h1><span aria-hidden="true">&gt;</span>
-          <span>Diff review</span>
-          <span className="rounded-full bg-[var(--section)] px-2 py-1 text-xs">{runsWithDiff.length} with diffs / {runs.length} total</span>
+    <MainCard className={className}>
+      {/* 48px Header */}
+      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {onToggleSidebar ? (
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!sidebarCollapsed}
+              className="flex size-7 items-center justify-center rounded-md text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            >
+              <PanelLeft className="size-4" strokeWidth={1.75} aria-hidden="true" />
+            </button>
+          ) : null}
+
+          <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
+            <ol className="flex items-center gap-1.5 min-w-0">
+              <li className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[14px] text-[#71717a] dark:text-zinc-400 truncate">{scopeLabel}</span>
+              </li>
+              <li className="flex items-center gap-1.5 min-w-0">
+                <ChevronRight className="size-3.5 text-[#71717a] dark:text-zinc-500 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+                <span className="text-[14px] text-[#71717a] dark:text-zinc-400 truncate">Insights</span>
+              </li>
+              <li className="flex items-center gap-1.5 min-w-0">
+                <ChevronRight className="size-3.5 text-[#71717a] dark:text-zinc-500 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+                <h1 className="text-[14px] font-medium text-[#0a0a0a] dark:text-zinc-100 truncate" aria-current="page">
+                  Pull requests
+                </h1>
+              </li>
+            </ol>
+            <span className="ml-2 rounded-full bg-[#f4f4f5] dark:bg-zinc-800 px-2 py-0.5 text-xs text-[#71717a] dark:text-zinc-400 tabular-nums">
+              {runsWithDiff.length} with diffs / {runs.length} total
+            </span>
+          </nav>
         </div>
 
         {/* Run Selector */}
         {runs.length > 0 ? (
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-mono text-[var(--muted-foreground-2)]">Run</span>
+          <div className="flex items-center gap-2 shrink-0">
+            <label htmlFor="diff-run-selector" className="text-xs text-[#71717a] dark:text-zinc-400">
+              Run
+            </label>
             <select
+              id="diff-run-selector"
               aria-label="Select run for diff inspection"
               value={activeRun?.runId ?? ""}
               onChange={(e) => handleSelect(e.target.value)}
-              className="min-h-11 min-w-11 text-xs bg-[var(--input)] border border-[var(--border-1)] rounded-lg px-3 text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] max-w-[min(20rem,75vw)] truncate"
+              className="h-8 max-w-[min(20rem,60vw)] rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 truncate"
             >
               {runs.map((r) => {
                 const hasDiff = Boolean(extractCompletedDiff(r) ?? r.diff) || r.hasDiff === true;
@@ -107,78 +149,85 @@ export function DiffView({
             </select>
           </div>
         ) : null}
-      </div>
+      </header>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+      <div className="flex-1 overflow-y-auto p-4 lg:p-6 min-h-0 text-[#0a0a0a] dark:text-zinc-100">
         {liveHarness ? (
           <div className="max-w-6xl mx-auto mb-4">
             <HarnessSessionPanel enabled />
           </div>
         ) : null}
+
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 max-w-3xl mx-auto px-4 text-center">
-            <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">Loading run details…</h3>
-            <p className="text-xs text-[var(--muted-foreground-2)] max-w-md">
+            <h3 className="text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100 mb-1">Loading run details…</h3>
+            <p className="text-xs text-[#71717a] dark:text-zinc-400 max-w-md">
               Fetching the full diff payload for these runs.
             </p>
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-20 max-w-3xl mx-auto px-4 text-center">
-            <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">Run details unavailable</h3>
-            <p className="text-xs text-[var(--muted-foreground-2)] max-w-md break-words">{error}</p>
+            <h3 className="text-sm font-semibold text-rose-600 dark:text-rose-400 mb-1">Run details unavailable</h3>
+            <p className="text-xs text-[#71717a] dark:text-zinc-400 max-w-md break-words">{error}</p>
           </div>
         ) : !activeRun ? (
           <div className="flex flex-col items-center justify-center py-20 max-w-3xl mx-auto px-4 text-center">
-            <div className="size-10 text-[var(--muted-foreground-2)] flex items-center justify-center mb-3">
+            <div className="size-10 text-[#71717a] dark:text-zinc-400 flex items-center justify-center mb-3">
               <GitCompareArrows aria-hidden="true" className="w-6 h-6" strokeWidth={1.8} />
             </div>
-            <h3 className="text-sm font-normal text-[var(--muted-foreground-2)]">No runs yet</h3>
+            <h3 className="text-sm font-normal text-[#71717a] dark:text-zinc-400">No runs yet</h3>
           </div>
-        ) : activeRun ? (
+        ) : (
           <div className="max-w-6xl mx-auto flex flex-col gap-4">
             <SubagentTree runs={runs} onSelectRun={handleSelect} />
-            <RunLivePanel key={`${sessionId ?? "default"}:${activeRun.runId}`} runId={activeRun.runId} sessionId={sessionId} showDiff />
+            <RunLivePanel
+              key={`${sessionId ?? "default"}:${activeRun.runId}`}
+              runId={activeRun.runId}
+              sessionId={sessionId}
+              showDiff
+            />
             <ReviewFindings key={activeRun.runId} threadId={activeRun.runId} sessionId={sessionId} />
-            <div className="bg-[var(--card)] border border-[var(--border-1)] p-4 rounded-[var(--radius-button)] flex items-center justify-between gap-4 flex-wrap shadow-[var(--sh-card)]">
+
+            <div className="bg-white dark:bg-zinc-900/60 border border-[#e4e4e7] dark:border-zinc-800 p-4 rounded-xl flex items-center justify-between gap-4 flex-wrap">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <span className="font-semibold text-sm text-[var(--fg)]">
+                  <span className="font-semibold text-sm text-[#0a0a0a] dark:text-zinc-100">
                     {parseRepoName(activeRun.repoUrl)}
                   </span>
-                  <span className="font-mono text-xs text-[var(--muted-foreground-2)]">
+                  <span className="font-mono text-xs text-[#71717a] dark:text-zinc-400">
                     branch: {activeRun.baseBranch || "main"}
                   </span>
                   <span
-                    className={`text-[10px] font-bold uppercase tracking-wider border rounded-[var(--radius-button)] px-2 py-0.5 ${statusChipClass(
+                    className={`text-[10px] font-semibold uppercase tracking-wider rounded-md px-2 py-0.5 ${statusChipClass(
                       activeRun.status,
                     )}`}
                   >
                     {statusLabel(activeRun.status)}
                   </span>
                 </div>
-                <p className="text-xs text-[var(--muted-foreground-2)] truncate max-w-2xl">
+                <p className="text-xs text-[#71717a] dark:text-zinc-400 truncate max-w-2xl">
                   {activeRun.task}
                 </p>
               </div>
 
-              <div className="text-right text-xs font-mono text-[var(--muted-foreground-2)]">
+              <div className="text-right text-xs font-mono text-[#71717a] dark:text-zinc-400">
                 <div>Run ID: {activeRun.runId}</div>
                 <div>{formatTimeAgo(activeRun.createdAt)}</div>
               </div>
             </div>
 
             {activeDiff ? (
-              <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] p-4 shadow-[var(--sh-card)]">
+              <div className="bg-white dark:bg-zinc-900/60 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl p-4">
                 <DiffViewer diff={activeDiff} runId={activeRun.runId} />
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] p-8 text-center">
-                <div className="w-12 h-12 rounded-[var(--radius-button)] bg-[var(--bg)] border border-[var(--border-1)] text-[var(--muted-foreground-2)] flex items-center justify-center mb-3">
+              <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900/40 p-8 text-center">
+                <div className="w-12 h-12 rounded-xl bg-[#f4f4f5] dark:bg-zinc-800 text-[#71717a] dark:text-zinc-400 flex items-center justify-center mb-3">
                   <FileText aria-hidden="true" className="w-6 h-6" strokeWidth={1.8} />
                 </div>
-                <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">No diff yet</h3>
-                <p className="text-xs text-[var(--muted-foreground-2)] max-w-md mb-4">
+                <h3 className="text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100 mb-1">No diff yet</h3>
+                <p className="text-xs text-[#71717a] dark:text-zinc-400 max-w-md mb-4">
                   {activeRun.status === "running" || activeRun.status === "pending"
                     ? "This run is still writing files. The patch shows up here when it finishes."
                     : `This run is ${statusLabel(activeRun.status).toLowerCase()} and did not change any files.`}
@@ -186,8 +235,8 @@ export function DiffView({
               </div>
             )}
           </div>
-        ) : null}
+        )}
       </div>
-    </div>
+    </MainCard>
   );
 }

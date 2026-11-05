@@ -1,7 +1,7 @@
 /**
  * Cloudflare Containers instance size. Deploy-time only: wrangler
  * `containers.instance_type` and `vars.INSTANCE_TYPE` must match.
- * Expose this as a var so a large monorepo can bump to
+ * Cloudbox exposes this as a var so a large monorepo can bump to
  * standard-2 without a code change.
  */
 export const INSTANCE_TYPES = ["lite", "basic", "standard-1", "standard-2", "standard-3", "standard-4"] as const;

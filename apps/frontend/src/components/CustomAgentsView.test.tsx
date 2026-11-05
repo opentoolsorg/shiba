@@ -257,8 +257,12 @@ describe("CustomAgentsView", () => {
     await waitFor(() => {
       expect(screen.getByText("No bots")).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
-    expect(screen.getByRole("alert").textContent).toContain("Name and instructions are required.");
+    const createBtn = screen.getByRole("button", { name: "Create bot" });
+    expect(createBtn.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Reviewer" } });
+    expect(createBtn.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: /instructions|description/i }), { target: { value: "Do review" } });
+    expect(createBtn.hasAttribute("disabled")).toBe(false);
   });
 
   it("asks before deleting and removes the row after the server accepts", async () => {
@@ -404,7 +408,7 @@ describe("account-scoped employee directory", () => {
     await screen.findByText("Old employee");
     if (operation === "create") {
       fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Old saved employee" } });
-      fireEvent.change(screen.getByRole("textbox", { name: "Instructions" }), { target: { value: "Old private draft" } });
+      fireEvent.change(screen.getByRole("textbox", { name: /instructions|description/i }), { target: { value: "Old private draft" } });
       fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
     } else if (operation === "save") {
       fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Domain buckets for the integrations directory. */
+/** Viktor-style domain buckets for the integrations directory. */
 export const integrationDomainSchema = z.enum([
   "marketing",
   "sales",

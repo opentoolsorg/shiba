@@ -1,4 +1,4 @@
-/* AI Coworker Doge Mascot Companion */
+/* AI Coworker Doge Mascot Companion (Inspired by ramx.in) */
 (function initDogeMascot() {
   if (typeof window === 'undefined') return;
   if (window.__doge_mascot_initialized) return;

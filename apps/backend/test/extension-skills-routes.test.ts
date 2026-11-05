@@ -22,7 +22,7 @@ const fixture = () => {
 
 const base = "/api/v1/extensions/skills";
 
-describe("extension skills routes", () => {
+describe("Overlay-compatible extension skills routes", () => {
   it("creates, lists by scope, edits with versions, toggles, archives, and restores", async () => {
     const f = fixture();
     const create = await f.send(base, "POST", {

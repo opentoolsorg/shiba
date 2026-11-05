@@ -3,14 +3,17 @@ import {
   type JSX,
   type ReactNode,
   type SyntheticEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import {
   ArrowUp,
+  AtSign,
   Bot,
   Check,
   ChevronDown,
@@ -186,7 +189,7 @@ const LOCAL_HARNESS_OPTIONS: { value: string; label: string; desc: string }[] = 
   { value: "codex", label: "Codex", desc: "OpenAI Codex CLI" },
 ];
 
-type PopoverKind = "menu" | "repo" | "branch" | "harness" | "model" | "effort" | "access" | "target" | "config" | "env" | null;
+type PopoverKind = "menu" | "repo" | "branch" | "harness" | "model" | "effort" | "access" | "target" | "config" | "env" | "mention" | null;
 
 function formatEffort(level: string): string {
   return level ? level.charAt(0).toUpperCase() + level.slice(1) : "";
@@ -376,7 +379,9 @@ export function TaskComposer({
   const hero = variant === "hero";
 
   const [open, setOpen] = useState<PopoverKind>(null);
-  const [menuView, setMenuView] = useState<"root" | "skills">("root");
+  const [menuView, setMenuView] = useState<"root" | "skills" | "projects">("root");
+  const [mentionFilter, setMentionFilter] = useState("");
+  const [mentionIndex, setMentionIndex] = useState(0);
   const [repoFilter, setRepoFilter] = useState("");
   const [repoUrlDraft, setRepoUrlDraft] = useState("");
   const [modelFilter, setModelFilter] = useState("");
@@ -502,6 +507,10 @@ export function TaskComposer({
         const next = current === kind ? null : kind;
         if (next !== null) {
           if (next !== "menu") setMenuView("root");
+          if (next === "mention") {
+            setMentionFilter("");
+            setMentionIndex(0);
+          }
           if (next === "repo") {
             setRepoFilter("");
             setRepoUrlDraft(repoUrl.startsWith("https://") ? "" : repoUrl);
@@ -519,7 +528,11 @@ export function TaskComposer({
     },
     [repoUrl, baseBranch],
   );
-  const close = useCallback(() => setOpen(null), []);
+  const close = useCallback(() => {
+    setOpen(null);
+    setMenuView("root");
+    setMentionFilter("");
+  }, []);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -536,8 +549,45 @@ export function TaskComposer({
     onSubmit(event);
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (open === "mention") {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setMentionIndex((prev) => (filteredMentionItems.length ? (prev + 1) % filteredMentionItems.length : 0));
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setMentionIndex((prev) => (filteredMentionItems.length ? (prev - 1 + filteredMentionItems.length) % filteredMentionItems.length : 0));
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        if (filteredMentionItems[mentionIndex]) {
+          acceptMention(filteredMentionItems[mentionIndex]);
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(null);
+        setMentionFilter("");
+        return;
+      }
+    }
+
+    if (event.key === "@") {
+      setMentionIndex(0);
+      setMentionFilter("");
+      setOpen("mention");
+      return;
+    }
+
+    if (event.key === "Enter") {
+      if (event.shiftKey) {
+        return;
+      }
+      event.preventDefault();
       handleSubmit(event);
     }
   };
@@ -585,6 +635,106 @@ export function TaskComposer({
     if (next) routing.onCodingModelChange(next);
     setOpen(null);
   };
+
+  const mentionItems = useMemo(() => {
+    const items: {
+      id: string;
+      group: "Skills" | "Agents" | "Repositories" | "Projects";
+      label: string;
+      sublabel: string;
+      icon: JSX.Element;
+      onSelect: () => void;
+    }[] = [];
+
+    if (skills && skills.length > 0) {
+      for (const skill of skills) {
+        items.push({
+          id: `skill-${skill.id}`,
+          group: "Skills",
+          label: skill.name,
+          sublabel: skill.description || "Saved skill",
+          icon: <Sparkles className="size-3.5 text-[var(--primary)] shrink-0" aria-hidden="true" />,
+          onSelect: () => {
+            if (!selectedSkillIds.includes(skill.id)) {
+              onToggleSkill?.(skill.id);
+            }
+          },
+        });
+      }
+    }
+
+    if (customAgents && customAgents.length > 0) {
+      for (const agent of customAgents) {
+        items.push({
+          id: `agent-${agent.id}`,
+          group: "Agents",
+          label: agent.name,
+          sublabel: agent.slug,
+          icon: <Bot className="size-3.5 text-[var(--icon-muted)] shrink-0" aria-hidden="true" />,
+          onSelect: () => {
+            onCustomAgentChange?.(agent.id);
+          },
+        });
+      }
+    }
+
+    const repos = Array.from(new Set([...repoSuggestions, ...(repoUrl ? [repoUrl] : [])]));
+    for (const repo of repos) {
+      items.push({
+        id: `repo-${repo}`,
+        group: "Repositories",
+        label: repoSlugOf(repo),
+        sublabel: repo,
+        icon: <FolderGit2 className="size-3.5 text-[var(--icon-muted)] shrink-0" aria-hidden="true" />,
+        onSelect: () => {
+          pickRepo(repo);
+        },
+      });
+    }
+
+    if (projects && projects.length > 0) {
+      for (const proj of projects) {
+        items.push({
+          id: `proj-${proj.id}`,
+          group: "Projects",
+          label: proj.name,
+          sublabel: proj.purpose || "Project context",
+          icon: <Home className="size-3.5 text-[var(--icon-muted)] shrink-0" aria-hidden="true" />,
+          onSelect: () => {
+            onProjectContextChange?.(proj.id);
+          },
+        });
+      }
+    }
+
+    return items;
+  }, [skills, selectedSkillIds, onToggleSkill, customAgents, onCustomAgentChange, repoSuggestions, repoUrl, projects, onProjectContextChange]);
+
+  const filteredMentionItems = useMemo(() => {
+    const q = mentionFilter.trim().toLowerCase();
+    if (!q) return mentionItems;
+    return mentionItems.filter(
+      (item) =>
+        item.label.toLowerCase().includes(q) ||
+        item.sublabel.toLowerCase().includes(q) ||
+        item.group.toLowerCase().includes(q),
+    );
+  }, [mentionItems, mentionFilter]);
+
+  const acceptMention = useCallback(
+    (item: (typeof filteredMentionItems)[number]) => {
+      item.onSelect();
+      setOpen(null);
+      setMentionFilter("");
+      if (task.endsWith("@")) {
+        onTaskChange(task.slice(0, -1));
+      } else if (/@\w+$/.test(task)) {
+        onTaskChange(task.replace(/@\w+$/, ""));
+      }
+      textareaRef.current?.focus();
+    },
+    [task, onTaskChange],
+  );
 
   const chevron = (
     <ChevronDown aria-hidden="true" className="size-3 text-[var(--icon-muted)] shrink-0" />

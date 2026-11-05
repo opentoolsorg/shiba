@@ -20,6 +20,17 @@ describe("ChatMessageComposer", () => {
     expect(onSubmit).toHaveBeenCalledOnce();
   });
 
+  it("submits on Enter and allows newline on Shift+Enter", () => {
+    const onSubmit = vi.fn((event: React.FormEvent<HTMLFormElement>) => event.preventDefault());
+    const props = { onChange: vi.fn(), onSubmit, onStop: vi.fn(), onRetry: vi.fn(), busy: false, streaming: false, failed: false };
+    render(<ChatMessageComposer value="Explore codebase" {...props} />);
+    const textbox = screen.getByRole("textbox", { name: "Message Shiba" });
+    fireEvent.keyDown(textbox, { key: "Enter", shiftKey: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.keyDown(textbox, { key: "Enter", shiftKey: false });
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
   it("offers a real stop action while the server response is streaming", () => {
     const onStop = vi.fn();
     render(<ChatMessageComposer value="Draft" onChange={vi.fn()} onSubmit={vi.fn()} onStop={onStop} onRetry={vi.fn()} busy={true} streaming={true} failed={false} />);
@@ -34,5 +45,12 @@ describe("ChatMessageComposer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry response" }));
     expect(onRetry).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
+  });
+
+  it("renders the Overlay-style footnote and action buttons", () => {
+    render(<ChatMessageComposer value="" onChange={vi.fn()} onSubmit={vi.fn()} onStop={vi.fn()} onRetry={vi.fn()} busy={false} streaming={false} failed={false} />);
+    expect(screen.getByText("Shiba can make mistakes. Check important info.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add to message" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mention" })).toBeTruthy();
   });
 });

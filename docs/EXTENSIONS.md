@@ -9,16 +9,17 @@ alternate API routes or workspace-owned app credentials. See
 [current integration readiness](integrations-readiness.md) and
 [package boundaries](integrations-architecture.md) for runtime authority.
 
-The shared extension schemas model `personal` / `workspace` scope and
+The shared extension schemas model Overlay's `personal` / `workspace` scope and
 `personal` / `workspace` / `archived` views. Skills, MCP servers, and
 planned OpenConnector workspace bindings share pure archive, restore, and scope-move rules.
 Archived rows remember `archivedFromScope`; restoring returns the row to that
-scope. The schema's MCP archive plan also disables the server. Shared Zod records and the pure scope planners live in
+scope. The schema's MCP archive plan also disables the server, matching Overlay's
+`mcpServers` lifecycle. Shared Zod records and the pure scope planners live in
 `packages/shared/src/extensions/` for Worker stores and API DTOs to reuse.
 
-## Record mapping
+## Overlay mapping
 
-| Record | Shiba contract / D1 table | Notes |
+| Overlay record | Shiba contract / D1 table | Notes |
 | --- | --- | --- |
 | `skills` | `Skill` / `extension_skills` | Shiba's existing `skills` and `skill_versions` tables store reviewed, versioned authored skills, so extension rows use a separate table. |
 | `mcpServers` | `McpServer` / `mcp_servers` | Reserved server-side encrypted auth/OAuth fields. DTOs exclude credentials. The active reviewed registry is separate. |
@@ -26,7 +27,7 @@ scope. The schema's MCP archive plan also disables the server. Shared Zod record
 | `mcpOAuthSessions` | `McpOAuthSession` / `mcp_oauth_sessions` | One-use PKCE state with an encrypted verifier and optional browser session binding. |
 | `mcpToolExecutions` | `McpToolExecution` / `mcp_tool_executions` | Audit metadata stores `argumentsHash`, never tool arguments. |
 
-Document IDs are string IDs in D1. Timestamps remain epoch
+Overlay's Convex document IDs become string IDs in D1. Timestamps remain epoch
 milliseconds. Optional legacy `scope` values read as `personal`; new writers
 should persist the resolved scope. `scopeMutations` plans patches without
 database or Cloudflare dependencies, leaving authorization context loading and

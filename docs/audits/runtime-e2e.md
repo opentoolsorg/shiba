@@ -1,6 +1,6 @@
 # Local runtime and browser evidence
 
-Validated on 2026-10-28, using Node 24.19.0, repository-pinned pnpm 10.34.4, Wrangler 4.140.0, Playwright 1.55.1, and system Chromium 154.0.8037.57.
+Validated on 2026-10-28 on branch `codex/overlay-parity-audit`, using Node 24.19.0, repository-pinned pnpm 10.34.4, Wrangler 4.140.0, Playwright 1.55.1, and system Chromium 154.0.8037.57.
 
 ## Reproducible fixes
 

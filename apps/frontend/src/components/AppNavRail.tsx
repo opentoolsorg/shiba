@@ -1,8 +1,7 @@
 /**
- * AppNavRail — Workspace shell navigation:
- * On desktop when activeView === "work": ~52px transparent icon rail.
- * On desktop when activeView !== "work": expanded sidebar with threads list when not collapsed, compact rail when collapsed.
- * On mobile (variant === "sheet"): full navigation drawer.
+ * AppNavRail — workspace shell navigation:
+ * On desktop (variant "rail", every view): ~52px icon rail (Work, Agents, Chats, More; bottom controls and account menu).
+ * On mobile (variant === "sheet"): full navigation drawer with the thread list.
  */
 import { useState, useMemo, useRef, useEffect, useId, type JSX } from "react";
 import {
@@ -20,7 +19,6 @@ import {
   GitCompareArrows,
   HelpCircle,
   Inbox,
-  Keyboard,
   LayoutDashboard,
   LayoutGrid,
   List,
@@ -36,11 +34,9 @@ import {
   ShieldCheck,
   SquareCheckBig,
   SquarePen,
-  Store,
   Sun,
   Terminal,
   Users,
-  Waypoints,
   Workflow,
   X,
   Zap,
@@ -50,8 +46,10 @@ import type { SessionItem } from "./SessionsSidebar";
 import { formatTimeAgo, statusLabel } from "../ui-helpers";
 import { SkeletonLines } from "./surface";
 import { Tooltip } from "./Tooltip";
-import { AgentAvatar, AgentSidebar } from "./AgentExperience";
+import { AgentSidebar } from "./AgentExperience";
 import { ShibaMark } from "./ShibaMark";
+import { WorkspaceMenuList } from "./WorkspaceSwitcher";
+import type { TeamWorkspaceSummary } from "@shiba/shared";
 import type { CustomAgentWire } from "./CustomAgentsView";
 import type { WebThread } from "../agent-threads";
 
@@ -143,6 +141,10 @@ export interface AppNavRailProps {
   agentThreads?: WebThread[];
   onNewAgentThread?: (agent?: CustomAgentWire) => void;
   workspaceSwitcher?: React.ReactNode;
+  workspaces?: TeamWorkspaceSummary[];
+  selectedWorkspaceId?: string;
+  onSelectWorkspace?: (workspaceId: string) => void;
+  remoteLabel?: string;
 }
 
 export function workspaceLabel(accountEmail: string | null | undefined): { name: string; detail: string } {
@@ -239,26 +241,23 @@ const CURATED_WORKFLOWS = [
 ];
 
 const RAIL_MORE_ITEMS: { id: AppNavView; label: string; icon: LucideIcon }[] = [
-  { id: "tasks", label: "Tasks", icon: List },
-  { id: "diff", label: "Pull requests", icon: GitCompareArrows },
-  { id: "automations", label: "Automations", icon: Zap },
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "activity", label: "Activity", icon: Activity },
-  { id: "analytics", label: "Analytics", icon: BarChart3 },
-  { id: "approvals", label: "Approvals", icon: ShieldCheck },
-  { id: "swarm", label: "Swarm", icon: SquareCheckBig },
-  { id: "collaboration", label: "Collaboration", icon: MessagesSquare },
-  { id: "team", label: "Team", icon: Users },
-  { id: "providers", label: "Providers", icon: Terminal },
-  { id: "skills", label: "Skills", icon: BookMarked },
-  { id: "spaces", label: "Spaces", icon: Store },
-  { id: "employee-tools", label: "Tool policy", icon: ShieldCheck },
-  { id: "agents", label: "MCP", icon: Cpu },
+  { id: "integrations", label: "Extensions", icon: Blocks },
   { id: "inbox", label: "Mailbox", icon: Inbox },
   { id: "memory", label: "Memory", icon: Brain },
-  { id: "integrations", label: "Integrations", icon: Blocks },
-  { id: "remote", label: "Remote Access", icon: Monitor },
+  { id: "automations", label: "Automations", icon: Zap },
+  { id: "dashboard", label: "Insights", icon: LayoutDashboard },
 ];
+
+const AGENTS_VIEWS: AppNavView[] = ["custom-agents", "employee-tools", "swarm", "tasks"];
+const CHATS_VIEWS: AppNavView[] = ["threads", "collaboration"];
+
+export function railItemForView(view: AppNavView): "work" | "agents" | "chats" | "more" | "settings" {
+  if (view === "work") return "work";
+  if (view === "settings") return "settings";
+  if (AGENTS_VIEWS.includes(view)) return "agents";
+  if (CHATS_VIEWS.includes(view)) return "chats";
+  return "more";
+}
 
 export function AppNavRail({
   activeView,
@@ -290,6 +289,10 @@ export function AppNavRail({
   agentThreads = [],
   onNewAgentThread,
   workspaceSwitcher,
+  workspaces,
+  selectedWorkspaceId = "",
+  onSelectWorkspace,
+  remoteLabel,
 }: AppNavRailProps): JSX.Element {
   const [needsApprovalOpen, setNeedsApprovalOpen] = useState(true);
   const [everythingOpen, setEverythingOpen] = useState(true);
@@ -390,8 +393,9 @@ export function AppNavRail({
 
   const isMoreViewActive = moreViews.includes(activeView);
 
-  // Compact ~52px icon rail on the work view.
-  if (variant === "rail" && activeView === "work") {
+  // 1. Desktop ~52px icon rail, shown on every view.
+  if (variant === "rail") {
+    const activeRailItem = railItemForView(activeView);
     const railBtnBase = "size-[38px] rounded-lg flex items-center justify-center transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] relative";
     const railBtnActive = "bg-[#e4e4e7] text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100 font-medium shadow-none";
     const railBtnInactive = "text-[#71717a] dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-black/5 dark:hover:bg-white/5";
@@ -438,8 +442,8 @@ export function AppNavRail({
                       type="button"
                       onClick={() => onNavigate("work")}
                       aria-label="Work"
-                      aria-current="page"
-                      className={`${railBtnBase} ${railBtnActive}`}
+                      aria-current={activeRailItem === "work" ? "page" : undefined}
+                      className={`${railBtnBase} ${activeRailItem === "work" ? railBtnActive : railBtnInactive}`}
                     >
                       <ListChecks className="size-5" strokeWidth={1.8} aria-hidden="true" />
                     </button>
@@ -453,21 +457,23 @@ export function AppNavRail({
                       type="button"
                       onClick={() => onNavigate("custom-agents")}
                       aria-label="Agents"
-                      className={`${railBtnBase} ${railBtnInactive}`}
+                      aria-current={activeRailItem === "agents" ? "page" : undefined}
+                      className={`${railBtnBase} ${activeRailItem === "agents" ? railBtnActive : railBtnInactive}`}
                     >
                       <Bot className="size-5" strokeWidth={1.8} aria-hidden="true" />
                     </button>
                   </Tooltip>
                 </li>
 
-                {/* Chat */}
+                {/* Chats */}
                 <li>
-                  <Tooltip content="Chat" side="right">
+                  <Tooltip content="Chats" side="right">
                     <button
                       type="button"
                       onClick={() => onNavigate("threads")}
-                      aria-label="Chat"
-                      className={`${railBtnBase} ${railBtnInactive}`}
+                      aria-label="Chats"
+                      aria-current={activeRailItem === "chats" ? "page" : undefined}
+                      className={`${railBtnBase} ${activeRailItem === "chats" ? railBtnActive : railBtnInactive}`}
                     >
                       <MessagesSquare className="size-5" strokeWidth={1.8} aria-hidden="true" />
                     </button>
@@ -484,7 +490,8 @@ export function AppNavRail({
                         aria-label="More"
                         aria-expanded={moreMenuOpen}
                         aria-haspopup="true"
-                        className={`${railBtnBase} ${railBtnInactive}`}
+                        aria-current={activeRailItem === "more" ? "page" : undefined}
+                        className={`${railBtnBase} ${activeRailItem === "more" ? railBtnActive : railBtnInactive}`}
                       >
                         <MoreHorizontal className="size-5" strokeWidth={1.8} aria-hidden="true" />
                         {pendingApprovalCount > 0 ? (
@@ -500,12 +507,6 @@ export function AppNavRail({
                       <div
                         className="absolute left-full top-0 ml-2 w-56 py-1 bg-[var(--popover)] border border-[var(--border-1)] rounded-[var(--radius-overlay)] shadow-overlay z-50 text-[13px] max-h-[75vh] overflow-y-auto animate-enter"
                       >
-                        {workspaceSwitcher ? (
-                          <div className="px-2 py-1.5 border-b border-[var(--border-1)] mb-1">
-                            {workspaceSwitcher}
-                          </div>
-                        ) : null}
-
                         <div role="menu" aria-label="Additional views">
                           {RAIL_MORE_ITEMS.map((item) => {
                             const Icon = item.icon;
@@ -522,7 +523,7 @@ export function AppNavRail({
                               >
                                 <Icon className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
                                 <span className="flex-1 truncate">{item.label}</span>
-                                {item.id === "approvals" && pendingApprovalCount > 0 ? (
+                                {item.id === "dashboard" && pendingApprovalCount > 0 ? (
                                   <span className="min-w-4 h-4 px-1 bg-[var(--warning-subtle)] text-[var(--warning-fg)] text-[10px] font-bold flex items-center justify-center rounded">
                                     {pendingApprovalCount}
                                   </span>
@@ -592,7 +593,8 @@ export function AppNavRail({
                 type="button"
                 onClick={() => onNavigate("settings")}
                 aria-label="Settings"
-                className={`${railBtnBase} ${railBtnInactive}`}
+                aria-current={activeRailItem === "settings" ? "page" : undefined}
+                className={`${railBtnBase} ${activeRailItem === "settings" ? railBtnActive : railBtnInactive}`}
               >
                 <Settings className="size-5" strokeWidth={1.8} aria-hidden="true" />
               </button>
@@ -625,18 +627,29 @@ export function AppNavRail({
                     </span>
                   </div>
 
-                  {workspaceSwitcher ? (
+                  {workspaces && onSelectWorkspace ? (
+                    <WorkspaceMenuList
+                      workspaces={workspaces}
+                      selectedWorkspaceId={selectedWorkspaceId}
+                      onSelect={(id) => {
+                        onSelectWorkspace(id);
+                        setAccountMenuOpen(false);
+                      }}
+                      onCreate={() => {
+                        onNavigate("team");
+                        setAccountMenuOpen(false);
+                      }}
+                    />
+                  ) : workspaceSwitcher ? (
                     <div className="px-2 py-1.5 border-b border-[var(--border-1)]">
                       {workspaceSwitcher}
                     </div>
                   ) : null}
 
-                  {activeSandboxCount > 0 ? (
-                    <div className="px-3 py-1.5 text-[11px] text-[var(--muted-foreground-2)] border-b border-[var(--border-1)] flex items-center justify-between">
-                      <span>Active sandboxes</span>
-                      <span className="font-mono font-medium">{activeSandboxCount}</span>
-                    </div>
-                  ) : null}
+                  <div className="px-3 py-1.5 text-[11px] text-[var(--muted-foreground-2)] border-b border-[var(--border-1)] flex items-center justify-between">
+                    <span>Sandboxes</span>
+                    <span className="font-mono font-medium">{activeSandboxCount} active</span>
+                  </div>
 
                   <div role="menu" aria-label="Account actions">
                     {setupDone !== null && onOpenSetup ? (
@@ -667,7 +680,7 @@ export function AppNavRail({
                       className="w-full flex items-center justify-between px-3 py-2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)] transition-colors"
                     >
                       <span>Remote access</span>
-                      <span className="text-[10px] font-mono text-[var(--muted-foreground-3)]">fleet</span>
+                      <span className="text-[10px] font-mono text-[var(--muted-foreground-3)]">{remoteLabel ?? "fleet"}</span>
                     </button>
 
                     <button
@@ -707,200 +720,6 @@ export function AppNavRail({
     );
   }
 
-  // 2. Desktop compact rail element (when collapsed on non-work views)
-  const leftIconRail = (
-    <nav
-      aria-label="App Icon Rail"
-      className="hidden lg:flex w-[56px] shrink-0 border-r border-[var(--border-1)] bg-[var(--chrome)] flex-col items-center justify-between py-3 z-40 select-none"
-    >
-      {/* Top Logo and Primary Nav Icons */}
-      <div className="flex flex-col items-center gap-3">
-        <Tooltip content="Shiba Home" side="right">
-          <a
-            href="/"
-            onClick={(e) => {
-              e.preventDefault();
-              onNavigate("work");
-            }}
-            aria-label="Shiba mark"
-            className="flex items-center justify-center p-1 rounded-xl hover:bg-[var(--secondary)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
-          >
-            <ShibaMark className="size-8" />
-          </a>
-        </Tooltip>
-
-        {onToggleCollapse ? (
-          <Tooltip content="Expand sidebar" shortcut="⌘B" side="right">
-            <button
-              type="button"
-              data-sidebar-toggle
-              onClick={toggleSidebar}
-              aria-label="Expand sidebar"
-              aria-expanded={false}
-              aria-controls={navigationId}
-              className="size-11 rounded-xl flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
-            >
-              <PanelLeft className="size-5" strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </Tooltip>
-        ) : null}
-
-        <div className="flex flex-col items-center gap-1.5" role="toolbar" aria-label="Primary navigation rail">
-          <Tooltip content="Chat & Threads" side="right">
-            <button
-              type="button"
-              onClick={() => onNavigate("threads")}
-              aria-label="Chat & Threads"
-              aria-current={activeView === "threads" ? "page" : undefined}
-              className={`size-10 rounded-xl flex items-center justify-center transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
-                activeView === "threads"
-                  ? "bg-[var(--secondary)] text-[var(--fg)] shadow-sm font-medium"
-                  : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
-              }`}
-            >
-              <MessagesSquare className="size-5" strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </Tooltip>
-
-          <Tooltip content="Connections & Integrations" side="right">
-            <button
-              type="button"
-              onClick={() => onNavigate("integrations")}
-              aria-label="Connections & Integrations"
-              aria-current={activeView === "integrations" || activeView === "providers" ? "page" : undefined}
-              className={`size-10 rounded-xl flex items-center justify-center transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
-                activeView === "integrations" || activeView === "providers"
-                  ? "bg-[var(--secondary)] text-[var(--fg)] shadow-sm font-medium"
-                  : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
-              }`}
-            >
-              <Blocks className="size-5" strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </Tooltip>
-
-          <Tooltip content="Tasks" side="right">
-            <button
-              type="button"
-              onClick={() => onNavigate("tasks")}
-              aria-label="Tasks"
-              aria-current={activeView === "tasks" ? "page" : undefined}
-              className={`size-10 rounded-xl flex items-center justify-center transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
-                activeView === "tasks"
-                  ? "bg-[var(--secondary)] text-[var(--fg)] shadow-sm font-medium"
-                  : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
-              }`}
-            >
-              <ListChecks className="size-5" strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </Tooltip>
-
-          <Tooltip content="Work & Pipelines" side="right">
-            <button
-              type="button"
-              onClick={() => onNavigate("work")}
-              aria-label="Work & Pipelines"
-              aria-current={activeView === "work" || activeView === "dashboard" || activeView === "activity" ? "page" : undefined}
-              className={`size-10 rounded-xl flex items-center justify-center transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
-                activeView === "work" || activeView === "dashboard" || activeView === "activity"
-                  ? "bg-[var(--secondary)] text-[var(--fg)] shadow-sm font-medium"
-                  : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
-              }`}
-            >
-              <Waypoints className="size-5" strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </Tooltip>
-        </div>
-      </div>
-
-      {/* Bottom: Bot avatars stack + Utilities */}
-      <div className="flex flex-col items-center gap-2 mt-auto pt-3 w-full px-1.5">
-        <div role="group" className="flex flex-col items-center gap-1.5 pb-2 border-b border-[var(--border-1)] w-full" aria-label="Available bots">
-          <Tooltip content="Shiba (Lead) · Ready" side="right">
-            <button
-              type="button"
-              data-testid="rail-agent-avatar-shiba"
-              aria-label="Chat with Shiba"
-              onClick={() => {
-                onNewAgentThread?.(undefined);
-                onNavigate("threads");
-              }}
-              className="relative size-8 rounded-full border border-[var(--border-1)] bg-[var(--card)] hover:border-[var(--primary)] flex items-center justify-center transition-all focus-visible:outline-2 focus-visible:outline-[var(--ring)] group"
-            >
-              <ShibaMark className="size-6 object-contain" />
-              <span className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full bg-[var(--success)] ring-2 ring-[var(--chrome)]" aria-hidden="true" />
-            </button>
-          </Tooltip>
-
-          {customAgentRecords.slice(0, 3).map((agent) => (
-            <Tooltip key={agent.id} content={`${agent.config.name} · Ready`} side="right">
-              <button
-                type="button"
-                data-testid={`rail-agent-avatar-${agent.id}`}
-                aria-label={`Chat with ${agent.config.name}`}
-                onClick={() => {
-                  onNewAgentThread?.(agent);
-                  onNavigate("threads");
-                }}
-                className="relative size-8 rounded-full border border-[var(--border-1)] bg-[var(--card)] hover:border-[var(--primary)] flex items-center justify-center transition-all focus-visible:outline-2 focus-visible:outline-[var(--ring)] group"
-              >
-                <AgentAvatar name={agent.config.name} slug={agent.slug} role={agent.config.roleTemplateId} />
-                <span className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full bg-[var(--success)] ring-2 ring-[var(--chrome)]" aria-hidden="true" />
-              </button>
-            </Tooltip>
-          ))}
-        </div>
-
-        <Tooltip content="Spaces & Store" side="right">
-          <button
-            type="button"
-            onClick={() => onNavigate("spaces")}
-            aria-label="Spaces & Store"
-            aria-current={activeView === "spaces" ? "page" : undefined}
-            className={`size-10 rounded-xl flex items-center justify-center transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
-              activeView === "spaces"
-                ? "bg-[var(--secondary)] text-[var(--fg)]"
-                : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
-            }`}
-          >
-            <Store className="size-5" strokeWidth={1.8} aria-hidden="true" />
-          </button>
-        </Tooltip>
-
-        {onOpenShortcuts ? (
-          <Tooltip content="Shortcuts & Help" side="right">
-            <button
-              type="button"
-              onClick={onOpenShortcuts}
-              aria-label="Shortcuts & Help"
-              className="size-10 rounded-xl flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
-            >
-              <Keyboard className="size-5" strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </Tooltip>
-        ) : null}
-
-        <Tooltip content="Settings" side="right">
-          <button
-            type="button"
-            onClick={() => onNavigate("settings")}
-            aria-label="Settings"
-            aria-current={activeView === "settings" ? "page" : undefined}
-            className={`relative size-10 rounded-xl flex items-center justify-center transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
-              activeView === "settings"
-                ? "bg-[var(--secondary)] text-[var(--fg)]"
-                : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
-            }`}
-          >
-            <Settings className="size-5" strokeWidth={1.8} aria-hidden="true" />
-            {pendingApprovalCount > 0 ? (
-              <span className="absolute top-2 right-2 size-2 rounded-full bg-[var(--warning-fg)] ring-2 ring-[var(--chrome)]" aria-hidden="true" />
-            ) : null}
-          </button>
-        </Tooltip>
-      </div>
-    </nav>
-  );
-
   return (
     <aside
       ref={navigationRef}
@@ -918,9 +737,6 @@ export function AppNavRail({
         }
       }}
     >
-      {/* The compact rail replaces the expanded desktop navigation when collapsed */}
-      {variant === "rail" && collapsed ? leftIconRail : null}
-
       {/* Workspace Sidebar: expanded when variant === "sheet" or !collapsed */}
       {variant === "sheet" || !collapsed ? (
         <div

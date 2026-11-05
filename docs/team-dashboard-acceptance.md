@@ -1,10 +1,10 @@
 # Team dashboard acceptance
 
-This follows the [phase matrix](control-plane-acceptance.md) and [shared context report](shared-context-employees-acceptance.md) for PR #188. Implementation, local browser evidence and installed-service verification are separate. Complete product parity with other products is not claimed.
+This follows the [phase matrix](control-plane-acceptance.md) and [shared context report](shared-context-employees-acceptance.md) for PR #188. Implementation, local browser evidence and installed-service verification are separate. Complete Overlay/Grok product parity is not claimed.
 
 ## Reference boundary
 
-The workspace navigation, chat/roster layout, Work filters and execution details follow common team-dashboard patterns. No proprietary assets, sessions or application code were copied. Upstream REA instructions were inspected; REA was not installed or executed.
+The public [Overlay demo](https://www.getoverlay.io/home) and [Grok Bot demo](https://x.ai/bot) informed workspace navigation, chat/roster layout, Work filters and execution details. Their authenticated dashboards and persistent computers were unavailable. [Overlay's feature inventory](https://github.com/LayerNorm/overlay-web/blob/1e1892e301506d08afcfce8bf9c670a6296940be/FEATURES.md) also distinguishes advertised computers from default runtime paths. No proprietary assets, sessions or application code were copied. Upstream REA instructions were inspected; REA was not installed or executed.
 
 ## Implementation matrix
 

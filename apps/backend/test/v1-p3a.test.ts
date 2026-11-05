@@ -82,7 +82,7 @@ describe("v1 P3a handlers", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("lists repositories with the exact public keys", async () => {
+    it("lists repositories with exact Hoplite keys", async () => {
       stubGitHub({ "/user/repos": [repo] });
       const response = await handleRepositories(fixture("/source-control/github/repositories").ctx);
       expect(await response!.json()).toEqual({ ok: true, repositories: [{ id: "42", fullName: "acme/repo", defaultBranch: "main", private: true }] });
