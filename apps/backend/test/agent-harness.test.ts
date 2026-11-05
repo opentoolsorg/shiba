@@ -262,6 +262,35 @@ describe("codex app-server adapter", () => {
     expect(denyLog).toContain('"decision":"decline"');
   });
 
+  it("binds full native permission arguments before projection with canonical hashes", async () => {
+    const hashes: string[] = [];
+    for (const injected of [{ alpha: "one", beta: "two" }, { beta: "two", alpha: "one" }, { alpha: "changed", beta: "two" }]) {
+      const dir = await scratch(), script = path.join(dir, "full-permission.mjs");
+      await writeFile(script, CODEX_FAKE.replace('params: { command: "ls", reason: "list the tree"', `params: { env: ${JSON.stringify(injected)}, command: "ls", reason: "list the tree"`));
+      let observed: { actionHash: string; detail: string } | undefined;
+      const result = await codexJob(dir, "approve", { binArgs: [script], exactApprovalReview: true, validateApprovalReview: async () => true,
+        onApproval: async (request: { actionHash: string; detail: string }) => { observed = request; return "deny"; } });
+      expect(result.status).toBe("completed");
+      expect(observed?.actionHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(JSON.parse(observed?.detail ?? "{}").payload.params.env).toEqual(injected);
+      hashes.push(observed?.actionHash ?? "");
+    }
+    expect(hashes[0]).toBe(hashes[1]); expect(hashes[0]).not.toBe(hashes[2]);
+  });
+
+  it.each(["sensitive", "oversized"])("denies %s exact permissions before raw event/log/callback exposure", async (kind) => {
+    const dir = await scratch(), script = path.join(dir, "unsafe-permission.mjs");
+    const secret = "fakePrivatePermissionToken987";
+    await writeFile(script, CODEX_FAKE.replace('params: { command: "ls", reason: "list the tree"', `params: { command: ${JSON.stringify(kind === "oversized" ? `${"x".repeat(2100)}${secret}` : secret)}, reason: "list the tree"`));
+    let called = 0;
+    const result = await codexJob(dir, "approve", { binArgs: [script], exactApprovalReview: true,
+      validateApprovalReview: async () => false, onApproval: async () => { called++; return "allow"; } });
+    expect(called).toBe(0); expect(result.status).toBe("completed");
+    expect(JSON.stringify(result.events)).not.toContain(secret);
+    expect(await readFile(result.logPath, "utf8")).not.toContain(secret);
+    expect(result.events).toContainEqual(expect.objectContaining({ type: "approval.resolved", decision: "deny" }));
+  });
+
   it("interrupts the in-flight turn", async () => {
     const dir = await scratch();
     let armed = false;
@@ -275,6 +304,26 @@ describe("codex app-server adapter", () => {
     expect(result.status).toBe("interrupted");
     const log = await readFile(path.join(dir, "seen.jsonl"), "utf8");
     expect(log).toContain("turn/interrupt");
+  });
+
+  it.each([false, true])("settles a pending turn exactly once after owned process loss (cancelled=%s)", async (cancelled) => {
+    const dir = await scratch();
+    const controller = new AbortController();
+    let child: { kill(signal: string): boolean } | undefined;
+    const result = await codexJob(dir, "interrupt", {
+      signal: controller.signal,
+      onChild(value: { kill(signal: string): boolean }) { child = value; },
+      onEvent(event: { type: string }) {
+        if (event.type !== "turn.started") return;
+        if (cancelled) controller.abort();
+        child?.kill("SIGTERM");
+      },
+    });
+    expect(result.status).toBe(cancelled ? "interrupted" : "failed");
+    expect(result.exitCode).toBe(1);
+    expect(result.summary).toBe("Codex session process closed.");
+    expect(result.events.filter(event => event.type === "turn.completed")).toHaveLength(1);
+    expect(result.events.filter(event => event.type === "turn.completed")[0]?.usageLimited).toBe(false);
   });
 
   it("resumes a thread instead of starting one", async () => {
