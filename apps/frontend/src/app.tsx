@@ -485,7 +485,7 @@ export function App(): React.JSX.Element {
   }, [notice]);
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [memoryInitialView, setMemoryInitialView] = useState<"facts" | "sources">("facts");
-  // Settings is a Kosuke-style popup, not a full view — every nav path that
+  // Settings is a popup, not a full view — every nav path that
   // would land on "settings" opens the modal over the current view instead.
   const [settingsModalOpen, setSettingsModalOpen] = useState(() => viewFromUrl() === "settings");
   // Last section the user had open in the settings modal — reopening lands
@@ -3387,7 +3387,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <RemoteAccessView />
           ) : null}
 
-          {/* SETTINGS — Kosuke-style popup over the current view */}
+          {/* SETTINGS — popup over the current view */}
           {settingsModalOpen ? (
             <SettingsModal
               isOpen

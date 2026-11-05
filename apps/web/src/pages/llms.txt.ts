@@ -34,7 +34,6 @@ export async function GET() {
 - Website: ${SITE}/
 - Docs: ${SITE}/docs/overview/
 - GitHub source (AGPL-3.0-only): https://github.com/princepal9120/shiba
-- Open-source Devin alternative guide: ${SITE}/open-source-devin-alternative/
 - Why I am building Shiba: ${SITE}/why-shiba/
 - Integrations (availability and configuration): ${SITE}/integrations/
 - How work moves through Shiba: ${SITE}/network/

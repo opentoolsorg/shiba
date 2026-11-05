@@ -1,5 +1,5 @@
 /**
- * AppNavRail — OpenBot-inspired workspace shell navigation:
+ * AppNavRail — workspace shell navigation:
  * Left icon rail (chat, connections, tasks, graph, bot avatars stack, store, help, settings)
  * + adjacent sidebar (team selector, view switcher, agents/workflows, thread queue, runtime cards).
  */
@@ -533,7 +533,7 @@ export function AppNavRail({
       aria-label="Primary Left Rail"
       aria-hidden={variant === "rail" && collapsed ? true : undefined}
     >
-      {/* 1. Left Icon Rail (OpenBot 56px Rail) */}
+      {/* 1. Left Icon Rail (56px Rail) */}
       {variant === "rail" ? leftIconRail : null}
 
       {/* 2. Workspace Sidebar */}
@@ -651,7 +651,7 @@ export function AppNavRail({
           </div>
         </div>
 
-        {/* View Switcher: Agents | Workflows (OpenBot SidebarViewSwitch) */}
+        {/* View Switcher: Agents | Workflows (SidebarViewSwitch) */}
         <div className="grid grid-cols-2 p-0.5 rounded-lg bg-[var(--secondary)] mb-2.5 text-xs font-medium shrink-0">
           <button
             type="button"

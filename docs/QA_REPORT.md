@@ -9,7 +9,7 @@ This file is the test plan and the execution log. Pass/fail is filled in after e
 
 ## What the repo claims
 
-Shiba is an **open-source, self-hosted, account-owned AI software engineer** (README, `spec/GOAL.md`). It is not a hosted multi-tenant Devin clone.
+Shiba is an **open-source, self-hosted, account-owned AI software engineer** (README, `spec/GOAL.md`). It is not a hosted multi-tenant agent.
 
 Claimed user journey:
 

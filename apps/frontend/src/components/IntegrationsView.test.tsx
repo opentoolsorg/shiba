@@ -90,7 +90,7 @@ function stubIntegrationsFetch(setup = defaultSetup()) {
   return fetchMock;
 }
 
-describe("IntegrationsView Viktor catalog", () => {
+describe("IntegrationsView native catalog", () => {
   it("renders Connected and Available sections with search and domain filter", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView />);

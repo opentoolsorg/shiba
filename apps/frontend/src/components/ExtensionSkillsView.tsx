@@ -130,7 +130,7 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
       await updateExtensionSkill(skill._id, { enabled });
       setNotice(enabled ? `Enabled “${skill.name}”.` : `Disabled “${skill.name}”.`);
     } catch (cause) {
-      // Match Overlay's optimistic toggle behavior; keep the selected state visible.
+      // Optimistic toggle; keep the selected state visible.
       setMutationError(cause instanceof Error ? cause.message : "Skill state could not be saved.");
     }
   };

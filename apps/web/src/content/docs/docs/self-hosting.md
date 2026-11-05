@@ -156,5 +156,4 @@ Redirect `/app*` from Pages to your Worker host via `apps/web/public/_redirects`
 
 - [Configuration & secrets](/docs/configuration/)
 - [Local development](/docs/local-development/)
-- [Shiba vs hosted alternatives](/docs/hosted-alternatives/) (neutral comparison)
 - [Security](/docs/security/)

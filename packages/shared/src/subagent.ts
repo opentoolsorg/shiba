@@ -1,6 +1,6 @@
 /**
  * Subagent tree vocabulary (Phase 2b). Pure helpers — no I/O.
- * Mirrors Capy semantics: dotted path, depth cap, fresh vs shared sandbox.
+ * Dotted path, depth cap, fresh vs shared sandbox.
  */
 import type { DelegatedRun } from "./runs.js";
 
