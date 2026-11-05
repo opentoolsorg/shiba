@@ -7,7 +7,7 @@ const fixture = pathToFileURL(resolve(import.meta.dirname, "../../../.cursor/ski
 
 function check(source: string) {
   const result = spawnSync(process.execPath, ["--input-type=module", "-e",
-    `import assert from 'node:assert/strict'; import {createFixtureAuth,fixtureAuthRequest,fixtureChildEnv,fixtureWorkerVars,signalFixtureGroup} from ${JSON.stringify(fixture)}; ${source}`],
+    `import assert from 'node:assert/strict'; import {createFixtureAuth,fixtureAuthRequest,fixtureChildEnv,fixtureWorkerVars,signalFixtureGroup,assertFixtureGroupGone,stopOwned} from ${JSON.stringify(fixture)}; ${source}`],
   { env: {}, encoding: "utf8" });
   expect(result.stderr).toBe("");
   expect(result.stdout).toBe("");
@@ -102,6 +102,67 @@ describe("employee fixture process-group cleanup", () => {
         assert.throws(()=>signalFixtureGroup(123,'SIGTERM',{platform:'darwin',kill,listProcesses:()=>processes}));
       }
       assert.throws(()=>signalFixtureGroup(123,'SIGTERM',{platform:'darwin',kill,listProcesses:()=>{throw new Error('ps failed');}}),/ps failed/);
+    `);
+  });
+
+  it("never signals a known-exited leader's live or unverified group", () => {
+    check(`
+      let calls=0; const kill=()=>{calls++;};
+      for(const signal of ['SIGTERM','SIGKILL']){
+        for(const processes of ['123 S','123 Z\\n123 R+'])
+          assert.throws(()=>signalFixtureGroup(123,signal,{leaderExited:true,ownGroup:999,kill,listProcesses:()=>processes}),/live or unverified/);
+        for(const processes of ['123 Z\\n456 S','456 S'])
+          assert.equal(signalFixtureGroup(123,signal,{leaderExited:true,ownGroup:999,kill,listProcesses:()=>processes}),false);
+      }
+      assert.equal(calls,0);
+    `);
+  });
+
+  it("derives the exited-leader fence from close, exit code and signal code", () => {
+    check(`
+      for(const change of [{closed:true},{exitCode:0},{signalCode:'SIGTERM'}]){
+        let calls=0;
+        const child={pid:123,exitCode:null,signalCode:null,...change};
+        const entry={child,closed:change.closed===true,done:Promise.resolve()};
+        await assert.rejects(stopOwned(entry,{signalGroup:(pid,signal,options)=>signalFixtureGroup(pid,signal,{
+          ...options,ownGroup:999,kill:()=>{calls++;},listProcesses:()=>'123 S',
+        })}),/live or unverified/);
+        assert.equal(calls,0);assert.notEqual(entry.stopped,true);
+      }
+    `);
+  });
+
+  it("fails after a forced shutdown if a live member or uncertain process list remains", () => {
+    check(`
+      assert.throws(()=>assertFixtureGroupGone(123,{ownGroup:999,listProcesses:()=>'123 S'}),/live or unverified/);
+      assert.throws(()=>assertFixtureGroupGone(123,{ownGroup:999,listProcesses:()=>''}),/empty process list/);
+      assert.throws(()=>assertFixtureGroupGone(123,{ownGroup:999,listProcesses:()=>'bad metadata'}),/parse/);
+      assert.throws(()=>assertFixtureGroupGone(123,{ownGroup:999,listProcesses:()=>{throw Object.assign(new Error('ps timeout'),{code:'ETIMEDOUT'});}}),/ps timeout/);
+      assert.doesNotThrow(()=>assertFixtureGroupGone(123,{ownGroup:999,listProcesses:()=>'123 Z\\n456 S'}));
+    `);
+  });
+
+  it("does not mark cleanup complete when a member survives the bounded KILL wait", () => {
+    check(`
+      let clock=0;const signals=[];
+      const entry={child:{pid:123,exitCode:null,signalCode:null},closed:false,done:new Promise(()=>{})};
+      await assert.rejects(stopOwned(entry,{
+        now:()=>clock,wait:async ms=>{clock+=ms;},
+        signalGroup:(_pid,signal)=>{signals.push(signal);return true;},
+        confirmGone:pid=>assertFixtureGroupGone(pid,{ownGroup:999,listProcesses:()=>'123 S'}),
+      }),/live or unverified/);
+      assert.equal(signals[0],'SIGTERM');assert.equal(signals.at(-1),'SIGKILL');
+      assert(clock>=5000);assert.notEqual(entry.stopped,true);
+    `);
+  });
+
+  it("rejects reserved and runner process groups before any signal", () => {
+    check(`
+      let calls=0;const kill=()=>{calls++;};
+      assert.throws(()=>signalFixtureGroup(1,'SIGTERM',{ownGroup:999,kill}));
+      assert.throws(()=>signalFixtureGroup(123,'SIGTERM',{ownGroup:123,kill}));
+      assert.throws(()=>assertFixtureGroupGone(123,{ownGroup:123,listProcesses:()=>'456 S'}));
+      assert.equal(calls,0);
     `);
   });
 });

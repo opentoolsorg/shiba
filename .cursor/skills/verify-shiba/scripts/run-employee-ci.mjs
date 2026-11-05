@@ -60,21 +60,64 @@ export function fixtureWorkerVars(origin,auth,keys){
     BETTER_AUTH_SECRET:keys.auth,INTERNAL_SIGNING_KEY:keys.signing,MEMORY_ENABLED:'0',TYPESAFE_API_KEY:''};
 }
 
-export function signalFixtureGroup(pgid,signal,{kill=process.kill,platform=process.platform,listProcesses=()=>execFileSync('ps',['-A','-o','pgid=,stat='],{encoding:'utf8'})}={}){
-  assert(Number.isSafeInteger(pgid)&&pgid>0,'Fixture process group must be a positive integer.');
+const psOptions={encoding:'utf8',timeout:2000,maxBuffer:4*1024*1024,env:{PATH:'/usr/bin:/bin',LANG:'C',LC_ALL:'C'}};
+const listProcessGroups=()=>execFileSync('/bin/ps',['-A','-o','pgid=,stat='],psOptions);
+function currentProcessGroup(){
+  const output=execFileSync('/bin/ps',['-o','pgid=','-p',String(process.pid)],psOptions).trim();
+  assert(/^\d+$/.test(output),'Cannot determine the runner process group.');
+  const pgid=Number(output);assert(Number.isSafeInteger(pgid)&&pgid>1,'Cannot determine the runner process group.');return pgid;
+}
+function validateFixtureGroup(pgid,ownGroup){
+  assert(Number.isSafeInteger(pgid)&&pgid>1,'Fixture process group must be an integer greater than one.');
+  assert(Number.isSafeInteger(ownGroup)&&ownGroup>1,'Cannot determine the runner process group.');
+  assert(pgid!==ownGroup,'Refusing to signal the runner process group.');
+}
+function hasLiveFixtureGroup(pgid,listProcesses){
+  const rows=listProcesses().trim().split('\n').filter(Boolean);
+  assert(rows.length>0,'Cannot confirm fixture process-group exit from an empty process list.');
+  let live=false;
+  for(const row of rows){
+    const match=row.trim().match(/^(\d+)\s+(\S+)$/);
+    assert(match,'Cannot parse fixture process-group state.');
+    if(Number(match[1])===pgid&&!match[2].startsWith('Z'))live=true;
+  }
+  return live;
+}
+/** Fail closed after the bounded KILL wait if any live or uncertain group remains. */
+export function assertFixtureGroupGone(pgid,{listProcesses=listProcessGroups,ownGroup=currentProcessGroup()}={}){
+  validateFixtureGroup(pgid,ownGroup);
+  assert(!hasLiveFixtureGroup(pgid,listProcesses),`Fixture process group ${pgid} still has live or unverified members.`);
+}
+export function signalFixtureGroup(pgid,signal,{kill=process.kill,platform=process.platform,listProcesses=listProcessGroups,ownGroup=currentProcessGroup(),leaderExited=false}={}){
+  validateFixtureGroup(pgid,ownGroup);
+  if(leaderExited&&(signal==='SIGTERM'||signal==='SIGKILL')){
+    assertFixtureGroupGone(pgid,{listProcesses,ownGroup});
+    return false;
+  }
   try{kill(-pgid,signal);return true;}catch(error){
     if(error.code==='ESRCH')return false;
     if(error.code!=='EPERM'||platform!=='darwin')throw error;
     // Darwin can return EPERM for a zombie-only group; live members still fail cleanup.
-    const rows=listProcesses().trim().split('\n').filter(Boolean);
-    assert(rows.length>0,'Cannot confirm fixture process-group exit from an empty process list.');
-    for(const row of rows){
-      const match=row.trim().match(/^(\d+)\s+(\S+)$/);
-      assert(match,'Cannot parse fixture process-group state.');
-      if(Number(match[1])===pgid&&!match[2].startsWith('Z'))throw error;
-    }
+    if(hasLiveFixtureGroup(pgid,listProcesses))throw error;
     return false;
   }
+}
+
+/** Keep both grace periods bounded and prove no live group remains after KILL. */
+export async function stopOwned(entry,{signalGroup=signalFixtureGroup,confirmGone=assertFixtureGroupGone,now=Date.now,wait=delay}={}){
+  if(entry.stopped||!entry.child.pid)return;
+  const signal=kind=>signalGroup(entry.child.pid,kind,{leaderExited:entry.closed||entry.child.exitCode!==null||entry.child.signalCode!==null});
+  // Never signal a numeric group after the leader has exited: it may be reused.
+  if(!signal('SIGTERM')){entry.stopped=true;return;}
+  const deadline=now()+4000;
+  while(now()<deadline){
+    if(!signal(0)){entry.stopped=true;return;}
+    await wait(100);
+  }
+  signal('SIGKILL');
+  await Promise.race([entry.done,wait(1000)]);
+  confirmGone(entry.child.pid);
+  entry.stopped=true;
 }
 
 async function assertFreePort(port){
@@ -145,20 +188,6 @@ export async function main(){
       assert.equal(outcome.code,0,`${label} failed (${outcome.signal??outcome.code}); inspect ${fixture}.`);
       await stopOwned(entry);
     }finally{clearTimeout(timer);}
-  }
-  async function stopOwned(entry){
-    if(entry.stopped||!entry.child.pid)return;
-    const signalGroup=signal=>signalFixtureGroup(entry.child.pid,signal);
-    // Signal the owned group even after its leader exits: descendants may remain.
-    if(!signalGroup('SIGTERM')){entry.stopped=true;return;}
-    const deadline=Date.now()+4000;
-    while(Date.now()<deadline){
-      if(!signalGroup(0)){entry.stopped=true;return;}
-      await delay(100);
-    }
-    signalGroup('SIGKILL');
-    await Promise.race([entry.done,delay(1000)]);
-    entry.stopped=true;
   }
   try{
     await Promise.all([mkdir(env.HOME,{recursive:true}),mkdir(env.TMPDIR,{recursive:true}),mkdir(path.join(fixture,'state'))]);
