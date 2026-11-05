@@ -4013,6 +4013,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (input.executionTarget?.kind === "artifact-workspace") {
       if (input.repoUrl || input.publishPullRequest) throw new Error("Ephemeral workspaces cannot publish repository changes.");
+      if (input.runtime === "local" || (input.runtime === undefined && resolveRuntimeName(this.env.RUNTIME) === "local")) {
+        throw new Error("Local artifact work requires the dashboard Work composer with a selected paired computer and explicit output paths. No cloud fallback is performed.");
+      }
       input = { ...input, repoUrl: "", expectedDeliverables: input.executionTarget.expectedDeliverables, runtime: "sandbox" };
     }
     if (this.approvals.some((a) => a.approvalId === toolCallId)) return;
