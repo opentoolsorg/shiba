@@ -29,6 +29,7 @@ import { handleTeamModelSessions } from "./team-model-routes.js";
 import { tickFounderReviewSchedules } from "./founder-review-schedules.js";
 import { tickFounderConnectorJobs } from "./founder-connector-jobs.js";
 import { handleOnboardingProgress } from "./onboarding-progress.js";
+import { handleTeamOnboardingTask } from "./team-onboarding-task.js";
 import { handleCollaborationWithRealtime } from "./collaboration-room-routes.js";
 import { handleTeamWorkspaces } from "./team-workspaces-routes.js";
 import { handleTeamWork } from "./team-work-routes.js";
@@ -390,6 +391,8 @@ export default {
       }
       const metaResponse = await handleMeta(request, env);
       if (metaResponse) return metaResponse;
+      const teamOnboardingTask = await handleTeamOnboardingTask(request, env);
+      if (teamOnboardingTask) return teamOnboardingTask;
       const onboardingResponse = await handleOnboardingProgress(request, env);
       if (onboardingResponse) return onboardingResponse;
       const acpProviderResponse = await handleAcpProviders(request, env);

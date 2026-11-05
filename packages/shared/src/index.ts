@@ -78,3 +78,4 @@ export * from "./founder-stripe-slack.js";
 export * from "./founder-hubspot-reads.js";
 export * from "./founder-reconciliation-schedules.js";
 export * from "./founder-reconciliation-slack.js";
+export * from "./team-onboarding-task.js";
