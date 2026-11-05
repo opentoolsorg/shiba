@@ -41,6 +41,8 @@ const state = vi.hoisted(() => ({
     customAgentId: string;
     profileVersion: number;
     commandId: string;
+    runtime?: "local" | "sandbox";
+    targetMachineId?: string;
   },
   queueReceipts: new Map<string, { approvalId: string; task: string }>(),
 }));
@@ -490,7 +492,7 @@ describe("approval-gated employee handoffs", () => {
     ).toEqual({ approval_id: "approval-employee-1", run_id: "agent-tool:approval-employee-1" });
   });
 
-  it("queues a repo-free artifact-workspace handoff through approval and persists its completed employee reply", async () => {
+  it.each(["sandbox", "local"] as const)("queues a repo-free %s artifact-workspace handoff through approval and persists its completed employee reply", async (runtime) => {
     const f = fixture();
     const employee = await createCustomAgent(f.env, "self-hosted", "writer", {
       name: "Report Writer",
@@ -519,7 +521,8 @@ describe("approval-gated employee handoffs", () => {
         kind: "artifact-workspace",
         expectedDeliverables: ["reports/room-summary.md"],
       },
-      runtime: "sandbox",
+      runtime,
+      ...(runtime === "local" ? { targetMachineId: "paired-reports" } : {}),
     }));
 
     expect(state.queued).toMatchObject({
@@ -531,6 +534,8 @@ describe("approval-gated employee handoffs", () => {
       customAgentId: employee.id,
       profileVersion: employee.version,
       commandId: "repo-free-room-handoff",
+      runtime,
+      ...(runtime === "local" ? { targetMachineId: "paired-reports" } : {}),
     });
     expect(state.queued?.repoUrl).toBeUndefined();
     expect(state.run).toBeNull();

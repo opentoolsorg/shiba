@@ -195,6 +195,25 @@ describe("authenticated requested-deliverable downloads", () => {
     expect(state.requests[0]?.headers.has("X-Agent-Principal")).toBe(false);
   });
 
+  it("exports repo-free local output only through its current owner session and stops after session revocation", async () => {
+    const actor = buildSessionAgentName("owner-a", SESSION);
+    const { run, text } = await seed(actor);
+    Object.assign(run, { repoUrl: "", runtime: "local", targetMachineId: "paired-artifacts",
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["reports/brief.md"] } });
+    state.sessions.set("owner-a", [SESSION]);
+    const path = "/api/runs/same-run/deliverables/0?session=" + SESSION;
+    expect((await handleRuns(request(path, "owner-b"), env))?.status).toBe(404);
+    expect(get).not.toHaveBeenCalled();
+    const downloaded = await handleRuns(request(path), env);
+    expect(downloaded?.status).toBe(200);
+    expect(await downloaded!.text()).toBe(text);
+    expect(downloaded!.headers.get("content-disposition")).toBe('attachment; filename="brief.md"');
+    get.mockClear();
+    state.sessions.set("owner-a", []);
+    expect((await handleRuns(request(path), env))?.status).toBe(404);
+    expect(get).not.toHaveBeenCalled();
+  });
+
   it("ignores forged manifest MIME and serves only the declared safe attachment media type", async () => {
     const { run } = await seed();
     run.deliverables[0]!.mediaType = "text/html";
