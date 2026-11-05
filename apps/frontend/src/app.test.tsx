@@ -427,6 +427,31 @@ describe("app Work and Threads routing", () => {
     expect(screen.queryByText(/PERSONAL-/)).toBeNull();
   });
 
+  it.each(["/inbox/", "/memory/"])("fetches %s data a bounded number of times in personal mode", async (path) => {
+    const actor = "owner@example.com";
+    window.history.replaceState(null, "", path);
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const requested = String(url);
+      if (requested === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
+      if (requested === "/api/workspaces") return Response.json({ workspaces: [] });
+      if (requested.startsWith("/api/emails")) return Response.json({ emails: [] });
+      if (requested.startsWith("/api/drafts")) return Response.json({ drafts: [] });
+      if (requested === "/api/mailboxes") return Response.json({ mailboxes: [{ address: "me@example.com", label: "Me" }] });
+      if (requested === "/api/memory/projects") return Response.json({ projects: [] });
+      if (requested.startsWith("/api/memory/")) return Response.json({ facts: [], sessions: [], sources: [] });
+      return originalFetch(url, options);
+    }));
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    render(<App />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+    const calls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    // A render/refetch loop produces thousands of calls; a healthy page makes a handful.
+    for (const prefix of ["/api/mailboxes", "/api/emails", "/api/drafts", "/api/memory/facts", "/api/memory/sessions", "/api/memory/sources"]) {
+      expect(calls.filter((url) => url.startsWith(prefix)).length, prefix).toBeLessThanOrEqual(4);
+    }
+  });
+
   it("starts an agent thread from the Agents panel through the shared creation guard", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/custom-agents/");
