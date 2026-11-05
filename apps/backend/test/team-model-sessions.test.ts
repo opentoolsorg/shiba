@@ -111,6 +111,23 @@ function seedPermanentReservations(f: Awaited<ReturnType<typeof fixture>>, grant
 }
 
 describe("default-off native funded text with actual routes/SQLite and fixture AI only", { timeout: 20_000 }, () => {
+  it.each(["embedding", "image-generation", "payment"])("rejects unsupported %s before funding or dispatch", async (operation) => {
+    const f = await fixture();
+    const result = await f.call("/funding/prepare", "POST", { ...f.fundingInput, operation });
+    expect(result.response.status).toBe(400);
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM team_model_funding").get()).toMatchObject({ n: 0 });
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM team_model_money_ledger").get()).toMatchObject({ n: 0 });
+    expect(f.run).not.toHaveBeenCalled();
+  });
+  it("freezes the text operation in both sponsored contract and quote", async () => {
+    const f = await fixture();
+    const grant = await f.fund({ operation: "text-generation" });
+    const row = f.sqlite.prepare("SELECT contract_json FROM team_model_funding WHERE id=?").get(grant.id) as { contract_json: string };
+    expect(JSON.parse(row.contract_json)).toMatchObject({ operation: "text-generation", money: { quote: { operation: "text-generation" } } });
+    const approved = await f.approve(await f.turn(grant));
+    expect((await f.execute(approved)).response.status).toBe(200);
+    expect(f.run).toHaveBeenCalledTimes(1);
+  });
   it("binds a reviewed Llama quote and max_tokens to the selected direct binding", async () => {
     const f = await fixture(); f.env.SHIBA_TEAM_MODEL_MODEL = TEAM_MODEL_LLAMA_MODEL;
     const grant = await f.fund({ model: TEAM_MODEL_LLAMA_MODEL, maxOutputTokens: 1024 });
