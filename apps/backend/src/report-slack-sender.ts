@@ -5,7 +5,7 @@ export async function postReportSlackMessage(token: string, input: {
   channel: string; threadTs: string; text: string; clientMsgId: string;
 }): Promise<{ channel: string; ts: string }> {
   const response = await fetch("https://slack.com/api/chat.postMessage", {
-    method: "POST", redirect: "error", signal: AbortSignal.timeout(SLACK_POST_TIMEOUT_MS),
+    method: "POST", redirect: "manual", signal: AbortSignal.timeout(SLACK_POST_TIMEOUT_MS),
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
     body: JSON.stringify({ channel: input.channel, thread_ts: input.threadTs, text: input.text, client_msg_id: input.clientMsgId,
       mrkdwn: false, parse: "none", link_names: false, reply_broadcast: false,
