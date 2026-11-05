@@ -176,3 +176,60 @@ approve agent control; and maximum per-session network/resource budgets. No live
 accounts, credentials or payments are needed for the next fixture implementation.
 Managed integrated browser, desktop/CI and deployed transport acceptance remain
 with the parent task; historical screenshots are not evidence of this design.
+
+## Implemented increment: bundled inert document summary
+
+The dedicated computer-access branch adds an **API-only static text import**, not
+online or authenticated browsing. The one shipped catalog entry is
+`rfc2606-example-domains-v1`: a short factual summary of RFC 2606 section 3,
+with the RFC's public URL recorded as provenance. It is bundled with the Worker;
+**neither preview nor import fetches that URL**. No service-contact consent,
+DNS resolution, redirect following, user URL, source cookie or token is involved.
+Adding a catalog entry requires a reviewed code change. Existing frozen session
+contracts still have `sources: []`: no external source authority is granted.
+
+After the existing human review, distinct funding, shared-display consent and
+start flow, a native named viewer may request:
+
+```text
+POST /api/shared-computers/sessions/:sessionId/documents/preview
+X-Shiba-Workspace: <current workspace>
+Content-Type: application/json
+
+{"expectedVersion":<session version>,"documentId":"rfc2606-example-domains-v1"}
+```
+
+The private, no-store response includes `document.text`, provenance, an explicit
+inert-snapshot label, and `document.documentDigest`. A human should inspect the
+exact text and current desktop focus. The digest freezes all snapshot fields
+and the workspace, session ID, session version and frozen session digest.
+It is not an authorization token or a secret. `reviewed: true` is the human's
+attestation, not server proof that a preview was displayed.
+
+A named human controller holding the current exclusive lease can then submit:
+
+```text
+POST /api/shared-computers/sessions/:sessionId/documents/import
+
+{"requestId":"<new UUID>","expectedVersion":<session version>,
+ "digest":"<session digest>","leaseVersion":<current lease version>,
+ "sequence":<next sequence>,"documentId":"rfc2606-example-domains-v1",
+ "documentDigest":"<preview documentDigest>","reviewed":true}
+```
+
+The server reconstructs the bounded text action; supplied text, URLs, redirects,
+agent IDs, cookies, credentials and unknown extensions are rejected. It types
+at the **current desktop focus**, like existing manual text input; it does not
+navigate to the source or guarantee focus is in notes. Existing native-session,
+participant/source/account, lease/expiry, STOP, fixed-argv, sequencing and durable
+duplicate fences are reused. Unknown delivery is retained and not retried.
+Raw text is not persisted in command audit rows. Container networking stays off;
+there are no agent observation/control grants or account-cookie inheritance.
+
+This is a fixture-tested backend/API increment, not a demonstrated dashboard
+journey, browser-network acceptance or live end-to-end result. No UI or image
+change is included. The remaining owner choice is a specific additional
+bundled text catalog (reviewed code changes, no network), versus explicit consent
+to contact a fixed external document catalog. The latter needs a separate bounded
+retrieval implementation and transport/security proof. Arbitrary URLs and
+authenticated agent browsing remain disabled pending the isolation work above.
