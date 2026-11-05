@@ -3173,6 +3173,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       );
     }
     if (effectiveRuntime === "local") {
+      if (executionTarget?.kind === "artifact-workspace" && (personalExecution || intakeOrgId.startsWith("team:"))) {
+        return Response.json({ error: "Team and personal-account local artifact grants are unavailable. Operator pairing does not authorize another workspace's execution." }, { status: 403 });
+      }
       if (executionTarget?.kind === "artifact-workspace" &&
           (!targetMachineId || executionTarget.expectedDeliverables.length === 0)) {
         return Response.json({ error: "Local artifact work requires a paired computer and explicit output file paths; automatic ZIP collection is cloud-only." }, { status: 400 });
@@ -4013,6 +4016,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (input.executionTarget?.kind === "artifact-workspace") {
       if (input.repoUrl || input.publishPullRequest) throw new Error("Ephemeral workspaces cannot publish repository changes.");
+      if (input.runtime === "local" || (input.runtime === undefined && resolveRuntimeName(this.env.RUNTIME) === "local")) {
+        throw new Error("Local artifact work requires the dashboard Work composer with a selected paired computer and explicit output paths. No cloud fallback is performed.");
+      }
       input = { ...input, repoUrl: "", expectedDeliverables: input.executionTarget.expectedDeliverables, runtime: "sandbox" };
     }
     if (this.approvals.some((a) => a.approvalId === toolCallId)) return;
