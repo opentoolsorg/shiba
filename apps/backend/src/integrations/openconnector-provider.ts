@@ -84,7 +84,7 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     return url.href.replace(/\/$/, "");
   }
 
-  private async request(path: string, auth: "admin" | "runtime" | null, init: RequestInit = {}): Promise<unknown> {
+  private async request(path: string, auth: "admin" | "runtime" | null, init: RequestInit = {}, beforeFetch?: () => void): Promise<unknown> {
     const base = this.base();
     const token = auth === "admin" ? this.env.OPEN_CONNECTOR_ADMIN_TOKEN?.trim() : auth === "runtime" ? this.env.OPEN_CONNECTOR_RUNTIME_TOKEN?.trim() : undefined;
     if (auth && !token) throw new OpenConnectorIntegrationProviderError(`Set OPEN_CONNECTOR_${auth.toUpperCase()}_TOKEN to enable OpenConnector ${auth} requests.`);
@@ -94,13 +94,16 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     let response: Response;
     try {
       const fetcher = this.env.OPEN_CONNECTOR ? this.env.OPEN_CONNECTOR.fetch.bind(this.env.OPEN_CONNECTOR) : this.fetchImpl;
-      response = await fetcher(`${base}${path}`, {
+      const requestInit: RequestInit = {
         ...init,
         headers,
         redirect: "manual",
-        signal: AbortSignal.timeout(35_000),
-      });
-    } catch {
+        signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(35_000)]) : AbortSignal.timeout(35_000),
+      };
+      beforeFetch?.();
+      response = await fetcher(`${base}${path}`, requestInit);
+    } catch (error) {
+      if (error instanceof OpenConnectorIntegrationProviderError) throw error;
       throw new OpenConnectorIntegrationProviderError("Could not reach OpenConnector.");
     }
     // Never include upstream error bodies: they may contain credentials or tool output.
@@ -253,6 +256,13 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
 
   async executeTool(context: IntegrationExecuteContext): Promise<IntegrationProviderExecuteResponse> {
     try {
+      const assertSendCurrent = () => {
+        context.signal?.throwIfAborted();
+        if (context.approvedUntil !== undefined && (!Number.isSafeInteger(context.approvedUntil) || Date.now() >= context.approvedUntil)) {
+          throw new OpenConnectorIntegrationProviderError("App action consent expired. Request a new human approval before retrying.");
+        }
+      };
+      assertSendCurrent();
       if (!context.toolkitSlug || !context.approvedConnectionId) return { ok: false, status: "failed", error: "A current employee-approved app connection is required." };
       const rows = await this.ownedConnectionRows(context.userId);
       let selected: (typeof rows)[number] | undefined;
@@ -262,12 +272,17 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
         if (id === context.approvedConnectionId) selected = row;
       }
       if (!selected) return { ok: false, status: "failed", error: "The approved app consent generation is unavailable or changed. Review the current connection and employee grant again." };
+      const alias = await openConnectorConnectionName(context.userId);
+      const body = JSON.stringify({ input: context.arguments });
+      await context.beforeDispatch?.();
+      assertSendCurrent();
       // Ignore caller-supplied account/session selectors; only the server-derived alias is trusted.
       const result = this.parse(executionSchema, await this.request(`/v1/actions/${encodeURIComponent(context.toolSlug)}`, "runtime", {
         method: "POST",
-        headers: { "x-oo-connector-alias": await openConnectorConnectionName(context.userId), "x-oo-connector-app-id": selected.id },
-        body: JSON.stringify({ input: context.arguments }),
-      }));
+        headers: { "x-oo-connector-alias": alias, "x-oo-connector-app-id": selected.id },
+        body,
+        ...(context.signal ? { signal: context.signal } : {}),
+      }, assertSendCurrent));
       if (!result.success) return { ok: false, status: "failed", error: "OpenConnector action failed." };
       return { ok: true, status: "completed", output: result.data };
     } catch (error) {
