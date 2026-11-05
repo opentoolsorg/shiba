@@ -663,9 +663,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const activeSurfaceScopeRef = useRef({ key: activeSurfaceKey });
   if (activeSurfaceScopeRef.current.key !== activeSurfaceKey) activeSurfaceScopeRef.current = { key: activeSurfaceKey };
   const slackTaskSurface = activeSurfaceScopeRef.current;
-  const adoptSlackTask = (text: string) => {
+  const adoptSlackTask = (text: string, slackDraftId?: string) => {
     if (activeSurfaceScopeRef.current !== slackTaskSurface || !signedIn || !teamWorkspaceId || !orchestratorName || typeof text !== "string" || !text.trim()) return;
-    setIncomingSlackTask({ id: crypto.randomUUID(), workspaceId: teamWorkspaceId, actorId: orchestratorName.trim().toLowerCase(), text });
+    setIncomingSlackTask({ id: crypto.randomUUID(), workspaceId: teamWorkspaceId, actorId: orchestratorName.trim().toLowerCase(), text, source: "slack", slackDraftId });
     setMainView("threads");
     setConversationMode("work");
   };
