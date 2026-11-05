@@ -876,8 +876,17 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
     emit: ProgressEmitter,
     opts?: { signal?: AbortSignal; signals?: RunSignal[]; env?: Record<string, string> },
   ): Promise<CodingTaskResult> {
-    input = input.personalExecution ? input : withDeliverableInstructions(input);
     const signals = opts?.signals ?? [];
+    const artifact = input.executionTarget?.kind === "artifact-workspace" ? input.executionTarget : undefined;
+    if (input.executionTarget?.kind === "connected-app" || (artifact && (
+      input.personalExecution || input.repoUrl || input.publishPullRequest || !artifact.expectedDeliverables.length ||
+      JSON.stringify(input.expectedDeliverables) !== JSON.stringify(artifact.expectedDeliverables)))) {
+      return failureResult("Local artifact work requires a no-repository target, matching nonempty approved deliverables and no personal repository grant or publication.", 0, "", signals);
+    }
+    input = input.personalExecution ? input : artifact ? {
+      ...input,
+      task: `${input.task}${onboardingSourceInstructions(input.onboardingSourceSnapshot)}\n\nWrite only these approved complete UTF-8 deliverables relative to your current working directory: ${artifact.expectedDeliverables.join(", ")}. Each file is limited to 16384 bytes, 65536 bytes total. Only these files will be privately exported; other files are not recoverable artifacts.`,
+    } : withDeliverableInstructions(input);
     const milestone = (kind: RunSignalKind, detail?: string) => {
       signals.push(
         detail !== undefined ? { kind, at: Date.now(), detail } : { kind, at: Date.now() },
@@ -926,6 +935,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
       input: {
         sandboxId: input.sandboxId,
         repoUrl: input.repoUrl,
+        ...(artifact ? { executionTarget: artifact } : {}),
         baseBranch: input.baseBranch,
         task: input.task,
         ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
@@ -1041,6 +1051,13 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
           );
         }
         try {
+          if (artifact && (result.diff !== "" || result.baseRevision !== undefined ||
+            result.changedFiles.length !== artifact.expectedDeliverables.length ||
+            result.changedFiles.some((file) => !artifact.expectedDeliverables.includes(file)) ||
+            result.files.length !== artifact.expectedDeliverables.length ||
+            result.files.some((file) => !artifact.expectedDeliverables.includes(file.path)))) {
+            throw new Error("Local artifact response contains unapproved files or repository state.");
+          }
           await verifyExpectedDeliverables(input.expectedDeliverables, result.files);
         } catch (error) {
           return failureResult(`Deliverable verification failed: ${shortError(error)}`, result.exitCode, stderrTail, signals);

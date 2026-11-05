@@ -1,4 +1,5 @@
 import { FOUNDER_AUTOMATIC_READ_MAX_LIFETIME_MS, founderAutomaticReadInputSchema, founderAutomaticReadContractSchema, type FounderAutomaticReadContract, type FounderAutomaticReadInput, type FounderAutomaticReadState, type FounderAutomaticReadOptions, type FounderAutomaticReadGrant } from "@shiba/shared";
+import { defaultReadToken, googleRuntimeFingerprint, scopedGoogleReadToken, verifiedGoogleReadToken, workspaceManifestToken } from "./founder-auto-read-keys.js";
 import { openConnectorWorkspaceConnectionName } from "./integrations/openconnector-provider.js";
 import { mintGoogleAdsAttestation } from "./founder-auto-read-permits.js";
 import { readGatewayManifest, hash, validateReadArguments, boundedBody, type GatewayManifest, type ReadOperationId } from "@shiba/openconnector-read-gateway";
@@ -14,7 +15,7 @@ import { founderConnectorRecipeHash, FOUNDER_SQL_NOW } from "./founder-connector
 import { nextFounderReviewDue } from "./founder-review-schedules.js";
 import { COLLAB_TENANT_ID } from "./collaboration-store.js";
 
-export interface AutomaticSource { binding:WorkspaceActionBinding; operationId:ReadOperationId; arguments:Record<string,unknown>; inputSchemaHash:string; executorHash:string; queryHash:string|null; sourceFingerprint?:string }
+export interface AutomaticSource { binding:WorkspaceActionBinding; operationId:ReadOperationId; arguments:Record<string,unknown>; inputSchemaHash:string; executorHash:string; queryHash:string|null; sourceFingerprint?:string; runtimeKeyFingerprint?:string }
 export interface AutomaticPins { member:WorkspaceNativeMember; libraryId:string; recipeSha256:string; employeeId:string;employeeVersion:number;employeeConfig:string;skillId:string;skillVersion:number;skillInstructions:string;skillSource:string|null;sources:AutomaticSource[] }
 export interface AutomaticGrantRow {id:string;workspace_id:string;owner_id:string;owner_account_id:string;library_id:string;version:number;digest:string;state:"draft"|"enabled"|"paused"|"revoked"|"blocked"|"exhausted";contract_json:string;pins_json:string;review_expires_at:number;next_due_at:number;checked_at:number;used_occurrences:number;reserved_calls:number;reserved_bytes:number;blocked_reason:string|null}
 export interface AutomaticOccurrenceRow {id:string;grant_id:string;grant_version:number;grant_digest:string;scheduled_at:number;expires_at:number;state:"pending"|"claimed"|"running"|"completed"|"partial"|"failed"|"unknown"|"cancelled"|"blocked";step_count:number;lease_id:string|null;lease_expires_at:number|null;error:string|null;report_hash:string|null;report_sources_json:string|null;markdown:string|null;json:string|null}
@@ -33,13 +34,13 @@ export function automaticAvailability(env:Env):string|null {
   if(env.FOUNDER_AUTOMATIC_READS_ENABLED!=="true")return"automatic_reads_disabled";
   if(!env.OPEN_CONNECTOR_READ_GATEWAY)return"automatic_read_binding_missing";
   if(!/^[a-f0-9-]{36}$/.test(env.OPEN_CONNECTOR_READ_VERSION_ID??"")||!/^[a-f0-9]{64}$/.test(env.OPEN_CONNECTOR_READ_MANIFEST_SHA256??""))return"automatic_read_runtime_unattested";
-  if(!env.INTERNAL_SIGNING_KEY||env.INTERNAL_SIGNING_KEY.length<32||!/^oct_[A-Za-z0-9_-]{43}$/.test(env.OPEN_CONNECTOR_READ_RUNTIME_TOKEN??""))return"automatic_read_authority_unavailable";
+  if(!env.INTERNAL_SIGNING_KEY||env.INTERNAL_SIGNING_KEY.length<32||(!env.OPEN_CONNECTOR_READ_RUNTIME_TOKEN && !(env as Env & {OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS?:string}).OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS))return"automatic_read_authority_unavailable";
   return null;
 }
-export async function automaticRuntime(env:Env){const unavailable=automaticAvailability(env);if(unavailable)throw new WorkspaceIntegrationError(unavailable,503);
+export async function automaticRuntime(env:Env,token=defaultReadToken(env)){const unavailable=automaticAvailability(env);if(unavailable)throw new WorkspaceIntegrationError(unavailable,503);
   const approved=await readGatewayManifest(),approvedHash=await hash(approved);
   if(approvedHash!==env.OPEN_CONNECTOR_READ_MANIFEST_SHA256)throw new WorkspaceIntegrationError("automatic_read_manifest_not_approved",503);
-  const response=await env.OPEN_CONNECTOR_READ_GATEWAY!.fetch("https://read-gate.internal/v1/shiba/read-gate/manifest",{headers:{authorization:`Bearer ${env.OPEN_CONNECTOR_READ_RUNTIME_TOKEN}`},redirect:"manual",signal:AbortSignal.timeout(5000)});
+  const response=await env.OPEN_CONNECTOR_READ_GATEWAY!.fetch("https://read-gate.internal/v1/shiba/read-gate/manifest",{headers:{authorization:`Bearer ${token}`},redirect:"manual",signal:AbortSignal.timeout(5000)});
   if(!response.ok)throw new WorkspaceIntegrationError("automatic_read_runtime_unavailable",503);
   let body:unknown;try{body=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(await boundedBody(response.body,16384)));}catch{throw new WorkspaceIntegrationError("automatic_read_runtime_unavailable",503);}
   const row=body as {ok?:boolean;version?:{id?:string;tag?:string};manifest?:GatewayManifest;manifestDigest?:string};
@@ -59,20 +60,23 @@ export function automaticPinsGuard(pins:AutomaticPins){const actor=membershipSql
  values:[...actor.values,pins.employeeId,`team:${pins.member.workspaceId}`,pins.employeeVersion,pins.employeeConfig,pins.libraryId,`team:${pins.member.workspaceId}`,pins.member.userId,pins.skillId,pins.skillVersion,pins.skillInstructions,pins.skillInstructions,pins.skillSource,JSON.stringify(pins.sources),pins.employeeId,pins.employeeVersion,pins.member.workspaceId,pins.member.accountId,pins.member.accountId,COLLAB_TENANT_ID,COLLAB_TENANT_ID]};
 }
 export async function automaticGrantGuard(env:Env,row:AutomaticGrantRow,enabled=true){const pins=automaticPins(row),contract=automaticContract(row),source=automaticPinsGuard(pins),recipe=await founderConnectorRecipeHash(row.library_id);
+  const google=pins.sources.filter(source=>source.operationId==="googleads.campaign_daily_metrics");
+  if(google.length){try{if(google.length!==1||pins.sources.length!==1||contract.operations[0]?.runtimeKeyFingerprint!==google[0]!.runtimeKeyFingerprint)throw new Error("invalid pin");await verifiedGoogleReadToken(env,row.workspace_id,google[0]!.binding.connectionId,google[0]!.runtimeKeyFingerprint);}catch{return{sql:"0=1",values:[] as unknown[]};}}
   if(recipe!==pins.recipeSha256||automaticAvailability(env)||contract.runtime.versionId!==env.OPEN_CONNECTOR_READ_VERSION_ID||contract.runtime.manifestDigest!==env.OPEN_CONNECTOR_READ_MANIFEST_SHA256)return{sql:"0=1",values:[] as unknown[]};
   return{sql:`${source.sql} AND EXISTS(SELECT 1 FROM founder_automatic_read_grants WHERE id=? AND version=? AND digest=? AND contract_json=? AND pins_json=? ${enabled?"AND state='enabled'":""} AND json_extract(contract_json,'$.expiresAt')>${FOUNDER_SQL_NOW})`,values:[...source.values,row.id,row.version,row.digest,row.contract_json,row.pins_json]};
 }
 async function ownGrant(env:Env,member:WorkspaceNativeMember,libraryId:string){await ensureAutomaticReadSchema(env);const actor=membershipSql(member,true);return env.AGENT_AUDIT.prepare(`SELECT * FROM founder_automatic_read_grants WHERE workspace_id=? AND owner_id=? AND owner_account_id=? AND library_id=? AND ${actor.sql}`).bind(member.workspaceId,member.userId,member.accountId,libraryId,...actor.values).first<AutomaticGrantRow>();}
 const scope=(m:WorkspaceNativeMember,libraryId:string)=>({ok:true as const,workspaceId:m.workspaceId,libraryId,actorId:m.userId});
 export async function configureAutomaticReads(env:Env,member:WorkspaceNativeMember,libraryId:string,body:unknown,beforeFinalRead?:()=>Promise<void>){
-  await ensureAutomaticReadSchema(env);await assertWorkspaceMemberCurrent(env,member,true);const input=founderAutomaticReadInputSchema.parse(body),runtime=await automaticRuntime(env);
+  await ensureAutomaticReadSchema(env);await assertWorkspaceMemberCurrent(env,member,true);const input=founderAutomaticReadInputSchema.parse(body),manifest=await readGatewayManifest();
+  if(await hash(manifest)!==env.OPEN_CONNECTOR_READ_MANIFEST_SHA256)throw new WorkspaceIntegrationError("automatic_read_manifest_not_approved",503);
   if(input.operations.some(operation=>operation.operationId==="googleads.campaign_daily_metrics")&&input.operations.length!==1)throw new WorkspaceIntegrationError("automatic_read_googleads_dedicated_runtime_required",400);
   if(input.expiresAt<=Date.now()||input.expiresAt>Date.now()+FOUNDER_AUTOMATIC_READ_MAX_LIFETIME_MS||input.maxCalls<input.operations.length||input.maxCapturedBytes<input.maxBytesPerOccurrence)throw new WorkspaceIntegrationError("automatic_read_budget_invalid",400);
   const installed=await getSkillInstall(env,`team:${member.workspaceId}`,member.userId,libraryId),skill=await getSkill(env,`team:${member.workspaceId}`,member.userId,input.skillId);
   if(!skill||installed?.skillId!==skill.id||skill.version!==input.skillVersion||skill.status!=="active"||skill.activeVersion!==skill.version||skill.reviewedVersion!==skill.version||skill.reviewedInstructions!==skill.content.instructions)throw new WorkspaceIntegrationError("automatic_read_skill_changed",409);
   const prior=await ownGrant(env,member,libraryId);if((prior?.version??0)!==input.expectedVersion)throw new WorkspaceIntegrationError("automatic_read_version_conflict",409);
   const id=prior?.id??`far_${crypto.randomUUID().replaceAll("-","")}`,version=(prior?.version??0)+1,sources:AutomaticSource[]=[],operations:FounderAutomaticReadContract["operations"]=[];let employee:Awaited<ReturnType<typeof assertWorkspaceIntegrationGrant>>["employee"]|undefined;
-  for(const operation of input.operations){const definition=runtime.manifest.operations.find(o=>o.id===operation.operationId),args=validateReadArguments(operation.operationId,operation.arguments);
+  for(const operation of input.operations){const definition=manifest.operations.find(o=>o.id===operation.operationId),args=validateReadArguments(operation.operationId,operation.arguments);
     if(!definition)throw new WorkspaceIntegrationError("automatic_read_operation_unavailable",400);
     const current=await assertWorkspaceIntegrationGrant(env,{workspaceId:member.workspaceId,actorId:member.userId,employeeId:input.employeeId,employeeVersion:input.employeeVersion,connectionId:operation.connectionId,permission:"execute"});
     const issuer=connectionIssuer(current.connection);
@@ -84,11 +88,15 @@ export async function configureAutomaticReads(env:Env,member:WorkspaceNativeMemb
   }
   const recipe=await founderConnectorRecipeHash(libraryId);if(!employee||!recipe)throw new WorkspaceIntegrationError("automatic_read_sources_changed",409);
   const pins:AutomaticPins={member,libraryId,recipeSha256:recipe,employeeId:employee.id,employeeVersion:employee.version,employeeConfig:JSON.stringify(employee.config),skillId:skill.id,skillVersion:skill.version,skillInstructions:skill.content.instructions,skillSource:skill.content.sourceUrl??null,sources};
+  const googleSource=sources.find(source=>source.operationId==="googleads.campaign_daily_metrics");
+  const token=googleSource?scopedGoogleReadToken(env,member.workspaceId,googleSource.binding.connectionId):defaultReadToken(env);
+  const runtime=await automaticRuntime(env,token);
+  if(googleSource){const fingerprint=await googleRuntimeFingerprint(env,member.workspaceId,googleSource.binding.connectionId,token);googleSource.runtimeKeyFingerprint=fingerprint;operations[0]!.runtimeKeyFingerprint=fingerprint;}
   for(let i=0;i<sources.length;i++){
     const source=sources[i]!;if(source.operationId!=="googleads.campaign_daily_metrics")continue;
     const bound={alias:await openConnectorWorkspaceConnectionName(member.workspaceId),providerConnectionId:source.binding.providerConnectionId,authorizationFingerprint:source.binding.fingerprint,versionId:runtime.runtime.versionId,manifestDigest:runtime.runtime.manifestDigest};
     const capabilities=await mintGoogleAdsAttestation(env,pins,bound);
-    const response=await env.OPEN_CONNECTOR_READ_GATEWAY!.fetch("https://read-gate.internal/v1/shiba/read-gate/attest-googleads",{method:"POST",headers:{authorization:`Bearer ${env.OPEN_CONNECTOR_READ_RUNTIME_TOKEN}`,"content-type":"application/json"},redirect:"manual",body:JSON.stringify({...bound,capabilities}),signal:AbortSignal.timeout(5000)});
+    const response=await env.OPEN_CONNECTOR_READ_GATEWAY!.fetch("https://read-gate.internal/v1/shiba/read-gate/attest-googleads",{method:"POST",headers:{authorization:`Bearer ${token}`,"content-type":"application/json"},redirect:"manual",body:JSON.stringify({...bound,capabilities}),signal:AbortSignal.timeout(5000)});
     if(!response.ok)throw new WorkspaceIntegrationError("automatic_read_googleads_attestation_unavailable",409);
     let result:unknown;try{result=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(await boundedBody(response.body,1024)));}catch{throw new WorkspaceIntegrationError("automatic_read_googleads_attestation_unavailable",409);}
     const row=result as {ok?:unknown;sourceFingerprint?:unknown};
@@ -108,7 +116,9 @@ export async function transitionAutomaticReads(env:Env,member:WorkspaceNativeMem
   const state=action==="enable"||action==="resume"?"enabled":action==="pause"?"paused":"revoked",contract=automaticContract(row);
   if(state==="enabled"){
     if(input.readConsent!=="allow-exact-scheduled-read-operations-and-bounded-provider-calls"||input.quotaConsent!=="provider-requests-may-use-account-quota-or-incur-charges")throw new WorkspaceIntegrationError("automatic_read_explicit_consent_required",400);
-    const live=await automaticRuntime(env);if(JSON.stringify(live.runtime)!==JSON.stringify(contract.runtime))throw new WorkspaceIntegrationError("automatic_read_runtime_changed",409);
+    const pins=automaticPins(row),google=pins.sources.find(source=>source.operationId==="googleads.campaign_daily_metrics");
+    const token=google?await verifiedGoogleReadToken(env,row.workspace_id,google.binding.connectionId,google.runtimeKeyFingerprint):defaultReadToken(env);
+    const live=await automaticRuntime(env,token);if(JSON.stringify(live.runtime)!==JSON.stringify(contract.runtime))throw new WorkspaceIntegrationError("automatic_read_runtime_changed",409);
   }
   const actor=membershipSql(member,true),source=action==="revoke"?actor:await automaticGrantGuard(env,row,false),now=Date.now();await beforeFinalRead?.();
   const results=await env.AGENT_AUDIT.batch([
@@ -123,7 +133,7 @@ export async function transitionAutomaticReads(env:Env,member:WorkspaceNativeMem
 function grantDto(row:AutomaticGrantRow):FounderAutomaticReadGrant {const now=Date.now(),contract=automaticContract(row);return{id:row.id,version:row.version,digest:row.digest,state:row.state,contract,reviewExpiresAt:row.review_expires_at,nextDueAt:row.next_due_at,usedOccurrences:row.used_occurrences,reservedCalls:row.reserved_calls,reservedBytes:row.reserved_bytes,blockedReason:row.blocked_reason,
   canEnable:row.state==="draft"&&row.review_expires_at>now&&contract.expiresAt>now,canPause:row.state==="enabled",canResume:row.state==="paused"&&contract.expiresAt>now&&row.used_occurrences<contract.maxOccurrences&&row.reserved_calls+contract.operations.length<=contract.maxCalls&&row.reserved_bytes+contract.maxBytesPerOccurrence<=contract.maxCapturedBytes,canRevoke:row.state!=="revoked"};}
 export async function readAutomaticReadState(env:Env,member:WorkspaceNativeMember,libraryId:string,beforeFinalRead?:()=>Promise<void>):Promise<FounderAutomaticReadState>{
-  await assertWorkspaceMemberCurrent(env,member,true);let reason=automaticAvailability(env);if(!reason)try{await automaticRuntime(env);}catch(error){reason=error instanceof WorkspaceIntegrationError?error.code:"automatic_read_runtime_unavailable";}
+  await assertWorkspaceMemberCurrent(env,member,true);let reason=automaticAvailability(env);if(!reason)try{await automaticRuntime(env,workspaceManifestToken(env,member.workspaceId));}catch(error){reason=error instanceof WorkspaceIntegrationError?error.code:"automatic_read_runtime_unavailable";}
   const row=await ownGrant(env,member,libraryId),base={...scope(member,libraryId),libraryId:libraryId as FounderAutomaticReadState["libraryId"],available:reason===null,unavailableReason:reason,canConfigure:reason===null,grant:null,occurrences:[]};
   if(!row){const actor=membershipSql(member,true);await beforeFinalRead?.();if(!await env.AGENT_AUDIT.prepare(`SELECT 1 AS current WHERE ${actor.sql}`).bind(...actor.values).first())throw new WorkspaceIntegrationError("workspace_authority_changed",403);return base;}
   const source=await automaticGrantGuard(env,row,false),records=await env.AGENT_AUDIT.prepare(`SELECT o.*,(SELECT COUNT(*) FROM founder_automatic_read_steps s WHERE s.occurrence_id=o.id AND s.state='completed') AS completed_steps FROM founder_automatic_read_occurrences o WHERE o.grant_id=? AND o.grant_version=? ORDER BY o.created_at DESC,o.id LIMIT 50`).bind(row.id,row.version).all<AutomaticOccurrenceRow&{completed_steps:number}>();
@@ -135,7 +145,7 @@ export async function readAutomaticReadState(env:Env,member:WorkspaceNativeMembe
 export async function automaticReadOptions(env:Env,member:WorkspaceNativeMember,libraryId:string,beforeFinalRead?:()=>Promise<void>):Promise<FounderAutomaticReadOptions>{
   await assertWorkspaceMemberCurrent(env,member,true);const base={...scope(member,libraryId),libraryId:libraryId as FounderAutomaticReadOptions["libraryId"],available:false,unavailableReason:automaticAvailability(env),runtime:null,employees:[],skill:null,connections:[],operations:[]};
   if(base.unavailableReason){await beforeFinalRead?.();await assertWorkspaceMemberCurrent(env,member,true);return base;}
-  const live=await automaticRuntime(env),employees=await listCustomAgents(env,`team:${member.workspaceId}`),install=await getSkillInstall(env,`team:${member.workspaceId}`,member.userId,libraryId),skill=install?await getSkill(env,`team:${member.workspaceId}`,member.userId,install.skillId):null;
+  const live=await automaticRuntime(env,workspaceManifestToken(env,member.workspaceId)),employees=await listCustomAgents(env,`team:${member.workspaceId}`),install=await getSkillInstall(env,`team:${member.workspaceId}`,member.userId,libraryId),skill=install?await getSkill(env,`team:${member.workspaceId}`,member.userId,install.skillId):null;
   const directory=await listWorkspaceConnections(env,member),candidate=directory.connections.filter(c=>c.state==="active"&&c.upstreamReady&&founderConnectionAllowed(libraryId,c.providerKey)),actor=membershipSql(member,true);
   await beforeFinalRead?.();
   const proof=await env.AGENT_AUDIT.prepare(`SELECT '' AS id WHERE ${actor.sql} UNION ALL SELECT c.id FROM workspace_app_connections c JOIN json_each(?) f ON c.id=json_extract(f.value,'$.id') WHERE c.workspace_id=? AND c.issuer_account_id=? AND c.state='active' AND c.version=json_extract(f.value,'$.version') AND c.fingerprint=json_extract(f.value,'$.authorizationFingerprint') AND ${actor.sql}`).bind(...actor.values,JSON.stringify(candidate),member.workspaceId,member.accountId,...actor.values).all<{id:string}>();

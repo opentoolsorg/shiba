@@ -35,10 +35,16 @@ const workspaceApi = [
   /^\/api\/slack\/coworker(?:\/|$)/,
   /^\/api\/founder-skills(?:\/|$)/,
   /^\/api\/founder-stripe-reads(?:\/|$)/,
+  /^\/api\/founder-meta-reads(?:\/|$)/,
+  /^\/api\/founder-hubspot-reads(?:\/|$)/,
+  /^\/api\/founder-reconciliations(?:\/|$)/,
+  /^\/api\/founder-reconciliation-schedules(?:\/|$)/,
+  /^\/api\/founder-reconciliation-slack(?:\/|$)/,
+  /^\/api\/founder-stripe-slack(?:\/|$)/,
   /^\/api\/workspace-integrations(?:\/|$)/,
   /^\/api\/(?:custom-agents|employee-bundles|skills)(?:\/|$)/,
   /^\/api\/v1\/extensions\/skills(?:\/|$)/,
-  /^\/api\/onboarding\/progress\/?$/,
+  /^\/api\/onboarding\/progress(?:\/team-task)?\/?$/,
 ];
 
 /**

@@ -6,12 +6,12 @@ import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useConversationRoomRealtime, type ConversationRoomMessage } from "./conversation-room-realtime";
 import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HARNESS_REASONING_EFFORTS, MAX_RUN_ATTACHMENTS, MAX_RUN_ATTACHMENT_BYTES, MAX_RUN_ATTACHMENTS_TOTAL_BYTES, onboardingTaskText, type ReasoningEffort, type RunAttachment } from "@shiba/shared";
+import { HARNESS_REASONING_EFFORTS, MAX_RUN_ATTACHMENTS, MAX_RUN_ATTACHMENT_BYTES, MAX_RUN_ATTACHMENTS_TOTAL_BYTES, onboardingTaskText, type ReasoningEffort, type RunAttachment, type TeamOnboardingTask } from "@shiba/shared";
 import { normalizeRunStatus, type VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
 import { ActivityReportView } from "./components/ActivityReportView";
 import { SwarmDeskView } from "./components/SwarmDeskView";
-import { CollaborationView } from "./components/CollaborationView";
+import { CollaborationView, type IncomingTaskDraft } from "./components/CollaborationView";
 import { RoomExecutionPanel } from "./components/RoomExecutionPanel";
 import { RoomApprovalReview } from "./components/RoomApprovalReview";
 import { TeamWorkspaceView } from "./components/TeamWorkspaceView";
@@ -484,7 +484,7 @@ export function App(): React.JSX.Element {
   const selectedOnboardingTaskText = useRef<string | null>(null);
   const initialComposerPrompt = useRef(task);
   const [pendingOnboardingDraft, setPendingOnboardingDraft] = useState<SelectedOnboardingDraft | null>(null);
-  const [incomingSlackTask, setIncomingSlackTask] = useState<{ id: string; workspaceId: string; actorId: string; text: string } | null>(null);
+  const [incomingSlackTask, setIncomingSlackTask] = useState<IncomingTaskDraft | null>(null);
   const [publishPullRequest, setPublishPullRequest] = useState(false);
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
   const [runSetup, setRunSetup] = useState(false);
@@ -831,6 +831,20 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     setIncomingSlackTask({ id: crypto.randomUUID(), workspaceId: teamWorkspaceId, actorId: orchestratorName.trim().toLowerCase(), text });
     setMainView("threads");
     setConversationMode("work");
+  };
+  const openSlackHandoff = (roomId: string, handoffId: string) => {
+    if (activeSurfaceScopeRef.current !== slackTaskSurface || !signedIn || !teamWorkspaceId || !orchestratorName ||
+      !/^room_[a-f0-9]{24}$/.test(roomId) || !/^scx_[a-f0-9]{32}$/.test(handoffId)) return;
+    setIncomingSlackTask(null); setSharedRoomId(roomId); setSharedHandoffId(handoffId); setSharedEmployeeId(undefined);
+    setShowFirstRun(false); setMainView("threads"); setConversationMode("work");
+  };
+  const stageTeamSetupTask = (draft: TeamOnboardingTask) => {
+    if (activeSurfaceScopeRef.current !== slackTaskSurface || !signedIn || !teamWorkspaceId || !orchestratorName ||
+      draft.workspaceId !== teamWorkspaceId || draft.actorId !== orchestratorName.trim().toLowerCase() || draft.expiresAt <= Date.now()) return;
+    setIncomingSlackTask({ id: crypto.randomUUID(), workspaceId: draft.workspaceId, actorId: draft.actorId, text: draft.text,
+      source: "team-onboarding", draftTaskId: draft.draftTaskId, draftTaskVersion: draft.draftTaskVersion, progressRevision: draft.progressRevision, expiresAt: draft.expiresAt });
+    setSharedHandoffId(undefined); setSharedEmployeeId(undefined);
+    setShowFirstRun(false); setMainView("threads"); setConversationMode("work");
   };
   const [sharedRoomId, setSharedRoomId] = useState<string | undefined>();
   const [sharedHandoffId, setSharedHandoffId] = useState<string | undefined>();
@@ -3008,7 +3022,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             </div>
           ) : null}
 {showFirstRun && teamWorkspaceId ? (
-            <TeamOnboardingDraft key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} workspaceName={teamWorkspace?.name} onConfigureEmployee={teamWorkspace && ["owner", "admin"].includes(teamWorkspace.membership.role) ? (templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); } : undefined} onClose={() => setShowFirstRun(false)} onOpenRooms={() => { setShowFirstRun(false); openView("threads"); }} />
+            <TeamOnboardingDraft key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} workspaceName={teamWorkspace?.name} actorId={orchestratorName?.trim().toLowerCase()} onStageTask={stageTeamSetupTask} onConfigureEmployee={teamWorkspace && ["owner", "admin"].includes(teamWorkspace.membership.role) ? (templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); } : undefined} onClose={() => setShowFirstRun(false)} onOpenRooms={() => { setShowFirstRun(false); openView("threads"); }} />
           ) : showFirstRun && privateDataEnabled ? (
             <ConversationalOnboarding key={orchestratorName ?? "pending"} progress={firstRunProgress}
               onUpdate={updateFirstRunProgress} onResume={resumeFirstRunProgress} onRefresh={refreshFirstRunProgress}
@@ -3812,7 +3826,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (
-            <IntegrationsView onNavigate={openView} onAdoptSlackTask={adoptSlackTask} actorId={orchestratorName ?? undefined} workspaceId={teamWorkspaceId || undefined} workspaceName={teamWorkspace?.name} workspaceRole={teamWorkspace?.membership.role} allowPersonalScope={!restrictedTeamMember} onPersonalScope={() => teamDirectory.selectWorkspace("")} onChooseWorkspace={() => openView("team")} />
+            <IntegrationsView onNavigate={openView} onAdoptSlackTask={adoptSlackTask} onOpenSlackHandoff={openSlackHandoff} actorId={orchestratorName ?? undefined} workspaceId={teamWorkspaceId || undefined} workspaceName={teamWorkspace?.name} workspaceRole={teamWorkspace?.membership.role} allowPersonalScope={!restrictedTeamMember} onPersonalScope={() => teamDirectory.selectWorkspace("")} onChooseWorkspace={() => openView("team")} />
           ) : mainView === "remote" ? (
             <RemoteAccessView />
           ) : mainView === "settings" ? (

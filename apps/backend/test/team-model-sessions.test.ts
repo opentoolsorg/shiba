@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { TEAM_MODEL_TEXT_MODEL, TEAM_MODEL_LLAMA_MODEL, teamModelMaximumDebitMicroUsd } from "@shiba/shared";
+import { TEAM_MODEL_TEXT_MODEL, TEAM_MODEL_LLAMA_MODEL, teamModelMaximumDebitMicroUsd, teamModelStateResponseSchema } from "@shiba/shared";
 import type { Env } from "../src/env.js";
 import { handleTeamModelSessions } from "../src/team-model-routes.js";
 import { createTeamWorkspace, createTeamWorkspaceInvitation, acceptTeamWorkspaceInvitation, getTeamWorkspaceMembership } from "../src/team-workspaces-store.js";
@@ -101,6 +101,14 @@ function holdAuthorityRead(env: Env, nth: number) {
   interceptD1(env, (sql, op) => op === "first" && sql.includes("dispatch_deadline>") && ++seen === nth, async () => { entered!(); await gate; });
   return { started, release: () => release!() };
 }
+function seedPermanentReservations(f: Awaited<ReturnType<typeof fixture>>, grantId: string, amount: number, workspaceId = f.workspace.workspaceId) {
+  const insert = f.sqlite.prepare("INSERT INTO team_model_money_ledger(turn_id,grant_id,workspace_id,input_hash,quote_digest,reserved_micro_usd,state,created_at,updated_at) VALUES(?,?,?,?,?,?,'confirmed',1,1)");
+  const prefix = crypto.randomUUID();
+  for (let i = 0, remaining = amount; remaining > 0; i++) {
+    const debit = Math.min(8341, remaining); remaining -= debit;
+    insert.run(`${prefix}-${i}`, grantId, workspaceId, "prior-hash", "prior-quote", debit);
+  }
+}
 
 describe("default-off native funded text with actual routes/SQLite and fixture AI only", { timeout: 20_000 }, () => {
   it("binds a reviewed Llama quote and max_tokens to the selected direct binding", async () => {
@@ -160,13 +168,88 @@ describe("default-off native funded text with actual routes/SQLite and fixture A
     expect(f.calls).toHaveLength(0);
     expect(f.sqlite.prepare("SELECT used_requests FROM team_model_funding WHERE id=?").get(grant.id)).toEqual({ used_requests: 0 });
   });
+  it("shows all-state permanent requester capacity but keeps workspace totals private to the funding operator", async () => {
+    const f = await fixture(), prior = await f.fund(), grant = await f.fund();
+    seedPermanentReservations(f, prior.id, 1000);
+    seedPermanentReservations(f, prior.id, 1000);
+    seedPermanentReservations(f, prior.id, 1000);
+    const rows = f.sqlite.prepare("SELECT turn_id FROM team_model_money_ledger ORDER BY turn_id").all() as Array<{ turn_id: string }>;
+    f.sqlite.prepare("UPDATE team_model_money_ledger SET state='held' WHERE turn_id=?").run(rows[0]!.turn_id);
+    f.sqlite.prepare("UPDATE team_model_money_ledger SET state='unknown' WHERE turn_id=?").run(rows[1]!.turn_id);
+    seedPermanentReservations(f, "orphan-workspace-grant", 2000);
+    seedPermanentReservations(f, prior.id, 3000, f.other.workspaceId);
+    user.email = OPERATOR;
+    expect((await f.call(`/funding/${prior.id}/revoke`, "POST", { expectedVersion: prior.version })).response.status).toBe(200);
+    const funder = teamModelStateResponseSchema.parse((await f.call(`/state?roomId=${f.roomId}`)).body);
+    const capacity = { requesterLimitMicroUsd: 1_000_000, requesterReservedMicroUsd: 3000, requesterRemainingMicroUsd: 997_000,
+      requesterCanReserveNext: true, workspaceLimitMicroUsd: 10_000_000, workspaceCanReserveNext: true };
+    expect(funder.grants.find((g) => g.id === grant.id)!.money!.capacity).toEqual({ ...capacity, workspaceReservedMicroUsd: 5000, workspaceRemainingMicroUsd: 9_995_000 });
+    user.email = MEMBER;
+    const member = teamModelStateResponseSchema.parse((await f.call(`/state?roomId=${f.roomId}`)).body);
+    expect(member.grants.find((g) => g.id === grant.id)!.money!.capacity).toEqual(capacity);
+    user.email = MANAGER;
+    const manager = teamModelStateResponseSchema.parse((await f.call(`/state?roomId=${f.roomId}`)).body);
+    expect(manager.canFund).toBe(false); expect(manager.grants).toEqual([]);
+    expect(f.calls).toHaveLength(0);
+  });
+  it("withholds capacity when the funding source is revoked at the final read snapshot", async () => {
+    const f = await fixture(), prior = await f.fund(), grant = await f.fund();
+    seedPermanentReservations(f, prior.id, 1234); user.email = OPERATOR;
+    let changed = false;
+    interceptD1(f.env, (sql, op) => op === "all" && sql.includes("AS id,'actor'") && !changed, () => {
+      changed = true; f.sqlite.prepare("UPDATE org_custom_agents SET version=version+1 WHERE id=?").run(f.employee.id);
+    });
+    const state = teamModelStateResponseSchema.parse((await f.call(`/state?roomId=${f.roomId}`)).body);
+    expect(changed).toBe(true);
+    expect(state.grants.find((g) => g.id === grant.id)).toMatchObject({ state: "blocked", unavailableReason: "team_model_source_changed" });
+    expect(state.grants.every((g) => g.money === undefined)).toBe(true);
+    expect(f.calls).toHaveLength(0);
+  });
+  it.each(["requester", "workspace"])("refuses funding activation, preparation and approval after the %s lifetime headroom is consumed", async (scope) => {
+    const f = await fixture(), prior = await f.fund(), grant = await f.fund({ maxOutputTokens: 1024 }), pending = await f.turn(grant);
+    user.email = OPERATOR; const draft = await f.prepare({ maxOutputTokens: 1024 });
+    const limit = scope === "requester" ? 1_000_000 : 10_000_000;
+    const next = teamModelMaximumDebitMicroUsd(1024);
+    seedPermanentReservations(f, scope === "requester" ? prior.id : "other-grant", limit - next + 1);
+    const reason = `team_model_${scope}_lifetime_limit`;
+    const funderState = teamModelStateResponseSchema.parse((await f.call(`/state?roomId=${f.roomId}`)).body);
+    expect(funderState.grants.find((g) => g.id === draft.id)).toMatchObject({ canActivate: false, unavailableReason: reason });
+    expect((await f.call(`/funding/${draft.id}/activate`, "POST", { expectedVersion: draft.version, digest: draft.digest, billingConsent: true, reviewed: true })).response.status).toBe(409);
+    user.email = MEMBER;
+    const state = teamModelStateResponseSchema.parse((await f.call(`/state?roomId=${f.roomId}`)).body);
+    expect(state.grants.find((g) => g.id === grant.id)).toMatchObject({ unavailableReason: reason });
+    expect(state.turns.find((t) => t.id === pending.id)).toMatchObject({ canApprove: false, canExecute: false, error: reason });
+    expect((await f.call("/turns/prepare", "POST", { grantId: grant.id, expectedGrantVersion: grant.version, prompt: "No remaining lifetime capacity", messageIds: [], memoryRefs: [], requestId: crypto.randomUUID() })).response.status).toBe(409);
+    expect((await f.call(`/turns/${pending.id}/approve`, "POST", { expectedVersion: pending.version, inputHash: pending.inputHash, reviewed: true })).response.status).toBe(409);
+    expect(f.sqlite.prepare("SELECT state FROM team_model_funding WHERE id=?").get(draft.id)).toEqual({ state: "draft" });
+    expect(f.sqlite.prepare("SELECT status FROM team_model_turns WHERE id=?").get(pending.id)).toEqual({ status: "pending" });
+    expect(f.calls).toHaveLength(0);
+  });
+  it.each(["requester", "workspace"])("admits only one concurrent grant into the exact last %s reservation and reports exhaustion afterward", async (scope) => {
+    const f = await fixture(), prior = await f.fund(), first = await f.fund({ maxOutputTokens: 1024 }), second = await f.fund({ maxOutputTokens: 1024 });
+    const one = await f.approve(await f.turn(first)), two = await f.approve(await f.turn(second));
+    const next = teamModelMaximumDebitMicroUsd(1024), limit = scope === "requester" ? 1_000_000 : 10_000_000;
+    seedPermanentReservations(f, scope === "requester" ? prior.id : "other-grant", limit - next);
+    const before = teamModelStateResponseSchema.parse((await f.call(`/state?roomId=${f.roomId}`)).body);
+    expect(before.turns.filter((t) => [one.id, two.id].includes(t.id)).every((t) => t.canExecute)).toBe(true);
+    const outcomes = await Promise.all([f.execute(one), f.execute(two)]);
+    expect(outcomes.map((r) => r.response.status).sort()).toEqual([200, 409]); expect(f.calls).toHaveLength(1);
+    const after = teamModelStateResponseSchema.parse((await f.call(`/state?roomId=${f.roomId}`)).body);
+    const unused = after.turns.find((t) => t.status === "approved")!;
+    expect(unused).toMatchObject({ canExecute: false, error: `team_model_${scope}_lifetime_limit` });
+    expect(after.turns.find((t) => t.status === "completed")).toMatchObject({ output: "Fixture text response", error: null });
+    expect(after.grants.find((g) => g.id === unused.grantId)!.money!.capacity).toMatchObject(scope === "requester"
+      ? { requesterReservedMicroUsd: limit, requesterRemainingMicroUsd: 0, requesterCanReserveNext: false }
+      : { workspaceCanReserveNext: false });
+  });
   it("enforces the exact USD envelope atomically and never releases it after confirmed lower usage", async () => {
     const f = await fixture(), grant = await f.fund({ maxOutputTokens: 1024, budgetMicroUsd: 8341 }), approved = await f.approve(await f.turn(grant));
     const [one, duplicate] = await Promise.all([f.execute(approved), f.execute(approved)]);
     expect([one.response.status, duplicate.response.status]).toContain(200); expect(f.calls).toHaveLength(1);
     expect(f.sqlite.prepare("SELECT reserved_micro_usd,state,reported_micro_usd FROM team_model_money_ledger").all()).toEqual([{ reserved_micro_usd: 8341, state: "confirmed", reported_micro_usd: 6 }]);
     const state = await f.call(`/state?roomId=${f.roomId}`);
-    expect((state.body.grants as Array<Record<string, unknown>>)[0]!.money).toEqual({ currency: "USD", authorizedDebitMicroUsd: 8341, remainingBudgetMicroUsd: 0, reportedQuotedMicroUsd: 6, unknownReservedMicroUsd: 0 });
+    expect((state.body.grants as Array<Record<string, unknown>>)[0]!.money).toEqual({ currency: "USD", authorizedDebitMicroUsd: 8341, remainingBudgetMicroUsd: 0, reportedQuotedMicroUsd: 6, unknownReservedMicroUsd: 0,
+      capacity: { requesterLimitMicroUsd: 1_000_000, requesterReservedMicroUsd: 8341, requesterRemainingMicroUsd: 991_659, requesterCanReserveNext: true, workspaceLimitMicroUsd: 10_000_000, workspaceCanReserveNext: true } });
     const next = await f.call("/turns/prepare", "POST", { grantId: grant.id, expectedGrantVersion: grant.version, prompt: "Cannot use the unused estimate", messageIds: [], memoryRefs: [], requestId: crypto.randomUUID() });
     expect(next.response.status).toBe(409); await f.execute(approved); expect(f.calls).toHaveLength(1);
   });
@@ -457,5 +540,42 @@ describe("default-off native funded text with actual routes/SQLite and fixture A
     const result = await f.execute(approved), output = (result.body.turn as TurnReceipt).output!;
     expect(new TextEncoder().encode(output).byteLength).toBeLessThanOrEqual(8192);
     expect(output.endsWith("\n[truncated]")).toBe(true); expect(output).not.toContain("\uFFFD");
+  });
+});
+
+describe("funded capability boundary", () => {
+  it.each([TEAM_MODEL_TEXT_MODEL, TEAM_MODEL_LLAMA_MODEL])("retains reservations and prevents replay after unsupported output from %s", async (model) => {
+    const f = await fixture(); f.env.SHIBA_TEAM_MODEL_MODEL = model;
+    const grant = await f.fund({ model }), turn = await f.approve(await f.turn(grant));
+    const result = model === TEAM_MODEL_LLAMA_MODEL
+      ? { response: "Text plus an unsupported tool request", tool_calls: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }
+      : { ...aiResponse("Text plus an unsupported tool request"), choices: [{ message: { content: "Text", tool_calls: [{ function: { name: "pay" } }] } }] };
+    f.run.mockResolvedValueOnce(result);
+    const executed = await f.execute(turn);
+    expect(executed.response.status).toBe(200); expect(executed.body.turn).toMatchObject({ status: "unknown", output: null });
+    const debit = teamModelMaximumDebitMicroUsd(64, model);
+    expect(f.sqlite.prepare("SELECT state,reserved_micro_usd,reported_micro_usd FROM team_model_money_ledger WHERE turn_id=?").get(turn.id))
+      .toEqual({ state: "unknown", reserved_micro_usd: debit, reported_micro_usd: null });
+    expect(f.sqlite.prepare("SELECT used_requests FROM team_model_funding WHERE id=?").get(grant.id)).toEqual({ used_requests: 1 });
+    await f.execute(turn); expect(f.run).toHaveBeenCalledTimes(1);
+    user.email = OPERATOR;
+    await f.call(`/funding/${grant.id}/revoke`, "POST", { expectedVersion: grant.version });
+    expect(f.sqlite.prepare("SELECT state,reserved_micro_usd FROM team_model_money_ledger WHERE turn_id=?").get(turn.id)).toEqual({ state: "unknown", reserved_micro_usd: debit });
+  });
+  it.each([{ tools: ["pay"] }, { credentialRef: "operator-key" }, { billing: "arbitrary-payment" }, { operation: "image-generation" }])("refuses unsupported stored funding contracts without credential fallback", async (changes) => {
+    const f = await fixture(), draft = await f.prepare();
+    const row = f.sqlite.prepare("SELECT contract_json FROM team_model_funding WHERE id=?").get(draft.id) as { contract_json: string };
+    f.sqlite.prepare("UPDATE team_model_funding SET contract_json=? WHERE id=?").run(JSON.stringify({ ...JSON.parse(row.contract_json), ...changes }), draft.id);
+    const activated = await f.call(`/funding/${draft.id}/activate`, "POST", { expectedVersion: draft.version, digest: draft.digest, reviewed: true, billingConsent: true });
+    expect(activated.response.status).toBe(403); expect(activated.body.error).toBe("team_model_contract_unsupported");
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.sqlite.prepare("SELECT state,used_requests FROM team_model_funding WHERE id=?").get(draft.id)).toEqual({ state: "draft", used_requests: 0 });
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM team_model_money_ledger").get()).toEqual({ n: 0 });
+  });
+  it.each(["@cf/baai/bge-base-en-v1.5", "@cf/black-forest-labs/flux-1-schnell", "arbitrary-payment"])("refuses unmetered funding operation %s at ingress", async (model) => {
+    const f = await fixture();
+    const prepared = await f.call("/funding/prepare", "POST", { ...f.fundingInput, model });
+    expect(prepared.response.status).toBe(400); expect(f.run).not.toHaveBeenCalled();
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='team_model_funding'").get()).toEqual({ n: 0 });
   });
 });

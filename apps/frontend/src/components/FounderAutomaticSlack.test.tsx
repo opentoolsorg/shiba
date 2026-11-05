@@ -10,6 +10,12 @@ const client = (send: typeof fetch, actor = AUTO_SLACK_ACTOR) => new FounderAuto
 const props = { workspaceId: AUTO_SLACK_WORKSPACE, libraryId: AUTO_SLACK_LIBRARY, actorId: AUTO_SLACK_ACTOR };
 
 describe("explicit automatic founder Slack permission", () => {
+  it("shows the exact compact JSON policy before either human decision", async () => {
+    const grant = { ...automaticSlackGrant(), renderPolicy: "complete-qualified-compact-json.v2" as const };
+    render(<FounderAutomaticSlack {...props} client={client(async () => Response.json(automaticSlackState(grant)))} />);
+    expect(await screen.findByText(/Renderer complete-qualified-compact-json.v2; complete qualified compact JSON/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Disclose this future report audience" }).hasAttribute("disabled")).toBe(true);
+  });
   it("reads only on mount, starts blank and needs an exact current sample before prepare", async () => {
     const send = vi.fn(async () => Response.json(automaticSlackState())); render(<FounderAutomaticSlack {...props} client={client(send)} />);
     await screen.findByText(/Future delivery draft/); expect(send).toHaveBeenCalledTimes(1);

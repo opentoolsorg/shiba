@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { INTEGRATION_CATALOG } from "@shiba/shared";
 import { IntegrationsView } from "./IntegrationsView";
+import { META_ACTOR, META_WORKSPACE, metaScope } from "../founder-meta-fixtures";
 
 afterEach(() => {
   cleanup();
@@ -91,6 +92,19 @@ function stubIntegrationsFetch(setup = defaultSetup()) {
 }
 
 describe("IntegrationsView native catalog", () => {
+  it("opens private Meta reads only on request and clears setup on workspace change", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/founder-meta-reads"
+      ? Response.json({ ...metaScope, available: false, grants: [] }) : Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(<IntegrationsView actorId={META_ACTOR} workspaceId={META_WORKSPACE} workspaceRole="owner" />);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("founder-meta"))).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Review private Meta Ads reads" }));
+    expect(await screen.findByText(/Meta reads are disabled or unavailable/)).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/founder-meta-reads")).toBe(true);
+    view.rerender(<IntegrationsView actorId={META_ACTOR} workspaceId={`ws_${"b".repeat(24)}`} workspaceRole="owner" />);
+    expect(screen.queryByText(/Meta reads are disabled or unavailable/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Review private Meta Ads reads" }).getAttribute("aria-expanded")).toBe("false");
+  });
   it("renders Connected and Available sections with search and domain filter", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView />);

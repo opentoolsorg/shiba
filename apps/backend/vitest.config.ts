@@ -30,6 +30,8 @@ export default defineConfig({
     },
   ],
   test: {
+    // The workspace runs two test packages concurrently; bound each heavy pool.
+    maxWorkers: 2,
     include: ["test/**/*.test.ts"],
     setupFiles: ["./test/vitest-setup.ts"],
     environment: "node",

@@ -93,6 +93,15 @@ export class RunOutputArchiveStore {
     const previous = after > 0 ? this.sql.exec<{ chain_digest: string }>("SELECT chain_digest FROM room_output_archive_events WHERE archive_id=? AND ordinal=?", id, after).toArray()[0]?.chain_digest
       : stableHash(["shiba.output-archive-chain.v1", row.reservation_digest]);
     if (!previous) throw new Error("Output archive checkpoint is incomplete.");
+    // Verify this bounded page against its stored checkpoint before releasing bytes.
+    if (events.length !== Math.min(limit, row.event_count - after)) throw new Error("Output archive page is incomplete.");
+    let chain = previous;
+    for (const [index, event] of events.entries()) {
+      if (event.ordinal !== after + index + 1) throw new Error("Output archive page is not contiguous.");
+      chain = stableHash([chain, [row.id, event.ordinal, event.event_id, event.room_sequence, event.source_sequence, event.body, event.created_at]]);
+      if (chain !== event.chain_digest) throw new Error("Output archive page integrity check failed.");
+    }
+    if (after + events.length === row.event_count && chain !== row.chain_digest) throw new Error("Output archive final checkpoint does not match.");
     return { archiveId: id, jobId: row.job_id, reservationDigest: row.reservation_digest, state: row.state, reason: row.reason, expiresAt: row.expires_at, previousChainDigest: previous,
       acknowledgedThrough: row.acknowledged_through, lastObservedSource: row.source_sequence, eventCount: row.event_count, byteCount: row.byte_count,
       chainDigest: row.chain_digest, finalExitCode: row.exit_code, incompleteTail: row.state !== "complete", tailUpperBound: row.state === "complete" ? row.source_sequence : null,

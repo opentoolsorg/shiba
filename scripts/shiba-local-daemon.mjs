@@ -44,6 +44,7 @@ import process from "node:process";
 import { copyOperatorAuth, isSafePersonalApprovalReview, stagePersonalAuth, readPersonalAuthMaterial } from "./link-operator-auth.mjs";
 import { inspectStagedPersonalAccount, personalChildEnvironment, probePersonalAccount, validatePersonalSelection } from "./personal-cli-auth.mjs";
 import { assertPersonalConfigurationSafe, assertPersonalEnvelope, personalGitArgs, personalResultForTransfer, personalRunPaths, personalSessionOptions, personalTransferFailure, validatePersonalBinding } from "./personal-execution-guard.mjs";
+import { captureExpectedDeliverables, validateExpectedDeliverables } from "./local-deliverables.mjs";
 import { collectLocalRepositorySnapshot } from "./local-repository-snapshot.mjs";
 import { connectReasonNetworkStdio, createReasonNetworkCompanion } from "./reason-network-companion.mjs";
 
@@ -635,6 +636,10 @@ function errorResult(summary, exitCode = -1) {
 async function collectResult(envelope, root, execution, baseRevision) {
   const cloneDir = substitute(envelope.cloneDir, root);
   try {
+    if (envelope.executionTarget?.kind === "artifact-workspace") {
+      const files = await captureExpectedDeliverables(cloneDir, envelope.expectedDeliverables);
+      return { files, changedFiles: files.map((file) => file.path), diff: "" };
+    }
     return await collectLocalRepositorySnapshot({ cloneDir, baseRevision, expectedDeliverables: envelope.expectedDeliverables,
       git: async (args, maxBytes) => {
         const chunks = [];
@@ -730,48 +735,60 @@ async function execute(envelope, claimToken) {
       const current = await post("control", { sandboxId: envelope.sandboxId, claimToken });
       if (current.interrupt || stopped()) return errorResult("Personal execution was cancelled before clone.");
     }
+    const artifact = envelope.executionTarget?.kind === "artifact-workspace";
+    if (envelope.executionTarget && !artifact) return errorResult("Unsupported local execution target.");
+    if (artifact) {
+      validateExpectedDeliverables(envelope.executionTarget.expectedDeliverables);
+      if (personalBinding || envelope.personalExecution || envelope.repoUrl !== "" || !envelope.executionTarget.expectedDeliverables.length ||
+        JSON.stringify(envelope.executionTarget.expectedDeliverables) !== JSON.stringify(envelope.expectedDeliverables)) {
+        return errorResult("Local artifact target does not match approved deliverables or repository authority.");
+      }
+    }
+    let baseRevision;
     // 1. clone — git on the operator's PATH, operator's own git credentials.
     await fs.rm(cloneDir, { recursive: true, force: true });
     await fs.mkdir(cloneDir, { recursive: true });
-    const clone = await runProcess(
-      personalBinding ? personalGitArgs(["clone", "--no-recurse-submodules", "--branch", envelope.baseBranch, "--", envelope.repoUrl, cloneDir]) : ["git", "clone", "--branch", envelope.baseBranch, envelope.repoUrl, cloneDir],
-      { timeoutMs: Math.min(remaining(), 5 * 60 * 1000), execution, ...(personalBinding ? { env } : {}) },
-    );
-    if (stopReason) return errorResult(stopReason);
-    if (clone.exitCode !== 0) {
-      if (personalBinding) return errorResult("Anonymous public repository clone failed; no credential or branch fallback was attempted.");
-      // Branch may not exist remotely; clone default then checkout.
-      const fallback = await runProcess(["git", "clone", envelope.repoUrl, cloneDir], {
-        timeoutMs: Math.min(remaining(), 5 * 60 * 1000),
-        execution,
-      });
-      if (fallback.exitCode !== 0) {
-        return errorResult(`git clone failed: ${fallback.stderr.slice(0, 1000)}`);
-      }
-      const checkout = await runProcess(
-        [
-          "git",
-          "-C",
-          cloneDir,
-          "checkout",
-          "-B",
-          envelope.baseBranch,
-          `origin/${envelope.baseBranch}`,
-        ],
-        { timeoutMs: 60_000, execution },
+    if (!artifact) {
+      const clone = await runProcess(
+        personalBinding ? personalGitArgs(["clone", "--no-recurse-submodules", "--branch", envelope.baseBranch, "--", envelope.repoUrl, cloneDir]) : ["git", "clone", "--branch", envelope.baseBranch, envelope.repoUrl, cloneDir],
+        { timeoutMs: Math.min(remaining(), 5 * 60 * 1000), execution, ...(personalBinding ? { env } : {}) },
       );
-      if (checkout.exitCode !== 0) {
-        return errorResult(
-          `git checkout ${envelope.baseBranch} failed: ${checkout.stderr.slice(0, 500)}`,
+      if (stopReason) return errorResult(stopReason);
+      if (clone.exitCode !== 0) {
+        if (personalBinding) return errorResult("Anonymous public repository clone failed; no credential or branch fallback was attempted.");
+        // Branch may not exist remotely; clone default then checkout.
+        const fallback = await runProcess(["git", "clone", envelope.repoUrl, cloneDir], {
+          timeoutMs: Math.min(remaining(), 5 * 60 * 1000),
+          execution,
+        });
+        if (fallback.exitCode !== 0) {
+          return errorResult(`git clone failed: ${fallback.stderr.slice(0, 1000)}`);
+        }
+        const checkout = await runProcess(
+          [
+            "git",
+            "-C",
+            cloneDir,
+            "checkout",
+            "-B",
+            envelope.baseBranch,
+            `origin/${envelope.baseBranch}`,
+          ],
+          { timeoutMs: 60_000, execution },
         );
+        if (checkout.exitCode !== 0) {
+          return errorResult(
+            `git checkout ${envelope.baseBranch} failed: ${checkout.stderr.slice(0, 500)}`,
+          );
+        }
       }
-    }
 
-    // Freeze the actual cloned base before setup or repository-controlled code
-    // can move HEAD or its branch. Publication must use this exact revision.
-    const base = await runProcess(["git", "--no-replace-objects", "-C", cloneDir, "rev-parse", "--verify", "HEAD^{commit}"], { execution, timeoutMs: 60_000, ...(personalBinding ? { env } : {}) });
-    const baseRevision = base.stdout.trim();
-    if (base.exitCode !== 0 || !/^[a-f0-9]{40}$/.test(baseRevision)) return errorResult("Could not freeze the repository base revision.");
+      // Freeze the actual cloned base before setup or repository-controlled code
+      // can move HEAD or its branch. Publication must use this exact revision.
+      const base = await runProcess(["git", "--no-replace-objects", "-C", cloneDir, "rev-parse", "--verify", "HEAD^{commit}"], { execution, timeoutMs: 60_000, ...(personalBinding ? { env } : {}) });
+      baseRevision = base.stdout.trim();
+      if (base.exitCode !== 0 || !/^[a-f0-9]{40}$/.test(baseRevision)) return errorResult("Could not freeze the repository base revision.");
+    }
 
     // 2. setup ops — the same prefix allowlist the sandbox adapter applies.
     await fs.mkdir(homeDir, { recursive: true });

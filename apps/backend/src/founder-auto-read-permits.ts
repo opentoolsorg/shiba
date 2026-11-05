@@ -1,7 +1,8 @@
 /** Parent-only one-use capabilities. The INTERNAL_SIGNING_KEY never reaches the gateway. */
 import { digest, hash, readRequestDigest, boundedBody, type ReadRequest, type GatewayReadReceipt } from "@shiba/openconnector-read-gateway";
 import type { Env } from "./env.js";
-import { automaticAvailability, automaticGrantGuard, automaticPinsGuard, automaticContract, type AutomaticPins, type AutomaticGrantRow, type AutomaticStepRow, type AutomaticOccurrenceRow } from "./founder-auto-read-store.js";
+import { automaticAvailability, automaticGrantGuard, automaticPinsGuard, automaticPins, automaticContract, type AutomaticPins, type AutomaticGrantRow, type AutomaticStepRow, type AutomaticOccurrenceRow } from "./founder-auto-read-store.js";
+import { scopedGoogleReadToken, verifiedGoogleReadToken } from "./founder-auto-read-keys.js";
 import { openConnectorWorkspaceConnectionName } from "./integrations/openconnector-provider.js";
 import { FOUNDER_SQL_NOW } from "./founder-connector-context.js";
 import { WorkspaceIntegrationError } from "./workspace-integrations-store.js";
@@ -54,9 +55,12 @@ export async function handleFounderAutomaticReadPermit(request:Request,env:Env):
     if(b.stage==="attest_claim"||b.stage==="attest_complete"){
       const row=await env.AGENT_AUDIT.prepare("SELECT pins_json FROM founder_read_attestations WHERE id=? AND nonce=? AND request_digest=? AND expires_at=?").bind(cap.stepId,cap.nonce,cap.requestDigest,cap.expiresAt).first<{pins_json:string}>();
       if(!row)throw new WorkspaceIntegrationError("automatic_read_capability_denied",403);
-      const source=automaticPinsGuard(JSON.parse(row.pins_json) as AutomaticPins);
+      const pins=JSON.parse(row.pins_json) as AutomaticPins,google=pins.sources.find(source=>source.operationId==="googleads.campaign_daily_metrics");
+      if(!google)throw new WorkspaceIntegrationError("automatic_read_capability_denied",403);
+      const runtimeToken=await verifiedGoogleReadToken(env,pins.member.workspaceId,google.binding.connectionId,google.runtimeKeyFingerprint);
+      const source=automaticPinsGuard(pins);
       const changed=await env.AGENT_AUDIT.prepare(`UPDATE founder_read_attestations SET state=? WHERE id=? AND nonce=? AND request_digest=? AND expires_at=? AND state=? AND expires_at>${FOUNDER_SQL_NOW} AND ${source.sql}`).bind(b.stage==="attest_claim"?"claimed":"consumed",cap.stepId,cap.nonce,cap.requestDigest,cap.expiresAt,b.stage==="attest_claim"?"pending":"claimed",...source.values).run();
-      if(changed.meta.changes!==1)throw new WorkspaceIntegrationError("automatic_read_capability_denied",403);
+      if(changed.meta.changes!==1 || scopedGoogleReadToken(env,pins.member.workspaceId,google.binding.connectionId)!==runtimeToken)throw new WorkspaceIntegrationError("automatic_read_capability_denied",403);
       return json({ok:true});
     }
     const step=await env.AGENT_AUDIT.prepare("SELECT * FROM founder_automatic_read_steps WHERE id=? AND nonce=? AND request_digest=?").bind(cap.stepId,cap.nonce,cap.requestDigest).first<AutomaticStepRow>();
@@ -67,6 +71,8 @@ export async function handleFounderAutomaticReadPermit(request:Request,env:Env):
     const grant=occurrence?await env.AGENT_AUDIT.prepare("SELECT * FROM founder_automatic_read_grants WHERE id=? AND version=? AND digest=?").bind(occurrence.grant_id,occurrence.grant_version,occurrence.grant_digest).first<AutomaticGrantRow>():null;
     if(!grant||!occurrence||input.grantId!==grant.id||input.grantVersion!==grant.version||input.occurrenceId!==occurrence.id||input.stepDigest!==step.digest||input.principal.id!==`schedule:${grant.id}`||input.principal.kind!=="schedule")throw new WorkspaceIntegrationError("automatic_read_capability_denied",403);
     const contract=automaticContract(grant),source=await automaticGrantGuard(env,grant);
+    const google=automaticPins(grant).sources.find(item=>item.operationId==="googleads.campaign_daily_metrics");
+    const runtimeToken=google?await verifiedGoogleReadToken(env,grant.workspace_id,google.binding.connectionId,google.runtimeKeyFingerprint):null;
     const context=`${source.sql} AND EXISTS(SELECT 1 FROM founder_automatic_read_occurrences WHERE id=? AND grant_id=? AND grant_version=? AND grant_digest=? AND state IN ('claimed','running') AND expires_at>${FOUNDER_SQL_NOW} AND lease_expires_at>${FOUNDER_SQL_NOW}) AND ?>${FOUNDER_SQL_NOW}`;
     const contextValues=[...source.values,occurrence.id,grant.id,grant.version,grant.digest,cap.expiresAt];
     if(input.versionId!==contract.runtime.versionId||input.manifestDigest!==contract.runtime.manifestDigest||input.expiresAt>occurrence.expires_at||input.maxBytes!==contract.operations[step.ordinal]?.maxBytes)throw new WorkspaceIntegrationError("automatic_read_capability_denied",403);
@@ -77,7 +83,7 @@ export async function handleFounderAutomaticReadPermit(request:Request,env:Env):
     }
     if(b.stage==="dispatch"){
       const changed=await env.AGENT_AUDIT.prepare(`UPDATE founder_automatic_read_steps SET state='dispatching',dispatch_used=1,updated_at=? WHERE id=? AND nonce=? AND request_digest=? AND state='claimed' AND claim_used=1 AND dispatch_used=0 AND ${context}`).bind(Date.now(),step.id,cap.nonce,cap.requestDigest,...contextValues).run();
-      if(changed.meta.changes!==1)throw new WorkspaceIntegrationError("automatic_read_nonce_unconfirmed",409);return json({ok:true});
+      if(changed.meta.changes!==1 || google && scopedGoogleReadToken(env,grant.workspace_id,google.binding.connectionId)!==runtimeToken)throw new WorkspaceIntegrationError("automatic_read_nonce_unconfirmed",409);return json({ok:true});
     }
     const receipt=parseReceipt(b.receipt,input);if(receipt.resultJson!==null&&await digest(receipt.resultJson)!==receipt.resultDigest)throw new WorkspaceIntegrationError("automatic_read_receipt_invalid",400);
     const changed=await env.AGENT_AUDIT.prepare(`UPDATE founder_automatic_read_steps SET state=?,receipt_json=?,complete_used=1,updated_at=? WHERE id=? AND nonce=? AND request_digest=? AND complete_used=0 AND claim_used=1 AND ((?='completed' AND state='dispatching' AND dispatch_used=1) OR (?<>'completed' AND state IN ('claimed','dispatching'))) AND ${context}`)

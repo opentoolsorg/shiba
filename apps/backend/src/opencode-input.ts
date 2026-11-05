@@ -165,8 +165,8 @@ const codingTaskInputWithRouteSchema = codingTaskInputSchema.superRefine((input,
   } else if (target?.kind === "artifact-workspace") {
     if (input.repoUrl !== "") ctx.addIssue({ code: "custom", message: "Artifact-workspace runs must not name a repository." });
     if (input.publishPullRequest) ctx.addIssue({ code: "custom", message: "Artifact-workspace runs cannot publish a pull request." });
-    if (input.runtime !== undefined && input.runtime !== "sandbox") {
-      ctx.addIssue({ code: "custom", message: "Artifact-workspace runs require the isolated sandbox runtime." });
+    if (input.runtime === "local" && target.expectedDeliverables.length === 0) {
+      ctx.addIssue({ code: "custom", message: "Local artifact work requires explicit nonempty deliverables; directory discovery is not supported." });
     }
     if (JSON.stringify(input.expectedDeliverables ?? []) !== JSON.stringify(target.expectedDeliverables)) {
       ctx.addIssue({ code: "custom", message: "Artifact-workspace deliverables must match the frozen execution target." });

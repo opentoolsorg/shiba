@@ -36,6 +36,7 @@ export function TeamModelFundingForm({ model, employees, actors, disabled, onCha
     <label className="text-xs">Maximum quoted inference budget (USD)<input type="text" inputMode="decimal" maxLength={9} className={FIELD} value={budget} placeholder="Enter up to 1.000000" disabled={disabled} onChange={(event) => update(setBudget, event.target.value)} /></label>
     <p className="text-xs text-[var(--ink-2)]">{maximumDebit ? `At least ${formatMicroUsd(maximumDebit)} is needed for one full-context reservation. ` : "Choose an output bound to see its full-context reservation. "}The exact server quote is reviewed next and permits new calls for at most 15 minutes; there is no automatic renewal. Employee instructions and selected context count toward the full input bound. Tools, CLI execution and fallback providers are unavailable.</p>
     <p className="text-xs text-[var(--ink-2)]">{TEAM_MODEL_COST_DISCLOSURE}</p>
+    <p className="text-xs text-[var(--ink-2)]">Preparing this review does not enable funding or send a paid request. Enabling the reviewed grant is a separate approval. This text allowance does not authorize desktop sessions, external purchases or other provider charges.</p>
     <button type="submit" className={BUTTON} disabled={disabled || !valid}>Prepare exact funding review</button>
   </form>;
 }

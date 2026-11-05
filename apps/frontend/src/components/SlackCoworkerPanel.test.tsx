@@ -19,6 +19,7 @@ describe('Slack coworker native scope',()=>{
   const next=async(url:RequestInfo|URL)=>Response.json(String(url).endsWith('/drafts')?{drafts:[]}:state);
   const view=render(<SlackCoworkerPanel workspaceId={ws} actorId={oldActor} onAdoptTask={onAdopt} client={new SlackCoworkerClient(ws,oldActor,fetcher)}/>);
   await screen.findByText('My Slack task');
+  expect(screen.getByText(/Installing the Slack app is not execution approval/).textContent).toContain('intended channel and thread');
   fireEvent.change(screen.getByLabelText('Managed installation ID'),{target:{value:'I1'}});fireEvent.click(screen.getByRole('button',{name:'Begin identity link'}));
   await screen.findByText(/\/shiba-link/);
   fireEvent.click(screen.getByRole('button',{name:'Review in task composer'}));
@@ -27,4 +28,12 @@ describe('Slack coworker native scope',()=>{
   await act(async()=>{release(Response.json(draft));});
   expect(onAdopt).not.toHaveBeenCalled();expect(screen.queryByText(/\/shiba-link/)).toBeNull();expect(screen.queryByText('My Slack task')).toBeNull();
  });
+ it('keeps a receipt visible after its source draft is unavailable',async()=>{
+  const ws='ws_'+ 'a'.repeat(24),actor='a@example.test',roomId='room_'+ 'd'.repeat(24),handoffId='scx_'+ 'a'.repeat(32),onOpen=vi.fn();
+  const receipt={previewId:'scp_'+ 'c'.repeat(32),draftId:draft.id,roomId,handoffId,state:'unknown',approvalRequired:true};
+  const fetcher=vi.fn(async(url:RequestInfo|URL)=>Response.json(String(url).endsWith('/drafts/submissions')?{ok:true,workspaceId:ws,actorId:actor,submissions:[receipt]}:String(url).endsWith('/drafts')?{drafts:[]}:state));
+  render(<SlackCoworkerPanel workspaceId={ws} actorId={actor} onAdoptTask={()=>{}} onOpenHandoff={onOpen} client={new SlackCoworkerClient(ws,actor,fetcher)}/>);
+  await screen.findByText(/Submission unknown/);fireEvent.click(screen.getByRole('button',{name:'Open room handoff'}));expect(onOpen).toHaveBeenCalledWith(roomId,handoffId);expect(fetcher.mock.calls.every(([url])=>!String(url).endsWith('/drafts/submit'))).toBe(true);
+ });
+
 });

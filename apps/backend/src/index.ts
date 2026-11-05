@@ -177,10 +177,20 @@ export default {
     ctx.waitUntil((async () => {
       try { await (await import("./founder-stripe-runtime.js")).tickFounderStripeReads(env); }
       catch (error) { console.error("Founder Stripe read scheduling failed", redactSecrets(String(error))); }
+      try { await (await import("./founder-meta-runtime.js")).tickFounderMetaReads(env); }
+      catch (error) { console.error("Founder Meta read scheduling failed", redactSecrets(String(error))); }
+      try { await (await import("./founder-hubspot-runtime.js")).tickFounderHubSpotReads(env); }
+      catch (error) { console.error("Founder HubSpot read scheduling failed", redactSecrets(String(error))); }
+      try { await (await import("./founder-reconciliation-schedule-runtime.js")).tickFounderReconciliationSchedules(env); }
+      catch (error) { console.error("Founder standing comparison scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-auto-read-runtime.js")).tickFounderAutomaticReads(env); }
       catch (error) { console.error("Founder automatic read scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-automatic-slack-tick.js")).tickFounderAutomaticSlack(env); }
       catch (error) { console.error("Founder automatic Slack scheduling failed", redactSecrets(String(error))); }
+      try { await (await import("./founder-automatic-slack-stripe-tick.js")).tickFounderStripeAutomaticSlack(env); }
+      catch (error) { console.error("Founder Stripe Slack scheduling failed", redactSecrets(String(error))); }
+      try { await (await import("./founder-reconciliation-slack-tick.js")).tickFounderReconciliationSlack(env); }
+      catch (error) { console.error("Founder combined-report Slack scheduling failed", redactSecrets(String(error))); }
     })());
     ctx.waitUntil(import("./founder-review-schedules.js").then((m) => m.tickFounderReviewSchedules(env)).catch((error: unknown) => {
       console.error("Founder review scheduling failed", redactSecrets(String(error)));
@@ -354,6 +364,8 @@ export default {
       }
       const metaResponse = await handleMeta(request, env);
       if (metaResponse) return metaResponse;
+      const teamOnboardingTask = await (await import("./team-onboarding-task.js")).handleTeamOnboardingTask(request, env);
+      if (teamOnboardingTask) return teamOnboardingTask;
       const onboardingResponse = await handleOnboardingProgress(request, env);
       if (onboardingResponse) return onboardingResponse;
       const acpProviderResponse = await handleAcpProviders(request, env);
@@ -382,6 +394,18 @@ export default {
       if (founderAutomaticResponse) return founderAutomaticResponse;
       const founderStripeResponse = await (await import("./founder-stripe-routes.js")).handleFounderStripeReads(request, env);
       if (founderStripeResponse) return founderStripeResponse;
+      const founderMetaResponse = await (await import("./founder-meta-routes.js")).handleFounderMetaReads(request, env);
+      if (founderMetaResponse) return founderMetaResponse;
+      const founderHubSpotResponse = await (await import("./founder-hubspot-routes.js")).handleFounderHubSpotReads(request, env);
+      if (founderHubSpotResponse) return founderHubSpotResponse;
+      const reconciliationResponse = await (await import("./founder-reconciliation-routes.js")).handleFounderReconciliations(request, env);
+      if (reconciliationResponse) return reconciliationResponse;
+      const standingComparisonResponse = await (await import("./founder-reconciliation-schedule-routes.js")).handleFounderReconciliationSchedules(request, env);
+      if (standingComparisonResponse) return standingComparisonResponse;
+      const reconciliationSlackResponse = await (await import("./founder-reconciliation-slack-routes.js")).handleFounderReconciliationSlack(request, env);
+      if (reconciliationSlackResponse) return reconciliationSlackResponse;
+      const stripeSlackResponse = await (await import("./founder-automatic-slack-stripe-routes.js")).handleFounderStripeAutomaticSlack(request, env);
+      if (stripeSlackResponse) return stripeSlackResponse;
       const founderAutomaticSlackResponse = await (await import("./founder-automatic-slack-routes.js")).handleFounderAutomaticSlack(request, env);
       if (founderAutomaticSlackResponse) return founderAutomaticSlackResponse;
       const founderEvidenceResponse = await (await import("./founder-evidence-routes.js")).handleFounderEvidenceReports(request, env);

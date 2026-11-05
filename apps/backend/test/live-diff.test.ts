@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { deflateSync } from "node:zlib";
@@ -247,14 +247,35 @@ describe("bounded live diff snapshots with real local Git", () => {
     expect(JSON.stringify(preview)).not.toContain("PRIVATE");
   });
 
-  it("rejects a symlinked Git directory and invalid baseline identifiers", async () => {
+  it.each([false, true])("rejects a symlinked Git directory (O_DIRECTORY follows symlinks: %s)", async (emulate) => {
+    const { root, baseline } = repository({ "file.txt": "before\n" });
+    const outside = directory();
+    renameSync(join(root, ".git"), join(outside, ".git"));
+    symlinkSync(join(outside, ".git"), join(root, ".git"));
+    put(root, "file.txt", "after\n");
+    const instrument = emulate ? `{
+      const io = require("node:fs"), original = io.openSync;
+      io.openSync = function(name, flags, ...args) {
+        if (flags & io.constants.O_DIRECTORY) flags &= ~io.constants.O_NOFOLLOW;
+        return original.call(this, name, flags, ...args);
+      };
+    }` : "";
+    const preview = await captureLiveDiff(localOps(instrument), root, baseline, []);
+    expect(preview.status).toBe("unavailable");
+    expect(preview).not.toHaveProperty("diff");
+  });
+
+  it.each(["file", "FIFO"])("rejects a Git directory replaced by a %s without blocking", async (kind) => {
     const { root, baseline } = repository();
-    const other = repository();
     rmSync(join(root, ".git"), { recursive: true });
-    symlinkSync(join(other.root, ".git"), join(root, ".git"));
+    if (kind === "file") put(root, ".git", "not a Git directory\n");
+    else execFileSync("mkfifo", [join(root, ".git")]);
     expect((await captureLiveDiff(localOps(), root, baseline, [])).status).toBe("unavailable");
+  });
+
+  it("rejects invalid baseline identifiers before executing a snapshot", async () => {
     const operations = localOps();
     operations.exec = async () => { throw new Error("Invalid baseline must be refused before exec."); };
-    expect((await captureLiveDiff(operations, root, "HEAD", [])).status).toBe("unavailable");
+    expect((await captureLiveDiff(operations, "/workspace/run", "HEAD", [])).status).toBe("unavailable");
   });
 });

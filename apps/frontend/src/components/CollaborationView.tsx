@@ -196,6 +196,7 @@ function request(method: string, body?: unknown): RequestInit {
 }
 
 export type CollaborationExecutionHandoff = Handoff & { roomId: string };
+export type IncomingTaskDraft = { id: string; workspaceId: string; actorId: string; text: string; source?: "slack" | "team-onboarding"; draftTaskId?: string; draftTaskVersion?: number; progressRevision?: number; expiresAt?: number };
 
 export interface CollaborationViewProps {
   workspaceId?: string;
@@ -203,7 +204,7 @@ export interface CollaborationViewProps {
   initialHandoffId?: string;
   initialEmployeeId?: string;
   onRoomChange?: (roomId: string) => void;
-  incomingTaskDraft?: { id: string; workspaceId: string; actorId: string; text: string } | null;
+  incomingTaskDraft?: IncomingTaskDraft | null;
   onTaskDraftConsumed?: (id: string) => void;
   renderExecution?: (handoff: CollaborationExecutionHandoff) => ReactNode;
   renderApproval?: (handoff: CollaborationExecutionHandoff) => ReactNode;
@@ -258,7 +259,9 @@ function ScopedCollaborationView({
   const [message, setMessage] = useState("");
   const [taskId, setTaskId] = useState("");
   const [task, setTask] = useState("");
-  const [draftReplacement, setDraftReplacement] = useState<{ id: string; roomId: string; previousTask: string; text: string } | null>(null);
+  const [draftReplacement, setDraftReplacement] = useState<{ id: string; roomId: string; previousTask: string; text: string; provenance: string } | null>(null);
+  const [draftExpiryTick, setDraftExpiryTick] = useState(0);
+  const surfacedTeamDrafts = useRef(new Set<string>());
   const [repoUrl, setRepoUrl] = useState("");
   const [workDestination, setWorkDestination] = useState<"repository" | "artifact-workspace">(
     "repository",
@@ -295,7 +298,13 @@ function ScopedCollaborationView({
 
   useEffect(() => {
     setDraftReplacement(null);
-  }, [incomingTaskDraft?.id, incomingTaskDraft?.text, incomingTaskDraft?.actorId, incomingTaskDraft?.workspaceId, activeRoomId, task]);
+  }, [incomingTaskDraft?.id, incomingTaskDraft?.text, incomingTaskDraft?.actorId, incomingTaskDraft?.workspaceId, incomingTaskDraft?.source, incomingTaskDraft?.draftTaskId, incomingTaskDraft?.draftTaskVersion, incomingTaskDraft?.progressRevision, incomingTaskDraft?.expiresAt, activeRoomId, task]);
+  useEffect(() => {
+    if (incomingTaskDraft?.source !== "team-onboarding" || !Number.isFinite(incomingTaskDraft.expiresAt) || Number(incomingTaskDraft.expiresAt) <= Date.now()) return;
+    const delay = Math.max(0, Math.min(2147483647, Number(incomingTaskDraft.expiresAt) - Date.now()));
+    const timer = setTimeout(() => setDraftExpiryTick((value) => value + 1), delay);
+    return () => clearTimeout(timer);
+  }, [incomingTaskDraft?.id, incomingTaskDraft?.source, incomingTaskDraft?.expiresAt, draftExpiryTick]);
 
   const clearRoomDrafts = useCallback(() => {
     setMessage("");
@@ -573,15 +582,23 @@ function ScopedCollaborationView({
     members.find(
       (member) => member.userId === detail?.currentUserId && member.actorKind === "human",
     )?.actorId || "";
-  const reviewableSlackDraft = Boolean(incomingTaskDraft && detail && workspaceId && incomingTaskDraft.workspaceId === workspaceId &&
+  const reviewableSlackDraft = Boolean(incomingTaskDraft && (incomingTaskDraft.source !== "team-onboarding" || (Number.isSafeInteger(incomingTaskDraft.expiresAt) && Number(incomingTaskDraft.expiresAt) > Date.now())) && detail && workspaceId && incomingTaskDraft.workspaceId === workspaceId &&
     incomingTaskDraft.actorId === detail.currentUserId && activeRoomId && detail.room.roomId === activeRoomId &&
     activeRoomRef.current === activeRoomId && !revokedRooms.current.has(activeRoomId) &&
     members.some((member) => member.actorKind === "human" && member.userId === detail.currentUserId && member.status === "active"));
-  const validSlackDraft = Boolean(incomingTaskDraft?.id && incomingTaskDraft.text.trim() && incomingTaskDraft.text.length <= 4000);
-  const replaceReviewed = Boolean(incomingTaskDraft && draftReplacement && draftReplacement.id === incomingTaskDraft.id &&
+  const validSlackDraft = Boolean(incomingTaskDraft?.id && incomingTaskDraft.text.trim() && incomingTaskDraft.text.length <= 4000 && (incomingTaskDraft.source !== "team-onboarding" || (incomingTaskDraft.draftTaskId && Number.isSafeInteger(incomingTaskDraft.draftTaskVersion) && Number(incomingTaskDraft.draftTaskVersion) > 0 && Number.isSafeInteger(incomingTaskDraft.progressRevision) && Number(incomingTaskDraft.progressRevision) >= 0)));
+  useEffect(() => {
+    if (incomingTaskDraft?.source !== "team-onboarding" || !reviewableSlackDraft || !validSlackDraft || !detail || Number(incomingTaskDraft.expiresAt) <= Date.now()) return;
+    const key = JSON.stringify([incomingTaskDraft.id, activeRoomId, detail.currentUserId]);
+    if (surfacedTeamDrafts.current.has(key)) return;
+    surfacedTeamDrafts.current.add(key);
+    setDetailTab("work");
+  }, [incomingTaskDraft?.id, incomingTaskDraft?.source, activeRoomId, detail, reviewableSlackDraft, validSlackDraft]);
+  const draftProvenance = JSON.stringify([incomingTaskDraft?.source, incomingTaskDraft?.draftTaskId, incomingTaskDraft?.draftTaskVersion, incomingTaskDraft?.progressRevision, incomingTaskDraft?.expiresAt]);
+  const replaceReviewed = Boolean(incomingTaskDraft && draftReplacement && draftReplacement.id === incomingTaskDraft.id && draftReplacement.provenance === draftProvenance &&
     draftReplacement.roomId === activeRoomId && draftReplacement.previousTask === task && draftReplacement.text === incomingTaskDraft.text);
   const useSlackDraft = () => {
-    if (!incomingTaskDraft || !reviewableSlackDraft || !validSlackDraft || (task && !replaceReviewed)) return;
+    if (!incomingTaskDraft || !reviewableSlackDraft || !validSlackDraft || (incomingTaskDraft.source === "team-onboarding" && Number(incomingTaskDraft.expiresAt) <= Date.now()) || (task && !replaceReviewed)) return;
     setTask(incomingTaskDraft.text);
     setSelectedMessageIds([]);
     setSelectedMemoryIds([]);
@@ -1560,14 +1577,13 @@ function ScopedCollaborationView({
                         </button>
                         {showSharedComputer && detailTab === "work" && <SharedComputerSessions key={`${workspaceId}:${activeRoomId}:${detail.currentUserId}`} workspaceId={workspaceId} roomId={activeRoomId} actorId={detail.currentUserId} />}
                       </div>}
-                      {reviewableSlackDraft && incomingTaskDraft && <section aria-label="Review Slack draft" className="mb-3 min-w-0 space-y-2 border border-[var(--line)] bg-[var(--paper)] p-3 text-xs">
-                        <p className="font-semibold">Untrusted self-authored Slack statement</p>
-                        <p>Review before using in room {detail.room.title}. Submitting a room task can share its instructions with that room's participants. Copying here does not send a task or share room context; later Slack edits cannot retract the copied text.</p>
+                      {reviewableSlackDraft && incomingTaskDraft && <section aria-label={incomingTaskDraft.source === "team-onboarding" ? "Review saved team task" : "Review Slack draft"} className="mb-3 min-w-0 space-y-2 border border-[var(--line)] bg-[var(--paper)] p-3 text-xs">
+                        {incomingTaskDraft.source === "team-onboarding" ? <><p className="font-semibold">Review saved team task</p><p>Saved draft version {incomingTaskDraft.draftTaskVersion} · progress revision {incomingTaskDraft.progressRevision}</p><p>Review before using in room {detail.room.title}. This creates an editable copy; later setup edits do not update it, and the saved version may no longer be current. It grants no employee, source, or tool access. Submitting a room task can share its instructions with room participants and requires normal approval.</p></> : <><p className="font-semibold">Untrusted self-authored Slack statement</p><p>Review before using in room {detail.room.title}. Submitting a room task can share its instructions with that room's participants. Copying here does not send a task or share room context; later Slack edits cannot retract the copied text.</p></>}
                         <blockquote className="whitespace-pre-wrap break-words">{incomingTaskDraft.text}</blockquote>
                         {!validSlackDraft && <p role="alert">This draft must contain 1–4,000 characters before it can be used. It has not been shortened.</p>}
                         {task && !replaceReviewed && <p>Your current unsent task will be preserved unless you explicitly confirm its replacement.</p>}
-                        {task && !replaceReviewed ? <button type="button" className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] disabled:opacity-50" disabled={!validSlackDraft || busy} onClick={() => setDraftReplacement({ id: incomingTaskDraft.id, roomId: activeRoomId, previousTask: task, text: incomingTaskDraft.text })}>Review replacing my unsent task</button>
-                          : <button type="button" className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] disabled:opacity-50" disabled={!validSlackDraft || busy} onClick={useSlackDraft}>{task ? "Confirm replacing my unsent task" : "Use Slack draft in this room task"}</button>}
+                        {task && !replaceReviewed ? <button type="button" className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] disabled:opacity-50" disabled={!validSlackDraft || busy} onClick={() => setDraftReplacement({ id: incomingTaskDraft.id, roomId: activeRoomId, previousTask: task, text: incomingTaskDraft.text, provenance: draftProvenance })}>Review replacing my unsent task</button>
+                          : <button type="button" className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] disabled:opacity-50" disabled={!validSlackDraft || busy} onClick={useSlackDraft}>{task ? "Confirm replacing my unsent task" : incomingTaskDraft.source === "team-onboarding" ? "Use saved task in this room" : "Use Slack draft in this room task"}</button>}
                       </section>}
                       <form onSubmit={createHandoff} className="flex flex-col gap-2">
                         <input

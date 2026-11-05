@@ -28,6 +28,12 @@ import { MainCard, type Scope } from "./ui/ContextPanel";
 import { SlackInstallationsPanel } from "./SlackInstallationsPanel";
 import { SlackCoworkerPanel } from "./SlackCoworkerPanel";
 import { FounderStripeReads } from "./FounderStripeReads";
+import { FounderMetaReads } from "./FounderMetaReads";
+import { FounderHubSpotReads } from "./FounderHubSpotReads";
+import { FounderReconciliation } from "./FounderReconciliation";
+import { FounderReconciliationSchedules } from "./FounderReconciliationSchedules";
+import { FounderReconciliationAutomaticSlack } from "./FounderReconciliationAutomaticSlack";
+import { FounderStripeAutomaticSlack } from "./FounderStripeAutomaticSlack";
 
 function IntegrationRow({
   name,
@@ -144,6 +150,7 @@ interface IntegrationsViewProps {
   onPersonalScope?: () => void;
   onChooseWorkspace?: () => void;
   onAdoptSlackTask?: (task: string) => void;
+  onOpenSlackHandoff?: (roomId: string, handoffId: string) => void;
 }
 const UNREAD_PRIVATE_BINDINGS: IntegrationBindingInputs = { setupLoading: true, mailboxCount: undefined, mailboxLoading: true,
   gmailConnected: null, gmailLoading: true, externalMcpServerCount: undefined, externalMcpCatalogConnections: undefined, externalMcpLoading: true };
@@ -158,6 +165,12 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
   const [showSlack, setShowSlack] = useState(false);
   const [showCoworker, setShowCoworker] = useState(false);
   const [showStripe, setShowStripe] = useState(false);
+  const [showMeta, setShowMeta] = useState(false);
+  const [showHubSpot, setShowHubSpot] = useState(false);
+  const [showReconciliation, setShowReconciliation] = useState(false);
+  const [showFutureComparisons, setShowFutureComparisons] = useState(false);
+  const [showCombinedSlack, setShowCombinedSlack] = useState(false);
+  const [showStripeSlack, setShowStripeSlack] = useState(false);
   return <div className="min-w-0 space-y-4"><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
     actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
     allowPersonalScope={props.allowPersonalScope} onPersonalScope={props.onPersonalScope} />
@@ -169,11 +182,35 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
     </section>}
     {props.actorId && props.onAdoptSlackTask && <section className="p-4">
       <button type="button" aria-expanded={showCoworker} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowCoworker((shown) => !shown)}>{showCoworker ? "Close Slack coworker" : "Review my Slack task drafts"}</button>
-      {showCoworker && <SlackCoworkerPanel workspaceId={props.workspaceId} actorId={props.actorId} onAdoptTask={props.onAdoptSlackTask} />}
+      {showCoworker && <SlackCoworkerPanel workspaceId={props.workspaceId} actorId={props.actorId} onAdoptTask={props.onAdoptSlackTask} onOpenHandoff={props.onOpenSlackHandoff} />}
     </section>}
     {props.actorId && <section className="p-4">
       <button type="button" aria-expanded={showStripe} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowStripe((shown) => !shown)}>{showStripe ? "Close Stripe read setup" : "Review private Stripe reads"}</button>
       {showStripe && <FounderStripeReads workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowStripe(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showMeta} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowMeta((shown) => !shown)}>{showMeta ? "Close Meta read setup" : "Review private Meta Ads reads"}</button>
+      {showMeta && <FounderMetaReads workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowMeta(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showHubSpot} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowHubSpot((shown) => !shown)}>{showHubSpot ? "Close HubSpot read setup" : "Review private HubSpot reads"}</button>
+      {showHubSpot && <FounderHubSpotReads workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowHubSpot(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showReconciliation} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowReconciliation((shown) => !shown)}>{showReconciliation ? "Close invoice comparison" : "Compare private HubSpot and Stripe captures"}</button>
+      {showReconciliation && <FounderReconciliation workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowReconciliation(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showFutureComparisons} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowFutureComparisons((shown) => !shown)}>{showFutureComparisons ? "Close future private comparisons" : "Review automatic private comparisons"}</button>
+      {showFutureComparisons && <FounderReconciliationSchedules workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowFutureComparisons(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showCombinedSlack} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowCombinedSlack((shown) => !shown)}>{showCombinedSlack ? "Close combined-report sharing" : "Review combined-report Slack sharing"}</button>
+      {showCombinedSlack && <FounderReconciliationAutomaticSlack workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowCombinedSlack(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showStripeSlack} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowStripeSlack((shown) => !shown)}>{showStripeSlack ? "Close Stripe digest sharing" : "Review Stripe Slack digests"}</button>
+      {showStripeSlack && <FounderStripeAutomaticSlack workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowStripeSlack(false)} />}
     </section>}</div>;
 }
 

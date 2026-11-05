@@ -36,6 +36,45 @@ function fixture(initial?: TeamModelStateResponse) {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("explicit bounded team text sessions", () => {
+  it("shows requester lifetime capacity without workspace totals", async () => {
+    const { state, grant } = teamModelFixture();
+    grant.money = { ...grant.money!, capacity: { requesterLimitMicroUsd: 1_000_000, requesterReservedMicroUsd: 123_456, requesterRemainingMicroUsd: 876_544, workspaceLimitMicroUsd: 10_000_000, requesterCanReserveNext: true, workspaceCanReserveNext: true } };
+    fixture(state); render(<TeamModelSessions {...props()} />);
+    expect(await screen.findByText(/Lifetime requester capacity: limit \$1.000000 · reserved \$0.123456 · remaining \$0.876544/)).toBeTruthy();
+    expect(screen.queryByText(/Lifetime workspace capacity:/)).toBeNull();
+    expect(screen.getByText(/concurrent reservations or stale state/)).toBeTruthy();
+  });
+  it("shows workspace totals when supplied to the funder", async () => {
+    const { state, grant } = teamModelFixture();
+    grant.money = { ...grant.money!, capacity: { requesterLimitMicroUsd: 1_000_000, requesterReservedMicroUsd: 123_456, requesterRemainingMicroUsd: 876_544, workspaceLimitMicroUsd: 10_000_000, workspaceReservedMicroUsd: 2_000_001, workspaceRemainingMicroUsd: 7_999_999, requesterCanReserveNext: true, workspaceCanReserveNext: true } };
+    fixture({ ...state, actorId: TEAM_MODEL_OPERATOR, canFund: true }); render(<TeamModelSessions {...props()} actorId={TEAM_MODEL_OPERATOR} />);
+    fireEvent.click(await screen.findByText("Operator funding setup"));
+    expect(screen.getByText(/Lifetime workspace capacity: limit \$10.000000 · reserved \$2.000001 · remaining \$7.999999/)).toBeTruthy();
+  });
+  it.each(["requesterCanReserveNext", "workspaceCanReserveNext"] as const)("blocks grant selection and preparation when %s is false", async (exhausted) => {
+    const { state, grant } = teamModelFixture();
+    grant.money = { ...grant.money!, capacity: { requesterLimitMicroUsd: 1_000_000, requesterReservedMicroUsd: 123_456, requesterRemainingMicroUsd: 876_544, workspaceLimitMicroUsd: 10_000_000, requesterCanReserveNext: true, workspaceCanReserveNext: true, [exhausted]: false } };
+    const f = fixture(state); render(<TeamModelSessions {...props()} />);
+    const select = await screen.findByLabelText("My text-session funding grant");
+    expect(screen.getByRole("option", { name: /Writer fixture/ })).toHaveProperty("disabled", true);
+    fireEvent.change(select, { target: { value: grant.id } });
+    expect(screen.queryByLabelText("Exact text prompt")).toBeNull();
+    expect(screen.getByText(/capacity is exhausted for the next call/)).toBeTruthy();
+    expect(f.posts).toEqual([]);
+  });
+  it("clears a selected grant when a refreshed snapshot no longer fits", async () => {
+    const { state, grant } = teamModelFixture();
+    const capacity = { requesterLimitMicroUsd: 1_000_000, requesterReservedMicroUsd: 123_456, requesterRemainingMicroUsd: 876_544, workspaceLimitMicroUsd: 10_000_000, requesterCanReserveNext: true, workspaceCanReserveNext: true };
+    grant.money = { ...grant.money!, capacity };
+    const f = fixture(state); render(<TeamModelSessions {...props()} />);
+    fireEvent.change(await screen.findByLabelText("My text-session funding grant"), { target: { value: grant.id } });
+    fireEvent.change(screen.getByLabelText("Exact text prompt"), { target: { value: "Prepare this text" } });
+    f.set({ ...state, grants: [{ ...grant, money: { ...grant.money, capacity: { ...capacity, workspaceCanReserveNext: false } } }] });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh team model state" }));
+    await waitFor(() => expect(screen.queryByLabelText("Exact text prompt")).toBeNull());
+    expect(screen.getByRole("option", { name: /Writer fixture/ })).toHaveProperty("disabled", true);
+    expect(f.posts).toEqual([]);
+  });
   it("uses server capability only and selects no funding or sources automatically", async () => {
     const f = fixture(); render(<TeamModelSessions {...props()} />);
     const select = await screen.findByLabelText("My text-session funding grant"); expect(select).toHaveProperty("value", "");
@@ -52,6 +91,8 @@ describe("explicit bounded team text sessions", () => {
     const state = { ...teamModelFixture().state, actorId: TEAM_MODEL_OPERATOR, canFund: true, grants: [] };
     const f = fixture(state); render(<TeamModelSessions {...props()} actorId={TEAM_MODEL_OPERATOR} />);
     fireEvent.click(await screen.findByText("Operator funding setup"));
+    expect(screen.getByText(/Preparing this review does not enable funding/).textContent).toContain("separate approval");
+    expect(screen.getByText(/Preparing this review does not enable funding/).textContent).toContain("does not authorize desktop sessions, external purchases or other provider charges");
     expect(screen.getByLabelText("Funded employee")).toHaveProperty("value", ""); expect(screen.getByLabelText("Funded member")).toHaveProperty("value", ""); expect(screen.getByLabelText("Exact Workers AI model")).toHaveProperty("value", "");
     expect(screen.getByLabelText("Maximum quoted inference budget (USD)")).toHaveProperty("value", "");
     const prepare = screen.getByRole("button", { name: "Prepare exact funding review" }); expect(prepare).toHaveProperty("disabled", true);

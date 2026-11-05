@@ -30,7 +30,7 @@ export class TeamWorkTaskError extends Error {
 
 export const TEAM_WORK_TASK_LIMITS = { tasks: 500, activity: 200, parentDepth: 50 } as const;
 const initialized = new WeakSet<D1Database>();
-// Runtime mirror of migrations/0029_team_work_tasks.sql for databases not yet migrated.
+// Runtime mirror of migrations/0036_team_work_tasks.sql for databases not yet migrated.
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS team_work_tasks (
     tenant_id TEXT NOT NULL,workspace_id TEXT NOT NULL,task_id TEXT NOT NULL,title TEXT NOT NULL,

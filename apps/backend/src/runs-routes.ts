@@ -315,6 +315,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
         employeeId: typeof intakeBody.customAgentId === "string" ? intakeBody.customAgentId : "",
         employeeVersion: profileVersion ?? 0, task: typeof intakeBody.task === "string" ? intakeBody.task : "",
         expectedWorkspaceId: orgAuth.workspace.workspaceId,
+        personalExecution: personalExecutionPins.get(request),
       });
       if (!scope || scope.orgId !== orgAuth.orgId)
         return Response.json({ error: "Team handoff authority changed. Create a new room request." }, { status: 403 });

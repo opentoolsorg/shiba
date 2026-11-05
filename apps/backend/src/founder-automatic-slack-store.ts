@@ -1,5 +1,6 @@
 import {
   AUTOMATIC_SLACK_RENDER_POLICY,
+  AUTOMATIC_SLACK_COMPACT_RENDER_POLICY,
   AUTOMATIC_SLACK_MAX_TTL_MS,
   AUTOMATIC_SLACK_AUDIENCE_CONSENT,
   REPORT_SLACK_DISCLOSURE_SCOPE,
@@ -49,7 +50,7 @@ export interface AutomaticSlackFamily {
   grant: AutomaticGrantRow;
   pins: AutomaticPins;
   recipeHash: string;
-  renderPolicy: typeof AUTOMATIC_SLACK_RENDER_POLICY;
+  renderPolicy: typeof AUTOMATIC_SLACK_RENDER_POLICY | typeof AUTOMATIC_SLACK_COMPACT_RENDER_POLICY;
   maxBytes: typeof REPORT_SLACK_MAX_BYTES;
 }
 export interface AutomaticSlackRow {
@@ -174,6 +175,33 @@ export function renderAutomaticSlackReport(markdown: string): string {
     automaticSlackFail("automatic_slack_complete_report_too_large", 413);
   return content;
 }
+/** V2 sends every field and result of the canonical stored JSON, without Markdown indentation. */
+export function renderAutomaticSlackCompactReport(json: string): string {
+  let value: unknown;
+  try { value = JSON.parse(json); } catch { return automaticSlackFail("automatic_slack_content_unreviewable", 400); }
+  if (!value || typeof value !== "object" || Array.isArray(value) || JSON.stringify(value, null, 2) + "\n" !== json)
+    return automaticSlackFail("automatic_slack_content_unreviewable", 400);
+  const report = value as Record<string, unknown>;
+  const notice = "Fixed reads under an explicit standing grant. Captures are bounded; dataset completeness is unknown and business success is unverified. No model, inferred metrics, MRR, churn or freshness claim.";
+  if (report.format !== "shiba.automatic-read.report.v1" || report.notice !== notice || !Array.isArray(report.sources) || !report.sources.length ||
+    report.sources.some((source: unknown) => !source || typeof source !== "object" || Array.isArray(source) ||
+      (source as Record<string, unknown>).sourceKind !== "standing-scheduled-read" ||
+      (source as Record<string, unknown>).datasetCompleteness !== "unknown" || (source as Record<string, unknown>).businessSuccess !== "unverified" ||
+      !["operationId", "connectionId", "connectionVersion", "arguments", "inputSchemaHash", "executorHash", "queryHash", "capturedAt", "capturedBytes", "state", "requestDigest", "resultDigest", "captureCompleteness", "result", "error"].every((key) => Object.hasOwn(source, key))))
+    return automaticSlackFail("automatic_slack_content_unreviewable", 400);
+  const raw = `Scheduled fixed-read evidence. Complete compact JSON; captures are bounded, dataset completeness is unknown and business success is unverified.\n\n${JSON.stringify(value)}`;
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: Delivered data must not contain hidden control bytes.
+  if (/[\x00-\x08\x0b-\x1f\x7f]/.test(raw) || redactSecrets(raw) !== raw) return automaticSlackFail("automatic_slack_content_unreviewable", 400);
+  const content = raw.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  if (new TextEncoder().encode(content).length > REPORT_SLACK_MAX_BYTES) return automaticSlackFail("automatic_slack_complete_report_too_large", 413);
+  return content;
+}
+export function renderAutomaticSlackSource(row: AutomaticSlackRow, report: AutomaticReportAuthority["report"]): string {
+  const policy = automaticSlackFamily(row).renderPolicy;
+  if (policy === AUTOMATIC_SLACK_RENDER_POLICY) return renderAutomaticSlackReport(report.markdown);
+  if (policy === AUTOMATIC_SLACK_COMPACT_RENDER_POLICY) return renderAutomaticSlackCompactReport(report.json);
+  return automaticSlackFail("automatic_slack_renderer_unavailable", 403);
+}
 /** Receipt hash is SHA-256 of the exact delivered UTF-8 bytes, matching browser verification. */
 export async function automaticSlackContentHash(content: string): Promise<string> {
   return Array.from(
@@ -187,7 +215,7 @@ export function automaticSlackFamilyGuard(env: Env, row: AutomaticSlackRow): Aut
     c = automaticContract(g);
   if (
     automaticSlackAvailable(env) ||
-    family.renderPolicy !== AUTOMATIC_SLACK_RENDER_POLICY ||
+    ![AUTOMATIC_SLACK_RENDER_POLICY, AUTOMATIC_SLACK_COMPACT_RENDER_POLICY].includes(family.renderPolicy) ||
     family.maxBytes !== REPORT_SLACK_MAX_BYTES ||
     family.recipeHash !== family.pins.recipeSha256 ||
     g.id !== row.read_grant_id ||
@@ -206,6 +234,12 @@ export function automaticSlackFamilyGuard(env: Env, row: AutomaticSlackRow): Aut
 }
 /** Fresh family-code check is awaited before constructing any final SQL fence. */
 export async function assertAutomaticSlackFamilyCode(row: AutomaticSlackRow) {
+  const family = automaticSlackFamily(row);
+  const digest = await hashToolArgs({
+    ...row, digest: undefined, used_sends: 0, state: "draft", approved_at: null, approver_json: null, error_code: null,
+    renderPolicy: family.renderPolicy, maxBytes: REPORT_SLACK_MAX_BYTES, futureAudience: AUTOMATIC_SLACK_AUDIENCE_CONSENT,
+  });
+  if (digest !== row.digest) automaticSlackFail("automatic_slack_contract_changed", 403);
   if ((await founderConnectorRecipeHash(row.library_id)) !== automaticSlackFamily(row).recipeHash)
     automaticSlackFail("automatic_slack_recipe_changed", 403);
 }
@@ -307,7 +341,7 @@ export async function prepareAutomaticSlack(
     a.report.reportHash !== input.sampleReportHash
   )
     automaticSlackFail("automatic_slack_source_owner_required", 403);
-  renderAutomaticSlackReport(a.report.markdown);
+  renderAutomaticSlackCompactReport(a.report.json);
   const now = Date.now(),
     contract = automaticContract(a.readGrant);
   if (
@@ -332,7 +366,7 @@ export async function prepareAutomaticSlack(
     grant: a.readGrant,
     pins: a.pins,
     recipeHash: a.recipeHashFromCode,
-    renderPolicy: AUTOMATIC_SLACK_RENDER_POLICY,
+    renderPolicy: AUTOMATIC_SLACK_COMPACT_RENDER_POLICY,
     maxBytes: REPORT_SLACK_MAX_BYTES,
   };
   // Destination uncertainty outlives a replacement grant, token generation or installation ID.
@@ -379,10 +413,11 @@ export async function prepareAutomaticSlack(
   row.digest = await hashToolArgs({
     ...row,
     digest: undefined,
-    renderPolicy: AUTOMATIC_SLACK_RENDER_POLICY,
+    renderPolicy: AUTOMATIC_SLACK_COMPACT_RENDER_POLICY,
     maxBytes: REPORT_SLACK_MAX_BYTES,
     futureAudience: AUTOMATIC_SLACK_AUDIENCE_CONSENT,
   });
+  const stripeLedgerPresent = Boolean(await env.AGENT_AUDIT.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='founder_stripe_slack_grants'").first());
   await verifySession();
   const familyGuard = automaticSlackGrantGuard(env, row),
     source = automaticReadReportAuthorityGuard(env, a),
@@ -395,12 +430,13 @@ export async function prepareAutomaticSlack(
     "founder_automatic_slack_grants",
     { ...row },
     {
-      sql: `${guard.sql} AND (SELECT COUNT(*) FROM founder_automatic_slack_grants WHERE workspace_id=? AND owner_account_id=?)<20 AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_grants WHERE destination_key=? AND state IN ('draft','disclosed','enabled','paused')) AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_deliveries WHERE destination_key=? AND state IN ('sending','unknown'))`,
+      sql: `${guard.sql} AND (SELECT COUNT(*) FROM founder_automatic_slack_grants WHERE workspace_id=? AND owner_account_id=?)<20 AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_grants WHERE destination_key=? AND state IN ('draft','disclosed','enabled','paused')) AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_deliveries WHERE destination_key=? AND state IN ('sending','unknown'))${stripeLedgerPresent ? " AND NOT EXISTS(SELECT 1 FROM founder_stripe_slack_grants WHERE destination_key=? AND state IN ('draft','disclosed','enabled','paused'))" : ""}`,
       values: [
         ...guard.values,
         member.workspaceId,
         member.accountId,
         destinationKey,
+        ...(stripeLedgerPresent ? [destinationKey] : []),
         destinationKey,
       ],
     },
@@ -477,9 +513,9 @@ export async function transitionAutomaticSlack(
           ? "paused"
           : "revoked";
   const result = await env.AGENT_AUDIT.prepare(
-    `UPDATE founder_automatic_slack_grants SET state=?,approved_at=CASE WHEN ?='enabled' THEN ${FOUNDER_SQL_NOW} ELSE approved_at END,approver_json=CASE WHEN ?='enabled' THEN ? ELSE approver_json END WHERE id=? AND state=? AND digest=? AND ${guard.sql}`,
+    `UPDATE founder_automatic_slack_grants SET state=?,approved_at=CASE WHEN ?='enabled' THEN ${FOUNDER_SQL_NOW} ELSE approved_at END,approver_json=CASE WHEN ?='enabled' THEN ? ELSE approver_json END WHERE id=? AND state=? AND digest=? AND family_json=? AND ${guard.sql}`,
   )
-    .bind(state, state, state, JSON.stringify(member), id, row.state, row.digest, ...guard.values)
+    .bind(state, state, state, JSON.stringify(member), id, row.state, row.digest, row.family_json, ...guard.values)
     .run();
   if (result.meta.changes !== 1) automaticSlackFail("automatic_slack_authority_changed", 403);
 }
@@ -508,7 +544,7 @@ function grantView(
     ownerId: row.owner_id,
     ownerAccountId: row.owner_account_id,
     destination: automaticSlackLink(row).destination,
-    renderPolicy: AUTOMATIC_SLACK_RENDER_POLICY,
+    renderPolicy: automaticSlackFamily(row).renderPolicy,
     maxBytes: REPORT_SLACK_MAX_BYTES,
     disclosureScope: REPORT_SLACK_DISCLOSURE_SCOPE,
     futureAudienceScope: AUTOMATIC_SLACK_AUDIENCE_CONSENT,
@@ -581,7 +617,7 @@ export async function readAutomaticSlack(
           occurrenceId: row.sample_occurrence_id,
         });
         if (a.report.reportHash === row.sample_report_hash && a.occurrence.state === "completed") {
-          sample = renderAutomaticSlackReport(a.report.markdown);
+          sample = renderAutomaticSlackSource(row, a.report);
           sampleExpiry = a.report.expiresAt;
           sampleGuard = automaticReadReportAuthorityGuard(env, a);
         }
@@ -605,15 +641,15 @@ export async function readAutomaticSlack(
           if (
             a.occurrence.state !== "completed" ||
             a.report.reportHash !== d.report_hash ||
-            renderAutomaticSlackReport(a.report.markdown) !== d.content
+            renderAutomaticSlackSource(row, a.report) !== d.content
           )
             continue;
           const source = automaticReadReportAuthorityGuard(env, a);
           deliveries.push({
             row: d,
             guard: {
-              sql: `${guard.sql} AND ${source.sql} AND ?>${FOUNDER_SQL_NOW}`,
-              values: [...guard.values, ...source.values, d.expires_at],
+              sql: `${guard.sql} AND ${source.sql} AND ?>${FOUNDER_SQL_NOW} AND EXISTS(SELECT 1 FROM founder_automatic_slack_grants WHERE id=? AND digest=? AND family_json=?)`,
+              values: [...guard.values, ...source.values, d.expires_at, row.id, row.digest, row.family_json],
             },
           });
         } catch {
@@ -647,8 +683,8 @@ export async function readAutomaticSlack(
       "grant",
       c.row.id,
       c.guard,
-      "EXISTS(SELECT 1 FROM founder_automatic_slack_grants WHERE id=? AND digest=? AND state=? AND used_sends=? AND approver_json IS ?)",
-      [c.row.id, c.row.digest, c.row.state, c.row.used_sends, c.row.approver_json],
+      "EXISTS(SELECT 1 FROM founder_automatic_slack_grants WHERE id=? AND digest=? AND family_json=? AND state=? AND used_sends=? AND approver_json IS ?)",
+      [c.row.id, c.row.digest, c.row.family_json, c.row.state, c.row.used_sends, c.row.approver_json],
     );
   for (const c of candidates)
     if (c.sampleGuard)
@@ -656,8 +692,8 @@ export async function readAutomaticSlack(
         "sample",
         c.row.id,
         c.sampleGuard,
-        "EXISTS(SELECT 1 FROM founder_automatic_slack_grants WHERE id=? AND digest=? AND state=?)",
-        [c.row.id, c.row.digest, c.row.state],
+        "EXISTS(SELECT 1 FROM founder_automatic_slack_grants WHERE id=? AND digest=? AND family_json=? AND state=?)",
+        [c.row.id, c.row.digest, c.row.family_json, c.row.state],
       );
   for (const d of deliveries.slice(0, 20))
     add(

@@ -2300,6 +2300,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                     employeeId: reserved.customAgentId,
                     employeeVersion: reserved.customAgentVersion,
                     task: reserved.task,
+                    personalExecution: reserved.personalExecution ?? null,
                   })),
               );
               if (!roomStillAuthorizes) {
@@ -2786,6 +2787,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         executorAgentName: this.name, employeeId: typeof input.customAgentId === "string" ? input.customAgentId : "",
         employeeVersion: Number(input.customAgentVersion ?? input.expectedCustomAgentVersion),
         task: typeof input.task === "string" ? input.task : "",
+        personalExecution: input.personalExecution ?? null,
         ...(requestedTeamOrg ? { expectedWorkspaceId: String(input.orgId).slice("team:".length) } : {}),
       });
       if (!scope) return Response.json({ error: "Team handoff authority changed. Create a new room request." }, { status: 403 });
@@ -2969,7 +2971,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ) {
         return Response.json({ error: "Invalid pinned employee profile version." }, { status: 400 });
       }
-      const { resolveCustomAgentForRun, overridesFromCustomAgent } = await import(
+      const { resolveCustomAgentForRun, overridesFromCustomAgent, composeCustomAgentTask } = await import(
         "../custom-agents-resolve.js"
       );
       const agent = await resolveCustomAgentForRun(
@@ -3010,7 +3012,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         (input as { sandboxProvider?: string }).sandboxProvider = overrides.sandboxProvider;
       }
       if (overrides.instructions) {
-        task = `${overrides.instructions}\n\n---\n\n${task}`;
+        task = composeCustomAgentTask(task, overrides.instructions);
       }
       if (ephemeralWorkspace && profileDeliverables?.length) {
         task += `\n\nEphemeral workspace required outputs. Use these paths for the profile outputs:\n${profileDeliverables.map((path) => `- ${path}`).join("\n")}`;
@@ -3801,6 +3803,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         handoffId: storedApproval.collaborationHandoffId, actorId: decidedBy, executorAgentName: this.name!,
         employeeId: storedApproval.customAgentId, employeeVersion: storedApproval.customAgentVersion,
         approvalId, task: storedApproval.task, expectedWorkspaceId: storedApproval.orgId!.slice("team:".length),
+        personalExecution: storedApproval.personalExecution ?? null,
       }));
     };
     if (teamHumanDecision && !await teamDecisionCurrent())
@@ -3873,6 +3876,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             employeeId: queued.customAgentId,
             employeeVersion: queued.customAgentVersion,
             task: queued.task,
+            personalExecution: queued.personalExecution ?? null,
           }))) {
           return Response.json({ error: "This room handoff was cancelled or room access changed. Request a new employee handoff." }, { status: 409 });
         }
@@ -4072,7 +4076,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     let expectedDeliverables = input.expectedDeliverables;
     if (customAgentId) {
       if (!this.env.AGENT_AUDIT) throw new Error("Bot storage is not configured.");
-      const { resolveCustomAgentForRun, overridesFromCustomAgent } = await import(
+      const { resolveCustomAgentForRun, overridesFromCustomAgent, composeCustomAgentTask } = await import(
         "../custom-agents-resolve.js"
       );
       const agent = await resolveCustomAgentForRun(this.env, intakeOrgId, customAgentId);
@@ -4097,7 +4101,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       connectionId = overrides.connectionId ?? connectionId;
       sandboxProvider = overrides.sandboxProvider;
       if (overrides.instructions) {
-        task = `${overrides.instructions}\n\n---\n\n${task}`;
+        task = composeCustomAgentTask(task, overrides.instructions);
       }
       if (ephemeralWorkspace && profileDeliverables?.length) {
         task += `\n\nEphemeral workspace required outputs. Use these paths for the profile outputs:\n${profileDeliverables.map((path) => `- ${path}`).join("\n")}`;
@@ -4771,7 +4775,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       try {
         if (run.collaborationHandoffId && (!run.customAgentId || !run.customAgentVersion || !run.approval?.approvalId ||
             !await isCollaborationApprovalDispatchable(this.env, { handoffId: run.collaborationHandoffId,
-              approvalId: run.approval.approvalId, employeeId: run.customAgentId, employeeVersion: run.customAgentVersion, task: run.task }))) {
+              approvalId: run.approval.approvalId, employeeId: run.customAgentId, employeeVersion: run.customAgentVersion,
+              task: run.task, personalExecution: run.personalExecution ?? null }))) {
           throw new Error("Shared room context changed or was revoked before publication. Request a new room handoff.");
         }
         publicationAttempted = true;
@@ -5025,6 +5030,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
               employeeId: run.customAgentId,
               employeeVersion: run.customAgentVersion,
               task: run.task,
+              personalExecution: run.personalExecution ?? null,
             }),
           );
         } catch {
@@ -6763,7 +6769,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (!run?.customAgentId || !run.customAgentVersion || !await revalidatePersonalExecutionSnapshot(this.env, proof.snapshot) ||
         !await resolveTeamHandoffRunScope(this.env, { handoffId: proof.handoffId, actorId: proof.snapshot.actorId,
           executorAgentName: this.name, employeeId: run.customAgentId, employeeVersion: run.customAgentVersion,
-          task: run.task, approvalId: proof.approvalId, expectedWorkspaceId: proof.snapshot.workspaceId }) || !current()) {
+          task: run.task, approvalId: proof.approvalId, expectedWorkspaceId: proof.snapshot.workspaceId,
+          personalExecution: proof.snapshot }) || !current()) {
         return Response.json({ authorized: false }, { status: 403 });
       }
       return Response.json({ authorized: true, inputHash: proof.inputHash }, { headers: { "Cache-Control": "no-store" } });

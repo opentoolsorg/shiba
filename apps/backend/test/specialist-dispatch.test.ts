@@ -123,7 +123,8 @@ describe("child sandbox boundary", () => {
   const args = { runs: [parent], parent, input: { parentRunId: parent.runId, task: "New child task", sandboxMode: "fresh" as const }, callId: "child" };
 
   it("cannot turn a preapproved count budget into approval of a new task", () => {
-    expect(mintSubagentRun({ ...args, budgetApproval: { approvalId: "human-parent", subagentBudget: 10, decidedBy: "human", decidedAt: 100 }, parentBudgetRemaining: 10 })).toMatchObject({ ok: false, status: 403 });
+    const legacyBudgetRequest = { ...args, budgetApproval: { approvalId: "human-parent", subagentBudget: 10, decidedBy: "human", decidedAt: 100 }, parentBudgetRemaining: 10 };
+    expect(mintSubagentRun(legacyBudgetRequest)).toMatchObject({ ok: false, status: 403 });
   });
 
   it("cannot nest, share a workspace, or publish an external action", () => {

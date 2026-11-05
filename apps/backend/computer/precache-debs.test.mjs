@@ -93,9 +93,22 @@ for (const [label, make] of [
   ["unmarked changed response URL", () => response(bytes, "https://snapshot.debian.org/file/other")],
   ["transient HTTP failure", (url) => response(null, url, { status: 503 })],
   ["interrupted body", (url) => response(new ReadableStream({ start(c) { c.enqueue(bytes.subarray(0, 2)); c.error(new Error("fixture interrupted stream")); } }), url)],
-]) test(`rejects ${label} with no published or partial package and no retry`, async (t) => {
+]) test(`rejects ${label} with no published or partial package`, async (t) => {
   const f = await fixture(t); let calls = 0;
   await assert.rejects(f.precachePinnedDebs({ fetcher: async (url) => { calls++; return make(url); } }));
+  assert.equal(calls, label === "transient HTTP failure" ? 3 : 1); assert.deepEqual(await readdir(f.cache), []);
+});
+
+test("retries transient public responses within the original bound and still verifies the pinned hash", async (t) => {
+  const f = await fixture(t); let calls = 0;
+  await f.precachePinnedDebs({ fetcher: async (url) => ++calls < 3 ? response(null, url, { status: 503 }) : response(bytes, url) });
+  assert.equal(calls, 3);
+  assert.deepEqual(await readFile(join(f.cache, base.packages[0].filename)), bytes);
+});
+
+test("cancellation during public backoff prevents another fetch", async (t) => {
+  const f = await fixture(t), controller = new AbortController(); let calls = 0;
+  await assert.rejects(f.precachePinnedDebs({ signal: controller.signal, fetcher: async (url) => { calls++; controller.abort(); return response(null, url, { status: 503 }); } }));
   assert.equal(calls, 1); assert.deepEqual(await readdir(f.cache), []);
 });
 

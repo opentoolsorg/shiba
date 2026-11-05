@@ -13,9 +13,9 @@ RUN --mount=type=secret,id=proxy_ca,required=true,mode=0444 --mount=type=cache,t
  && printf '%s\n' \
     'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20261105T000000Z bookworm main' \
     'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20261105T000000Z bookworm-security main' > /etc/apt/sources.list \
- && apt-get -o Acquire::https::CaInfo=/run/secrets/proxy_ca -o Acquire::https::Timeout=20 -o Acquire::Retries=1 update \
+ && apt-get -o Acquire::https::CaInfo=/run/secrets/proxy_ca -o Acquire::https::Timeout=20 -o Acquire::Retries=3 update \
  && for package in /verified-debs/*.deb; do [ ! -f "$package" ] || cp -- "$package" /var/cache/apt/archives/; done \
- && apt-get -o Acquire::https::CaInfo=/run/secrets/proxy_ca -o Acquire::https::Timeout=20 -o Acquire::Retries=1 install -y --no-install-recommends xvfb x11-utils openbox chromium xdotool scrot fonts-liberation \
+ && apt-get -o Acquire::https::CaInfo=/run/secrets/proxy_ca -o Acquire::https::Timeout=20 -o Acquire::Retries=3 install -y --no-install-recommends xvfb x11-utils openbox chromium xdotool scrot fonts-liberation \
  && mkdir -p /usr/share/shiba-computer/licenses \
  && dpkg-query -W -f='${Package}\t${Version}\n' > /usr/share/shiba-computer/packages.tsv
 # Keep package-specific copyright paths (same basenames cannot be flattened).

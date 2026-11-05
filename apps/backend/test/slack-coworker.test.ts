@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { beginSlackCoworkerBinding, confirmSlackCoworkerBinding, observeSlackCoworkerChallenge, confirmSlackCoworkerOnSlack, grantSlackCoworkerIntake, intakeSlackCoworkerEvent, invalidateSlackCoworkerMessage, readSlackCoworkerDrafts, adoptSlackCoworkerDraft, readSlackCoworkerState, revokeSlackCoworkerBinding } from "../src/slack-coworker-store.js";
+import { claimSlackCoworkerExecution, finishSlackCoworkerExecution, isSlackCoworkerExecutionCurrent } from "../src/slack-coworker-store.js";
 import { installationSnapshot, type SlackInstallationEnv, type SlackInstallationRow } from "../src/slack-installations-store.js";
 import { handleMultiInstallationSlackCallback } from "../src/slack-installations-routing.js";
 
@@ -95,4 +96,54 @@ describe('managed Slack identity challenge',()=>{
     await expect(adoptSlackCoworkerDraft(f.env,f.member,d.id)).rejects.toThrow();
   });
 
+});
+
+async function executionFixture() {
+  const f=fixture(); f.env.SLACK_INSTALLATIONS_ENABLED="true";
+  const challenge=await beginSlackCoworkerBinding(f.env,f.member,f.installation);
+  await observeSlackCoworkerChallenge(f.env,f.installation,challenge.secret,"U1");
+  await confirmSlackCoworkerOnSlack(f.env,f.installation,challenge.id,"U1",true);
+  const binding=await confirmSlackCoworkerBinding(f.env,f.member,f.installation,challenge.id,"U1");
+  await grantSlackCoworkerIntake(f.env,f.member,binding.id,"C1","123.000001");
+  await intakeSlackCoworkerEvent(f.env,f.installation,"EEXEC",{user:"U1",channel:"C1",thread_ts:"123.000001",ts:`${Math.floor(Date.now()/1000)+1}.000002`,text:"Build a local artifact"});
+  const drafts=await readSlackCoworkerDrafts(f.env,f.member);
+  const selection={id:(drafts[0] as {id:string}).id,roomId:"room_"+"2".repeat(24),recipientActorId:"agent:helper",
+    personalExecution:{grantId:"plex_"+"3".repeat(32),expectedVersion:1},reviewed:true as const};
+  return {...f,selection};
+}
+describe("Slack execution submission receipts",()=>{
+  it("claims a historical draft once but never authorizes a v1 receipt",async()=>{
+    const f=await executionFixture();
+    const submissions=await Promise.allSettled([claimSlackCoworkerExecution(f.env,f.member,f.selection),claimSlackCoworkerExecution(f.env,f.member,f.selection)]);
+    expect(submissions.filter(r=>r.status==="fulfilled")).toHaveLength(1);
+    const claimed=(submissions.find(r=>r.status==="fulfilled") as PromiseFulfilledResult<{handoffId:string;task:string}>).value;
+    expect(claimed.task).toBe("Build a local artifact");
+    expect(await isSlackCoworkerExecutionCurrent(f.env,claimed.handoffId,f.member,f.selection.roomId)).toBe(false);
+    await finishSlackCoworkerExecution(f.env,claimed.handoffId,"queued");
+    expect(await isSlackCoworkerExecutionCurrent(f.env,claimed.handoffId,f.member,f.selection.roomId)).toBe(false);
+    expect(await isSlackCoworkerExecutionCurrent(f.env,claimed.handoffId,f.member,"room_other")).toBe(false);
+    expect(await isSlackCoworkerExecutionCurrent(f.env,claimed.handoffId,{...f.member,userId:"other@test"},f.selection.roomId)).toBe(false);
+    f.sqlite.exec("UPDATE slack_installations SET generation=generation+1");
+    expect(await isSlackCoworkerExecutionCurrent(f.env,claimed.handoffId,f.member,f.selection.roomId)).toBe(false);
+  });
+  it.each(["unknown","blocked"] as const)("does not replay %s attempts",async state=>{
+    const f=await executionFixture(),claimed=await claimSlackCoworkerExecution(f.env,f.member,f.selection);
+    await finishSlackCoworkerExecution(f.env,claimed.handoffId,state);
+    await expect(claimSlackCoworkerExecution(f.env,f.member,f.selection)).rejects.toThrow("already_submitted");
+    expect(await isSlackCoworkerExecutionCurrent(f.env,claimed.handoffId,f.member,f.selection.roomId)).toBe(false);
+  });
+  it.each(["UPDATE slack_coworker_intake_grants SET status='revoked'","UPDATE team_workspace_memberships SET version=version+1","UPDATE user SET emailVerified=0","UPDATE slack_installations SET token_expires_at=1"])("fences changed authority: %s",async sql=>{
+    const f=await executionFixture(),claimed=await claimSlackCoworkerExecution(f.env,f.member,f.selection);
+    f.sqlite.exec(sql);
+    expect(await isSlackCoworkerExecutionCurrent(f.env,claimed.handoffId,f.member,f.selection.roomId)).toBe(false);
+  });
+  it("fails closed on missing receipts, cross-tenant claims and feature disable",async()=>{
+    const f=await executionFixture();
+    await expect(claimSlackCoworkerExecution(f.env,{...f.member,workspaceId:"ws_other"},f.selection)).rejects.toThrow();
+    expect(await isSlackCoworkerExecutionCurrent(f.env,"scx_missing",f.member,f.selection.roomId)).toBe(false);
+    const claimed=await claimSlackCoworkerExecution(f.env,f.member,f.selection);
+    f.env.SLACK_INSTALLATIONS_ENABLED="false";
+    expect(await isSlackCoworkerExecutionCurrent(f.env,claimed.handoffId,f.member,f.selection.roomId)).toBe(false);
+    expect(await isSlackCoworkerExecutionCurrent(f.env,"legacy",f.member,f.selection.roomId)).toBe(true);
+  });
 });
