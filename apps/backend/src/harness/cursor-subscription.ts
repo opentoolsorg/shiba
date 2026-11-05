@@ -15,6 +15,7 @@
  * failed, or which was cleared — sign-out makes the harness unselectable
  * without touching selection code.
  */
+import type { HarnessTextSanitizer } from "./event-sanitizer.js";
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import { DUMMY_PROVIDER_KEY } from "../provider-gateway.js";
 import {
@@ -107,8 +108,8 @@ export class CursorSubscriptionHarness implements AgentHarness {
     return ["node", cursorDriverPath(input.sandboxId)];
   }
 
-  parseEvent(line: string): HarnessEvent | null {
-    return parseCursorEvent(line);
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
+    return parseCursorEvent(line, sanitize);
   }
 
   /** Same surface as cursor, but declared runnable: the image ships cursor-agent (Dockerfile pin). */

@@ -1,0 +1,179 @@
+{
+  "kind": "local-Chromium-shared-computer-HTTP-component-fixture",
+  "startedAt": "2026-11-05T07:26:55.768Z",
+  "boundary": "Actual React client/component/styles in Chromium; intercepted deterministic HTTP and synthetic JPEG. No real native authentication, billing approval, desktop/container, Cloudflare, model, provider, personal daemon or external action.",
+  "checks": [
+    "Initial state has no selected session and zero mutations",
+    "Funding operator, time limit, viewers and controllers require explicit selection",
+    "Owner prepares frozen scope without funding, starting or capturing",
+    "Operator funds exact digest only after separate explicit billing consent",
+    "Owner separately reviews shared display before fixture start; no automatic input/capture",
+    "Named human claims exclusive lease and sends one exact literal input",
+    "Manual synthetic capture uses private blob URL after a separate source-state check",
+    "390px dark/light and desktop fit viewport with complete frozen review reachable",
+    "Actor switch clears private image and viewer cannot claim unnamed control",
+    "Revoked access clears private review/display while retained native STOP remains explicit and separate",
+    "Zero legacy CLI controls, external requests, page/console errors or browser storage"
+  ],
+  "api": [
+    {
+      "path": "/api/shared-computers/state",
+      "method": "GET",
+      "actor": "owner@example.test",
+      "body": null
+    },
+    {
+      "path": "/api/shared-computers/sessions/prepare",
+      "method": "POST",
+      "actor": "owner@example.test",
+      "body": {
+        "requestId": "8089e3ac-c443-408e-8f11-eadf5367952a",
+        "roomId": "room_dddddddddddddddddddddddd",
+        "fundingMember": {
+          "userId": "operator@example.test",
+          "version": 2
+        },
+        "viewers": [
+          {
+            "userId": "owner@example.test",
+            "version": 1
+          },
+          {
+            "userId": "viewer@example.test",
+            "version": 3
+          }
+        ],
+        "controllers": [
+          "owner@example.test"
+        ],
+        "expiresAt": 1793863918666
+      }
+    },
+    {
+      "path": "/api/shared-computers/state",
+      "method": "GET",
+      "actor": "operator@example.test",
+      "body": null
+    },
+    {
+      "path": "/api/shared-computers/sessions/scs_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/fund",
+      "method": "POST",
+      "actor": "operator@example.test",
+      "body": {
+        "expectedVersion": 1,
+        "digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "reviewed": true,
+        "billingConsent": true
+      }
+    },
+    {
+      "path": "/api/shared-computers/state",
+      "method": "GET",
+      "actor": "owner@example.test",
+      "body": null
+    },
+    {
+      "path": "/api/shared-computers/sessions/scs_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/start",
+      "method": "POST",
+      "actor": "owner@example.test",
+      "body": {
+        "expectedVersion": 2,
+        "digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "reviewed": true,
+        "sharedDisplayConsent": true
+      }
+    },
+    {
+      "path": "/api/shared-computers/sessions/scs_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/lease",
+      "method": "POST",
+      "actor": "owner@example.test",
+      "body": {
+        "expectedVersion": 4,
+        "digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "leaseMs": 60000
+      }
+    },
+    {
+      "path": "/api/shared-computers/sessions/scs_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/input",
+      "method": "POST",
+      "actor": "owner@example.test",
+      "body": {
+        "requestId": "49474b30-16cb-45b5-a9fb-090a74e51bb1",
+        "expectedVersion": 5,
+        "digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "leaseVersion": 1,
+        "sequence": 1,
+        "action": {
+          "type": "type",
+          "text": "Literal fixture text ; $(not executed)"
+        }
+      }
+    },
+    {
+      "path": "/api/shared-computers/sessions/scs_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/capture",
+      "method": "POST",
+      "actor": "owner@example.test",
+      "body": {
+        "expectedVersion": 5
+      }
+    },
+    {
+      "path": "/api/shared-computers/state",
+      "method": "GET",
+      "actor": "owner@example.test",
+      "body": null
+    },
+    {
+      "path": "/api/shared-computers/state",
+      "method": "GET",
+      "actor": "viewer@example.test",
+      "body": null
+    },
+    {
+      "path": "/api/shared-computers/state",
+      "method": "GET",
+      "actor": "owner@example.test",
+      "body": null
+    },
+    {
+      "path": "/api/shared-computers/state",
+      "method": "GET",
+      "actor": "owner@example.test",
+      "body": null
+    },
+    {
+      "path": "/api/shared-computers/sessions/scs_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/stop",
+      "method": "POST",
+      "actor": "owner@example.test",
+      "body": {
+        "expectedVersion": 5
+      }
+    },
+    {
+      "path": "/api/shared-computers/state",
+      "method": "GET",
+      "actor": "owner@example.test",
+      "body": null
+    }
+  ],
+  "screenshots": [
+    "shared-computer-browser-20261105-desktop.png",
+    "shared-computer-browser-20261105-390-dark.png",
+    "shared-computer-browser-20261105-390-light.png"
+  ],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "blockedExternal": [],
+  "sourceAtStart": {
+    "packages/shared/src/shared-computers.ts": "3cc2fe4c9a2c996647b02578e171a8fc2e42d2b7726170572f2bfae6dcd80460",
+    "apps/frontend/src/shared-computer-client.ts": "0632aec1382af0f916f213d9d9b99b0dab07f75d7676546cb36429885bb05699",
+    "apps/frontend/src/components/SharedComputerSessions.tsx": "b4eb911620b048e69ed58e1b2ea3cb292d69b063eec1bbc9838f0fb8879a0d3a"
+  },
+  "sourceAtEnd": {
+    "packages/shared/src/shared-computers.ts": "3cc2fe4c9a2c996647b02578e171a8fc2e42d2b7726170572f2bfae6dcd80460",
+    "apps/frontend/src/shared-computer-client.ts": "0632aec1382af0f916f213d9d9b99b0dab07f75d7676546cb36429885bb05699",
+    "apps/frontend/src/components/SharedComputerSessions.tsx": "b4eb911620b048e69ed58e1b2ea3cb292d69b063eec1bbc9838f0fb8879a0d3a"
+  },
+  "finishedAt": "2026-11-05T07:27:00.541Z",
+  "result": "pass"
+}

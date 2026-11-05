@@ -18,7 +18,7 @@ import {
   reconcileConnectionOrder,
   type Connection,
 } from "./model-connections.js";
-import { isAccessConfigured, resolveUserId, requireSameOriginBrowserMutation } from "./request-auth.js";
+import { isAccessConfigured, isAuthorizedRequest, resolveUserId, requireSameOriginBrowserMutation } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 import { readSetupStatus } from "./setup-status.js";
 import { applySetupFix, setupWizardCatalog } from "./setup-fixes.js";
@@ -56,6 +56,16 @@ async function agentPrincipals(env: Env) {
 
 export async function handleMeta(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
+  if (url.pathname === "/api/setup/deployment") {
+    const headers = { "Cache-Control": "no-store" };
+    if (!await isAuthorizedRequest(request, env)) return Response.json({ error: "Authentication required." }, { status: 401, headers });
+    if (request.method !== "GET") return Response.json({ error: "Method not allowed." }, { status: 405, headers: { ...headers, Allow: "GET" } });
+    const metadata = env.CF_VERSION_METADATA;
+    if (!metadata || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(metadata.id) || !/^[a-f0-9]{40}$/.test(metadata.tag)) {
+      return Response.json({ error: "This deployment has no verified version and Git revision tag.", code: "deployment_revision_unavailable" }, { status: 503, headers });
+    }
+    return Response.json({ versionId: metadata.id, revision: metadata.tag }, { headers });
+  }
   if (url.pathname === "/api/whoami") {
     if (request.method !== "GET") {
       return Response.json({ error: "Method not allowed." }, { status: 405 });

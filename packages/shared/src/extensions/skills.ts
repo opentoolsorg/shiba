@@ -89,6 +89,8 @@ export interface CreateExtensionSkillRequest {
 }
 
 export interface UpdateExtensionSkillRequest {
+  /** Compare against the version whose instructions were reviewed. */
+  expectedVersion?: number;
   skillId: string;
   name?: string;
   description?: string;

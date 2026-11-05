@@ -114,7 +114,7 @@ describe("native employee approval owner and operator authorization", () => {
     expect((await f.decide())?.status).toBe(200);
     expect(await f.stored()).toMatchObject({ status: "approved", decidedBy: OWNER, decisionOwnerAccountId: ACCOUNT });
     expect((await f.dispatch()).status).toBe(200);
-    expect(state.execute).toHaveBeenCalledExactlyOnceWith({ ...PRIVATE_ARGS, userId: ACCOUNT, approvedConnectionId: `connection:${ACCOUNT}` });
+    expect(state.execute).toHaveBeenCalledExactlyOnceWith({ ...PRIVATE_ARGS, userId: ACCOUNT, approvedConnectionId: `connection:${ACCOUNT}`, beforeDispatch: expect.any(Function), approvedUntil: expect.any(Number) });
     expect(state.queueRequests).toHaveLength(0);
   });
 

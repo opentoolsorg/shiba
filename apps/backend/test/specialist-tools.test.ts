@@ -64,4 +64,36 @@ describe("specialist orchestration", () => {
     expect(events.at(-1)?.kind).toBe("ChildTaskFailed");
     expect(budget.active).toBe(0);
   });
+
+  it("cancels child startup immediately and cannot publish its late result", async () => {
+    vi.useFakeTimers();
+    const parent = new AbortController();
+    let childSignal: AbortSignal | undefined;
+    let resolveChild: (value: unknown) => void = () => {};
+    mocks.execute.mockImplementation((_input, options) => {
+      childSignal = options.abortSignal;
+      parent.abort();
+      return new Promise((resolve) => { resolveChild = resolve; });
+    });
+    const cancel = vi.fn();
+    const events: ChildTaskEvent[] = [];
+    const budget = { remaining: 3, active: 0 };
+    const tools = createSpecialistTools(env, "owner", budget, { onEvent: (event) => { events.push(event); }, cancel });
+    const pending = tools.explore_codebase?.execute?.(input, { ...options, abortSignal: parent.signal });
+    try {
+      await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith("explorer", "agent-tool:call-1"));
+      await expect(pending).resolves.toMatchObject({ ok: false, error: expect.stringContaining("cancelled") });
+      expect(childSignal?.aborted).toBe(true);
+      expect(budget.active).toBe(0);
+      resolveChild(observation);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(events.filter((event) => event.kind === "ChildTaskCompleted")).toEqual([]);
+      expect(events.filter((event) => event.kind === "ChildTaskFailed")).toHaveLength(1);
+      expect(cancel).toHaveBeenCalledTimes(1);
+    } finally {
+      resolveChild(observation);
+      await vi.advanceTimersByTimeAsync(60_000);
+      await pending;
+    }
+  });
 });

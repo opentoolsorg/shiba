@@ -1,4 +1,4 @@
-"""Select independent Desktop and sandbox-image checks from one PR file traversal."""
+"""Select independent Desktop, coding-image and offline-desktop checks."""
 
 import json
 import os
@@ -36,12 +36,22 @@ def image_relevant(path):
     )
 
 
+def computer_image_relevant(path):
+    return path in {
+        "apps/backend/Dockerfile.computer", ".github/workflows/desktop.yml",
+        ".github/scripts/select_validation_changes.py",
+        ".github/scripts/test_select_validation_changes.py",
+    } or path.startswith("apps/backend/computer/") or PurePosixPath(path).name in (
+        ".dockerignore", "Dockerfile.computer.dockerignore",
+    )
+
+
 def select_checks(pr_number, fetch_page):
     if not pr_number.strip():
         # Existing manual Desktop verification must not implicitly build an image.
-        return {"desktop": True, "sandbox_image": False}
+        return {"desktop": True, "sandbox_image": False, "computer_image": False}
 
-    selected = {"desktop": False, "sandbox_image": False}
+    selected = {"desktop": False, "sandbox_image": False, "computer_image": False}
     try:
         number = int(pr_number)
         if number <= 0:
@@ -59,13 +69,14 @@ def select_checks(pr_number, fetch_page):
                         raise ValueError("Invalid PR file path")
                     selected["desktop"] |= desktop_relevant(path)
                     selected["sandbox_image"] |= image_relevant(path)
+                    selected["computer_image"] |= computer_image_relevant(path)
             if all(selected.values()) or len(files) < 100:
                 return selected
         # The API exposes at most 3,000 files; a full final page may be truncated.
     except Exception:
         # API/auth/schema failures must not silently skip either validation job.
         pass
-    return {"desktop": True, "sandbox_image": True}
+    return {"desktop": True, "sandbox_image": True, "computer_image": True}
 
 
 def fetch_github_page(repository, token, number, page):

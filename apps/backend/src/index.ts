@@ -23,6 +23,11 @@ import { ContainerProxy } from "./sandbox/npm-shim.js";
 import { withVerifiedAccessIdentity } from "./access-jwt.js";
 import { handleActivity } from "./activity-routes.js";
 import { handleApprovals } from "./approvals-routes.js";
+import { handleWorkspaceIntegrations } from "./workspace-integrations-routes.js";
+import { handlePersonalExecution } from "./personal-execution-routes.js";
+import { handleTeamModelSessions } from "./team-model-routes.js";
+import { tickFounderReviewSchedules } from "./founder-review-schedules.js";
+import { tickFounderConnectorJobs } from "./founder-connector-jobs.js";
 import { handleOnboardingProgress } from "./onboarding-progress.js";
 import { handleCollaborationWithRealtime } from "./collaboration-room-routes.js";
 import { handleTeamWorkspaces } from "./team-workspaces-routes.js";
@@ -58,6 +63,13 @@ import { handleSkills } from "./skills-routes.js";
 import { handleSpaces } from "./spaces-routes.js";
 import { Spaces } from "./spaces-do.js";
 import { handleFounderSkills } from "./founder-skills-routes.js";
+import { handleFounderConnectorJobs } from "./founder-connector-routes.js";
+import { handleFounderEvidenceReports } from "./founder-evidence-routes.js";
+import { handleSharedComputers } from "./shared-computer-routes.js";
+import { ComputerSession } from "./computer-session.js";
+import { handleSlackInstallations } from "./slack-installations-routes.js";
+import { handleMultiInstallationSlackCallback } from "./slack-installations-routing.js";
+import { handleReportSlack } from "./report-slack-routes.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
 import { handleOrgModelKeys } from "./org-model-keys-routes.js";
 import { handleMeta } from "./meta-routes.js";
@@ -103,6 +115,7 @@ export {
   Automations,
   ChatGptAuth,
   ConversationRoom,
+  ComputerSession,
   UserProviderOAuth,
   CodingOrchestrator,
   LocalDispatch,
@@ -167,6 +180,12 @@ export const DASHBOARD_VIEWS = new Set([
 
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(tickFounderReviewSchedules(env).catch((error: unknown) => {
+      console.error("Founder review scheduling failed", redactSecrets(String(error)));
+    }));
+    ctx.waitUntil(tickFounderConnectorJobs(env).catch((error: unknown) => {
+      console.error("Founder connector scheduling failed", redactSecrets(String(error)));
+    }));
     ctx.waitUntil(
       automationsStub(env)
         .fetch(new Request("https://internal/internal/tick", { method: "POST" }))
@@ -247,6 +266,10 @@ export default {
       // request. The gate then composes both identity systems.
       const betterAuthResponse = await handleBetterAuth(request, env, { teamMemberPolicyEnabled: true });
       if (betterAuthResponse) return betterAuthResponse;
+      if (url.pathname === "/api/slack/installations/callback") {
+        const callback = await handleSlackInstallations(request, env);
+        if (callback) return callback;
+      }
       const devOAuthLoopbackResponse = await handleDevOAuthLoopback(request, env);
       if (devOAuthLoopbackResponse) {
         return devOAuthLoopbackResponse;
@@ -290,6 +313,16 @@ export default {
       }
       const memberPolicyResponse = await enforceTeamMemberApiPolicy(request, env);
       if (memberPolicyResponse) return memberPolicyResponse;
+      const slackInstallationResponse = await handleSlackInstallations(request, env);
+      if (slackInstallationResponse) return slackInstallationResponse;
+      const sharedComputerResponse = await handleSharedComputers(request, env);
+      if (sharedComputerResponse) return sharedComputerResponse;
+      const workspaceIntegrationResponse = await handleWorkspaceIntegrations(request, env);
+      if (workspaceIntegrationResponse) return workspaceIntegrationResponse;
+      const personalExecutionResponse = await handlePersonalExecution(request, env);
+      if (personalExecutionResponse) return personalExecutionResponse;
+      const teamModelResponse = await handleTeamModelSessions(request, env);
+      if (teamModelResponse) return teamModelResponse;
       const workResponse = await handleTeamWork(request, env);
       if (workResponse) return workResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);
@@ -327,6 +360,12 @@ export default {
       if (skillsResponse) return skillsResponse;
       const spacesResponse = await handleSpaces(request, env);
       if (spacesResponse) return spacesResponse;
+      const founderConnectorResponse = await handleFounderConnectorJobs(request, env);
+      if (founderConnectorResponse) return founderConnectorResponse;
+      const reportSlackResponse = await handleReportSlack(request, env);
+      if (reportSlackResponse) return reportSlackResponse;
+      const founderEvidenceResponse = await handleFounderEvidenceReports(request, env);
+      if (founderEvidenceResponse) return founderEvidenceResponse;
       const founderSkillsResponse = await handleFounderSkills(request, env);
       if (founderSkillsResponse) return founderSkillsResponse;
       const orgSandboxResponse = await handleOrgSandboxSettings(request, env);
@@ -435,6 +474,8 @@ export default {
       if (discordResponse) {
         return discordResponse;
       }
+      const managedSlackResponse = await handleMultiInstallationSlackCallback(request, env);
+      if (managedSlackResponse) return managedSlackResponse;
       const slackEventsResponse = await handleSlackEvents(
         request,
         env,
@@ -515,6 +556,15 @@ export default {
         const currentUserId = (await resolveUserId(request, env)) ?? "default";
         if (!isAuthorizedSessionAgent(name, currentUserId)) {
           return Response.json({ error: "Forbidden." }, { status: 403 });
+        }
+        // All child work uses trusted parent RPC. Unknown or malformed child
+        // paths must not fall back to an ordinary parent chat transport.
+        try {
+          if (decodeURIComponent(route[2] ?? "").split("/").includes("sub")) {
+            return Response.json({ error: "Not found." }, { status: 404 });
+          }
+        } catch {
+          return Response.json({ error: "Invalid agent path." }, { status: 400 });
         }
         if (name.startsWith(WEB_SESSION_PREFIX)) {
           const parsed = parseSessionAgentName(name);

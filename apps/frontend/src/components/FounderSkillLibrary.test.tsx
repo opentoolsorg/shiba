@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { reloadSavedSkills } from "../saved";
+import { reloadSavedSkills, useSavedSkills } from "../saved";
 import { FounderSkillLibrary } from "./FounderSkillLibrary";
+import { FOUNDER_BASE, FOUNDER_WORKSPACE, founderOptions, founderState } from "../founder-connector-fixtures";
+import { EVIDENCE_BASE, EVIDENCE_LIBRARY, EVIDENCE_WORKSPACE, evidenceOptions } from "../founder-evidence-fixtures";
 
-vi.mock("../saved", () => ({ reloadSavedSkills: vi.fn(), useSavedSkills: () => ({ skills: [] }) }));
+vi.mock("../saved", () => ({ reloadSavedSkills: vi.fn(), useSavedSkills: vi.fn(() => ({ skills: [] })) }));
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
@@ -64,7 +66,7 @@ describe("FounderSkillLibrary", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ skills: [{ ...entry, installed: true, installedStatus: "active", installedVersion: 2 }] })));
     render(<FounderSkillLibrary />);
     expect(await screen.findByText("Installed instructions: active · v2")).toBeTruthy();
-    expect(screen.getByText("Suggested: Daily · not scheduled")).toBeTruthy();
+    expect(screen.getByText("Suggested cadence: Daily · configure separately")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Instructions installed" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -95,5 +97,50 @@ describe("FounderSkillLibrary", () => {
     fireEvent.click(screen.getByRole("button", { name: "Install draft" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/skill-abc/));
     expect(reloadSavedSkills).toHaveBeenCalledOnce();
+  });
+
+  it("keeps team founder browsing out of the personal saved cache and pins every request to the selected workspace", async () => {
+    vi.mocked(useSavedSkills).mockImplementationOnce(() => { throw new Error("Personal hook must not run in a team"); });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ skills: [entry] })));
+    render(<FounderSkillLibrary workspaceId="ws_aaaaaaaaaaaaaaaaaaaaaaaa" canManage />);
+    expect(await screen.findByRole("button", { name: "Schedule review drafts: Stripe revenue pulse" })).toBeTruthy();
+    expect(useSavedSkills).not.toHaveBeenCalled();
+    expect(reloadSavedSkills).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Review employee setup:/ })).toBeNull();
+    expect(new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers).get("X-Shiba-Workspace")).toBe("ws_aaaaaaaaaaaaaaaaaaaaaaaa");
+    // Remove the unused once implementation before other fixtures mount a personal view.
+    vi.mocked(useSavedSkills).mockReset().mockReturnValue({ skills: [] } as unknown as ReturnType<typeof useSavedSkills>);
+  });
+
+  it("opens workspace app action setup only after a click and restores focus when closed", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/founder-skills" ? Response.json({ skills: [entry] })
+      : String(input) === `${FOUNDER_BASE}/options` ? Response.json(founderOptions()) : Response.json(founderState()));
+    vi.stubGlobal("fetch", fetcher);
+    render(<FounderSkillLibrary workspaceId={FOUNDER_WORKSPACE} canManage />);
+    const open = await screen.findByRole("button", { name: "Configure app action reviews: Stripe revenue pulse" });
+    expect(fetcher).toHaveBeenCalledOnce();
+    fireEvent.click(open);
+    await screen.findByRole("combobox", { name: "Employee version" });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher.mock.calls.every((call) => new Headers((call as unknown as [string, RequestInit])[1].headers).get("X-Shiba-Workspace") === FOUNDER_WORKSPACE)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Close app action plan" }));
+    expect(screen.queryByRole("region", { name: /Scheduled app action:/ })).toBeNull();
+    expect(document.activeElement).toBe(open);
+  });
+
+  it("opens private evidence metadata only on demand and starts no draft, download or Slack call", async () => {
+    const reportEntry = { ...entry, id: EVIDENCE_LIBRARY };
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/founder-skills" ? Response.json({ skills: [reportEntry] })
+      : String(input) === `${EVIDENCE_BASE}/options` ? Response.json(evidenceOptions()) : Response.json({ ...evidenceOptions(), reports: [] }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<FounderSkillLibrary workspaceId={EVIDENCE_WORKSPACE} canManage />);
+    const open = await screen.findByRole("button", { name: "Build private evidence: Stripe revenue pulse" });
+    expect(fetcher).toHaveBeenCalledOnce(); fireEvent.click(open);
+    await screen.findByRole("combobox", { name: "Employee version" });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher.mock.calls.every((call) => (call as unknown as [string, RequestInit])[1].method !== "POST")).toBe(true);
+    expect(fetcher.mock.calls.some(([path]) => /slack|download|preview/.test(String(path)))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Close evidence reports" }));
+    expect(document.activeElement).toBe(open);
   });
 });

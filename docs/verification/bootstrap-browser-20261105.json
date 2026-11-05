@@ -1,0 +1,52 @@
+{
+  "kind": "local-Chromium-bootstrap-verification-component-fixture",
+  "startedAt": "2026-11-05T05:16:26.374Z",
+  "boundary": "Actual verification React components in StrictMode and product CSS with intercepted local HTTP. No real authentication, email, account, verification token, sign-in, provider/model or external effect. Root route selection separately verified with actual DashboardContent and mocked normal app/canvas.",
+  "sourceAtStart": {
+    "apps/frontend/src/bootstrap-verification-client.ts": "5ecf47cb3fa48b5683adb27f39e0eacd09ba2b8fa68df380a688bd888d09b3c7",
+    "apps/frontend/src/components/BootstrapVerificationPanel.tsx": "9d42cae250d9c074b1c9be3b75624fe09a8d650b92eeb6d687c60612c775de03",
+    "apps/frontend/src/auth-timeout.ts": "48f3e4ae949c8af70b85073c1c103ea07c28f2751fdb65b9bfe5120244178b7a",
+    "apps/frontend/src/routes/$.tsx": "a31239482ae12d3a8eaa1a2ace72f62b459cf9faed8cd36f33fcda2d197c4e13"
+  },
+  "checks": [
+    "StrictMode mounting only reads current bootstrap status; no email, login or confirmation is sent",
+    "Explicit Send posts only the exact current opaque snapshot and never a user-supplied email",
+    "Denied refresh clears cached identity, send authority and prior delivery messages",
+    "Late status response from identity A cannot populate identity B",
+    "StrictMode callback captures a single proof in memory, removes fragment and makes no automatic confirmation or login call",
+    "Confirm requires a click; proof is sent only in JSON with no referrer and creates no session or browser storage",
+    "390px callback fits both existing light and dark themes",
+    "Malformed and extra fragment fields are cleared without reflection or a request",
+    "A stalled confirmation settles at the bounded timeout without retaining a retryable proof or automatically resending",
+    "No page/console errors, external requests or source drift; all responses are explicit fixtures"
+  ],
+  "screenshots": [
+    "bootstrap-browser-20261105-status-desktop.png",
+    "bootstrap-browser-20261105-callback-390.png",
+    "bootstrap-browser-20261105-callback-390-dark.png"
+  ],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "blockedExternal": [],
+  "sourceAtEnd": {
+    "apps/frontend/src/bootstrap-verification-client.ts": "5ecf47cb3fa48b5683adb27f39e0eacd09ba2b8fa68df380a688bd888d09b3c7",
+    "apps/frontend/src/components/BootstrapVerificationPanel.tsx": "9d42cae250d9c074b1c9be3b75624fe09a8d650b92eeb6d687c60612c775de03",
+    "apps/frontend/src/auth-timeout.ts": "48f3e4ae949c8af70b85073c1c103ea07c28f2751fdb65b9bfe5120244178b7a",
+    "apps/frontend/src/routes/$.tsx": "a31239482ae12d3a8eaa1a2ace72f62b459cf9faed8cd36f33fcda2d197c4e13"
+  },
+  "status": "passed",
+  "finishedAt": "2026-11-05T05:16:32.166Z",
+  "requestSummary": {
+    "total": 9,
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "paths": [
+      "/api/auth/bootstrap-verification",
+      "/api/auth/bootstrap-verification/confirm"
+    ],
+    "proofInAnyUrl": false,
+    "postReferrerPresent": false
+  }
+}

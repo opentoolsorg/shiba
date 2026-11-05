@@ -11,6 +11,8 @@ import type { Env } from "../src/env.js";
 import { acceptTeamWorkspaceInvitation, createTeamWorkspace, createTeamWorkspaceInvitation } from "../src/team-workspaces-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { buildSessionAgentName } from "../src/web-sessions.js";
+import * as personalExecutionStore from "../src/personal-execution-store.js";
+import type { PersonalExecutionSnapshot, PersonalPairingScope } from "@shiba/shared";
 
 const state = vi.hoisted(() => ({ approval: null as PendingApproval | null, names: [] as string[], calls: [] as Request[],
   decisions: 0, duringRead: undefined as (() => void | Promise<void>) | undefined, duringWrite: undefined as (() => void | Promise<void>) | undefined }));
@@ -74,6 +76,33 @@ async function fixture() {
 }
 
 describe("requester-only collaboration run approval", () => {
+  it("requires the frozen native account UUID for a personal card and decision, including an identically named Access user", async () => {
+    const f = await fixture();
+    const snapshot: PersonalExecutionSnapshot = { version: 1, grantId: `plex_${"a".repeat(32)}`, grantVersion: 1,
+      ownerAccountId: "native-original-owner", actorId: OWNER, workspaceId: f.workspace.workspaceId, membershipVersion: 1,
+      machineId: "personal-machine", machineRevision: 1, harness: "claude-code", billingMode: "native-subscription",
+      accountFingerprint: "a".repeat(64), authVersion: "b".repeat(64), codingModel: "anthropic/claude-sonnet-4-6",
+      repoUrl: state.approval!.repoUrl, expiresAt: Date.now() + 60_000, allowedPhases: ["local_repository_task"] };
+    state.approval!.personalExecution = snapshot;
+    state.approval!.runtime = "local";
+    const native = vi.spyOn(personalExecutionStore, "resolvePersonalExecutionOwner").mockResolvedValue(null);
+    const grant = vi.spyOn(personalExecutionStore, "resolvePersonalExecutionGrant").mockResolvedValue(snapshot);
+    const scope: PersonalPairingScope = { version: 2, ownerAccountId: snapshot.ownerAccountId, actorId: OWNER,
+      workspaceId: snapshot.workspaceId, membershipVersion: 1, membershipRole: "owner", origin: "https://dashboard.test" };
+    try {
+      expect((await f.send())?.ok).toBe(false);
+      expect((await f.send("POST", { expectedInputHash: f.hash(), reviewed: true, approved: true }))?.ok).toBe(false);
+      native.mockResolvedValue({ ...scope, ownerAccountId: "recreated-same-email" });
+      expect((await f.send())?.ok).toBe(false);
+      native.mockResolvedValue(scope);
+      const authorized = (await f.send())!;
+      expect(authorized.status).toBe(200);
+      expect(await authorized.json()).toMatchObject({ approval: { personalExecution: snapshot }, inputHash: f.hash() });
+      grant.mockResolvedValue(null);
+      expect((await f.send("POST", { expectedInputHash: f.hash(), reviewed: true, approved: true }))?.ok).toBe(false);
+      expect(state.decisions).toBe(0);
+    } finally { native.mockRestore(); grant.mockRestore(); }
+  });
   it("returns only the exact complete frozen card and omits sealed environment material", async () => {
     const f = await fixture(), response = (await f.send())!;
     expect(response.status).toBe(200);

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { Suspense } from "react";
+import { Suspense, type FormEvent } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app";
 import { ONBOARDING_DISMISSED_KEY } from "./components/AgentExperience";
@@ -32,7 +32,14 @@ vi.mock("./auth-client", () => ({ authClient: { signOut: vi.fn() } }));
 vi.mock("./components/FirstRunWizard", () => ({ FirstRunWizard: () => null, ONBOARDING_STORAGE_KEY: "onboarding" }));
 vi.mock("./components/ThemeProvider", () => ({ useTheme: () => ({ resolvedTheme: "light", setTheme: vi.fn() }) }));
 vi.mock("./components/InboxTab", () => ({ InboxTab: () => <div data-testid="private-mailbox">PRIVATE-MAILBOX-CONTENT</div> }));
-vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task }: { task: string }) => <div data-testid="task-composer"><textarea aria-label="Task draft" value={task} readOnly /></div> }));
+vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChange, onSubmit, onExecutionTargetKindChange, onArtifactDeliverablesChange, isSubmitting }: {
+  task: string; onTaskChange: (value: string) => void; onSubmit: (event: FormEvent) => void;
+  onExecutionTargetKindChange?: (kind: "repository" | "artifact-workspace") => void; onArtifactDeliverablesChange?: (value: string) => void; isSubmitting?: boolean;
+}) => <form data-testid="task-composer" onSubmit={onSubmit}>
+  <textarea aria-label="Task draft" value={task} onChange={(event) => onTaskChange(event.target.value)} />
+  <button type="button" onClick={() => { onExecutionTargetKindChange?.("artifact-workspace"); onArtifactDeliverablesChange?.(""); }}>Use automatic workspace</button>
+  <button type="submit" disabled={isSubmitting}>Queue fixture task</button>
+</form> }));
 vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value }: { value: string }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} readOnly /></div> }));
 
 beforeEach(() => {
@@ -125,6 +132,52 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
+  it("retries an unacknowledged automatic workspace with one frozen target and command receipt", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem("shiba:conversation-mode:default", "work");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    const attempts: Array<{ commandId: string; task: string; executionTarget: { workspaceId: string } }> = [];
+    const receipts = new Map<string, string>();
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url).startsWith("/api/runs") && options?.method === "POST") {
+        const body = JSON.parse(String(options.body)) as typeof attempts[number];
+        attempts.push(body);
+        if (!receipts.has(body.commandId)) receipts.set(body.commandId, `approval-${receipts.size + 1}`);
+        if (attempts.length === 1 || attempts.length === 3) throw new TypeError("Accepted response was lost");
+        return Response.json({ approvalId: receipts.get(body.commandId) });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Use automatic workspace" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Task draft" }), { target: { value: "Prepare an output bundle" } });
+    fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
+    await screen.findByText(/Accepted response was lost/);
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Prepare an output bundle"));
+    fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
+    await screen.findByText(/Draft queued/);
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1]).toEqual(attempts[0]);
+    expect(attempts[0]?.executionTarget.workspaceId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(receipts.size).toBe(1);
+    fireEvent.change(screen.getByRole("textbox", { name: "Task draft" }), { target: { value: "Prepare an output bundle" } });
+    fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
+    await screen.findByText(/Accepted response was lost/);
+    expect(attempts).toHaveLength(3);
+    expect(attempts[2]?.commandId).not.toBe(attempts[0]?.commandId);
+    expect(attempts[2]?.executionTarget.workspaceId).not.toBe(attempts[0]?.executionTarget.workspaceId);
+    expect(receipts.size).toBe(2);
+    fireEvent.change(screen.getByRole("textbox", { name: "Task draft" }), { target: { value: "Prepare a changed output bundle" } });
+    fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
+    await screen.findByText(/Draft queued/);
+    expect(attempts).toHaveLength(4);
+    expect(attempts[3]?.commandId).not.toBe(attempts[2]?.commandId);
+    expect(attempts[3]?.executionTarget.workspaceId).not.toBe(attempts[2]?.executionTarget.workspaceId);
+    expect(receipts.size).toBe(3);
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("opens /?prompt=x in Threads with the prompt visible", async () => {
     window.history.replaceState(null, "", "/?prompt=x");
     render(<App />);

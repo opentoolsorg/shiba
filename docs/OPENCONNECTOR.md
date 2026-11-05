@@ -209,6 +209,21 @@ its scheduled handler/cron, and the minified deploy script.
 
 `integrations.search_actions` discovers action IDs and input schemas for one
 connected service. `integrations.execute` executes an action after human review.
+Discovery also preserves advisory provider-reported `operationType` metadata.
+Missing or unknown upstream values are `unclassified`. A `read` label is not an
+audited read-only guarantee: arbitrary query actions can forward mutation text.
+It does not change approvals, grants, execution policy or scheduled authority.
+
+The pinned Google Ads provider has an action-schema compatibility limitation:
+some definitions expose `developerToken` as ordinary action input even though
+the provider also treats it as a protected OAuth client credential. Shiba hides
+these definitions from discovery and rejects exact requests before saving an
+approval or sending an action. Supplying that credential key is also rejected.
+Configure credentials only in protected provider setup; do not paste them into
+action arguments. A Google Ads definition without that input remains subject to
+the ordinary connection, grant and exact human approval checks. This guard does
+not establish that such a definition works against a live Google Ads account.
+
 Both use the existing employee tool policy: grant
 `mcp:shiba:integrations.search_actions` and/or `mcp:shiba:integrations.execute`
 with the exact upstream service ID (for example `github`) as the resource.

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import type { ExtensionSkillRecord, ExtensionSkillScope, ExtensionSkillView } from "@shiba/shared";
 import {
+  ExtensionSkillRequestError,
   archiveExtensionSkill,
   createExtensionSkill,
   deleteExtensionSkill,
@@ -47,16 +48,21 @@ interface DialogState {
   skill?: ExtensionSkillRecord;
 }
 
+
 export function ExtensionSkillsView({
   onOpenRunSkills,
   embedded = false,
   scope = "personal",
+  workspaceId,
+  canManage = true,
 }: {
   onOpenRunSkills?: () => void;
   embedded?: boolean;
   scope?: Scope;
+  workspaceId?: string;
+  canManage?: boolean;
 } = {}): JSX.Element {
-  const [view, setView] = useState<ExtensionSkillView>(scope === "workspace" ? "workspace" : "personal");
+  const [view, setView] = useState<ExtensionSkillView>(workspaceId || scope === "workspace" ? "workspace" : "personal");
   const [skills, setSkills] = useState<ExtensionSkillRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -66,22 +72,27 @@ export function ExtensionSkillsView({
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const loadGeneration = useRef(0);
+  const controller = useRef(new AbortController());
+  const requestScope = () => ({ workspaceId, signal: controller.current.signal });
+  useEffect(() => { const abort = new AbortController(); controller.current = abort; return () => { abort.abort(); }; }, []);
 
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
     setLoading(true);
     setLoadError(null);
     try {
-      const rows = await fetchExtensionSkills(view);
+      const rows = await fetchExtensionSkills(view, { workspaceId, signal: controller.current.signal });
       if (generation === loadGeneration.current) setSkills(rows);
     } catch (cause) {
       if (generation === loadGeneration.current) {
+        setSkills([]);
+        setDialog(null);
         setLoadError(cause instanceof Error ? cause.message : "Skills could not be loaded.");
       }
     } finally {
       if (generation === loadGeneration.current) setLoading(false);
     }
-  }, [view]);
+  }, [view, workspaceId]);
 
   useEffect(() => {
     void load();
@@ -101,6 +112,10 @@ export function ExtensionSkillsView({
     );
   }, [skills, query]);
 
+  const clearRevoked = (cause: unknown) => {
+    if (workspaceId && cause instanceof ExtensionSkillRequestError && [401, 403, 404].includes(cause.status)) { setSkills([]); setDialog(null); }
+  };
+
   const save = async (values: FormValues) => {
     if (!dialog) return;
     setMutationError(null);
@@ -110,15 +125,16 @@ export function ExtensionSkillsView({
           name: values.name || "New Skill",
           description: values.description,
           instructions: values.instructions,
-          enabled: values.enabled,
+          enabled: workspaceId ? false : values.enabled,
           scope: view === "workspace" ? "workspace" : "personal",
-        });
+        }, requestScope());
       } else if (dialog.skill) {
-        await updateExtensionSkill(dialog.skill._id, values);
+        await updateExtensionSkill(dialog.skill._id, { ...values, ...(workspaceId ? { expectedVersion: dialog.skill.version } : {}) }, requestScope());
       }
       await load();
-      setNotice(dialog.mode === "create" ? "Skill created." : "Skill saved.");
+      setNotice(dialog.mode === "create" ? workspaceId ? "Team skill created disabled. Review its instructions, then enable it separately." : "Skill created." : "Skill saved.");
     } catch (cause) {
+      clearRevoked(cause);
       setMutationError(cause instanceof Error ? cause.message : "Skill could not be saved.");
       throw cause;
     }
@@ -127,10 +143,11 @@ export function ExtensionSkillsView({
   const remove = async (skill: ExtensionSkillRecord) => {
     setMutationError(null);
     try {
-      await deleteExtensionSkill(skill._id);
+      await deleteExtensionSkill(skill._id, requestScope());
       await load();
       setNotice("Skill deleted.");
     } catch (cause) {
+      clearRevoked(cause);
       setMutationError(cause instanceof Error ? cause.message : "Skill could not be deleted.");
       throw cause;
     }
@@ -145,6 +162,7 @@ export function ExtensionSkillsView({
       setDialog(null);
       setNotice(message);
     } catch (cause) {
+      clearRevoked(cause);
       setMutationError(cause instanceof Error ? cause.message : "Skill could not be updated.");
     } finally {
       setBusyId(null);
@@ -159,17 +177,19 @@ export function ExtensionSkillsView({
     setNotice(null);
     setSkills((current) => current.map((item) => (item._id === skill._id ? { ...item, enabled } : item)));
     try {
-      await updateExtensionSkill(skill._id, { enabled });
+      await updateExtensionSkill(skill._id, { enabled, ...(workspaceId ? { expectedVersion: skill.version } : {}) }, requestScope());
+      await load();
       setNotice(enabled ? `Enabled “${skill.name}”.` : `Disabled “${skill.name}”.`);
     } catch (cause) {
-      setSkills((current) => current.map((item) => (item._id === skill._id ? { ...item, enabled: skill.enabled } : item)));
+      setSkills((current) => current.map((item) => item._id === skill._id ? { ...item, enabled: skill.enabled } : item));
+      clearRevoked(cause);
       setMutationError(cause instanceof Error ? cause.message : "Skill state could not be saved.");
     } finally {
       setBusyId(null);
     }
   };
 
-  const canCreate = view !== "archived";
+  const canCreate = view !== "archived" && canManage;
   const scopeCrumb = scope === "workspace" || view === "workspace" ? "Workspace" : "Personal";
   const crumbs = [scopeCrumb, "Extensions", "Skills"];
 
@@ -332,14 +352,13 @@ export function ExtensionSkillsView({
           key={`${dialog.mode}:${dialog.skill?._id ?? "new"}`}
           state={dialog}
           error={mutationError}
+          disabledDraft={Boolean(workspaceId)}
           onClose={() => setDialog(null)}
           onSave={save}
           onDelete={remove}
-          onMove={(skill, to) =>
-            perform(skill, () => moveExtensionSkill(skill._id, to), to === "workspace" ? "Shared with your workspace." : "Moved to Personal.")
-          }
-          onArchive={(skill) => perform(skill, () => archiveExtensionSkill(skill._id), "Skill archived.")}
-          onRestore={(skill) => perform(skill, () => restoreExtensionSkill(skill._id), "Skill restored.")}
+          onMove={(skill, to) => perform(skill, () => moveExtensionSkill(skill._id, to, requestScope()), to === "workspace" ? "Shared with your workspace." : "Moved to Personal.")}
+          onArchive={(skill) => perform(skill, () => archiveExtensionSkill(skill._id, requestScope()), "Skill archived.")}
+          onRestore={(skill) => perform(skill, () => restoreExtensionSkill(skill._id, requestScope()), "Skill restored.")}
         />
       ) : null}
     </MainCard>
@@ -427,9 +446,11 @@ function SkillDialog({
   onMove,
   onArchive,
   onRestore,
+  disabledDraft = false,
 }: {
   state: DialogState;
   error: string | null;
+  disabledDraft?: boolean;
   onClose: () => void;
   onSave: (values: FormValues) => Promise<void>;
   onDelete: (skill: ExtensionSkillRecord) => Promise<void>;
@@ -442,13 +463,15 @@ function SkillDialog({
     name: skill?.name ?? "",
     description: skill?.description ?? "",
     instructions: skill?.instructions ?? "",
-    enabled: skill?.enabled !== false,
+    enabled: skill ? skill.enabled !== false : !disabledDraft,
   }));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saved, setSaved] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeRef = useRef(onClose); closeRef.current = onClose;
   const archived = skill?.archivedAt !== undefined;
   const scope = archived ? skill?.archivedFromScope ?? skill?.scope ?? "personal" : skill?.scope ?? "personal";
   const canEdit = !skill || skill.permissions?.canEdit !== false;
@@ -458,14 +481,28 @@ function SkillDialog({
   const canDelete = skill?.permissions?.canDelete ?? true;
 
   useEffect(() => {
-    nameRef.current?.focus();
-    nameRef.current?.select();
+    const opener = document.activeElement as HTMLElement | null;
+    if (nameRef.current?.disabled) dialogRef.current?.querySelector<HTMLElement>("button:not([disabled])")?.focus();
+    else { nameRef.current?.focus(); nameRef.current?.select(); }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") { event.stopPropagation(); closeRef.current(); return; }
+      if (event.key !== "Tab") return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const items = Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+        .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+      const first = items[0], last = items[items.length - 1];
+      if (!first || !last) { event.preventDefault(); root.focus(); return; }
+      if (!root.contains(document.activeElement)) { event.preventDefault(); first.focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      if (opener?.isConnected && opener !== document.body && opener !== document.documentElement) opener.focus();
+    };
+  }, []);
 
   const update = <K extends keyof FormValues>(key: K, value: FormValues[K]) =>
     setValues((current) => ({ ...current, [key]: value }));
@@ -512,6 +549,8 @@ function SkillDialog({
       }}
     >
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="extension-skill-dialog-title"
@@ -640,6 +679,7 @@ function SkillDialog({
                 role="switch"
                 aria-checked={values.enabled}
                 aria-label={values.enabled ? "Enabled" : "Disabled"}
+                disabled={disabledDraft && !skill}
                 onClick={() => update("enabled", !values.enabled)}
                 className="inline-flex items-center gap-1.5 text-xs font-medium text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
               >

@@ -9,7 +9,7 @@
  * No npm dependencies.
  */
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -38,6 +38,7 @@ const CHECKPOINT_PREFIX = "refs/shiba/checkpoints/";
  * @property {string} [patch]
  * @property {string} [message]
  * @property {string} [sessionId]
+ * @property {boolean} [usageLimited]
  */
 
 /**
@@ -90,7 +91,8 @@ export function parseSessionLine(line) {
 
 function bound(value, max) {
   const text = String(value ?? "");
-  return text.length <= max ? text : text.slice(0, max);
+  // Worker sanitization needs complete values. Never emit an unmatchable prefix.
+  return text.length <= max ? text : `[Output exceeded ${max} characters.]`;
 }
 
 const APPROVAL_TITLE_LIMIT = 200;
@@ -99,6 +101,15 @@ const APPROVAL_DETAIL_LIMIT = 2000;
 function approvalReviewText(value, max) {
   const text = String(value ?? "");
   return { text: bound(text, max), reviewIncomplete: text.length > max };
+}
+
+function exactApproval(provider, method, payload) {
+  const sorted = value => Array.isArray(value) ? value.map(sorted) : value && typeof value === "object"
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sorted(value[key])])) : value;
+  const complete = JSON.stringify(sorted({ version: 1, provider, method, payload }));
+  return { actionHash: createHash("sha256").update(complete).digest("hex"),
+    title: "Review the exact local CLI action", detail: complete.length <= APPROVAL_DETAIL_LIMIT ? complete : "This action requires local review.",
+    reviewIncomplete: complete.length > APPROVAL_DETAIL_LIMIT };
 }
 
 /**
@@ -373,7 +384,7 @@ async function openCodex(spec, emit) {
   const rpc = attachJsonRpc(child);
   let threadId = spec.resumeThreadId ?? "";
   let turnId = "";
-  /** @type {((outcome: { status: string, summary: string }) => void) | null} */
+  /** @type {((outcome: { status: string, summary: string, usageLimited: boolean }) => void) | null} */
   let settle = null;
   let interrupted = false;
   const stderr = [];
@@ -387,8 +398,14 @@ async function openCodex(spec, emit) {
     if (!settle) return;
     const done = settle;
     settle = null;
-    done({ status, summary: bound(summary, 4000) });
+    done({ status, summary: bound(summary, 4000), usageLimited: /usage|rate.?limit|quota/i.test(summary) });
   };
+
+  // The owning daemon may terminate the process after cancellation/revocation.
+  // A resolved turn/start RPC does not resolve the separate pending turn.
+  // Settle that turn on process loss as well; finish consumes it only once.
+  child.once("error", () => finish(spec.signal?.aborted || interrupted ? "interrupted" : "failed", "Codex session process failed."));
+  child.once("close", () => finish(spec.signal?.aborted || interrupted ? "interrupted" : "failed", "Codex session process closed."));
 
   rpc.onNotification((msg) => {
     const params =
@@ -444,7 +461,7 @@ async function openCodex(spec, emit) {
       finish(interrupted ? "interrupted" : status === "failed" ? "failed" : status, error);
     } else if (msg.method === "error") {
       const message = typeof params.message === "string" ? params.message : "codex error";
-      emit({ type: "error", message: bound(message, 500) });
+      emit({ type: "error", message: bound(message, 500), usageLimited: /usage|rate.?limit|quota/i.test(message) });
       finish("failed", message);
     }
   });
@@ -471,7 +488,8 @@ async function openCodex(spec, emit) {
       return;
     }
     void (async () => {
-      const request = codexApproval(method, msg.params);
+      const request = { ...codexApproval(method, msg.params), ...(spec.exactApprovalReview === true ? exactApproval("codex", method, { requestId: msg.id, params: msg.params ?? {} }) : {}) };
+      if (spec.exactApprovalReview === true && !["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "execCommandApproval", "applyPatchApproval"].includes(method)) request.reviewIncomplete = true;
       const decision = await resolveDecision(spec, emit, request);
       if (method === "item/tool/requestUserInput") {
         rpc.respond(msg.id, { answers: {} });
@@ -577,7 +595,8 @@ async function openCodex(spec, emit) {
     },
     close() {
       finish("failed", "session closed");
-      child.kill("SIGTERM");
+      if (typeof spec.terminateChild === "function") return spec.terminateChild(child);
+      return child.kill("SIGTERM");
     },
   };
 }
@@ -589,6 +608,11 @@ async function openCodex(spec, emit) {
  */
 async function resolveDecision(spec, emit, request) {
   const mode = spec.permissionMode ?? "approval-required";
+  if (spec.exactApprovalReview === true) {
+    let safe = false;
+    try { safe = !request.reviewIncomplete && /^[a-f0-9]{64}$/.test(request.actionHash ?? "") && await spec.validateApprovalReview?.(request.detail) === true; } catch {}
+    if (!safe) request = { ...request, requestId: `local-review-${request.actionHash ?? "unavailable"}`, title: "Local review required", detail: "This action could not be safely displayed. Review it locally.", reviewIncomplete: true };
+  }
   emit({
     type: "approval.requested",
     requestId: request.requestId,
@@ -637,7 +661,7 @@ async function openClaude(spec, emit) {
   let threadId = spec.resumeThreadId ?? "";
   let prompted = false;
   let promptText = "";
-  /** @type {((outcome: { status: string, summary: string }) => void) | null} */
+  /** @type {((outcome: { status: string, summary: string, usageLimited: boolean }) => void) | null} */
   let settle = null;
   let interrupted = false;
   /** @type {string[]} */
@@ -650,7 +674,7 @@ async function openClaude(spec, emit) {
     if (!settle) return;
     const done = settle;
     settle = null;
-    done({ status, summary: bound(summary, 4000) });
+    done({ status, summary: bound(summary, 4000), usageLimited: /usage|rate.?limit|quota/i.test(summary) });
   };
   const sendPrompt = () => {
     if (prompted || promptText === "") return;
@@ -704,6 +728,8 @@ async function openClaude(spec, emit) {
         title: titleReview.text,
         detail: detailReview.text,
         reviewIncomplete: titleReview.reviewIncomplete || detailReview.reviewIncomplete,
+        ...(spec.exactApprovalReview === true ? exactApproval("claude", "can_use_tool", record) : {}),
+        ...(spec.exactApprovalReview === true && !["Bash", "Edit", "Read", "Write", "Grep", "Glob", "NotebookEdit"].includes(name) ? { reviewIncomplete: true } : {}),
       })
         .then((decision) => {
           send({
@@ -812,7 +838,8 @@ async function openClaude(spec, emit) {
     },
     close() {
       finish("failed", "session closed");
-      child.kill("SIGTERM");
+      if (typeof spec.terminateChild === "function") return spec.terminateChild(child);
+      return child.kill("SIGTERM");
     },
   };
 }
@@ -878,6 +905,7 @@ async function openLoggedSession(spec) {
         type: "turn.completed",
         status: outcome.status,
         summary: outcome.summary,
+        usageLimited: outcome.usageLimited === true,
         threadId: provider.threadId,
       });
       emit({ type: "session.updated", sessionId: id, status: "ready" });
@@ -903,7 +931,7 @@ async function openLoggedSession(spec) {
       return patch;
     },
     async close() {
-      provider.close();
+      await provider.close();
       await writeChain;
       emit({ type: "session.updated", sessionId: id, status: "stopped" });
       await writeChain;

@@ -174,7 +174,23 @@ export const Worker = Cloudflare.Worker("Worker", {
   env: {
     GATEWAY_ID: "default",
     INTEGRATIONS_PROVIDER: "openconnector",
+    SHIBA_PERSONAL_LOCAL_EXECUTION: "0",
+    SHIBA_TEAM_MODEL_SESSIONS: "0",
+    SHIBA_SHARED_COMPUTER: "0",
+    SHIBA_SHARED_COMPUTER_IMAGE: "",
+    SHIBA_TEAM_MODEL_MODEL: "@cf/zai-org/glm-4.7-flash",
     SLACK_CANVAS_OWNERS: "[]",
+    SLACK_INSTALLATIONS_ENABLED: "false",
+    SLACK_OAUTH_APP_ID: "",
+    SLACK_OAUTH_CLIENT_ID: "",
+    SLACK_OAUTH_REDIRECT_URI: "",
+    SLACK_OAUTH_PKCE_ENABLED: "false",
+    SLACK_OAUTH_QUERY_REDACTION_VERIFIED: "false",
+    SLACK_LEGACY_MODE_ENABLED: "false",
+    SLACK_LEGACY_TEAM_ID: "",
+    SLACK_LEGACY_APP_ID: "",
+    SLACK_AGENT_SESSIONS_ENABLED: "false",
+    SLACK_AGENT_SESSIONS_TEAM_ID: "",
     ORCHESTRATOR_MODEL: "@cf/zai-org/glm-4.7-flash",
     CODING_MODEL: "google/gemini-3.5-flash-lite",
     RUNTIME: "sandbox",
@@ -194,6 +210,7 @@ export const Worker = Cloudflare.Worker("Worker", {
     ...(openDashboard ? { OPEN_DASHBOARD: "1" } : {}),
 
     AI: Cloudflare.Workers.AI(),
+    CF_VERSION_METADATA: Cloudflare.Workers.VersionMetadata(),
 
     // Code Mode (`worker_loaders` in wrangler.jsonc) — dynamic isolate loader.
     LOADER: Cloudflare.WorkerLoader("LOADER"),
@@ -293,6 +310,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "LINEAR_OAUTH_ACCESS_TOKEN",
       "LINEAR_DEFAULT_REPO_URL",
       "SLACK_SIGNING_SECRET",
+      "SLACK_INSTALLATION_KEYRING",
       "SLACK_APPROVERS",
       // Dashboard emails allowed to resolve shared ("default" DO) approvals:
       // automations, review lane, Sentry, email. Unset = nobody.
@@ -325,6 +343,14 @@ export const Worker = Cloudflare.Worker("Worker", {
       "OPEN_CONNECTOR_ADMIN_TOKEN",
       "OPEN_CONNECTOR_RUNTIME_TOKEN",
       "MODEL_CREDENTIAL_KEY",
+      // Optional OAuth client IDs registered by the operator for curated MCP vendors.
+      // Unset IDs keep that vendor's OAuth connect path unavailable.
+      "MCP_OAUTH_CLIENT_STRIPE",
+      "MCP_OAUTH_CLIENT_NOTION",
+      "MCP_OAUTH_CLIENT_SENTRY",
+      "MCP_OAUTH_CLIENT_POSTHOG",
+      "MCP_OAUTH_CLIENT_FIGMA",
+      "MCP_OAUTH_CLIENT_JIRA_ATLASSIAN",
       // Telegram + Discord webhook lanes.
       "TELEGRAM_BOT_TOKEN",
       "TELEGRAM_WEBHOOK_SECRET",
@@ -379,6 +405,11 @@ export const Worker = Cloudflare.Worker("Worker", {
       "ACP_MODEL",
       // T51 opt-in (§18.13): absent = the local runtime is dark.
       "SHIBA_LOCAL_RUNTIME",
+      "SHIBA_PERSONAL_LOCAL_EXECUTION",
+      "SHIBA_TEAM_MODEL_SESSIONS",
+      "SHIBA_SHARED_COMPUTER",
+      "SHIBA_SHARED_COMPUTER_IMAGE",
+      "SHIBA_TEAM_MODEL_MODEL",
       "CODEX_MODEL",
       "GROK_MODEL",
       "PI_MODEL",
@@ -393,6 +424,17 @@ export const Worker = Cloudflare.Worker("Worker", {
       "SLACK_APPROVALS_CHANNEL",
       "SLACK_ROOM_OUTBOX_ENABLED",
       "SLACK_CANVAS_OWNERS",
+      "SLACK_INSTALLATIONS_ENABLED",
+      "SLACK_OAUTH_APP_ID",
+      "SLACK_OAUTH_CLIENT_ID",
+      "SLACK_OAUTH_REDIRECT_URI",
+      "SLACK_OAUTH_PKCE_ENABLED",
+      "SLACK_OAUTH_QUERY_REDACTION_VERIFIED",
+      "SLACK_LEGACY_MODE_ENABLED",
+      "SLACK_LEGACY_TEAM_ID",
+      "SLACK_LEGACY_APP_ID",
+      "SLACK_AGENT_SESSIONS_ENABLED",
+      "SLACK_AGENT_SESSIONS_TEAM_ID",
       // Agent mailbox identity (default dev@tryshiba.dev).
       "AGENT_MAILBOX",
       "MEMORY_ENABLED",

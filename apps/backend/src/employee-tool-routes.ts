@@ -1,6 +1,7 @@
 import { parseChatThreadName, type IntegrationProviderConnection } from "@shiba/shared";
 import { registerIntegrationTools, integrationToolInput } from "./mcp-integration-tools.js";
 import { getIntegrationProvider } from "./integrations/runtime.js";
+import { assertActionArgumentsAllowed, assertActionInputAllowed, IntegrationActionInputPolicyError, CREDENTIAL_INPUT_UNAVAILABLE } from "./integrations/action-input-policy.js";
 import type { TokenRecord } from "./agent-tokens.js";
 import { verifyToken } from "./agent-tokens.js";
 import type { Env } from "./env.js";
@@ -350,7 +351,9 @@ export async function dispatchEmployeeToolForPrincipal(
   args: Record<string, unknown>,
   executionContextId?: string,
   beforeDispatch?: () => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<Response> {
+  signal?.throwIfAborted();
   if (principal.kind !== "agent" || principal.revoked || !principal.orgId || !principal.principal) {
     return jsonError("active_employee_agent_required", 401);
   }
@@ -361,6 +364,11 @@ export async function dispatchEmployeeToolForPrincipal(
   const toolName = toolNameRaw as keyof typeof EMPLOYEE_TOOL_ACTIONS;
   const action = EMPLOYEE_TOOL_ACTIONS[toolName];
   if (toolName.startsWith("integrations.") && !integrationToolInput(toolName, args)) return jsonError("invalid_integration_tool_input", 400);
+  if (toolName === "integrations.execute") {
+    try { assertActionArgumentsAllowed(String(args.toolkitSlug), args.arguments as Record<string, unknown>, String(args.toolSlug)); }
+    catch { return jsonError(CREDENTIAL_INPUT_UNAVAILABLE, 409); }
+    if (String(args.toolSlug).startsWith("googleads.") && args.toolkitSlug !== "googleads") return jsonError("integration_action_unavailable", 409);
+  }
   const orgId = principal.orgId;
   const actorId = principal.principal;
   const employee = await getCustomAgentById(env, orgId, employeeId);
@@ -429,6 +437,15 @@ export async function dispatchEmployeeToolForPrincipal(
     try { connections = await provider.listConnections({ userId: connection.accountId }); }
     catch { return jsonError("integration_connections_unavailable", 503); }
     if (!connections.some((item) => item.providerKey === resourceId && item.id === connection.connectionId && item.executionReady === true)) return jsonError("integration_connection_disconnected", 403);
+    if (toolName === "integrations.execute" && resourceId === "googleads") {
+      try {
+        const actions = await provider.searchActions({ userId: connection.accountId, toolkitSlug: resourceId, actionId: String(args.toolSlug), limit: 1 });
+        if (actions.length !== 1 || actions[0]!.id !== args.toolSlug || actions[0]!.service !== resourceId) return jsonError("integration_action_unavailable", 409);
+        assertActionInputAllowed(actions[0]!, args.arguments as Record<string, unknown>);
+      } catch (error) {
+        return jsonError(error instanceof IntegrationActionInputPolicyError ? CREDENTIAL_INPUT_UNAVAILABLE : "integration_action_unavailable", 409);
+      }
+    }
   }
   const policy = { ...connectionPolicy(toolName), version: connection.policyVersion };
 
@@ -493,21 +510,28 @@ export async function dispatchEmployeeToolForPrincipal(
     approval = asEmployeeActionApproval(saved);
   }
   const integrationRegistry = toolName.startsWith("integrations.") ? createToolRegistry(env) : null;
-  if (integrationRegistry && connection.accountId) registerIntegrationTools(integrationRegistry, env, connection.accountId, async () => {
-    await beforeDispatch?.();
-    if (nativeApprovalRecord && !await nativeApprovalDecisionCurrent(env, nativeApprovalRecord)) throw new Error("Employee approval authority changed.");
-    const freshEmployee = await getCustomAgentById(env, orgId, employeeId);
-    if (!freshEmployee || freshEmployee.version !== employee.version) throw new Error("Employee policy changed.");
-    const current = await resolveEmployeeConnectionGrant(env, { orgId, employeeId, employeeVersion: employee.version, actorId,
-      capabilityId: id, resourceId });
-    if (!current || current.connectionId !== connection.connectionId || current.accountId !== connection.accountId ||
-      current.generation !== connection.generation || current.policyVersion !== connection.policyVersion) throw new Error("Integration grant changed.");
-    const provider = getIntegrationProvider(env);
-    if (current.policyVersion !== `integrations:${provider.id}`) throw new Error("Integration provider changed.");
-    const connections = await provider.listConnections({ userId: connection.accountId! });
-    if (!connections.some((item) => item.providerKey === resourceId && item.id === connection.connectionId && item.executionReady === true)) throw new Error("Integration disconnected.");
-    await beforeDispatch?.();
-  }, connection.connectionId);
+  if (integrationRegistry && connection.accountId) {
+    const assertCurrentIntegrationAuthority = async () => {
+      await beforeDispatch?.();
+      if (nativeApprovalRecord && (Date.now() >= nativeApprovalRecord.expiresAt || !await nativeApprovalDecisionCurrent(env, nativeApprovalRecord))) {
+        throw new Error("Employee approval authority changed or expired.");
+      }
+      const freshEmployee = await getCustomAgentById(env, orgId, employeeId);
+      if (!freshEmployee || freshEmployee.version !== employee.version) throw new Error("Employee policy changed.");
+      const current = await resolveEmployeeConnectionGrant(env, { orgId, employeeId, employeeVersion: employee.version, actorId,
+        capabilityId: id, resourceId });
+      if (!current || current.connectionId !== connection.connectionId || current.accountId !== connection.accountId ||
+        current.generation !== connection.generation || current.policyVersion !== connection.policyVersion) throw new Error("Integration grant changed.");
+      if (current.policyVersion !== `integrations:${getIntegrationProvider(env).id}`) throw new Error("Integration provider changed.");
+    };
+    registerIntegrationTools(integrationRegistry, env, connection.accountId, async () => {
+      await assertCurrentIntegrationAuthority();
+      const connections = await getIntegrationProvider(env).listConnections({ userId: connection.accountId! });
+      if (!connections.some((item) => item.providerKey === resourceId && item.id === connection.connectionId && item.executionReady === true)) throw new Error("Integration disconnected.");
+      // The account read is remote. Recheck local grants and consent after it returns.
+      await assertCurrentIntegrationAuthority();
+    }, connection.connectionId, signal, nativeApprovalRecord?.expiresAt);
+  }
   const registeredDispatchRegistry: Pick<ToolRegistry, "invoke"> = integrationRegistry ?? (toolName === "gmail_read" ? { invoke: async (_name, toolArgs) => {
     const currentIds = (toolArgs as Record<string, unknown>).messageIds as string[];
     const freshEmployee = await getCustomAgentById(env, orgId, employeeId);

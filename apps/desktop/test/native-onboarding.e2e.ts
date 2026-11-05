@@ -316,6 +316,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
       `/api/approvals${sessionQuery}`,
     );
     expect(approvals.approvals).toHaveLength(1);
+    const pendingApproval = approvals.approvals[0];
+    if (!pendingApproval) throw new Error("Native fixture approval was not retained");
     expect(JSON.stringify(approvals.approvals[0])).toContain(executable.draftTaskId);
     expect(JSON.stringify(approvals.approvals[0])).toContain(goal);
     expect(
@@ -326,7 +328,15 @@ test("actual native shared UI retains goal, thread, approved output and review a
       ).envelope,
     ).toBeFalsy();
     await page.goto(`${fixture.origin}/approvals/`);
+    const approvalResponse = page.waitForResponse((response) => {
+      if (response.url() !== `${fixture.origin}/api/approvals` || response.request().method() !== "POST") return false;
+      const decision = response.request().postDataJSON() as { approvalId?: string; threadKey?: string; approved?: boolean };
+      return decision.approvalId === pendingApproval.approvalId && decision.threadKey === pendingApproval.threadKey && decision.approved === true;
+    });
     await page.getByRole("button", { name: "Approve", exact: true }).click();
+    const decision = await approvalResponse;
+    expect(decision.status()).toBe(200);
+    expect(await decision.json()).toMatchObject({ result: "approved" });
     type Claim = {
       claimToken: string;
       envelope?: {
@@ -349,7 +359,9 @@ test("actual native shared UI retains goal, thread, approved output and review a
           if (failed) throw new Error(`Native fixture dispatch failed: ${failed.error ?? failed.status}`);
         }
         return claim.envelope?.sandboxId;
-      })
+      // Approval acceptance precedes asynchronous dispatch. A default one-second
+      // poll can finish before the local Worker has prepared the approved job.
+      }, { timeout: 15_000 })
       .toBeTruthy();
     if (!claim?.envelope) throw new Error("Approved native fixture task was not claimed");
     expect(claim.envelope).toMatchObject({

@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { OpenConnectorIntegrationProvider, openConnectorConnectionName } from "../src/integrations/openconnector-provider.js";
+import { createToolRegistry } from "../src/mcp-gateway.js";
+import { registerIntegrationTools } from "../src/mcp-integration-tools.js";
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { workspaceIntegrationActionSchema } from "@shiba/shared";
+import { CREDENTIAL_INPUT_UNAVAILABLE } from "../src/integrations/action-input-policy.js";
 
 const configured = {
   OPEN_CONNECTOR_URL: "https://connector.example.test",
@@ -14,6 +19,32 @@ function provider(fetchImpl: typeof fetch, env = configured) {
 }
 
 describe("OpenConnector adapter", () => {
+  it("withholds known credential-input schemas from discovery and rejects exact lookup without echo", async () => {
+    const blocked = { id: "googleads.search_stream_gaql", service: "googleads", name: "Query", inputSchema: { type: "object", properties: { developerToken: { type: "string", default: "fixture-do-not-echo" } }, required: ["developerToken"] } };
+    const safe = { id: "googleads.list_accessible_customers", service: "googleads", name: "List", inputSchema: { type: "object", properties: {} } };
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => Response.json({ success: true, data: String(input).includes("/search?") ? [blocked, safe] : blocked }));
+    const adapter = provider(fetchImpl);
+    expect(await adapter.searchActions({ userId: "alice", toolkitSlug: "googleads", limit: 20 })).toEqual([{ ...safe, operationType: "unclassified" }]);
+    await expect(adapter.searchActions({ userId: "alice", toolkitSlug: "googleads", actionId: blocked.id, limit: 1 })).rejects.toThrow(CREDENTIAL_INPUT_UNAVAILABLE);
+  });
+
+  it.each(["required credential", "supplied credential", "misbound credential", "safe schema"])("fails closed before action POST for Google Ads: %s", async (scenario) => {
+    const row = { id: "google-ads-fixture", service: "googleads", connectionName: await openConnectorConnectionName("alice"), configured: true, virtual: false, oauthAuthorizationId: "fixture-consent", profile: { displayName: "Alice" } };
+    const posts: unknown[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/connections")) return Response.json([row]);
+      if (init?.method === "POST") { posts.push(init.body); return Response.json({ success: true, data: "fixture-output" }); }
+      return Response.json({ success: true, data: { id: "googleads.fixture", service: "googleads", name: "Fixture", inputSchema: scenario === "required credential" ? { required: ["developerToken"], properties: { developerToken: { type: "string" } } } : { type: "object", properties: { customerId: { type: "string" } } } } });
+    });
+    const adapter = provider(fetchImpl), connectionId = (await adapter.listConnections({ userId: "alice" }))[0]!.id;
+    fetchImpl.mockClear();
+    const output = await adapter.executeTool({ userId: "alice", toolkitSlug: scenario === "misbound credential" ? "github" : "googleads", toolSlug: "googleads.fixture", approvedConnectionId: connectionId,
+      arguments: scenario === "supplied credential" || scenario === "misbound credential" ? { developerToken: "fixture-do-not-echo" } : { customerId: "fixture-customer" } });
+    expect(output).toEqual(scenario === "safe schema" ? { ok: true, status: "completed", output: "fixture-output" } : { ok: false, status: "failed", error: CREDENTIAL_INPUT_UNAVAILABLE });
+    expect(posts).toHaveLength(scenario === "safe schema" ? 1 : 0);
+    expect(JSON.stringify(output)).not.toContain("fixture-do-not-echo");
+    if (scenario === "supplied credential" || scenario === "misbound credential") expect(fetchImpl).not.toHaveBeenCalled();
+  });
   it("uses the first 16 SHA-256 hex characters, with distinct aliases for different users", async () => {
     expect(await openConnectorConnectionName("alice")).toBe("u_2bd806c97f0e00af");
     expect(await openConnectorConnectionName("bob")).not.toBe(await openConnectorConnectionName("alice"));
@@ -166,8 +197,21 @@ describe("OpenConnector adapter", () => {
     });
     const adapter = provider(fetchImpl);
     const actions = await adapter.searchActions({ userId: "alice", toolkitSlug: "github", query: "issue", limit: 100 });
-    expect(actions).toEqual([{ id: "github.create_issue", service: "github", name: "Create issue", inputSchema: { type: "object" } }]);
+    expect(actions).toEqual([{ id: "github.create_issue", service: "github", name: "Create issue", inputSchema: { type: "object" }, operationType: "unclassified" }]);
     expect(await adapter.searchActions({ userId: "alice", toolkitSlug: "slack", actionId: "github.create_issue", limit: 50 })).toEqual([]);
+  });
+  it.each(["read", "write", "destructive", "unclassified", undefined, null, "READ", "safe", { read: true }])("preserves advisory operation metadata without inferring unknown effects: %j", async (reported) => {
+    const action = { id: "linear.run_query", service: "linear", name: "Run query", operationType: reported, inputSchema: { type: "object", properties: { query: { type: "string" } } } };
+    const transport = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method ?? "GET").toBe("GET");
+      return Response.json({ success: true, data: String(input).includes("/search?") ? [action] : action });
+    });
+    const adapter = provider(transport), expected = typeof reported === "string" && ["read", "write", "destructive", "unclassified"].includes(reported) ? reported : "unclassified";
+    const search = await adapter.searchActions({ userId: "alice", toolkitSlug: "linear", query: "query", limit: 10 });
+    const detail = await adapter.searchActions({ userId: "alice", toolkitSlug: "linear", actionId: "linear.run_query", limit: 1 });
+    expect(search[0]?.operationType).toBe(expected); expect(detail[0]?.operationType).toBe(expected);
+    expect(workspaceIntegrationActionSchema.parse(search[0]).operationType).toBe(expected);
+    expect(transport).toHaveBeenCalledTimes(2);
   });
   it("does not claim healthy credentials or OAuth availability from catalog metadata alone", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/health") ? Response.json({ ok: true }) : new Response("runtime-secret", { status: 401 }));
@@ -199,6 +243,54 @@ describe("OpenConnector adapter", () => {
     const adapter = provider(fetchImpl); const approvedConnectionId = (await adapter.listConnections({ userId: "alice" }))[0]!.id;
     const result = await adapter.executeTool({ userId: "alice", toolkitSlug: "github", approvedConnectionId, toolSlug: "github.get_current_user", arguments: { limit: 2 }, connectedAccountId: "bobs-id", sessionId: "bobs-session" });
     expect(result).toEqual({ ok: true, status: "completed", output: { login: "alice" } });
+  });
+
+  it.each(["revoked", "cancelled", "allowed"])("rechecks trusted employee authority after the real account preflight: %s", async (scenario) => {
+    const row = { id: "approved-upstream-row", service: "github", connectionName: await openConnectorConnectionName("alice"), configured: true,
+      virtual: false, oauthAuthorizationId: "consent-frozen", profile: { displayName: "Alice" } };
+    let holdLookup = false;
+    let releaseLookup!: (response: Response) => void;
+    let beganLookup!: () => void;
+    const lookupStarted = new Promise<void>((resolve) => { beganLookup = resolve; });
+    const actionPosts: RequestInit[] = [];
+    const transport = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/connections") {
+        if (!holdLookup) return Response.json([row]);
+        beganLookup();
+        return new Promise<Response>((resolve) => { releaseLookup = resolve; });
+      }
+      expect(path).toBe("/v1/actions/github.create_issue");
+      if (init?.method !== "POST") return Response.json({ success: true, data: { id: "github.create_issue", service: "github", name: "Create issue" } });
+      actionPosts.push(init);
+      expect(new Headers(init.headers).get("x-oo-connector-app-id")).toBe(row.id);
+      expect(new Headers(init.headers).get("x-oo-connector-alias")).toBe(row.connectionName);
+      expect(JSON.parse(String(init.body))).toEqual({ input: { title: "Frozen approved title" } });
+      return Response.json({ success: true, data: { id: "created-once" } });
+    });
+    const bindings = { ...configured, OPEN_CONNECTOR: { fetch: transport }, AGENT_AUDIT: customAgentD1().database } as unknown as Env;
+    const adapter = provider(transport, bindings);
+    const approvedConnectionId = (await adapter.listConnections({ userId: "alice" }))[0]!.id;
+    let authorized = true;
+    let cancelled = false;
+    const revalidate = vi.fn(async () => {
+      if (!authorized) throw new Error("Employee grant revoked fixture");
+      if (cancelled) throw new DOMException("Employee task cancelled fixture", "AbortError");
+    });
+    const registry = createToolRegistry(bindings);
+    registerIntegrationTools(registry, bindings, "alice", revalidate, approvedConnectionId);
+    holdLookup = true;
+    const execution = registry.invoke("integrations.execute", { toolkitSlug: "github", toolSlug: "github.create_issue", arguments: { title: "Frozen approved title" } },
+      { principal: "employee-agent", orgId: "self-hosted", kind: "agent", scopes: ["integrations:execute"], created: 1, revoked: false });
+    await lookupStarted;
+    if (scenario === "revoked") authorized = false;
+    if (scenario === "cancelled") cancelled = true;
+    releaseLookup(Response.json([row]));
+    const result = await execution;
+    expect(actionPosts).toHaveLength(scenario === "allowed" ? 1 : 0);
+    expect(result.isError === true).toBe(scenario !== "allowed");
+    expect(result.structuredContent).toMatchObject({ ok: scenario === "allowed", status: scenario === "allowed" ? "completed" : "failed" });
+    expect(revalidate).toHaveBeenCalledTimes(3);
   });
 
   it("sanitizes upstream HTTP, JSON and network failures without logging tokens or outputs", async () => {

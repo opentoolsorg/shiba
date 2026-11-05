@@ -14,7 +14,7 @@
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import { ACP_DRIVER_SOURCE } from "./acp.js";
 import { DUMMY_PROVIDER_KEY } from "../provider-gateway.js";
-import { boundTail } from "../security.js";
+import { sanitizedEventText, type HarnessTextSanitizer } from "./event-sanitizer.js";
 import {
   assertSupportedModel,
   PROVIDER_HOSTS,
@@ -50,14 +50,14 @@ export function cursorDriverPath(sandboxId: string): string {
 }
 
 /** Parse one NDJSON line the driver printed. `type:"error"` throws so the run fails honestly. */
-export function parseCursorEvent(line: string): HarnessEvent | null {
+export function parseCursorEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
   let event: unknown;
   try {
     event = JSON.parse(trimmed);
   } catch {
-    throw new CursorEventError(`Unparseable Cursor event: ${boundTail(trimmed, 200)}`);
+    throw new CursorEventError("Unparseable Cursor event.");
   }
   if (event === null || typeof event !== "object" || Array.isArray(event)) {
     throw new CursorEventError("Cursor event is not an object.");
@@ -65,10 +65,10 @@ export function parseCursorEvent(line: string): HarnessEvent | null {
   const record = event as Record<string, unknown>;
   if (record.type === "error") {
     const detail = typeof record.message === "string" ? record.message : JSON.stringify(record);
-    throw new CursorErrorEvent(boundTail(detail, 500));
+    throw new CursorErrorEvent(sanitizedEventText(detail, sanitize));
   }
-  const text = typeof record.text === "string" ? record.text.trim() : "";
-  return text ? { kind: "text", text: boundTail(text, 500) } : null;
+  const text = typeof record.text === "string" ? record.text : "";
+  return text.trim() ? { kind: "text", text: sanitizedEventText(text, sanitize, 500, true) } : null;
 }
 
 export class CursorHarness implements AgentHarness {
@@ -105,8 +105,8 @@ export class CursorHarness implements AgentHarness {
     return ["node", cursorDriverPath(input.sandboxId)];
   }
 
-  parseEvent(line: string): HarnessEvent | null {
-    return parseCursorEvent(line);
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
+    return parseCursorEvent(line, sanitize);
   }
   /** T43 declared capabilities — the gates read this, not the name. */
   capabilities(_model?: string): HarnessCapabilities {

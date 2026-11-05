@@ -1,6 +1,6 @@
 import { validateEmployeeBundle, type EmployeeBundle, type FounderSkillLibraryEntry } from "@shiba/shared";
 
-export const FOUNDER_SKILL_LIBRARY_VERSION = "1.0.0";
+export const FOUNDER_SKILL_LIBRARY_VERSION = "1.1.0";
 
 /** Portable setup prose only: preview/import still requires a separately reviewed human action. */
 export function founderSkillSetup(entry: FounderSkillLibraryEntry): EmployeeBundle {

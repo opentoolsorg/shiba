@@ -21,6 +21,7 @@ import {
   resolveExternalMcpBearer,
   deleteExternalMcpOAuthTokens,
   saveExternalMcpBearerToken,
+  ensureExternalMcpOAuthSchema,
 } from "../src/external-mcp-oauth.js";
 import { CURATED_MCP_VENDORS, curatedMcpVendorByCatalogId, recommendedExternalMcpToolEffect } from "@shiba/shared";
 import { createToolRegistry, visibleToolsForPrincipal } from "../src/mcp-gateway.js";
@@ -99,6 +100,47 @@ function mockMcp(endpoint: string) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("external MCP OAuth + multi-account", () => {
+  it.each(["oauth", "bearer_ref"])("rejects a raw %s registration that labels another vendor's endpoint as Stripe", async (authMode) => {
+    const { env, sqlite } = environment();
+    await getExternalMcpServer(env, owner.orgId, owner.principal, "a".repeat(32));
+    await ensureExternalMcpOAuthSchema(env);
+    await loadExternalMcpOAuthTokens(env, owner.orgId, owner.principal, "a".repeat(32));
+    const network = vi.fn(async () => { throw new Error("Unexpected vendor request in registration fixture"); });
+    vi.stubGlobal("fetch", network);
+    const url = new URL("https://shiba.test/api/v1/mcp/servers");
+    const response = await handleMcpV1({ url, env, principal: owner, forward: async () => new Response(),
+      request: new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        name: "Stripe misleading endpoint", transport: "streamable_http", catalogId: "stripe", connectionLabel: "mismatch",
+        url: "https://mcp.notion.com/mcp", authMode, credentialRef: authMode === "bearer_ref" ? "MCP_CREDENTIAL_STRIPE" : null,
+      }) }),
+    });
+    expect(response?.status).toBe(400);
+    expect(await response!.json()).toEqual({ ok: false, error: "invalid_endpoint" });
+    for (const table of ["external_mcp_servers", "external_mcp_tools", "external_mcp_oauth_pending", "user_subscription_credentials"]) {
+      expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()).toMatchObject({ count: 0 });
+    }
+    expect(network).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { name: "custom", input: { name: "Custom MCP", url: "https://mcp.example.com/mcp", credentialRef: null }, endpoint: "https://mcp.example.com/mcp", catalogId: null },
+    { name: "default curated", input: { catalogId: "stripe", connectionLabel: "canonical", authMode: "oauth", credentialRef: null }, endpoint: stripeEndpoint, catalogId: "stripe" },
+  ])("preserves raw $name registration without enabling tools or making vendor requests", async ({ input, endpoint, catalogId }) => {
+    const { env } = environment();
+    const network = vi.fn(async () => { throw new Error("Unexpected vendor request in registration fixture"); });
+    vi.stubGlobal("fetch", network);
+    const url = new URL("https://shiba.test/api/v1/mcp/servers");
+    const response = await handleMcpV1({ url, env, principal: owner, forward: async () => new Response(),
+      request: new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
+    });
+    expect(response?.status).toBe(201);
+    const body = await response!.json() as { server: { id: string; endpoint: string; catalogId: string | null; status: string } };
+    expect(body.server).toMatchObject({ endpoint, catalogId, status: "draft" });
+    expect(await listExternalMcpTools(env, body.server.id)).toEqual([]);
+    expect(await loadExternalMcpOAuthTokens(env, owner.orgId, owner.principal, body.server.id)).toBeNull();
+    expect(network).not.toHaveBeenCalled();
+  });
+
   it.each(CURATED_MCP_VENDORS)("completes a local authorized OAuth fixture for $name without enabling tools or exposing another owner's credentials", async (vendor) => {
     const { env } = environment();
     const fetchFixture = mockDiscoveryFetch(vendor.endpoint);
@@ -144,16 +186,18 @@ describe("external MCP OAuth + multi-account", () => {
     expect(discovery.scopes).toBe("reports:read");
   });
 
-  it.each(["http://127.0.0.1/token", "https://127.0.0.1/token", "https://user:password@auth.vendor.com/token", "https://metadata.internal/token"])("rejects unsafe delegated token endpoint %s before fetching it", async (tokenEndpoint) => {
+  it.each(["authorization_endpoint", "token_endpoint", "revocation_endpoint"].flatMap((field) =>
+    ["http://127.0.0.1/token", "https://127.0.0.1/token", "https://user:password@auth.vendor.com/token", "https://metadata.internal/token"].map((endpoint) => ({ field, endpoint })),
+  ))("rejects unsafe delegated $field $endpoint before using it", async ({ field, endpoint }) => {
     const calls: string[] = [];
     const fixtureFetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input); calls.push(url);
       if (url === stripeEndpoint || url === `${stripeEndpoint}/`) return new Response(null, { status: 405 });
       if (url.includes("oauth-protected-resource")) return Response.json({ resource: stripeEndpoint, authorization_servers: ["https://auth.vendor.com"] });
-      return Response.json({ issuer: "https://auth.vendor.com", authorization_endpoint: "https://auth.vendor.com/authorize", token_endpoint: tokenEndpoint, code_challenge_methods_supported: ["S256"] });
+      return Response.json({ issuer: "https://auth.vendor.com", authorization_endpoint: "https://auth.vendor.com/authorize", token_endpoint: "https://auth.vendor.com/token", revocation_endpoint: "https://auth.vendor.com/revoke", code_challenge_methods_supported: ["S256"], [field]: endpoint });
     });
     await expect(discoverExternalMcpOAuth({ endpoint: stripeEndpoint }, fixtureFetch)).rejects.toThrow("oauth_discovery_failed");
-    expect(calls).not.toContain(tokenEndpoint);
+    expect(calls).not.toContain(endpoint);
   });
 
   it("never restores credentials when the connection is revoked during code exchange", async () => {

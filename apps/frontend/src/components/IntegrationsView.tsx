@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useState, type JSX, type ReactNode } from "react";
 import { ChevronRight, Plus } from "lucide-react";
-import type { AcpProvidersSnapshot, McpCapabilityDirectoryEntry, McpCapabilityInvocationReceipt } from "@shiba/shared";
+import type { AcpProvidersSnapshot, McpCapabilityDirectoryEntry, McpCapabilityInvocationReceipt, TeamWorkspaceRole } from "@shiba/shared";
 import { type SetupStatus, useMailboxes, useSetupStatus } from "../live-status";
 import { useSavedSkills } from "../saved";
 import type { AppNavView } from "./AppNavRail";
@@ -25,6 +25,7 @@ import { SkillsView } from "./SkillsView";
 import { ExtensionMcpServersView } from "./ExtensionMcpServersView";
 import { WorkspaceConnectorsPanel } from "./WorkspaceConnectorsPanel";
 import { MainCard, type Scope } from "./ui/ContextPanel";
+import { SlackInstallationsPanel } from "./SlackInstallationsPanel";
 
 function IntegrationRow({
   name,
@@ -129,18 +130,36 @@ function linearChip(linear: SetupStatus["linear"] | undefined, loading: boolean)
   return <ToneChip tone="neutral" label="Not set up" />;
 }
 
-export interface IntegrationsViewProps {
+interface IntegrationsViewProps {
   onNavigate?: (view: AppNavView) => void;
   initialTab?: "skills" | "mcp" | "connectors";
   actorId?: string | null;
   scope?: Scope;
+  workspaceId?: string;
+  workspaceName?: string;
+  workspaceRole?: TeamWorkspaceRole;
+  allowPersonalScope?: boolean;
+  onPersonalScope?: () => void;
+  onChooseWorkspace?: () => void;
+}
+const UNREAD_PRIVATE_BINDINGS: IntegrationBindingInputs = { setupLoading: true, mailboxCount: undefined, mailboxLoading: true,
+  gmailConnected: null, gmailLoading: true, externalMcpServerCount: undefined, externalMcpCatalogConnections: undefined, externalMcpLoading: true };
+
+export function IntegrationsView(props: IntegrationsViewProps): JSX.Element {
+  if (!props.workspaceId && props.allowPersonalScope === false) return <section aria-label="Workspace app setup unavailable" className="p-4 text-[var(--ink)]"><h2 className="text-xl">Select a workspace for app setup</h2><p className="mt-2 text-sm">Personal integration setup is unavailable for this session. Choose an active team workspace to view explicitly shared accounts.</p>{props.onChooseWorkspace && <button type="button" className="mt-4 min-h-11 border border-[var(--line)] px-3 text-xs" onClick={props.onChooseWorkspace}>Choose a workspace</button>}</section>;
+  if (props.workspaceId) return <div className="min-w-0 space-y-4"><WorkspaceConnectorsPanel key={`${props.actorId}:${props.workspaceId}:${props.workspaceRole}`} bindingInputs={UNREAD_PRIVATE_BINDINGS}
+    actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
+    allowPersonalScope={props.allowPersonalScope} onPersonalScope={props.onPersonalScope} />
+    {props.workspaceRole === "owner" && props.actorId && <SlackInstallationsPanel workspaceId={props.workspaceId} actorId={props.actorId} />}</div>;
+  return <PersonalIntegrationsView {...props} />;
 }
 
-export function IntegrationsView({
+function PersonalIntegrationsView({
   onNavigate,
   initialTab,
   actorId,
   scope = "personal",
+  onChooseWorkspace,
 }: IntegrationsViewProps): JSX.Element {
   const setup = useSetupStatus();
   const mailboxes = useMailboxes();
@@ -772,7 +791,7 @@ export function IntegrationsView({
               <LoadErrorState message={failed.message} onRetry={reloadAll} />
             </div>
           ) : null}
-          <WorkspaceConnectorsPanel bindingInputs={bindingInputs} actorId={actorId} onManagePermissions={() => onNavigate?.("employee-tools")} onChanged={() => setCatalogRefresh((value) => value + 1)} />
+          <WorkspaceConnectorsPanel bindingInputs={bindingInputs} actorId={actorId} onManagePermissions={() => onNavigate?.("employee-tools")} onChooseWorkspace={onChooseWorkspace} onChanged={() => setCatalogRefresh((value) => value + 1)} />
         </>
       )}
       </div>

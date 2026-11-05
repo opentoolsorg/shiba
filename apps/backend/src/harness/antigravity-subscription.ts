@@ -26,6 +26,7 @@
  * the rules live in @shiba/shared (`antigravity.ts`) so the Worker-side
  * auth provider and this harness share them without a cross-import.
  */
+import type { HarnessTextSanitizer } from "./event-sanitizer.js";
 import {
   antigravityBrowserCommand,
   antigravityEnvironment,
@@ -156,13 +157,13 @@ export class AntigravitySubscriptionHarness implements AgentHarness {
     ];
   }
 
-  parseEvent(line: string): HarnessEvent | null {
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
     try {
-      return parseAntigravityEvent(line);
+      return parseAntigravityEvent(line, sanitize);
     } catch (error) {
       if (
         error instanceof AntigravityErrorEvent &&
-        /usage|rate.?limit|quota|sign.?in|auth/i.test(error.detail)
+        error.usageLimited
       ) {
         throw new AntigravityUsageLimitError(error.detail);
       }

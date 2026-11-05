@@ -422,6 +422,7 @@ export async function createExternalMcpServer(env: Env, input: {
     if (!endpoint) endpoint = vendor.endpoint;
     if (!name) name = vendor.name;
     validatePublicHttpsEndpoint(endpoint);
+    if (new URL(endpoint).href !== new URL(vendor.endpoint).href) throw new Error("invalid_endpoint");
     if (!connectionLabel) throw new Error("connection_label_required");
   } else {
     validatePublicHttpsEndpoint(endpoint);
