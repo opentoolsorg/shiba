@@ -90,6 +90,7 @@ async function assertThreadProfile() {
   await composer.getByRole("button", { name: "Thread configuration", exact: true }).click();
   const configuration = composer.getByRole("menu", { name: "Thread configuration", exact: true });
   const selected = configuration.getByRole("menuitemradio").filter({ hasText: name });
+  await configuration.getByRole("menuitemradio", { checked: true }).filter({ hasText: name }).waitFor({ state: "visible" });
   assert.equal(await selected.getAttribute("aria-checked"), "true", "The named thread must retain its selected bot.");
   await selected.press("Escape");
   await configuration.waitFor({ state: "hidden" });

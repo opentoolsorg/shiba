@@ -34,6 +34,9 @@ async function assertThreadProfile(profileName, choiceText = profileName) {
   await composer.getByRole("button", { name: "Thread configuration", exact: true }).click();
   const config = composer.getByRole("menu", { name: "Thread configuration", exact: true });
   const choice = config.getByRole("menuitemradio").filter({ hasText: choiceText });
+  // Thread selection waits for its authenticated resume request. Attachment of
+  // the menu alone does not mean that asynchronous selection has completed.
+  await config.getByRole("menuitemradio", { checked: true }).filter({ hasText: choiceText }).waitFor({ state: "visible" });
   assert.equal(await choice.getAttribute("aria-checked"), "true", `Thread configuration did not select ${choiceText}`);
   await choice.press("Escape");
   await config.waitFor({ state: "hidden" });
@@ -103,8 +106,25 @@ try {
   await threadList.getByRole("option").filter({ hasText: "Default Session" }).click();
   await assertThreadProfile("Shiba", "Default (no bot)");
   assert.equal(await page.getByRole("button", { name: "Rename thread", exact: true }).count(), 0);
-  await threadList.getByRole("option").filter({ hasText: renamed }).click();
-  await assertThreadProfile(name);
+  // Hold the real resume request until the old selection has been observed.
+  // The assertion must wait for the new profile, never accept the old one.
+  const resumePath = `**/api/sessions/${session.id}/resume`;
+  let releaseResume;
+  const resumeGate = new Promise((resolve) => { releaseResume = resolve; });
+  await page.route(resumePath, async (route) => { await resumeGate; await route.continue(); });
+  try {
+    const resumeSeen = page.waitForRequest(resumePath);
+    await threadList.getByRole("option").filter({ hasText: renamed }).click();
+    await resumeSeen;
+    const selection = assertThreadProfile(name).then(() => null, (error) => error);
+    const menu = page.getByRole("menu", { name: "Thread configuration", exact: true });
+    await menu.waitFor({ state: "visible" });
+    assert.equal(await menu.getByRole("menuitemradio").filter({ hasText: name }).getAttribute("aria-checked"), "false", "Pending resume must not pretend the new profile is selected.");
+    releaseResume();
+    const failure = await selection;
+    if (failure) throw failure;
+  } finally { releaseResume(); await page.unroute(resumePath); }
+  passed("A delayed resume preserves the old selection until the named thread and profile are ready");
   passed("Switching to the protected default session clears the bot; returning restores it");
 
   await openAgentsDirectory();
