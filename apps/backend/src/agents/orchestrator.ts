@@ -6,6 +6,7 @@
  */
 import { Think, type ChatResponseResult, type ThinkSubmissionInspection, type TurnContext } from "@cloudflare/think";
 import { buildSlackCanvasUrl, parseSlackCanvasOrigin, resolveSlackCanvasBinding, verifySlackCanvasIntake, verifySlackCanvasRequest } from "../slack-canvas.js";
+import { SlackAgentSessionOutbox, type SlackAgentSessionIntent } from "../slack-agent-sessions.js";
 import {
   AGENT_ROLES,
   approvalEventInput,
@@ -65,7 +66,14 @@ import { sandboxSelectionForRun } from "../sandbox/run-selection.js";
 import { canSpawnSubagentAt, directChildPaths, nextSubagentPath, MAX_SUBAGENT_CHILDREN } from "@shiba/shared";
 import { shouldDestroySandboxAfterRun } from "../sandbox/release-policy.js";
 import type { Connection, ConnectionContext } from "agents";
-import { agentTool } from "agents/agent-tools";
+import {
+  agentTool,
+  type ChatCapableAgentClass,
+  type DetachedAgentToolConfig,
+  type DetachedRunAgentToolResult,
+  type RunAgentToolOptions,
+  type RunAgentToolResult,
+} from "agents/agent-tools";
 import { createSpecialistTools, type SpecialistTurnBudget } from "./specialists/tools.js";
 import { MAX_SPECIALIST_TASKS_PER_TURN, SPECIALIST_TIMEOUT_MS, specialistObservationSchema, withinSpecialistDeadline } from "./specialists/contract.js";
 import { ExplorerAgent } from "./specialists/explorer-agent.js";
@@ -523,6 +531,26 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   override maxConcurrentAgentTools = 1;
   private specialistTurn: { turnId: string; budget: SpecialistTurnBudget } | undefined;
   private publicationReviewInFlight?: Map<string, Promise<void>>;
+  override runAgentTool<Input = unknown>(
+    cls: ChatCapableAgentClass,
+    options: RunAgentToolOptions<Input> & { detached: true | DetachedAgentToolConfig },
+  ): Promise<DetachedRunAgentToolResult>;
+  override runAgentTool<Input = unknown, Output = unknown>(
+    cls: ChatCapableAgentClass,
+    options: RunAgentToolOptions<Input>,
+  ): Promise<RunAgentToolResult<Output>>;
+  override runAgentTool<Input = unknown, Output = unknown>(
+    cls: ChatCapableAgentClass,
+    options: RunAgentToolOptions<Input>,
+  ): Promise<RunAgentToolResult<Output> | DetachedRunAgentToolResult> {
+    // The SDK stores and broadcasts previews. Dispatch evidence and explicit
+    // private context must remain on the trusted parent to child RPC path.
+    const guarded = ["OpenCodeAgent", "ExplorerAgent", "ReviewerAgent"].includes(cls.name)
+      ? { ...options, inputPreview: { agent: cls.name, request: "Private child task" } }
+      : options;
+    if (guarded.detached) return super.runAgentTool(cls, { ...guarded, detached: guarded.detached });
+    return super.runAgentTool<Input, Output>(cls, guarded);
+  }
   private relayChildLifecycle(childId: string, status: string, message?: string, runId?: string): void {
     const session = parseSessionAgentName(this.name);
     const ownerId = initiatorUserIdFromOrchestratorName(this.name);
@@ -538,12 +566,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
   override async onBeforeSubAgent(
     _request: Request,
-    child: { className: string; name: string },
+    _child: { className: string; name: string },
   ): Promise<Response | void> {
-    if (!["OpenCodeAgent", "ExplorerAgent", "ReviewerAgent"].includes(child.className) ||
-        !this.hasAgentToolRun(child.className, child.name)) {
-      return new Response("Not found.", { status: 404 });
-    }
+    // Facets run only through parent RPC. Browser viewers use the parent stream
+    // and authorized rooms, never a child chat, transcript or mutable socket.
+    return new Response("Not found.", { status: 404 });
   }
 
   /** The orchestrator plans and delegates; it never runs shell commands. */
@@ -740,6 +767,87 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       throw error;
     }
     this.spineBuf = [];
+    if (this.env.SLACK_AGENT_SESSIONS_ENABLED === "true") void this.#scheduleSlackAgentSessionStatus();
+  }
+
+  #slackAgentSessionWork: Promise<void> | undefined;
+  #slackAgentSessionDirty = false;
+
+  /** Only committed, signed Slack source records can produce a native status intent. */
+  #slackAgentSessionIntent(): SlackAgentSessionIntent | null {
+    if (this.sessionDeleted || this.statePersistenceFailed || this.env.SLACK_AGENT_SESSIONS_ENABLED !== "true") return null;
+    const scope = parseSlackCanvasOrigin(this.name);
+    const revision = this.state?.events?.at(-1)?.seq;
+    if (!scope || scope.orchestratorName !== this.name || !parseSlackThreadName(this.name) ||
+        !Number.isSafeInteger(revision) || !revision || revision < 1) return null;
+    const approvals = this.approvals;
+    const source = (approvalId: string) => {
+      if (this.state.slackCanvasOrigins?.[approvalId] !== this.name) return null;
+      const binding = this.state.slackCanvasRunRooms?.[`agent-tool:${approvalId}`];
+      return binding?.runId === `agent-tool:${approvalId}` ? binding : null;
+    };
+    const approvedRuns = this.store.list().filter((run) => {
+      const approvalId = run.approval?.approvalId;
+      const approval = approvals.find((item) => item.approvalId === approvalId && item.threadKey === this.name);
+      return approvalId && run.runId === `agent-tool:${approvalId}` && source(approvalId) &&
+        approval?.status === "approved" && (!approval.kind || approval.kind === "run");
+    });
+    const make = (approvalId: string, status: SlackAgentSessionIntent["status"], persona: SlackAgentSessionIntent["persona"]): SlackAgentSessionIntent | null => {
+      const binding = source(approvalId);
+      return binding ? { origin: this.name, approvalId, binding: { ...binding }, revision, status, persona } : null;
+    };
+    const active = this.store.list().filter((run) => isActiveStatus(run.status)).sort((left, right) => right.updatedAt - left.updatedAt);
+    for (const run of active) {
+      const original = approvedRuns.find((item) => item.runId === run.runId || item.runId === run.reviewOf || item.runId === run.parentRunId);
+      if (original?.approval) return make(original.approval.approvalId, "processing", run.reviewOf ? "reviewer" : "fixer");
+    }
+    for (const approval of [...approvals].sort((left, right) => right.createdAt - left.createdAt)) {
+      if (approval.status !== "pending" || approval.threadKey !== this.name) continue;
+      if (!approval.kind || approval.kind === "run") {
+        const pending = make(approval.approvalId, "suspended", "lead");
+        if (pending) return pending;
+      }
+      if (approval.kind === "pr_publish" && isJsonObject(approval.payload)) {
+        const sourceRunId = approval.payload.runId;
+        const original = approvedRuns.find((run) => run.runId === sourceRunId);
+        if (original?.approval) return make(original.approval.approvalId, "suspended", "reviewer");
+      }
+    }
+    const terminal = approvedRuns.filter((run) => !isActiveStatus(run.status)).sort((left, right) => right.updatedAt - left.updatedAt)[0];
+    if (terminal?.approval) return make(terminal.approval.approvalId, "active", "lead");
+    const rejected = [...approvals].reverse().find((approval) => approval.status === "rejected" && approval.threadKey === this.name &&
+      (!approval.kind || approval.kind === "run") && source(approval.approvalId));
+    return rejected ? make(rejected.approvalId, "active", "lead") : null;
+  }
+
+  /** Native private methods are absent from the external RPC method surface. */
+  #scheduleSlackAgentSessionStatus(): Promise<void> {
+    if (this.env.SLACK_AGENT_SESSIONS_ENABLED !== "true" || !this.ctx?.storage?.transaction) return Promise.resolve();
+    this.#slackAgentSessionDirty = true;
+    if (this.#slackAgentSessionWork) return this.#slackAgentSessionWork;
+    const work = Promise.resolve().then(async () => {
+      for (let pass = 0; pass < 4 && this.#slackAgentSessionDirty; pass += 1) {
+        this.#slackAgentSessionDirty = false;
+        const intent = this.#slackAgentSessionIntent();
+        if (!intent) continue;
+        const outbox = new SlackAgentSessionOutbox(this.ctx.storage, this.env, (saved) => {
+          const current = this.#slackAgentSessionIntent();
+          return current !== null && current.revision >= saved.revision && current.origin === saved.origin &&
+            current.approvalId === saved.approvalId && current.status === saved.status && current.persona === saved.persona &&
+            current.binding.ownerId === saved.binding.ownerId && current.binding.sessionId === saved.binding.sessionId && current.binding.runId === saved.binding.runId;
+        });
+        await outbox.enqueue(intent);
+        await outbox.drain();
+      }
+    }).catch((error) => {
+      console.error("Native Slack session reconciliation failed", redactSecrets(String(error)));
+    }).finally(() => {
+      this.#slackAgentSessionWork = undefined;
+      if (this.#slackAgentSessionDirty) void this.#scheduleSlackAgentSessionStatus();
+    });
+    this.#slackAgentSessionWork = work;
+    this.holdOpen(work);
+    return work;
   }
 
   private get store(): RunStore {
@@ -1117,6 +1225,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       try { await this.appendRunObservation(run); }
       catch (error) { console.error("Coordinator child observation recovery failed", redactSecrets(String(error))); }
     }
+    if (this.env.SLACK_AGENT_SESSIONS_ENABLED === "true") void this.#scheduleSlackAgentSessionStatus();
   }
 
   override getModel(): string {
@@ -5474,6 +5583,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     await this.drainEffectOutbox();
     await this.reclaimSweep();
     await this.flushSlackTurnBuffer();
+    if (this.env.SLACK_AGENT_SESSIONS_ENABLED === "true") void this.#scheduleSlackAgentSessionStatus();
   }
 
   /**
@@ -5484,6 +5594,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    */
   private async reclaimRunsForRead(): Promise<void> {
     await this.drainEffectOutbox();
+    if (this.env.SLACK_AGENT_SESSIONS_ENABLED === "true") void this.#scheduleSlackAgentSessionStatus();
     if (Date.now() - (this.lastReclaimSweepAt ?? 0) < RECLAIM_SWEEP_INTERVAL_MS) return;
     this.lastReclaimSweepAt = Date.now();
     await this.reclaimSweep(true);

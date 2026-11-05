@@ -6,6 +6,9 @@ display_information:
   description: Approval-gated AI software engineer in your own Cloudflare account
   background_color: "#0b0d10"
 features:
+  # Native sessions are optional. Review docs/slack-agent-sessions.md before
+  # adding agent_view and assistant:write to an installed app. Leave the
+  # Worker feature disabled until that installation and workspace are verified.
   bot_user:
     display_name: shiba
     always_online: true

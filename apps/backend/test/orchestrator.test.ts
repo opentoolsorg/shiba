@@ -2180,14 +2180,14 @@ describe("agent facet routing", () => {
     Object.assign(instance, { hasAgentToolRun });
     const response = await instance.onBeforeSubAgent(new Request("https://internal/sub/guessed"), { className, name: "guessed" });
     expect(response?.status).toBe(404);
-    expect(hasAgentToolRun).toHaveBeenCalledWith(className, "guessed");
+    expect(hasAgentToolRun).not.toHaveBeenCalled();
   });
 
-  it("allows a retained approved class while refusing unknown facet classes", async () => {
+  it("refuses external access even to retained runs and unknown facet classes", async () => {
     const instance = agent();
     Object.assign(instance, { hasAgentToolRun: () => true });
     const request = new Request("https://internal/sub/retained");
-    expect(await instance.onBeforeSubAgent(request, { className: "ExplorerAgent", name: "retained" })).toBeUndefined();
+    expect((await instance.onBeforeSubAgent(request, { className: "ExplorerAgent", name: "retained" }))?.status).toBe(404);
     expect((await instance.onBeforeSubAgent(request, { className: "UnknownAgent", name: "retained" }))?.status).toBe(404);
   });
 });

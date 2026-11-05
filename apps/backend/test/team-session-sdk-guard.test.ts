@@ -52,7 +52,7 @@ describe("private team sessions cannot use legacy SDK routing", () => {
       }), env);
       expect(response.status).toBe(404);
     }
-    expect(state.names).toEqual([OWNER, OWNER]);
+    expect(state.names).toEqual([OWNER]);
     expect(state.forwarded).toHaveLength(0);
   });
   it.each([

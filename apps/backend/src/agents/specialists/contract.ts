@@ -121,21 +121,26 @@ export async function withinSpecialistDeadline<T>(operation: (signal: AbortSigna
   signal?.addEventListener("abort", abort, { once: true });
   if (signal?.aborted) abort();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
   try {
     controller.signal.throwIfAborted();
-    return await Promise.race([
-      operation(controller.signal),
-      new Promise<never>((_, reject) => {
-        const onAbort = () => reject(new Error("Specialist execution cancelled."));
-        controller.signal.addEventListener("abort", onAbort, { once: true });
-        timer = setTimeout(() => {
-          reject(new Error("Specialist execution deadline exceeded."));
-          controller.abort();
-        }, Math.max(0, Math.min(SPECIALIST_TIMEOUT_MS, expiresAt - Date.now())));
-      }),
-    ]);
+    const stopped = new Promise<never>((_, reject) => {
+      onAbort = () => reject(new Error("Specialist execution cancelled."));
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+      timer = setTimeout(() => {
+        reject(new Error("Specialist execution deadline exceeded."));
+        controller.abort();
+      }, Math.max(0, Math.min(SPECIALIST_TIMEOUT_MS, expiresAt - Date.now())));
+    });
+    // Install cancellation and race handlers before work can abort or throw.
+    const result = Promise.resolve().then(() => {
+      controller.signal.throwIfAborted();
+      return operation(controller.signal);
+    });
+    return await Promise.race([result, stopped]);
   } finally {
     clearTimeout(timer);
+    if (onAbort) controller.signal.removeEventListener("abort", onAbort);
     signal?.removeEventListener("abort", abort);
   }
 }
