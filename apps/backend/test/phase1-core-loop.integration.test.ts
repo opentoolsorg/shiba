@@ -213,7 +213,7 @@ async function queueAndApprove(instance: CodingOrchestrator, body: Record<string
   const queued = await instance.onRequest(
     new Request("https://internal/api/runs", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(body.runtime === "local" ? { "X-Shiba-Intake": "dashboard" } : {}) },
       body: JSON.stringify({
         ...((body.executionTarget as { kind?: unknown } | undefined)?.kind === "artifact-workspace" ? {} : { repoUrl: REPO }),
         task: "Add a README",
@@ -229,7 +229,7 @@ async function queueAndApprove(instance: CodingOrchestrator, body: Record<string
     new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "tester" }),
+      body: JSON.stringify({ threadKey: instance.name, approvalId, approved: true, decidedBy: "tester" }),
     }),
   );
   expect(approved.status).toBe(200);
@@ -511,7 +511,7 @@ describe("Phase 1 core loop (integration)", () => {
     expect(JSON.stringify(run?.deliverables)).not.toContain("Synthetic evidence only");
   });
 
-  it("accepts a repo-free artifact workspace, freezes its target at approval, and stores the verified output", async () => {
+  it.each(["sandbox", "local"] as const)("accepts a repo-free %s artifact workspace, freezes its target at approval, and stores the verified output", async (runtime) => {
     const stored = new Map<string, string>();
     const attachments = {
       put: vi.fn(async (key: string, body: string) => {
@@ -519,7 +519,8 @@ describe("Phase 1 core loop (integration)", () => {
         return { key };
       }),
     } as unknown as R2Bucket;
-    const instance = agent({ ATTACHMENTS: attachments });
+    const instance = agent({ ATTACHMENTS: attachments, SHIBA_LOCAL_RUNTIME: "1" });
+    if (runtime === "local") Object.assign(instance, { name: "tester" });
     const expectedDeliverables = ["sales/account-brief.md"];
     const executionTarget = {
       kind: "artifact-workspace",
@@ -529,6 +530,8 @@ describe("Phase 1 core loop (integration)", () => {
     mocks.execute.mockImplementation(async (text: string) => {
       const input = parseAgentToolInput([{ role: "user", text }]);
       expect(input.repoUrl).toBe("");
+      expect(input.runtime).toBe(runtime);
+      if (runtime === "local") expect(input.targetMachineId).toBe("paired-artifact");
       expect(input.executionTarget).toEqual(executionTarget);
       expect(input.expectedDeliverables).toEqual(expectedDeliverables);
       expect(input.publishPullRequest).toBe(false);
@@ -543,6 +546,8 @@ describe("Phase 1 core loop (integration)", () => {
 
     const { approvalId, codingRunId } = await queueAndApprove(instance, {
       executionTarget,
+      runtime,
+      ...(runtime === "local" ? { targetMachineId: "paired-artifact", harness: "opencode" } : {}),
       task: "Draft an evidence-grounded account brief",
       publishPullRequest: false,
       reviewAfterPublish: false,
@@ -567,6 +572,7 @@ describe("Phase 1 core loop (integration)", () => {
       publishPullRequest: run!.publishPullRequest,
       route: run!.route,
       runtime: run!.runtime,
+      ...(runtime === "local" ? { targetMachineId: run!.targetMachineId } : {}),
       expectedDeliverables: run!.expectedDeliverables,
     };
     expect(runInputHash(frozenInput)).toBe(run!.approval!.inputHash);
@@ -604,7 +610,6 @@ describe("Phase 1 core loop (integration)", () => {
       { executionTarget: target, expectedDeliverables: ["sales/other.md"] },
       { executionTarget: { ...target, expectedDeliverables: ["../private.md"] } },
       { executionTarget: target, publishPullRequest: true },
-      { executionTarget: target, runtime: "local" },
       { executionTarget: target, runSetup: true },
     ];
     for (const body of invalidRequests) {
