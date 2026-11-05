@@ -174,6 +174,7 @@ export const Worker = Cloudflare.Worker("Worker", {
   env: {
     GATEWAY_ID: "default",
     INTEGRATIONS_PROVIDER: "openconnector",
+    SHIBA_PERSONAL_LOCAL_EXECUTION: "0",
     SLACK_CANVAS_OWNERS: "[]",
     SLACK_AGENT_SESSIONS_ENABLED: "false",
     SLACK_AGENT_SESSIONS_TEAM_ID: "",
@@ -390,6 +391,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "ACP_MODEL",
       // T51 opt-in (§18.13): absent = the local runtime is dark.
       "SHIBA_LOCAL_RUNTIME",
+      "SHIBA_PERSONAL_LOCAL_EXECUTION",
       "CODEX_MODEL",
       "GROK_MODEL",
       "PI_MODEL",

@@ -15,6 +15,7 @@
 import { expectedDeliverablesSchema } from "./deliverables.js";
 import { z } from "zod";
 import { REASONING_EFFORTS } from "./model.js";
+import { personalExecutionClaimSchema, type PersonalExecutionClaim } from "./personal-execution.js";
 
 /** Runtimes an intake surface may ask for. "computer" stays env-only. */
 export const RUNTIME_SELECTIONS = ["sandbox", "local"] as const;
@@ -69,6 +70,7 @@ export const localRunEnvelopeSchema = z.object({
     sourceUrl: z.string().url().startsWith("https://").optional(),
   }).strict()).max(5).optional(),
   orgId: z.string().min(1).max(128).optional(),
+  personalExecution: personalExecutionClaimSchema.optional(),
   harness: z.string().min(1).max(64),
   /** Root-tokenized absolute paths the daemon resolves before use. */
   cloneDir: z.string().min(1).max(PATH_MAX),
@@ -80,7 +82,7 @@ export const localRunEnvelopeSchema = z.object({
       contents: z.string().max(500_000),
     }),
   ).max(16),
-  argv: z.array(z.string().min(1).max(PATH_MAX)).min(1).max(64),
+  argv: z.array(z.string().min(1).max(PATH_MAX)).max(64),
   env: z.record(z.string().min(1).max(128), z.string().max(ENV_VALUE_MAX)),
   testCommand: z.array(z.string().min(1).max(PATH_MAX)).max(8).optional(),
   expectedDeliverables: expectedDeliverablesSchema.optional(),
@@ -112,7 +114,7 @@ export const localRunEnvelopeSchema = z.object({
       resumeThreadId: z.string().min(1).max(256).optional(),
     })
     .optional(),
-});
+}).refine((value) => value.personalExecution ? value.argv.length === 0 : value.argv.length > 0, { message: "Personal execution cannot adopt harness argv; operator execution requires it." });
 export type LocalRunEnvelope = z.infer<typeof localRunEnvelopeSchema>;
 
 /** The daemon's report — what the adapter hands the verify gate. */
@@ -173,7 +175,11 @@ export interface LocalDispatchRecord {
     title: string;
     detail: string;
     createdAt: number;
+    /** Personal execution binds a single complete provider permission request. */
+    actionHash?: string;
+    expiresAt?: number;
     decision?: "allow" | "deny";
+    consumedAt?: number;
   }[];
   /** One-shot interrupt flag the daemon consumes. */
   interrupt?: boolean;
@@ -218,6 +224,7 @@ export function buildLocalRunEnvelope(args: {
     customAgentVersion?: number;
     skillPins?: Array<{ skillId: string; version: number; name: string; sourceUrl?: string }>;
     orgId?: string;
+    personalExecution?: PersonalExecutionClaim;
     testCommand?: string[];
     expectedDeliverables?: string[];
   };
@@ -262,6 +269,7 @@ export function buildLocalRunEnvelope(args: {
     ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
     ...(input.skillPins !== undefined ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
     ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
+    ...(input.personalExecution !== undefined ? { personalExecution: input.personalExecution } : {}),
     ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: [...input.expectedDeliverables] } : {}),
     harness: args.harnessName,
     cloneDir: `${LOCAL_RUN_ROOT_TOKEN}/${LOCAL_WORK_SUBDIR}`,

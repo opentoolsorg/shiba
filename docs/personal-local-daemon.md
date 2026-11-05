@@ -56,6 +56,13 @@ are unavailable. A human decision is first-click-only and consumed once; respons
 hash/expiry mismatches, revocation and cancellation stop execution. Selected auth
 copies are removed after confirmed process termination.
 
+Personal uploads are bounded as complete UTF-8 JSON bodies: 16 KiB for control
+and account messages, 1 MiB for event messages, and 8 MiB for final results. An
+oversized result becomes a small explicit transfer failure with no partial
+files or diff. A server 413 receives at most one small failure receipt; neither
+case relaunches the CLI. Event 413 stops execution. Ephemeral cleanup still
+applies, so a failed transfer does not promise later local output inspection.
+
 Primary interfaces checked on 2026-11-05:
 
 - [Claude CLI reference](https://code.claude.com/docs/en/cli-reference)

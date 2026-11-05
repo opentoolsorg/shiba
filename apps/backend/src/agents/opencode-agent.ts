@@ -25,6 +25,7 @@ import {
 import { allowedHostsFor, resolveHarness } from "../harness/index.js";
 import type { EgressOverride } from "../harness/types.js";
 import { assertHarnessAuthorized } from "../auth/index.js";
+import { revalidatePersonalExecutionSnapshot } from "../personal-execution-store.js";
 import {
   formatAgentResult,
   parseAgentToolInput,
@@ -324,6 +325,10 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             ? [{ role: "user", text: typeof savedInput === "string" ? savedInput : JSON.stringify(savedInput) }]
             : this.messages.map((message) => ({ role: message.role, text: messageText(message) })));
           executionInput = input;
+          if (input.personalExecution && (verifyStandinEnabled(this.env) ||
+            !await revalidatePersonalExecutionSnapshot(this.env, input.personalExecution))) {
+            throw new Error("Personal execution cannot use a stand-in or an expired account grant.");
+          }
           if (!verifyStandinEnabled(this.env)) {
             await assertChildDispatchAuthorized(this.env, input);
             if (input.dispatchExpiresAt !== undefined) {

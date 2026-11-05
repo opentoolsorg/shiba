@@ -23,6 +23,9 @@ import { ContainerProxy } from "./sandbox/npm-shim.js";
 import { withVerifiedAccessIdentity } from "./access-jwt.js";
 import { handleActivity } from "./activity-routes.js";
 import { handleApprovals } from "./approvals-routes.js";
+import { handleWorkspaceIntegrations } from "./workspace-integrations-routes.js";
+import { handlePersonalExecution } from "./personal-execution-routes.js";
+import { tickFounderReviewSchedules } from "./founder-review-schedules.js";
 import { handleOnboardingProgress } from "./onboarding-progress.js";
 import { handleCollaborationWithRealtime } from "./collaboration-room-routes.js";
 import { handleTeamWorkspaces } from "./team-workspaces-routes.js";
@@ -167,6 +170,9 @@ export const DASHBOARD_VIEWS = new Set([
 
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(tickFounderReviewSchedules(env).catch((error: unknown) => {
+      console.error("Founder review scheduling failed", redactSecrets(String(error)));
+    }));
     ctx.waitUntil(
       automationsStub(env)
         .fetch(new Request("https://internal/internal/tick", { method: "POST" }))
@@ -290,6 +296,10 @@ export default {
       }
       const memberPolicyResponse = await enforceTeamMemberApiPolicy(request, env);
       if (memberPolicyResponse) return memberPolicyResponse;
+      const workspaceIntegrationResponse = await handleWorkspaceIntegrations(request, env);
+      if (workspaceIntegrationResponse) return workspaceIntegrationResponse;
+      const personalExecutionResponse = await handlePersonalExecution(request, env);
+      if (personalExecutionResponse) return personalExecutionResponse;
       const workResponse = await handleTeamWork(request, env);
       if (workResponse) return workResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);

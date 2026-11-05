@@ -36,6 +36,7 @@
     // worker-secrets.json; unset vendors remain unavailable for OAuth.
     "MCP_TRUSTED_HOSTS": "",
     "INTEGRATIONS_PROVIDER": "openconnector",
+    "SHIBA_PERSONAL_LOCAL_EXECUTION": "0",
     // Slack canvas access requires an explicit team/channel owner policy.
     "SLACK_CANVAS_OWNERS": "[]",
     "SLACK_AGENT_SESSIONS_ENABLED": "false",

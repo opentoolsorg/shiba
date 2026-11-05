@@ -1,34 +1,88 @@
 # Personal execution for invited team members
 
-Status: blocked on a later product and authorization contract. This extends the
+Status: a narrow personal local execution contract is implemented behind the
+default-off `SHIBA_PERSONAL_LOCAL_EXECUTION=1` and `SHIBA_LOCAL_RUNTIME=1` flags.
+Both the pairing and internal signing keys must have at least 32 characters;
+missing prerequisites keep setup unavailable. Integrated acceptance remains
+required before enabling it. This extends the
 team employee request; it is not a prerequisite from the original four-phase
-control plane plan. No invited-member execution is enabled by this document.
-The current API denial is intentional and must remain until the contract below
-is implemented and verified.
+control plane plan. This document does not enable execution or certify a live
+Claude or Codex account.
 
 ## Current boundaries
 
-- [`team-member-auth.ts`](../apps/backend/src/team-member-auth.ts) denies invited
-  native accounts access to deployment provider setup, computers, run intake and
-  approval administration. [`runs-routes.ts`](../apps/backend/src/runs-routes.ts)
-  separately rejects their collaboration employee execution requests.
+- [`team-member-auth.ts`](../apps/backend/src/team-member-auth.ts) keeps deployment
+  provider setup and the operator computer fleet separate from invited accounts.
+  The new personal namespace authenticates a verified native account and exact
+  workspace membership itself; it grants no deployment administration rights.
 - [`model-connections.ts`](../apps/backend/src/model-connections.ts) defines
   connections as `owner: "deployment"`. A missing connection selection can adopt
   the sole ready connection or implicit deployment default in
   [`model-policy.ts`](../apps/backend/src/model-policy.ts). A personal route must
   not inherit either behavior.
-- Pairing in [`computers-routes.ts`](../apps/backend/src/computers-routes.ts)
-  signs a nonce and expiry. [`local-dispatch.ts`](../apps/backend/src/local-dispatch.ts)
-  stores the nonce expiry and paired machine token hash, without a human owner
-  or workspace grant. The current fleet list and Claude readiness probe inspect
-  the deployment fleet. Machine pinning proves freshness and harness support,
-  not ownership. Every paired daemon can currently claim unpinned pending work.
-- [`shiba-local-daemon.mjs`](../scripts/shiba-local-daemon.mjs) inherits the
+- Legacy pairing signs a nonce and expiry and retains the existing operator
+  fleet. Personal pairing v2 additionally binds the verified account UUID,
+  canonical actor, exact workspace membership version and role, origin and
+  single-use expiry. Personal machines are excluded from the operator fleet and
+  cannot claim its pinned or unpinned work. The operator bearer and another
+  member's machine cannot claim or inspect personal jobs.
+- The legacy path in [`shiba-local-daemon.mjs`](../scripts/shiba-local-daemon.mjs) inherits the
   selected provider's local API key when present and
   [`link-operator-auth.mjs`](../scripts/link-operator-auth.mjs) copies both Claude
   and Codex login files into a disposable run home. CLI presence in a heartbeat
   proves neither the account nor the effective API-key/subscription billing
   lane. These are existing single-operator paths, not a personal team grant.
+  The personal lane separately requires an explicitly selected native account,
+  selected-only credential staging and a fresh local CLI observation. See
+  [personal local daemon](personal-local-daemon.md) for the supported evidence
+  and failure behavior.
+
+## Implemented personal contract
+
+[`personal-execution-routes.ts`](../apps/backend/src/personal-execution-routes.ts)
+exposes own computers, explicit pairing, grant creation and revocation, exact
+CLI permission decisions, and Stop. A grant pins the owner, workspace,
+membership version, machine revision, native subscription account fingerprint,
+auth revision, harness, explicit coding model, anonymous public GitHub repository
+and expiry. A machine or CLI account observation change increases the
+server-owned revision; repeating identical fresh evidence does not.
+
+[`personal-execution-store.ts`](../apps/backend/src/personal-execution-store.ts)
+checks the immutable native account UUID and verified email against the exact
+current membership in SQL. The public repository check sends no GitHub token or
+cookies and rejects redirects or private repositories. The only allowed phase
+is `local_repository_task`. A grant grants no app, private repository, workspace
+credential, coordinator or specialist authority.
+
+[`local-dispatch.ts`](../apps/backend/src/local-dispatch.ts) requires the exact
+personal machine and account, current grant, retained human approval and run
+generation before a one-shot claim. The proof binds the reviewed task, branch,
+employee profile version, selected skill revisions and deliverable scope.
+Personal envelopes cannot adopt executable arguments, provider environment
+variables, setup commands, custom executable paths, resume sessions or reasoning
+effort defaults. Cancellation does not permit redispatch under the same mailbox
+run ID.
+Personal daemon POST bodies have aggregate transfer limits: 16 KiB for control,
+receipts and permissions, 1 MiB for events, and 8 MiB for results. Oversize bodies
+return 413 before mailbox parsing; they are never silently truncated or
+reexecuted. This is a narrower output transfer contract than the legacy operator
+lane's individual file limits.
+
+Each CLI permission binds a full source action hash, complete bounded review,
+permission ID, original deadline, grant and machine revisions. Only the verified
+native machine owner with the current personal grant may make the first
+decision. This grants no authority over another owner's work or the shared
+approval queue. The daemon can consume that decision once. Missing,
+expired, incomplete, sensitive or changed requests fail closed. There is no
+approve-all or agent approval path. A current member sees only minimal owned
+Stop metadata after execution authority changes; revoked context is withheld.
+
+Stopping or unpairing an already owned machine uses the immutable native owner
+proof and does not require a still active execution grant or workspace
+membership. That exception cannot read room content, approve a permission or
+start work. Local account receipts are observations by the paired machine, not
+provider-signed entitlement proofs. Native execution under the same OS user is
+not an OS sandbox; a fresh HOME does not protect unrelated host files.
 
 ## Existing inference and outbound cost paths
 
@@ -51,16 +105,16 @@ Durable Object, D1, private artifact storage and network costs still belong to
 the operator unless a separate hosting arrangement exists. Personal provider
 selection must never be presented as eliminating those infrastructure costs.
 
-## Smallest proposed execution slice
+## Allowed execution slice
 
-An explicitly submitted shared-room repository task could run on the requesting
+An explicitly submitted shared-room public repository task may run on the requesting
 human's own paired Claude or Codex machine. The initial slice should allow only
 direct submission, human approval, local execution and source-authorized result
 delivery. It must reject conversational coordinator turns, specialists, cloud
 fallback, publication, automatic follow-up execution, repository setup scripts,
 connected-app tools and inherited private transcripts.
 
-This remains a proposal, with these required foundations:
+The required contract is:
 
 1. **Owner-bound pairing v2.** Mint pairing only from an authenticated verified
    human. Bind the versioned nonce to that human, deployment, intended scope and
@@ -84,7 +138,8 @@ This remains a proposal, with these required foundations:
 4. **Frozen execution proof.** Include the grant revision, owner, machine and
    account fingerprint, allowed phases, employee profile version, room context
    digest, selected sources and audience in the same human-approved input and
-   signed local envelope. Recheck membership, source access, machine ownership,
+   approval-bound local envelope. The mailbox checks the exact retained approval
+   host through a signed internal RPC. Recheck membership, source access, machine ownership,
    account and grant at approval, dispatch and claim. Revocation must prevent
    new claims and cancel queued work without retrying on a different machine.
 5. **No implicit operator inference.** The grant must explicitly forbid or
@@ -93,12 +148,11 @@ This remains a proposal, with these required foundations:
    deployment key or model binding is configuration, not consent. Unsupported
    phases must fail closed before sending task data or starting model work.
 
-The unresolved decision is whether this narrow direct local slice is desired,
-and whether any operator-funded inference is permitted for invited members.
-If permitted, the allowed phases, data destinations, funding authority, limits
-and revocation rules must be explicit. No amount-aware spend or funding contract
-is inferred from an invitation or the request to use a personal Claude/Codex
-account.
+The narrow direct local slice is authorized for implementation. Operator-funded
+inference remains outside this grant. Any future addition needs explicit allowed
+phases, data destinations, funding authority, limits and revocation rules. No
+amount-aware spend or funding contract is inferred from an invitation or the
+request to use a personal Claude/Codex account.
 
 ## Required acceptance evidence
 
@@ -117,5 +171,9 @@ Claude/Codex account execution only in an authorized environment after these
 boundaries pass. Existing local CLI fixtures and provider connection badges do
 not establish that live personal-team capability.
 
-This assessment used source inspection only. It made no credential attempt,
-model call, account change, remote write or execution-policy change.
+The backend component evidence uses signed native sessions, real SQLite
+membership and grant queries, and local mailbox fixtures. Anonymous GitHub reads
+and the parent approval RPC are fixture responses in that component suite. The
+separate parent, daemon and browser suites must establish their own boundaries.
+These checks make no live credential attempt, model call, account change or
+remote write. Live provider execution and deployed acceptance remain separate.

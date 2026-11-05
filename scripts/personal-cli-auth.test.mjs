@@ -6,7 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { isSafePersonalApprovalReview, readPersonalAuthMaterial, stagePersonalAuth } from "./link-operator-auth.mjs";
 import { inspectStagedPersonalAccount, personalChildEnvironment, probePersonalAccount, runPersonalAuthCommand } from "./personal-cli-auth.mjs";
-import { assertPersonalConfigurationSafe, assertPersonalEnvelope, personalGitArgs, personalRunPaths, personalSessionOptions, validatePersonalBinding } from "./personal-execution-guard.mjs";
+import { assertPersonalConfigurationSafe, assertPersonalEnvelope, personalGitArgs, personalResultForTransfer, personalRunPaths, personalSessionOptions, validatePersonalBinding } from "./personal-execution-guard.mjs";
 
 const now = Date.now();
 const hash = "a".repeat(64), auth = "b".repeat(64);
@@ -85,6 +85,15 @@ test("personal child environment strips alternate auth and Git/provider configur
   assert.ok(personalSessionOptions("codex").launchArgs.includes("features.apps=false"));
   assert.ok(personalSessionOptions("claude-code").binArgs.includes("--safe-mode"));
   assert.throws(() => personalRunPaths("/tmp/run", "../other"));
+});
+test("personal transfer cap measures complete UTF-8 bytes and returns failure without partial output", () => {
+  const ordinary = { status: "completed", summary: "done", files: [{ path: "out.txt", content: "complete", encoding: "utf8" }], diff: "complete" };
+  assert.equal(personalResultForTransfer("run", "claim", ordinary), ordinary);
+  const oversized = { ...ordinary, files: [{ path: "out.txt", content: "😀".repeat(2_100_000), encoding: "utf8" }] };
+  const failed = personalResultForTransfer("run", "claim", oversized);
+  assert.equal(failed.status, "error"); assert.deepEqual(failed.files, []); assert.equal(failed.diff, "");
+  assert.match(failed.summary, /No files or diff were uploaded/); assert.match(failed.summary, /not be executed again/);
+  assert.equal(oversized.files[0].content.length, 4_200_000);
 });
 test("stages selected Codex auth only and returns no raw account or credentials", async (t) => {
   const { user, run } = await homes(t); await writeAuth(user); await writeAuth(user, "claude-code");

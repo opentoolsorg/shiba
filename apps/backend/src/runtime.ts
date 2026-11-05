@@ -22,6 +22,7 @@ import {
   mergeRunUsage,
   RUN_SIGNAL_KINDS,
   isEphemeralWorkspace,
+  personalExecutionClaimSchema,
 } from "@shiba/shared";
 import {
   verifyExpectedDeliverables,
@@ -856,7 +857,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
     emit: ProgressEmitter,
     opts?: { signal?: AbortSignal; signals?: RunSignal[]; env?: Record<string, string> },
   ): Promise<CodingTaskResult> {
-    input = withDeliverableInstructions(input);
+    input = input.personalExecution ? input : withDeliverableInstructions(input);
     const signals = opts?.signals ?? [];
     const milestone = (kind: RunSignalKind, detail?: string) => {
       signals.push(
@@ -878,16 +879,27 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
         signals,
       );
     }
+    const personal = input.personalExecution ? personalExecutionClaimSchema.safeParse(input.personalExecutionClaim) : null;
+    if (input.personalExecution && (!personal?.success ||
+      JSON.stringify(personal.data.snapshot) !== JSON.stringify(input.personalExecution) ||
+      input.targetMachineId !== input.personalExecution.machineId || input.initiatorUserId !== input.personalExecution.actorId ||
+      this.harness.name !== input.personalExecution.harness || input.codingModel !== input.personalExecution.codingModel ||
+      input.repoUrl !== input.personalExecution.repoUrl || input.runtime !== "local" || input.publishPullRequest || input.testCommand ||
+      input.authAccount || input.forkCheckpointRef || personal.data.approvedUntil <= Date.now())) {
+      return failureResult("Personal local work no longer matches its approved account, machine and task authority.", 0, "", signals);
+    }
     const workdir = `/workspace/${input.sandboxId}`;
-    const configValue = this.harness.configFile(input, input.sandboxId);
+    // A personal native account must never receive deployment credentials,
+    // harness config, setup commands or a silent provider fallback.
+    const configValue = personal?.success ? null : this.harness.configFile(input, input.sandboxId);
     const configFiles =
       configValue === null ? [] : Array.isArray(configValue) ? configValue : [configValue];
-    const env = this.harness.env(input, configFiles[0]?.path ?? null);
+    const env = personal?.success ? {} : this.harness.env(input, configFiles[0]?.path ?? null);
     const dummyKeys = Object.entries(env)
       .filter(([, value]) => value === DUMMY_PROVIDER_KEY)
       .map(([key]) => key);
     const sessionKindLocal = sessionProvider(this.harness.name);
-    const deadlineAt = Date.now() + LOCAL_MAILBOX_TIMEOUT_MS;
+    const deadlineAt = Math.min(Date.now() + LOCAL_MAILBOX_TIMEOUT_MS, personal?.success ? personal.data.approvedUntil : Infinity);
     const envelope = buildLocalRunEnvelope({
       input: {
         sandboxId: input.sandboxId,
@@ -900,19 +912,20 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
         ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
         ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
         ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: input.expectedDeliverables } : {}),
+        ...(personal?.success ? { personalExecution: personal.data } : {}),
       },
       harnessName: this.harness.name,
       workdir,
       configFiles,
-      setupCommands: (this.harness.setupCommands?.(input, workdir) ?? []).map((cmd) => [...cmd]),
-      argv: this.harness.buildArgv(input, workdir),
+      setupCommands: personal?.success ? [] : (this.harness.setupCommands?.(input, workdir) ?? []).map((cmd) => [...cmd]),
+      argv: personal?.success ? [] : this.harness.buildArgv(input, workdir),
       env,
       dummyKey: DUMMY_PROVIDER_KEY,
       providerKeyEnv: dummyKeys[0],
       execAllowlist: this.harness
         .capabilities(input.codingModel)
         .execAllowlist.map((prefix) => [...prefix]),
-      setupAllowlist: SETUP_COMMAND_ALLOWLIST.map((prefix) => [...prefix]),
+      setupAllowlist: personal?.success ? [] : SETUP_COMMAND_ALLOWLIST.map((prefix) => [...prefix]),
       deadlineAt,
       ...(sessionKindLocal !== null
         ? {

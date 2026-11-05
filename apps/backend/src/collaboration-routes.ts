@@ -5,6 +5,7 @@ import {
   type CollaborationHandoffEnvelope,
   type CollaborationMembership,
   type CollaborationRoom,
+  type PersonalExecutionSnapshot,
   childHandoffLineage,
   MAX_HANDOFF_BUDGET,
   executionTargetSchema,
@@ -61,6 +62,7 @@ import { isSupportedEmployeeToolScope, resolveEmployeeRunToolContext } from "./e
 import { signInternalRequest } from "./edge-identity.js";
 import { bindCollaborationContextApproval, freezeCollaborationContext, isCollaborationContextCurrent, prepareCollaborationHumanAssignment, readCollaborationHumanAssignment } from "./collaboration-context.js";
 import { createCollaborationMemory, listCollaborationMemory, revokeCollaborationMemory } from "./collaboration-memory.js";
+import { resolvePersonalExecutionOwner, resolvePersonalExecutionGrant } from "./personal-execution-store.js";
 
 const PREFIX = "/api/collaboration";
 const BODY_LIMIT = 16 * 1024;
@@ -1174,6 +1176,30 @@ export async function handleCollaboration(
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return json({ error: "Pinned employee profile is no longer available." }, 409);
         }
+        let personalExecution: PersonalExecutionSnapshot | undefined;
+        if (body.personalExecution !== undefined) {
+          const selection = body.personalExecution;
+          if (!selection || typeof selection !== "object" || Array.isArray(selection) ||
+            Object.keys(selection).some((key) => key !== "grantId" && key !== "expectedVersion") ||
+            typeof (selection as Record<string, unknown>).grantId !== "string" ||
+            !Number.isSafeInteger((selection as Record<string, unknown>).expectedVersion) ||
+            ["runtime", "targetMachineId", "executionTarget", "repoUrl", "harness", "codingModel", "model", "connectionId", "publishPullRequest", "runSetup", "env", "authAccount", "reasoningEffort", "testCommand"].some((key) => body[key] !== undefined)) {
+            await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+            return invalidBody("Select one current personal execution grant without overriding its account, machine, model or repository.");
+          }
+          const owner = await resolvePersonalExecutionOwner(request, env);
+          const grant = owner && owner.actorId === scope.userId && owner.workspaceId === scope.workspaceId
+            ? await resolvePersonalExecutionGrant(env, owner, (selection as { grantId: string }).grantId) : null;
+          if (!grant || grant.grantVersion !== (selection as { expectedVersion: number }).expectedVersion) {
+            await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+            return json({ error: "Your personal account grant expired, changed or is unavailable. Review it before requesting work." }, 409);
+          }
+          personalExecution = grant;
+          if (profile.config.toolScopes?.length) {
+            await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+            return json({ error: "Personal local work requires an employee without Worker app tools. Local account consent does not fund or grant those tools." }, 403);
+          }
+        }
         const configuredScopes = profile.config.toolScopes ?? [];
         if (configuredScopes.some((toolScope) => !isSupportedEmployeeToolScope(toolScope))) {
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
@@ -1207,12 +1233,12 @@ export async function handleCollaboration(
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Connected-app room work is not supported yet.");
         }
-        const runtime = body.runtime === "local" ? "local" : "sandbox";
+        const runtime = personalExecution || body.runtime === "local" ? "local" : "sandbox";
         if (requestedTarget?.kind === "artifact-workspace" && runtime === "local") {
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Artifact-workspace employee work currently requires the cloud sandbox.");
         }
-        const repoUrl = requestedTarget?.kind === "artifact-workspace"
+        const repoUrl = personalExecution ? personalExecution.repoUrl : requestedTarget?.kind === "artifact-workspace"
           ? ""
           : requestedTarget?.kind === "repository"
             ? requestedTarget.repoUrl
@@ -1231,7 +1257,7 @@ export async function handleCollaboration(
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Repository URL must match the explicit repository destination.");
         }
-        const targetMachineId = typeof body.targetMachineId === "string" ? body.targetMachineId.trim() : "";
+        const targetMachineId = personalExecution?.machineId ?? (typeof body.targetMachineId === "string" ? body.targetMachineId.trim() : "");
         if (runtime === "local" && !targetMachineId) {
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Choose a paired computer for local employee work.");
@@ -1266,6 +1292,7 @@ export async function handleCollaboration(
           profileVersion: profile.version,
           commandId: saved.handoffId,
           collaborationHandoffId: saved.handoffId,
+          ...(personalExecution ? { personalExecution } : {}),
           runtime,
           ...(runtime === "local" ? { targetMachineId } : {}),
         });

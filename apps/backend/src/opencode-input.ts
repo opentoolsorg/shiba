@@ -4,6 +4,7 @@
  * parseAgentToolInput. The child never scrapes arbitrary prose.
  */
 import { z } from "zod";
+import { personalExecutionSnapshotSchema, personalExecutionClaimSchema } from "@shiba/shared";
 import { AGENT_ROLES, HARNESS_IDS, RUN_SIGNAL_KINDS, runtimeSelectionSchema, testCommandSchema, expectedDeliverablesSchema, executionTargetSchema, isSafeDeliverablePath } from "@shiba/shared";
 import { isApprovedRoute, type ApprovedRoute } from "./model-connections.js";
 import { parseGitHubRepoUrl } from "./security.js";
@@ -55,7 +56,7 @@ const codingTaskInputSchema = z.object({
    */
   authAccount: z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/).optional(),
   /** Dashboard user whose ChatGPT subscription credential egress may use. */
-  initiatorUserId: z.string().min(1).max(128).optional(),
+  initiatorUserId: z.string().min(1).max(254).optional(),
   /** Worker-only: short-lived ChatGPT plan access token for codex-subscription runs. */
   chatgptAccessToken: z.string().min(1).optional(),
   chatgptThreadId: z.string().min(1).optional(),
@@ -120,6 +121,8 @@ const codingTaskInputSchema = z.object({
   runtime: runtimeSelectionSchema.optional(),
   /** Pins a local run to one paired machine (hashed into the approved run). */
   targetMachineId: z.string().min(1).max(128).optional(),
+  personalExecution: personalExecutionSnapshotSchema.optional(),
+  personalExecutionClaim: personalExecutionClaimSchema.optional(),
   /** HMAC seal proving the orchestrator parent dispatched this envelope. */
   dispatchApprovalId: z.string().min(1).max(512).optional(),
   dispatchInputHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
@@ -137,6 +140,16 @@ const codingTaskInputWithRouteSchema = codingTaskInputSchema.superRefine((input,
   if (input.route !== undefined && !isApprovedRoute(input.route)) {
     ctx.addIssue({ code: "custom", message: "route must be an ApprovedRoute (connection/model/harness ids only)." });
   }
+  if (input.personalExecution) {
+    const personal = input.personalExecution;
+    if (input.runtime !== "local" || input.targetMachineId !== personal.machineId || input.harness !== personal.harness ||
+      input.codingModel !== personal.codingModel || input.repoUrl !== personal.repoUrl || input.publishPullRequest ||
+      input.runSetup || input.envSealed || input.authAccount || input.chatgptAccessToken || input.forkCheckpointRef || input.testCommand?.length ||
+      input.personalExecutionClaim?.snapshot.grantId !== personal.grantId ||
+      JSON.stringify(input.personalExecutionClaim.snapshot) !== JSON.stringify(personal)) {
+      ctx.addIssue({ code: "custom", message: "Personal execution requires its exact approved local account, machine and claim proof." });
+    }
+  } else if (input.personalExecutionClaim) ctx.addIssue({ code: "custom", message: "Personal claim proof requires an approved personal execution snapshot." });
   const target = input.executionTarget;
   if (target?.kind === "repository") {
     if (input.repoUrl !== target.repoUrl || input.baseBranch !== target.baseBranch) {

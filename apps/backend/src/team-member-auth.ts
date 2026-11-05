@@ -28,6 +28,9 @@ const ownApi = [
 ];
 const workspaceApi = [
   /^\/api\/collaboration(?:\/|$)/,
+  /^\/api\/personal-execution(?:\/|$)/,
+  /^\/api\/founder-skills(?:\/|$)/,
+  /^\/api\/workspace-integrations(?:\/|$)/,
   /^\/api\/(?:custom-agents|employee-bundles|skills)(?:\/|$)/,
   /^\/api\/v1\/extensions\/skills(?:\/|$)/,
   /^\/api\/onboarding\/progress\/?$/,
@@ -52,6 +55,12 @@ export async function enforceTeamMemberApiPolicy(request: Request, env: Env): Pr
   if (ownApi.some((rule) => rule.test(path))) return null;
   if (path === "/api/providers" && request.method === "GET") return null;
   if (/^\/api\/providers(?:\/|$)/.test(path)) return deny("team_provider_setup_unavailable", "Provider setup for team members is unavailable until every connection requires an owned account or explicit personal credential.");
+  // Revoking execution or workspace access must not remove the native owner's
+  // ability to stop their existing local process or unpair their computer. These
+  // exact handlers independently verify native account UUID, origin and the
+  // immutable stored owner; the exception grants no reads, queue or decisions.
+  if ((request.method === "POST" && path === "/api/personal-execution/harness/control") ||
+    (request.method === "DELETE" && /^\/api\/personal-execution\/computers\/[A-Za-z0-9_-]{1,128}$/.test(path))) return null;
   if (workspaceApi.some((rule) => rule.test(path))) {
     const url = new URL(request.url), selectors = url.searchParams.getAll("workspaceId");
     const queryAllowed = request.method === "GET" && (

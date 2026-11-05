@@ -79,3 +79,14 @@ export function personalRunPaths(runRoot, sandboxId) {
   return { root, cloneDir: path.join(root, "work"), homeDir: path.join(root, "home") };
 }
 
+/** Reject oversized complete transfers; never publish partial files or diffs. */
+export function personalResultForTransfer(sandboxId, claimToken, result) {
+  if (Buffer.byteLength(JSON.stringify({ sandboxId, claimToken, result }), "utf8") <= 8 * 1024 * 1024) return result;
+  return personalTransferFailure();
+}
+
+export function personalTransferFailure() {
+  return { status: "error", exitCode: 1, summary: "Personal output could not be uploaded within the 8 MiB transfer limit. No files or diff were uploaded. The task will not be executed again automatically.",
+    stderrTail: "", changedFiles: [], diff: "", files: [], signals: [] };
+}
+

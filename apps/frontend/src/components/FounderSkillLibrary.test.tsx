@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { reloadSavedSkills } from "../saved";
+import { reloadSavedSkills, useSavedSkills } from "../saved";
 import { FounderSkillLibrary } from "./FounderSkillLibrary";
 
-vi.mock("../saved", () => ({ reloadSavedSkills: vi.fn(), useSavedSkills: () => ({ skills: [] }) }));
+vi.mock("../saved", () => ({ reloadSavedSkills: vi.fn(), useSavedSkills: vi.fn(() => ({ skills: [] })) }));
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
@@ -95,5 +95,18 @@ describe("FounderSkillLibrary", () => {
     fireEvent.click(screen.getByRole("button", { name: "Install draft" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/skill-abc/));
     expect(reloadSavedSkills).toHaveBeenCalledOnce();
+  });
+
+  it("keeps team founder browsing out of the personal saved cache and pins every request to the selected workspace", async () => {
+    vi.mocked(useSavedSkills).mockImplementationOnce(() => { throw new Error("Personal hook must not run in a team"); });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ skills: [entry] })));
+    render(<FounderSkillLibrary workspaceId="ws_aaaaaaaaaaaaaaaaaaaaaaaa" canManage />);
+    expect(await screen.findByRole("button", { name: "Schedule review drafts: Stripe revenue pulse" })).toBeTruthy();
+    expect(useSavedSkills).not.toHaveBeenCalled();
+    expect(reloadSavedSkills).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Review employee setup:/ })).toBeNull();
+    expect(new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers).get("X-Shiba-Workspace")).toBe("ws_aaaaaaaaaaaaaaaaaaaaaaaa");
+    // Remove the unused once implementation before other fixtures mount a personal view.
+    vi.mocked(useSavedSkills).mockReset().mockReturnValue({ skills: [] } as unknown as ReturnType<typeof useSavedSkills>);
   });
 });

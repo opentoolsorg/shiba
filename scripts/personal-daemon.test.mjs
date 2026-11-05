@@ -23,7 +23,7 @@ rl.on('line',line=>{const m=JSON.parse(line);const reply=result=>console.log(JSO
 if(m.method==='initialize'){client=m.params.clientInfo.name;reply({version:'fixture'});}
 else if(m.method==='account/read'){if(m.params.refreshToken!==false)process.exit(2);reply({requiresOpenaiAuth:true,account:{type:'chatgpt',email:'one@example.test',planType:'pro'}});}
 else if(m.method==='thread/start')reply({thread:{id:'thread-fixture'}});
-else if(m.method==='turn/start'){fs.writeFileSync(${JSON.stringify(started)},JSON.stringify({pid:process.pid,envKeys:Object.keys(process.env),argv:process.argv,home:process.env.HOME,providerFile:fs.existsSync(process.env.HOME+'/.codex/auth.json'),otherFile:fs.existsSync(process.env.HOME+'/.claude/.credentials.json')}));reply({turn:{id:'turn-fixture'}});if(${JSON.stringify(mode)}==='complete')setTimeout(()=>console.log(JSON.stringify({method:'turn/completed',params:{turn:{id:'turn-fixture',status:'completed'}}})),10);if(${JSON.stringify(mode)}.startsWith('permission-'))setTimeout(()=>console.log(JSON.stringify({id:'native-permission',method:'item/commandExecution/requestApproval',params:{itemId:'permission-item',command:${JSON.stringify(mode === "permission-secret" ? "echo FAKE_PERSONAL_REFRESH" : "echo safe")},reason:'fixture',cwd:process.cwd(),env:{SAFE_FLAG:'1'}}})),10);}
+else if(m.method==='turn/start'){fs.writeFileSync(${JSON.stringify(started)},JSON.stringify({pid:process.pid,envKeys:Object.keys(process.env),argv:process.argv,home:process.env.HOME,providerFile:fs.existsSync(process.env.HOME+'/.codex/auth.json'),otherFile:fs.existsSync(process.env.HOME+'/.claude/.credentials.json')}));reply({turn:{id:'turn-fixture'}});if(['complete','result-413','result-413-always'].includes(${JSON.stringify(mode)}))setTimeout(()=>console.log(JSON.stringify({method:'turn/completed',params:{turn:{id:'turn-fixture',status:'completed'}}})),10);if(${JSON.stringify(mode)}.startsWith('permission-'))setTimeout(()=>console.log(JSON.stringify({id:'native-permission',method:'item/commandExecution/requestApproval',params:{itemId:'permission-item',command:${JSON.stringify(mode === "permission-secret" ? "echo FAKE_PERSONAL_REFRESH" : "echo safe")},reason:'fixture',cwd:process.cwd(),env:{SAFE_FLAG:'1'}}})),10);}
 else if(m.id==='native-permission'&&m.result){if(m.result.decision==='accept')fs.writeFileSync(${JSON.stringify(effect)},'allowed');console.log(JSON.stringify({method:'turn/completed',params:{turn:{id:'turn-fixture',status:'completed'}}}));}
 else if(m.method==='turn/interrupt')reply({});
 });`;
@@ -38,7 +38,7 @@ else if(args.includes('--git-dir'))console.log('.git');else if(args.includes('re
   const origin = "https://shiba-fixture.example.test", scope = { version: 2, ownerAccountId: "owner-one", actorId: "one@example.test", workspaceId: `ws_${"a".repeat(24)}`, membershipVersion: 1, membershipRole: "member", origin };
   const config = { workerUrl: origin, adapterToken: "FAKE_MACHINE_TOKEN", machineId: "machine-one", personalExecution: { version: 1, scope }, personalSelection: { harness: "codex", billingMode: "native-subscription", accountFingerprint: receipt.accountFingerprint } };
   await fs.writeFile(path.join(state, "config.json"), JSON.stringify(config), { mode: 0o600 });
-  await fs.writeFile(hook, `import fs from 'node:fs';import fsp from 'node:fs/promises';let receipt,permission,claimed=false;const mode=${JSON.stringify(mode)};
+  await fs.writeFile(hook, `import fs from 'node:fs';import fsp from 'node:fs/promises';let receipt,permission,claimed=false,resultCount=0;const mode=${JSON.stringify(mode)};
 const realStat=fsp.lstat.bind(fsp);fsp.lstat=async(candidate,...args)=>{if(['/etc/codex/config.toml','/etc/codex/managed_config.toml','/etc/codex/requirements.toml'].includes(candidate))throw Object.assign(new Error('Fixture has no managed settings'),{code:'ENOENT'});return realStat(candidate,...args);};
 globalThis.fetch=async(url,options)=>{if(!String(url).startsWith(${JSON.stringify(origin + "/api/local/")}))throw new Error('Unexpected fixture network request');const route=String(url).split('/').at(-1),body=JSON.parse(options.body??'{}');fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({route,body,auth:options.headers.Authorization})+'\\n');
 const response=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json'}});
@@ -50,7 +50,7 @@ const now=Date.now(),snapshot={version:1,grantId:'plex_'+'a'.repeat(32),grantVer
 return response({claimToken:'FAKE_CLAIM_TOKEN',envelope:{sandboxId:'fixture_run',orgId:'team:'+snapshot.workspaceId,customAgentId:'engineer',customAgentVersion:1,harness:'codex',repoUrl:snapshot.repoUrl,baseBranch:'main',cloneDir:'\u0024{SHIBA_LOCAL_RUN_ROOT}/work',homeDir:'\u0024{SHIBA_LOCAL_RUN_ROOT}/home',deadlineAt:now+60000,env:{},configFiles:[],setupCommands:[],argv:[],session:{provider:'codex',model:'gpt-5.4',permissionMode:'approval-required'},personalExecution:{snapshot,approvalId:'approval-1',inputHash:'a'.repeat(64),contextDigest:'b'.repeat(64),generation:0,executionOwner:'owner-1',handoffId:'handoff-1',approvedUntil:now+60000}}});}
 if(route==='control'){if(mode==='before-clone-revoke'||(mode==='active-cancel'&&fs.existsSync(${JSON.stringify(started)})))return response({error:'revoked'},409);return response({interrupt:false});}
 if(route==='approval'){if(body.request){permission=body.request;return response({actionHash:permission.actionHash,expiresAt:permission.expiresAt});}if(mode==='permission-replay')return response({error:'consumed'},409);return response({decision:'allow',actionHash:mode==='permission-mismatch'?'f'.repeat(64):permission.actionHash,expiresAt:permission.expiresAt});}
-if(route==='events'||route==='result')return response({ok:true});throw new Error('Unexpected fixture route');};`);
+if(route==='events')return response({ok:true},mode==='events-413'?413:200);if(route==='result'){resultCount++;return response({ok:true},mode==='result-413-always'||(mode==='result-413'&&resultCount===1)?413:200);}throw new Error('Unexpected fixture route');};`);
   const run = async (extraArgs = [], extraEnv = {}) => {
     const child = spawn(process.execPath, ["--import", hook, daemon, "--once", ...extraArgs], { env: { ...env, ...extraEnv }, stdio: ["ignore", "pipe", "pipe"] });
     let output = ""; child.stdout.on("data", data => { output += data; }); child.stderr.on("data", data => { output += data; });
@@ -108,7 +108,7 @@ test("actual daemon completed run persists result once and restart has no duplic
   await assert.rejects(fs.stat(path.join(f.state, "runs/fixture_run")));
   // Restart's mailbox is empty; this is a daemon fixture, not a claim-storage proof.
   const hookText = await fs.readFile(path.join(f.root, "worker-hook.mjs"), "utf8");
-  await fs.writeFile(path.join(f.root, "worker-hook.mjs"), hookText.replace("let receipt,permission,claimed=false", "let receipt,permission,claimed=true"));
+  await fs.writeFile(path.join(f.root, "worker-hook.mjs"), hookText.replace("claimed=false", "claimed=true"));
   const second = await f.run(); assert.equal(second.code, 0, second.output);
   assert.equal(second.requests.filter(item => item.route === "result").length, 1);
 });
@@ -128,4 +128,18 @@ test("actual sensitive permission is denied locally before event or approval upl
   const f = await fixture(t, "permission-secret"), result = await f.run(); assert.equal(result.code, 0, result.output);
   assert.ok(!result.requests.some(item => item.route === "approval")); await assert.rejects(fs.stat(f.effect));
   assert.ok(!JSON.stringify(result.requests).includes("FAKE_PERSONAL_REFRESH"));
+});
+test("actual personal event413 stops execution instead of retrying the CLI", async t => {
+  const f = await fixture(t, "events-413"), result = await f.run(); assert.equal(result.code, 1, result.output);
+  assert.equal(result.requests.filter(item => item.route === "claim").length, 1);
+  assert.equal(result.requests.filter(item => item.route === "result").length, 1);
+  assert.equal(result.requests.find(item => item.route === "result").body.result.status, "error");
+});
+for (const mode of ["result-413", "result-413-always"]) test(`actual personal ${mode} sends one explicit failure receipt with no CLI relaunch`, async t => {
+  const f = await fixture(t, mode), result = await f.run(); assert.equal(result.code, 1, result.output);
+  const sent = result.requests.filter(item => item.route === "result"); assert.equal(sent.length, 2);
+  assert.equal(sent[1].body.result.status, "error"); assert.deepEqual(sent[1].body.result.files, []); assert.equal(sent[1].body.result.diff, "");
+  assert.match(sent[1].body.result.summary, /No files or diff were uploaded/);
+  assert.equal(result.requests.filter(item => item.route === "claim").length, 1);
+  assert.ok(!result.output.includes("settled fixture_run — completed"));
 });
