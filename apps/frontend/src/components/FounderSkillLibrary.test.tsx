@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { reloadSavedSkills, useSavedSkills } from "../saved";
 import { FounderSkillLibrary } from "./FounderSkillLibrary";
 import { FOUNDER_BASE, FOUNDER_WORKSPACE, founderOptions, founderState } from "../founder-connector-fixtures";
+import { EVIDENCE_BASE, EVIDENCE_LIBRARY, EVIDENCE_WORKSPACE, evidenceOptions } from "../founder-evidence-fixtures";
 
 vi.mock("../saved", () => ({ reloadSavedSkills: vi.fn(), useSavedSkills: vi.fn(() => ({ skills: [] })) }));
 
@@ -124,6 +125,22 @@ describe("FounderSkillLibrary", () => {
     expect(fetcher.mock.calls.every((call) => new Headers((call as unknown as [string, RequestInit])[1].headers).get("X-Shiba-Workspace") === FOUNDER_WORKSPACE)).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Close app action plan" }));
     expect(screen.queryByRole("region", { name: /Scheduled app action:/ })).toBeNull();
+    expect(document.activeElement).toBe(open);
+  });
+
+  it("opens private evidence metadata only on demand and starts no draft, download or Slack call", async () => {
+    const reportEntry = { ...entry, id: EVIDENCE_LIBRARY };
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/founder-skills" ? Response.json({ skills: [reportEntry] })
+      : String(input) === `${EVIDENCE_BASE}/options` ? Response.json(evidenceOptions()) : Response.json({ ...evidenceOptions(), reports: [] }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<FounderSkillLibrary workspaceId={EVIDENCE_WORKSPACE} canManage />);
+    const open = await screen.findByRole("button", { name: "Build private evidence: Stripe revenue pulse" });
+    expect(fetcher).toHaveBeenCalledOnce(); fireEvent.click(open);
+    await screen.findByRole("combobox", { name: "Employee version" });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher.mock.calls.every((call) => (call as unknown as [string, RequestInit])[1].method !== "POST")).toBe(true);
+    expect(fetcher.mock.calls.some(([path]) => /slack|download|preview/.test(String(path)))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Close evidence reports" }));
     expect(document.activeElement).toBe(open);
   });
 });
