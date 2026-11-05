@@ -1,5 +1,34 @@
 # Independent v4 security checkpoint
 
+## Combined scheduled-report Slack increment — baseline c5c1567
+
+Focused review completed 2026-11-05 at approximately 13:45 UTC. No new concrete blocker was found in the inspected increment. This is separate from whole-PR review and from root's routine integration gates.
+
+Inspected the new reconciliation Slack source/store/routes/tick, migration 0034, generated renderer manifest, shared contract, client and panel, existing schedule panel's explicit private-report handoff, and route/cron/default-off configuration. The source adapter validates actual completed scheduled reports, recomputes comparison rows/totals from current native receipts, and pins original owner/membership, immutable parent/source contracts, exact receipt bytes/hash, fixed selections and leases. It uses no fabricated dashboard session and starts no source/model work. The parent counters/next-due time are not frozen as continuing delivery authority. The disclosure and different-manager approval guard the exact managed installation, room/link and stated current/future Slack audience. The final send proof includes the immutable delivery row, current source graph and shared sending/unknown ledger. Unknown outcomes do not retry. The fixed projection includes every comparison row and qualifications; oversized output is rejected, not truncated. Renderer pin verification covers the source adapter, store, tick and shared renderer/escaping.
+
+Two new independent cases in `apps/backend/test/founder-reconciliation-slack.security-v4.test.ts` passed:
+
+- Create and approve delivery after the parent's original manual-sample review expiry, then advance to the actual next-day producer deadline without modifying the schedule's next-due field. Actual source capture and comparison production progress the parent to exhausted; its last new eligible result sends once. Delivery itself makes no extra provider calls. This verifies that expired original sample review and changed dynamic parent counters do not silently disable valid standing authority.
+- Pause the parent during managed-bot verification after a real next-day result is produced. The final source proof blocks the Slack post.
+
+Focused reruns, once implementation was reported frozen:
+
+```sh
+pnpm --filter @shiba/backend exec vitest run test/founder-reconciliation-slack.security-v4.test.ts --maxWorkers=1
+# 2 passed
+pnpm --filter @shiba/backend exec vitest run test/founder-reconciliation-slack.test.ts --maxWorkers=1
+# 12 passed
+pnpm --filter @shiba/frontend exec vitest run src/founder-reconciliation-slack-client.test.ts src/components/FounderReconciliationAutomaticSlack.test.tsx src/components/FounderReconciliationSchedules.test.tsx --maxWorkers=1
+# 19 passed
+node apps/backend/src/founder-reconciliation-slack-manifest.mjs --check
+# passed
+```
+
+Logs: `/tmp/shiba-combined-security.log`, `/tmp/shiba-combined-backend-final.log`, `/tmp/shiba-combined-frontend-final.log`. The 14 backend cases comprise two independently authored regressions and 12 owner cases; the 19 frontend cases are existing focused owner/root fixtures. They are not 33 new independent security cases. Covered owner fixtures include two-human disclosure, private draft denial to managers, source revocation during preflight, oversize refusal, cross-family destination exclusion and unknown latch, concurrent claim, native session removal/held-proof expiry, renderer mutation, disabled-source metadata cleanup, scoped/stale frontend responses and explicit parent handoff.
+
+Limits: fake provider/Slack transports, local SQLite rather than live D1/network, controlled native-auth snapshot rather than real cookie verification, and component fixtures rather than deployed browser E2E. No real send, accounts, credentials, provider/model spending, Git/deploy, whole suite or whole-PR approval. Root retains final type/lint/build/migration/CI gates. Previously delivered Slack messages cannot be withdrawn by later revocation.
+
+
 ## Standing private reconciliation increment — baseline b5d8eb8
 
 Focused review completed 2026-11-05 at approximately 12:56 UTC. This increment was reviewed separately from the earlier native-founder work below. Production changes remained with root/backend owners. No subagents, full suite, real provider requests, model calls, Slack sends, Git operations or deployments were used.

@@ -30,6 +30,7 @@ import { FounderMetaReads } from "./FounderMetaReads";
 import { FounderHubSpotReads } from "./FounderHubSpotReads";
 import { FounderReconciliation } from "./FounderReconciliation";
 import { FounderReconciliationSchedules } from "./FounderReconciliationSchedules";
+import { FounderReconciliationAutomaticSlack } from "./FounderReconciliationAutomaticSlack";
 import { FounderStripeAutomaticSlack } from "./FounderStripeAutomaticSlack";
 
 function IntegrationRow({
@@ -164,6 +165,7 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
   const [showHubSpot, setShowHubSpot] = useState(false);
   const [showReconciliation, setShowReconciliation] = useState(false);
   const [showFutureComparisons, setShowFutureComparisons] = useState(false);
+  const [showCombinedSlack, setShowCombinedSlack] = useState(false);
   const [showStripeSlack, setShowStripeSlack] = useState(false);
   return <div className="min-w-0 space-y-4"><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
     actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
@@ -197,6 +199,10 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
     {props.actorId && <section className="p-4">
       <button type="button" aria-expanded={showFutureComparisons} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowFutureComparisons((shown) => !shown)}>{showFutureComparisons ? "Close future private comparisons" : "Review automatic private comparisons"}</button>
       {showFutureComparisons && <FounderReconciliationSchedules workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowFutureComparisons(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showCombinedSlack} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowCombinedSlack((shown) => !shown)}>{showCombinedSlack ? "Close combined-report sharing" : "Review combined-report Slack sharing"}</button>
+      {showCombinedSlack && <FounderReconciliationAutomaticSlack workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowCombinedSlack(false)} />}
     </section>}
     {props.actorId && <section className="p-4">
       <button type="button" aria-expanded={showStripeSlack} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowStripeSlack((shown) => !shown)}>{showStripeSlack ? "Close Stripe digest sharing" : "Review Stripe Slack digests"}</button>

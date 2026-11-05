@@ -61,8 +61,10 @@ timed bounded captures cannot establish dataset completeness, absence, payments,
 revenue, a full ledger or business success. Application revocation is enforced;
 stored capture proofs do not independently detect an upstream credential change
 that the application has not yet observed. Already delivered copies cannot be
-withdrawn. No sharing permission is created; Slack disclosure for these combined
-reports would require its own explicit source and audience contract.
+withdrawn. No sharing permission is created by comparison consent. The separate,
+default-off [combined-report Slack contract](founder-reconciliation-slack.md)
+requires explicit original-owner disclosure and approval by a different configured
+native manager for one exact destination and audience.
 
 Local evidence includes actual SQLite statements, concurrent ticks, cutoff/skew
 and reuse cases, quota/cadence limits, exact pending recovery, pause/revoke races,

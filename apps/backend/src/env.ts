@@ -40,6 +40,8 @@ export interface Env {
   FOUNDER_HUBSPOT_READS_ENABLED?: string;
   /** Separate standing consent for bounded private future comparisons. */
   FOUNDER_RECONCILIATION_SCHEDULES_ENABLED?: string;
+  /** Separate two-human consent for combined scheduled-result Slack disclosure. */
+  FOUNDER_RECONCILIATION_SLACK_ENABLED?: string;
   FOUNDER_HUBSPOT_CREDENTIAL_KEY?: string;
   OPEN_CONNECTOR_READ_GATEWAY?: Fetcher;
   /** Separate least-privilege read-lane runtime key; never the manual runtime key. */

@@ -78,6 +78,8 @@ import { tickFounderHubSpotReads } from "./founder-hubspot-runtime.js";
 import { handleFounderReconciliations } from "./founder-reconciliation-routes.js";
 import { handleFounderReconciliationSchedules } from "./founder-reconciliation-schedule-routes.js";
 import { tickFounderReconciliationSchedules } from "./founder-reconciliation-schedule-runtime.js";
+import { handleFounderReconciliationSlack } from "./founder-reconciliation-slack-routes.js";
+import { tickFounderReconciliationSlack } from "./founder-reconciliation-slack-tick.js";
 import { handleFounderStripeAutomaticSlack } from "./founder-automatic-slack-stripe-routes.js";
 import { tickFounderStripeAutomaticSlack } from "./founder-automatic-slack-stripe-tick.js";
 import { tickFounderAutomaticSlack } from "./founder-automatic-slack-tick.js";
@@ -212,6 +214,8 @@ export default {
       catch (error) { console.error("Founder automatic Slack scheduling failed", redactSecrets(String(error))); }
       try { await tickFounderStripeAutomaticSlack(env); }
       catch (error) { console.error("Founder Stripe Slack scheduling failed", redactSecrets(String(error))); }
+      try { await tickFounderReconciliationSlack(env); }
+      catch (error) { console.error("Founder combined-report Slack scheduling failed", redactSecrets(String(error))); }
     })());
     ctx.waitUntil(tickFounderReviewSchedules(env).catch((error: unknown) => {
       console.error("Founder review scheduling failed", redactSecrets(String(error)));
@@ -422,6 +426,8 @@ export default {
       if (reconciliationResponse) return reconciliationResponse;
       const standingComparisonResponse = await handleFounderReconciliationSchedules(request, env);
       if (standingComparisonResponse) return standingComparisonResponse;
+      const reconciliationSlackResponse = await handleFounderReconciliationSlack(request, env);
+      if (reconciliationSlackResponse) return reconciliationSlackResponse;
       const stripeSlackResponse = await handleFounderStripeAutomaticSlack(request, env);
       if (stripeSlackResponse) return stripeSlackResponse;
       const founderAutomaticSlackResponse = await handleFounderAutomaticSlack(request, env);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import type { FounderReconciliationSchedule } from "@shiba/shared";
 import { FounderReconciliationClient, type ReconciliationMetadata } from "../founder-reconciliation-client";
+import { FounderReconciliationAutomaticSlack } from "./FounderReconciliationAutomaticSlack";
 import { FounderReconciliationSchedulesClient, type ReconciliationScheduleMetadata, type ReconciliationScheduledResult } from "../founder-reconciliation-schedules-client";
 
 const BUTTON = "min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 py-2 text-xs disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
@@ -8,15 +9,16 @@ const FIELD = "mt-1 min-h-11 min-w-0 w-full border border-[var(--input-line)] bg
 type Props = { workspaceId: string; actorId: string; onClose: () => void; sampleId?: string };
 export function FounderReconciliationSchedules(props: Props): JSX.Element { return <ScheduleContent key={`${props.workspaceId}:${props.actorId}:${props.sampleId ?? ""}`} {...props} />; }
 function ScheduleContent({ workspaceId, actorId, sampleId, onClose }: Props): JSX.Element {
+  const [showSharing, setShowSharing] = useState(false);
   const [client] = useState(() => new FounderReconciliationSchedulesClient(workspaceId, actorId));
   const [samplesClient] = useState(() => new FounderReconciliationClient(workspaceId, actorId));
   const [items, setItems] = useState<ReconciliationScheduleMetadata[] | null>(null), [samples, setSamples] = useState<ReconciliationMetadata[]>([]), [available, setAvailable] = useState(false);
   const [comparison, setComparison] = useState(sampleId ?? ""), [expiry, setExpiry] = useState(""), [cap, setCap] = useState(""), [skew, setSkew] = useState("");
   const [schedule, setSchedule] = useState<FounderReconciliationSchedule | null>(null), [results, setResults] = useState<ReconciliationScheduledResult[]>([]), [review, setReview] = useState("");
-  const [report, setReport] = useState<{ text: string; expiresAt: number } | null>(null), [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null), [now, setNow] = useState(Date.now());
+  const [report, setReport] = useState<{ text: string; expiresAt: number; digest: string; resultId: string } | null>(null), [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null), [now, setNow] = useState(Date.now());
   const controller = useRef<AbortController | null>(null), pending = useRef<AbortSignal | null>(null), epoch = useRef(0);
   const active = (signal: AbortSignal) => controller.current?.signal === signal && !signal.aborted;
-  const clear = () => { epoch.current++; setReport(null); setReview(""); };
+  const clear = () => { epoch.current++; setReport(null); setReview(""); setShowSharing(false); };
   const perform = async (work: (signal: AbortSignal) => Promise<void>) => {
     const signal = controller.current?.signal; if (!signal || !active(signal) || pending.current) return;
     pending.current = signal; setBusy(true); setError(null); setNotice(null);
@@ -46,7 +48,7 @@ function ScheduleContent({ workspaceId, actorId, sampleId, onClose }: Props): JS
   const reviewKey = schedule ? `${schedule.id}:${schedule.digest}` : "";
   const enable = () => { if (!schedule || uncertain || review !== reviewKey || schedule.reviewExpiresAt <= Date.now()) return; clear(); const current = epoch.current; void perform(async (signal) => { const value = await client.enable(schedule, signal); if (active(signal) && current === epoch.current) { setSchedule(value); setNow(Date.now()); setNotice("Future private comparisons enabled within this exact standing contract."); } }); };
   const reduce = (entry: Pick<ReconciliationScheduleMetadata, "id" | "digest">, action: "pause" | "revoke") => { clear(); void perform(async (signal) => { await client.reduce(entry, action, signal); if (active(signal)) { setSchedule(null); setResults([]); const value = await client.list(signal); if (active(signal)) { setItems(value.schedules); setAvailable(value.available); setNotice(action === "pause" ? "Future work stopped. Restarting requires a new reviewed grant." : "Standing grant revoked."); } } }); };
-  const openReport = (receipt: ReconciliationScheduledResult) => { if (!schedule || uncertain) return; clear(); const current = epoch.current; void perform(async (signal) => { const value = await client.report(schedule, receipt, signal); if (active(signal) && current === epoch.current) setReport({ text: JSON.stringify(value.report, null, 2), expiresAt: value.expiresAt }); }); };
+  const openReport = (receipt: ReconciliationScheduledResult) => { if (!schedule || uncertain) return; clear(); const current = epoch.current; void perform(async (signal) => { const value = await client.report(schedule, receipt, signal); if (active(signal) && current === epoch.current) setReport({ text: JSON.stringify(value.report, null, 2), expiresAt: value.expiresAt, digest: value.digest, resultId: receipt.id }); }); };
   return <section aria-label="Automatic private comparisons" className="mt-3 min-w-0 border border-[var(--line)] bg-[var(--card)] p-4 text-xs">
     <header className="flex flex-wrap justify-between gap-2"><h4 className="font-semibold">Automatic private comparisons</h4><button type="button" className={BUTTON} disabled={busy} onClick={onClose}>Close future comparisons</button></header>
     <p className="mt-3">A separate human consent permits future private comparisons of the same two owned source grants and mapping. It does not extend provider reads, payments, model calls or Slack sharing. The ordinary per-comparison approval remains separate. An enabled standing grant continues after this panel or browser session closes, until its cap, expiry, explicit stop or loss of source/owner authority.</p>
@@ -71,6 +73,7 @@ function ScheduleContent({ workspaceId, actorId, sampleId, onClose }: Props): JS
       {schedule.state !== "revoked" && <button type="button" className={`${BUTTON} ml-2`} disabled={busy} onClick={() => reduce(schedule, "revoke")}>Revoke standing comparison</button>}
       <ul>{results.map((entry) => <li className="mt-2 border border-[var(--line)] p-2" key={entry.id}>{entry.id} · {entry.state} · expires {new Date(entry.expiresAt).toISOString()}{entry.state === "completed" && entry.expiresAt > now && <button type="button" className={`${BUTTON} ml-2`} disabled={busy || uncertain} onClick={() => openReport(entry)}>Read private scheduled result</button>}</li>)}</ul>
     </article>}
+    {schedule && report && <section className="mt-3"><button type="button" className={BUTTON} onClick={() => setShowSharing((shown) => !shown)}>{showSharing ? "Close combined Slack review" : "Review future combined reports for Slack"}</button>{showSharing && <FounderReconciliationAutomaticSlack workspaceId={workspaceId} actorId={actorId} sample={{ scheduleId: schedule.id, sampleResultId: report.resultId, sampleHash: report.digest, expiresAt: report.expiresAt, scheduleExpiresAt: schedule.expiresAt }} onClose={() => setShowSharing(false)} />}</section>}
     {report && <div className="mt-3 border-t border-[var(--line)] pt-3"><p>Produced under the standing consent; not individually human-reviewed. Private result expires {new Date(report.expiresAt).toISOString()}.</p><pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words">{report.text}</pre></div>}
   </section>;
 }
