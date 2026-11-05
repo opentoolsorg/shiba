@@ -62,6 +62,5 @@ describe.skipIf(!built)("marketing SEO (built dist)", () => {
 		const llms = page("llms.txt");
 		expect(llms).toContain("https://tryshiba.dev/privacy/");
 		expect(llms).toContain("https://tryshiba.dev/terms/");
-		expect(llms).toContain("https://tryshiba.dev/open-source-devin-alternative/");
 	});
 });

@@ -24,7 +24,6 @@ export async function GET() {
 	const entries: Array<{ path: string; lastmod: string }> = [
 		{ path: '/', lastmod: gitDay('src/pages/index.astro') },
 		{ path: '/why-shiba/', lastmod: gitDay('src/pages/why-shiba.astro') },
-		{ path: '/open-source-devin-alternative/', lastmod: gitDay('src/pages/open-source-devin-alternative.astro') },
 		{ path: '/waitlist/', lastmod: gitDay('src/pages/waitlist.astro') },
 		{ path: '/network/', lastmod: gitDay('src/pages/network.astro') },
 		{ path: '/integrations/', lastmod: gitDay('src/pages/integrations.astro') },

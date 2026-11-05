@@ -3,7 +3,7 @@ import { founderSkillIdSchema, getFounderSkillLibraryEntry, listFounderSkillLibr
 import { founderSkillSetup } from "../src/founder-skill-setup.js";
 
 describe("founder skill library", () => {
-  it("seeds six Viktor-style founder skills", () => {
+  it("seeds six founder skills", () => {
     expect(listFounderSkillLibrary()).toHaveLength(6);
     for (const entry of listFounderSkillLibrary()) {
       expect(founderSkillIdSchema.safeParse(entry.id).success).toBe(true);

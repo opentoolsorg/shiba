@@ -1,6 +1,6 @@
 # Swarm desk contract
 
-Every agent reads this file first. Shiba stays Shiba. This is the open, self-hosted slice of the Capy and Hoplite desk. Do not copy their names, logos, domains, or marketing sentences into product copy.
+Every agent reads this file first. Shiba stays Shiba. This is the open, self-hosted slice of a coding-agent desk. Do not copy third-party names, logos, domains, or marketing sentences into product copy.
 
 Parent integration (not an agent) wires the barrel and the dashboard after these files exist. Agents do not commit, push, or open a pull request.
 
@@ -14,7 +14,7 @@ Parent integration (not an agent) wires the barrel and the dashboard after these
 
 ## What this slice is
 
-Capy shows four task lanes (backlog, in progress, needs review, archived), three agent modes (Captain plans, Build edits, Review reads the diff), a paste box for Linear and Sentry, and a share link. Hoplite adds one-click share links and "spin a thread from the issue you already have."
+The desk has four task lanes (backlog, in progress, needs review, archived), three agent modes (Captain plans, Build edits, Review reads the diff), a paste box for Linear and Sentry, a share link, and one-click "spin a thread from the issue you already have."
 
 Shiba already stores runs on the caller's CodingOrchestrator (`DelegatedRun` in `packages/shared/src/runs.ts`) and already caps named web sessions at 100 (`MAX_SESSIONS_PER_USER` in `apps/backend/src/web-sessions.ts`). Sandbox concurrency is `max_instances: 5` in `apps/backend/wrangler.jsonc`. This slice projects those runs. It does not raise the sandbox cap and it does not add a tenth store.
 

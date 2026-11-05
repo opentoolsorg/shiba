@@ -1,12 +1,11 @@
 # AI employees: product and acceptance contract
 
-The binding product goal combines a Viktor-like AI employee experience with an
-Overlay-like shared workspace and bot collaboration. Employees should carry
+The binding product goal combines an AI employee experience with a shared
+workspace with bot collaboration. Employees should carry
 owned goals through planning, scoped work and verified durable results, while
 people and bots can share context, delegate tasks, hand off outputs and review
 parent/child progress inside a workspace. This is a combined target, not
-equal-weight 1:1 parity with three products; ReasonMachines remains a reference
-source rather than a third equally weighted target.
+1:1 parity with any other product.
 
 The repository now includes role templates, bounded required-file capture for
 approved-repository runs, and coding subagent primitives. The tested Marketing
@@ -19,8 +18,6 @@ The existing [Bot acceptance](../audits/bots-e2e.md) and
 [working-state recheck](../audits/final-recheck.md) provide a tested software
 engineering foundation. They explicitly use deterministic model/execution
 fixtures and do not establish live inference or general business-role execution.
-The broader [Overlay comparison](../audits/overlay-reference.md) remains a
-source-based comparison with its own evidence limits.
 
 ## Required employee experience
 
@@ -206,25 +203,9 @@ not instructions that can widen employee authority.
 
 ## Product target and reference evidence
 
-The selected product target is Viktor-like AI employee depth combined with
-Overlay-like shared workspace and bot collaboration. The three references are
-not equal-weight 1:1 targets. `reasonmachines.com` remains a contextual
-reference if relevant evidence becomes available. These target labels describe
-the requested direction; they are not claims about features observed in the
-live products. The separate pinned `LayerNorm/overlay-web` source checkout
-provides only source evidence from its inspected revision.
-
-The requested live product references remain inaccessible in this environment:
-
-| Reference | Evidence currently available | Limitation |
-| --- | --- | --- |
-| `https://getoverlay.io` | The coordinator's HTTP GET in the current comparison attempt returned proxy HTTP 403. The separate pinned `LayerNorm/overlay-web` source checkout was inspected earlier. | The live product and authenticated workflows were not observed. Source defaults do not prove deployed settings, product behavior or complete live parity. |
-| `https://reasonmachines.com` | The coordinator's HTTP GET in this attempt returned proxy HTTP 403. | No verified product feature baseline or authenticated journey is available. Features must not be invented from the domain name or marketing assumptions. |
-| `https://viktor.com` | The coordinator's HTTP GET in this attempt returned proxy HTTP 403. | No verified product feature baseline or authenticated journey is available. Features must not be inferred from another product or a similarly named service. |
-
-These are observed access failures, not evidence that the sites are down or
-their advertised capabilities are missing. This document does not claim to
-have bypassed the proxy, entered an account or tested those services.
+The selected product target is AI employee depth combined with a shared
+workspace with bot collaboration. These target labels describe the requested
+direction; they are not claims about features observed in any live product.
 
 ## Evidence required before calling the combined goal complete or claiming 1:1 parity
 
@@ -233,10 +214,9 @@ build or one fixture-driven coding test:
 
 1. **Concrete baselines for the selected dimensions:** accessible product
    documentation/source, authorized read-only access, or user-supplied current
-   demonstrations for Viktor-like employee workflows and Overlay-like shared
+   demonstrations for employee workflows and shared
    workspace/bot collaboration. Record observed versions/dates, workflows,
-   permission models and disabled/optional features. ReasonMachines may inform
-   context, but is not an equal-weight acceptance target. Never request account
+   permission models and disabled/optional features. Never request account
    secrets in chat.
 2. **A behavior-level acceptance matrix:** map selected employee and
    collaboration behaviors to Shiba UI, APIs, storage, tools, failure handling
