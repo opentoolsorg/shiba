@@ -170,14 +170,14 @@ describe("ephemeral profile intake", () => {
     expect(f.instance.state.pendingApprovals ?? []).toEqual([]);
   });
 
-  it("freezes an isolated cloud runtime and its sealed context despite a local deployment default", async () => {
+  it("freezes an explicitly selected cloud runtime and sealed context despite a local deployment default", async () => {
     const metadata: Record<string, unknown> = { workspaceTarget: { type: "ephemeral", workspaceId: "cloud-only" }, expectedDeliverables: ["out/human.md"] };
     const f = fixture(metadata);
     f.instance.name = "human@example.com";
     f.instance.env.RUNTIME = "local";
     const sealed = await sealRunEnv(f.instance.env, f.instance.name, [{ name: "CAMPAIGN_LABEL", value: "summer-campaign" }]);
     metadata.environment = { sealed: sealed.sealed, digest: sealed.digest };
-    await expect(f.gate({ runtime: "local" })).resolves.toBe(true);
+    await expect(f.gate({ runtime: "sandbox" })).resolves.toBe(true);
     expect(f.instance.state.pendingApprovals?.[0]).toMatchObject({
       runtime: "sandbox", repoUrl: "", executionTarget: { workspaceId: "cloud-only" },
       envNames: ["CAMPAIGN_LABEL"], envDigest: sealed.digest,
@@ -185,12 +185,12 @@ describe("ephemeral profile intake", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
-  it("applies cloud provider preflight even when both the deployment and model request local execution", async () => {
+  it("applies cloud provider preflight for explicit sandbox execution on a local deployment", async () => {
     mocks.resolveCustom.mockResolvedValue({ ...PROFILE, config: { ...PROFILE.config, sandboxProvider: "e2b" } });
     const f = fixture();
     f.instance.name = "human@example.com";
     f.instance.env.RUNTIME = "local";
-    await expect(f.gate({ runtime: "local" })).rejects.toThrow(/e2b|egress|capabilit/i);
+    await expect(f.gate({ runtime: "sandbox" })).rejects.toThrow(/e2b|egress|capabilit/i);
     expect(f.instance.state.pendingApprovals ?? []).toEqual([]);
     expect(mocks.execute).not.toHaveBeenCalled();
   });

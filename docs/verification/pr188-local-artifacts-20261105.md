@@ -70,11 +70,22 @@ verified before persistence/export. The explicit manifest excludes other files.
 - Personal native daemon checks: **51 passed**, using fixture processes only.
 - Docs diagnostics passed (165 files, zero errors/warnings/hints), and
   deploy-configuration checks passed (seven tests plus drift/environment checks).
-- Full workspace `pnpm test` is still running at this documentation checkpoint;
-  it is not yet a green claim.
+- Full workspace `pnpm test` **failed**: eight packages passed; backend had
+  **5,844 passed, three failed and three skipped** tests across 414 files.
+  Two failures were old ephemeral-profile expectations that local chat requests
+  silently become sandbox work. Those fixtures now explicitly select sandbox,
+  retaining sealed-context and provider-preflight assertions; the existing local
+  chat rejection regressions remain intact. Ephemeral-profile plus orchestrator
+  rerun: **163 passed**. The third failure was native `test-cancel`: its grandchild
+  sentinel advanced by one byte after daemon exit. All **six unchanged native
+  cancellation cases passed in isolation**. This rerun does not establish the
+  full-run failure's cause or a green complete run; no timeout or assertion was
+  weakened. No native termination code was changed by this increment.
 - No GitHub Actions run exists for the published code head at this checkpoint.
   CI is label-triggered (`build:validate`), not push-triggered; exact integrated
-  head CI remains the coordinator's merge gate. No full Desktop success is claimed.
+  head CI remains the coordinator's merge gate. The local workspace Desktop unit
+  package passed **202 tests**, not the macOS/Desktop image or onboarding workflow;
+  no full Desktop CI success is claimed.
 
 ## Browser evidence
 
