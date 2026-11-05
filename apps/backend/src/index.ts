@@ -76,6 +76,8 @@ import { tickFounderMetaReads } from "./founder-meta-runtime.js";
 import { handleFounderHubSpotReads } from "./founder-hubspot-routes.js";
 import { tickFounderHubSpotReads } from "./founder-hubspot-runtime.js";
 import { handleFounderReconciliations } from "./founder-reconciliation-routes.js";
+import { handleFounderReconciliationSchedules } from "./founder-reconciliation-schedule-routes.js";
+import { tickFounderReconciliationSchedules } from "./founder-reconciliation-schedule-runtime.js";
 import { handleFounderStripeAutomaticSlack } from "./founder-automatic-slack-stripe-routes.js";
 import { tickFounderStripeAutomaticSlack } from "./founder-automatic-slack-stripe-tick.js";
 import { tickFounderAutomaticSlack } from "./founder-automatic-slack-tick.js";
@@ -202,6 +204,8 @@ export default {
       catch (error) { console.error("Founder Meta read scheduling failed", redactSecrets(String(error))); }
       try { await tickFounderHubSpotReads(env); }
       catch (error) { console.error("Founder HubSpot read scheduling failed", redactSecrets(String(error))); }
+      try { await tickFounderReconciliationSchedules(env); }
+      catch (error) { console.error("Founder standing comparison scheduling failed", redactSecrets(String(error))); }
       try { await tickFounderAutomaticReads(env); }
       catch (error) { console.error("Founder automatic read scheduling failed", redactSecrets(String(error))); }
       try { await tickFounderAutomaticSlack(env); }
@@ -416,6 +420,8 @@ export default {
       if (founderHubSpotResponse) return founderHubSpotResponse;
       const reconciliationResponse = await handleFounderReconciliations(request, env);
       if (reconciliationResponse) return reconciliationResponse;
+      const standingComparisonResponse = await handleFounderReconciliationSchedules(request, env);
+      if (standingComparisonResponse) return standingComparisonResponse;
       const stripeSlackResponse = await handleFounderStripeAutomaticSlack(request, env);
       if (stripeSlackResponse) return stripeSlackResponse;
       const founderAutomaticSlackResponse = await handleFounderAutomaticSlack(request, env);

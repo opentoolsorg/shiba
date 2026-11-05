@@ -1,5 +1,32 @@
 # Independent v4 security checkpoint
 
+## Standing private reconciliation increment — baseline b5d8eb8
+
+Focused review completed 2026-11-05 at approximately 12:56 UTC. This increment was reviewed separately from the earlier native-founder work below. Production changes remained with root/backend owners. No subagents, full suite, real provider requests, model calls, Slack sends, Git operations or deployments were used.
+
+Two concrete findings were reported before fixes:
+
+1. **Stale no-pair tick shortened the consented daily cadence.** The new independent `apps/backend/test/founder-reconciliation-schedule.security-v4.test.ts` held tick A immediately before its no-pair `next_due_at` update. Tick B created fresh native source captures, reserved and completed a comparison, and persisted a 24-hour deadline. Tick A then resumed and overwrote it with a one-hour deadline. Actual production SQL in SQLite reproduced the failure. The owner added a compare-and-set against the original next-due time, used-comparison count, cutoff and immutable source/contract snapshots. The independent regression now passes.
+2. **Frontend rejected genuine schedule principals.** The runtime emitted `schedule:frs_…`, while the client compared the principal to bare `frs_…`. Root aligned the client and fixture with the backend, and the shared schema now enforces the exact prefixed schedule identity. The report additionally carries and validates standing digest/source-grant pins; the client compares the fixed Stripe interval and rejects reuse of the sample receipt IDs.
+
+Reviewed paths: schedule sources/store/runtime/routes/manifest/migration 0033; browser-safe schedule schema; schedules client and component; explicit button mounts, default-off environment flag, authenticated route mount and serial cron integration. Source grants remain separately authorized; the timer performs only local comparison. Create/enable atomic SQL includes the current sample and exact native-session proof. Cron uses original-owner/source authority without a fabricated human session. Reservation and settlement, current-source guards, pause/revoke, bounded candidate selection, unknown local acknowledgement recovery, and final private response proofs were inspected. Source grant leases and original sample receipt leases are kept separate in the reviewed DTO. The UI uses actor/workspace/sample keys and abort/epoch guards; stale or hidden-tab private result responses cannot repopulate the panel through the reviewed report path.
+
+Independent rerun:
+
+```sh
+pnpm --filter @shiba/backend exec vitest run test/founder-reconciliation-schedule.security-v4.test.ts test/founder-reconciliation-schedule.test.ts --maxWorkers=1
+# 15 passed across two files; one newly authored independent regression
+pnpm --filter @shiba/frontend exec vitest run src/founder-reconciliation-schedules-client.test.ts --maxWorkers=1
+# 4 passed
+node apps/backend/src/founder-reconciliation-schedule-manifest.mjs --check
+# passed
+```
+
+Logs: `/tmp/shiba-schedule-security.log` (initial RED), `/tmp/shiba-schedule-security-final.log` and `/tmp/shiba-schedule-client-final.log`. The backend fixture uses actual SQLite/D1 statements, real native source capture/crypto paths with fake providers, and rejects over 100 bind values. It covers concurrent reservation, durable acknowledgement-loss recovery, pause/revoke, expired enable review, source change, exact-session removal and private route suppression. These are selected owner tests plus the independent regression, not 19 newly authored security cases.
+
+No remaining concrete blocker was found in this focused delta after the fixes. Limits: no live D1 transport or deployed cron restart, real cookie validation, provider compatibility, browser E2E/component test run, entire-project type/lint/build or whole-PR audit by this reviewer. Root retains those integration gates. A final proof cannot retract bytes already delivered before a later revocation.
+
+
 This is a focused review of the isolated `/workspace/shiba-v4` worktree. Production files, Git operations, deployments, provider accounts, credentials, model calls and Slack sends were not changed or exercised by this reviewer. This is not whole-PR certification; the earlier whole-PR automated review was skipped for size.
 
 The current native-founder delta review completed on **2026-11-05 at approximately 12:10 UTC: 37 backend and 18 frontend cases passed** in selected files. This includes independently authored regressions and owner-authored suites run by this reviewer; it is not 55 newly authored independent cases. The earlier 11:07 checkpoint had 23 independent cases in four files. Counts overlap and must not be added together. Root retains final-head integration checks. Source changes after this review require a delta review.
