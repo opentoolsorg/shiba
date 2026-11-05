@@ -203,7 +203,13 @@ describe("personal execution ownership foundations with signed native sessions",
 
   it("does not claim when retained source authority changes during final mailbox reads", async () => {
     const f = await fixture(), machine = await f.ready(), snapshot = await f.grant(machine);
-    expect((await f.dispatchJob(snapshot)).status).toBe(200);
+    const envelope = f.envelope(snapshot);
+    envelope.personalExecution!.handoffId = `scx_${"a".repeat(32)}`;
+    envelope.personalExecution!.contextDigest = personalExecutionContextDigest({ ...envelope, handoffId: envelope.personalExecution!.handoffId });
+    const dispatched = await f.dispatch.fetch(new Request("https://local-dispatch/dispatch", { method: "POST", body: JSON.stringify({
+      envelope, targetMachineId: machine.machineId, dashboardOwnerId: ALICE,
+    }) }));
+    expect(dispatched.status).toBe(200);
     const before = claim.calls;
     claim.hook = () => { if (claim.calls === before + 1) sourceFence.allowed = false; };
     const response = await f.local("claim", {}, machine.adapterToken);

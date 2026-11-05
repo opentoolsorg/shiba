@@ -45,7 +45,6 @@ import { randomHex } from "./mailbox-store.js";
 import type { Env } from "./env.js";
 import { isPersonalOwnerCurrent, personalComputerMatches, personalGrantFence, isPublicPersonalRepository } from "./personal-execution-store.js";
 import { validatePersonalExecutionClaim } from "./personal-execution-claim.js";
-import { isSlackCoworkerClaimSourceCurrent } from "./slack-coworker-store.js";
 
 const RECORD_PREFIX = "run:";
 const MAX_LOCAL_EVENT_BATCH = 64;
@@ -463,7 +462,10 @@ export class LocalDispatch extends DurableObject<Env> {
           // Recheck the retained Slack source in D1 after mailbox reads. D1 and
           // this DO are separate stores, so this narrows the revocation window
           // without claiming atomicity. The signed approval was checked above.
-          if (!await isSlackCoworkerClaimSourceCurrent(this.env, proof, current.envelope.task) || proof.approvedUntil <= Date.now() || proof.snapshot.expiresAt <= Date.now()) return null;
+          // Request auth imports this mailbox; keep the Slack/auth graph lazy
+          // and load its retained-source authority only for Slack-backed claims.
+          if (proof.handoffId.startsWith("scx_") && !await (await import("./slack-coworker-store.js")).isSlackCoworkerClaimSourceCurrent(this.env, proof, current.envelope.task)) return null;
+          if (proof.approvedUntil <= Date.now() || proof.snapshot.expiresAt <= Date.now()) return null;
           const claimToken = crypto.randomUUID();
           await tx.put(`${RECORD_PREFIX}${current.envelope.sandboxId}`, { ...current, status: "claimed", claimToken, claimedAt: Date.now() });
           return { envelope: current.envelope, claimToken };
