@@ -10,7 +10,8 @@ it("reads only the selected native run prefix and explains unknown tail without 
   const f = archiveFixture(), fetcher = vi.fn(async (input: RequestInfo | URL) => Response.json(String(input).includes("?after=") ? f.page : f.directory)); vi.stubGlobal("fetch", fetcher);
   render(<RunOutputArchivePanel {...props} />); await screen.findByTestId("retained-archive-content");
   expect(screen.getByText(/The unacknowledged tail is unknown/)).toBeTruthy(); expect(fetcher).toHaveBeenCalledTimes(2);
-  expect(screen.queryByRole("button", { name: /execute|approve|restart|download|send/i })).toBeNull();
+  expect(screen.queryByRole("button", { name: /execute|approve|restart|send/i })).toBeNull();
+  expect(screen.getByRole("button", { name: "Download verified retained output" })).toBeTruthy();
 });
 it("restarts its GET-only observation under StrictMode without retaining a stale pending latch", async () => {
   const f = archiveFixture(); vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => Response.json(String(input).includes("?after=") ? f.page : f.directory)));

@@ -123,9 +123,13 @@ Opening it validates the selected run/session, native account and contiguous
 hash chain. Current-access failures and scope switches clear cached bytes; an
 exact local lease timer hides them before the next poll. The UI shows a bounded
 250,000-character tail of loaded pages and offers explicit next-page reads. It
-labels an unacknowledged tail as unknown and has no command-start, approval,
-Slack or download controls. Source revocation checks poll/focus refresh; the UI
-does not promise instantaneous notification of an unseen account change.
+labels an unacknowledged tail as unknown. An explicit JSON download reads and
+verifies all pages, rejects a changing frontier, and reads the last page again
+under current native authority before producing a file. It includes the event
+chain, source ACK, observed frontier and unknown-tail metadata. A saved file is
+a local copy that survives the server lease and cannot be remotely revoked.
+Source revocation checks poll/focus refresh; the UI does not promise instantaneous
+notification of an unseen account change.
 
 ## Evidence and remaining acceptance
 
@@ -143,8 +147,9 @@ workerd runtimes with persistent SQLite **and D1**, uses a real TCP WebSocket an
 the production Node journal. The fixed producer launches once. It commits a
 sanitized prefix including split secret/UTF-8 output, loses an append reply after
 commit, emits a later unacknowledged frame, then loses its owned source process
-and local journal. After fixture epoch replacement/restart it recovers the same
-committed projection/hash, reports the unknown tail, refuses old-epoch appends,
+and local journal. After fixture epoch replacement/restart it recovers a
+multi-page committed projection/hash, continues pagination across another
+workerd restart, reports the unknown tail, refuses old-epoch appends,
 performs zero replacement starts and denies a revoked read. All outbound traffic
 is denied; the single reserved-domain probe is intentionally blocked.
 

@@ -39,7 +39,7 @@ export class RunOutputArchiveClient {
     const after = previous?.nextCursor ?? 0;
     const value = runOutputArchivePageSchema.parse(await this.request(`/api/run-output-archives/${id}?after=${after}`, signal)); this.scope(value);
     if (value.archiveId !== id || value.runId !== this.runId || value.sessionId !== this.sessionId || value.jobId !== selected.jobId || value.expiresAt !== selected.expiresAt || value.after !== after || value.expiresAt <= Date.now() ||
-      value.acknowledgedThrough > value.lastObservedSource || value.nextCursor !== after + value.events.length || value.nextCursor > value.eventCount || value.hasMore !== (value.nextCursor < value.eventCount) ||
+      value.acknowledgedThrough > value.lastObservedSource || value.nextCursor !== after + value.events.length || value.nextCursor > value.eventCount || value.hasMore !== (value.nextCursor < value.eventCount) || value.hasMore && value.events.length === 0 ||
       value.state === "complete" && (value.incompleteTail || value.finalExitCode === null || value.tailUpperBound !== value.lastObservedSource || value.acknowledgedThrough !== value.lastObservedSource) ||
       value.state !== "complete" && (!value.incompleteTail || value.tailUpperBound !== null || value.finalExitCode !== null)) throw new Error("The archive cursor, lease or source outcome could not be verified.");
     let chain = previous?.events.at(-1)?.chainDigest ?? previous?.previousChainDigest ?? stableHash(["shiba.output-archive-chain.v1", value.reservationDigest]);
@@ -56,5 +56,35 @@ export class RunOutputArchiveClient {
     signal.throwIfAborted();
     if (value.expiresAt <= Date.now()) throw new Error("The private archive lease expired during verification.");
     return value;
+  }
+
+  /** Read and verify a stable projection, then recheck its final page's authority. */
+  async exportSnapshot(id: string, signal: AbortSignal) {
+    const events: RunOutputArchivePage["events"] = [];
+    let previous: RunOutputArchivePage | undefined, lastPrevious: RunOutputArchivePage | undefined;
+    let first: RunOutputArchivePage | undefined, page: RunOutputArchivePage;
+    const sameFrontier = (a: RunOutputArchivePage, b: RunOutputArchivePage) =>
+      a.chainDigest === b.chainDigest && a.eventCount === b.eventCount && a.byteCount === b.byteCount &&
+      a.acknowledgedThrough === b.acknowledgedThrough && a.lastObservedSource === b.lastObservedSource &&
+      a.state === b.state && a.reason === b.reason && a.finalExitCode === b.finalExitCode &&
+      a.incompleteTail === b.incompleteTail && a.tailUpperBound === b.tailUpperBound;
+    do {
+      lastPrevious = previous;
+      page = await this.page(id, signal, previous);
+      first ??= page;
+      if (!sameFrontier(first, page)) throw new Error("The archive changed while exporting. Refresh and try again.");
+      events.push(...page.events);
+      previous = page;
+    } while (page.hasMore);
+    const checked = await this.page(id, signal, lastPrevious);
+    if (!sameFrontier(first, checked) || checked.hasMore || checked.nextCursor !== page.nextCursor || checked.previousChainDigest !== page.previousChainDigest)
+      throw new Error("The archive changed while exporting. Refresh and try again.");
+    signal.throwIfAborted();
+    if (first.expiresAt <= Date.now()) throw new Error("The archive lease expired during export.");
+    return { format: "shiba-retained-output-v1" as const, archiveId: first.archiveId, jobId: first.jobId,
+      sessionId: first.sessionId, runId: first.runId, expiresAt: first.expiresAt, reservationDigest: first.reservationDigest,
+      chainDigest: first.chainDigest, state: first.state, reason: first.reason, acknowledgedThrough: first.acknowledgedThrough,
+      lastObservedSource: first.lastObservedSource, finalExitCode: first.finalExitCode, incompleteTail: first.incompleteTail,
+      tailUpperBound: first.tailUpperBound, eventCount: first.eventCount, byteCount: first.byteCount, events };
   }
 }
