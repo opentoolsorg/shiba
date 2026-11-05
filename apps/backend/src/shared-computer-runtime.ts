@@ -13,7 +13,8 @@ export function computerInputArgv(raw: SharedComputerAction): string[] {
   if (action.type === "click") return ["xdotool", "mousemove", "--sync", String(action.x), String(action.y), "click", String({ left: 1, middle: 2, right: 3 }[action.button])];
   if (action.type === "key") return ["xdotool", "key", "--clearmodifiers", action.key];
   if (action.type === "scroll") return ["xdotool", "click", "--repeat", String(action.ticks), String({ up: 4, down: 5, left: 6, right: 7 }[action.direction])];
-  if (new TextEncoder().encode(action.text).byteLength > LIMIT.maxTextBytes || /[\x00-\x08\x0b-\x1f\x7f]/.test(action.text) || redactSecrets(action.text) !== action.text) throw new SharedComputerError("shared_computer_text_invalid", 400);
+  const unsafeControl = Array.from(action.text).some((character) => { const code = character.charCodeAt(0); return code <= 8 || (code >= 11 && code <= 31) || code === 127; });
+  if (new TextEncoder().encode(action.text).byteLength > LIMIT.maxTextBytes || unsafeControl || redactSecrets(action.text) !== action.text) throw new SharedComputerError("shared_computer_text_invalid", 400);
   return ["xdotool", "type", "--clearmodifiers", "--delay", "0", "--", action.text];
 }
 interface DispatchOptions { signal?: AbortSignal; beforeDispatch?: () => Promise<void> }
