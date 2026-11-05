@@ -417,6 +417,7 @@ export async function prepareAutomaticSlack(
     maxBytes: REPORT_SLACK_MAX_BYTES,
     futureAudience: AUTOMATIC_SLACK_AUDIENCE_CONSENT,
   });
+  const stripeLedgerPresent = Boolean(await env.AGENT_AUDIT.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='founder_stripe_slack_grants'").first());
   await verifySession();
   const familyGuard = automaticSlackGrantGuard(env, row),
     source = automaticReadReportAuthorityGuard(env, a),
@@ -429,12 +430,13 @@ export async function prepareAutomaticSlack(
     "founder_automatic_slack_grants",
     { ...row },
     {
-      sql: `${guard.sql} AND (SELECT COUNT(*) FROM founder_automatic_slack_grants WHERE workspace_id=? AND owner_account_id=?)<20 AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_grants WHERE destination_key=? AND state IN ('draft','disclosed','enabled','paused')) AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_deliveries WHERE destination_key=? AND state IN ('sending','unknown'))`,
+      sql: `${guard.sql} AND (SELECT COUNT(*) FROM founder_automatic_slack_grants WHERE workspace_id=? AND owner_account_id=?)<20 AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_grants WHERE destination_key=? AND state IN ('draft','disclosed','enabled','paused')) AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_deliveries WHERE destination_key=? AND state IN ('sending','unknown'))${stripeLedgerPresent ? " AND NOT EXISTS(SELECT 1 FROM founder_stripe_slack_grants WHERE destination_key=? AND state IN ('draft','disclosed','enabled','paused'))" : ""}`,
       values: [
         ...guard.values,
         member.workspaceId,
         member.accountId,
         destinationKey,
+        ...(stripeLedgerPresent ? [destinationKey] : []),
         destinationKey,
       ],
     },

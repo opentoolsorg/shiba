@@ -27,6 +27,9 @@ import { SlackInstallationsPanel } from "./SlackInstallationsPanel";
 import { SlackCoworkerPanel } from "./SlackCoworkerPanel";
 import { FounderStripeReads } from "./FounderStripeReads";
 import { FounderMetaReads } from "./FounderMetaReads";
+import { FounderHubSpotReads } from "./FounderHubSpotReads";
+import { FounderReconciliation } from "./FounderReconciliation";
+import { FounderStripeAutomaticSlack } from "./FounderStripeAutomaticSlack";
 
 function IntegrationRow({
   name,
@@ -157,6 +160,9 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
   const [showCoworker, setShowCoworker] = useState(false);
   const [showStripe, setShowStripe] = useState(false);
   const [showMeta, setShowMeta] = useState(false);
+  const [showHubSpot, setShowHubSpot] = useState(false);
+  const [showReconciliation, setShowReconciliation] = useState(false);
+  const [showStripeSlack, setShowStripeSlack] = useState(false);
   return <div className="min-w-0 space-y-4"><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
     actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
     allowPersonalScope={props.allowPersonalScope} onPersonalScope={props.onPersonalScope} />
@@ -177,6 +183,18 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
     {props.actorId && <section className="p-4">
       <button type="button" aria-expanded={showMeta} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowMeta((shown) => !shown)}>{showMeta ? "Close Meta read setup" : "Review private Meta Ads reads"}</button>
       {showMeta && <FounderMetaReads workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowMeta(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showHubSpot} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowHubSpot((shown) => !shown)}>{showHubSpot ? "Close HubSpot read setup" : "Review private HubSpot reads"}</button>
+      {showHubSpot && <FounderHubSpotReads workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowHubSpot(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showReconciliation} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowReconciliation((shown) => !shown)}>{showReconciliation ? "Close invoice comparison" : "Compare private HubSpot and Stripe captures"}</button>
+      {showReconciliation && <FounderReconciliation workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowReconciliation(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showStripeSlack} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowStripeSlack((shown) => !shown)}>{showStripeSlack ? "Close Stripe digest sharing" : "Review Stripe Slack digests"}</button>
+      {showStripeSlack && <FounderStripeAutomaticSlack workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowStripeSlack(false)} />}
     </section>}</div>;
 }
 

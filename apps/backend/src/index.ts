@@ -73,6 +73,11 @@ import { handleFounderStripeReads } from "./founder-stripe-routes.js";
 import { tickFounderStripeReads } from "./founder-stripe-runtime.js";
 import { handleFounderMetaReads } from "./founder-meta-routes.js";
 import { tickFounderMetaReads } from "./founder-meta-runtime.js";
+import { handleFounderHubSpotReads } from "./founder-hubspot-routes.js";
+import { tickFounderHubSpotReads } from "./founder-hubspot-runtime.js";
+import { handleFounderReconciliations } from "./founder-reconciliation-routes.js";
+import { handleFounderStripeAutomaticSlack } from "./founder-automatic-slack-stripe-routes.js";
+import { tickFounderStripeAutomaticSlack } from "./founder-automatic-slack-stripe-tick.js";
 import { tickFounderAutomaticSlack } from "./founder-automatic-slack-tick.js";
 import { handleRunOutputArchives } from "./run-output-archive-routes.js";
 import { handleSlackInstallations } from "./slack-installations-routes.js";
@@ -195,10 +200,14 @@ export default {
       catch (error) { console.error("Founder Stripe read scheduling failed", redactSecrets(String(error))); }
       try { await tickFounderMetaReads(env); }
       catch (error) { console.error("Founder Meta read scheduling failed", redactSecrets(String(error))); }
+      try { await tickFounderHubSpotReads(env); }
+      catch (error) { console.error("Founder HubSpot read scheduling failed", redactSecrets(String(error))); }
       try { await tickFounderAutomaticReads(env); }
       catch (error) { console.error("Founder automatic read scheduling failed", redactSecrets(String(error))); }
       try { await tickFounderAutomaticSlack(env); }
       catch (error) { console.error("Founder automatic Slack scheduling failed", redactSecrets(String(error))); }
+      try { await tickFounderStripeAutomaticSlack(env); }
+      catch (error) { console.error("Founder Stripe Slack scheduling failed", redactSecrets(String(error))); }
     })());
     ctx.waitUntil(tickFounderReviewSchedules(env).catch((error: unknown) => {
       console.error("Founder review scheduling failed", redactSecrets(String(error)));
@@ -403,6 +412,12 @@ export default {
       if (founderStripeResponse) return founderStripeResponse;
       const founderMetaResponse = await handleFounderMetaReads(request, env);
       if (founderMetaResponse) return founderMetaResponse;
+      const founderHubSpotResponse = await handleFounderHubSpotReads(request, env);
+      if (founderHubSpotResponse) return founderHubSpotResponse;
+      const reconciliationResponse = await handleFounderReconciliations(request, env);
+      if (reconciliationResponse) return reconciliationResponse;
+      const stripeSlackResponse = await handleFounderStripeAutomaticSlack(request, env);
+      if (stripeSlackResponse) return stripeSlackResponse;
       const founderAutomaticSlackResponse = await handleFounderAutomaticSlack(request, env);
       if (founderAutomaticSlackResponse) return founderAutomaticSlackResponse;
       const founderEvidenceResponse = await handleFounderEvidenceReports(request, env);

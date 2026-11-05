@@ -153,3 +153,5 @@ INTEGRATIONS_PROVIDER=openconnector
 # FOUNDER_STRIPE_CREDENTIAL_KEY=
 # Optional native Meta reads encryption key (64 hex, Worker-only).
 # FOUNDER_META_CREDENTIAL_KEY=
+# Optional native HubSpot capture encryption key (64 hex, Worker-only).
+# FOUNDER_HUBSPOT_CREDENTIAL_KEY=

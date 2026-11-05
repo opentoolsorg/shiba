@@ -181,6 +181,7 @@ export const Worker = Cloudflare.Worker("Worker", {
     FOUNDER_AUTOMATIC_READS_ENABLED: "false",
     FOUNDER_STRIPE_READS_ENABLED: "false",
     FOUNDER_META_READS_ENABLED: "false",
+    FOUNDER_HUBSPOT_READS_ENABLED: "false",
     OPEN_CONNECTOR_READ_VERSION_ID: "",
     OPEN_CONNECTOR_READ_MANIFEST_SHA256: "",
     SLACK_INSTALLATIONS_ENABLED: "false",
@@ -321,6 +322,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "SLACK_INSTALLATION_KEYRING",
       "FOUNDER_STRIPE_CREDENTIAL_KEY",
       "FOUNDER_META_CREDENTIAL_KEY",
+      "FOUNDER_HUBSPOT_CREDENTIAL_KEY",
       "SLACK_APPROVERS",
       // Dashboard emails allowed to resolve shared ("default" DO) approvals:
       // automations, review lane, Sentry, email. Unset = nobody.
@@ -424,6 +426,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "FOUNDER_AUTOMATIC_READS_ENABLED",
       "FOUNDER_STRIPE_READS_ENABLED",
       "FOUNDER_META_READS_ENABLED",
+      "FOUNDER_HUBSPOT_READS_ENABLED",
       "OPEN_CONNECTOR_READ_VERSION_ID",
       "OPEN_CONNECTOR_READ_MANIFEST_SHA256",
       "SLACK_INSTALLATIONS_ENABLED",

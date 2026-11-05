@@ -36,6 +36,9 @@ export interface Env {
   /** Separate default-off Meta account reads; private Worker encryption only. */
   FOUNDER_META_READS_ENABLED?: string;
   FOUNDER_META_CREDENTIAL_KEY?: string;
+  /** Default-off native-owner HubSpot fixed capture and private encryption. */
+  FOUNDER_HUBSPOT_READS_ENABLED?: string;
+  FOUNDER_HUBSPOT_CREDENTIAL_KEY?: string;
   OPEN_CONNECTOR_READ_GATEWAY?: Fetcher;
   /** Separate least-privilege read-lane runtime key; never the manual runtime key. */
   OPEN_CONNECTOR_READ_RUNTIME_TOKEN?: string;

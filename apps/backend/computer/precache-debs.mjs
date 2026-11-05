@@ -9,7 +9,8 @@ const maximumPackageBytes = 2 * 1024 * 1024;
 const maximumTotalBytes = 16 * 1024 * 1024;
 const manifestFormat = "shiba.computer.pinned-debs.v1";
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
-const fail = (message) => { throw new Error(`Pinned computer packages: ${message}`); };
+class PinnedPackageError extends Error {}
+const fail = (message) => { throw new PinnedPackageError(`Pinned computer packages: ${message}`); };
 
 // This build helper has no URL, package, destination, or manifest CLI options.
 // The reviewed repository manifest supplies a small fixed set of public files.
@@ -69,7 +70,19 @@ async function verifyCachedFile(destination, record) {
 
 async function verifiedBytes(record, fetcher, signal) {
   signal.throwIfAborted();
-  const response = await fetcher(record.url, { redirect: "error", signal, headers: { Accept: "application/octet-stream" } });
+  let response;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    signal.throwIfAborted();
+    response = await fetcher(record.url, { redirect: "error", signal, headers: { Accept: "application/octet-stream" } });
+    if (response.redirected || response.url !== record.url) {
+      void response.body?.cancel().catch(() => {});
+      fail("unexpected package response or redirect");
+    }
+    if (![408, 429, 500, 502, 503, 504].includes(response.status)) break;
+    void response.body?.cancel().catch(() => {});
+    if (attempt === 2) fail(`public package unavailable after three attempts (HTTP ${response.status})`);
+    await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+  }
   if (signal.aborted) void response.body?.cancel().catch(() => {});
   signal.throwIfAborted();
   if (response.status !== 200 || response.redirected || response.url !== record.url || !response.body) {
@@ -163,8 +176,11 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
     if (process.argv.length !== 2) fail("CLI arguments are unsupported");
     const result = await precachePinnedDebs();
     console.log(`Verified ${result.packages} pinned computer packages (${result.bytes} bytes).`);
-  } catch {
+  } catch (error) {
     console.error("Pinned computer package prefetch failed; no image build should proceed. Check the fixed manifest, public Snapshot availability, and local cache integrity.");
+    // Only our fixed diagnostic strings are safe. Never print transport causes,
+    // arbitrary server bodies, proxy configuration, or local filesystem errors.
+    console.error(error instanceof PinnedPackageError ? error.message : "Public retrieval or local cache IO failed; transport details withheld.");
     process.exitCode = 1;
   }
 }
