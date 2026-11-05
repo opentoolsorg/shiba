@@ -1,6 +1,7 @@
 import { Result, Schema } from "effect";
 import {
   CUSTOM_AGENT_APPROVAL_POLICIES,
+  CUSTOM_AGENT_MASCOT_PRESETS,
   CUSTOM_AGENT_SANDBOX_PROVIDERS,
   CUSTOM_AGENT_ROLE_TEMPLATE_IDS,
   expectedDeliverablesSchema,
@@ -12,6 +13,7 @@ const Bounded = (max: number) => Schema.String.check(Schema.isMinLength(1), Sche
 export const CustomAgentConfigSchema = Schema.Struct({
   name: Bounded(120),
   emoji: Schema.optional(Bounded(16)),
+  mascotPreset: Schema.optional(Schema.Literals(CUSTOM_AGENT_MASCOT_PRESETS)),
   roleTemplateId: Schema.optional(Schema.Literals(CUSTOM_AGENT_ROLE_TEMPLATE_IDS)),
   instructions: Bounded(32_000),
   expectedDeliverables: Schema.optional(Schema.Array(Bounded(240)).check(

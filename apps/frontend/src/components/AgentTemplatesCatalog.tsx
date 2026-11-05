@@ -13,7 +13,7 @@ function pack(template: (typeof AGENT_TEMPLATES)[number]): string {
   return `${JSON.stringify({ template: { ...template, instructions: undefined }, instructions: template.instructions, skills: {} }, null, 2)}\n\n--- INSTRUCTIONS.md ---\n\n# ${template.name}\n\n${template.instructions}\n`;
 }
 
-export function AgentTemplatesCatalog({ onUse, workspaceId }: { onUse: (template: (typeof AGENT_TEMPLATES)[number]) => Promise<void>; workspaceId?: string }): JSX.Element {
+export function AgentTemplatesCatalog({ onUse, workspaceId }: { onUse: (template: (typeof AGENT_TEMPLATES)[number], savedConfig?: CustomAgentConfig) => Promise<void>; workspaceId?: string }): JSX.Element {
   const [category, setCategory] = useState("all");
   const [query, setQuery] = useState("");
   const [importText, setImportText] = useState("");
@@ -23,7 +23,7 @@ export function AgentTemplatesCatalog({ onUse, workspaceId }: { onUse: (template
   const [myLoading, setMyLoading] = useState(false);
   const [bundleRecipe, setBundleRecipe] = useState<EmployeeBundle | null>(null);
   const [exportProfile, setExportProfile] = useState<{ employeeId: string; expectedVersion: number } | null>(null);
-  const [myProfiles, setMyProfiles] = useState<Record<string, { employeeId: string; expectedVersion: number; codingModel?: string }>>({});
+  const [myProfiles, setMyProfiles] = useState<Record<string, { employeeId: string; expectedVersion: number; codingModel?: string; config: CustomAgentConfig }>>({});
   const categories = ["all", "product", "engineering", "ops", "community", "my"];
   useEffect(() => {
     if (category !== "my") return;
@@ -34,7 +34,7 @@ export function AgentTemplatesCatalog({ onUse, workspaceId }: { onUse: (template
       if (!response.ok) throw new Error("Your saved bots could not be loaded.");
       const body = await response.json() as { agents?: { id?: string; version?: number; slug: string; config: CustomAgentConfig }[] };
       if (!current) return;
-      setMyProfiles(Object.fromEntries((body.agents ?? []).filter((agent) => agent.id && agent.version).map((agent) => [agent.slug, { employeeId: agent.id!, expectedVersion: agent.version!, codingModel: agent.config.codingModel }])));
+      setMyProfiles(Object.fromEntries((body.agents ?? []).filter((agent) => agent.id && agent.version).map((agent) => [agent.slug, { employeeId: agent.id!, expectedVersion: agent.version!, codingModel: agent.config.codingModel, config: agent.config }])));
       setMyTemplates((body.agents ?? []).filter((agent) => agent.config.instructions).map((agent) => ({
         id: agent.slug, name: agent.config.name, description: "Saved bot from your workspace.", categories: ["my"],
         appearance: agent.config.emoji, skills: [], plugins: [], harness: agent.config.harness ?? "opencode", chat_lanes: ["slack"], version: "1.0.0", instructions: agent.config.instructions,
@@ -60,7 +60,8 @@ export function AgentTemplatesCatalog({ onUse, workspaceId }: { onUse: (template
   const clone = async (template: (typeof AGENT_TEMPLATES)[number]) => {
     setBusy(true);
     try {
-      await onUse(template);
+      if (category === "my") await onUse(template, myProfiles[template.id]?.config);
+      else await onUse(template);
       setMessage(`${template.name} added to your bots. Review its instructions before starting a task.`);
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not create bot from template."); }
     finally { setBusy(false); }
@@ -72,6 +73,7 @@ export function AgentTemplatesCatalog({ onUse, workspaceId }: { onUse: (template
       format: "shiba.employee-bundle.v1", audience: "personal",
       profile: { name: template.name, instructions: template.instructions, harness: template.harness ?? "opencode",
         ...(savedProfile?.codingModel ? { codingModel: savedProfile.codingModel } : {}),
+        ...(savedProfile?.config.mascotPreset ? { mascotPreset: savedProfile.config.mascotPreset } : {}),
         ...(template.appearance ? { emoji: template.appearance } : {}),
         ...(template.roleTemplateId ? { roleTemplateId: template.roleTemplateId } : {}),
         expectedDeliverables: template.expectedDeliverables ?? [],
@@ -122,7 +124,7 @@ export function AgentTemplatesCatalog({ onUse, workspaceId }: { onUse: (template
     {category === "my" && !myLoading && visible.length === 0 ? <p className="mt-3 text-xs text-[var(--muted-foreground-2)]">No saved bots yet. Use an official template or create a bot to see it here.</p> : null}
     {!visible.length && !myLoading && category !== "my" ? <p className="py-8 text-sm text-[var(--muted-foreground-2)]">No teammates match your search. Try another name or category.</p> : null}
     <div className="agent-template-grid mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{visible.map((template) => <article key={template.id} className="agent-template-card group flex flex-col rounded-2xl border border-[var(--border-1)] p-4 transition-all duration-200 hover:-translate-y-1 hover:shadow-xl motion-reduce:transition-none motion-reduce:hover:translate-y-0">
-      <div className="agent-card-top flex items-start justify-between gap-2"><AgentAvatar id={template.id} name={template.name} size={80} decorative className="agent-card-mascot transition-transform duration-200 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100" /><span className="agent-category rounded-full border border-[var(--border-1)] px-2.5 py-0.5 text-[11px] capitalize text-[var(--muted-foreground-2)]">{template.categories.find((tag) => tag !== "featured")}</span></div>
+      <div className="agent-card-top flex items-start justify-between gap-2"><AgentAvatar id={template.id} name={template.name} mascotPreset={category === "my" ? myProfiles[template.id]?.config.mascotPreset : undefined} size={80} decorative className="agent-card-mascot transition-transform duration-200 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100" /><span className="agent-category rounded-full border border-[var(--border-1)] px-2.5 py-0.5 text-[11px] capitalize text-[var(--muted-foreground-2)]">{template.categories.find((tag) => tag !== "featured")}</span></div>
       <h3 className="mt-3 text-base font-semibold">{template.name}</h3><p className="agent-value-prop mt-1 text-sm text-[var(--muted-foreground-2)]">{template.description}</p><div className="agent-capabilities mt-3 flex flex-wrap gap-1.5">{capabilities(template).map((tag) => <span key={tag} className="rounded-md bg-[var(--bg-2,rgba(127,127,127,.12))] px-2 py-0.5 text-[11px] capitalize">{tag}</span>)}</div>
       <div className="mt-auto flex flex-wrap items-center gap-2 pt-4"><button type="button" disabled={busy} onClick={() => void clone(template)} className={primaryBtn}>Hire <ArrowUpRight size={14} aria-hidden="true" /></button><button type="button" onClick={() => void copy(template)} className={secondaryBtn}>Copy pack</button>{category !== "my" ? <button type="button" className={quietBtn} onClick={() => reviewTemplate(template)}>Review bundle</button> : null}{myProfiles[template.id] ? <button type="button" className={quietBtn} onClick={() => { setBundleRecipe(null); setExportProfile(myProfiles[template.id]!); }}>Export owned bundle</button> : null}{category === "my" ? <button type="button" className={quietBtn} onClick={() => reviewTemplate(template)}>Save as new archived bot</button> : null}</div>
     </article>)}</div>

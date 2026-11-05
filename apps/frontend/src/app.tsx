@@ -925,6 +925,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         name: agent.config.name,
         slug: agent.slug,
         emoji: agent.config.emoji,
+        mascotPreset: agent.config.mascotPreset,
         roleTemplateId: agent.config.roleTemplateId,
         expectedDeliverables: agent.config.expectedDeliverables,
       })),
@@ -2611,8 +2612,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     applyThreadProfile(customAgentRecords[0]!);
   }, [mainView, customAgentId, customAgentRecords, applyThreadProfile]);
   const employeeName = activeEmployee?.config.name ?? "Shiba";
-  const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
-  const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, role: employeeRole(record.slug, record.config.roleTemplateId) }));
+  const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
+  const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, mascotPreset: record.config.mascotPreset, role: employeeRole(record.slug, record.config.roleTemplateId) }));
   const showEmployeeOnboarding = !teamWorkspaceId && !restrictedTeamMember && !employeeOnboardingDismissed && !threadsLoading && !customAgentsLoading && !customAgentsError && sessionApiAvailable && customAgentRecords.length === 0 && webSessions.every((session) => session.id === "default") && sessions.every((session) => session.id === "default") && !threadHasWork;
 
   const activeSandboxCount = useMemo(() => {

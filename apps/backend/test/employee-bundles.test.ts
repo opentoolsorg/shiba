@@ -18,7 +18,7 @@ vi.mock("../src/harness/index.js", () => ({ HARNESSES: { opencode: {}, codex: {}
 
 const recipe = (): EmployeeBundle => validateEmployeeBundle({
   format: "shiba.employee-bundle.v1", audience: "personal",
-  profile: { name: "People partner", roleTemplateId: "hr", instructions: "Draft policies from approved sources.",
+  profile: { name: "People partner", mascotPreset: "climbing", roleTemplateId: "hr", instructions: "Draft policies from approved sources.",
     harness: "codex", expectedDeliverables: ["hr/workflow.md"], provenance: { kind: "catalog", id: "people-partner", revision: "1.0.0" } },
   skills: [{ name: "Policy review", instructions: "Flag unsupported statements.", provenance: { kind: "managed-skill", id: "old-skill", revision: "2" } }],
   requirements: [{ kind: "mcp", name: "Notion", description: "Approved policy sources only.", configurationRequired: ["Connect your own account", "Review exact resource grant"] }],
@@ -38,7 +38,7 @@ describe("personal reviewed employee bundles", () => {
     expect(result).toMatchObject({ profileState: "archived_pending_review", skillState: "draft", requirementsState: "unconfigured", routinesState: "descriptions_only" });
     expect(await getCustomAgentById(env, "org-a", result.employeeId)).toBeNull();
     const profile = await getCustomAgentById(env, "org-a", result.employeeId, { includeArchived: true });
-    expect(profile?.config).toEqual({ name: "People partner", instructions: "Draft policies from approved sources.",
+    expect(profile?.config).toEqual({ name: "People partner", mascotPreset: "climbing", instructions: "Draft policies from approved sources.",
       roleTemplateId: "hr", harness: "codex", expectedDeliverables: ["hr/workflow.md"], approvalPolicy: "standard" });
     expect(profile?.archivedAt).toBeTypeOf("number");
     expect(result.skillIds).toHaveLength(1);
@@ -110,7 +110,7 @@ describe("personal reviewed employee bundles", () => {
 
   it("requires actual recorded profile ownership and current profile/skill versions to export", async () => {
     const { env } = bindings();
-    const profile = await createCustomAgent(env, "org-a", "people", { name: "People", harness: "opencode", instructions: "Use approved facts.", connectionId: "private-account", toolScopes: ["private-tool"] });
+    const profile = await createCustomAgent(env, "org-a", "people", { name: "People", mascotPreset: "sunglasses", harness: "opencode", instructions: "Use approved facts.", connectionId: "private-account", toolScopes: ["private-tool"] });
     const input = { employeeId: profile.id, expectedVersion: 1, skillPins: [], requirements: [], routines: [] };
     await expect(exportEmployeeBundle(env, "org-a", auth.owner, input)).rejects.toThrow("profile_owner_required");
     await recordEmployeeBundleProfileOwner(env, "org-a", profile.id, auth.owner);
@@ -123,6 +123,7 @@ describe("personal reviewed employee bundles", () => {
     await reviewSkill(env, "org-a", skill.ownerId, skill.id, 1, skill.content.instructions);
     await activateSkill(env, "org-a", skill.ownerId, skill.id, 1, skill.content.instructions);
     const exported = await exportEmployeeBundle(env, "org-a", auth.owner, withSkill);
+    expect(exported.profile.mascotPreset).toBe("sunglasses");
     expect(exported.skills[0]).toMatchObject({ name: "Selected source", provenance: { revision: "1" } });
     expect(JSON.stringify(exported)).not.toContain("private-account");
     expect(JSON.stringify(exported)).not.toContain("private-tool");
@@ -134,6 +135,7 @@ describe("personal reviewed employee bundles", () => {
   it.each([
     (value: EmployeeBundle) => ({ ...value, tokens: { access_token: "privatevalue" } }),
     (value: EmployeeBundle) => ({ ...value, audience: "workspace" }),
+    (value: EmployeeBundle) => ({ ...value, profile: { ...value.profile, mascotPreset: "https://example.test/dog.png" } }),
     (value: EmployeeBundle) => ({ ...value, profile: { ...value.profile, connectionId: "private" } }),
     (value: EmployeeBundle) => ({ ...value, skills: Array.from({ length: 6 }, () => value.skills[0]) }),
     (value: EmployeeBundle) => ({ ...value, routines: [{ ...value.routines[0], enabled: true }] }),

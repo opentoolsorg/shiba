@@ -2,6 +2,7 @@ import { ChevronRight, ListChecks } from "lucide-react";
 import { type JSX, type KeyboardEvent, useState } from "react";
 import type { TeamWorkItem } from "../team-work-items";
 import { AgentAvatar } from "./AgentAvatar";
+import type { TaskDetailAgent } from "./TaskDetailPanel";
 
 export type WorkListGroup = "backlog" | "todo" | "in_progress" | "in_review" | "done";
 
@@ -90,7 +91,7 @@ export function WorkStatusIcon({
   );
 }
 
-function AssigneeSlot({ task }: { task: TeamWorkItem }): JSX.Element {
+function AssigneeSlot({ task, agents }: { task: TeamWorkItem; agents: readonly TaskDetailAgent[] }): JSX.Element {
   const id = task.assigneeActorId ?? task.assigneeUserId ?? task.ownerId;
   const name = task.assigneeName ?? id;
   if (!id || !name) {
@@ -102,11 +103,13 @@ function AssigneeSlot({ task }: { task: TeamWorkItem }): JSX.Element {
       />
     );
   }
-  return <AgentAvatar id={id} name={name} size={20} />;
+  const agent = agents.find((item) => item.id === id);
+  return <AgentAvatar id={id} name={name} mascotPreset={agent?.mascotPreset} role={agent?.role} size={20} />;
 }
 
 export interface WorkListViewProps {
   tasks: TeamWorkItem[];
+  agents?: readonly TaskDetailAgent[];
   selectedId?: string;
   onOpen: (id: string) => void;
   onToggleDone: (id: string) => void;
@@ -114,6 +117,7 @@ export interface WorkListViewProps {
 
 export function WorkListView({
   tasks,
+  agents = [],
   selectedId,
   onOpen,
   onToggleDone,
@@ -215,7 +219,7 @@ export function WorkListView({
                         >
                           {task.title || "Untitled task"}
                         </span>
-                        <AssigneeSlot task={task} />
+                        <AssigneeSlot task={task} agents={agents} />
                       </button>
                     </li>
                   );

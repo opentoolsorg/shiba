@@ -242,12 +242,12 @@ describe("Organization", () => {
     expect(within(chief).getByRole("heading", { name: "Shiba" })).toBeTruthy();
     expect(within(chief).getByText("Workspace chief of staff")).toBeTruthy();
     expect(within(chief).getByRole("img", { name: "Shiba" }).getAttribute("src")).toMatch(
-      /^\/assets\/agents\/\w+\.png$/,
+      /^\/assets\/mascot\/shiba-sticker-\w+\.webp$/,
     );
     const members = screen.getByRole("list", { name: "Member chiefs of staff" });
     expect(within(members).getByText("Personal chief of staff")).toBeTruthy();
     expect(within(members).getAllByRole("img")[0]?.getAttribute("src")).toMatch(
-      /^\/assets\/agents\/\w+\.png$/,
+      /^\/assets\/mascot\/shiba-sticker-\w+\.webp$/,
     );
     expect(screen.getByText("Personal agents are private")).toBeTruthy();
     expect(screen.getByText(/Lines show coordination, not access permissions/)).toBeTruthy();
@@ -282,7 +282,7 @@ describe("Agents page", () => {
       expect(within(list).getByText(name)).toBeTruthy();
     const srcs = [...list.querySelectorAll("img")].map((img) => img.getAttribute("src"));
     expect(srcs).toHaveLength(4);
-    for (const src of srcs) expect(src).toMatch(/^\/assets\/agents\/\w+\.png$/);
+    for (const src of srcs) expect(src).toMatch(/^\/assets\/mascot\/shiba-sticker-\w+\.webp$/);
   });
 
   it("expands and collapses an agent's threads", () => {

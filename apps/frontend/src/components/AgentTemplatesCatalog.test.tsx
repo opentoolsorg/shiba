@@ -7,6 +7,18 @@ import { AGENT_TEMPLATES } from "@shiba/shared";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("AgentTemplatesCatalog", () => {
+  it("retains a saved teammate mascot and settings when cloning from My templates", async () => {
+    const config = { name: "My scout", instructions: "Review supplied facts.", harness: "opencode", mascotPreset: "sleeping", codingModel: "google/gemini-2.5-pro", defaultRepoUrl: "https://github.com/example/project" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ agents: [{ id: "saved-1", slug: "scout", version: 1, config }] })));
+    const onUse = vi.fn().mockResolvedValue(undefined);
+    render(<AgentTemplatesCatalog onUse={onUse} />);
+    fireEvent.click(screen.getByRole("button", { name: /My templates/i }));
+    const heading = await screen.findByRole("heading", { name: "My scout" });
+    const card = heading.closest("article")!;
+    expect(card.querySelector("img")?.getAttribute("src")).toBe("/assets/mascot/shiba-sticker-sleeping.webp");
+    fireEvent.click(Array.from(card.querySelectorAll("button")).find((button) => /Hire/.test(button.textContent ?? ""))!);
+    await waitFor(() => expect(onUse).toHaveBeenCalledWith(expect.objectContaining({ id: "scout" }), config));
+  });
   it("filters real catalog cards with search and category chips", () => {
     render(<AgentTemplatesCatalog onUse={vi.fn()} />);
     expect(document.querySelectorAll(".agent-template-card")).toHaveLength(11);
@@ -40,7 +52,7 @@ describe("AgentTemplatesCatalog", () => {
     const card = screen.getByRole("heading", { name: "Coding Coworker" }).closest("article");
     const mascot = card?.querySelector(".agent-avatar img");
     if (!card || !mascot) throw new Error("Expected a card with a mascot.");
-    expect(mascot.getAttribute("src")).toBe("/assets/agents/agni.png");
+    expect(mascot.getAttribute("src")).toBe("/assets/mascot/shiba-sticker-hero.webp");
     expect(card.querySelector(".agent-category")?.textContent).toBe("engineering");
     expect(Array.from(card.querySelectorAll(".agent-capabilities span"), (chip) => chip.textContent)).toEqual(["repository work", "slack threads", "Approval-gated"]);
     fireEvent.error(mascot);

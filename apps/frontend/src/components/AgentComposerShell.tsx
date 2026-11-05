@@ -1,9 +1,10 @@
 import { type ComponentProps, type JSX, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import type { CustomAgentMascotPreset } from "@shiba/shared";
 import type { EmployeeRole } from "../employee-templates";
 import { AgentAvatar } from "./AgentAvatar";
 import { ChatMessageComposer } from "./ChatMessageComposer";
 
-export type MentionableAgent = { id: string; name: string; role?: EmployeeRole };
+export type MentionableAgent = { id: string; name: string; role?: EmployeeRole; mascotPreset?: CustomAgentMascotPreset };
 
 type ComposerProps = Omit<ComponentProps<typeof ChatMessageComposer>, "agentName" | "onMention" | "mentionOpen" | "textareaRef" | "children" | "placeholder">;
 
@@ -83,7 +84,7 @@ export function AgentComposerShell({ agentName, agents, ...composer }: ComposerP
         <div ref={menuRef} id={menuId} role="menu" aria-label="Mention an agent" onKeyDown={onMenuKeyDown} className="absolute bottom-full left-3 z-20 mb-2 max-h-64 w-64 max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-xl border border-[var(--border-1)] bg-[var(--popover)] p-1.5 text-sm text-[var(--fg)] shadow-overlay">
           {agents.length ? agents.map((agent) => (
             <button key={agent.id} type="button" role="menuitem" onClick={() => choose(agent)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-[var(--secondary)] focus-visible:bg-[var(--secondary)] focus-visible:outline-none">
-              <AgentAvatar id={agent.id} name={agent.name} role={agent.role} size={20} decorative />
+              <AgentAvatar id={agent.id} name={agent.name} mascotPreset={agent.mascotPreset} role={agent.role} size={20} decorative />
               <span className="truncate">{agent.name}</span>
             </button>
           )) : <p className="px-2.5 py-2 text-[var(--muted-foreground-2)]">No agents to mention</p>}

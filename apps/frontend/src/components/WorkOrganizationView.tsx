@@ -1,4 +1,5 @@
 import { Lock, Pin, Users } from "lucide-react";
+import type { CustomAgentMascotPreset } from "@shiba/shared";
 import type { JSX } from "react";
 import { AgentAvatar } from "./AgentAvatar";
 
@@ -15,6 +16,7 @@ export interface OrganizationEmployee {
   status?: "idle" | "working" | "active" | "offline" | string;
   description?: string;
   config?: {
+    mascotPreset?: CustomAgentMascotPreset;
     name?: string;
     emoji?: string;
     instructions?: string;
@@ -194,6 +196,7 @@ export function WorkOrganizationView({
                       <AgentAvatar
                         id={employee.slug ?? employee.id}
                         name={name}
+                        mascotPreset={employee.config?.mascotPreset}
                         size={36}
                         decorative
                       />

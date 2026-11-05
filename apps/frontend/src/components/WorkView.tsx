@@ -369,6 +369,7 @@ function PersonalWorkView(props: WorkViewProps): JSX.Element {
       ) : activeView === "board" ? (
         <section aria-label="Board view" className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <WorkBoardView
+            agents={props.agents}
             tasks={boardTasks}
             onOpen={handleOpenTask}
             onReview={onReviewApproval}
@@ -507,11 +508,12 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
           ) : null}
           {view === "list" ? (
             <section aria-label="List view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              <WorkListView tasks={tasks} selectedId={selected?.id} onOpen={onTaskChange} onToggleDone={toggleDone} />
+              <WorkListView agents={agents} tasks={tasks} selectedId={selected?.id} onOpen={onTaskChange} onToggleDone={toggleDone} />
             </section>
           ) : view === "board" ? (
             <section aria-label="Board view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <WorkBoardView
+                agents={agents}
                 tasks={tasks}
                 onOpen={onTaskChange}
                 onMove={onUpdateTask ? (id, status) => onUpdateTask(id, { status }) : undefined}

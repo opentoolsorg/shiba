@@ -1,6 +1,7 @@
 import type { RunStatus } from "@shiba/shared";
 import { type DragEvent, type JSX, useState } from "react";
 import { AgentAvatar } from "./AgentAvatar";
+import type { TaskDetailAgent } from "./TaskDetailPanel";
 import type { TaskHistoryAttempt, TaskHistoryItem, TaskHistoryStatus } from "./TaskHistory";
 import { viewButtonClass } from "./ui/ViewChrome";
 import {
@@ -28,6 +29,7 @@ export interface WorkBoardTask {
 
 export interface WorkBoardViewProps {
   tasks: (WorkBoardTask | TaskHistoryItem)[];
+  agents?: readonly TaskDetailAgent[];
   onOpen: (id: string) => void;
   /** Moves a task to another column; drag-and-drop and the status menu are disabled without it. */
   onMove?: (id: string, status: BoardWireStatus) => void;
@@ -132,7 +134,7 @@ export function normalizeBoardTask(item: WorkBoardTask | TaskHistoryItem): Norma
   };
 }
 
-function AssigneeSlot({ task }: { task: NormalizedBoardTask }): JSX.Element {
+function AssigneeSlot({ task, agents }: { task: NormalizedBoardTask; agents: readonly TaskDetailAgent[] }): JSX.Element {
   const name = task.assigneeName ?? task.assigneeId;
   if (!task.assigneeId || !name) {
     return (
@@ -143,8 +145,9 @@ function AssigneeSlot({ task }: { task: NormalizedBoardTask }): JSX.Element {
       />
     );
   }
+  const agent = agents.find((item) => item.id === task.assigneeId);
   if (task.assigneeKind === "agent")
-    return <AgentAvatar id={task.assigneeId} name={name} size={20} />;
+    return <AgentAvatar id={task.assigneeId} name={name} mascotPreset={agent?.mascotPreset} role={agent?.role} size={20} />;
   return (
     <span
       role="img"
@@ -159,6 +162,7 @@ function AssigneeSlot({ task }: { task: NormalizedBoardTask }): JSX.Element {
 /** Kanban board: Backlog, Todo, In progress, In review, Done, with drag-and-drop and a per-card status menu. */
 export function WorkBoardView({
   tasks,
+  agents = [],
   onOpen,
   onMove,
   onReview,
@@ -274,7 +278,7 @@ export function WorkBoardView({
                             <WorkStatusIcon group={boardColumn(task.status)} />
                           )}
                           <span className="relative z-10">
-                            <AssigneeSlot task={task} />
+                            <AssigneeSlot task={task} agents={agents} />
                           </span>
                         </div>
                       </article>

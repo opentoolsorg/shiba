@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { type JSX, type ReactNode, useEffect, useRef, useState } from "react";
+import type { CustomAgentMascotPreset } from "@shiba/shared";
 import type { EmployeeRole } from "../employee-templates";
 import type { TeamWorkItem, TeamWorkPriority } from "../team-work-items";
 import type { WorkTaskPatch } from "../work-mutations";
@@ -21,6 +22,7 @@ export interface TaskDetailAgent {
   id: string;
   name: string;
   role?: EmployeeRole;
+  mascotPreset?: CustomAgentMascotPreset;
 }
 
 export interface TaskDetailPanelProps {
@@ -238,7 +240,7 @@ export function TaskDetailPanel({
             htmlFor={id("owner")}
           >
             {owner ? (
-              <AgentAvatar id={owner.id} name={owner.name} role={owner.role} size={20} decorative />
+              <AgentAvatar id={owner.id} name={owner.name} mascotPreset={owner.mascotPreset} role={owner.role} size={20} decorative />
             ) : null}
             <select
               id={id("owner")}
@@ -264,6 +266,7 @@ export function TaskDetailPanel({
               <AgentAvatar
                 id={reviewer.id}
                 name={reviewer.name}
+                mascotPreset={reviewer.mascotPreset}
                 role={reviewer.role}
                 size={20}
                 decorative

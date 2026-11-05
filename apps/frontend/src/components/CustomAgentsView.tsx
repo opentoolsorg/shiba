@@ -4,7 +4,8 @@ import { LoadErrorState } from "./LoadErrorState";
 import { EmptyState, SkeletonLines, StatusNotice } from "./surface";
 import { agentThreads, type WebThread } from "../agent-threads";
 import { formatTimeAgo } from "../ui-helpers";
-import { sanitizeCustomAgentSlug, type CustomAgentConfig, type CustomAgentRoleTemplateId } from "@shiba/shared";
+import { CUSTOM_AGENT_MASCOT_PRESETS, sanitizeCustomAgentSlug, type CustomAgentConfig, type CustomAgentRoleTemplateId } from "@shiba/shared";
+import { agentMascotPreset } from "../agent-mascots";
 import { codingModelOptions, type ConnectionOption } from "../live-status";
 import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTemplate } from "../employee-templates";
 import { AgentAvatar as MascotAvatar } from "./AgentAvatar";
@@ -30,6 +31,7 @@ const EMPTY_FORM = {
   slug: "",
   name: "",
   emoji: "",
+  mascotPreset: "",
   roleTemplateId: "",
   instructions: "",
   harness: "opencode",
@@ -44,9 +46,10 @@ function readRoleDraft(scope?: string): typeof EMPTY_FORM {
   if (!scope) return EMPTY_FORM;
   try {
     const draft = JSON.parse(localStorage.getItem(`shiba-role-draft-v1:${scope}`) ?? "null");
-    if (draft && Object.keys(EMPTY_FORM).every((key) => key === "roleTemplateId" || typeof draft[key] === "string")) {
+    if (draft && Object.keys(EMPTY_FORM).every((key) => key === "roleTemplateId" || key === "mascotPreset" || typeof draft[key] === "string")) {
       return {
         ...Object.fromEntries(Object.keys(EMPTY_FORM).map((key) => [key, draft[key]])),
+        mascotPreset: CUSTOM_AGENT_MASCOT_PRESETS.includes(draft.mascotPreset) ? draft.mascotPreset : "",
         roleTemplateId: EMPLOYEE_TEMPLATES.some((template) => template.id === draft.roleTemplateId) ? draft.roleTemplateId : "",
       } as typeof EMPTY_FORM;
     }
@@ -239,6 +242,7 @@ function ScopedCustomAgentsView({
       slug: agent.slug,
       name: agent.config.name,
       emoji: agent.config.emoji ?? "",
+      mascotPreset: agent.config.mascotPreset ?? "",
       roleTemplateId: agent.config.roleTemplateId ?? (employeeRole(agent.slug) === "custom" ? "" : employeeRole(agent.slug)),
       instructions: agent.config.instructions,
       harness: agent.config.harness,
@@ -293,6 +297,7 @@ function ScopedCustomAgentsView({
       harness: form.harness.trim() || "opencode",
       ...(EMPLOYEE_TEMPLATES.some((template) => template.id === form.roleTemplateId) ? { roleTemplateId: form.roleTemplateId as CustomAgentConfig["roleTemplateId"] } : {}),
       ...(form.emoji.trim() ? { emoji: form.emoji.trim() } : {}),
+      ...(CUSTOM_AGENT_MASCOT_PRESETS.some((preset) => preset === form.mascotPreset) ? { mascotPreset: form.mascotPreset as CustomAgentConfig["mascotPreset"] } : {}),
       ...(form.codingModel.trim() ? { codingModel: form.codingModel.trim() } : {}),
       ...(form.connectionId.trim() ? { connectionId: form.connectionId.trim() } : {}),
       ...(form.sandboxProvider ? { sandboxProvider: form.sandboxProvider as CustomAgentConfig["sandboxProvider"] } : {}),
@@ -301,7 +306,7 @@ function ScopedCustomAgentsView({
     };
     // Clearing an optional field must clear its old value while other saved
     // settings survive an edit of the visible fields.
-    for (const key of ["emoji", "roleTemplateId", "codingModel", "connectionId", "sandboxProvider", "defaultRepoUrl", "expectedDeliverables"] as const) {
+    for (const key of ["emoji", "mascotPreset", "roleTemplateId", "codingModel", "connectionId", "sandboxProvider", "defaultRepoUrl", "expectedDeliverables"] as const) {
       if (!form[key].trim()) delete config[key];
     }
     try {
@@ -445,12 +450,12 @@ function ScopedCustomAgentsView({
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
-          {selectedAgent ? <section className="agent-detail-card" aria-label={`${selectedAgent.config.name} overview`}><div className="agent-detail-heading"><AgentAvatar agentId={selectedAgent.id} name={selectedAgent.config.name} slug={selectedAgent.slug} role={employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId)} large /><div><p className="agent-eyebrow">Your persistent teammate</p><h2>{selectedAgent.config.name}</h2><p>{employeeRoleLabel(employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId))}</p><span className="agent-category">{selectedAgent.config.harness} · {selectedAgent.config.codingModel || "Workspace default"}</span></div><button type="button" onClick={() => setSelectedAgentId(null)}>All teammates</button></div><p className="text-sm text-[var(--muted-foreground-2)]">{selectedAgent.config.instructions.slice(0, 240)}</p><div className="agent-detail-threads"><h3>Threads</h3>{threadsLoading ? <p>Loading threads…</p> : threadsUnavailable ? <p>Thread history is unavailable. Try refreshing the page.</p> : agentThreads(threads, selectedAgent.id).map((thread) => <button key={thread.id} type="button" onClick={() => onOpenThread?.(thread.id)}><span>{thread.name || "Untitled thread"}</span><time dateTime={new Date(thread.updatedAt).toISOString()}>{formatTimeAgo(thread.updatedAt)}</time></button>)}{!threadsLoading && !threadsUnavailable && !agentThreads(threads, selectedAgent.id).length ? <p>A fresh start. Give your teammate something to work on.</p> : null}{onStartThread ? <button type="button" disabled={startingAgentId !== null || busy} onClick={() => void startThread(selectedAgent)}>+ Start a thread</button> : null}</div></section> : null}
+          {selectedAgent ? <section className="agent-detail-card" aria-label={`${selectedAgent.config.name} overview`}><div className="agent-detail-heading"><AgentAvatar agentId={selectedAgent.id} name={selectedAgent.config.name} mascotPreset={selectedAgent.config.mascotPreset} slug={selectedAgent.slug} role={employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId)} large /><div><p className="agent-eyebrow">Your persistent teammate</p><h2>{selectedAgent.config.name}</h2><p>{employeeRoleLabel(employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId))}</p><span className="agent-category">{selectedAgent.config.harness} · {selectedAgent.config.codingModel || "Workspace default"}</span></div><button type="button" onClick={() => setSelectedAgentId(null)}>All teammates</button></div><p className="text-sm text-[var(--muted-foreground-2)]">{selectedAgent.config.instructions.slice(0, 240)}</p><div className="agent-detail-threads"><h3>Threads</h3>{threadsLoading ? <p>Loading threads…</p> : threadsUnavailable ? <p>Thread history is unavailable. Try refreshing the page.</p> : agentThreads(threads, selectedAgent.id).map((thread) => <button key={thread.id} type="button" onClick={() => onOpenThread?.(thread.id)}><span>{thread.name || "Untitled thread"}</span><time dateTime={new Date(thread.updatedAt).toISOString()}>{formatTimeAgo(thread.updatedAt)}</time></button>)}{!threadsLoading && !threadsUnavailable && !agentThreads(threads, selectedAgent.id).length ? <p>A fresh start. Give your teammate something to work on.</p> : null}{onStartThread ? <button type="button" disabled={startingAgentId !== null || busy} onClick={() => void startThread(selectedAgent)}>+ Start a thread</button> : null}</div></section> : null}
           {notice ? <StatusNotice tone={notice.tone}>{notice.text}</StatusNotice> : null}
 
-          <AgentTemplatesCatalog workspaceId={workspaceId} onUse={async (template: AgentTemplate) => {
+          <AgentTemplatesCatalog workspaceId={workspaceId} onUse={async (template: AgentTemplate, savedConfig?: CustomAgentConfig) => {
             if (!isActive()) return;
-            const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({ slug: template.id, config: { name: template.name, instructions: template.instructions, harness: template.harness ?? "opencode", ...(template.roleTemplateId ? { roleTemplateId: template.roleTemplateId } : {}), ...(template.expectedDeliverables ? { expectedDeliverables: template.expectedDeliverables } : {}), ...(template.appearance ? { emoji: template.appearance } : {}) } }) });
+            const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({ slug: savedConfig ? `${template.id.slice(0, 39)}-${crypto.randomUUID().slice(0, 8)}` : template.id, config: savedConfig ?? { name: template.name, mascotPreset: agentMascotPreset(template.id, template.roleTemplateId), instructions: template.instructions, harness: template.harness ?? "opencode", ...(template.roleTemplateId ? { roleTemplateId: template.roleTemplateId } : {}), ...(template.expectedDeliverables ? { expectedDeliverables: template.expectedDeliverables } : {}), ...(template.appearance ? { emoji: template.appearance } : {}) } }) });
             const body = await response.json().catch(() => ({})) as { error?: string };
             if (!isActive()) return;
             if (!response.ok) throw new Error(body.error ?? `Could not add template (${response.status}).`);
@@ -469,7 +474,7 @@ function ScopedCustomAgentsView({
             >
               <div className="flex items-center justify-between gap-2 border-b border-[#e4e4e7] pb-3 dark:border-zinc-800">
                 <div className="flex items-center gap-2.5">
-                  <MascotAvatar id={editingId ?? (form.slug || form.name || "new-agent")} name={form.name || "New agent"} role={employeeRole(form.slug || form.name, (form.roleTemplateId as CustomAgentRoleTemplateId) || undefined)} size={32} decorative />
+                  <MascotAvatar id={editingId ?? (form.slug || form.name || "new-agent")} name={form.name || "New agent"} mascotPreset={(form.mascotPreset as CustomAgentConfig["mascotPreset"]) || undefined} role={employeeRole(form.slug || form.name, (form.roleTemplateId as CustomAgentRoleTemplateId) || undefined)} size={32} decorative />
                   <div>
                     <h2 className="text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100">
                       {editingId ? "Edit bot" : "New bot"}
@@ -495,6 +500,17 @@ function ScopedCustomAgentsView({
                   {draftStorageAvailable ? "Draft saved only on this browser for your account. Return here after setup or reload to continue." : "Browser storage is unavailable. Keep this page open to retain your draft."}
                 </p>
               ) : null}
+
+              <fieldset disabled={busy} className="min-w-0">
+                <legend className="mb-2 text-xs font-medium text-[var(--fg)]">Shiba mascot</legend>
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                  {(["", ...CUSTOM_AGENT_MASCOT_PRESETS] as const).map((preset) => <label key={preset} className={`flex cursor-pointer flex-col items-center gap-1 rounded-[var(--radius-button)] border p-2 text-xs text-[var(--fg)] ${form.mascotPreset === preset ? "border-[var(--primary)] bg-[var(--secondary)]" : "border-[var(--border-1)] bg-[var(--panel)]"}`}>
+                    <MascotAvatar id={form.slug || form.name || "new-agent"} name={preset || "Automatic"} role={employeeRole(form.slug || form.name, (form.roleTemplateId as CustomAgentRoleTemplateId) || undefined)} mascotPreset={preset || undefined} size={40} decorative />
+                    <span className="capitalize">{preset || "Automatic"}</span>
+                    <input type="radio" name="mascot-preset" value={preset} checked={form.mascotPreset === preset} onChange={() => setForm((current) => ({ ...current, mascotPreset: preset }))} className="accent-[var(--primary)] focus-visible:outline-2 focus-visible:outline-[var(--ring)]" />
+                  </label>)}
+                </div>
+              </fieldset>
 
               <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
                 Name
@@ -733,7 +749,7 @@ function ScopedCustomAgentsView({
                   className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] px-4 py-3 flex flex-col sm:flex-row items-start justify-between gap-3 shadow-[var(--sh-card)]"
                 >
                   <div className="min-w-0">
-                    <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))}</span></div>
+                    <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))}</span></div>
                     <div className="text-sm font-medium text-[var(--fg)]">
                       {agent.config.name}
                       <span className="text-[11px] font-mono text-[var(--muted-foreground-2)] ml-2">
@@ -749,6 +765,7 @@ function ScopedCustomAgentsView({
                       {agent.config.codingModel ? ` · ${agent.config.codingModel}` : " · Default model"}
                       {agent.config.sandboxProvider ? ` · ${agent.config.sandboxProvider}` : ""}
                     </div>
+                    <p className="mt-1 break-all text-xs text-[var(--muted-foreground-2)]">Repository: {agent.config.defaultRepoUrl || "Choose a project repository when starting work"}</p>
                     {onOpenThread ? (
                       <div className="mt-3 border-t border-[var(--border-1)] pt-2">
                         <h3 className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Threads started with this bot</h3>

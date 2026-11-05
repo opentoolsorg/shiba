@@ -105,11 +105,16 @@ describe("WorkListView", () => {
     expect(row?.closest("li")?.className).toContain("bg-zinc-100");
   });
 
+  it("uses the assigned teammate's saved Shiba preset", () => {
+    renderList({ agents: [{ id: "coding-coworker", name: "Coder", mascotPreset: "sleeping" }] });
+    expect(screen.getByRole("img", { name: "Coder" }).getAttribute("src")).toBe("/assets/mascot/shiba-sticker-sleeping.webp");
+  });
+
   it("renders assignee avatars and a dashed slot when unassigned", () => {
     renderList();
     expect(screen.getByRole("img", { name: "Coder" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "Priya" }).getAttribute("src")).toMatch(
-      /^\/assets\/agents\//,
+      /^\/assets\/mascot\/shiba-sticker-/,
     );
     expect(screen.getAllByRole("img", { name: "Unassigned" })).toHaveLength(2);
   });

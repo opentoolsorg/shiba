@@ -105,7 +105,7 @@ describe("AgentsPanel", () => {
 
     expect(screen.getByText("Research Partner")).toBeTruthy();
     expect(screen.getByText("Engineering Lead")).toBeTruthy();
-    expect(document.querySelector('img[src^="/assets/agents/"]')).toBeTruthy();
+    expect(document.querySelector('img[src^="/assets/mascot/shiba-sticker-"]')).toBeTruthy();
     expect(screen.getAllByText("Alice · You").length).toBeGreaterThan(0);
 
     rerender(
