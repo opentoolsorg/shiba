@@ -5,7 +5,7 @@ import type {
   IntegrationProviderHealth,
 } from "@shiba/shared";
 import { z } from "zod";
-import { isTeamWorkspaceId } from "@shiba/shared";
+import { isTeamWorkspaceId, integrationActionOperationTypeSchema } from "@shiba/shared";
 import type { Env } from "../env.js";
 import type {
   FetchImpl,
@@ -258,6 +258,8 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     const actionSchema = z.object({
       id: z.string().min(1), service: z.string().min(1), name: z.string(), description: z.string().optional(),
       inputSchema: z.record(z.string(), z.unknown()).optional(),
+      // Metadata is advisory even when the provider calls an action a read.
+      operationType: integrationActionOperationTypeSchema.catch("unclassified"),
     });
     const actions = query.actionId
       ? [this.parse(z.object({ success: z.literal(true), data: actionSchema }), await this.request(`/v1/actions/${encodeURIComponent(query.actionId)}`, "runtime", { headers })).data]

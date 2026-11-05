@@ -6,6 +6,7 @@ import { openConnectorConnectionName } from "../src/integrations/openconnector-p
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { createEmployeeRunTools } from "../src/employee-run-tools.js";
 import { buildSessionAgentName } from "../src/web-sessions.js";
+import { OpenConnectorIntegrationProvider } from "../src/integrations/openconnector-provider.js";
 
 const auth = vi.hoisted(() => ({ human: true, sessions: [] as unknown[] }));
 vi.mock("../src/request-auth.js", () => ({ isAuthorizedRequest: async () => auth.human, resolveUserId: async () => "owner@example.test" }));
@@ -27,6 +28,29 @@ beforeEach(() => { auth.human = true; auth.sessions = []; });
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("employee route through the real OpenConnector provider with fixture HTTP", () => {
+  it("requires exact human approval even for a provider-labelled read that accepts raw GraphQL mutations", async () => {
+    const { database, sqlite } = customAgentD1(), alias = await openConnectorConnectionName(ACCOUNT);
+    const metadata = { id: "linear.run_query", service: "linear", name: "Run query", operationType: "read", inputSchema: { type: "object", properties: { query: { type: "string" } } } };
+    const posts: unknown[] = [];
+    const transport = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/connections") return Response.json([{ id: "fixture-linear-account", service: "linear", connectionName: alias, configured: true, virtual: false, oauthAuthorizationId: "fixture-consent", profile: { displayName: "Owner" } }]);
+      if (path === "/v1/actions/linear.run_query" && init?.method !== "POST") return Response.json({ success: true, data: metadata });
+      posts.push({ path, body: init?.body }); throw new Error("An unapproved action must never be sent");
+    });
+    const env = { AGENT_AUDIT: database, CodingOrchestrator: {}, OPEN_CONNECTOR: { fetch: transport }, OPEN_CONNECTOR_ADMIN_TOKEN: "fixture-admin", OPEN_CONNECTOR_RUNTIME_TOKEN: "fixture-runtime", DASHBOARD_APPROVERS: "owner@example.test" } as unknown as Env;
+    const adapter = new OpenConnectorIntegrationProvider({ env, fetchImpl: transport });
+    expect((await adapter.searchActions({ userId: ACCOUNT, toolkitSlug: "linear", actionId: "linear.run_query", limit: 1 }))[0]?.operationType).toBe("read");
+    const employee = await createCustomAgent(env, "self-hosted", "advisory-read", { name: "Connector", instructions: "Always request exact human approval", harness: "opencode" });
+    expect((await handleEmployeeTools(new Request(`https://shiba.test/api/employee-tools/${employee.id}/policy`, { method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expectedVersion: 1, actorId: "agent-a", role: "operator", resourcesByCapability: { "mcp:shiba:integrations.execute": ["linear"] } }) }), env))?.status).toBe(200);
+    auth.human = false;
+    const args = { toolkitSlug: "linear", toolSlug: "linear.run_query", arguments: { query: "mutation { issueCreate(input: { title: \"Must require review\", teamId: \"fixture\" }) { success } }" } };
+    const response = await handleEmployeeTools(request(`/api/employee-tools/${employee.id}/call`, { tool: "integrations.execute", args }), env);
+    const result = await response!.json() as { status: string; approvalId: string };
+    expect(result.status).toBe("pending_approval"); expect(posts).toHaveLength(0);
+    expect(sqlite.prepare("SELECT status FROM employee_tool_approvals WHERE approval_id=?").get(result.approvalId)).toEqual({ status: "pending" });
+  });
   it.each(["route grant revoked", "route allowed", "factory cancelled", "factory cancelled during final local grant", "factory expires during final local grant", "factory allowed", "factory initially aborted"])("rechecks authority during the final account lookup: %s", async (scenario) => {
     const { database, sqlite } = customAgentD1();
     let finalLocalChecks = false;

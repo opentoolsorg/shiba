@@ -4,6 +4,7 @@ import { OpenConnectorIntegrationProvider, openConnectorConnectionName } from ".
 import { createToolRegistry } from "../src/mcp-gateway.js";
 import { registerIntegrationTools } from "../src/mcp-integration-tools.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { workspaceIntegrationActionSchema } from "@shiba/shared";
 
 const configured = {
   OPEN_CONNECTOR_URL: "https://connector.example.test",
@@ -169,8 +170,21 @@ describe("OpenConnector adapter", () => {
     });
     const adapter = provider(fetchImpl);
     const actions = await adapter.searchActions({ userId: "alice", toolkitSlug: "github", query: "issue", limit: 100 });
-    expect(actions).toEqual([{ id: "github.create_issue", service: "github", name: "Create issue", inputSchema: { type: "object" } }]);
+    expect(actions).toEqual([{ id: "github.create_issue", service: "github", name: "Create issue", inputSchema: { type: "object" }, operationType: "unclassified" }]);
     expect(await adapter.searchActions({ userId: "alice", toolkitSlug: "slack", actionId: "github.create_issue", limit: 50 })).toEqual([]);
+  });
+  it.each(["read", "write", "destructive", "unclassified", undefined, null, "READ", "safe", { read: true }])("preserves advisory operation metadata without inferring unknown effects: %j", async (reported) => {
+    const action = { id: "linear.run_query", service: "linear", name: "Run query", operationType: reported, inputSchema: { type: "object", properties: { query: { type: "string" } } } };
+    const transport = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method ?? "GET").toBe("GET");
+      return Response.json({ success: true, data: String(input).includes("/search?") ? [action] : action });
+    });
+    const adapter = provider(transport), expected = typeof reported === "string" && ["read", "write", "destructive", "unclassified"].includes(reported) ? reported : "unclassified";
+    const search = await adapter.searchActions({ userId: "alice", toolkitSlug: "linear", query: "query", limit: 10 });
+    const detail = await adapter.searchActions({ userId: "alice", toolkitSlug: "linear", actionId: "linear.run_query", limit: 1 });
+    expect(search[0]?.operationType).toBe(expected); expect(detail[0]?.operationType).toBe(expected);
+    expect(workspaceIntegrationActionSchema.parse(search[0]).operationType).toBe(expected);
+    expect(transport).toHaveBeenCalledTimes(2);
   });
   it("does not claim healthy credentials or OAuth availability from catalog metadata alone", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/health") ? Response.json({ ok: true }) : new Response("runtime-secret", { status: 401 }));

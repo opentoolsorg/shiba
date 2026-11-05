@@ -4,6 +4,7 @@ import type {
   IntegrationProviderConnection,
   IntegrationProviderExecuteResponse,
   IntegrationProviderHealth,
+  IntegrationActionOperationType,
   IntegrationsProviderId,
 } from "@shiba/shared";
 
@@ -54,6 +55,8 @@ export interface IntegrationAction {
   name: string;
   description?: string;
   inputSchema?: Record<string, unknown>;
+  /** Advisory provider declaration. Missing means unclassified; never authorizes execution. */
+  operationType?: IntegrationActionOperationType;
 }
 
 export interface IntegrationActionQuery {

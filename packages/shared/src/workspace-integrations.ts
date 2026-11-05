@@ -32,7 +32,12 @@ export const workspaceIntegrationGrantsResponseSchema = z.object({
   grants: z.array(workspaceIntegrationGrantSchema),
 });
 export type WorkspaceIntegrationGrantsResponse = z.infer<typeof workspaceIntegrationGrantsResponseSchema>;
-export const workspaceIntegrationActionSchema = z.object({ id: z.string(), service: z.string(), name: z.string(), description: z.string().optional(), inputSchema: z.record(z.string(), z.unknown()).optional() });
+/** Provider-declared metadata, never a read-only guarantee or approval grant. */
+export const integrationActionOperationTypeSchema = z.enum(["read", "write", "destructive", "unclassified"]);
+export type IntegrationActionOperationType = z.infer<typeof integrationActionOperationTypeSchema>;
+export const workspaceIntegrationActionSchema = z.object({ id: z.string(), service: z.string(), name: z.string(), description: z.string().optional(), inputSchema: z.record(z.string(), z.unknown()).optional(),
+  // Optional preserves older wire responses; absent means unclassified.
+  operationType: integrationActionOperationTypeSchema.catch("unclassified").optional() });
 export const workspaceIntegrationActionsResponseSchema = z.object({ ok: z.literal(true), workspaceId: z.string(), connectionId: z.string(), actions: z.array(workspaceIntegrationActionSchema) });
 export type WorkspaceIntegrationActionsResponse = z.infer<typeof workspaceIntegrationActionsResponseSchema>;
 export const workspaceIntegrationApprovalSchema = z.object({
