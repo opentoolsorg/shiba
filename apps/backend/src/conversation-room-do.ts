@@ -4,6 +4,9 @@ import { isRunRoomEvent, MAX_RUN_ROOM_EVENTS, MAX_RUN_JOURNAL_FRAMES, MAX_RUN_JO
 import { isValidSessionId } from "./web-sessions.js";
 import { timingSafeEqualString } from "./security.js";
 import { canReadCollaborationRoom, isCollaborationRoomIdentity, type CollaborationRoomIdentity } from "./collaboration-room-access.js";
+import { RunOutputArchiveStore } from "./run-output-archive-store.js";
+import { verifyArchiveAuthorization, verifyArchiveSource, observeArchiveSource, type ArchiveSourceProof } from "./run-output-archive.js";
+import { assertArchiveReservationCurrent } from "./run-output-archive-reservations.js";
 
 const VIEWER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MESSAGE_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -132,8 +135,10 @@ function attachmentFor(socket: WebSocket): RoomSocketAttachment | null {
 }
 
 export class ConversationRoom extends DurableObject<Env> {
+  private readonly outputArchives: RunOutputArchiveStore;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.outputArchives = new RunOutputArchiveStore(ctx.storage.sql);
     ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS room_messages (
         message_id TEXT PRIMARY KEY,
@@ -432,10 +437,21 @@ export class ConversationRoom extends DurableObject<Env> {
   /** Binding-only source checkpoint. A different approved envelope cannot adopt this job. */
   async openRunJournal(identity: RunRoomIdentity, journal: RunJournalIdentity): Promise<number> {
     this.validateRunJournal(identity, journal);
-    this.ctx.storage.sql.exec(
+    if (journal.archive) {
+      await verifyArchiveAuthorization(this.env, journal.archive);
+      await assertArchiveReservationCurrent(this.env, journal.archive.reservation);
+    } else if (this.outputArchives.forJob(journal.jobId)) throw new Error("This journal requires its original output archive authority.");
+    this.ctx.storage.transactionSync(() => {
+      if (journal.archive) this.outputArchives.open(identity, journal.archive);
+      this.ctx.storage.sql.exec(
       "INSERT OR IGNORE INTO room_run_journals (job_id, run_id, generation, acknowledged_through, source_sequence, event_count, character_count) VALUES (?, ?, ?, 0, 0, 0, 0)",
       journal.jobId, identity.runId, journal.generation,
-    );
+      );
+    });
+    if (journal.archive) {
+      await this.scheduleMaintenanceAlarm();
+      await assertArchiveReservationCurrent(this.env, journal.archive.reservation);
+    }
     return this.runJournal(identity, journal).acknowledged_through;
   }
 
@@ -454,6 +470,16 @@ export class ConversationRoom extends DurableObject<Env> {
       const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body))), (byte) => byte.toString(16).padStart(2, "0")).join("");
       return { eventId, event, body, digest };
     }));
+    if (batch.archive) {
+      await verifyArchiveAuthorization(this.env, batch.archive);
+      if (!batch.archiveSource) throw new Error("Output archive source claim is not bound.");
+      const source = await verifyArchiveSource(this.env, batch.archive.reservation, batch.archiveSource);
+      if (!source || !["starting", "running", "exited"].includes(source.state)) {
+        this.outputArchives.freeze(batch.archive.reservation.id, "original_container_unavailable_tail_unknown");
+        throw new Error("Original execution container changed. Only its externally acknowledged archive prefix survives.");
+      }
+      await assertArchiveReservationCurrent(this.env, batch.archive.reservation);
+    } else if (this.outputArchives.forJob(batch.jobId)) throw new Error("Output archive authority cannot be dropped.");
     const frames: RunRoomFrame[] = [];
     const ack = this.ctx.storage.transactionSync(() => {
       const journal = this.runJournal(identity, batch);
@@ -487,6 +513,7 @@ export class ConversationRoom extends DurableObject<Env> {
         "UPDATE room_run_journals SET acknowledged_through = ?, source_sequence = ?, event_count = ?, character_count = ? WHERE job_id = ?",
         acknowledgedThrough, Math.max(journal.source_sequence, batch.sourceSequence), journal.event_count + frames.length, characters, batch.jobId,
       );
+      if (batch.archive) this.outputArchives.append(batch.archive, batch.archiveSource!, frames, batch.sourceSequence, acknowledgedThrough);
       this.ctx.storage.sql.exec(
         "DELETE FROM room_run_events WHERE sequence IN (SELECT sequence FROM room_run_events ORDER BY sequence DESC LIMIT -1 OFFSET ?)", MAX_RUN_ROOM_EVENTS,
       );
@@ -501,6 +528,9 @@ export class ConversationRoom extends DurableObject<Env> {
     if (!ownerId || ownerId.length > 320 || !isValidSessionId(identity.sessionId) ||
       typeof identity.runId !== "string" || !identity.runId || identity.runId.length > 200 ||
       !JOURNAL_ID.test(journal.jobId) || !JOURNAL_ID.test(journal.generation)) throw new Error("Invalid journal identity.");
+    if (journal.archive && (journal.archive.reservation.jobId !== journal.jobId || journal.archive.reservation.envelopeHash !== journal.generation ||
+      journal.archive.reservation.ownerId !== ownerId || journal.archive.reservation.sessionId !== identity.sessionId || journal.archive.reservation.runId !== identity.runId))
+      throw new Error("Output archive does not bind the actual journal and room.");
     if (!this.bindIdentity(ownerId, identity.sessionId)) throw new Error("Room identity does not match.");
   }
 
@@ -508,6 +538,32 @@ export class ConversationRoom extends DurableObject<Env> {
     const row = this.ctx.storage.sql.exec<RunJournalRow>("SELECT run_id, generation, acknowledged_through, source_sequence, event_count, character_count FROM room_run_journals WHERE job_id = ?", journal.jobId).toArray()[0];
     if (!row || row.run_id !== identity.runId || row.generation !== journal.generation) throw new Error("Journal identity does not match the approved run generation.");
     return row;
+  }
+
+  async completeRunOutputArchive(identity: RunRoomIdentity, journal: RunJournalIdentity, proof: ArchiveSourceProof, sourceSequence: number, exitCode: number): Promise<void> {
+    this.validateRunJournal(identity, journal);
+    if (!journal.archive) throw new Error("Output archive approval is absent.");
+    await verifyArchiveAuthorization(this.env, journal.archive);
+    const source = await verifyArchiveSource(this.env, journal.archive.reservation, proof);
+    if (!source || source.state !== "exited") throw new Error("Output archive source completion is not verified.");
+    await assertArchiveReservationCurrent(this.env, journal.archive.reservation);
+    this.ctx.storage.transactionSync(() => this.outputArchives.complete(journal.archive!.reservation.id, sourceSequence, exitCode));
+  }
+
+  /** Binding-only private read. Current native account/source checks happen after all external awaits. */
+  async readRunOutputArchive(identity: RunRoomIdentity, archiveId: string, ownerAccountId: string, after: number) {
+    const reservation = this.outputArchives.reservation(archiveId);
+    if (reservation.ownerId !== identity.ownerId || reservation.sessionId !== identity.sessionId || reservation.runId !== identity.runId || reservation.ownerAccountId !== ownerAccountId)
+      throw new Error("Output archive not found.");
+    const current = this.outputArchives.get(archiveId)!;
+    if (current.state === "active") {
+      const source = await observeArchiveSource(this.env, reservation).catch(() => null);
+      if (!source || !["starting", "running", "exited"].includes(source.state) || source.epoch !== current.epoch || source.currentEpoch !== current.epoch || source.digest !== current.source_digest)
+        this.outputArchives.freeze(archiveId, "original_container_unavailable_tail_unknown");
+      else if (reservation.writeDeadline <= Date.now()) this.outputArchives.freeze(archiveId, "source_completion_unverified_tail_unknown");
+    }
+    await assertArchiveReservationCurrent(this.env, reservation);
+    return this.outputArchives.page(archiveId, after);
   }
 
   async webSocketMessage(socket: WebSocket, raw: string | ArrayBuffer): Promise<void> {
@@ -726,6 +782,7 @@ export class ConversationRoom extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     const now = Date.now();
+    this.outputArchives.expire(now);
     for (const socket of this.ctx.getWebSockets()) {
       const attachment = attachmentFor(socket);
       if (attachment?.typing && attachment.typingAt + TYPING_TTL_MS <= now) {
@@ -907,6 +964,8 @@ export class ConversationRoom extends DurableObject<Env> {
       "SELECT updated_at FROM room_streams WHERE status = 'streaming'",
     ).toArray();
     expiries.push(...streams.map((stream) => stream.updated_at + STREAM_TTL_MS));
+    const archiveExpiry = this.outputArchives.nextExpiry();
+    if (archiveExpiry !== undefined) expiries.push(archiveExpiry);
     const expiry = expiries.reduce((earliest, item) => Math.min(earliest, item), Infinity);
     if (Number.isFinite(expiry)) await this.ctx.storage.setAlarm(Math.max(Date.now() + 1, expiry));
     else await this.ctx.storage.deleteAlarm();

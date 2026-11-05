@@ -77,6 +77,8 @@ async function host() {
       put(name: string, value: unknown) { values.set(name, structuredClone(value)); },
     },
     get: async <T>(name: string) => values.get(name) as T | undefined,
+    list: async <T>(options?: { prefix?: string }) => new Map([...values].filter(([key]) => !options?.prefix || key.startsWith(options.prefix))) as Map<string, T>,
+    delete: async (keys: string | string[]) => { for (const key of Array.isArray(keys) ? keys : [keys]) values.delete(key); },
     setAlarm: vi.fn(async () => undefined),
     deleteAll: vi.fn(async () => { values.clear(); }),
   };
@@ -112,6 +114,59 @@ afterEach(async () => {
     }
     await fs.rm(fixture.root, { recursive: true, force: true });
   }
+});
+
+it("inspects retained native claim/epoch without starting a container or executing any command", async () => {
+  const f = await host();
+  expect(await f.sandbox.getExecutionClaim(f.input.jobId)).toBeNull();
+  const claim = { digest: "d".repeat(64), deadline: f.input.deadline, createdAt: Date.now(), epoch: EPOCH, state: "running" };
+  f.values.set(`execution-journal:${f.input.jobId}`, claim);
+  expect(await f.sandbox.getExecutionClaim(f.input.jobId)).toMatchObject({ digest: claim.digest, deadline: claim.deadline, epoch: EPOCH, state: "running", jobId: f.input.jobId, currentEpoch: EPOCH });
+  f.native.labels[EXECUTION_EPOCH_LABEL] = "22222222-2222-4222-8222-222222222222";
+  expect(await f.sandbox.getExecutionClaim(f.input.jobId)).toMatchObject({ epoch: EPOCH, currentEpoch: f.native.labels[EXECUTION_EPOCH_LABEL] });
+  f.native.running = false;
+  expect(await f.sandbox.getExecutionClaim(f.input.jobId)).toMatchObject({ epoch: EPOCH, currentEpoch: null });
+  expect(f.native.start).not.toHaveBeenCalled(); expect(f.native.exec).not.toHaveBeenCalled();
+});
+
+it("keeps a nonsecret retirement tombstone across failed destroy, retry and recreated DO", async () => {
+  const f = await host();
+  f.values.set("secret-egress-configuration", { token: "fixture-secret" });
+  f.values.set("execution-journal:" + f.input.jobId, { digest: "d".repeat(64), deadline: f.input.deadline, createdAt: Date.now(), epoch: EPOCH, state: "running" });
+  const destroy = f.native.destroy.getMockImplementation()!;
+  f.native.destroy.mockImplementationOnce(async () => { expect(f.values.has("sandbox-retired:v1")).toBe(true); throw new Error("destruction outcome unknown"); });
+  await expect(f.sandbox.destroy()).rejects.toThrow("destruction outcome unknown");
+  expect(f.values.has("secret-egress-configuration")).toBe(false);
+  expect([...f.values.keys()].every((key) => key === "sandbox-retired:v1" || key.startsWith("execution-journal:"))).toBe(true);
+  const recreated = f.construct();
+  expect(await recreated.startExecution(f.input)).toMatchObject({ state: "lost" });
+  expect(f.native.start).not.toHaveBeenCalled(); expect(f.native.exec).not.toHaveBeenCalled();
+  f.native.destroy.mockImplementation(destroy); await recreated.destroy();
+  expect(await f.construct().startExecution({ ...f.input, jobId: "a".repeat(64) })).toMatchObject({ state: "lost" });
+  expect(f.native.exec).not.toHaveBeenCalled();
+});
+
+it("never relaunches an old approved job after retirement while a different attempt can launch once", async () => {
+  const original = await host(); await original.sandbox.startExecution(original.input); await drain(original.sandbox, original.input.jobId);
+  await original.sandbox.destroy();
+  const starts = original.native.exec.mock.calls.filter(([argv]) => argv[4] === "start").length;
+  expect(await original.construct().startExecution(original.input)).toMatchObject({ state: "lost" });
+  expect(original.native.exec.mock.calls.filter(([argv]) => argv[4] === "start")).toHaveLength(starts);
+  expect(starts).toBe(1);
+  const fresh = await host(); await fresh.sandbox.startExecution(fresh.input); await drain(fresh.sandbox, fresh.input.jobId);
+  expect(fresh.input.jobId).not.toBe(original.input.jobId);
+  expect(fresh.native.exec.mock.calls.filter(([argv]) => argv[4] === "start")).toHaveLength(1);
+});
+
+it("refuses a held settlement dispatch if destruction retires its original sandbox before epoch inspection returns", async () => {
+  const f = await host(), blocked = gate(), entered = gate();
+  f.values.set("execution-journal:" + f.input.jobId, { digest: "d".repeat(64), deadline: f.input.deadline, createdAt: Date.now(), epoch: EPOCH, state: "exited" });
+  f.native.inspect.mockImplementationOnce(async () => { entered.release(); await blocked.pending; return { labels: { [EXECUTION_EPOCH_LABEL]: EPOCH }, image: "pinned-image" }; });
+  const settling = f.sandbox.exec("echo settlement", { requiredJournalJobId: f.input.jobId }).then(() => null, (error: unknown) => error);
+  await entered.pending;
+  f.native.destroy.mockImplementationOnce(async () => { throw new Error("destroy outcome unknown"); });
+  await expect(f.sandbox.destroy()).rejects.toThrow("destroy outcome unknown"); blocked.release();
+  expect(await settling).toBeInstanceOf(Error); expect(f.native.exec).not.toHaveBeenCalled();
 });
 
 describe("Sandbox execution journal RPC", () => {
@@ -201,7 +256,7 @@ describe("Sandbox execution journal RPC", () => {
     await item.sandbox.destroy();
     blocked.release();
     expect(await starting).toMatchObject({ state: "lost" });
-    expect(item.values.size).toBe(0);
+    expect(item.values.has("sandbox-retired:v1")).toBe(true);
     expect(item.native.exec).not.toHaveBeenCalled();
   });
 
@@ -222,7 +277,7 @@ describe("Sandbox execution journal RPC", () => {
     await item.sandbox.destroy();
     blocked.release();
     expect(await reading).toMatchObject({ state: "lost" });
-    expect(item.values.size).toBe(0);
+    expect(item.values.has("sandbox-retired:v1")).toBe(true);
   });
 
   it.each(["missing-exit", "sequence", "failed-control"])("refuses an unsafe %s control response", async (kind) => {

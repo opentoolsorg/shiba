@@ -34,6 +34,7 @@ import { isActiveStatus, isTerminalStatus, normalizeRun } from "./runs.js";
 
 /** The creation payload a `queue` command carries — createRun's args. */
 export interface QueuedRunInput extends OnboardingRunFields {
+  outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   sandboxId: string;
   repoUrl: string;
   executionTarget?: ExecutionTarget;
@@ -162,6 +163,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...onboardingRunFields(run),
       repoUrl: run.repoUrl,
       ...(run.executionTarget !== undefined ? { executionTarget: run.executionTarget } : {}),
+      ...(run.outputArchive !== undefined ? { outputArchive: { ...run.outputArchive } } : {}),
       task: run.task,
       baseBranch: run.baseBranch,
       publishPullRequest: run.publishPullRequest,
@@ -233,6 +235,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...onboardingRunFields(command.input),
           repoUrl: command.input.repoUrl,
           ...(command.input.executionTarget !== undefined ? { executionTarget: command.input.executionTarget } : {}),
+          ...(command.input.outputArchive !== undefined ? { outputArchive: { ...command.input.outputArchive } } : {}),
           task: command.input.task,
           baseBranch: command.input.baseBranch,
           publishPullRequest: command.input.publishPullRequest,
@@ -296,6 +299,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.sandboxId === command.input.sandboxId &&
           run.repoUrl === command.input.repoUrl &&
           JSON.stringify(run.executionTarget) === JSON.stringify(command.input.executionTarget) &&
+          JSON.stringify(run.outputArchive) === JSON.stringify(command.input.outputArchive) &&
           run.task === command.input.task &&
           run.baseBranch === command.input.baseBranch &&
           run.publishPullRequest === command.input.publishPullRequest &&

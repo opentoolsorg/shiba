@@ -221,10 +221,14 @@ describe("Cloudflare source journal adapter", () => {
       });
     });
     const sandbox = await f.provider.get("approved-run");
-    await expect(sandbox.exec("run-approved-cli", { cwd: "/workspace/approved-run", journal: journal() })).rejects.toBeInstanceOf(Error);
+    await expect(sandbox.exec("run-approved-cli", { cwd: "/workspace/approved-run", journal: journal() })).rejects.toThrow(
+      _name === "raw output" ? "Execution journal exceeded its output bound." : "Execution journal returned an invalid page.",
+    );
+    expect(f.read).toHaveBeenCalledTimes(Math.ceil(totalFrames / 64));
+    expect(f.cancel).toHaveBeenCalledTimes(1);
     expect(f.start).toHaveBeenCalledTimes(1);
     expect(f.legacyExec).not.toHaveBeenCalled();
-  });
+  }, 15_000);
 
   it.each(["throws", "rejects"] as const)("does not replay accepted output when a consumer callback %s", async (failureMode) => {
     const f = fixture();

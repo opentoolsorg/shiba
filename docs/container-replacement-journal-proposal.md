@@ -1,165 +1,159 @@
-# Container replacement journal proposal
+# Container replacement output archive
 
-Status: design for review. This is not implemented or live-verified. The local
-workerd drill in [local-journal-recovery.md](local-journal-recovery.md) covers a
-surviving Node source process and a fixture container bridge. It does not test a
-Cloudflare Container replacement.
+Status: implemented in source with local acceptance evidence. This is not a live
+Cloudflare Container or coding-provider certification. The implementation retains
+sanitized output outside the source container; it does not restore a destroyed
+process or automatically launch a replacement command.
 
-## Precise guarantee
+## Precise boundary
 
-After a container is replaced, a current authorized viewer can recover the
-sanitized output already committed to storage outside that container, until its
-explicit archive lease expires. An output acknowledgment means the payload and
-its checkpoint committed together. It does not mean every byte emitted by the
-CLI reached that checkpoint.
+An archive acknowledgment commits the sanitized payload, deduplication receipt,
+source checkpoint, byte/event counters and hash chain in the same room SQLite
+transaction. Retained payload has a separate table from the 2,048-event live
+display history. A current authorized native owner can read that committed
+projection after source replacement until the exact approved archive lease ends.
 
-Unacknowledged bytes may exist only in a process pipe, the container journal, or
-a transient Worker buffer. Those bytes can be lost with the container. Recovery
-must show the durable prefix and an incomplete or unknown tail. It must not infer
-a successful command from terminal text, reconstruct process memory, or start a
-replacement command under the old approval.
+Unacknowledged bytes may exist only in a process pipe, the container journal or a
+transient Worker buffer. Those bytes can be lost. Recovery returns the retained
+projection, its source ACK and last observed source sequence, and an explicitly
+unknown tail with no invented upper bound. Equal observed and ACKed frontiers do
+not prove the CLI emitted nothing later. Split secrets/UTF-8 are assembled and
+scrubbed before persistence; oversized lines retain the existing explicit safety
+notice. This is a sanitized projection guarantee, not retention of every raw byte.
 
-## Existing pieces and the missing boundary
+A verified source exit receipt is distinct from tests, workspace settlement,
+artifact collection and publication. Terminal text alone cannot establish any of
+those outcomes.
 
-`Sandbox` stores a one-shot execution claim outside the container and refuses
-journal reads when the original container epoch changes. The Node supervisor
-writes a bounded local journal. `createRunJournalPublisher` scrubs complete lines
-and publishes through the `ConversationRoom` binding. The room already commits
-redacted events, deduplication receipts and source acknowledgment in one SQLite
-transaction before fanout.
+## Human approval and initial scope
 
-That is useful external durability already. It is not a retained archive:
-`room_run_events` prunes display payload after 2,048 events, while
-`room_run_journal_receipts` retains only a digest and sequence. An acknowledged
-payload can therefore disappear from display history even before source bounds
-are reached. An archive must retain payload independently of that display cap.
+New eligible explicit dashboard queue requests receive a server-authored optional
+`outputArchive` policy **before** the human decides their frozen approval. Its
+exact resource bounds, original native account ID, recovery limitation and
+absolute UTC lease appear on the stored approval card. The policy participates
+in `runInputHash`, decider queue/replay checks, the persisted run and the sealed
+child envelope. An API request may set `outputArchive: null` to opt out; arbitrary
+client-authored policies are rejected.
 
-## Smallest proposed implementation
+This first slice requires the actual verified native bootstrap owner's cookie,
+its immutable account UUID, a private base/named dashboard session and a frozen
+Cloudflare sandbox provider. It excludes employee profiles, skill pins,
+onboarding/project context, collaboration handoffs/shared sources, children,
+chained reviews, local and personal runs. It does not infer archive authority
+from `runRoom`. Existing approvals/runs remain unchanged. The SDK chat approval
+gate currently retains its legacy behavior: it does not add an archive policy
+that its original tool-input card cannot display.
 
-Extend the existing private room DO with a separate per-job archive. Reuse its
-SQLite transaction and current binding-only writer instead of adding an R2
-upload protocol or a container-held writer token. The Worker continues pulling
-the original journal and redacting it before persistence. If that Worker cannot
-pull before replacement, the unacknowledged tail remains unknown.
+Archive reads are private to that original native account, not a room-sharing
+contract. They do not claim current upstream repository authorization or expand
+an external shared-source grant. Shared-source/team archives need their own
+current membership/version/source checks before they can be admitted.
 
-The immutable archive identity binds:
+## Versioned resource reservation
 
-- Current owner/audience scope and run ID.
-- Original approval ID, canonical input hash and dispatch envelope hash.
-- Original job ID, command identity and native container epoch.
-- Original write/observation deadline, plus a separate output archive lease.
-- A versioned bounded storage policy frozen with the approved run.
+Policy v1 freezes these limits into the approved run:
 
-A private read-only Sandbox binding can expose the retained claim/epoch identity
-without starting a container. The archive must never trust an epoch supplied by
-a viewer, CLI environment variable or model. Existing same-instance supervisor
-checks remain necessary.
+| Resource | Bound |
+| --- | --- |
+| Source journal | 4 MiB and 4,096 frames, unchanged |
+| Archive per job | 8 MiB canonical UTF-8 bytes, including bounded metadata overhead; 8,192 events |
+| Room reservations | 16 MiB / 2 unexpired archives |
+| Native account reservations | 32 MiB / 4 unexpired archives |
+| Absolute archive lease | At most 24 hours from policy creation; never extended on recovery |
 
-Each archived chunk records a monotonic archive sequence, deterministic event
-ID, stream, source coverage range, bounded UTF-8 payload and digest. A hash chain
-or equivalent complete manifest binds ordering and detects missing or changed
-chunks. Its transaction inserts payload and deduplication receipt, updates byte
-and event counters, and advances the acknowledged source frontier atomically.
-An uncertain reply can replay the same event ID and identical payload; changed
-bytes under that ID are rejected.
+`0022_run_output_archives.sql` adds the private `AGENT_AUDIT` reservation registry.
+One conditional D1 statement reserves owner and room capacity before the CLI's
+source `START`. Retrying the same exact reservation is idempotent. Unknown or
+revoked work does not release its reservation early. Expired leases no longer
+count; room maintenance alarms remove their payload. These are logical storage
+resource limits, not an inference invoice or dollar cap.
 
-Keep two frontiers distinct: committed output events and complete source
-coverage. A complete stderr line may already be durable while an unfinished
-stdout line prevents the global source checkpoint advancing. Never treat a
-partially buffered line or incomplete UTF-8/secret fragment as safely archived.
+When the archive budget is reached, the next transaction fails without advancing
+ACK or evicting previously acknowledged leased payload. The independent source
+journal may then reach its existing limit; that is explicit bounded failure,
+never permission to retry or relaunch.
 
-## Replacement and execution authority
+## Native claim and replacement fencing
 
-On verified native epoch mismatch, freeze the old journal as incomplete. Retain
-its committed prefix; reject new-epoch appends or old-job START attempts. Do not
-clear its one-shot claim/tombstone while the old executable authorization could
-still be valid. A late old writer cannot reopen a journal marked incomplete.
+A distinct Worker-only admission HMAC binds actual owner/account/session/run,
+approval/input/envelope hashes, job, command identity, policy and deadlines. After
+the one-shot native execution claim exists, a separate scoped seal binds its
+original job digest and native container epoch. No archive token or signing key
+enters the container.
 
-Report at least the committed source frontier, last observed source sequence,
-archive event frontier and whether a verified final receipt exists. When no
-verified final receipt exists, the upper extent of the tail is unknown: the CLI
-could have emitted more output since the last read. Even equal observed and
-committed frontiers do not prove the process produced nothing afterward.
+`Sandbox.getExecutionClaim` only inspects retained metadata/current epoch. It
+never starts a container or executes a control program. The room verifies the
+native observation before accepting appends. Once replacement, cancellation or
+unavailable original source is observed, an incomplete archive cannot reopen for
+a late writer or a new epoch. Archive reads can return its committed projection
+without relaunching the source.
 
-A Worker-verified final source receipt can establish the old CLI exit status
-only when bound to the same job/epoch/input and complete acknowledged coverage.
-It does not establish successful artifact collection, tests, publication or
-settlement. Existing preparing/harness/settling/complete phase distinctions stay
-in force.
+Explicit sandbox destruction writes a sticky retirement tombstone before its
+first destructive effect, including failed or uncertain destruction. It clears
+egress/port/session configuration while retaining only nonsecret closed claim
+identity. It never deletes all state and later recreates the tombstone. A fresh
+DO cannot run another CLI or settlement command under that retired attempt ID;
+a new human-approved attempt uses a different sandbox ID. Involuntary container
+replacement retains the original one-shot claim.
 
-A subsequent command requires a new explicit human approval with a distinct
-attempt/job identity. Archived text is untrusted evidence, not instructions or
-permission. Reusing an immutable patch or artifact checkpoint would require
-explicit selection, current source authority and its exact bytes/hash in that
-new approval. This first proposal does not promise restoration of uncommitted
-files or arbitrary process/filesystem checkpoints and does not pause active CLI
-turns to create them.
+Native epoch and D1/room observations are distributed point-in-time checks, not a
+cross-service transaction or an instant remote-revocation notification. After a
+replacement is observed locally, that archive is permanently fenced.
 
-## Budgets, backpressure and privacy
+## Private read surface
 
-Choose explicit per-run UTF-8 storage bytes, chunk/event counts, archive lifetime,
-and per-owner aggregate reservation limits before implementation. Keep source
-limits of 4 MiB/4,096 frames and current line-redaction limits; a character count
-is not a storage byte budget. Chunk values must remain small and each row's
-canonical stored bytes must count toward the reservation. These are resource
-limits, not an inference invoice or dollar cap.
+`GET /api/run-output-archives` lists current private reservations;
+`GET /api/run-output-archives/:id?after=0` returns at most 32 hash-chained terminal
+entries. The explicit owner-only `POST /:id/revoke` stops later reads. These
+routes use a native human cookie, not an API bearer or workspace selector, and
+never probe/reconcile the parent agent, queue work, approve, start, send or make a
+provider/model call.
 
-Reserve capacity before starting the approved source job. A full archive must
-not evict acknowledged payload inside its promised lease to accept new data.
-Fail the next append without advancing its acknowledgment and expose bounded
-storage/backpressure failure. The independent source journal can itself reach
-its existing limit; that is an explicit limited/unknown outcome, not evidence of
-complete terminal replay. Do not auto-refund, retry or relaunch an uncertain
-execution.
+After all DO/session awaits, a final D1 statement joins the exact native session,
+account provenance and reservation digest/state/lease. The response checks the
+clock again synchronously after that proof. Directory snapshots are filtered
+against fresh session/reservation authority and the current clock. A removed
+account, same-email replacement account, revoked session/reservation or expired
+lease cannot use the old archive. Deleting a named session revokes its archive
+reservations before removing the registry record. Responses are private,
+`no-store` and have no bearer download URL.
 
-Redaction occurs in the Worker before archive payload or fanout. Store only the
-sanitized terminal projection and nonsecret identity metadata. Raw source frames,
-executable command envelopes, environment maps, model/subscription keys and
-container-held archive credentials must not enter the archive. Preserve split-line/UTF-8 and multiline secret
-handling and scrub before applying storage bounds. Oversized lines retain an
-explicit safety notice rather than silently disappearing.
+The native live-run panel has an explicit read-only retained-archive button.
+Opening it validates the selected run/session, native account and contiguous
+hash chain. Current-access failures and scope switches clear cached bytes; an
+exact local lease timer hides them before the next poll. The UI shows a bounded
+250,000-character tail of loaded pages and offers explicit next-page reads. It
+labels an unacknowledged tail as unknown and has no command-start, approval,
+Slack or download controls. Source revocation checks poll/focus refresh; the UI
+does not promise instantaneous notification of an unseen account change.
 
-Read, replay and export require the exact current native/Access owner or
-approved room audience and current source grants. Reuse the existing before/after
-source fences; a guessed job ID or viewer nonce grants nothing. Archive reads
-must not start a container, resume an agent, queue work or approve anything.
-Authenticated no-store reads are preferable to bearer download links because
-source revocation must withhold cached output on later reads. Display history
-and archive cursors must be distinguished; never reset a viewer to another
-run/generation silently.
+## Evidence and remaining acceptance
 
-The write deadline is not automatically the output retention deadline. Completed
-or incomplete output can remain readable under its separately approved archive
-lease while audience/source authority remains current. Expired or revoked read
-leases must hide protected content locally and deny subsequent server reads.
+`test/run-output-archives.test.ts` uses actual SQLite/D1-interface statements and
+the production room/publisher with a fixture native claim. It covers policy and
+seal mutation, owner/room reservations, no early quota refund, display pruning,
+UTF-8/redaction, reply loss/deduplication, atomic backpressure, completion versus
+unknown tail, current native/session/source fences and held final-proof expiry.
+`test/execution-journal.test.ts` exercises the actual Sandbox class against a
+fixed local Node process/native-container fixture, including retirement before
+failed destroy, fresh DOs, held settlement inspection and a new attempt ID.
 
-## Proposed deterministic acceptance
+`test/acceptance/worker-archive-replacement.test.mjs` starts three actual local
+workerd runtimes with persistent SQLite **and D1**, uses a real TCP WebSocket and
+the production Node journal. The fixed producer launches once. It commits a
+sanitized prefix including split secret/UTF-8 output, loses an append reply after
+commit, emits a later unacknowledged frame, then loses its owned source process
+and local journal. After fixture epoch replacement/restart it recovers the same
+committed projection/hash, reports the unknown tail, refuses old-epoch appends,
+performs zero replacement starts and denies a revoked read. All outbound traffic
+is denied; the single reserved-domain probe is intentionally blocked.
 
-Use actual local workerd/SQLite and the fixed Node source fixture, with all
-outbound traffic denied. This is separate from live Cloudflare acceptance.
-
-1. Commit a known sanitized prefix and its checkpoint. Emit more source bytes
-   without external acknowledgment, stop only the owned fixture process and
-   replace its fixture epoch. Restart workerd with the same external storage.
-2. Recover the exact acknowledged prefix/hash; report an unknown unacknowledged
-   tail. Assert old source launch count remains one, recovery START count zero,
-   and a new epoch or forged generation cannot append to the old journal.
-3. Inject a crash before the archive transaction commits: neither payload nor
-   checkpoint becomes visible. Inject a lost reply after commit: identical
-   replay is idempotent and changed-body replay is rejected.
-4. Cross a split UTF-8 code point and approved synthetic secret over source
-   chunks. Confirm unfinished raw bytes never enter external storage and the
-   recovered projection matches the expected sanitized digest.
-5. Reach the archive budget. Existing acknowledged data remains available;
-   the next append is explicitly rejected without an advanced frontier.
-   Ordinary 2,048-event display pruning must not delete leased archive payload.
-6. Revoke membership/source authority or expire the read lease during a read.
-   No protected bytes cross the final response boundary. Viewer injection,
-   guessed IDs, stale epochs and cross-user/workspace requests have zero effects.
-7. Supply a valid complete final receipt separately from an incomplete one.
-   Only verified source completion changes the CLI outcome, and neither case
-   fabricates settlement, publication or a replacement execution.
-
-A real Cloudflare same-container/replacement drill remains a distinct authorized
-prerequisite. Until those tests exist, the guarantee above is a design contract,
-not a claim that deployed recovery or every emitted CLI byte is lossless.
+The Container epoch/claim RPC in that drill is a fixture, not an actual Container
+binding. Native cookie authorization is covered separately by scoped HTTP tests,
+not by its test-only fixed-identity endpoints. The earlier same-container drill
+remains in [local-journal-recovery.md](local-journal-recovery.md). Neither fixture
+establishes live Cloudflare Container replacement, real coding-provider execution,
+or the complete parent Think/child-agent SDK eviction chain. Those remain
+separate authorized live acceptance tasks. No process-memory, uncommitted
+filesystem checkpoint, arbitrary environment restoration, universal zero-tail-loss
+or autonomous replacement execution is claimed.

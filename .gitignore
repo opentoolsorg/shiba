@@ -56,3 +56,6 @@ graphify-out/
 
 # Nimbus generated indexes
 apps/web/.nimbus/
+
+# Verified public build cache; never vendor downloaded package binaries.
+apps/backend/computer/pinned-debs/*.deb

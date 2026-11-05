@@ -54,6 +54,7 @@ export {
 } from "@shiba/shared";
 
 export function createRun(args: OnboardingRunFields & {
+  outputArchive?: import("@shiba/shared").RunOutputArchivePolicy;
   runId: string;
   sandboxId: string;
   repoUrl: string;
@@ -114,6 +115,7 @@ export function createRun(args: OnboardingRunFields & {
       sandboxId: args.sandboxId,
       repoUrl: args.repoUrl,
       ...(args.executionTarget !== undefined ? { executionTarget: args.executionTarget } : {}),
+      ...(args.outputArchive !== undefined ? { outputArchive: { ...args.outputArchive } } : {}),
       task: args.task,
       baseBranch: args.baseBranch,
       publishPullRequest: args.publishPullRequest,
@@ -188,6 +190,7 @@ function commandForStatus(
           sandboxId: run.sandboxId,
           repoUrl: run.repoUrl,
           ...(run.executionTarget !== undefined ? { executionTarget: structuredClone(run.executionTarget) } : {}),
+          ...(run.outputArchive !== undefined ? { outputArchive: { ...run.outputArchive } } : {}),
           task: run.task,
           baseBranch: run.baseBranch,
           publishPullRequest: run.publishPullRequest,
