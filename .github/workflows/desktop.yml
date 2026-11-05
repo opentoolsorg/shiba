@@ -73,6 +73,7 @@ jobs:
             apps/desktop/release/*.zip
             .verify/desktop-agent-lifecycle/**
             .verify/desktop-shell/**
+            .verify/native-onboarding/**
             .verify/local-daemon-e2e/ui-employee-desktop/**
             .verify/employee-ci-*/worker.log
             .verify/employee-ci-*/migrate.log
