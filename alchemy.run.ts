@@ -180,6 +180,7 @@ export const Worker = Cloudflare.Worker("Worker", {
     SHIBA_SHARED_COMPUTER_IMAGE: "",
     FOUNDER_AUTOMATIC_READS_ENABLED: "false",
     FOUNDER_STRIPE_READS_ENABLED: "false",
+    FOUNDER_META_READS_ENABLED: "false",
     OPEN_CONNECTOR_READ_VERSION_ID: "",
     OPEN_CONNECTOR_READ_MANIFEST_SHA256: "",
     SLACK_INSTALLATIONS_ENABLED: "false",
@@ -319,6 +320,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "SLACK_SIGNING_SECRET",
       "SLACK_INSTALLATION_KEYRING",
       "FOUNDER_STRIPE_CREDENTIAL_KEY",
+      "FOUNDER_META_CREDENTIAL_KEY",
       "SLACK_APPROVERS",
       // Dashboard emails allowed to resolve shared ("default" DO) approvals:
       // automations, review lane, Sentry, email. Unset = nobody.
@@ -351,6 +353,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "OPEN_CONNECTOR_ADMIN_TOKEN",
       "OPEN_CONNECTOR_RUNTIME_TOKEN",
       "OPEN_CONNECTOR_READ_RUNTIME_TOKEN",
+      "OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS",
       "MODEL_CREDENTIAL_KEY",
       // Optional OAuth client IDs registered by the operator for curated MCP vendors.
       // Unset IDs keep that vendor's OAuth connect path unavailable.
@@ -420,6 +423,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "SHIBA_SHARED_COMPUTER_IMAGE",
       "FOUNDER_AUTOMATIC_READS_ENABLED",
       "FOUNDER_STRIPE_READS_ENABLED",
+      "FOUNDER_META_READS_ENABLED",
       "OPEN_CONNECTOR_READ_VERSION_ID",
       "OPEN_CONNECTOR_READ_MANIFEST_SHA256",
       "SLACK_INSTALLATIONS_ENABLED",

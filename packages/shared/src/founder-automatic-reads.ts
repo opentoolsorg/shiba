@@ -23,7 +23,7 @@ export type FounderAutomaticReadInput=z.infer<typeof founderAutomaticReadInputSc
 const runtime=z.object({versionId:z.string().regex(/^[a-f0-9-]{36}$/),versionTag:z.string().regex(/^[a-f0-9]{40}$/),manifestDigest:digest,buildDigest:digest,upstreamRevision:z.string().regex(/^[a-f0-9]{40}$/)});
 export const founderAutomaticReadContractSchema=z.object({format:z.literal("shiba.automatic-read.v1"),workspaceId:workspace,ownerId:z.string().min(1).max(320),ownerAccountId:id,
   employeeId:id,employeeVersion:version,employeeName:z.string().max(200),skillId:id,skillVersion:version,skillName:z.string().max(200),recipeSha256:digest,runtime,
-  operations:z.array(z.object({connectionId:id,connectionVersion:version,providerKey:z.enum(["figma","linear","github","googleads"]),identityLabel:z.string().nullable(),operationId:founderAutomaticOperationIdSchema,arguments:variables,sourceFingerprint:digest.optional(),
+  operations:z.array(z.object({connectionId:id,connectionVersion:version,providerKey:z.enum(["figma","linear","github","googleads"]),identityLabel:z.string().nullable(),operationId:founderAutomaticOperationIdSchema,arguments:variables,sourceFingerprint:digest.optional(),runtimeKeyFingerprint:digest.optional(),
     inputSchemaHash:digest,executorHash:digest,queryHash:digest.nullable(),maxBytes:z.number().int().min(1024).max(32768),maxPages:z.literal(1)})).min(1).max(8),
   ...cadence,...budgets,cron:z.string().max(100),maxStepMs:z.literal(5000),maxOccurrenceMs:z.literal(60000),principal:z.object({kind:z.literal("schedule"),id}),model:z.null(),destination:z.literal("private-dashboard"),
 });
