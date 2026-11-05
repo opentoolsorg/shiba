@@ -3,7 +3,7 @@
 Reviewed on 2026-10-28. This is an acceptance
 checklist, not a production certification. The current evidence supports a
 working local development environment and specific local bot/thread flows.
-**Production readiness and full reference-product parity remain NOT VERIFIED.**
+**Production readiness remains NOT VERIFIED.**
 
 The [runtime report](runtime-e2e.md) records actual browser/service results and
 the [integration audit](integrations-audit.md) records storage, MCP and scheduler

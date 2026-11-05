@@ -67,7 +67,7 @@ carry file metadata rather than document bodies.
 ## Current scope
 
 These are repository-based draft workflows and a bounded role-artifact increment
-toward the combined product goal of Viktor-like AI employees in a shared
+toward the product goal of AI employees in a shared
 workspace with bot collaboration. Use a real approved content or project
 repository; general business workspaces, shared goal/task ownership and scoped
 bot handoffs remain part of the [larger employee goal](ai-employees.md). Role
@@ -88,5 +88,5 @@ the detailed checks, limitations and retained evidence.
 Writing a campaign, reply draft or runbook does not post content, send mail,
 create a schedule or deploy software. Those actions need their own supported
 connection, destination, authorization and result verification. The required
-files mechanism provides inspectable outputs for review; full employee and
-reference-product parity remain separate acceptance work.
+files mechanism provides inspectable outputs for review; full employee
+behavior remains separate acceptance work.

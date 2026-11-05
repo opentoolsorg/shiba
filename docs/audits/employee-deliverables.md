@@ -3,7 +3,7 @@
 Validated on 2026-10-28. The implementation
 adds role-based Bot drafts and required repository deliverables. It is a tested
 increment toward the [full employee contract](../product/ai-employees.md),
-not completion of general employee or 1:1 reference-product parity.
+not completion of the general employee contract.
 
 ## Implemented behavior
 

@@ -1,12 +1,9 @@
 # AI employees: product and acceptance contract
 
-The binding product goal combines a Viktor-like AI employee experience with an
-a shared workspace with bot collaboration. Employees should carry
+The binding product goal is an AI employee experience in a shared workspace with bot collaboration. Employees should carry
 owned goals through planning, scoped work and verified durable results, while
 people and bots can share context, delegate tasks, hand off outputs and review
-parent/child progress inside a workspace. This is a combined target, not
-equal-weight 1:1 parity with multiple products; ReasonMachines remains a reference
-source rather than an equally weighted target.
+parent/child progress inside a workspace.
 
 The repository now includes role templates, bounded required-file capture for
 approved-repository runs, and coding subagent primitives. The tested Marketing
@@ -202,38 +199,22 @@ escalation through retrieved content, revoked connections and unapproved
 external effects. Documents, web pages and email bodies are untrusted inputs,
 not instructions that can widen employee authority.
 
-## Product target and reference evidence
+## Product target
 
-The selected product target is Viktor-like AI employee depth combined with
-a shared workspace with bot collaboration. The references are
-not equal-weight 1:1 targets. `reasonmachines.com` remains a contextual
-reference if relevant evidence becomes available. These target labels describe
-the requested direction; they are not claims about features observed in the
-live products.
+The selected product target is AI employee depth combined with a shared
+workspace with bot collaboration. These target labels describe the intended
+direction; they are not claims about features observed in any other product.
 
-The requested live product references remain inaccessible in this environment:
-
-| Reference | Evidence currently available | Limitation |
-| --- | --- | --- |
-| `https://reasonmachines.com` | The coordinator's HTTP GET in this attempt returned proxy HTTP 403. | No verified product feature baseline or authenticated journey is available. Features must not be invented from the domain name or marketing assumptions. |
-| `https://viktor.com` | The coordinator's HTTP GET in this attempt returned proxy HTTP 403. | No verified product feature baseline or authenticated journey is available. Features must not be inferred from another product or a similarly named service. |
-
-These are observed access failures, not evidence that the sites are down or
-their advertised capabilities are missing. This document does not claim to
-have bypassed the proxy, entered an account or tested those services.
-
-## Evidence required before calling the combined goal complete or claiming 1:1 parity
+## Evidence required before calling the goal complete
 
 Completion requires all of the following, rather than a successful catalog
 build or one fixture-driven coding test:
 
 1. **Concrete baselines for the selected dimensions:** accessible product
    documentation/source, authorized read-only access, or user-supplied current
-   demonstrations for Viktor-like employee workflows and shared
-   workspace/bot collaboration. Record observed versions/dates, workflows,
-   permission models and disabled/optional features. ReasonMachines may inform
-   context, but is not an equal-weight acceptance target. Never request account
-   secrets in chat.
+   demonstrations for employee workflows and shared workspace/bot
+   collaboration. Record observed versions/dates, workflows, permission models
+   and disabled/optional features. Never request account secrets in chat.
 2. **A behavior-level acceptance matrix:** map selected employee and
    collaboration behaviors to Shiba UI, APIs, storage, tools, failure handling
    and executed checks. Mark absent, unavailable and unverified behavior
@@ -258,9 +239,9 @@ build or one fixture-driven coding test:
    environment configuration is not a published or deployed application.
 6. **No hidden substitutions:** do not weaken tests, replace live work with
    fabricated receipts, call absent artifacts complete, present unknown usage
-   as free, or label a partial role template implementation full parity.
+   as free, or label a partial role template implementation complete.
 
 Until these checks are satisfied, the accurate status is **partial
-implementation; the combined AI employee and workspace-collaboration goal and
-1:1 product parity are not established**.
+implementation; the AI employee and workspace-collaboration goal is not
+established**.
 There is no fabricated completion timeline in this contract.

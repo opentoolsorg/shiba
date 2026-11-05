@@ -306,7 +306,7 @@ export function IntegrationCatalogDirectory({
       }
       await loadProviderCatalogPage({ reset: true });
     } catch {
-      // Provider panel degrades to native Viktor catalog only.
+      // Provider panel degrades to the native catalog only.
     }
   }, [loadProviderCatalogPage]);
 

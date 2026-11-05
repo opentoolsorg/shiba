@@ -413,7 +413,7 @@ DOCUMENTATION, WHICH IS PART OF THE FEATURE
 Update, do not contradict:
   - PLAN.md §3: replace the blanket prohibition with the narrowed design and its
     three constraints. Keep the original reasoning visible. Do not delete the
-    Hoplite precedent; it is why the design is this narrow.
+    §3 precedent; it is why the design is this narrow.
   - harness/claude-code.ts docstring: it currently says subscription is
     "deliberately not supported". That is no longer true of the codebase. Restate
     it as scoped to the API-key harness and point at the new one.
@@ -646,7 +646,7 @@ skipped:
     sets `succeeded`. Only a capability probe against the real CLI does.
   - No Phase 13 local run without the approval gate, and no chat-surface intake
     for local runs under any circumstance.
-  - No deleting or softening the Hoplite precedent in PLAN.md §3. The narrowness
+  - No deleting or softening the precedent in PLAN.md §3. The narrowness
     of Phases 9-13 is a direct consequence of that precedent, and the reasoning
     has to stay visible next to the code that now exists.
   - No Phase 9-13 work that delays or destabilizes Phases 1 through 8.
