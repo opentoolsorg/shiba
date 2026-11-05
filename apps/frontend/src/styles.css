@@ -1,6 +1,6 @@
 /* Shiba paper-OS theme — tryshiba.dev design tokens on the shell IA.
    Dark charcoal paper (#191a18), periwinkle accent (#9cbce2), Geist +
-   Instrument Serif + Geist Mono, soft radii, soft shadows (Overlay-style shell). */
+   Instrument Serif + Geist Mono, soft radii, soft shadows. */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

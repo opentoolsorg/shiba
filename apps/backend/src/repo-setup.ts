@@ -40,7 +40,7 @@ export function parseRepoSetup(text: string): RepoSetup {
   } catch {
     throw new Error("not valid JSON");
   }
-  // refresh and entries are accepted so a Capy-shaped file loads; they aren't run yet (T74).
+  // refresh and entries are accepted so a file with those keys loads; they aren't run yet (T74).
   const file = section(raw, "the file", ["$schema", "format_version", "scripts", "timeouts", "entries"]);
   if (file.format_version !== 1) throw new Error("format_version must be 1");
   const scripts = section(file.scripts, "scripts", ["initialize", "refresh"]);

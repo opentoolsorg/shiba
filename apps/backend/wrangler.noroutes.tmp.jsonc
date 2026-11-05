@@ -26,7 +26,7 @@
     "ORCHESTRATOR_MODEL": "@cf/zai-org/glm-4.7-flash",
     "CODING_MODEL": "google/gemini-3.5-flash-lite",
     "RUNTIME": "sandbox",
-    // Must match containers.instance_type. Cloudbox-style deploy-time size knob.
+    // Must match containers.instance_type. Deploy-time size knob.
     "INSTANCE_TYPE": "standard-1",
     // Public hostname of this Worker (e.g. "shiba.example.com") — used to
     // mint sandbox preview URLs and absolute screenshot links for PRs.

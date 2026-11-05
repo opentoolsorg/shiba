@@ -13,7 +13,7 @@ metadata:
 
 # Jev Ultra-Fast Computer Use
 
-This skill equips agents with **ultra-fast web automation** inspired by `browser-use/jev-ultrafast` and powered by **TypeSafe's Jev (System One)** model.
+This skill equips agents with **ultra-fast web automation** powered by **TypeSafe's Jev (System One)** model.
 
 ---
 

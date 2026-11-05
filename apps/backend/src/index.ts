@@ -148,7 +148,6 @@ const MARKETING_SECTIONS = new Set([
   "docs",
   "blog",
   "why-shiba",
-  "open-source-devin-alternative",
   "privacy",
   "terms",
   "waitlist",
@@ -294,6 +293,9 @@ export default {
       }
       if (request.method === "GET" || request.method === "HEAD") {
         const section = url.pathname.split("/")[1] ?? "";
+        if (section === "open-source-devin-alternative") {
+          return Response.redirect(`https://tryshiba.dev/why-shiba/${url.search}`, 301);
+        }
         if (MARKETING_SECTIONS.has(section)) {
           return Response.redirect(`https://tryshiba.dev${url.pathname}${url.search}`, 301);
         }
