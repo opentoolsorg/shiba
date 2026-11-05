@@ -522,6 +522,13 @@ export function App(): React.JSX.Element {
   const [mailboxAddress, setMailboxAddress] = useState("");
   const [mailboxCounts, setMailboxCounts] = useState<Partial<MailboxCounts>>({});
   const [mailboxes, setMailboxes] = useState<MailboxPanelItem[]>([]);
+  // Stable callbacks: inline ones retrigger the child loaders on every render (refetch loop).
+  const handleMailboxesChange = useCallback((items: { label?: string | null }[]) => {
+    setMailboxes((items as MailboxPanelItem[]).map((item) => ({ ...item, label: item.label ?? undefined })));
+  }, []);
+  const handleMemoryCountsChange = useCallback((counts: Partial<MemoryCounts>) => {
+    setMemoryCounts((current) => (Object.entries(counts).every(([k, v]) => current[k as keyof MemoryCounts] === v) ? current : { ...current, ...counts }));
+  }, []);
   const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
   const [automationList, setAutomationList] = useState<AutomationRecord[]>([]);
   // Settings is a full page; the section lives in ?section= and "Back to app" returns to the previous view.
@@ -2854,7 +2861,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
         <div className={`flex-1 flex min-w-0 min-h-0 ${mainView === "work" ? "" : "gap-2 p-2"}`}>
           {destinationPanel && mainView !== "work" && !sessionsCollapsed ? <div className="hidden lg:flex">{destinationPanel}</div> : null}
-          <MainCard className={mainView === "work" || mainView === "settings" || (!personalOnlyNotice && SELF_CARDED_VIEWS.includes(mainView)) ? "!rounded-none !border-0 !bg-transparent !shadow-none" : ""}>
+          <MainCard className={mainView === "work" || mainView === "settings" || (!personalOnlyNotice && SELF_CARDED_VIEWS.includes(mainView) && !(mainView === "integrations" && (teamWorkspaceId || restrictedTeamMember))) ? "!rounded-none !border-0 !bg-transparent !shadow-none" : ""}>
           {inboxMounted && privateDataEnabled ? (
             <div
               className="flex flex-1 flex-col h-full min-h-0 overflow-hidden"
@@ -2869,7 +2876,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 onSelectMailbox={setMailboxAddress}
                 showFolderSwitcher={sessionsCollapsed}
                 onCountsChange={setMailboxCounts}
-                onMailboxesChange={(items) => setMailboxes(items.map((item) => ({ ...item, label: item.label ?? undefined })))}
+                onMailboxesChange={handleMailboxesChange}
                 onOpenApprovals={() => setMainView("approvals")}
               />
             </div>
@@ -3614,7 +3621,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               activeView={memoryView}
               onSelectView={setMemoryView}
               scope={scope}
-              onCountsChange={(counts) => setMemoryCounts((current) => ({ ...current, ...counts }))}
+              onCountsChange={handleMemoryCountsChange}
             />
           ) : mainView === "automations" ? (
             <AutomationsView scope={scope} sidebarCollapsed={sessionsCollapsed} onToggleSidebar={toggleSessionsCollapsed} selectedAutomationId={selectedAutomationId} onSelectAutomation={setSelectedAutomationId} onAutomationsChange={setAutomationList} />
