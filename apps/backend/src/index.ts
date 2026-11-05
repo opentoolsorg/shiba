@@ -217,6 +217,8 @@ export default {
       catch (error) { console.error("Founder Stripe Slack scheduling failed", redactSecrets(String(error))); }
       try { await tickFounderReconciliationSlack(env); }
       catch (error) { console.error("Founder combined-report Slack scheduling failed", redactSecrets(String(error))); }
+      try { await (await import("./slack-coworker-private-status.js")).tickSlackCoworkerPrivateStatus(env); }
+      catch (error) { console.error("Private Slack status scheduling failed", redactSecrets(String(error))); }
     })());
     ctx.waitUntil(tickFounderReviewSchedules(env).catch((error: unknown) => {
       console.error("Founder review scheduling failed", redactSecrets(String(error)));

@@ -21,6 +21,21 @@ export const slackCoworkerSubmissionSelectionSchema = z.strictObject({
 export type SlackCoworkerSubmissionSelection = z.infer<
   typeof slackCoworkerSubmissionSelectionSchema
 >;
+export const slackCoworkerPrivateStatusTargetSchema = z.strictObject({
+  kind: z.literal("private-slack-status-v1"),
+  installationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  installationDigest: hash,
+  appId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  teamId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  channelId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  threadTs: z.string().regex(/^\d{1,16}\.\d{1,9}$/),
+  slackUserId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  expiresAt: time,
+  maxNotices: z.literal(6),
+});
+export type SlackCoworkerPrivateStatusTarget = z.infer<
+  typeof slackCoworkerPrivateStatusTargetSchema
+>;
 export const slackCoworkerSubmissionPreviewSchema = z.strictObject({
   previewId,
   draftId,
@@ -34,6 +49,7 @@ export const slackCoworkerSubmissionPreviewSchema = z.strictObject({
   employeeName: z.string().min(1).max(200),
   employeeVersion: z.number().int().positive(),
   personalExecution: personalExecutionSnapshotSchema,
+  privateStatus: slackCoworkerPrivateStatusTargetSchema.nullable().optional(),
   roomAudience: z
     .array(
       z.strictObject({
@@ -55,6 +71,7 @@ export const slackCoworkerSubmissionDecisionSchema = z.strictObject({
   digest: hash,
   reviewed: z.literal(true),
   audienceConsent: z.literal(SLACK_COWORKER_ROOM_CONSENT),
+  privateStatusConsent: z.boolean().default(false),
 });
 export type SlackCoworkerSubmissionDecision = z.infer<typeof slackCoworkerSubmissionDecisionSchema>;
 export const slackCoworkerSubmissionReceiptSchema = z.strictObject({
@@ -64,6 +81,7 @@ export const slackCoworkerSubmissionReceiptSchema = z.strictObject({
   handoffId: z.string().regex(/^scx_[a-f0-9]{32}$/),
   state: z.enum(["dispatching", "queuing", "queued", "blocked", "unknown"]),
   approvalRequired: z.literal(true),
+  privateStatusState: z.enum(["active", "revoked", "blocked", "unknown", "expired"]).optional(),
 });
 export type SlackCoworkerSubmissionReceipt = z.infer<typeof slackCoworkerSubmissionReceiptSchema>;
 const scope = {

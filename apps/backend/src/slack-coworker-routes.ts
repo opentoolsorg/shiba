@@ -24,7 +24,10 @@ async function readBody(request:Request) {
 export async function handleSlackCoworker(request:Request,env:SlackInstallationEnv):Promise<Response|null> {
   const url=new URL(request.url); if(url.pathname!==base&&!url.pathname.startsWith(base+"/"))return null;
   try {
-    if(env.SLACK_INSTALLATIONS_ENABLED?.trim()!=="true")throw new SlackInstallationError("slack_coworker_unavailable",503);
+    const managedEnabled=env.SLACK_INSTALLATIONS_ENABLED?.trim()==="true";
+    const ownerReceiptAccess=(request.method==='GET'&&(url.pathname===base+'/drafts/submissions'||url.pathname===base+'/drafts/submission'))||
+      (request.method==='POST'&&url.pathname===base+'/drafts/status/revoke');
+    if(!managedEnabled&&!ownerReceiptAccess)throw new SlackInstallationError("slack_coworker_unavailable",503);
     if(!request.headers.has("X-Shiba-Workspace")||request.headers.has("authorization")||url.searchParams.has("workspaceId"))throw new SlackInstallationError("slack_coworker_native_required",403);
     if(request.method!=="GET") { const blocked=rejectCrossOriginMutation(request)??rejectNonJsonMutation(request); if(blocked)return blocked; }
     const auth=await resolveOrgForApiRequest(request,env,{allowMemberWrite:true});
@@ -51,7 +54,7 @@ export async function handleSlackCoworker(request:Request,env:SlackInstallationE
     if(request.method==='GET'&&url.pathname===base+'/drafts/submission'){
       if(url.searchParams.getAll('id').length!==1||[...url.searchParams.keys()].some(key=>key!=='id')||!/^sd_[a-f0-9]{32}$/.test(url.searchParams.get('id')??''))throw new SlackInstallationError('slack_coworker_invalid',400);
       const session=await executionSession();await verify();
-      return json({ok:true,workspaceId:member.workspaceId,actorId:member.userId,...await readSlackCoworkerSubmission(env,member,session,url.searchParams.get('id')!)});
+      return json({ok:true,workspaceId:member.workspaceId,actorId:member.userId,...await readSlackCoworkerSubmission(env,member,session,url.searchParams.get('id')!),...(!managedEnabled?{preview:null,sourceAvailable:false}:{})});
     }
     if(request.method!=="POST")return json({error:"method_not_allowed"},405);
     const body=await readBody(request);
@@ -62,6 +65,17 @@ export async function handleSlackCoworker(request:Request,env:SlackInstallationE
       const current=await readSlackCoworkerSubmission(env,member,session,value.id);
       if(!current.preview||current.preview.previewId!==prepared.previewId)throw new SlackInstallationError('slack_coworker_submission_changed',409);
       return json({ok:true,workspaceId:member.workspaceId,actorId:member.userId,preview:current.preview});
+    }
+    if(url.pathname===base+'/drafts/status/revoke'){
+      if(url.search)throw new SlackInstallationError('slack_coworker_invalid',400);
+      const value=z.strictObject({previewId:z.string().regex(/^scp_[a-f0-9]{32}$/),reviewed:z.literal(true)}).parse(body);
+      const session=await executionSession();await verify();
+      const row=await env.AGENT_AUDIT.prepare('SELECT draft_id FROM slack_coworker_execution_v2 WHERE id=? AND workspace_id=? AND account_id=?').bind(value.previewId,member.workspaceId,member.accountId).first<{draft_id:string}>();
+      if(!row)throw new SlackInstallationError('slack_coworker_submission_unavailable',404);
+      const state=await readSlackCoworkerSubmission(env,member,session,row.draft_id);
+      if(state.receipt?.previewId!==value.previewId)throw new SlackInstallationError('slack_coworker_submission_unavailable',404);
+      await (await import('./slack-coworker-private-status.js')).revokeSlackCoworkerPrivateStatus(env,member,value.previewId);
+      await verify();return json({ok:true,workspaceId:member.workspaceId,actorId:member.userId});
     }
     if(url.pathname===base+"/intake/grant"){const value=z.object({bindingId:id,channelId:id,threadTs:z.string().regex(/^\d{1,16}\.\d{1,9}$/),reviewed:z.literal(true)}).strict().parse(body);await verify();return json(await grantSlackCoworkerIntake(env,member,value.bindingId,value.channelId,value.threadTs));}
     if(url.pathname===base+"/intake/revoke"){const value=z.object({id,reviewed:z.literal(true)}).strict().parse(body);await verify();await revokeSlackCoworkerIntake(env,member,value.id);return json({ok:true});}

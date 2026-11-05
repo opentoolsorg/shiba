@@ -22,6 +22,8 @@ import {
 import { handleCollaboration } from "../src/collaboration-routes.js";
 import { handleCollaborationApproval } from "../src/collaboration-approval-routes.js";
 import { handleSlackCoworker } from "../src/slack-coworker-routes.js";
+import { sealSlackSecret } from "../src/slack-installations-crypto.js";
+import { tickSlackCoworkerPrivateStatus } from "../src/slack-coworker-private-status.js";
 import { createCustomAgent } from "../src/custom-agents-store.js";
 import {
   beginSlackCoworkerBinding,
@@ -34,6 +36,7 @@ import {
 } from "../src/slack-coworker-store.js";
 import {
   installationSnapshot,
+  installationPurpose,
   slackInstallationGuard,
   type SlackInstallationRow,
 } from "../src/slack-installations-store.js";
@@ -66,8 +69,10 @@ vi.mock("agents", async (original) => ({
 }));
 vi.mock("@cloudflare/think", () => ({
   Think: class {
-      messages: unknown[] = [];
-      async addMessages(messages: unknown[]) { this.messages.push(...messages); }
+    messages: unknown[] = [];
+    async addMessages(messages: unknown[]) {
+      this.messages.push(...messages);
+    }
     onStart() {}
     getTools() {
       return {};
@@ -427,7 +432,7 @@ async function fixture() {
   };
 }
 
-async function execution() {
+async function execution(options: { privateStatus?: boolean; consent?: boolean } = {}) {
   const f = await fixture(),
     machine = await f.ready(),
     snapshot = await f.grant(machine);
@@ -435,6 +440,21 @@ async function execution() {
     SHIBA_LOCAL_RUNTIME: "1",
     SHIBA_PERSONAL_LOCAL_EXECUTION: "1",
     SLACK_INSTALLATIONS_ENABLED: "true",
+    ...(options.privateStatus
+      ? {
+          SLACK_COWORKER_PRIVATE_STATUS_ENABLED: "true",
+          SLACK_OAUTH_APP_ID: "A1",
+          SLACK_OAUTH_CLIENT_ID: "1.1",
+          SLACK_OAUTH_REDIRECT_URI: `${BASE}/api/slack/installations/callback`,
+          SLACK_OAUTH_PKCE_ENABLED: "true",
+          SLACK_OAUTH_QUERY_REDACTION_VERIFIED: "true",
+          SLACK_SIGNING_SECRET: "fixture-slack-signing-secret",
+          SLACK_INSTALLATION_KEYRING: JSON.stringify({
+            activeKeyId: "fixture",
+            keys: { fixture: "c".repeat(64) },
+          }),
+        }
+      : {}),
     CodingOrchestrator: {},
     AI_GATEWAY_TOKEN: undefined,
   });
@@ -507,6 +527,20 @@ async function execution() {
     f.sqlite.prepare("SELECT * FROM slack_installations").get() as unknown as SlackInstallationRow,
   );
   const installationGuard = slackInstallationGuard(installation);
+  if (options.privateStatus) {
+    const sealed = await sealSlackSecret(
+      f.env,
+      {
+        workspaceId: member.workspaceId,
+        subject: installation.id,
+        purpose: installationPurpose(installation),
+      },
+      JSON.stringify({ accessToken: "xoxb-fixture-status-never-live" }),
+    );
+    f.sqlite
+      .prepare("UPDATE slack_installations SET token_key_id=?,token_cipher=? WHERE id=?")
+      .run(sealed.keyId, sealed.cipher, installation.id);
+  }
   expect(
     f.sqlite.prepare('SELECT emailVerified FROM "user" WHERE id=?').get(ownerAccount.id),
   ).toMatchObject({ emailVerified: 1 });
@@ -596,6 +630,7 @@ async function execution() {
     digest: preview.digest,
     reviewed: true,
     audienceConsent: preview.consent,
+    privateStatusConsent: options.consent ?? options.privateStatus ?? false,
   };
   const submitted = await coworker("/drafts/submit", "POST", decision);
   expect(await submitted?.clone().json()).not.toHaveProperty("error");
@@ -624,6 +659,128 @@ async function execution() {
 }
 
 describe("Slack author to approved owned local execution", () => {
+  it("does not grant private status merely because an installation and preview target exist", async () => {
+    const f = await execution({ privateStatus: true, consent: false });
+    f.http.mockClear();
+    await tickSlackCoworkerPrivateStatus(f.env);
+    expect(
+      f.sqlite.prepare("SELECT count(*) AS count FROM slack_coworker_private_status").get(),
+    ).toMatchObject({ count: 0 });
+    expect(f.http).not.toHaveBeenCalled();
+    expect(f.dispatches).not.toHaveBeenCalled();
+  });
+  it("sends only separately consented private status and never shares room results in Slack", async () => {
+    const f = await execution({ privateStatus: true }),
+      posts: Array<Record<string, unknown>> = [];
+    f.http.mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url === "https://api.github.com/repos/opentoolsorg/shiba") {
+        expect(
+          new Headers(input instanceof Request ? input.headers : init?.headers).has(
+            "Authorization",
+          ),
+        ).toBe(false);
+        return Response.json({ private: false, html_url: REPO });
+      }
+      expect(
+        new Headers(input instanceof Request ? input.headers : init?.headers).get("Authorization"),
+      ).toBe("Bearer xoxb-fixture-status-never-live");
+      if (url === "https://slack.com/api/auth.test")
+        return Response.json(
+          { ok: true, team_id: "T1", user_id: "UBOT", bot_id: "B1", enterprise_id: null },
+          { headers: { "x-oauth-scopes": "chat:write" } },
+        );
+      expect(url).toBe("https://slack.com/api/chat.postEphemeral");
+      posts.push(
+        JSON.parse(
+          input instanceof Request ? await input.clone().text() : String(init?.body),
+        ) as Record<string, unknown>,
+      );
+      return Response.json({ ok: true, message_ts: "123.456" });
+    });
+    await tickSlackCoworkerPrivateStatus(f.env);
+    await tickSlackCoworkerPrivateStatus(f.env);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({ channel: "C1", user: "U1", thread_ts: "123.000001" });
+    expect(String(posts[0]?.text)).not.toContain("Inspect the public repository.");
+    const path = `/rooms/${f.roomId}/handoffs/${f.receipt.handoffId}/approval`;
+    const reviewResponse = await f.send(path);
+    expect(await reviewResponse?.clone().json()).not.toHaveProperty("error");
+    expect(reviewResponse?.status).toBe(200);
+    const review = (await reviewResponse!.json()) as {
+      inputHash: string;
+      approval: { approvalId: string };
+    };
+    expect(
+      (
+        await f.send(path, "POST", {
+          expectedInputHash: review.inputHash,
+          reviewed: true,
+          approved: true,
+        })
+      )?.status,
+    ).toBe(200);
+    routed.execute.mockResolvedValueOnce(
+      formatAgentResult({
+        status: "completed",
+        summary: "PRIVATE_RESULT_MUST_STAY_IN_SHIBA",
+        exitCode: 0,
+        stderrTail: "",
+        changedFiles: ["private.md"],
+        diff: "PRIVATE_DIFF_MUST_STAY_IN_SHIBA",
+        files: [
+          { path: "private.md", content: "PRIVATE_FILE_MUST_STAY_IN_SHIBA", encoding: "utf8" },
+        ],
+      }),
+    );
+    const delegate = (
+      f.host as unknown as {
+        approvedRunDelegate(): { execute(input: unknown, options: unknown): Promise<unknown> };
+      }
+    ).approvedRunDelegate();
+    await delegate.execute({}, { toolCallId: review.approval.approvalId });
+    expect(f.host.state.runs[0]?.status).toBe("completed");
+    f.sqlite.prepare("UPDATE slack_coworker_private_status SET next_check_at=0").run();
+    await tickSlackCoworkerPrivateStatus(f.env);
+    await tickSlackCoworkerPrivateStatus(f.env);
+    expect(posts).toHaveLength(2);
+    expect(JSON.stringify(posts)).not.toMatch(
+      /PRIVATE_|Inspect the public repository|github\.com|plex_|Bearer/,
+    );
+    expect(
+      (
+        await f.coworker(
+          "/drafts/status/revoke",
+          "POST",
+          { previewId: f.decision.previewId, reviewed: true },
+          BOB,
+        )
+      )?.status,
+    ).toBe(404);
+    const stopped = await f.coworker("/drafts/status/revoke", "POST", {
+      previewId: f.decision.previewId,
+      reviewed: true,
+    });
+    expect(stopped?.status).toBe(200);
+    f.env.SLACK_COWORKER_PRIVATE_STATUS_ENABLED = "false";
+    f.env.SLACK_INSTALLATIONS_ENABLED = "false";
+    expect(
+      await (await f.coworker(`/drafts/submission?id=${f.selection.id}`))!.json(),
+    ).toMatchObject({ receipt: { privateStatusState: "revoked" } });
+    expect(
+      (
+        await f.coworker("/drafts/status/revoke", "POST", {
+          previewId: f.decision.previewId,
+          reviewed: true,
+        })
+      )?.status,
+    ).toBe(200);
+    expect((await f.coworker("/drafts/prepare-submission", "POST", f.selection))?.status).toBe(503);
+    await tickSlackCoworkerPrivateStatus(f.env);
+    expect(posts).toHaveLength(2);
+    expect(f.deployment).not.toHaveBeenCalled();
+  });
+
   it("requires native review and human approval, claims once, and returns a scoped result without deployment fallback", async () => {
     const f = await execution(),
       path = `/rooms/${f.roomId}/handoffs/${f.receipt.handoffId}/approval`;
@@ -678,7 +835,9 @@ describe("Slack author to approved owned local execution", () => {
         claims++;
         const held = (await claimed.json()) as { claimToken: string; envelope: LocalRunEnvelope };
         expect(held.envelope.task).toContain("Inspect the public repository.");
-        expect(await (await f.local("claim", {}, f.machine.adapterToken)).json()).toEqual({envelope:null});
+        expect(await (await f.local("claim", {}, f.machine.adapterToken)).json()).toEqual({
+          envelope: null,
+        });
         const result = {
           status: "completed",
           summary: "Fixture CLI inspected the approved repository.",
@@ -686,7 +845,7 @@ describe("Slack author to approved owned local execution", () => {
           stderrTail: "",
           changedFiles: ["report.md"],
           diff: "diff --git a/report.md b/report.md\nnew file mode 100644\n--- /dev/null\n+++ b/report.md\n@@ -0,0 +1 @@\n+Fixture review\n",
-          files: [{path:"report.md",content:"Fixture review\n",encoding:"utf8"}],
+          files: [{ path: "report.md", content: "Fixture review\n", encoding: "utf8" }],
         };
         expect(
           (
@@ -737,8 +896,15 @@ describe("Slack author to approved owned local execution", () => {
       diff: expect.stringContaining("report.md"),
     });
     expect(f.deployment).not.toHaveBeenCalled();
-    const detail = await (await f.send(`/rooms/${f.roomId}`))!.json() as {handoffs:Array<{handoffId:string;execution?:{runStatus?:string;summary?:string}}>};
-    expect(detail.handoffs.find(h=>h.handoffId===f.receipt.handoffId)?.execution).toMatchObject({runStatus:"completed",summary:expect.stringContaining("Fixture CLI inspected")});
+    const detail = (await (await f.send(`/rooms/${f.roomId}`))!.json()) as {
+      handoffs: Array<{ handoffId: string; execution?: { runStatus?: string; summary?: string } }>;
+    };
+    expect(
+      detail.handoffs.find((h) => h.handoffId === f.receipt.handoffId)?.execution,
+    ).toMatchObject({
+      runStatus: "completed",
+      summary: expect.stringContaining("Fixture CLI inspected"),
+    });
     expect(
       (await f.send(path, "POST", { expectedInputHash: inputHash, reviewed: true, approved: true }))
         ?.status,
@@ -748,9 +914,13 @@ describe("Slack author to approved owned local execution", () => {
         ([url]) => String(url) === "https://api.github.com/repos/opentoolsorg/shiba",
       ),
     ).toBe(true);
-    await revokeSlackCoworkerIntake(f.env,f.member,f.intake.id);
-    const revoked = await (await f.send(`/rooms/${f.roomId}`))!.json() as {handoffs:Array<{handoffId:string;execution?:unknown}>};
-    expect(revoked.handoffs.find(h=>h.handoffId===f.receipt.handoffId)?.execution).toMatchObject({unavailable:true,runStatus:"unknown"});
+    await revokeSlackCoworkerIntake(f.env, f.member, f.intake.id);
+    const revoked = (await (await f.send(`/rooms/${f.roomId}`))!.json()) as {
+      handoffs: Array<{ handoffId: string; execution?: unknown }>;
+    };
+    expect(
+      revoked.handoffs.find((h) => h.handoffId === f.receipt.handoffId)?.execution,
+    ).toMatchObject({ unavailable: true, runStatus: "unknown" });
     expect(JSON.stringify(revoked)).not.toContain("Fixture CLI inspected the approved repository.");
   });
 
@@ -780,19 +950,40 @@ describe("Slack author to approved owned local execution", () => {
     expect(f.deployment).not.toHaveBeenCalled();
   });
 
-  it("does not let another verified member submit, impersonate the decider or retrieve the source",async()=>{
-    const f=await execution();
-    expect((await f.coworker('/drafts/submit','POST',f.decision,BOB))?.status).toBe(409);
-    const other=await (await f.coworker(`/drafts/submission?id=${f.selection.id}`,'GET',undefined,BOB))!.json();
-    expect(other).toMatchObject({preview:null,receipt:null,sourceAvailable:false});
-    expect(JSON.stringify(other)).not.toContain('Inspect the public repository.');
-    const otherWorkspace=await createTeamWorkspace(f.env,BOB,{name:'Unrelated team'});
-    const cross=await handleSlackCoworker(req('/api/slack/coworker/drafts/submit','POST',f.decision,{...f.headers(BOB),'X-Shiba-Workspace':otherWorkspace.workspaceId}),f.env);
+  it("does not let another verified member submit, impersonate the decider or retrieve the source", async () => {
+    const f = await execution();
+    expect((await f.coworker("/drafts/submit", "POST", f.decision, BOB))?.status).toBe(409);
+    const other = await (await f.coworker(
+      `/drafts/submission?id=${f.selection.id}`,
+      "GET",
+      undefined,
+      BOB,
+    ))!.json();
+    expect(other).toMatchObject({ preview: null, receipt: null, sourceAvailable: false });
+    expect(JSON.stringify(other)).not.toContain("Inspect the public repository.");
+    const otherWorkspace = await createTeamWorkspace(f.env, BOB, { name: "Unrelated team" });
+    const cross = await handleSlackCoworker(
+      req("/api/slack/coworker/drafts/submit", "POST", f.decision, {
+        ...f.headers(BOB),
+        "X-Shiba-Workspace": otherWorkspace.workspaceId,
+      }),
+      f.env,
+    );
     expect(cross?.status).toBe(409);
-    const path=`/rooms/${f.roomId}/handoffs/${f.receipt.handoffId}/approval`;
-    const review=await (await f.send(path))!.json() as {inputHash:string};
-    expect((await f.send(path,'POST',{expectedInputHash:review.inputHash,reviewed:true,approved:true,decidedBy:ALICE},BOB))?.status).toBe(400);
-    expect(f.host.state.pendingApprovals?.[0]?.status).toBe('pending');
-    expect(f.dispatches).not.toHaveBeenCalled();expect(routed.execute).not.toHaveBeenCalled();
+    const path = `/rooms/${f.roomId}/handoffs/${f.receipt.handoffId}/approval`;
+    const review = (await (await f.send(path))!.json()) as { inputHash: string };
+    expect(
+      (
+        await f.send(
+          path,
+          "POST",
+          { expectedInputHash: review.inputHash, reviewed: true, approved: true, decidedBy: ALICE },
+          BOB,
+        )
+      )?.status,
+    ).toBe(400);
+    expect(f.host.state.pendingApprovals?.[0]?.status).toBe("pending");
+    expect(f.dispatches).not.toHaveBeenCalled();
+    expect(routed.execute).not.toHaveBeenCalled();
   });
 });
