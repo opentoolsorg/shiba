@@ -1,11 +1,31 @@
 // @vitest-environment happy-dom
 import { StrictMode } from "react";
+import { webcrypto } from "node:crypto";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FounderReconciliationSchedules } from "./FounderReconciliationSchedules";
-import { SCHEDULE_ACTOR, SCHEDULE_WORKSPACE, scheduleScope, standingComparison } from "../founder-reconciliation-schedules-fixtures";
+import { SCHEDULE_ACTOR, SCHEDULE_WORKSPACE, scheduleScope, standingComparison, scheduledCapture } from "../founder-reconciliation-schedules-fixtures";
+vi.mock("./FounderReconciliationAutomaticSlack", () => ({ FounderReconciliationAutomaticSlack: ({ sample }: { sample?: unknown }) => <output data-testid="combined-sharing-handoff">{JSON.stringify(sample)}</output> }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe("separate future private comparison consent", () => {
+  it("opens sharing only after a verified private result and an explicit click", async () => {
+    vi.stubGlobal("crypto", webcrypto); const f = await scheduledCapture();
+    const send = vi.fn(async (path: RequestInfo | URL) => {
+      if (String(path).includes("/results/")) return Response.json({ ...scheduleScope, report: f.report, digest: f.digest });
+      if (String(path).endsWith(f.schedule.id)) return Response.json({ ...scheduleScope, schedule: f.schedule, results: [f.receipt] });
+      if (String(path) === "/api/founder-reconciliations") return Response.json({ ...scheduleScope, drafts: [] });
+      return Response.json({ ...scheduleScope, available: true, schedules: [{ id: f.schedule.id, digest: f.schedule.digest, state: f.schedule.state, expiresAt: f.schedule.expiresAt }] });
+    });
+    vi.stubGlobal("fetch", send);
+    render(<FounderReconciliationSchedules workspaceId={SCHEDULE_WORKSPACE} actorId={SCHEDULE_ACTOR} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review standing comparison" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Read private scheduled result" }));
+    const share = await screen.findByRole("button", { name: "Review future combined reports for Slack" });
+    expect(screen.queryByTestId("combined-sharing-handoff")).toBeNull();
+    fireEvent.click(share);
+    expect(JSON.parse(screen.getByTestId("combined-sharing-handoff").textContent ?? "")).toEqual({ scheduleId: f.schedule.id, sampleResultId: f.receipt.id, sampleHash: f.digest, expiresAt: f.receipt.expiresAt, scheduleExpiresAt: f.schedule.expiresAt });
+    expect(send.mock.calls.some(([path]) => String(path).includes("reconciliation-slack"))).toBe(false);
+  });
   it("survives Strict Mode without issuing a standing grant", async () => {
     const send = vi.fn(async (path: RequestInfo | URL) => String(path) === "/api/founder-reconciliation-schedules" ? Response.json({ ...scheduleScope, available: false, schedules: [] }) : Response.json({ ...scheduleScope, drafts: [] }));
     vi.stubGlobal("fetch", send);

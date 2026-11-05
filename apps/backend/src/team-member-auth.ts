@@ -39,6 +39,7 @@ const workspaceApi = [
   /^\/api\/founder-hubspot-reads(?:\/|$)/,
   /^\/api\/founder-reconciliations(?:\/|$)/,
   /^\/api\/founder-reconciliation-schedules(?:\/|$)/,
+  /^\/api\/founder-reconciliation-slack(?:\/|$)/,
   /^\/api\/founder-stripe-slack(?:\/|$)/,
   /^\/api\/workspace-integrations(?:\/|$)/,
   /^\/api\/(?:custom-agents|employee-bundles|skills)(?:\/|$)/,
