@@ -8,10 +8,10 @@ import { handleMultiInstallationSlackCallback } from "../src/slack-installations
 import { handleSlackCoworker } from "../src/slack-coworker-routes.js";
 const queue = vi.hoisted(() => ({ calls: 0, input: undefined as Record<string, unknown> | undefined, status: 201, fail: false }));
 vi.mock("../src/collaboration-routes.js", () => ({ handleCollaboration: async (request: Request) => { queue.calls++; queue.input=await request.json() as Record<string,unknown>; if(queue.fail) throw new Error("unknown queue outcome"); return Response.json({privateTask:"must not leak"},{status:queue.status}); } }));
-const native = vi.hoisted(() => ({ calls: 0, hook: undefined as (() => void) | undefined }));
-vi.mock("../src/request-auth.js", async original => ({ ...await original<typeof import("../src/request-auth.js")>(), isAuthorizedRequest: async () => true, resolveUserId: async () => "owner@example.test" }));
-vi.mock("@shiba/auth/better-auth", async original => ({ ...await original<typeof import("@shiba/auth/better-auth")>(), resolveBetterAuthSessionAccount: async () => { native.calls++; native.hook?.(); return { policy: { accountId: "native1", email: "owner@example.test", kind: "invited" }, emailVerified: true }; } }));
-beforeEach(() => { queue.calls=0;queue.input=undefined;queue.status=201;queue.fail=false; native.calls = 0; native.hook = undefined; });
+const native = vi.hoisted(() => ({ accountId: "native1", email: "owner@example.test", calls: 0, hook: undefined as (() => void) | undefined }));
+vi.mock("../src/request-auth.js", async original => ({ ...await original<typeof import("../src/request-auth.js")>(), isAuthorizedRequest: async () => true, resolveUserId: async () => native.email }));
+vi.mock("@shiba/auth/better-auth", async original => ({ ...await original<typeof import("@shiba/auth/better-auth")>(), resolveBetterAuthSessionAccount: async () => { native.calls++; native.hook?.(); return { policy: { accountId: native.accountId, email: native.email, kind: "invited" }, emailVerified: true }; } }));
+beforeEach(() => { queue.calls=0;queue.input=undefined;queue.status=201;queue.fail=false; native.accountId = "native1"; native.email = "owner@example.test"; native.calls = 0; native.hook = undefined; });
 function fixture() {
   const db=customAgentD1();
   db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT)');
@@ -132,6 +132,58 @@ describe("native-reviewed Slack execution bridge",()=>{
     expect(await response?.json()).toMatchObject({state:"unknown",approvalRequired:true});
     expect((await handleSlackCoworker(f.request(),f.env))?.status).toBe(409);
     expect(queue.calls).toBe(1);
+  });
+  it.each([
+    [202, "unknown"], [500, "unknown"], [503, "unknown"],
+    [400, "blocked"], [403, "blocked"], [409, "blocked"],
+  ] as const)("retains a one-shot %s reply as %s without leaking the queue body", async (status, state) => {
+    const f = await submissionFixture();
+    queue.status = status;
+    const response = await handleSlackCoworker(f.request(), f.env);
+    expect(response?.status).toBe(status);
+    expect(await response?.json()).toEqual({
+      handoffId: `scx_${f.body.id.slice(3)}`, state, approvalRequired: true,
+    });
+    expect(f.sqlite.prepare("SELECT state FROM slack_coworker_execution_receipts").get()).toEqual({ state });
+    expect((await handleSlackCoworker(f.request(), f.env))?.status).toBe(409);
+    expect(queue.calls).toBe(1);
+  });
+  it("queues at most once under concurrent native submissions", async () => {
+    const f = await submissionFixture();
+    const responses = await Promise.all([
+      handleSlackCoworker(f.request(), f.env), handleSlackCoworker(f.request(), f.env),
+    ]);
+    expect(responses.map(response => response?.status).sort()).toEqual([201, 409]);
+    expect(queue.calls).toBe(1);
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM slack_coworker_execution_receipts").get()).toEqual({ n: 1 });
+  });
+  it.each([
+    "UPDATE slack_installations SET generation=generation+1",
+    "UPDATE slack_installations SET state='revoked'",
+    "UPDATE slack_coworker_bindings SET status='revoked'",
+    "UPDATE slack_coworker_intake_grants SET status='revoked'",
+    "UPDATE user SET emailVerified=0",
+  ])("does not queue a previously visible draft after authority changes: %s", async sql => {
+    const f = await submissionFixture();
+    f.sqlite.exec(sql);
+    const response = await handleSlackCoworker(f.request(), f.env);
+    expect(response?.status).toBe(403);
+    expect(queue.calls).toBe(0);
+    expect(await response?.text()).not.toContain("Execute only on my paired local computer");
+  });
+  it.each(["owner@example.test", "coworker@example.test"])("does not let another verified account (%s) claim a private draft", async email => {
+    const f = await submissionFixture();
+    f.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run("native-other", email);
+    f.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?)").run("native-other", email);
+    if (email !== f.member.userId) {
+      f.sqlite.prepare("INSERT INTO team_workspace_memberships(tenant_id,workspace_id,user_id,role,status,version,joined_at) VALUES('self-hosted',?,?,'member','active',1,1)").run(f.member.workspaceId, email);
+    }
+    native.accountId = "native-other";
+    native.email = email;
+    const response = await handleSlackCoworker(f.request(), f.env);
+    expect(response?.status).toBe(403);
+    expect(queue.calls).toBe(0);
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM slack_coworker_execution_receipts").get()).toEqual({ n: 0 });
   });
   it("rechecks native authority after claiming and before queue effects",async()=>{
     const f=await submissionFixture();native.hook=()=>{if(native.calls===3)f.sqlite.exec("UPDATE user SET emailVerified=0");};
