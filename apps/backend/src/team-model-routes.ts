@@ -1,5 +1,6 @@
 import { teamModelFundingInputSchema, teamModelTurnInputSchema } from "@shiba/shared";
 import { z } from "zod";
+import { TeamModelMoneyError } from "./team-model-money.js";
 import type { Env } from "./env.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { rejectCrossOriginMutation, rejectNonJsonMutation } from "./dashboard-mutation.js";
@@ -87,6 +88,7 @@ export async function handleTeamModelSessions(request: Request, env: Env): Promi
     if (!receipt) throw new TeamModelError("team_model_receipt_unavailable", 403);
     return json({ ok: true, workspaceId: member.workspaceId, roomId, [kind]: receipt }, status);
   } catch (error) {
+    if (error instanceof TeamModelMoneyError) return json({ error: error.code }, 409);
     if (error instanceof TeamModelError) return json({ error: error.code }, error.status);
     if (error instanceof WorkspaceIntegrationError) return json({ error: "team_model_authority_changed" }, error.status);
     return json({ error: "team_model_unavailable" }, 503);

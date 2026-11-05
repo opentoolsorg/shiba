@@ -7,6 +7,7 @@ import {
   requireTeamModelPolicy, sourceGuard, teamModelTurnHash, type TeamModelFundingRow, type TeamModelInput, type TeamModelSourceSnapshot, type TeamModelTurnRow,
 } from "./team-model-store.js";
 import { redactSecrets } from "./security.js";
+import { requireTeamModelMoney, teamModelLedgerDebitSql, teamModelUsageReceipt, type TeamModelUsageReceipt } from "./team-model-money.js";
 
 const DB_NOW = "CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)";
 function exactTurn(row: TeamModelTurnRow) {
@@ -15,11 +16,14 @@ function exactTurn(row: TeamModelTurnRow) {
 }
 async function runningCurrent(env: Env, member: WorkspaceNativeMember, grant: TeamModelFundingRow, turn: TeamModelTurnRow) {
   requireTeamModelPolicy(env, grant.policy_key);
+  const contract = fundingContract(grant), money = requireTeamModelMoney(contract.money, contract.maxOutputTokens);
   const source = sourceGuard(fundingBinding(grant), JSON.parse(turn.sources_json) as TeamModelSourceSnapshot), actor = membershipSql(member), exact = exactTurn(turn);
   const current = await env.AGENT_AUDIT.prepare(`SELECT 1 AS current WHERE ${source.sql} AND ${actor.sql}
     AND EXISTS(SELECT 1 FROM team_model_funding WHERE id=? AND version=? AND digest=? AND binding_json=? AND contract_json=? AND state='active' AND policy_key=? AND json_extract(contract_json,'$.expiresAt')>${DB_NOW})
-    AND EXISTS(SELECT 1 FROM team_model_turns WHERE ${exact.sql} AND status='running' AND expires_at>${DB_NOW} AND dispatch_deadline>${DB_NOW})`)
-    .bind(...source.values, ...actor.values, grant.id, turn.grant_version, grant.digest, grant.binding_json, grant.contract_json, grant.policy_key, ...exact.values).first();
+    AND EXISTS(SELECT 1 FROM team_model_turns WHERE ${exact.sql} AND status='running' AND expires_at>${DB_NOW} AND dispatch_deadline>${DB_NOW})
+    AND ?>${DB_NOW} AND EXISTS(SELECT 1 FROM team_model_money_ledger WHERE turn_id=? AND grant_id=? AND input_hash=? AND quote_digest=? AND reserved_micro_usd=? AND state='held')`)
+    .bind(...source.values, ...actor.values, grant.id, turn.grant_version, grant.digest, grant.binding_json, grant.contract_json, grant.policy_key, ...exact.values,
+      money.quote.dispatchUntil, turn.id, grant.id, turn.input_hash, money.quote.digest, money.maximumDebitPerCallMicroUsd).first();
   if (!current) throw new TeamModelError("team_model_dispatch_authority_changed", 403);
 }
 function outputText(value: unknown): string {
@@ -44,29 +48,35 @@ export async function executeTeamModelTurn(env: Env, member: WorkspaceNativeMemb
   requireTeamModelPolicy(env, grant.policy_key);
   if (binding.recipient.userId !== member.userId || binding.recipient.accountId !== member.accountId || turn.input_hash !== input.inputHash || await teamModelTurnHash(turn, grant) !== turn.input_hash) throw new TeamModelError("team_model_exact_turn_required", 403);
   if (["running", "completed", "unknown", "cancelled", "blocked"].includes(turn.status)) return id;
+  const money = requireTeamModelMoney(contract.money, contract.maxOutputTokens);
   if (turn.status !== "approved" || turn.version !== input.expectedVersion || turn.grant_version !== grant.version) throw new TeamModelError("team_model_turn_not_approved", 403);
   const modelInput = JSON.parse(turn.input_json) as TeamModelInput;
   const bytes = new TextEncoder().encode(turn.input_json).byteLength;
   if (bytes !== turn.input_bytes || bytes > contract.maxInputBytes || modelInput.max_completion_tokens !== contract.maxOutputTokens || modelInput.stream !== false || modelInput.n !== 1 || modelInput.tool_choice !== "none" || modelInput.store !== false || JSON.stringify(modelInput.modalities) !== '["text"]' || modelInput.chat_template_kwargs.enable_thinking !== false) throw new TeamModelError("team_model_input_policy_changed", 403);
   await options.beforeDispatch();
   const source = sourceGuard(binding, JSON.parse(turn.sources_json) as TeamModelSourceSnapshot), actor = membershipSql(member);
-  const now = Date.now(), dispatchDeadline = Math.min(now + TEAM_MODEL_CALL_TIMEOUT_MS, turn.expires_at, contract.expiresAt);
+  const now = Date.now(), dispatchDeadline = Math.min(now + TEAM_MODEL_CALL_TIMEOUT_MS, turn.expires_at, contract.expiresAt, money.quote.dispatchUntil);
   options.signal?.throwIfAborted(); requireTeamModelPolicy(env, grant.policy_key);
   if (dispatchDeadline <= now) throw new TeamModelError("team_model_turn_expired", 403);
   const reserved = await env.AGENT_AUDIT.batch([
     env.AGENT_AUDIT.prepare(`UPDATE team_model_funding SET used_requests=used_requests+1,reserved_input_bytes=reserved_input_bytes+?,reserved_output_tokens=reserved_output_tokens+?,updated_at=?
       WHERE id=? AND version=? AND digest=? AND binding_json=? AND contract_json=? AND state='active' AND policy_key=?
         AND used_requests<? AND reserved_input_bytes+?<=? AND reserved_output_tokens+?<=? AND json_extract(contract_json,'$.expiresAt')>${DB_NOW}
+        AND ?>${DB_NOW} AND ${teamModelLedgerDebitSql("team_model_funding.id")}+?<=?
         AND ${source.sql} AND ${actor.sql}
         AND EXISTS(SELECT 1 FROM team_model_turns WHERE ${exact.sql} AND version=? AND status='approved' AND expires_at>${DB_NOW})
-        AND NOT EXISTS(SELECT 1 FROM team_model_turns busy WHERE busy.grant_id=? AND busy.status IN ('running','unknown'))`)
+        AND NOT EXISTS(SELECT 1 FROM team_model_turns busy WHERE busy.grant_id=? AND busy.status IN ('running','unknown'))
+        AND NOT EXISTS(SELECT 1 FROM team_model_money_ledger WHERE grant_id=? AND state IN ('held','unknown'))`)
       .bind(bytes, contract.maxOutputTokens, now, grant.id, turn.grant_version, grant.digest, grant.binding_json, grant.contract_json, grant.policy_key,
         contract.maxRequests, bytes, contract.maxRequests * contract.maxInputBytes, contract.maxOutputTokens, contract.maxRequests * contract.maxOutputTokens,
-        ...source.values, ...actor.values, ...exact.values, input.expectedVersion, grant.id),
+        money.quote.dispatchUntil, money.maximumDebitPerCallMicroUsd, money.budgetMicroUsd, ...source.values, ...actor.values, ...exact.values, input.expectedVersion, grant.id, grant.id),
     env.AGENT_AUDIT.prepare(`UPDATE team_model_turns SET status='running',version=version+1,updated_at=?,dispatch_deadline=? WHERE ${exact.sql} AND version=? AND status='approved' AND changes()=1`)
       .bind(now, dispatchDeadline, ...exact.values, input.expectedVersion),
+    env.AGENT_AUDIT.prepare(`INSERT INTO team_model_money_ledger(turn_id,grant_id,workspace_id,input_hash,quote_digest,reserved_micro_usd,state,created_at,updated_at)
+      SELECT ?,?,?,?,?,?,'held',?,? WHERE changes()=1 AND EXISTS(SELECT 1 FROM team_model_turns WHERE ${exact.sql} AND status='running' AND version=?)`)
+      .bind(turn.id, grant.id, member.workspaceId, turn.input_hash, money.quote.digest, money.maximumDebitPerCallMicroUsd, now, now, ...exact.values, input.expectedVersion + 1),
   ]);
-  if (reserved[0]?.meta.changes !== 1 || reserved[1]?.meta.changes !== 1) throw new TeamModelError("team_model_slot_or_authority_changed");
+  if (reserved.some((result) => result.meta.changes !== 1)) throw new TeamModelError("team_model_slot_or_authority_changed");
 
   const controller = new AbortController();
   const relayAbort = () => controller.abort(new Error("team_model_request_cancelled"));
@@ -74,7 +84,7 @@ export async function executeTeamModelTurn(env: Env, member: WorkspaceNativeMemb
   if (options.signal?.aborted) relayAbort();
   const timeout = setTimeout(() => controller.abort(new Error("team_model_dispatch_deadline")), Math.max(0, dispatchDeadline - Date.now()));
   let dispatched = false, stopped = false, wake: (() => void) | undefined, pollTimer: ReturnType<typeof setTimeout> | undefined;
-  let output: string | null = null, errorCode = "team_model_outcome_unknown";
+  let output: string | null = null, receipt: TeamModelUsageReceipt | null = null, errorCode = "team_model_outcome_unknown";
   let stopPolling: (() => void) | undefined;
   const pollingStopped = new Promise<false>((resolve) => { stopPolling = () => resolve(false); });
   const poll = async () => {
@@ -100,31 +110,40 @@ export async function executeTeamModelTurn(env: Env, member: WorkspaceNativeMemb
     // waiting on a possibly stalled final authority read.
     await Promise.race([runningCurrent(env, member, grant, turn), aborted]);
     options.signal?.throwIfAborted(); controller.signal.throwIfAborted(); requireTeamModelPolicy(env, grant.policy_key);
+    requireTeamModelMoney(contract.money, contract.maxOutputTokens);
     if (Date.now() >= dispatchDeadline || Date.now() >= turn.expires_at || Date.now() >= contract.expiresAt) throw new TeamModelError("team_model_turn_expired", 403);
     // No await, mutable caller argument, credential lookup or fallback here.
     dispatched = true;
     const inference = env.AI.run(TEAM_MODEL_TEXT_MODEL, modelInput, { signal: controller.signal });
     polling = poll();
     const result = await Promise.race([inference, aborted]);
-    controller.signal.throwIfAborted(); output = outputText(result);
-  } catch { errorCode = dispatched ? "team_model_outcome_unknown" : "team_model_dispatch_blocked"; }
+    controller.signal.throwIfAborted();
+    receipt = await teamModelUsageReceipt(result, turn.input_hash, contract.maxOutputTokens);
+    output = outputText(result);
+  } catch (error) { errorCode = dispatched ? error instanceof Error && error.message === "team_model_usage_unknown" ? "team_model_usage_unknown" : "team_model_outcome_unknown" : "team_model_dispatch_blocked"; }
   finally {
     stopped = true; clearTimeout(timeout); if (pollTimer) clearTimeout(pollTimer); wake?.(); stopPolling?.(); await polling;
     if (abortReject) controller.signal.removeEventListener("abort", abortReject); options.signal?.removeEventListener("abort", relayAbort);
   }
   // No result survives cancellation, policy changes or source revocation. The
   // reserved request/bytes/tokens remain consumed for every claimed attempt.
-  if (output !== null && !controller.signal.aborted && teamModelPolicyMatches(env, grant.policy_key)) {
+  if (output !== null && receipt && !controller.signal.aborted && teamModelPolicyMatches(env, grant.policy_key)) {
     const finalSource = sourceGuard(binding, JSON.parse(turn.sources_json) as TeamModelSourceSnapshot), actor = membershipSql(member);
-    const saved = await updateGuarded(env, "team_model_turns", { status: "completed", version: turn.version + 2, output, error_code: null, updated_at: Date.now() },
+    const saved = await env.AGENT_AUDIT.batch([updateGuarded(env, "team_model_turns", { status: "completed", version: turn.version + 2, output, error_code: null, updated_at: Date.now() },
       `${exact.sql} AND status='running' AND expires_at>${DB_NOW} AND dispatch_deadline>${DB_NOW} AND ${finalSource.sql} AND ${actor.sql}
-        AND EXISTS(SELECT 1 FROM team_model_funding WHERE id=? AND version=? AND state='active' AND policy_key=? AND json_extract(contract_json,'$.expiresAt')>${DB_NOW})`,
-      [...exact.values, ...finalSource.values, ...actor.values, grant.id, turn.grant_version, grant.policy_key]).run();
-    if (saved.meta.changes === 1) return id;
+        AND EXISTS(SELECT 1 FROM team_model_funding WHERE id=? AND version=? AND state='active' AND policy_key=? AND json_extract(contract_json,'$.expiresAt')>${DB_NOW})
+        AND EXISTS(SELECT 1 FROM team_model_money_ledger WHERE turn_id=? AND input_hash=? AND quote_digest=? AND state='held')`,
+      [...exact.values, ...finalSource.values, ...actor.values, grant.id, turn.grant_version, grant.policy_key, turn.id, turn.input_hash, money.quote.digest]),
+      env.AGENT_AUDIT.prepare(`UPDATE team_model_money_ledger SET state='confirmed',reported_micro_usd=?,receipt_hash=?,receipt_json=?,updated_at=?
+        WHERE turn_id=? AND grant_id=? AND input_hash=? AND quote_digest=? AND state='held' AND changes()=1`)
+        .bind(receipt.quotedMicroUsd, receipt.hash, receipt.json, Date.now(), turn.id, grant.id, turn.input_hash, money.quote.digest),
+    ]);
+    if (saved.every((result) => result.meta.changes === 1)) return id;
     errorCode = "team_model_result_authority_changed";
   }
   await env.AGENT_AUDIT.prepare("UPDATE team_model_turns SET status=?,version=version+1,output=NULL,error_code=?,updated_at=? WHERE id=? AND status='running'")
     .bind(dispatched ? "unknown" : "blocked", errorCode, Date.now(), id).run();
+  await env.AGENT_AUDIT.prepare("UPDATE team_model_money_ledger SET state='unknown',updated_at=? WHERE turn_id=? AND input_hash=? AND state='held'").bind(Date.now(), id, turn.input_hash).run();
   return id;
 }
 function teamModelPolicyMatches(env: Env, key: string) { try { requireTeamModelPolicy(env, key); return true; } catch { return false; } }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { TEAM_MODEL_TEXT_MODEL } from "@shiba/shared";
+import { TEAM_MODEL_TEXT_MODEL, teamModelMaximumDebitMicroUsd } from "@shiba/shared";
 import type { Env } from "../src/env.js";
 import { handleTeamModelSessions } from "../src/team-model-routes.js";
 import { createTeamWorkspace, createTeamWorkspaceInvitation, acceptTeamWorkspaceInvitation, getTeamWorkspaceMembership } from "../src/team-workspaces-store.js";
@@ -20,6 +20,7 @@ beforeEach(() => { user.email = OPERATOR; user.native = true; user.accounts = {}
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 type GrantReceipt = { id: string; version: number; digest: string; state: string; usedRequests: number; reservedInputBytes: number; reservedOutputTokens: number };
 type TurnReceipt = { id: string; version: number; inputHash: string; status: string; output: string | null; inputBytes: number; expiresAt: number; canCancel: boolean };
+function aiResponse(content: string) { return { id: `fixture_${crypto.randomUUID()}`, model: TEAM_MODEL_TEXT_MODEL, usage: { prompt_tokens: 32, completion_tokens: 8, total_tokens: 40 }, choices: [{ message: { content } }] }; }
 async function fixture(enabled = true) {
   const db = customAgentD1();
   db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT,kind TEXT)');
@@ -34,7 +35,7 @@ async function fixture(enabled = true) {
   const run = vi.fn(async (model: string, input: Record<string, unknown>, options: { signal: AbortSignal }) => {
     calls.push({ model, input, signal: options.signal }); arrived?.();
     if (throwInference) throw new Error("Fixture unknown AI response");
-    return held ? await held : { choices: [{ message: { content: "Fixture text response" } }] };
+    return held ? await held : aiResponse("Fixture text response");
   });
   const env = { AGENT_AUDIT: db.database, AI: { run }, SHIBA_TEAM_MODEL_SESSIONS: enabled ? "1" : "0", SHIBA_TEAM_MODEL_MODEL: TEAM_MODEL_TEXT_MODEL } as unknown as Env;
   for (const field of ["CodingOrchestrator", "Sandbox", "Memory", "OPEN_CONNECTOR", "OPEN_CONNECTOR_ADMIN_TOKEN", "AI_GATEWAY_TOKEN", "GITHUB_TOKEN", "SLACK_BOT_TOKEN"])
@@ -61,7 +62,7 @@ async function fixture(enabled = true) {
   };
   const member = (await getTeamWorkspaceMembership(env, workspace.workspaceId, MEMBER))!;
   const fundingInput = { roomId, employeeId: employee.id, employeeVersion: employee.version, memberId: MEMBER, memberVersion: member.version,
-    model: TEAM_MODEL_TEXT_MODEL, maxRequests: 2, maxInputBytes: 4096, maxOutputTokens: 64, expiresAt: Date.now() + 3_600_000 };
+    model: TEAM_MODEL_TEXT_MODEL, currency: "USD", budgetMicroUsd: 100_000, maxRequests: 2, maxInputBytes: 4096, maxOutputTokens: 64, expiresAt: Date.now() + 3_600_000 };
   const prepare = async (changes: Record<string, unknown> = {}) => {
     const result = await call("/funding/prepare", "POST", { ...fundingInput, ...changes });
     expect(result.response.status, JSON.stringify(result.body)).toBe(201); return result.body.grant as GrantReceipt;
@@ -83,7 +84,7 @@ async function fixture(enabled = true) {
   const execute = (value: TurnReceipt, signal?: AbortSignal) => call(`/turns/${value.id}/execute`, "POST", { expectedVersion: value.version, inputHash: value.inputHash }, undefined, signal);
   return { ...db, env, roomId, workspace, other, employee, note, fundingInput, calls, run, call, request, prepare, fund, turn, approve, execute,
     hold() { held = new Promise<unknown>((resolve) => { release = resolve; }); return new Promise<void>((resolve) => { arrived = resolve; }); },
-    release() { release?.({ choices: [{ message: { content: "Late fixture output" } }] }); }, unknown() { throwInference = true; } };
+    release() { release?.(aiResponse("Late fixture output")); }, unknown() { throwInference = true; } };
 }
 function interceptD1(env: Env, matches: (sql: string, operation: "first" | "all") => boolean, effect: () => void | Promise<void>) {
   const prepare = env.AGENT_AUDIT.prepare.bind(env.AGENT_AUDIT);
@@ -102,6 +103,102 @@ function holdAuthorityRead(env: Env, nth: number) {
 }
 
 describe("default-off native funded text with actual routes/SQLite and fixture AI only", { timeout: 20_000 }, () => {
+  it("enforces the exact USD envelope atomically and never releases it after confirmed lower usage", async () => {
+    const f = await fixture(), grant = await f.fund({ maxOutputTokens: 1024, budgetMicroUsd: 8341 }), approved = await f.approve(await f.turn(grant));
+    const [one, duplicate] = await Promise.all([f.execute(approved), f.execute(approved)]);
+    expect([one.response.status, duplicate.response.status]).toContain(200); expect(f.calls).toHaveLength(1);
+    expect(f.sqlite.prepare("SELECT reserved_micro_usd,state,reported_micro_usd FROM team_model_money_ledger").all()).toEqual([{ reserved_micro_usd: 8341, state: "confirmed", reported_micro_usd: 6 }]);
+    const state = await f.call(`/state?roomId=${f.roomId}`);
+    expect((state.body.grants as Array<Record<string, unknown>>)[0]!.money).toEqual({ currency: "USD", authorizedDebitMicroUsd: 8341, remainingBudgetMicroUsd: 0, reportedQuotedMicroUsd: 6, unknownReservedMicroUsd: 0 });
+    const next = await f.call("/turns/prepare", "POST", { grantId: grant.id, expectedGrantVersion: grant.version, prompt: "Cannot use the unused estimate", messageIds: [], memoryRefs: [], requestId: crypto.randomUUID() });
+    expect(next.response.status).toBe(409); await f.execute(approved); expect(f.calls).toHaveLength(1);
+  });
+  it("refuses insufficient USD authorization before any model slot or inference", async () => {
+    const f = await fixture(), grant = await f.fund({ maxOutputTokens: 1024, budgetMicroUsd: 8340 }); user.email = MEMBER;
+    const next = await f.call("/turns/prepare", "POST", { grantId: grant.id, expectedGrantVersion: grant.version, prompt: "Too little authorization", messageIds: [], memoryRefs: [], requestId: crypto.randomUUID() });
+    expect(next.response.status).toBe(409); expect(f.calls).toHaveLength(0);
+    expect(f.sqlite.prepare("SELECT used_requests FROM team_model_funding WHERE id=?").get(grant.id)).toEqual({ used_requests: 0 });
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM team_model_money_ledger").get()).toEqual({ count: 0 });
+  });
+  it("cannot spend one money envelope across two separately approved concurrent turns", async () => {
+    const f = await fixture(), grant = await f.fund({ maxRequests: 10, budgetMicroUsd: teamModelMaximumDebitMicroUsd(64) });
+    const first = await f.approve(await f.turn(grant)), second = await f.approve(await f.turn(grant, { prompt: "Another exact human request" }));
+    const arrived = f.hold(), running = f.execute(first); await arrived;
+    try { expect((await f.execute(second)).response.status).toBe(409); } finally { f.release(); }
+    await running; expect((await f.execute(second)).response.status).toBe(409); expect(f.calls).toHaveLength(1);
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS count,SUM(reserved_micro_usd) AS debit FROM team_model_money_ledger").get()).toEqual({ count: 1, debit: teamModelMaximumDebitMicroUsd(64) });
+  });
+  it("does not charge or invoke twice when a confirmed settlement acknowledgement is lost", async () => {
+    const f = await fixture(), grant = await f.fund(), approved = await f.approve(await f.turn(grant));
+    const batch = f.database.batch.bind(f.database); let writes = 0;
+    f.database.batch = async <T = unknown>(statements: D1PreparedStatement[]) => { const result = await batch<T>(statements); if (++writes === 2) throw new Error("Fixture settlement acknowledgement lost"); return result; };
+    expect((await f.execute(approved)).response.status).toBe(503); f.database.batch = batch;
+    expect((await f.execute(approved)).body.turn).toMatchObject({ status: "completed", output: "Fixture text response" });
+    expect(f.calls).toHaveLength(1); expect(f.sqlite.prepare("SELECT COUNT(*) AS count,SUM(reserved_micro_usd) AS debit FROM team_model_money_ledger").get()).toEqual({ count: 1, debit: teamModelMaximumDebitMicroUsd(64) });
+  });
+  it("uses the final money snapshot when another debit arrives during a state read", async () => {
+    const f = await fixture(), grant = await f.fund({ maxRequests: 10, budgetMicroUsd: teamModelMaximumDebitMicroUsd(64) }), approved = await f.approve(await f.turn(grant));
+    const contract = JSON.parse(String(f.sqlite.prepare("SELECT contract_json FROM team_model_funding WHERE id=?").get(grant.id)!.contract_json));
+    let injected = false;
+    interceptD1(f.env, (sql, op) => op === "all" && sql.includes("'actor' AS kind") && !injected, () => {
+      injected = true; f.sqlite.prepare("INSERT INTO team_model_money_ledger(turn_id,grant_id,workspace_id,input_hash,quote_digest,reserved_micro_usd,state,created_at,updated_at) VALUES('fixture-concurrent-turn',?,?,?,?,?,'confirmed',1,1)")
+        .run(grant.id, f.workspace.workspaceId, "fixture-other-hash", contract.money.quote.digest, contract.money.maximumDebitPerCallMicroUsd);
+    });
+    const state = await f.call(`/state?roomId=${f.roomId}`);
+    expect((state.body.turns as Array<{ id: string; canExecute: boolean }>).find((turn) => turn.id === approved.id)!.canExecute).toBe(false);
+    expect((state.body.grants as Array<{ money: { remainingBudgetMicroUsd: number } }>)[0]!.money.remainingBudgetMicroUsd).toBe(0); expect(f.calls).toHaveLength(0);
+  });
+  it.each([{ currency: "EUR" }, { budgetMicroUsd: 1_000_001 }, { budgetMicroUsd: 1.1 }, { budgetMicroUsd: -1 }, { currency: undefined }, { budgetMicroUsd: undefined }])("requires an exact supported currency and integer budget %j", async (changes) => {
+    const f = await fixture(), result = await f.call("/funding/prepare", "POST", { ...f.fundingInput, ...changes });
+    expect(result.response.status).toBe(400); expect(f.calls).toHaveLength(0);
+  });
+  it.each(["missing usage", "inconsistent usage", "wrong model"])("retains full authorization and blocks the grant after %s", async (mode) => {
+    const f = await fixture(), grant = await f.fund(), approved = await f.approve(await f.turn(grant));
+    const response = aiResponse("Unconfirmed output") as Record<string, unknown>;
+    if (mode === "missing usage") delete response.usage;
+    else if (mode === "wrong model") response.model = "another-model";
+    else response.usage = { prompt_tokens: 1, completion_tokens: 1, total_tokens: 3 };
+    f.run.mockResolvedValueOnce(response);
+    expect((await f.execute(approved)).body.turn).toMatchObject({ status: "unknown", output: null, error: "team_model_usage_unknown" });
+    expect(f.sqlite.prepare("SELECT reserved_micro_usd,state,reported_micro_usd FROM team_model_money_ledger").get()).toEqual({ reserved_micro_usd: teamModelMaximumDebitMicroUsd(64), state: "unknown", reported_micro_usd: null });
+    await f.execute(approved); expect(f.run).toHaveBeenCalledTimes(1);
+    const state = await f.call(`/state?roomId=${f.roomId}`); expect((state.body.grants as Array<{ state: string }>)[0]!.state).toBe("unknown");
+  });
+  it("expires a quote during final authority await without calling AI or releasing the claim", async () => {
+    const f = await fixture(), grant = await f.fund(), approved = await f.approve(await f.turn(grant));
+    const contract = JSON.parse(String(f.sqlite.prepare("SELECT contract_json FROM team_model_funding WHERE id=?").get(grant.id)!.contract_json));
+    const authority = holdAuthorityRead(f.env, 1), execution = f.execute(approved); await authority.started;
+    vi.spyOn(Date, "now").mockReturnValue(contract.money.quote.dispatchUntil + 1); authority.release();
+    await execution; expect(f.calls).toHaveLength(0);
+    expect(f.sqlite.prepare("SELECT reserved_micro_usd,state FROM team_model_money_ledger").get()).toEqual({ reserved_micro_usd: teamModelMaximumDebitMicroUsd(64), state: "unknown" });
+  });
+  it("keeps completed output readable after dispatch quote expiry without permitting more inference", async () => {
+    const f = await fixture(), grant = await f.fund(), approved = await f.approve(await f.turn(grant)); await f.execute(approved);
+    const contract = JSON.parse(String(f.sqlite.prepare("SELECT contract_json FROM team_model_funding WHERE id=?").get(grant.id)!.contract_json));
+    vi.spyOn(Date, "now").mockReturnValue(contract.money.quote.dispatchUntil + 1);
+    const state = await f.call(`/state?roomId=${f.roomId}`);
+    expect((state.body.turns as TurnReceipt[])[0]).toMatchObject({ status: "completed", output: "Fixture text response" });
+    expect((state.body.grants as Array<{ unavailableReason: string }>)[0]!.unavailableReason).toBe("team_model_price_quote_expired");
+    expect(f.calls).toHaveLength(1);
+  });
+  it("renders authorized legacy output while denying new amountless execution", async () => {
+    const f = await fixture(), grant = await f.fund(), approved = await f.approve(await f.turn(grant)); await f.execute(approved);
+    const contract = JSON.parse(String(f.sqlite.prepare("SELECT contract_json FROM team_model_funding WHERE id=?").get(grant.id)!.contract_json));
+    delete contract.money; f.sqlite.prepare("UPDATE team_model_funding SET contract_json=? WHERE id=?").run(JSON.stringify(contract), grant.id);
+    f.sqlite.prepare("DELETE FROM team_model_money_ledger WHERE grant_id=?").run(grant.id);
+    const state = await f.call(`/state?roomId=${f.roomId}`);
+    expect((state.body.turns as TurnReceipt[])[0]).toMatchObject({ status: "completed", output: "Fixture text response" });
+    const next = await f.call("/turns/prepare", "POST", { grantId: grant.id, expectedGrantVersion: grant.version, prompt: "No old funding fallback", messageIds: [], memoryRefs: [], requestId: crypto.randomUUID() });
+    expect(next.response.status).toBe(409); expect(next.body.error).toBe("team_model_budget_upgrade_required"); expect(f.calls).toHaveLength(1);
+  });
+  it.each(["legacy", "changed price"])("does not dispatch previously approved input under a %s funding quote", async (kind) => {
+    const f = await fixture(), grant = await f.fund(), approved = await f.approve(await f.turn(grant));
+    const contract = JSON.parse(String(f.sqlite.prepare("SELECT contract_json FROM team_model_funding WHERE id=?").get(grant.id)!.contract_json));
+    if (kind === "legacy") delete contract.money; else contract.money.quote.outputMicroUsdPerMillionTokens = 1;
+    f.sqlite.prepare("UPDATE team_model_funding SET contract_json=? WHERE id=?").run(JSON.stringify(contract), grant.id);
+    expect((await f.execute(approved)).response.status).toBe(409); expect(f.calls).toHaveLength(0);
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM team_model_money_ledger").get()).toEqual({ count: 0 });
+  });
   it("denies default-off funding and never calls AI or any legacy provider", async () => {
     const f = await fixture(false);
     const state = await f.call(`/state?roomId=${f.roomId}`);
@@ -299,7 +396,7 @@ describe("default-off native funded text with actual routes/SQLite and fixture A
   });
   it("bounds UTF-8 output without inserting an oversized replacement at a split code point", async () => {
     const f = await fixture(), grant = await f.fund(), approved = await f.approve(await f.turn(grant));
-    f.run.mockResolvedValueOnce({ choices: [{ message: { content: "abc" + "😀".repeat(4096) } }] });
+    f.run.mockResolvedValueOnce(aiResponse("abc" + "😀".repeat(4096)));
     const result = await f.execute(approved), output = (result.body.turn as TurnReceipt).output!;
     expect(new TextEncoder().encode(output).byteLength).toBeLessThanOrEqual(8192);
     expect(output.endsWith("\n[truncated]")).toBe(true); expect(output).not.toContain("\uFFFD");

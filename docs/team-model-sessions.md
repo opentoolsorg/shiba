@@ -24,11 +24,58 @@ The preview expires after 15 minutes or the earlier funding expiry.
 
 Limits are one to ten requests, one to 16,384 UTF-8 input bytes per request, one
 to 1,024 maximum completion tokens per request, and a funding lifetime no longer
-than 24 hours. These are request, byte and token limits. They are not a hard
-currency ceiling or a live price quote. The input byte count includes the whole
+than 24 hours. New funding also requires a whole-microUSD budget of at most $1,
+and exact human review of the complete server-prepared cost quote. This is an
+application authorization budget at reference rates, not a Cloudflare invoice
+cap or a payment transaction. The input byte count includes the whole
 serialized model input, including system instructions, the employee profile,
 source attribution and selected context. Oversized input is rejected rather
 than silently shortened.
+
+## USD authorization and price reference
+
+Money v2 uses USD only, with integer microdollars and upward-rounded integer
+arithmetic. Its pinned reference was checked on November 5, 2026. The
+[model page](https://developers.cloudflare.com/workers-ai/models/glm-4.7-flash/)
+documents a 131,072-token context; the
+[pricing page](https://developers.cloudflare.com/workers-ai/platform/pricing/)
+lists 5,500 input and 36,400 output neurons per million tokens at $0.011 per
+1,000 neurons. The resulting conservative rates are $0.0605 per million input
+tokens and $0.4004 per million output tokens. These exceed the rounded token
+table where it differs. The reference does not lock the provider's price.
+
+Every call reserves the entire 131,072-token input context plus the selected
+maximum completion tokens, without assuming a byte-to-token estimate. Each
+component rounds upward to a whole microdollar. At the maximum 1,024 output
+tokens the permanent reservation is 8,341 microUSD ($0.008341). Free allocations
+and cache discounts are not assumed. Provider price changes, invoice rounding,
+account and provider fees, taxes, Workers, D1, R2 and other infrastructure costs
+are excluded; this cannot cap the deployment's complete provider invoice.
+
+A quote permits dispatch for at most 15 minutes, bounded by the grant expiry.
+Activation freezes its model, reference rates, context bound, USD budget,
+original dispatch deadline and digest. Every turn review also shows its maximum
+debit. Expiry or a changed/unsupported quote requires a fresh explicit human
+funding review; there is no automatic repricing, renewal or fallback. Quote
+expiry prevents new calls while completed output remains governed by its
+original funding and source lifetime. Legacy amountless grants can still expose
+authorized old output, but cannot prepare, approve or execute new work.
+
+Append-only migration `0017_team_model_money.sql` adds one ledger row per turn.
+One D1 transaction claims the request and full authorization envelope before
+inference. The canonical debit is the sum of these unique reservations; it
+never decreases. Concurrent requests and lost acknowledgements cannot double
+invoke or double-debit the same turn. No reservation is released or refunded,
+including when a valid response reports lower usage.
+
+The direct model response must include the exact model, a bounded completion
+ID and integer prompt, completion and total token counts within the frozen
+bounds, with a matching total. These provider-reported values and their hash
+produce an informational quoted-usage receipt, not an invoice or proof of
+payment. Missing, inconsistent, unsupported or uncertain usage keeps the full
+reservation, marks the outcome unknown and blocks further work on that grant.
+Cancellation and failed/lost receipts also retain the reservation; no automatic
+retry, refund or reconciliation action is offered.
 
 Only the selected member can prepare a turn. Every turn has a frozen prompt,
 complete model messages, source provenance, input digest and deadline. Preparing

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TEAM_MODEL_TEXT_MODEL, type TeamModelStateResponse } from "@shiba/shared";
+import { TEAM_MODEL_TEXT_MODEL, teamModelPriceQuoteDigest, type TeamModelStateResponse } from "@shiba/shared";
 import { TeamModelSessions } from "./TeamModelSessions";
 import { teamModelFixture, TEAM_MODEL_ACTOR, TEAM_MODEL_OPERATOR, TEAM_MODEL_ROOM, TEAM_MODEL_WORKSPACE } from "../team-model-fixtures";
 const props = () => ({ workspaceId: TEAM_MODEL_WORKSPACE, roomId: TEAM_MODEL_ROOM, actorId: TEAM_MODEL_ACTOR, messages: [] as Array<{ id: string; author: string; body: string }>, notes: [] as Array<{ id: string; version: 1; sha256: string; title: string; body: string }> });
@@ -13,12 +13,18 @@ function fixture(initial?: TeamModelStateResponse) {
     const path = String(input); if (init?.method === "GET") return Response.json(state);
     const body = JSON.parse(String(init?.body)); posts.push({ path, body });
     if (path.endsWith("/funding/prepare")) {
-      const grant = { ...teamModelFixture().grant, state: "draft" as const, version: 1, canActivate: true, canRevoke: true, contract: { ...teamModelFixture().grant.contract, ...body, issuerId: TEAM_MODEL_OPERATOR } };
+      const base = teamModelFixture().grant;
+      const { currency: _currency, budgetMicroUsd, ...contractInput } = body;
+      const { digest: _digest, ...quote } = { ...base.contract.money!.quote, dispatchUntil: Math.min(base.contract.money!.quote.dispatchUntil, body.expiresAt) };
+      const grant = { ...base, state: "draft" as const, version: 1, canActivate: true, canRevoke: true, contract: { ...base.contract, ...contractInput, issuerId: TEAM_MODEL_OPERATOR, money: { ...base.contract.money!, budgetMicroUsd, quote: { ...quote, digest: teamModelPriceQuoteDigest(quote) } } } };
       state = { ...state, grants: [grant] }; return Response.json({ ok: true, workspaceId: state.workspaceId, roomId: state.roomId, grant });
     }
     if (path.endsWith("/activate")) { const grant = { ...state.grants[0]!, state: "active" as const, version: 2, canActivate: false }; state = { ...state, grants: [grant] }; return Response.json({ ok: true, workspaceId: state.workspaceId, roomId: state.roomId, grant }); }
     let turn = state.turns[0] ?? teamModelFixture().turn;
-    if (path.endsWith("/turns/prepare")) turn = { ...turn, requestedPrompt: body.prompt, messages: [{ role: "system", content: state.grants[0]!.contract.employeeInstructions }, { role: "user", content: body.prompt }] };
+    if (path.endsWith("/turns/prepare")) {
+      const money = state.grants[0]!.contract.money!;
+      turn = { ...turn, requestedPrompt: body.prompt, messages: [{ role: "system", content: state.grants[0]!.contract.employeeInstructions }, { role: "user", content: body.prompt }], cost: { ...turn.cost!, maximumDebitMicroUsd: money.maximumDebitPerCallMicroUsd, quoteDigest: money.quote.digest, dispatchUntil: money.quote.dispatchUntil } };
+    }
     if (path.endsWith("/approve")) turn = { ...turn, version: turn.version + 1, status: "approved", canApprove: false, canExecute: true };
     if (path.endsWith("/execute")) turn = { ...turn, version: turn.version + 1, status: "completed", output: "Fixture model text, not live inference.", canExecute: false, canCancel: false };
     if (path.endsWith("/cancel")) turn = { ...turn, version: turn.version + 1, status: "cancelled", canExecute: false, canApprove: false, canCancel: false };
@@ -47,13 +53,51 @@ describe("explicit bounded team text sessions", () => {
     const f = fixture(state); render(<TeamModelSessions {...props()} actorId={TEAM_MODEL_OPERATOR} />);
     fireEvent.click(await screen.findByText("Operator funding setup"));
     expect(screen.getByLabelText("Funded employee")).toHaveProperty("value", ""); expect(screen.getByLabelText("Funded member")).toHaveProperty("value", ""); expect(screen.getByLabelText("Exact Workers AI model")).toHaveProperty("value", "");
+    expect(screen.getByLabelText("Maximum quoted inference budget (USD)")).toHaveProperty("value", "");
     const prepare = screen.getByRole("button", { name: "Prepare exact funding review" }); expect(prepare).toHaveProperty("disabled", true);
     fireEvent.change(screen.getByLabelText("Funded employee"), { target: { value: "employee-writer" } }); fireEvent.change(screen.getByLabelText("Funded member"), { target: { value: TEAM_MODEL_ACTOR } }); fireEvent.change(screen.getByLabelText("Exact Workers AI model"), { target: { value: TEAM_MODEL_TEXT_MODEL } });
     fireEvent.change(screen.getByLabelText("Maximum model requests"), { target: { value: "2" } }); fireEvent.change(screen.getByLabelText("Maximum full input bytes per request"), { target: { value: "8192" } }); fireEvent.change(screen.getByLabelText("Maximum output tokens per request"), { target: { value: "256" } }); fireEvent.change(screen.getByLabelText("Funding expiry"), { target: { value: "60" } });
+    expect(prepare).toHaveProperty("disabled", true);
+    for (const value of ["1.000001", "0.0000001", "1e-2", "-0.1", "0.000001"]) {
+      fireEvent.change(screen.getByLabelText("Maximum quoted inference budget (USD)"), { target: { value } }); expect(prepare).toHaveProperty("disabled", true);
+    }
+    fireEvent.change(screen.getByLabelText("Maximum quoted inference budget (USD)"), { target: { value: "0.100000" } });
     fireEvent.click(prepare); const enable = await screen.findByRole("button", { name: "Enable exact funding grant" }); expect(enable).toHaveProperty("disabled", true); expect(f.posts).toHaveLength(1);
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed this exact employee/ })); fireEvent.click(enable);
     await waitFor(() => expect(f.posts).toHaveLength(2)); expect(f.posts[1]?.body).toMatchObject({ expectedVersion: 1, billingConsent: true, reviewed: true });
     expect(f.posts.every((post) => !post.path.endsWith("/execute"))).toBe(true);
+    expect(f.posts[0]?.body).toMatchObject({ currency: "USD", budgetMicroUsd: 100_000 });
+    expect(screen.getAllByText(/not a Cloudflare invoice cap/).length).toBeGreaterThan(0);
+  });
+  it("disables new turns after the full USD authorization is consumed while showing its exact cost", async () => {
+    const { state, grant, turn } = teamModelFixture();
+    grant.contract.money!.budgetMicroUsd = grant.contract.money!.maximumDebitPerCallMicroUsd;
+    grant.money = { currency: "USD", authorizedDebitMicroUsd: grant.contract.money!.budgetMicroUsd, remainingBudgetMicroUsd: 0, reportedQuotedMicroUsd: 6, unknownReservedMicroUsd: 0 };
+    grant.unavailableReason = "team_model_budget_insufficient";
+    state.turns = [{ ...turn, status: "approved", canApprove: false, canExecute: true }];
+    const f = fixture(state); render(<TeamModelSessions {...props()} />);
+    await screen.findByLabelText("My text-session funding grant");
+    expect(screen.getByRole("option", { name: /Writer fixture/ })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Execute approved model turn" })).toHaveProperty("disabled", true);
+    expect(screen.getByText(/remaining authorization \$0.000000/)).toBeTruthy(); expect(screen.queryByLabelText("Exact text prompt")).toBeNull(); expect(f.posts).toEqual([]);
+  });
+  it("keeps legacy output readable but never enables amountless model work", async () => {
+    const { state, grant, turn } = teamModelFixture(); delete grant.contract.money; delete grant.money; delete turn.cost;
+    grant.unavailableReason = "team_model_budget_upgrade_required";
+    state.turns = [{ ...turn, status: "completed", output: "Legacy source-authorized text", canApprove: false, canExecute: false }];
+    const f = fixture(state); render(<TeamModelSessions {...props()} />);
+    await screen.findByText("Legacy source-authorized text"); expect(screen.getByText(/Legacy allowance: no USD budget was approved/)).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Writer fixture/ })).toHaveProperty("disabled", true); expect(screen.queryByRole("button", { name: "Execute approved model turn" })).toBeNull(); expect(f.posts).toEqual([]);
+  });
+  it("retires selected funding exactly at quote expiry before the status poll without hiding completed output", async () => {
+    vi.useFakeTimers(); const { state, grant, turn } = teamModelFixture();
+    const { digest: _digest, ...quote } = { ...grant.contract.money!.quote, dispatchUntil: Date.now() + 1_000 };
+    grant.contract.money!.quote = { ...quote, digest: teamModelPriceQuoteDigest(quote) };
+    state.turns = [{ ...turn, status: "completed", output: "Output retains source-scoped authority", canApprove: false, canExecute: false }];
+    const f = fixture(state); await act(async () => { render(<TeamModelSessions {...props()} />); });
+    fireEvent.change(screen.getByLabelText("My text-session funding grant"), { target: { value: grant.id } }); expect(screen.getByLabelText("Exact text prompt")).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_001); });
+    expect(screen.queryByLabelText("Exact text prompt")).toBeNull(); expect(screen.getByText("Output retains source-scoped authority")).toBeTruthy(); expect(f.posts).toEqual([]);
   });
   it("prepares then separately reviews and executes exact member input", async () => {
     const f = fixture(); render(<TeamModelSessions {...props()} />);

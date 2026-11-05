@@ -65,3 +65,4 @@ export * from "./founder-connector-jobs.js";
 export * from "./team-model-sessions.js";
 export * from "./founder-evidence-reports.js";
 export * from "./report-slack.js";
+export * from "./team-model-money.js";

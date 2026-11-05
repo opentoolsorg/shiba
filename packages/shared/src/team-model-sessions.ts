@@ -1,19 +1,21 @@
 import { z } from "zod";
+import { teamModelMoneyContractSchema, teamModelMoneyStateSchema, teamModelTurnCostSchema } from "./team-model-money.js";
 
 /** Interactive, deployment-funded text only. This contract grants no tools. */
 export const TEAM_MODEL_TEXT_MODEL = "@cf/zai-org/glm-4.7-flash";
 const positive = z.number().int().positive();
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
-export const teamModelFundingInputSchema = z.object({
+const fundingBase = z.object({
   roomId: z.string().regex(/^room_[a-f0-9]{24}$/), employeeId: z.string().min(1).max(128), employeeVersion: positive,
   memberId: z.string().email().max(254), memberVersion: positive, model: z.literal(TEAM_MODEL_TEXT_MODEL),
   maxRequests: positive.max(10), maxInputBytes: positive.max(16_384), maxOutputTokens: positive.max(1024), expiresAt: positive,
 }).strict();
+export const teamModelFundingInputSchema = fundingBase.extend({ currency: z.literal("USD"), budgetMicroUsd: z.number().int().safe().positive().max(1_000_000) }).strict();
 export type TeamModelFundingInput = z.infer<typeof teamModelFundingInputSchema>;
-export const teamModelFundingContractSchema = teamModelFundingInputSchema.extend({
+export const teamModelFundingContractSchema = fundingBase.extend({
   issuerId: z.string(), employeeName: z.string(), employeeInstructions: z.string(),
   billing: z.literal("deployment-workers-ai"), audience: z.literal("requesting-member"),
-  tools: z.tuple([]), credentialRef: z.null(),
+  tools: z.tuple([]), credentialRef: z.null(), money: teamModelMoneyContractSchema.optional(),
 });
 export type TeamModelFundingContract = z.infer<typeof teamModelFundingContractSchema>;
 export const teamModelFundingSchema = z.object({
@@ -21,6 +23,7 @@ export const teamModelFundingSchema = z.object({
   state: z.enum(["draft", "active", "revoked", "blocked", "unknown"]), contract: teamModelFundingContractSchema,
   reviewExpiresAt: positive, usedRequests: z.number().int().nonnegative(), reservedInputBytes: z.number().int().nonnegative(), reservedOutputTokens: z.number().int().nonnegative(),
   canActivate: z.boolean(), canRevoke: z.boolean(), unavailableReason: z.string().nullable(),
+  money: teamModelMoneyStateSchema.optional(),
 });
 export type TeamModelFunding = z.infer<typeof teamModelFundingSchema>;
 export const teamModelTurnInputSchema = z.object({
@@ -38,6 +41,7 @@ export const teamModelTurnSchema = z.object({
   inputHash: hash, inputBytes: positive, maxOutputTokens: positive, expiresAt: positive,
   status: z.enum(["pending", "approved", "running", "completed", "cancelled", "unknown", "blocked"]),
   output: z.string().nullable(), error: z.string().nullable(), canApprove: z.boolean(), canExecute: z.boolean(), canCancel: z.boolean(),
+  cost: teamModelTurnCostSchema.optional(),
 });
 export type TeamModelTurn = z.infer<typeof teamModelTurnSchema>;
 export const teamModelStateResponseSchema = z.object({
