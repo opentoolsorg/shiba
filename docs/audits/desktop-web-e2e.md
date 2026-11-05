@@ -39,11 +39,10 @@ The current instance retains ignored evidence:
 
 The user selected macOS as the laptop target. `.github/workflows/desktop.yml` now runs the shell tests, actual-dashboard lifecycle, and unsigned DMG/ZIP packaging on `macos-latest`, including manual dispatch. Desktop tag release jobs depend on that verification job. Installer and test evidence are uploaded even on failure. The updater's repository target is `opentoolsorg/shiba`. No workflow was pushed or run, and no release was published from this session; this is a prepared Mac gate, not a passing Mac result.
 
-The final full repository suite passed **3,148 tests with 3 credential-dependent tests skipped**; all 10 workspace typecheck tasks, all 6 build tasks, docs/output verification, CI checks and import lint passed. CI lint still reports warnings and existing Knip findings within the repository threshold. Logs are listed in the [main audit](overlay-parity-audit.md).
+The final full repository suite passed **3,148 tests with 3 credential-dependent tests skipped**; all 10 workspace typecheck tasks, all 6 build tasks, docs/output verification, CI checks and import lint passed. CI lint still reports warnings and existing Knip findings within the repository threshold.
 
 The real Worker/local-daemon journey passed [9 UI steps and 12 protocol checks in both web and Electron](local-runtime.md), including approval-gated file edits, scoped diff display and cancellation with a fixture model CLI. This instance has no ready model-provider connection, so live inference, provider authentication and production OAuth remain unverified. Native Mac execution, installer launch, deep links, signing and notarization require a Mac runner/device.
 
-The requested `reasonmachines.com` reference returned proxy CONNECT 403 before the site could be read. `reasonmachines.com` and `www.reasonmachines.com` were saved to the environment draft's network domains; draft persistence does not apply or publish the policy. No feature comparison against that inaccessible site is asserted.
 
 ## Reproduction on this Linux cloud host
 

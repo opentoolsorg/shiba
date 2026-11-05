@@ -56,7 +56,7 @@ describe("Extension MCP uses the canonical reviewed registry", () => {
     expect(writes.some(item=>/enable|grant/.test(item.path))).toBe(false);
   });
 
-  it("renders Overlay breadcrumbs and Add Server header action", async () => {
+  it("renders breadcrumbs and Add Server header action", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ servers: [], principals: [], connections: [] })));
     render(<ExtensionMcpServersView scope="workspace" />);
     const nav = screen.getByRole("navigation", { name: "Breadcrumb" });

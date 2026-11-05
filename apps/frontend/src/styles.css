@@ -1,7 +1,7 @@
 /* Neutral theme tokens — design tokens for Shiba app shell.
    Page bg #fafafa, text #0a0a0a, muted #71717a, border zinc-200 (#e4e4e7),
    card white, secondary/hover grays (#f4f4f5/#e4e4e7), radii (6/8/12px), Geist font. */
-/* ponytail: no remote font fetch in a self-hosted app; Geist renders if installed, else system-ui. Self-host the font files if exact type matters. */
+/* No remote font fetch in a self-hosted app; Geist renders if installed, else system-ui. Self-host the font files if exact type matters. */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

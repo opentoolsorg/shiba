@@ -4,7 +4,7 @@
 
 **Revision:** 2026-10-06 (rev 12). Adds §19, Phase P9 — Remote Access & Daemon Fleet (T52–T55): heartbeat + fleet registry, pairing-token connect flow, dashboard Remote Access view, operator docs. Schema rule for this phase: new Worker-boundary validation is Effect Schema in apps/backend; packages/shared gains pure types only (no new zod); the daemon stays dependency-free JS.
 
-**Target:** an open-source, self-hosted [Capy](https://capy.ai)/[Hoplite](https://hoplite.sh)-shaped coding agent that runs entirely on the user's own Cloudflare account. Scope is Capy's **spine plus review and automations** — not its workspace layer. See §4 for what is deliberately not being built.
+**Target:** an open-source, self-hosted coding agent that runs entirely on the user's own Cloudflare account. Scope is the **spine plus review and automations** — not a workspace layer. See §4 for what is deliberately not being built.
 
 **Verdict:** the architecture is right and further along than it looks. Four deploy-breaking config bugs stand between this repo and a first real cloud run; everything after that is product surface that reuses one pipeline.
 
@@ -18,12 +18,12 @@
 | **Fix first (P0)** | SQLite migration · instance type · **dead model default** · the `WORKER_ORIGIN` path that makes every run throw |
 | **Then (P1–P2)** | Egress allowlist · per-run GitHub token scoping · Access · structured result parsing · one proven live run |
 | **Then build (P3–P4)** | Slack bot end to end · automations (cron, GitHub events, Slack bursts, webhooks) |
-| **Then unlock (P5)** | **Bring your own agent and model** — pluggable harness (OpenCode / Claude Code / Codex) and any provider. The differentiator neither Capy nor Hoplite can offer. |
+| **Then unlock (P5)** | **Bring your own agent and model** — pluggable harness (OpenCode / Claude Code / Codex) and any provider. The differentiator that hosted SaaS agents cannot offer. |
 | **Cut** | Multi-tenancy · snapshots · multi-repo projects · Linear/Tailscale/Vercel · cost-estimate UI · rename tracking |
-| **Ceiling** | `standard-4` (4 vCPU / 12 GiB / 20 GB) is Cloudflare's max. Capy goes to 16 vCPU / 128 GB. Heavy builds are out of reach — say so in the README. |
+| **Ceiling** | `standard-4` (4 vCPU / 12 GiB / 20 GB) is Cloudflare's max. Larger hosted platforms go to 16 vCPU / 128 GB. Heavy builds are out of reach — say so in the README. |
 | **Effort** | P0 ≈ 3h · P1 ≈ 5h · P2 ≈ 5h · P3 ≈ 14h · P4 ≈ 10h · **P5 ≈ 14h** · P6 ≈ 4h → **~55h** |
 | **Rev 4 status** | All of the above is **done except T10** — the live run is now verified locally via `wrangler dev` up to the model call (AI Gateway credential needed); the cloud deploy itself is still blocked on GOAL.md. See §2.0. |
-| **Rev 9 status** | §17 (P7, Roomote parity): **W0 done 2026-09-27** (T27 spec amended, T28 audit clean — see §2.0). ~80% of Roomote's spine already ships; the remaining delta is OAuth MCP, web chat + steering, and screenshot/preview. Recommended scope W1–W3 + T37–T39 ≈ 43h. |
+| **Rev 9 status** | §17 (P7, reference-agent parity): **W0 done 2026-09-27** (T27 spec amended, T28 audit clean — see §2.0). ~80% of the reference agent's spine already ships; the remaining delta is OAuth MCP, web chat + steering, and screenshot/preview. Recommended scope W1–W3 + T37–T39 ≈ 43h. |
 
 ---
 
@@ -57,7 +57,7 @@
 
 ### 2.0 Status as of rev 11 (2026-09-27)
 
-**Rev 11 (this document):** §18 (Phase P8) added — the t3code/Roomote architecture-import plan (T40–T51 plus carried-over T29). **Plan only; no code written.** §18.0 records where the as-built tree disagreed with the brief's file/state map (reality won): `orchestrator.ts`/`opencode-agent.ts` live under `src/agents/`, the run machine is `pending|running|completed|error|aborted|cancelled|unknown` rather than the sketched states, approvals already carry partial idempotency (`resolvePendingApproval` refuses decided records; `agent-tool:<approvalId>` run reservation exists), and W2/T30–T32 + the screenshot half of T33 have already merged (PRs #22/#23). Also noted: no `AGENTS.md` exists in this repo — CLAUDE.md + ARCHITECTURE.md + spec/GOAL.md are authoritative.
+**Rev 11 (this document):** §18 (Phase P8) added — the t3code architecture-import plan (T40–T51 plus carried-over T29). **Plan only; no code written.** §18.0 records where the as-built tree disagreed with the brief's file/state map (reality won): `orchestrator.ts`/`opencode-agent.ts` live under `src/agents/`, the run machine is `pending|running|completed|error|aborted|cancelled|unknown` rather than the sketched states, approvals already carry partial idempotency (`resolvePendingApproval` refuses decided records; `agent-tool:<approvalId>` run reservation exists), and W2/T30–T32 + the screenshot half of T33 have already merged (PRs #22/#23). Also noted: no `AGENTS.md` exists in this repo — CLAUDE.md + ARCHITECTURE.md + spec/GOAL.md are authoritative.
 
 | Task | State |
 |---|---|
@@ -134,7 +134,7 @@ Baseline: **1187 tests passing across 74 files** (count drifts per rev — treat
 | Grok harness | **Done.** Headless print-mode harness (streaming-json) pinned to the `api.x.ai` forwarder via `GROK_MODELS_BASE_URL`. The shared ACP transport was tried and dropped; Cursor stays a remote executor — its token exchange can't hold the dummy-key invariant. |
 | Connected agent accounts (dashboard) | **Not pursued.** Per-user credential storage conflicts with GOAL.md's credential contract — needs a deliberate spec amendment before any `harness-accounts` work. |
 | T27 spec/monorepo reconcile | **Done (2026-09-27).** Option (a): `spec/GOAL.md` accepts the pnpm+turbo monorepo and enumerates the formerly-forbidden primitives now in use — D1 `AGENT_AUDIT`, KV `AGENT_TOKENS`, R2 `ATTACHMENTS`, Vectorize `MEMORY_VECTORS` — each justified; Queues/Workflows/Hono remain forbidden. |
-| T28 VERIFICATION_PLAN re-audit | **Done (2026-09-27).** G1–G11 re-checked in place: all resolve, including G10 (assets tracked under `apps/web/public/`) and G11 (`capy-theme.css` deleted; per-app postcss/tailwind configs are legitimate). Per-row evidence in `VERIFICATION_PLAN.md` §1. |
+| T28 VERIFICATION_PLAN re-audit | **Done (2026-09-27).** G1–G11 re-checked in place: all resolve, including G10 (assets tracked under `apps/web/public/`) and G11 (the extra theme stylesheet deleted; per-app postcss/tailwind configs are legitimate). Per-row evidence in `VERIFICATION_PLAN.md` §1. |
 
 ### 2.0 Status as of rev 7 (2026-09-19)
 
@@ -209,25 +209,21 @@ The fix is deletion, not wiring (T4).
 | [cloudflare/vibesdk](https://github.com/cloudflare/vibesdk) | 5,365 | 9 days | Same stack incl. AI Gateway + Containers; proves the pattern | Generates new apps, not repo fixes |
 | [jonesphillip/weft](https://github.com/jonesphillip/weft) | 510 | **7 months** | Closest shape (task → agent → done) | **Stale.** Read its issues before assuming the niche is free |
 | [nkzw-tech/cloudsail](https://github.com/nkzw-tech/cloudsail) | 161 | 4 months | Sandbox substrate | No approval gate, no PR publishing |
-| [devarshishimpi/codra](https://github.com/devarshishimpi/codra) | 111 | **5 days** | Self-hosted PR review, actively developed | **Watch this one**: "review a PR" → "fix a PR" is one feature, and review is now out of scope (§4) |
-| [acoyfellow/cloudbox](https://github.com/acoyfellow/cloudbox) | 53 | 2 months | **Receipts** (append-only evidence log) — a better answer to B8 than T8. Live run stop/resume/fork. Instance type as a deploy-time var | Bring-your-own-agent model; D1+R2+KV+Queues sprawl |
 | [leo-ars/cloudflare-sandbox-coding-agent](https://github.com/leo-ars/cloudflare-sandbox-coding-agent) | 0 | 2 months | Per-run opaque token; PR-as-user so GitHub blocks self-approval | KV token store, OAuth impersonation |
 
 ### The SaaS this replaces
 
-**[Capy](https://capy.ai)** — 70,000+ engineers claimed. Threads, tasks (parallel subagent trees), PRs with CI handling, a review agent, automations, projects, machines, snapshots, volumes, skills, six integrations, a full REST API.
+Hosted coding-agent SaaS typically offers threads, parallel subagent tasks, PRs with CI handling, a review agent, automations, projects, snapshots, skills, integrations and a REST API, at roughly $99/seat/mo.
 
-**[Hoplite](https://hoplite.sh)** — $99/seat/mo. project → thread → sandbox → PR, approvals on sensitive actions, Slack, Linear, webhook and schedule automations, Modal sandboxes.
-
-**Both are ahead on product. Both are closed SaaS.** The defensible position is the one neither can occupy: open source, the user's own account, no seat fee, no vendor holding the code. At §8's numbers that is ~$5–12/month against $99/seat.
+**These products are ahead on product, and they are closed SaaS.** The defensible position is the one they cannot occupy: open source, the user's own account, no seat fee, no vendor holding the code. At §8's numbers that is ~$5–12/month against $99/seat.
 
 **That pitch only works if users can bring their own cheap model** — which is why **B11** is load-bearing, not cosmetic. If people are locked to one provider, "self-hosted" saves them the seat fee and nothing else.
 
 ### On bringing a Claude Code / Codex subscription
 
-Tempting — §8 shows tokens are ~40× compute, so a subscription would make this near-free to run. Anthropic's terms are explicit: *"Anthropic does not permit third-party developers to offer Claude.ai login or to route requests through Free, Pro, or Max plan credentials on behalf of their users."* Hoplite hit this and engineered around it — subscription agents run **locally on the user's Mac**, cloud sandboxes use API keys. When a funded competitor builds a native macOS app to avoid doing a thing, that is the signal.
+Tempting — §8 shows tokens are ~40× compute, so a subscription would make this near-free to run. Anthropic's terms are explicit: *"Anthropic does not permit third-party developers to offer Claude.ai login or to route requests through Free, Pro, or Max plan credentials on behalf of their users."* One hosted competitor hit this and engineered around it — subscription agents run **locally on the user's Mac**, cloud sandboxes use API keys. When a funded competitor builds a native macOS app to avoid doing a thing, that is the signal.
 
-**Amended (T48–T51, landed):** the blanket prohibition narrows to the case that motivated it — brokering a login or running *someone else's* credential. A self-hosted, single-tenant deployment where the operator connects *their own* `claude setup-token` is permitted, under three load-bearing constraints (§18.10): `setup-token` handoff only (the app never drives an Anthropic login); opt-in and dark by default (`SHIBA_CLAUDE_SUBSCRIPTION=1`; if multi-tenancy ever lands the feature is removed, not reworked — a shared deployment is exactly the "on behalf of their users" case); and the token never enters the container (placeholder `CLAUDE_CONFIG_DIR` credentials; the Bearer is attached at a dedicated deny-by-default egress branch, not AI Gateway). The Hoplite reasoning stays: this is why the design is that narrow. API keys through AI Gateway remain the default provider path — subscription is the documented exception, not the recommendation.
+**Amended (T48–T51, landed):** the blanket prohibition narrows to the case that motivated it — brokering a login or running *someone else's* credential. A self-hosted, single-tenant deployment where the operator connects *their own* `claude setup-token` is permitted, under three load-bearing constraints (§18.10): `setup-token` handoff only (the app never drives an Anthropic login); opt-in and dark by default (`SHIBA_CLAUDE_SUBSCRIPTION=1`; if multi-tenancy ever lands the feature is removed, not reworked — a shared deployment is exactly the "on behalf of their users" case); and the token never enters the container (placeholder `CLAUDE_CONFIG_DIR` credentials; the Bearer is attached at a dedicated deny-by-default egress branch, not AI Gateway). The hosted-competitor reasoning stays: this is why the design is that narrow. API keys through AI Gateway remain the default provider path — subscription is the documented exception, not the recommendation.
 
 ---
 
@@ -237,9 +233,9 @@ Tempting — §8 shows tokens are ~40× compute, so a subscription would make th
 |---|---|
 | **Multi-tenancy / per-user DOs** | GOAL.md: *"Each installation is single-tenant and account-owned."* — **§17.7 (T35) proposes revisiting this as a product decision. Not code; a spec change.** |
 | **MCP integrations** | Each is its own auth surface for one workflow. — **§17.3 (T29) now builds one first, the OAuth MCP server, because it is the parity gap, not a cut.** |
-| **Machine snapshots** (Capy's 1–2s restore) | No Cloudflare equivalent. Partial substitute: fatten the Dockerfile, or R2 FUSE mounts for `node_modules`. Not equal — say so. |
-| **Machines > `standard-4`** | Hard platform ceiling: 4 vCPU / 12 GiB / 20 GB vs Capy's 16 vCPU / 128 GB. Heavy builds and big test suites are out of reach. **README, not a surprise.** |
-| **Multi-repo projects, volumes, skills, environments** | Capy's workspace layer. Real work, no pipeline reuse. Revisit after P4. |
+| **Machine snapshots** (hosted 1–2s restore) | No Cloudflare equivalent. Partial substitute: fatten the Dockerfile, or R2 FUSE mounts for `node_modules`. Not equal — say so. |
+| **Machines > `standard-4`** | Hard platform ceiling: 4 vCPU / 12 GiB / 20 GB vs 16 vCPU / 128 GB on larger platforms. Heavy builds and big test suites are out of reach. **README, not a surprise.** |
+| **Multi-repo projects, volumes, skills, environments** | A workspace layer. Real work, no pipeline reuse. Revisit after P4. |
 | **Linear / Tailscale / Vercel / MCP integrations** | Each is its own auth surface for one workflow. |
 | **Cost-estimate UI** | Old plan hardcoded invented rates. GOAL.md: *"Cost surfaces without invented prices."* Link §8 instead. |
 | **`renames[]` field** | Redundant — see §2. |
@@ -251,10 +247,10 @@ Tempting — §8 shows tokens are ~40× compute, so a subscription would make th
 
 Noted so the next reader knows these were considered rather than missed. None of them are on the critical path; none are scheduled.
 
-- **PR review agent** (~9h). A `review_pull_request` tool: clone at the PR head so the agent reads surrounding code rather than diff context alone, emit `{path, line, severity, comment}` findings, publish via `POST /repos/{o}/{r}/pulls/{n}/reviews` as `COMMENT` — never `APPROVE`, an agent must not approve. Reuses the whole pipeline with a different prompt and a different endpoint, so it stays cheap whenever it returns. Competitive cost, stated plainly: [Codra](https://github.com/devarshishimpi/codra) exists solely to be this, and Capy and Hoplite both ship one.
+- **PR review agent** (~9h). A `review_pull_request` tool: clone at the PR head so the agent reads surrounding code rather than diff context alone, emit `{path, line, severity, comment}` findings, publish via `POST /repos/{o}/{r}/pulls/{n}/reviews` as `COMMENT` — never `APPROVE`, an agent must not approve. Reuses the whole pipeline with a different prompt and a different endpoint, so it stays cheap whenever it returns. Competitive cost, stated plainly: a self-hosted review tool exists solely to be this, and hosted agents commonly ship one.
 - **PR feedback loop** (~4h, needs the review agent). Extend `/api/github/webhook` to `pull_request_review_comment`; a comment mentioning the bot on an shiba PR starts a run against that PR's branch and replies on the same thread.
 - **Live preview URLs.** **Shipped in rev 8** — `index.ts:1093-1099` proxies to the sandbox. Screenshot capture remains open; see §17.5 (T33).
-- **Resumable runs.** Stop/resume/fork, the way Cloudbox does it, for work exceeding `OPENCODE_TIMEOUT_MS`. A real architecture change, not a tuning knob (§16).
+- **Resumable runs.** Stop/resume/fork, the way other agents do it, for work exceeding `OPENCODE_TIMEOUT_MS`. A real architecture change, not a tuning knob (§16).
 
 **Slack was cut in rev 1 and restored in rev 2.** The rev-1 reasoning was right about the spec and wrong about the product: what was cut was a slash command duplicating the dashboard; what is now built is the place work starts and finishes. `spec/GOAL.md` is consequently stale — its 11-step contract is dashboard-only and anticipates no second inbound surface. **T17 updates it.** Leaving it means the next reader cuts Slack again.
 
@@ -295,7 +291,7 @@ Unset → `lite` → 256 MiB. A Node coding CLI plus a git tree does not fit.
 
 Raise `MAX_CONCURRENT_RUNS` in `src/runs.ts:29` to 5 to match (**B10**). Cloudflare's own default is 20, so 5 is purely your policy.
 
-**Measure before settling on `standard-1`.** §8 shows memory is the billing constraint: `basic` (1 GiB) yields **4× the free-tier runs** of `standard-1`. If OpenCode fits in 1 GiB, take it. Confirm during T10, and make the size a var — Cloudbox does this and it is right, since a large monorepo needs `standard-2`.
+**Measure before settling on `standard-1`.** §8 shows memory is the billing constraint: `basic` (1 GiB) yields **4× the free-tier runs** of `standard-1`. If OpenCode fits in 1 GiB, take it. Confirm during T10, and make the size a var — other agents do this and it is right, since a large monorepo needs `standard-2`.
 
 ### T3 · Replace the dead model default
 
@@ -418,7 +414,7 @@ finish(parsed?.status === "error" ? "error" : "completed", {
 
 Add `parseAgentResult` beside `formatAgentResult`, reusing `codingTaskResultSchema`.
 
-*Worth knowing:* Cloudbox's **receipts** — an append-only evidence log (`init`/`read`/`write`/`submit`/`grade`) — is a structurally better answer than parsing a final envelope. T8 is the cheap version. If run trust becomes a recurring problem, adopt receipts rather than hardening the parser.
+*Worth knowing:* an append-only **receipts** log — an append-only evidence log (`init`/`read`/`write`/`submit`/`grade`) — is a structurally better answer than parsing a final envelope. T8 is the cheap version. If run trust becomes a recurring problem, adopt receipts rather than hardening the parser.
 
 **Tests:** an `error` envelope → `error`; `completed` → `completed`; malformed/absent → `error`, never silent success.
 
@@ -561,9 +557,9 @@ export async function verifySlackRequest(body, headers, secret, now = Date.now()
 
 **Repo resolution — never guess.** (1) a GitHub URL in the mention or thread; (2) `SLACK_CHANNEL_REPOS` channel→repo map — this is what makes bare `@shiba fix this` work in `#incidents`; (3) neither → **reply asking**.
 
-**Burst grouping (borrowed from Capy).** An incident thread fires twenty messages in a minute. Each matched message extends a sliding window (default 10s, bounded 1–300s); the group closes when the window elapses, a different author posts, or it hits 20 messages / 100 KB. **One run per burst, not per message.** Without this, on call is unusable.
+**Burst grouping (a common hosted-agent pattern).** An incident thread fires twenty messages in a minute. Each matched message extends a sliding window (default 10s, bounded 1–300s); the group closes when the window elapses, a different author posts, or it hits 20 messages / 100 KB. **One run per burst, not per message.** Without this, on call is unusable.
 
-**Thread controls (also Capy).** `aside …` excludes a message from processing entirely; `mute` / `unmute` stop replies to non-mention messages. Cheap, and necessary for a bot living in a busy channel.
+**Thread controls (same pattern).** `aside …` excludes a message from processing entirely; `mute` / `unmute` stop replies to non-mention messages. Cheap, and necessary for a bot living in a busy channel.
 
 **Context.** `conversations.replies` for the thread plus any linked issue/PR (`GET /repos/{o}/{r}/issues/{n}`, plus review comments for PRs). The alert text and reviewer comment *are* the task description.
 
@@ -624,7 +620,7 @@ New `apps/web/src/content/docs/docs/slack.md`: app manifest and scopes · Reques
 
 ## 10. Phase P4 — Automations (~10h)
 
-Capy's model: 1–20 triggers OR'd together, at most one run per event. This is what turns the product from "a thing you ask" into "a thing that works while you sleep".
+Model: 1–20 triggers OR'd together, at most one run per event. This is what turns the product from "a thing you ask" into "a thing that works while you sleep".
 
 ### T18 · Trigger engine and storage (~4h)
 
@@ -632,7 +628,7 @@ An `Automations` DO holding `{id, prompt, triggers[], repoUrl, enabled, runAs, l
 
 | Trigger | Source | Notes |
 |---|---|---|
-| **Schedule** | Cloudflare [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/) | Five-field cron. Floor of one per 5 min, matching Capy. Coalesce missed occurrences into one run — never a backlog. |
+| **Schedule** | Cloudflare [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/) | Five-field cron. Floor of one per 5 min, matching common practice. Coalesce missed occurrences into one run — never a backlog. |
 | **GitHub** | existing `/api/github/webhook` | PR opened/pushed/merged, comments, reviews, labels, check runs |
 | **Slack** | P3 events endpoint | Reuses T13's burst grouping |
 | **Incoming webhook** | `/api/automations/{id}/trigger` | Per-automation secret. **Returned once on create and never again** — say so in the API response and the docs. |
@@ -666,7 +662,7 @@ Plus a kill switch: disable/enable by id, and a global `AUTOMATIONS_ENABLED` var
 
 ## 11. Phase P5 — Bring Your Own Agent and Model (~14h)
 
-**This is the differentiator.** Capy locks you to Capy's agent. Hoplite gives you theirs in the cloud or your own on your laptop, never your own in the cloud. Neither lets a team run *their* harness on *their* account against *their* model. That combination is the entire open-source case — without it, "self-hosted" saves a seat fee and nothing else.
+**This is the differentiator.** Hosted SaaS agents lock you to the vendor's agent, or run your own only on a laptop, never your own in the cloud. None lets a team run *their* harness on *their* account against *their* model. That combination is the entire open-source case — without it, "self-hosted" saves a seat fee and nothing else.
 
 Two axes of lock-in, both hardcoded today:
 
@@ -826,26 +822,26 @@ T5–T8 are independent of each other. Within P3, T12 gates everything; T13/T14 
 | PRs must open as the requesting human | Needs GitHub OAuth impersonation. Worth wanting: a PR opened as the requester makes GitHub's own "no self-approval" rule enforce independent review. With one shared `GITHUB_TOKEN` every PR has the same author and that protection is absent — a branch-protection rule is the weaker substitute. |
 | Model costs become the complaint | They already are (§8: 20–40× compute). **B11** is the answer. Prompt caching is the second lever. |
 | A provider retires a model | B3 will recur. T26's pinning list and T3's startup assertion are the mitigation. |
-| Runs regularly exceed `OPENCODE_TIMEOUT_MS` (15 min) | One-shot delegation is the wrong shape; you need resumable runs — Workflows or checkpointing, a genuine architecture change. Cloudbox already solved this with stop/resume/fork. Slack makes it more likely, because an on-call request arrives with less scoping than a dashboard one. |
+| Runs regularly exceed `OPENCODE_TIMEOUT_MS` (15 min) | One-shot delegation is the wrong shape; you need resumable runs — Workflows or checkpointing, a genuine architecture change. Other agents already solved this with stop/resume/fork. Slack makes it more likely, because an on-call request arrives with less scoping than a dashboard one. |
 | A harness changes its JSON stream format | `parseEvent` breaks silently for that harness only — the run appears to hang rather than fail. Pin every harness CLI version (T26) and treat format changes as breaking. This risk multiplies with each harness added, which is the real ongoing cost of P5. |
 | Users need machines bigger than `standard-4` | Platform ceiling. No workaround on Cloudflare. This is the honest limit of the whole approach. |
-| Codra adds "fix" to "review" | Your closest active competitor lands directly on this product with a year's head start. Dropping the review agent (§4) widens the gap on that flank; the answer is shipping P3 and P5, where neither Capy nor Hoplite can follow. |
+| A self-hosted review tool adds "fix" to "review" | A peer lands directly on this product with a year's head start. Dropping the review agent (§4) widens the gap on that flank; the answer is shipping P3 and P5, where hosted SaaS agents cannot follow. |
 
 **Standing risk:** mocked tests cannot establish any of this works in the cloud. 111 green tests and a clean dry run are necessary, not sufficient. Until T10 and the P3–P5 acceptance lists are dated in `VERIFICATION.md`, the honest status stays "local prototype" — exactly as `readiness.md` already says.
 
 ---
 
-## 17. Phase P7 — Roomote Parity (rev 9)
+## 17. Phase P7 — Reference-agent parity (rev 9)
 
-**Added:** 2026-09-27. **Benchmark:** [Roomote](https://github.com/RooCodeInc/Roomote) — a self-hostable cloud coding agent (Slack/Teams/Telegram/Discord/Web → ephemeral sandbox → clone → code → test → screenshot → PR). Source-available, FCL-1.0.
+**Added:** 2026-09-27. **Benchmark:** a reference cloud agent — a self-hostable cloud coding agent (Slack/Teams/Telegram/Discord/Web → ephemeral sandbox → clone → code → test → screenshot → PR). Source-available, FCL-1.0.
 
-**One correction before anything else:** Roomote is **not** a VS Code remote-control extension. That is Roo Code's Cline extension. Roomote is a *server-side* cloud agent — the same category as Capy/Hoplite, which is what §3 already benchmarks. The port is therefore a feature-parity exercise against a peer, not an integration of a plugin.
+**One correction before anything else:** the benchmark is **not** an editor extension. It is a *server-side* cloud agent — the same category as the hosted agents §3 already benchmarks. The port is therefore a feature-parity exercise against a peer, not an integration of a plugin.
 
-**What this phase is not:** a rewrite. As of rev 8 the repo already implements the large majority of Roomote's spine. The work below is the honest delta.
+**What this phase is not:** a rewrite. As of rev 8 the repo already implements the large majority of the reference agent's spine. The work below is the honest delta.
 
 ### 17.1 Parity baseline — what already exists
 
-| Roomote capability | ai-intern status | Evidence |
+| Reference capability | ai-intern status | Evidence |
 |---|---|---|
 | Task from Slack / Telegram / Discord / email | **Done** | `slack-routes.ts`, `telegram.ts`, `chat-lane.ts` (Discord), `email-handler.ts` |
 | Web dashboard | **Ahead** | `apps/frontend/src/components/` — Approvals, Agents, Missions, Automations, Memory, Inbox, Audit, Gates, VMInspector |
@@ -880,7 +876,7 @@ So T28 is not a fix, it is a **re-audit**: walk the whole G1–G11 table, re-run
 
 ### 17.3 W1 — OAuth MCP (~8h) · *the unblocking one*
 
-**T29 · OAuth 2.1 authorization server on `/mcp`.** Today `mcp-gateway.ts` + `index.ts:76` accept only a static bearer `agent-token`, and `index.ts:90` states it explicitly. Roomote's headline capability is *"connect to Claude Code, Codex, or Cursor through its OAuth MCP server."* Without this, no third-party MCP client can connect.
+**T29 · OAuth 2.1 authorization server on `/mcp`.** Today `mcp-gateway.ts` + `index.ts:76` accept only a static bearer `agent-token`, and `index.ts:90` states it explicitly. The reference agent's headline capability is *"connect an external coding agent through its OAuth MCP server."* Without this, no third-party MCP client can connect.
 
 - Discovery: `/.well-known/oauth-authorization-server` + `/.well-known/oauth-protected-resource`.
 - Authorization Code + PKCE (S256), public clients, no client secret.
@@ -892,7 +888,7 @@ So T28 is not a fix, it is a **re-audit**: walk the whole G1–G11 table, re-run
 
 ### 17.4 W2 — Web chat + live steering (~14h) · *the real UX delta*
 
-**T30 · Chat route + session conversation.** `apps/frontend/src/routes/` contains only `__root.tsx` and `app.tsx` — there is no chat surface. Roomote's core loop is conversational: send a follow-up into a *live* run and watch it steer.
+**T30 · Chat route + session conversation.** `apps/frontend/src/routes/` contains only `__root.tsx` and `app.tsx` — there is no chat surface. the reference agent's core loop is conversational: send a follow-up into a *live* run and watch it steer.
 
 - New `/chat` route over the existing `ai-chat` stream; reuse `CodingOrchestrator` rather than a parallel agent.
 - Follow-up turns append to the same conversation; `chat-lane.ts` already establishes the "one conversation per chat/channel" naming pattern — mirror it for web sessions.
@@ -965,7 +961,7 @@ same account-side prerequisites as T10. They are not blocked on more code.
 
 ### 17.7 W5 — Multi-user accounts (~12h) · *product decision, not just code*
 
-**T35 · Registration, per-user repos, ownership.** §4 cut multi-tenancy citing `GOAL.md`: *"Each installation is single-tenant and account-owned."* Roomote supports 10 users self-hosted and sells licensing above that. `waitlist-do.ts` gives a partial user model to build on.
+**T35 · Registration, per-user repos, ownership.** §4 cut multi-tenancy citing `GOAL.md`: *"Each installation is single-tenant and account-owned."* The reference agent supports 10 users self-hosted and sells licensing above that. `waitlist-do.ts` gives a partial user model to build on.
 
 **This is a spec change, not a feature.** It reverses an explicit §4 cut and a `GOAL.md` line, and it is the item most likely to be *cut again* by a future reader. Whatever the decision, it belongs in `PLAN.md` §4 and `GOAL.md` **before** code — the same lesson §4 already records about Slack.
 
@@ -991,7 +987,7 @@ W1/W2 and can be pulled forward. T34 is deferred (§17.6); T37–T39 need a toke
 and a repository, not code.
 
 **Recommended scope: W0–W3 + the GitHub proof (T37–T39), ~45h.** With W4
-deferred, that is the honest "Roomote parity" for a Cloudflare-native,
+deferred, that is the honest "reference-agent parity" for a Cloudflare-native,
 single-tenant, **GitHub-only** deployment. W5 is a product decision that changes
 who your customer is; W6 is a channel.
 
@@ -1015,7 +1011,7 @@ not code.
 
 ## 18. Phase P8 — Architecture Imports (rev 11)
 
-**Added:** 2026-09-27. **Sources:** [t3code](https://github.com/pingdotgg/t3code) (internals docs + `apps/server/src/orchestration/`, `apps/server/src/provider/`, `packages/contracts/`) and [Roomote](https://github.com/RooCodeInc/Roomote) (`apps/worker/src/run-task/`, `apps/worker/src/sandbox-server/`), both observed 2026-09-27.
+**Added:** 2026-09-27. **Sources:** [t3code](https://github.com/pingdotgg/t3code) (internals docs + `apps/server/src/orchestration/`, `apps/server/src/provider/`, `packages/contracts/`) and a reference cloud agent (`apps/worker/src/run-task/`, `apps/worker/src/sandbox-server/`), both observed 2026-09-27.
 
 **What this phase is not:** not event sourcing, not a rewrite, not a restructure. Runs are not a financial ledger; the receipt log plus a pure decider plus command receipts get the properties that matter at a fraction of the cost. The five security invariants (ARCHITECTURE.md §5) and the five working rules (CLAUDE.md) are unchanged and binding on every task below. Phases 1–8 are infrastructure and ship regardless; Phases 9–13 are the subscription credential path and are each **dark by default** — inert without a per-provider acknowledgement env var.
 
@@ -1150,7 +1146,7 @@ This is §17.3's T29, the highest-value remaining parity item (~8h). It does not
 
 ### 18.8 T46 · Proof attachment — the "no fake success" gate (~4h)
 
-Roomote's differentiator is a reviewer verifies without reading the diff line by line. As-built (§18.0): `screenshot.ts` captures to R2 and `opencode-agent.ts:297` already links it in the PR body; the preview proxy (`index.ts` `proxyToSandbox`) exists. What remains is the *gate* and the tail:
+The reference agent's differentiator is a reviewer verifies without reading the diff line by line. As-built (§18.0): `screenshot.ts` captures to R2 and `opencode-agent.ts:297` already links it in the PR body; the preview proxy (`index.ts` `proxyToSandbox`) exists. What remains is the *gate* and the tail:
 
 - **PR body gains:** the test-output tail (from T45's exec receipts — the last N lines of the verification command) and a live preview URL where the project serves one (the existing preview route, durable enough to outlive the sandbox window where the platform allows; where it cannot, the screenshot is the proof and the body says so).
 - **The gate:** a run with no proof *and* no diff must not report `completed`. T43's `verify` produces the verdict; T46 applies it at settle — `verify.failed` ⇒ `error` with the real reason, and "exit 0 with empty diff and no proof" is a failure mode, not a success. This is the CLAUDE.md no-fake-success rule applied to the case that currently slips through.
@@ -1208,7 +1204,7 @@ New `harness/claude-subscription.ts`, registered in `harness/index.ts` — **sep
 
 **Multi-account:** separate accounts = separate instances, separate config dirs, isolated conversation state. A run may only resume against the account it started on: continuation key `claude:home:<resolvedConfigDir>` (t3code's derivation) is part of the run record, and the **T40 decider** enforces resume-against-same-key — not the UI. Account identity never appears in argv.
 
-**Documentation is part of the feature:** amend `PLAN.md` §3 — replace the blanket prohibition with the narrowed design + its three constraints, keeping the Hoplite reasoning visible (do not delete it; it is why the design is this narrow); fix the `claude-code.ts` docstring ("deliberately not supported" → scoped to the API-key harness, pointing at the new one); add the harness to the `spec/GOAL.md` and `ARCHITECTURE.md` catalogs noting the AI-Gateway bypass; write a user-facing note stating the operator's own Anthropic terms apply, the token is a deployment secret, and revoking it stops runs mid-flight — in the product's voice, no implementation detail.
+**Documentation is part of the feature:** amend `PLAN.md` §3 — replace the blanket prohibition with the narrowed design + its three constraints, keeping the hosted-competitor precedent visible (do not delete it; it is why the design is this narrow); fix the `claude-code.ts` docstring ("deliberately not supported" → scoped to the API-key harness, pointing at the new one); add the harness to the `spec/GOAL.md` and `ARCHITECTURE.md` catalogs noting the AI-Gateway bypass; write a user-facing note stating the operator's own Anthropic terms apply, the token is a deployment secret, and revoking it stops runs mid-flight — in the product's voice, no implementation detail.
 
 **Definition of done (all provable by test):** with the ack var absent the harness is unlisted/unselectable and every existing gate is byte-identical; with it present and a valid token a run completes and opens a PR; with an invalid token `verify` fails with the real reason and no run starts; signing out mid-run stops in-flight runs *before* clearing metadata; the token appears in no log line, UI response, argv, or sandbox file; a resumed run refuses to cross accounts.
 
@@ -1288,7 +1284,7 @@ T40–T46 + T29 ≈ one session of work; T47–T50 ≈ one; T51 ≈ one. T29 is 
 - No plan-tier credential in a container, argv, log, UI response, or sandbox disk. No exception for debugging.
 - A delivered callback, a stored secret, or a 200 from a token exchange never sets `succeeded` — only a capability probe against the real CLI does.
 - No T51 local run without the approval gate, and no chat-surface intake for local runs under any circumstance.
-- The Hoplite precedent in §3 is not deleted or softened — T48–T51's narrowness is a direct consequence of it, and the reasoning stays visible next to the code that now exists.
+- The hosted-competitor precedent in §3 is not deleted or softened — T48–T51's narrowness is a direct consequence of it, and the reasoning stays visible next to the code that now exists.
 - No T47–T51 work that delays or destabilizes T40–T46/T29 — they are separate files, separate vars, and land behind the approval gate they must provably leave unchanged.
 
 **Success criteria.** T40: the (state × command) table passes with no Worker runtime imported. T41: retried approve ⇒ one container; approved-but-undispatched is re-driven once on restart. T42: zero real-time sleeps used for synchronization in `pnpm test`. T43: `verify` rejects exit-0/empty-diff; runnability is a capability check. T44: "what did it change before it broke" is answerable from R2 post-destroy. T45: an off-allowlist command never reaches `exec`. T46: no-proof/no-diff settles `error`. T29: per §17.10. T47: ownership blocks cross-session advance/cancel; `succeeded` only via probe; `clear()` ordered and idempotent. T48–T50: each phase's definition-of-done lines above. T51: a local run passes the unchanged approval card, produces receipts and a PR, and a chat-surface attempt at `runtime: "local"` is refused at intake with a test proving it.
@@ -1454,9 +1450,9 @@ macOS-only Electron shell that loads `<origin>/app/` and supervises `scripts/shi
 - D7 no secret leaves its home: no adapter token or task text in IPC, logs, notifications or URLs.
 - D8 hardened binary: Electron fuses, hardened runtime, only `clipboard-sanitized-write` permitted.
 
-## 22. Phase P12 — Capy parity (T67–T90)
+## 22. Phase P12 — hosted-agent parity (T67–T90)
 
-**Goal:** the open-source Capy. Close the product gap with Capy 0.5.0 ([public changelog](https://capy.ai/changelog), beta → 0.5.0) on shiba's own stack (Worker + DOs + Sandbox), without giving up what Capy can't offer: bring-your-own harness, the approval gate, and running entirely on the owner's Cloudflare account.
+**Goal:** an open-source hosted-agent equivalent. Close the product gap with hosted coding-agent SaaS on shiba's own stack (Worker + DOs + Sandbox), without giving up what they can't offer: bring-your-own harness, the approval gate, and running entirely on the owner's Cloudflare account.
 
 **Rules for every task in this phase:**
 - Any field that changes what executes (model settings, env, files, machine) is part of the approved input. It either rides `ApprovedRoute` or enters `runInputHash`. No field reaches a container unapproved.
@@ -1464,7 +1460,7 @@ macOS-only Electron shell that loads `<origin>/app/` and supervises `scripts/shi
 - Cloudflare's `standard-4` (4 vCPU / 12 GiB) stays the machine ceiling. The UI says so; nothing pretends otherwise.
 - Shiba stays single-owner (`spec/GOAL.md`). Multi-member features wait for an explicit GOAL.md amendment.
 
-### Wave A — composer contract (Capy's new-thread request)
+### Wave A — composer contract (new-thread request)
 
 ### T67 · Reasoning effort per run
 Composer effort picker next to the model picker. `ApprovedRoute.reasoningEffort` (hashed with the route). `HARNESS_REASONING_EFFORTS` in `@shiba/shared` maps each harness to the levels its CLI accepts: claude `--effort`, codex `-c model_reasoning_effort`, opencode `--variant`. Other harnesses refuse any effort at route time. Steering carries the effort over when the new harness supports it. **Accept:** effort on the card, in the argv, in the hash; a bad combination is a 400 before a card exists.
@@ -1566,7 +1562,7 @@ Browser speech API first; a pluggable speech-to-text endpoint later.
 
 **t3code** (observed 2026-09-27) — [pingdotgg/t3code](https://github.com/pingdotgg/t3code) · internals docs `docs/internals/{overview,providers,connection-runtime,environment-auth}.md` · provider guides `docs/user/providers-{claude,codex,antigravity}.md` · `orchestration/decider.ts` + `OrchestrationEventStore.ts` (command/event/receipt atomicity) · `provider/ProviderDriver.ts` (record-per-instance SPI, continuationIdentity) · `provider/ProviderAuthFlow.ts` (owner-scoped auth state machine) · `Drivers/{ClaudeHome,CodexHomeLayout}.ts` (config-dir isolation, shadow-home overlay, continuation-vs-account keys) · `antigravityCallback.ts` + `antigravityAuthSupport.ts` (callback validation, `removedEnvironmentKeys`).
 
-**Roomote** (observed 2026-09-27) — [RooCodeInc/Roomote](https://github.com/RooCodeInc/Roomote) · [docs.roomote.dev](https://docs.roomote.dev) · [MCP integration guide](https://docs.roomote.dev/integrations/roomote-mcp) · [SELF_HOSTING.md](https://github.com/RooCodeInc/Roomote/blob/main/SELF_HOSTING.md). Parity claims above are from the public README; sandboxes/providers/channels are README-advertised, not independently verified against a running deployment. Roomote is FCL-1.0 (free ≤10 users, licensed above) — **read the license before copying any implementation.**
+**Reference cloud coding agent** (observed 2026-09-27) — parity claims above are from its public README; sandboxes, providers and channels are README-advertised, not independently verified against a running deployment. It is source-available under a licence with a user cap — **read the licence before copying any implementation.**
 
 **Cloudflare** — [Sandbox outbound traffic](https://developers.cloudflare.com/sandbox/guides/outbound-traffic/) · [credential injection changelog](https://developers.cloudflare.com/changelog/post/2026-04-13-sandbox-outbound-workers-tls-auth/) · [Sandbox get-started](https://developers.cloudflare.com/sandbox/get-started/) · [Sandbox options](https://developers.cloudflare.com/sandbox/configuration/sandbox-options/) · [Containers limits](https://developers.cloudflare.com/containers/platform/limits/) · [Containers pricing](https://developers.cloudflare.com/containers/pricing/) · [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) · [Wrangler config](https://developers.cloudflare.com/workers/wrangler/configuration/) · [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/) · [Think tools and approval](https://developers.cloudflare.com/agents/harnesses/think/tools/) · [AI Gateway BYOK](https://developers.cloudflare.com/ai-gateway/configuration/bring-your-own-keys/)
 
@@ -1574,6 +1570,6 @@ Browser speech API first; a pluggable speech-to-text endpoint later.
 
 **Models** — [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) (2.0 Flash **shut down 2026-06-01**; 3.8 Flash rates **double 2027-01-01**) · [Claude Code legal](https://code.claude.com/docs/en/legal-and-compliance) (no third-party routing of Pro/Max credentials)
 
-**Competitors** — [Capy docs](https://docs.capy.ai/welcome) · [Hoplite docs](https://hoplite.sh/docs) · [vibesdk](https://github.com/cloudflare/vibesdk) · [weft](https://github.com/jonesphillip/weft) · [cloudsail](https://github.com/nkzw-tech/cloudsail) · [codra](https://github.com/devarshishimpi/codra) · [cloudbox](https://cloudbox.coey.dev/docs) · [leo-ars/cloudflare-sandbox-coding-agent](https://github.com/leo-ars/cloudflare-sandbox-coding-agent) · [awesome-cloudflare-selfhosted](https://github.com/theoephraim/awesome-cloudflare-selfhosted)
+**Competitors** — [vibesdk](https://github.com/cloudflare/vibesdk) · [weft](https://github.com/jonesphillip/weft) · [cloudsail](https://github.com/nkzw-tech/cloudsail) · [leo-ars/cloudflare-sandbox-coding-agent](https://github.com/leo-ars/cloudflare-sandbox-coding-agent) · [awesome-cloudflare-selfhosted](https://github.com/theoephraim/awesome-cloudflare-selfhosted)
 
 **Local** — `spec/GOAL.md` (**stale as of rev 2 — T17**) · `apps/web/src/content/docs/docs/readiness.md`

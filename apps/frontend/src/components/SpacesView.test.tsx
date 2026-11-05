@@ -108,7 +108,7 @@ describe("SpacesView", () => {
     expect(screen.getByRole("heading", { name: "Spaces" })).toBeDefined();
   });
 
-  it("renders Overlay breadcrumbs in the header", async () => {
+  it("renders breadcrumbs in the header", async () => {
     mockSpacesFetch({});
     render(<SpacesView scope="workspace" />);
     const nav = screen.getByRole("navigation", { name: "Breadcrumb" });

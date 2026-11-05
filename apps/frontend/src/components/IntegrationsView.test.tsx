@@ -288,7 +288,7 @@ describe("IntegrationsView capability catalog", () => {
     expect(await screen.findByRole("heading", { name: "Configured connections" })).toBeTruthy();
   });
 
-  it("renders Overlay breadcrumbs and New Connector header action", async () => {
+  it("renders breadcrumbs and New Connector header action", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView scope="workspace" />);
     const nav = screen.getByRole("navigation", { name: "Breadcrumb" });

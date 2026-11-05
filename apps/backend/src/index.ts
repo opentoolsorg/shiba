@@ -142,7 +142,6 @@ const MARKETING_SECTIONS = new Set([
   "docs",
   "blog",
   "why-shiba",
-  "open-source-devin-alternative",
   "privacy",
   "terms",
   "waitlist",

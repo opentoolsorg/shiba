@@ -1,7 +1,7 @@
 # Verification Plan — what PLAN.md rev 4 still leaves open, and how to check it yourself
 
 **Audited:** 2026-09-17 against branch `feat/landing-page-and-provider-cleanup`.
-**Re-audited:** 2026-09-27 against branch `feat/roomote-parity-wip` — all G-gaps below re-checked; G1–G11 now resolve (see per-row evidence).
+**Re-audited:** 2026-09-27 against branch `feat/parity-wip` — all G-gaps below re-checked; G1–G11 now resolve (see per-row evidence).
 **Baseline observed here:** `pnpm typecheck` PASS · `pnpm lint` PASS · `pnpm test` 272/272 across 21 files · `wrangler deploy --dry-run` FAIL (Docker CLI present at `/opt/homebrew/bin/docker`, daemon not running).
 
 Every claim below carries a command or a file:line so you can confirm it without trusting this document.
@@ -25,7 +25,7 @@ Every claim below carries a command or a file:line so you can confirm it without
 
 | G9 | **RESOLVED** — GOAL.md "single-tenant; do not claim multi-tenant isolation" | The "Multi-Tenant Isolation" claim is gone; `welcome.mdx` now says isolation boundaries remain unverified and implies no escape guarantee. | `grep -niE "tenant" apps/web/src/content/docs/welcome.mdx` → no multi-tenant claim (2026-09-27); `welcome.mdx:90` |
 | G10 | **RESOLVED** — | Landing assets are tracked: `.gitignore` now negates `apps/web/public/**` and `git ls-tree` lists them. | `.gitignore:2-6`; `git ls-tree -r HEAD --name-only -- apps/web/public` → 15+ files incl. `assets/channels/*.svg`, `assets/harnesses/*.svg`, `assets/mascot/*` (2026-09-27) |
-| G11 | **RESOLVED** — | `capy-theme.css` deleted (single `theme.css` remains); `postcss.config.js`/`tailwind.config.js` exist only as legitimately separate per-app configs under `apps/frontend/` and `apps/web/` — expected in a monorepo, not duplication. | `apps/web/src/styles/` → `theme.css` only; `find . -name postcss.config.js -not -path "*/node_modules/*"` → `apps/frontend/` + `apps/web/` (2026-09-27) |
+| G11 | **RESOLVED** — | the extra theme stylesheet deleted (single `theme.css` remains); `postcss.config.js`/`tailwind.config.js` exist only as legitimately separate per-app configs under `apps/frontend/` and `apps/web/` — expected in a monorepo, not duplication. | `apps/web/src/styles/` → `theme.css` only; `find . -name postcss.config.js -not -path "*/node_modules/*"` → `apps/frontend/` + `apps/web/` (2026-09-27) |
 
 **Honest ones, unchanged:** T10 live run not attempted · Claude Code / Codex CLIs absent from the image (`Dockerfile:7` installs only `opencode-ai`) · `agents` SDK hibernation still unverified · peak memory and cold start unmeasured.
 

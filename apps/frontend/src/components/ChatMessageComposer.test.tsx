@@ -47,7 +47,7 @@ describe("ChatMessageComposer", () => {
     expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
   });
 
-  it("renders the Overlay-style footnote and action buttons", () => {
+  it("renders the composer footnote and action buttons", () => {
     render(<ChatMessageComposer value="" onChange={vi.fn()} onSubmit={vi.fn()} onStop={vi.fn()} onRetry={vi.fn()} busy={false} streaming={false} failed={false} />);
     expect(screen.getByText("Shiba can make mistakes. Check important info.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add to message" })).toBeTruthy();

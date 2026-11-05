@@ -106,7 +106,7 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
       detail: "Org-scoped API key access to runtime stores is unavailable until tenant routing is configured.",
     }, { status: 501 });
   }
-  // Hoplite-shape groups first; each returns null when the path is not theirs.
+  // Public API groups first; each returns null when the path is not theirs.
   if (request.method === "POST") url.pathname = url.pathname.replace(/^(\/api\/v1\/threads\/[^/]+)\/messages$/, "$1/message");
   const ctx: V1Context = { request, env, url, principal, forward: async (method, path, input) => {
     const resolved = await (deps.resolveTarget ?? resolveRunStoreTarget)(request, env, url);
