@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReportSlackIntent, ReportSlackState } from "@shiba/shared";
 import { REPORT_SLACK_DISCLOSURE_SCOPE } from "@shiba/shared";
 import { ReportSlackDisclosure } from "./ReportSlackDisclosure";
+import { ReportSlackClient } from "../report-slack-client";
 import { EVIDENCE_WORKSPACE, EVIDENCE_LIBRARY, EVIDENCE_ACTOR } from "../founder-evidence-fixtures";
 const props = { workspaceId: EVIDENCE_WORKSPACE, libraryId: EVIDENCE_LIBRARY, report: { id: "fer-fixture", reportHash: "b".repeat(64), expiresAt: Date.now() + 3_600_000 }, onClose: vi.fn() };
 const base = `/api/founder-skills/${EVIDENCE_LIBRARY}/reports/fer-fixture/slack`;
@@ -78,10 +79,21 @@ describe("separate manual report disclosure to Slack", () => {
     await act(async () => finish(Response.json(state([intent()])))); expect(screen.queryByText(/PRIVATE-A/)).toBeNull();
   });
   it("hides private draft content at local report expiry without waiting for a poll", async () => {
-    vi.useFakeTimers(); vi.stubGlobal("fetch", vi.fn(async () => Response.json(state([intent()]))));
-    render(<ReportSlackDisclosure {...props} report={{ ...props.report, expiresAt: Date.now() + 100 }} />);
-    await act(async () => { await vi.advanceTimersByTimeAsync(0); }); expect(screen.getByText(/PRIVATE-A/)).toBeTruthy();
-    await act(async () => { await vi.advanceTimersByTimeAsync(101); });
+    vi.useFakeTimers(); const before = Date.now(), fetcher = vi.fn(async () => Response.json(state([intent()]))); vi.stubGlobal("fetch", fetcher);
+    const actualRead = ReportSlackClient.prototype.read;
+    let completed!: () => void, failed!: (cause: unknown) => void;
+    const verifiedRead = new Promise<void>((resolve, reject) => { completed = resolve; failed = reject; });
+    vi.spyOn(ReportSlackClient.prototype, "read").mockImplementation(async function (this: ReportSlackClient, signal) {
+      try { const value = await actualRead.call(this, signal); completed(); return value; }
+      catch (cause) { failed(cause); throw cause; }
+    });
+    // Await the real body parsing and WebCrypto verification while fake time is fixed.
+    render(<ReportSlackDisclosure {...props} report={{ ...props.report, expiresAt: before + 100 }} />);
+    await act(async () => { await verifiedRead; });
+    expect(Date.now()).toBe(before); expect(screen.getByText(/PRIVATE-A/)).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(99); }); expect(screen.getByText(/PRIVATE-A/)).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2); });
     expect(screen.queryByText(/PRIVATE-A/)).toBeNull(); expect(screen.queryByRole("button", { name: "Disclose this exact report audience" })).toBeNull();
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 });

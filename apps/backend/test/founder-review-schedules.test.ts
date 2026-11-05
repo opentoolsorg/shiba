@@ -72,7 +72,8 @@ describe("founder storage-only review schedules", () => {
     const observed = await readFounderReviewSchedule(f.env, f.actor, libraryId);
     expect(observed.occurrences).toEqual([expect.objectContaining({ id: `${enabled.id}:${enabled.version}:${due}`, scheduledAt: due, status: "pending", digest: enabled.digest })]);
     expect(observed.schedule?.nextDueAt).toBe(due + 86_400_000);
-    expect(observed.occurrences[0]!.task).toContain("authorized integration results when available");
+    expect(observed.occurrences[0]!.task).toContain("explicitly selected authorized evidence only");
+    expect(observed.occurrences[0]!.task).toContain("do not collect data or send a digest");
   });
   it("retains one pending draft across delayed/overlapping occurrences and coalesces an outage without a backlog", async () => {
     const f = await fixture();
