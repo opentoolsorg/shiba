@@ -662,7 +662,7 @@ Plus a kill switch: disable/enable by id, and a global `AUTOMATIONS_ENABLED` var
 
 ## 11. Phase P5 — Bring Your Own Agent and Model (~14h)
 
-**This is the differentiator.** Closed SaaS agents lock you to the vendor's agent, or run yours only on your laptop, never your own in the cloud. None lets a team run *their* harness on *their* account against *their* model. That combination is the entire open-source case — without it, "self-hosted" saves a seat fee and nothing else.
+**This phase targets bringing the agent harness and model provider under the team's control.**
 
 Two axes of lock-in, both hardcoded today:
 
@@ -1562,7 +1562,7 @@ Browser speech API first; a pluggable speech-to-text endpoint later.
 
 **t3code** (observed 2026-09-27) — [pingdotgg/t3code](https://github.com/pingdotgg/t3code) · internals docs `docs/internals/{overview,providers,connection-runtime,environment-auth}.md` · provider guides `docs/user/providers-{claude,codex,antigravity}.md` · `orchestration/decider.ts` + `OrchestrationEventStore.ts` (command/event/receipt atomicity) · `provider/ProviderDriver.ts` (record-per-instance SPI, continuationIdentity) · `provider/ProviderAuthFlow.ts` (owner-scoped auth state machine) · `Drivers/{ClaudeHome,CodexHomeLayout}.ts` (config-dir isolation, shadow-home overlay, continuation-vs-account keys) · `antigravityCallback.ts` + `antigravityAuthSupport.ts` (callback validation, `removedEnvironmentKeys`).
 
-**Reference cloud coding agent** (observed 2026-09-27) — parity claims above are from its public README; sandboxes, providers and channels are README-advertised, not independently verified against a running deployment. It is source-available under a licence with a user cap — **read the licence before copying any implementation.**
+**Reference cloud coding agent** (observed 2026-09-27) — parity claims above are illustrative and are not independently verified. Do not copy external implementation until its applicable licence is identified and reviewed.
 
 **Cloudflare** — [Sandbox outbound traffic](https://developers.cloudflare.com/sandbox/guides/outbound-traffic/) · [credential injection changelog](https://developers.cloudflare.com/changelog/post/2026-04-13-sandbox-outbound-workers-tls-auth/) · [Sandbox get-started](https://developers.cloudflare.com/sandbox/get-started/) · [Sandbox options](https://developers.cloudflare.com/sandbox/configuration/sandbox-options/) · [Containers limits](https://developers.cloudflare.com/containers/platform/limits/) · [Containers pricing](https://developers.cloudflare.com/containers/pricing/) · [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) · [Wrangler config](https://developers.cloudflare.com/workers/wrangler/configuration/) · [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/) · [Think tools and approval](https://developers.cloudflare.com/agents/harnesses/think/tools/) · [AI Gateway BYOK](https://developers.cloudflare.com/ai-gateway/configuration/bring-your-own-keys/)
 
