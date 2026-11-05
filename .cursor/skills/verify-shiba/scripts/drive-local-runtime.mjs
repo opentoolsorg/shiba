@@ -20,7 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {chromium} from 'playwright';
 import {launchLifecycleTarget} from './lifecycle-target.mjs';
-import {selectRepositoryTask} from './composer-target.mjs';
+import {openAppView,selectRepositoryTask} from './composer-target.mjs';
 import {fixtureAuthRequest} from './run-employee-ci.mjs';
 const exec=promisify(execFile);
 const origin=process.env.VERIFY_LOCAL_WORKER_URL??'http://localhost:8794';
@@ -91,7 +91,7 @@ if(progress.activatedAt===null&&progress.dismissedAt===null&&!progress.draftTask
   await skipSetup.click();await skipSetup.waitFor({state:'hidden'});
   passed('Dismiss the disposable account setup through the real UI');
 }
-await page.getByRole('navigation',{name:'Main',exact:true}).getByRole('button',{name:'Integrations',exact:true}).click();
+await openAppView(page, "Integrations");
 await page.getByRole('heading',{name:'Integrations',exact:true}).waitFor();
 await page.getByRole('button',{name:'Browse capability catalog',exact:true}).click();
 const catalog=await api('/api/capabilities?limit=50');
@@ -112,7 +112,7 @@ await page.getByRole('combobox',{name:'Filter by type'}).selectOption('mcp');
 await page.getByRole('combobox',{name:'Filter by status'}).selectOption('available');
 await page.screenshot({path:artifactDir+'/capability-catalog.png',fullPage:true});
 passed('Browse the authenticated registry-backed catalog, inspect required scope, search/filter MCP tools, and withhold unsupported actions');
-await page.getByRole('navigation',{name:'Main',exact:true}).getByRole('button',{name:'Agents',exact:true}).click();
+await openAppView(page, "Agents");
 await page.getByRole('button',{name:'Create bot',exact:true}).waitFor();
 if(marketing){
   await page.getByText('Use a role template',{exact:true}).click();
@@ -153,11 +153,11 @@ async function assertThreadProfile(){
   assert.equal(await selected.getAttribute('aria-checked'),'true','The named thread must retain its selected bot.');
   await selected.press('Escape');await configuration.waitFor({state:'hidden'});
 }
-await page.getByRole('button',{name:/^(?:Chat & )?Threads$/,exact:true}).click();
+await page.getByRole('button',{name:/^(?:Chats|(?:Chat & )?Threads)$/,exact:true}).click();
 await assertThreadProfile();
 passed('Launch bot opens a real bound conversation');
 async function reopenThread(){
-  await page.getByRole('navigation',{name:'Main',exact:true}).getByRole('button',{name:'Agents',exact:true}).click();
+  await openAppView(page, "Agents");
   await page.getByRole('list',{name:config.name+' threads',exact:true}).getByRole('button').filter({hasText:config.name}).first().click();
   await assertThreadProfile();
 }
@@ -179,8 +179,7 @@ async function queue(task){
   return approval;
 }
 async function approveInUi(pointer){
-  await page.getByRole('navigation',{name:'Main',exact:true}).locator('button[aria-haspopup="true"]').click();
-  await page.getByRole('menuitem',{name:/^Approvals(?:\s+\d+)?$/}).click();
+  await openAppView(page, "Approvals");
   const card=page.locator('div').filter({has:page.getByRole('button',{name:'Approve',exact:true})}).filter({hasText:pointer.task}).last();
   await card.getByText('Bot profile v1',{exact:true}).waitFor();
   if(marketing){
@@ -265,7 +264,7 @@ if(marketing){
 }
 const [reviewResponse]=await Promise.all([
   page.waitForResponse(response=>new URL(response.url()).pathname==='/api/v1/threads/'+encodeURIComponent(completed.runId)+'/pr/review'&&response.request().method()==='GET'),
-  page.getByRole('navigation',{name:'Main',exact:true}).getByRole('button',{name:'Pull requests',exact:true}).click(),
+  openAppView(page, "Pull requests"),
 ]);
 assert.equal(reviewResponse.status(),200,'Named-session review must resolve the completed run');
 assert.equal(new URL(reviewResponse.url()).searchParams.get('session'),session.id,'Review request must retain the owning session');

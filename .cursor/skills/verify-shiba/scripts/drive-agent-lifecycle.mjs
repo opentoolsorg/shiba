@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { chromium } from "playwright";
 import { containersMode, githubMode, readPort, standinMode, waitFor } from "./journey-lib.mjs";
 import { launchLifecycleTarget } from "./lifecycle-target.mjs";
-import { selectRepositoryTask } from "./composer-target.mjs";
+import { openAppView, selectRepositoryTask } from "./composer-target.mjs";
 
 assert.equal(process.env.VERIFY_AGENT_LIFECYCLE_MOCK, "1", "Set VERIFY_AGENT_LIFECYCLE_MOCK=1 for the explicitly synthetic execution journey.");
 assert.equal(githubMode(), "mock");
@@ -63,7 +63,7 @@ async function json(path) {
 const card = () => page.locator("li").filter({ hasText: slug }).first();
 async function directory(archived = false) {
   await page.goto(new URL("/app/", base).href);
-  await page.getByRole("navigation", { name: "Main", exact: true }).getByRole("button", { name: "Agents", exact: true }).click();
+  await openAppView(page, "Agents");
   await page.getByRole("button", { name: archived ? "Archived bots" : "Active bots", exact: true }).click();
 }
 async function editProfile(version) {
@@ -137,7 +137,7 @@ try {
   const { session } = await sessionCreated.json();
   sessionId = session.id;
   assert.equal(session.metadata.customAgentId, agentId);
-  await page.getByRole("button", { name: /^(?:Chat & )?Threads$/, exact: true }).click();
+  await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
   await assertThreadProfile();
   await page.getByLabel("Task description", { exact: true }).fill(task);
   await directory();
@@ -228,8 +228,7 @@ try {
   passed("Editing the profile to version 3 does not rewrite the pending approved inputs");
 
   stage = "approve";
-  await page.getByRole("navigation", { name: "Main", exact: true }).locator('button[aria-haspopup="true"]').click();
-  await page.getByRole("menuitem", { name: /^Approvals(?:\s+\d+)?$/ }).click();
+  await openAppView(page, "Approvals");
   const approvalCard = page.locator("div").filter({ has: page.getByRole("button", { name: "Approve", exact: true }) }).filter({ hasText: task }).last();
   await approvalCard.getByRole("button", { name: "Approve", exact: true }).waitFor();
   await approvalCard.getByText("Bot profile v2", { exact: true }).waitFor();

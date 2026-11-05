@@ -58,8 +58,8 @@ describe("dashboard components SSR (T14 sweep)", () => {
         onOpenSetup: () => {},
       }),
     );
-    expect(html).toContain("New task");
-    expect(html).toContain("Active");
+    expect(html).toContain("Waiting on you");
+    expect(html).toContain("Running");
     expect(html).toContain("Ship the inbox tab");
     expect(html).toContain("Recent");
     expect(html).toContain("Fix flaky audit test");
@@ -83,7 +83,7 @@ describe("dashboard components SSR (T14 sweep)", () => {
         onOpenSetup: () => {},
       }),
     );
-    expect(html).toContain("No sessions yet");
+    expect(html).toContain("No recent tasks");
   });
 
   it("OnboardingModal renders optional setup paths with per-step review buttons", () => {
@@ -193,6 +193,7 @@ describe("dashboard components SSR (T14 sweep)", () => {
   it("AppNavRail renders promoted views without the retired Architecture entry", () => {
     const html = renderToStaticMarkup(
       React.createElement(AppNavRail, {
+        variant: "sheet",
         activeView: "diff",
         onNavigate: () => {},
         activeSandboxCount: 2,
