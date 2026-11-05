@@ -75,6 +75,25 @@ confirmed reservations all count. They are application authorizations, not
 invoice caps. The policy revision is frozen with the funding review; older
 grants require a fresh review before new dispatch.
 
+The funding preview and allowance now show the requester's permanent lifetime
+reserved amount and remaining authorization capacity across grants in the exact
+workspace. They count confirmed, held and unknown reservations, including grants
+that were later revoked; another workspace's ledger is excluded. Only the
+currently verified bootstrap funding manager receives numeric workspace totals.
+The requester receives a workspace next-call-fit indicator without other
+members' totals, prompts or outputs. Each indicator compares the complete next
+maximum debit with the remaining lifetime capacity, not merely a positive balance.
+
+Insufficient lifetime capacity disables funding activation and turn preparation,
+approval and execution in the dashboard. Activation, preparation and approval
+also test the same permanent ledger sums in their database write predicates.
+Dispatch retains its original atomic reservation check, so two grants cannot
+both use the last available reservation. Displayed capacity is a volatile
+snapshot and grants no reservation. No cap, quote, billing authority, provider,
+refund or automatic reset is added by these controls. Previously completed output
+does not become unreadable merely because later work exhausts a lifetime cap;
+the existing funding, source and expiry checks still apply.
+
 Cloudflare's [Llama 3.1 8B FP8 model page](https://developers.cloudflare.com/workers-ai/models/llama-3.1-8b-instruct-fp8/) lists a 32,000-token context and $0.152/$0.287 per million input/output tokens. Llama reserves the whole 32,000-token input context plus maximum output, or 5,158 microUSD at 1,024 output tokens. The binding uses `max_tokens` and a text response. Its receipt records the requested model and server turn ID as binding attribution; a provider model or completion ID is recorded only if returned. This is not provider attestation. Returned model, if present, must match. Required usage is validated against the frozen bounds; absent or malformed usage leaves an unknown permanent hold. Other models, providers and CLI subscriptions are unsupported without their own quote and receipt contract.
 
 GLM responses must include the exact model and a bounded completion ID. Both adapters require integer prompt, completion and total token counts within the frozen bounds, with a matching total. These provider-reported values and their hash

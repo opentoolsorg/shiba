@@ -101,10 +101,10 @@ Exercise approval pending, approved execution, completion and failure while
 checking the same Slack thread. Confirm unauthorized clicks still have zero
 decision effects. Keep live evidence separate from fixture results.
 
-Multi-installation OAuth remains a product gap. The current deployment has one
-Worker bot token and one signing secret. Supporting multiple installations needs
-an installation registry with encrypted per-workspace credentials, verified
-installation ownership and audiences, token rotation/revocation, event routing,
-and explicit per-installation approver/source policies. A team ID or bot-visible
-channel alone cannot authorize access or sharing. This optional status adapter
-does not claim to implement that contract.
+The separate [managed installation registry](slack-installations.md) now supports
+encrypted per-workspace credentials, installation ownership, rotation/revocation
+and signed ingress routing. This optional native status adapter still uses one
+Worker bot token and an exact configured workspace; it does not route native
+status through that registry or inherit its approver/source policies. Managed
+multi-installation native status remains a gap. A team ID or bot-visible channel
+alone cannot authorize access or sharing.
