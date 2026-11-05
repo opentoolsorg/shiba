@@ -256,6 +256,30 @@ describe("TaskComposer", () => {
     expect(onSubmit).toHaveBeenCalledOnce();
   });
 
+  it.each(["opencode", "claude-code", "codex"])("submits explicit local %s artifacts without a repository", (harness) => {
+    const onSubmit = vi.fn();
+    renderComposer("docked", { executionTargetKind: "artifact-workspace", runTarget: "local", harness,
+      localRunAvailable: true, targetMachineId: "paired", task: "Draft a brief", repoUrl: "",
+      artifactDeliverables: "reports/brief.md", onSubmit });
+    expect(screen.getByText(/16 KiB per file and 64 KiB total/).textContent).toContain("No Git or clone");
+    expect(screen.getByText(/Claude Code uses only its existing local login/).textContent).toContain("not cloud subscription access");
+    expect(screen.getByText("Output files (required, one path per line)")).toBeTruthy();
+    expect(screen.queryByText(/Leave blank to collect/)).toBeNull();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Task description" }), { key: "Enter", ctrlKey: true });
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
+  it.each(["", " \n\t", "out/all.zip", "../private.md", "out/a.md\nout/A.md", Array.from({ length: 9 }, (_, i) => `out/${i}.md`).join("\n")])("blocks invalid local outputs for click and shortcut (%j)", (artifactDeliverables) => {
+    const onSubmit = vi.fn();
+    renderComposer("docked", { executionTargetKind: "artifact-workspace", runTarget: "local",
+      localRunAvailable: true, targetMachineId: "paired", task: "Draft a brief", repoUrl: "", artifactDeliverables, onSubmit });
+    const send = screen.getByRole("button", { name: "Send task" });
+    expect(send.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(send);
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Task description" }), { key: "Enter", ctrlKey: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("submits valid artifact input with Ctrl+Enter without requiring a repository", () => {
     const onSubmit = vi.fn();
     renderComposer("docked", { executionTargetKind: "artifact-workspace", artifactDeliverables: "reports/brief.md", task: "Draft a brief", repoUrl: "", onSubmit });
