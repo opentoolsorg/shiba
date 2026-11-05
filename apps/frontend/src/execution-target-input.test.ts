@@ -10,6 +10,13 @@ describe("dashboard execution target request fields", () => {
     expect(parseArtifactDeliverables(" reports/brief.md \nreports/sources.json")).toMatchObject({ success: true, data: ["reports/brief.md", "reports/sources.json"] });
   });
 
+  it("requires explicit bounded unique text paths for local artifacts only", () => {
+    for (const paths of ["", " \n\t", "out/archive.zip", "../private.md", "out/a.md\nout/A.md", Array.from({ length: 9 }, (_, i) => `out/${i}.txt`).join("\n")]) {
+      expect(parseArtifactDeliverables(paths, "local").success).toBe(false);
+    }
+    expect(parseArtifactDeliverables(Array.from({ length: 8 }, (_, i) => `out/${i}.txt`).join("\n"), "local").success).toBe(true);
+  });
+
   it("gives an automatic output bundle an ephemeral identity and keeps legacy empty artifact targets invalid", () => {
     const fields = buildExecutionTargetFields({ kind: "artifact-workspace", workspaceName: "Research", expectedDeliverables: [] });
     expect(fields.executionTarget).toMatchObject({ kind: "artifact-workspace", workspaceName: "Research", expectedDeliverables: [] });
