@@ -1,7 +1,10 @@
 import { artifactWorkspaceExecutionTargetSchema, type ArtifactWorkspaceExecutionTarget, type RepositoryExecutionTarget } from "@shiba/shared";
 
-export function parseArtifactDeliverables(text: string) {
-  return artifactWorkspaceExecutionTargetSchema.shape.expectedDeliverables.safeParse(text.split(/\r?\n/).map((value) => value.trim()).filter(Boolean));
+export function parseArtifactDeliverables(text: string, runtime: "sandbox" | "local" = "sandbox") {
+  return artifactWorkspaceExecutionTargetSchema.shape.expectedDeliverables.refine(
+    (paths) => runtime !== "local" || paths.length > 0,
+    "Local artifacts require explicit output paths; automatic ZIP collection is unavailable.",
+  ).safeParse(text.split(/\r?\n/).map((value) => value.trim()).filter(Boolean));
 }
 
 /** Input presence shared by the composer and the global submit shortcut. */
