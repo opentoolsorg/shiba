@@ -46,7 +46,8 @@ it("rechecks source revocation in the final combined native-session read",async(
 });
 it.each(["session","receipt"])("checks %s expiry synchronously after its final successful SQL proof returns",async(which)=>{
  const f=await captured(),deadline=Date.now()+60000;
- f.db.sqlite.prepare(which==="session"?'UPDATE "session" SET expiresAt=? WHERE id=?':"UPDATE founder_meta_read_receipts SET expires_at=? WHERE id=?").run(deadline,which==="session"?"session-fixture":f.receipt.id);
+ const id=which==="session"?"session-fixture":f.receipt.id;if(typeof id!=="string")throw new Error("Fixture receipt ID missing");
+ f.db.sqlite.prepare(which==="session"?'UPDATE "session" SET expiresAt=? WHERE id=?':"UPDATE founder_meta_read_receipts SET expires_at=? WHERE id=?").run(deadline,id);
  const hit=intercept(f.env,"SELECT s.expiresAt",true,()=>{vi.spyOn(Date,"now").mockReturnValue(deadline+1);});
  const response=await f.read();expect(hit()).toBe(true);expect(response?.status).toBe(403);expect(await response!.text()).not.toContain("shiba.meta-read-report.v1");
 });
