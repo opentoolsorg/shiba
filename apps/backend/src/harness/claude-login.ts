@@ -8,6 +8,7 @@
  * This harness registers the env contract and documents the volume mount;
  * runs fail closed until the Sandbox SDK exposes user-scoped volumes.
  */
+import type { HarnessTextSanitizer } from "./event-sanitizer.js";
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import {
   assertSupportedModel,
@@ -70,8 +71,8 @@ export class ClaudeLoginHarness implements AgentHarness {
     return ["claude", "--print", "--model", model, ...effort, "--add-dir", workdir, input.task];
   }
 
-  parseEvent(line: string): HarnessEvent | null {
-    return parseClaudeCodeEvent(line);
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
+    return parseClaudeCodeEvent(line, sanitize);
   }
 
   capabilities(_model?: string): HarnessCapabilities {

@@ -3,6 +3,7 @@
  * The sandbox ACCESS_TOKEN is a placeholder. ChatGptAuth keeps the real token
  * and forwardCodexPlan attaches it at egress. Refresh stays on the Worker.
  */
+import { sanitizedEventText, type HarnessTextSanitizer } from "./event-sanitizer.js";
 import { resolveCodexSubscriptionHome, type CodexHomeLayout } from "@shiba/shared";
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import {
@@ -141,21 +142,21 @@ export class CodexSubscriptionHarness implements AgentHarness {
     return ["node", codexChatGptPlanDriverPath(input.sandboxId)];
   }
 
-  parseEvent(line: string): HarnessEvent | null {
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
     const trimmed = line.trim();
     if (!trimmed) return null;
     try {
       const record = JSON.parse(trimmed) as { type?: string; threadId?: string };
       if (record.type === "thread" && record.threadId) {
-        return { kind: "progress", text: `thread:${record.threadId}` };
+        return { kind: "progress", text: sanitizedEventText(`thread:${record.threadId}`, sanitize) };
       }
     } catch {
       // fall through to codex parser
     }
     try {
-      return parseCodexEvent(line);
+      return parseCodexEvent(line, sanitize);
     } catch (error) {
-      if (error instanceof CodexErrorEvent && /usage|rate.?limit|quota/i.test(error.detail)) {
+      if (error instanceof CodexErrorEvent && error.usageLimited) {
         throw new CodexUsageLimitError(error.detail);
       }
       throw error;

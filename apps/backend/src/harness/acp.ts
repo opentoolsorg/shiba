@@ -24,7 +24,7 @@
  */
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import { DUMMY_PROVIDER_KEY } from "../provider-gateway.js";
-import { boundTail } from "../security.js";
+import { sanitizedEventText, type HarnessTextSanitizer } from "./event-sanitizer.js";
 import {
   assertSupportedModel,
   PROVIDER_HOSTS,
@@ -122,14 +122,14 @@ export function acpDriverPath(sandboxId: string): string {
 }
 
 /** Parse one NDJSON line the shared driver printed. */
-export function parseAcpDriverEvent(line: string, agent: string): HarnessEvent | null {
+export function parseAcpDriverEvent(line: string, agent: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
   let event: unknown;
   try {
     event = JSON.parse(trimmed);
   } catch {
-    throw new AcpEventError(`Unparseable ${agent} event: ${boundTail(trimmed, 200)}`, agent);
+    throw new AcpEventError(`Unparseable ${agent} event.`, agent);
   }
   if (event === null || typeof event !== "object" || Array.isArray(event)) {
     throw new AcpEventError(`${agent} event is not an object.`, agent);
@@ -137,10 +137,10 @@ export function parseAcpDriverEvent(line: string, agent: string): HarnessEvent |
   const record = event as Record<string, unknown>;
   if (record.type === "error") {
     const detail = typeof record.message === "string" ? record.message : JSON.stringify(record);
-    throw new AcpErrorEvent(boundTail(detail, 500), agent);
+    throw new AcpErrorEvent(sanitizedEventText(detail, sanitize), agent);
   }
-  const text = typeof record.text === "string" ? record.text.trim() : "";
-  return text ? { kind: "text", text: boundTail(text, 500) } : null;
+  const text = typeof record.text === "string" ? record.text : "";
+  return text.trim() ? { kind: "text", text: sanitizedEventText(text, sanitize, 500, true) } : null;
 }
 
 export class AcpHarness implements AgentHarness {
@@ -195,8 +195,8 @@ export class AcpHarness implements AgentHarness {
     return ["node", acpDriverPath(input.sandboxId)];
   }
 
-  parseEvent(line: string): HarnessEvent | null {
-    return parseAcpDriverEvent(line, this.spec.label);
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
+    return parseAcpDriverEvent(line, this.spec.label, sanitize);
   }
 
   capabilities(_model?: string): HarnessCapabilities {
@@ -264,7 +264,8 @@ const fail = (msg) => {
   // Kill the agent before exiting: an ACP server left running could keep
   // mutating the worktree after the run is already marked failed.
   try { child.kill("SIGKILL"); } catch (_) { /* spawn may never have started */ }
-  emit({ type: "error", message: String(msg).slice(0, 900) });
+  const detail = String(msg);
+  emit({ type: "error", message: detail.length > 900 ? "ACP driver error exceeded its display limit." : detail });
   exitWhenDrained(1);
 };
 

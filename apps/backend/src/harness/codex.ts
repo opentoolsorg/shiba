@@ -9,7 +9,7 @@
 import type { RunUsage } from "@shiba/shared";
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import { DUMMY_PROVIDER_KEY } from "../provider-gateway.js";
-import { boundTail } from "../security.js";
+import { sanitizedEventText, type HarnessTextSanitizer } from "./event-sanitizer.js";
 import { classifySessionLine } from "./session-events.js";
 import {
   type AgentHarness,
@@ -27,10 +27,13 @@ export const CODEX_PROVIDERS = ["openai"] as const;
 
 export class CodexErrorEvent extends Error {
   readonly detail: string;
-  constructor(detail: string) {
-    super(detail);
+  readonly usageLimited: boolean;
+  constructor(detail: string, sanitize?: HarnessTextSanitizer, usageLimited = /usage|rate.?limit|quota/i.test(detail)) {
+    const safe = sanitizedEventText(detail, sanitize);
+    super(safe);
     this.name = "CodexErrorEvent";
-    this.detail = detail;
+    this.detail = safe;
+    this.usageLimited = usageLimited;
   }
 }
 
@@ -40,9 +43,9 @@ export class CodexEventError extends Error {}
  * Parse one `codex exec --json` line. Error envelopes throw so a failed run
  * cannot be reported as a successful one.
  */
-export function parseCodexEvent(line: string): HarnessEvent | null {
-  const session = classifySessionLine(line);
-  if (session.kind === "error") throw new CodexErrorEvent(session.detail);
+export function parseCodexEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
+  const session = classifySessionLine(line, sanitize);
+  if (session.kind === "error") throw new CodexErrorEvent(session.detail, undefined, session.usageLimited);
   if (session.kind === "skip") return null;
   if (session.kind === "event") return session.event;
   const trimmed = line.trim();
@@ -51,7 +54,7 @@ export function parseCodexEvent(line: string): HarnessEvent | null {
   try {
     event = JSON.parse(trimmed);
   } catch {
-    throw new CodexEventError(`Unparseable Codex event: ${boundTail(trimmed, 200)}`);
+    throw new CodexEventError("Unparseable Codex event.");
   }
   if (event === null || typeof event !== "object" || Array.isArray(event)) {
     throw new CodexEventError("Codex event is not an object.");
@@ -64,15 +67,15 @@ export function parseCodexEvent(line: string): HarnessEvent | null {
         : typeof record.message === "string"
           ? record.message
           : JSON.stringify(record);
-    throw new CodexErrorEvent(boundTail(detail, 500));
+    throw new CodexErrorEvent(detail, sanitize);
   }
   const text =
     typeof record.text === "string" && record.text.trim()
-      ? record.text.trim()
+      ? record.text
       : typeof record.message === "string" && record.message.trim()
-        ? record.message.trim()
+        ? record.message
         : "";
-  if (text) return { kind: "text", text: boundTail(text, 500) };
+  if (text) return { kind: "text", text: sanitizedEventText(text, sanitize, 500, true) };
   if (record.type === "turn.completed") {
     // turn.completed carries the turn's cumulative usage block — the
     // run's whole token spend in one report.
@@ -81,7 +84,7 @@ export function parseCodexEvent(line: string): HarnessEvent | null {
       return { kind: "usage", cumulative: true, usage, text: describeUsage(usage) };
     }
   }
-  return { kind: "progress", text: boundTail(summarize(record), 500) };
+  return { kind: "progress", text: sanitizedEventText(summarize(record), sanitize) };
 }
 
 /**
@@ -152,8 +155,8 @@ export class CodexHarness implements AgentHarness {
     ];
   }
 
-  parseEvent(line: string): HarnessEvent | null {
-    return parseCodexEvent(line);
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
+    return parseCodexEvent(line, sanitize);
   }
   /** T43 declared capabilities — the gates read this, not the name. */
   capabilities(_model?: string): HarnessCapabilities {

@@ -1,6 +1,6 @@
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import { DUMMY_PROVIDER_KEY } from "../provider-gateway.js";
-import { boundTail } from "../security.js";
+import { sanitizedEventText, type HarnessTextSanitizer } from "./event-sanitizer.js";
 import {
   assertSupportedModel,
   PROVIDER_HOSTS,
@@ -37,7 +37,7 @@ export class PiEventError extends Error {
   }
 }
 
-export function parsePiEvent(line: string): HarnessEvent | null {
+export function parsePiEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
 
@@ -45,7 +45,7 @@ export function parsePiEvent(line: string): HarnessEvent | null {
   try {
     event = JSON.parse(trimmed);
   } catch {
-    throw new PiEventError(`Unparseable Pi event: ${boundTail(trimmed, 200)}`);
+    throw new PiEventError("Unparseable Pi event.");
   }
   if (event === null || typeof event !== "object" || Array.isArray(event)) {
     throw new PiEventError("Pi event is not an object.");
@@ -56,7 +56,7 @@ export function parsePiEvent(line: string): HarnessEvent | null {
 
   if (type === "tool_execution_start") {
     const name = typeof record.toolName === "string" && record.toolName ? record.toolName : "tool";
-    return { kind: "tool", name, text: `tool: ${name}` };
+    return { kind: "tool", name: sanitizedEventText(name, sanitize), text: sanitizedEventText(`tool: ${name}`, sanitize) };
   }
 
   if (type === "message_end") {
@@ -70,7 +70,7 @@ export function parsePiEvent(line: string): HarnessEvent | null {
       const detail = typeof assistant.errorMessage === "string" && assistant.errorMessage
         ? assistant.errorMessage
         : `Pi stopped before completing: ${stopReason}.`;
-      throw new PiErrorEvent(boundTail(detail, 500));
+      throw new PiErrorEvent(sanitizedEventText(detail, sanitize));
     }
 
     const text = assistantText(assistant);
@@ -94,11 +94,11 @@ export function parsePiEvent(line: string): HarnessEvent | null {
         kind: "usage",
         cumulative: false,
         usage: usageDelta,
-        text: boundTail(text, 500),
+        text: sanitizedEventText(text, sanitize),
       };
     }
 
-    return text ? { kind: "text", text: boundTail(text, 500) } : null;
+    return text ? { kind: "text", text: sanitizedEventText(text, sanitize) } : null;
   }
 
   if (type === "agent_settled" && record.aborted === true) {
@@ -170,8 +170,8 @@ export class PiHarness implements AgentHarness {
     ];
   }
 
-  parseEvent(line: string): HarnessEvent | null {
-    return parsePiEvent(line);
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
+    return parsePiEvent(line, sanitize);
   }
 
   capabilities(_model?: string): HarnessCapabilities {

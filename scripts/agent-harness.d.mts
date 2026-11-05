@@ -3,13 +3,14 @@ export interface SessionEvent {
   text?: string;
   patch?: string;
   name?: string;
+  usageLimited?: boolean;
 }
 
 export interface SessionHandle {
   id: string;
   threadId: string;
   logPath: string;
-  turn(prompt: string): Promise<{ status: string; summary: string }>;
+  turn(prompt: string): Promise<{ status: string; summary: string; usageLimited?: boolean }>;
   resume(threadId: string): Promise<void>;
   close(): Promise<void>;
 }
