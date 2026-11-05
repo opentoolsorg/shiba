@@ -3083,9 +3083,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         { status: 400 },
       );
     }
-    if (executionTarget?.kind === "artifact-workspace" && runtimeRawEarly === "local") {
-      return Response.json({ error: "Artifact-workspace runs require the isolated sandbox runtime." }, { status: 400 });
-    }
     const runtimeForPreflight = runtimeRawEarly === "local"
       ? ("local" as const)
       : executionTarget?.kind === "artifact-workspace"
@@ -3176,6 +3173,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       );
     }
     if (effectiveRuntime === "local") {
+      if (executionTarget?.kind === "artifact-workspace" &&
+          (!targetMachineId || executionTarget.expectedDeliverables.length === 0)) {
+        return Response.json({ error: "Local artifact work requires a paired computer and explicit output file paths; automatic ZIP collection is cloud-only." }, { status: 400 });
+      }
       if (this.env[LOCAL_RUNTIME_FLAG] !== "1") {
         return Response.json(
           { error: "The local runtime is not enabled on this deployment (SHIBA_LOCAL_RUNTIME=1)." },
