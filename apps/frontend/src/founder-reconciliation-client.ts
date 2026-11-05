@@ -13,6 +13,24 @@ const listSchema = z.object({ ...scope, drafts: z.array(metadata).max(50) });
 const revokeSchema = z.object({ ...scope, draft: metadata.omit({ expiresAt: true }) });
 const draftSchema = z.object({ ...scope, draft: founderReconciliationDraftSchema });
 const resultSchema = z.object({ ...scope, draft: founderReconciliationDraftSchema, report: z.unknown() });
+const rollingMetricSchema = z.enum(["invoice-paid-snapshot", "mrr", "churn"]);
+export type RollingMetric = z.infer<typeof rollingMetricSchema>;
+const rollingSelectionSchema = z.object({ asOf: z.number().int().nonnegative().max(253402300799), periodDays: z.number().int().min(1).max(28), metric: rollingMetricSchema });
+export type RollingSelection = z.infer<typeof rollingSelectionSchema>;
+const rollingReportSchema = z.object({
+  format: z.literal("shiba.founder-reconciliation.rolling-view.v1"),
+  sourceReportId: z.string(), sourceReportHash: z.string(), sourceExecutorDigest: z.string(),
+  sources: founderReconciliationReportSchema.shape.sources, mapping: founderReconciliationReportSchema.shape.mapping,
+  provenance: z.object({ reviewDigest: z.string(), reportId: z.string(), reportHash: z.string(), executorDigest: z.string() }),
+  selectedMetric: rollingMetricSchema,
+  metricAvailability: z.object({ status: z.enum(["qualified", "unavailable"]), missingDataReasons: z.array(z.string()).max(30) }),
+  completeness: z.object({ reasons: z.array(z.string()).max(30), statusCounts: z.record(z.string(), z.number().int().nonnegative()), captureSkewMs: z.number().int().nonnegative(), sourceAgesMs: z.object({ hubspot: z.number().int().nonnegative(), stripe: z.number().int().nonnegative() }) }),
+  period: z.object({ timezone: z.literal("UTC"), durationSeconds: z.number().int().positive(), basis: z.literal("stripe-invoice-created-unix-seconds"), createdGte: z.number().int(), createdLt: z.number().int(), periodDays: z.number().int().min(1).max(28), boundary: z.literal("inclusive-start-exclusive-end") }),
+  metricDefinition: z.string(), rows: founderReconciliationReportSchema.shape.rows, unassignedRows: founderReconciliationReportSchema.shape.rows,
+  outsidePeriodRowCount: z.number().int().nonnegative(), perCurrency: founderReconciliationReportSchema.shape.perCurrency,
+  notice: z.string(), datasetCompleteness: z.literal("unknown"), businessSuccess: z.literal("unverified"),
+});
+export type RollingReport = z.infer<typeof rollingReportSchema>;
 async function bounded(response: Response, signal: AbortSignal) { const reader = response.body?.getReader(); if (!reader) throw new Error("Private response unavailable."); const chunks: Uint8Array[] = []; let size = 0;
   const abort = new Promise<never>((_, reject) => { if (signal.aborted) reject(signal.reason); else signal.addEventListener("abort", () => reject(signal.reason), { once: true }); });
   try { for (;;) { const item = await Promise.race([reader.read(), abort]); if (item.done) break; size += item.value.byteLength; if (size > 1_048_576) throw new Error("Response exceeds bound."); chunks.push(item.value); }
@@ -54,4 +72,16 @@ export class FounderReconciliationClient {
     if (value.draft.id !== draft.id || value.draft.digest !== draft.digest || !same(value.draft.sources, draft.sources) || !same(value.draft.mapping, draft.mapping) || value.draft.expiresAt !== draft.expiresAt || value.draft.state !== "completed") throw new Error("Exact comparison decision was not confirmed.");
     return { draft: value.draft, report: await this.verifyReport(value.draft, value.report, signal) };
   }
+  async rolling(draft: FounderReconciliationDraft, selection: RollingSelection, signal: AbortSignal) {
+    const input = rollingSelectionSchema.parse(selection), now = Date.now();
+    const validAuthority = () => draft.state === "completed" && draft.reportHash && draft.expiresAt > Date.now() && draft.sources.hubspot.expiresAt > Date.now() && draft.sources.stripe.expiresAt > Date.now();
+    if (!validAuthority()) throw new Error("Completed reviewed capture authority is unavailable or expired.");
+    if (draft.sources.hubspot.capturedAt > now || draft.sources.stripe.capturedAt > now || input.asOf > Math.floor(now / 1000) || input.asOf > draft.sources.stripe.createdLt || input.asOf - input.periodDays * 86400 < draft.sources.stripe.createdGte) throw new Error("UTC period must be contained within the capture and cannot be in the future.");
+    const value = await this.request(`${base}/${draft.id}/rolling`, z.object({ ...scope, report: rollingReportSchema }), signal, { digest: draft.digest, reviewed: true, consent: "filter-captured-invoice-created-window-not-revenue-mrr-or-churn", ...input });
+    const report = value.report;
+    if (!validAuthority() || report.sourceReportId !== draft.id || report.sourceReportHash !== draft.reportHash || report.sourceExecutorDigest !== draft.executorDigest || !same(report.sources, draft.sources) || !same(report.mapping, draft.mapping) || !same(report.provenance, { reviewDigest: draft.digest, reportId: draft.id, reportHash: draft.reportHash, executorDigest: draft.executorDigest }) || report.selectedMetric !== input.metric || report.period.createdLt !== input.asOf || report.period.createdGte !== input.asOf - input.periodDays * 86400 || report.period.periodDays !== input.periodDays || report.period.durationSeconds !== input.periodDays * 86400) throw new Error("Exact rolling period, metric or source provenance changed.");
+    if (input.metric === "invoice-paid-snapshot" ? report.metricAvailability.status !== "qualified" || report.metricAvailability.missingDataReasons.length !== 0 : report.metricAvailability.status !== "unavailable" || report.metricAvailability.missingDataReasons.length === 0 || report.perCurrency.length !== 0) throw new Error("Metric availability could not be verified.");
+    return report;
+  }
+
 }
