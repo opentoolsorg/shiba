@@ -113,15 +113,15 @@ describe("SessionsSidebar", () => {
       />,
     );
 
-    const personalTab = screen.getByRole("tab", { name: "Personal" });
-    const workspaceTab = screen.getByRole("tab", { name: "Workspace" });
+    const personalTab = screen.getByRole("button", { name: "Personal" });
+    const workspaceTab = screen.getByRole("button", { name: "Workspace" });
 
-    expect(personalTab.getAttribute("aria-selected")).toBe("true");
-    expect(workspaceTab.getAttribute("aria-selected")).toBe("false");
+    expect(personalTab.getAttribute("aria-pressed")).toBe("true");
+    expect(workspaceTab.getAttribute("aria-pressed")).toBe("false");
 
     fireEvent.click(workspaceTab);
     expect(onScopeChange).toHaveBeenCalledWith("workspace");
-    expect(workspaceTab.getAttribute("aria-selected")).toBe("true");
+    expect(workspaceTab.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("renders nav list rows and allows selecting active view", () => {
@@ -213,7 +213,7 @@ describe("SessionsSidebar", () => {
     expect(screen.getByText("claude-code-subagent")).toBeTruthy();
   });
 
-  it("groups needs-provider as waiting, ready as running, and never lists the default session", () => {
+  it("groups needs-provider as waiting, keeps idle ready chats in recent, and never lists the default session", () => {
     const sessions: SessionItem[] = [
       { id: "default", title: "Default Session", repoName: "", status: "running", updatedAt: 1 },
       { id: "p-1", title: "Needs a key", repoName: "", status: "needs-provider", updatedAt: 2 },
@@ -225,7 +225,8 @@ describe("SessionsSidebar", () => {
     );
     const within = (name: string) => screen.getByRole("region", { name });
     expect(within("Waiting on you").textContent).toContain("Needs a key");
-    expect(within("Running").textContent).toContain("Ready thread");
+    expect(within("Running").textContent).not.toContain("Ready thread");
+    expect(within("Recent").textContent).toContain("Ready thread");
     expect(within("Recent").textContent).toContain("Old thread");
     expect(screen.queryByText("Default Session")).toBeNull();
   });
@@ -295,8 +296,8 @@ describe("SessionsSidebar", () => {
     const drawerSearch = screen.getByRole("searchbox", { name: "Search sessions" });
     expect(document.activeElement).not.toBe(drawerSearch);
 
-    expect(screen.queryByRole("tab", { name: "Personal" })).toBeNull();
-    expect(screen.queryByRole("tab", { name: "Workspace" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Personal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
     expect(screen.queryByRole("button", { name: "List" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Waiting on you" })).toBeNull();
 

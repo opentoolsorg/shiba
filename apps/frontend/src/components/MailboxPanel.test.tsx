@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MailboxPanel } from "./MailboxPanel";
 
 const json = (value: unknown) => Response.json(value);
@@ -59,7 +59,7 @@ describe("MailboxPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Drafts/i }));
     expect(onSelect).toHaveBeenCalledWith("drafts");
 
-    fireEvent.click(screen.getByRole("tab", { name: "Workspace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
     expect(onScopeChange).toHaveBeenCalledWith("workspace");
   });
 
@@ -91,32 +91,8 @@ describe("MailboxPanel", () => {
     expect(onSelectMailbox).toHaveBeenCalledWith("support@shiba.local");
   });
 
-  it("fetches mailboxes and counts automatically when external data is omitted", async () => {
-    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
-      const path = String(input);
-      if (path === "/api/mailboxes") {
-        return json({
-          mailboxes: [{ address: "auto@shiba.local", label: "Auto Mailbox" }],
-        });
-      }
-      if (path.startsWith("/api/emails")) {
-        return json({
-          emails: [
-            { id: "e1", status: "unread", direction: "inbound", subject: "Test 1" },
-            { id: "e2", status: "read", direction: "outbound", subject: "Test 2" },
-          ],
-        });
-      }
-      if (path.startsWith("/api/drafts")) {
-        return json({
-          drafts: [
-            { id: "d1", status: "draft", subject: "Draft 1" },
-            { id: "d2", status: "queued", subject: "Queued 1" },
-          ],
-        });
-      }
-      return json({});
-    });
+  it("never fetches and shows empty values when data is omitted", () => {
+    const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
 
     render(
@@ -128,8 +104,6 @@ describe("MailboxPanel", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(screen.getByText("Auto Mailbox")).toBeDefined();
-    });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

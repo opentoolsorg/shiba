@@ -105,4 +105,14 @@ describe("TaskHistory", () => {
     const row = screen.getByTestId("task-history-task-1");
     expect(row.className).toContain("rounded-lg");
   });
+
+  it("gives row actions a 44px target below the lg breakpoint", () => {
+    render(
+      <TaskHistory
+        tasks={[{ taskId: "task-1", title: "Deploy worker", updatedAt: 100, attempts: [{ attempt: 1, runId: "run-42", status: "completed", updatedAt: 100 }] }]}
+        onSelectRun={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Open" }).className).toContain("max-lg:min-h-11");
+  });
 });

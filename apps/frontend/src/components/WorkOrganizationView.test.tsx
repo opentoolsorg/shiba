@@ -16,18 +16,23 @@ describe("WorkOrganizationView", () => {
 
     expect(screen.getByTestId("organization-user-card")).toBeDefined();
     expect(screen.getByText("You")).toBeDefined();
-    expect(screen.getByText("Workspace Owner")).toBeDefined();
+    // No role or status data: nothing is invented.
+    expect(screen.queryByText("Workspace Owner")).toBeNull();
+    expect(screen.queryByText("Lead")).toBeNull();
+    expect(screen.queryByText("Active")).toBeNull();
 
     rerender(
       <WorkOrganizationView
         employees={[]}
-        user={{ name: "Alice Wonderland", role: "Head of AI" }}
+        user={{ name: "Alice Wonderland", role: "Head of AI", active: true }}
       />
     );
 
     expect(screen.getByText("Alice Wonderland")).toBeDefined();
     expect(screen.getByText("Head of AI")).toBeDefined();
     expect(screen.getByText("AW")).toBeDefined();
+    expect(screen.queryByText("Lead")).toBeNull();
+    expect(screen.getByText("Active")).toBeDefined();
   });
 
   it("renders the muted empty state when no employees are present", () => {
@@ -95,6 +100,19 @@ describe("WorkOrganizationView", () => {
     const card = screen.getByTestId("employee-card-emp-1");
     fireEvent.click(card);
     expect(onOpen).toHaveBeenCalledWith("emp-1");
+  });
+
+  it("shows an employee status only when it is real data", () => {
+    render(
+      <WorkOrganizationView
+        employees={[
+          { id: "a", name: "Alpha", role: "Engineer", status: "idle" },
+          { id: "b", name: "Beta", role: "Engineer" },
+        ]}
+      />,
+    );
+    expect(screen.getByText("idle")).toBeDefined();
+    expect(screen.queryByText("Ready")).toBeNull();
   });
 
   it("supports employee template and custom agent config shapes", () => {

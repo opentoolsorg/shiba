@@ -5,8 +5,6 @@ export interface ShortcutItem {
   id: string;
   label: string;
   keys: string;
-  /** True if this is an upcoming shortcut planned for the shell agent. */
-  upcoming?: boolean;
 }
 
 export interface ShortcutGroup {
@@ -21,14 +19,14 @@ export const KEYBOARD_SHORTCUT_GROUPS: ShortcutGroup[] = [
       { id: "command", label: "Command menu", keys: "⌘K" },
       { id: "help", label: "Shortcut list", keys: "?" },
       { id: "theme", label: "Toggle theme", keys: "D" },
-      { id: "settings", label: "Settings", keys: "⌥7" },
+      { id: "settings", label: "Settings", keys: "⌘," },
       { id: "escape", label: "Close dialogs", keys: "Esc" },
     ],
   },
   {
     group: "Navigation",
     items: [
-      { id: "rail", label: "Rail items 1–6", keys: "⌥1–6", upcoming: true },
+      { id: "rail", label: "Go to Work, Agents, Chats, Extensions, Mailbox, Memory, Settings", keys: "⌥1–7" },
       { id: "sidebar", label: "Toggle sidebar", keys: "⌘B" },
       { id: "new", label: "New thread", keys: "⌘⇧O" },
       { id: "next", label: "Next thread", keys: "J" },
@@ -38,13 +36,13 @@ export const KEYBOARD_SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     group: "Work",
     items: [
-      { id: "work-new-task", label: "New task (focus add)", keys: "C", upcoming: true },
+      { id: "work-new-task", label: "New task (focus add)", keys: "C" },
     ],
   },
   {
     group: "Chat",
     items: [
-      { id: "chat-focus", label: "Focus composer", keys: "/", upcoming: true },
+      { id: "chat-focus", label: "Focus composer", keys: "/" },
     ],
   },
   {
@@ -96,13 +94,16 @@ export function ShortcutsDialog({
             <p className="text-xs text-[#71717a] dark:text-zinc-400 mt-0.5">
               Available across Shiba and the application shell
             </p>
+            <p className="text-xs text-[#71717a] dark:text-zinc-400 mt-0.5">
+              Single-key shortcuts (?, D, J, K, C, /) only work with no modifier held and no text field focused.
+            </p>
           </div>
           <button
             ref={closeRef}
             type="button"
             onClick={onClose}
             aria-label="Close shortcuts"
-            className="size-7 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors"
+            className="min-h-11 min-w-11 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
           >
             <X className="size-4" aria-hidden="true" />
           </button>
@@ -137,7 +138,7 @@ export function ShortcutsDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg bg-[#0a0a0a] text-white hover:bg-[#27272a] dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 px-3.5 py-1.5 text-xs font-medium transition-colors"
+            className="rounded-lg bg-[#0a0a0a] text-white hover:bg-[#27272a] dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 min-h-11 px-3.5 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
           >
             Done
           </button>

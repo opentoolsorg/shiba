@@ -10,9 +10,10 @@
  *   - Drafts (real drafts count)
  *   - Queued for approval (real queued count)
  * Mailboxes group:
- *   - Lists registered mailboxes from Cloudflare Durable Objects.
+ *   - Lists the mailboxes passed in by the app.
+ * The panel never fetches; the app gates the data on private access.
  */
-import { useCallback, useEffect, useState, type JSX } from "react";
+import type { JSX } from "react";
 import {
   AtSign,
   Clock,
@@ -24,7 +25,7 @@ import {
   Send,
   Settings,
 } from "lucide-react";
-import type { InboxDraft, InboxEmail, InboxMailbox } from "../types";
+import type { InboxMailbox } from "../types";
 import {
   ContextPanel,
   PanelGroup,
@@ -32,8 +33,6 @@ import {
   PanelNavItem,
   type Scope,
 } from "./ui/ContextPanel";
-
-export type MailboxFolder = "inbox" | "unread" | "sent" | "drafts" | "queued";
 
 export interface MailboxCounts {
   inbox: number;
@@ -62,22 +61,13 @@ export interface MailboxPanelProps {
   className?: string;
 }
 
-async function apiJson<T>(path: string): Promise<T> {
-  const response = await fetch(path);
-  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) {
-    throw new Error(typeof body.error === "string" ? body.error : `Request failed: ${response.status}`);
-  }
-  return body;
-}
-
 export function MailboxPanel({
   scope,
   onScopeChange,
   active,
   onSelect,
-  counts: externalCounts,
-  mailboxes: externalMailboxes,
+  counts: providedCounts,
+  mailboxes = [],
   selectedMailbox = "",
   onSelectMailbox,
   onCompose,
@@ -85,54 +75,13 @@ export function MailboxPanel({
   onOpenSettings,
   className = "",
 }: MailboxPanelProps): JSX.Element {
-  const [internalMailboxes, setInternalMailboxes] = useState<InboxMailbox[]>([]);
-  const [internalCounts, setInternalCounts] = useState<MailboxCounts>({
-    inbox: 0,
-    unread: 0,
-    sent: 0,
-    drafts: 0,
-    queued: 0,
-  });
-
-  const mailboxes = externalMailboxes ?? internalMailboxes;
   const counts: MailboxCounts = {
-    inbox: externalCounts?.inbox ?? internalCounts.inbox,
-    unread: externalCounts?.unread ?? internalCounts.unread,
-    sent: externalCounts?.sent ?? internalCounts.sent,
-    drafts: externalCounts?.drafts ?? internalCounts.drafts,
-    queued: externalCounts?.queued ?? internalCounts.queued,
+    inbox: providedCounts?.inbox ?? 0,
+    unread: providedCounts?.unread ?? 0,
+    sent: providedCounts?.sent ?? 0,
+    drafts: providedCounts?.drafts ?? 0,
+    queued: providedCounts?.queued ?? 0,
   };
-
-  const loadData = useCallback(async () => {
-    try {
-      const [mailboxesRes, emailsRes, draftsRes] = await Promise.all([
-        apiJson<{ mailboxes?: InboxMailbox[] }>("/api/mailboxes").catch(() => ({ mailboxes: [] })),
-        apiJson<{ emails?: InboxEmail[] }>("/api/emails?limit=50").catch(() => ({ emails: [] })),
-        apiJson<{ drafts?: InboxDraft[] }>("/api/drafts?limit=50").catch(() => ({ drafts: [] })),
-      ]);
-
-      const mbs = Array.isArray(mailboxesRes.mailboxes) ? mailboxesRes.mailboxes : [];
-      const ems = Array.isArray(emailsRes.emails) ? emailsRes.emails : [];
-      const drs = Array.isArray(draftsRes.drafts) ? draftsRes.drafts : [];
-
-      setInternalMailboxes(mbs);
-      setInternalCounts({
-        inbox: ems.length,
-        unread: ems.filter((e) => e.status === "unread").length,
-        sent: ems.filter((e) => e.direction === "outbound" || e.status === "sent").length,
-        drafts: drs.filter((d) => d.status === "draft").length,
-        queued: drs.filter((d) => d.status === "queued").length,
-      });
-    } catch {
-      // Fallback silently if unauthenticated or offline
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!externalCounts || !externalMailboxes) {
-      void loadData();
-    }
-  }, [externalCounts, externalMailboxes, loadData]);
 
   const countBadge = (val: number, highlight = false) => (
     <span

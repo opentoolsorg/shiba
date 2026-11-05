@@ -71,7 +71,7 @@ import { ApprovalsView } from "./components/ApprovalsView";
 import { InboxTab } from "./components/InboxTab";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { MemoryTab } from "./components/MemoryTab";
-import { SettingsPage, SettingsPanel } from "./components/SettingsPage";
+import { SettingsPage, SettingsPanel, normalizeSettingsSection } from "./components/SettingsPage";
 import { MainCard, type Scope } from "./components/ui/ContextPanel";
 import { AgentsPanel } from "./components/AgentsPanel";
 import { ChatsPanel } from "./components/ChatsPanel";
@@ -375,6 +375,8 @@ function toolRunInput(run: ToolRunRecord): Record<string, unknown> {
 
 type MainView = AppNavView;
 const DEFAULT_VIEW: MainView = "work";
+/** Views that work inside a team workspace; every other view is personal-only. */
+const TEAM_WORKSPACE_VIEWS: readonly string[] = ["team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "settings"];
 
 const VIEW_ALIASES: Record<string, AppNavView> = {
   "run-registry": "analytics",
@@ -521,7 +523,7 @@ export function App(): React.JSX.Element {
   const [automationList, setAutomationList] = useState<AutomationRecord[]>([]);
   // Settings is a full page; the section lives in ?section= and "Back to app" returns to the previous view.
   const [settingsSection, setSettingsSection] = useState<string>(() =>
-    typeof window === "undefined" ? "account" : new URLSearchParams(window.location.search).get("section") || "account");
+    typeof window === "undefined" ? "account" : normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
   const previousViewRef = useRef<MainView>(DEFAULT_VIEW);
   const openView = useCallback((view: AppNavView) => {
     setShowFirstRun(false);
@@ -657,7 +659,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     const onPop = () => {
       const view = viewFromUrl();
       setMainView(view ?? DEFAULT_VIEW);
-      if (view === "settings") setSettingsSection(new URLSearchParams(window.location.search).get("section") || "account");
+      if (view === "settings") setSettingsSection(normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -695,6 +697,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     if (teamWorkspaceId && orchestratorName) rememberLastTeamWorkspace(orchestratorName.trim().toLowerCase(), teamWorkspaceId);
   }, [teamWorkspaceId, orchestratorName]);
   const teamWorkspace = teamDirectory.workspaces.find(item => item.workspaceId === teamWorkspaceId);
+  useEffect(() => {
+    setMailboxCounts({});
+    setMailboxes([]);
+    setMemoryCounts({});
+  }, [orchestratorName]);
   const privateDataEnabled = signedIn && workspaceAuthorityReady && !teamDirectory.error && !teamWorkspaceId && !restrictedTeamMember;
   const scope: Scope = teamWorkspaceId ? "workspace" : "personal";
   const handleScopeChange = (next: Scope) => {
@@ -2576,8 +2583,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const panelProps = { scope, onScopeChange: handleScopeChange } as const;
   const isNavId = (id: string): id is AppNavView => APP_NAV_ITEMS.some((item) => item.id === id);
   const privateData = privateDataEnabled && sessionRegistryOwner === orchestratorName;
+  const personalOnlyNotice = Boolean(teamWorkspaceId) && !TEAM_WORKSPACE_VIEWS.includes(mainView);
+  const noMailboxCounts: Partial<MailboxCounts> = {};
+  const noMemoryCounts: Partial<MemoryCounts> = {};
   let destinationPanel: React.ReactNode = null;
-  if (mainView === "custom-agents" || mainView === "employee-tools" || mainView === "swarm" || mainView === "tasks") {
+  if (personalOnlyNotice) {
+    destinationPanel = null;
+  } else if (mainView === "custom-agents" || mainView === "employee-tools" || mainView === "swarm" || mainView === "tasks") {
     destinationPanel = (
       <AgentsPanel
         {...panelProps}
@@ -2587,7 +2599,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         threads={visibleWebSessions}
         ownerName={orchestratorName ?? undefined}
         workspaceName={teamWorkspace?.name}
-        onSelectAgent={() => openView("custom-agents")}
+        onSelectAgent={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
         onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
         onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
         onNewAgent={() => openView("custom-agents")}
@@ -2599,6 +2611,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         {...panelProps}
         active={selectedRunId ?? selectedSessionId}
         onSelect={(id) => { void handleSelectSession(id); openView("threads"); }}
+        showWorkspaceGroups={false}
         sessions={privateData ? sessions : []}
         onNewChat={() => { void handleNewTask(); }}
         onSearchClick={() => setCommandMenuOpen(true)}
@@ -2612,14 +2625,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         {...panelProps}
         active={mailboxFolder}
         onSelect={setMailboxFolder}
-        counts={teamWorkspaceId ? undefined : mailboxCounts}
-        mailboxes={teamWorkspaceId ? [] : mailboxes}
+        counts={privateData ? mailboxCounts : noMailboxCounts}
+        mailboxes={privateData ? mailboxes : []}
         selectedMailbox={mailboxAddress}
         onSelectMailbox={setMailboxAddress}
       />
     );
   } else if (mainView === "memory") {
-    destinationPanel = <MemoryPanel {...panelProps} active={memoryView} onSelect={(id) => setMemoryView(id as "facts" | "sources" | "sessions")} counts={teamWorkspaceId ? undefined : memoryCounts} />;
+    destinationPanel = <MemoryPanel {...panelProps} active={memoryView} onSelect={(id) => setMemoryView(id as "facts" | "sources" | "sessions")} counts={privateData ? memoryCounts : noMemoryCounts} projects={[]} />;
   } else if (["dashboard", "analytics", "activity", "diff", "approvals"].includes(mainView)) {
     destinationPanel = <InsightsPanel {...panelProps} active={mainView} onSelect={(id) => { if (isNavId(id)) openView(id); }} pendingApprovalsCount={teamWorkspaceId ? 0 : pendingApprovals.length + visibleStoredApprovals.length} />;
   } else if (mainView === "automations") {
@@ -2840,6 +2853,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 onSelectFolder={setMailboxFolder}
                 mailboxFilter={mailboxAddress}
                 onSelectMailbox={setMailboxAddress}
+                showFolderSwitcher={sessionsCollapsed}
                 onCountsChange={setMailboxCounts}
                 onMailboxesChange={(items) => setMailboxes(items.map((item) => ({ ...item, label: item.label ?? undefined })))}
                 onOpenApprovals={() => setMainView("approvals")}
@@ -2859,7 +2873,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <TeamWorkspaceView actorId={orchestratorName?.trim().toLowerCase() ?? null} invitationToken={invitationToken}
               onInvitationAccepted={(id) => { setInvitationToken(""); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }}
               onSelectWorkspace={(id) => { void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }} onChanged={() => { void teamDirectory.refresh(); }} />
-          ) : teamWorkspaceId && !["team", "work", "threads", "collaboration", "custom-agents", "skills", "providers"].includes(mainView) ? (
+          ) : personalOnlyNotice ? (
             <section className="m-4 min-w-0 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal workspace feature"><h1 className="text-xl font-medium">Open this feature in your personal workspace</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">This view uses personal or deployment settings. Team messages, context and results stay in the selected team’s shared chat and Work views.</p><button type="button" className="mt-4 min-h-11 border border-[var(--border-1)] px-4" onClick={() => teamDirectory.selectWorkspace("")}>Switch to personal workspace</button><button type="button" className="ml-3 min-h-11 border border-[var(--border-1)] px-4" onClick={() => openView("threads")}>Open team chat</button></section>
           ) : mainView === "inbox" ? null : mainView === "work" ? (
             <div className="flex min-h-0 flex-1 p-2 gap-2 bg-[var(--bg)] overflow-hidden">
@@ -3668,6 +3682,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <SettingsPage
               key={orchestratorName ?? "signed-out"}
               withPanel={false}
+              showSectionSwitcher={sessionsCollapsed}
+              onOpenPersonalWorkspace={teamWorkspaceId ? () => teamDirectory.selectWorkspace("") : undefined}
               section={settingsSection}
               onSectionChange={setSettingsSection}
               onBack={closeSettings}

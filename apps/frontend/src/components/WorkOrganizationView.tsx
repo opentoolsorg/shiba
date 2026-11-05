@@ -27,6 +27,8 @@ export interface OrganizationUser {
   role?: string;
   avatar?: string;
   email?: string;
+  /** Set only when the app knows the user is currently active. */
+  active?: boolean;
 }
 
 export interface WorkOrganizationViewProps {
@@ -82,7 +84,7 @@ export function WorkOrganizationView({
   className = "",
 }: WorkOrganizationViewProps): JSX.Element {
   const userName = user?.name || "You";
-  const userRole = user?.role || "Workspace Owner";
+  const userRole = user?.role;
   const userInitial = getInitial(userName);
 
   const grouped = useMemo(() => {
@@ -126,22 +128,23 @@ export function WorkOrganizationView({
                   <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">
                     {userName}
                   </h3>
-                  <span className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200/80 dark:border-zinc-700/80">
-                    Lead
-                  </span>
                 </div>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate mt-0.5">
-                  {userRole}
-                </p>
+                {userRole ? (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate mt-0.5">
+                    {userRole}
+                  </p>
+                ) : null}
               </div>
             </div>
 
-            <div className="text-right shrink-0">
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--success-fg)] bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200/60 dark:border-emerald-800/40">
-                <CheckCircle2 className="size-3" />
-                Active
-              </span>
-            </div>
+            {user?.active ? (
+              <div className="text-right shrink-0">
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--success-fg)] bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200/60 dark:border-emerald-800/40">
+                  <CheckCircle2 className="size-3" />
+                  Active
+                </span>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -259,11 +262,13 @@ export function WorkOrganizationView({
                               <span className="size-1.5 rounded-full bg-current opacity-80" />
                               {taskCount} {taskCount === 1 ? "task" : "tasks"}
                             </span>
-                          ) : (
-                            <span className="text-[11px] text-zinc-400 dark:text-zinc-500 inline-flex items-center gap-1">
-                              <Bot className="size-3" />
-                              Ready
+                          ) : employee.status ? (
+                            <span className="text-[11px] text-zinc-500 dark:text-zinc-400 inline-flex items-center gap-1 capitalize">
+                              <Bot className="size-3" aria-hidden="true" />
+                              {employee.status}
                             </span>
+                          ) : (
+                            <span />
                           )}
 
                           <span className="text-[11px] font-medium text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors">

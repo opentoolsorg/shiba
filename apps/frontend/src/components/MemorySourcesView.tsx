@@ -54,11 +54,11 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const FIELD =
-  "w-full border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400";
+  "w-full border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400 touch:min-h-11";
 const BUTTON =
-  "border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-[#0a0a0a] dark:text-zinc-100 rounded-lg hover:bg-[#f4f4f5] dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors";
+  "border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-[#0a0a0a] dark:text-zinc-100 rounded-lg hover:bg-[#f4f4f5] dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 const PRIMARY =
-  "bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-xs font-medium rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors shadow-xs";
+  "bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-xs font-medium rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors shadow-xs touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 const KINDS: SourceKind[] = ["note", "document", "conversation", "reference", "other"];
 
 export function MemorySourcesView(): JSX.Element {
@@ -343,7 +343,7 @@ export function MemorySourcesView(): JSX.Element {
       <header className="border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 shadow-xs overflow-hidden">
         <div className="flex items-center justify-between border-b border-[#e4e4e7] dark:border-zinc-800 bg-[#fafafa] dark:bg-zinc-800/60 px-4 py-2.5 text-xs font-mono text-[#71717a] dark:text-zinc-400">
           <span>WORKSPACE MEMORY · OWNER PRIVATE</span>
-          <button className="text-[11px] underline hover:text-[#0a0a0a] dark:hover:text-zinc-100 transition-colors" onClick={() => void load()} type="button">
+          <button className="text-[11px] underline hover:text-[#0a0a0a] dark:hover:text-zinc-100 transition-colors touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]" onClick={() => void load()} type="button">
             Sync
           </button>
         </div>
@@ -377,7 +377,7 @@ export function MemorySourcesView(): JSX.Element {
         <h3 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100">Upload source file</h3>
         <p className="text-xs text-[#71717a] dark:text-zinc-400">TXT and Markdown only, UTF-8, at most 40000 bytes. PDF, Office, archives, HTML and SVG are unsupported. Files become ready after validation and private storage succeed. Recall expiry excludes text; original files remain stored until Delete.</p>
         <label className="text-xs font-medium text-[#71717a] dark:text-zinc-400 flex flex-col gap-1.5">TXT or Markdown file
-          <input ref={uploadInput} type="file" accept=".txt,.md,text/plain,text/markdown" disabled={busy} onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} className="text-xs text-[#71717a] dark:text-zinc-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-[#f4f4f5] dark:file:bg-zinc-800 file:text-[#0a0a0a] dark:file:text-zinc-100 hover:file:bg-zinc-200 dark:hover:file:bg-zinc-700" />
+          <input ref={uploadInput} type="file" accept=".txt,.md,text/plain,text/markdown" disabled={busy} onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} className="text-xs text-[#71717a] dark:text-zinc-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-[#f4f4f5] dark:file:bg-zinc-800 file:text-[#0a0a0a] dark:file:text-zinc-100 hover:file:bg-zinc-200 dark:hover:file:bg-zinc-700 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]" />
         </label>
         <div className="flex justify-start pt-1">
           <button type="submit" disabled={busy || !uploadFile} className={PRIMARY}>{uploadBusy.current ? "Validating and storing…" : "Upload file"}</button>
@@ -386,7 +386,7 @@ export function MemorySourcesView(): JSX.Element {
       {cleanupPending.length ? <section aria-label="Pending file cleanup" className="border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 rounded-xl p-3.5 text-xs">
         <p className="text-amber-800 dark:text-amber-300 font-medium">These removed or uncommitted file versions are excluded from retrieval. Stored file deletion is pending.</p>
         <div className="mt-2 flex flex-col gap-1">
-          {cleanupPending.map((item) => <p key={item.id} className="flex items-center gap-2">{item.filename} <button type="button" disabled={busy} className={BUTTON} onClick={() => void retryCleanup(item.id)}>Retry file cleanup</button></p>)}
+          {cleanupPending.map((item) => <p key={item.id} className="flex items-center gap-2 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]">{item.filename} <button type="button" disabled={busy} className={BUTTON} onClick={() => void retryCleanup(item.id)}>Retry file cleanup</button></p>)}
         </div>
       </section> : null}
       {uploadsPending.length ? <section aria-label="Unresolved uploads" className="border border-[#e4e4e7] dark:border-zinc-800 bg-[#fafafa] dark:bg-zinc-900 rounded-xl p-3.5 text-xs text-[#71717a] dark:text-zinc-400">
@@ -408,7 +408,7 @@ export function MemorySourcesView(): JSX.Element {
             <input
               required
               maxLength={200}
-              className={`${FIELD} mt-1`}
+              className={`${FIELD} mt-1 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
               value={title}
               onChange={(event) => setTitle(event.target.value)}
             />
@@ -416,7 +416,7 @@ export function MemorySourcesView(): JSX.Element {
           <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
             SOURCE TYPE
             <select
-              className={`${FIELD} mt-1`}
+              className={`${FIELD} mt-1 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
               value={kind}
               onChange={(event) => setKind(event.target.value as SourceKind)}
             >
@@ -433,7 +433,7 @@ export function MemorySourcesView(): JSX.Element {
               required
               maxLength={40_000}
               rows={7}
-              className={`${FIELD} mt-1 resize-y font-sans`}
+              className={`${FIELD} mt-1 resize-y font-sans touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
               value={content}
               onChange={(event) => setContent(event.target.value)}
               placeholder="Paste a note or the relevant text here. Shiba does not fetch linked pages."
@@ -447,7 +447,7 @@ export function MemorySourcesView(): JSX.Element {
             <input
               type="url"
               pattern="https://.*"
-              className={`${FIELD} mt-1 font-sans`}
+              className={`${FIELD} mt-1 font-sans touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
               value={referenceUrl}
               onChange={(event) => setReferenceUrl(event.target.value)}
               placeholder="https://…"
@@ -456,7 +456,7 @@ export function MemorySourcesView(): JSX.Element {
           <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
             RETENTION
             <select
-              className={`${FIELD} mt-1`}
+              className={`${FIELD} mt-1 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
               value={retentionDays}
               onChange={(event) => setRetentionDays(event.target.value)}
             >
@@ -489,7 +489,7 @@ export function MemorySourcesView(): JSX.Element {
               QUERY
               <input
                 required
-                className={`${FIELD} mt-1 font-sans`}
+                className={`${FIELD} mt-1 font-sans touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search these private sources"
@@ -577,7 +577,7 @@ export function MemorySourcesView(): JSX.Element {
               required
               maxLength={120}
               aria-label="Project name"
-              className={`${FIELD} mt-1 font-sans`}
+              className={`${FIELD} mt-1 font-sans touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
               value={projectName}
               onChange={(event) => setProjectName(event.target.value)}
             />
@@ -587,7 +587,7 @@ export function MemorySourcesView(): JSX.Element {
             <textarea
               maxLength={1000}
               aria-label="Project purpose"
-              className={`${FIELD} mt-1 font-sans resize-y`}
+              className={`${FIELD} mt-1 font-sans resize-y touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
               rows={2}
               value={projectPurpose}
               onChange={(event) => setProjectPurpose(event.target.value)}
@@ -615,7 +615,7 @@ export function MemorySourcesView(): JSX.Element {
                       }
                     />
                     <span>{source.title}</span>
-                    {active ? "" : <span className="text-[#71717a] dark:text-zinc-500">· unavailable</span>}
+                    {active ? "" : <span className="text-[#71717a] dark:text-zinc-500 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]">· unavailable</span>}
                   </label>
                 );
               })
@@ -628,7 +628,7 @@ export function MemorySourcesView(): JSX.Element {
             <input
               maxLength={128}
               aria-label="Default employee ID"
-              className={`${FIELD} mt-1 font-sans`}
+              className={`${FIELD} mt-1 font-sans touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
               value={projectAgent}
               onChange={(event) => setProjectAgent(event.target.value)}
               placeholder="Optional; apply explicitly in composer"
@@ -639,7 +639,7 @@ export function MemorySourcesView(): JSX.Element {
             <input
               maxLength={64}
               aria-label="Default harness"
-              className={`${FIELD} mt-1 font-sans`}
+              className={`${FIELD} mt-1 font-sans touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
               value={projectHarness}
               onChange={(event) => setProjectHarness(event.target.value)}
               placeholder="Optional; apply explicitly in composer"
@@ -750,7 +750,7 @@ export function MemorySourcesView(): JSX.Element {
                     <button
                       type="button"
                       disabled={busy}
-                      className="border border-rose-200 dark:border-rose-900 px-2.5 py-1 text-xs text-rose-600 dark:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors"
+                      className="border border-rose-200 dark:border-rose-900 px-2.5 py-1 text-xs text-rose-600 dark:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                       onClick={() => void remove(source)}
                     >
                       Delete

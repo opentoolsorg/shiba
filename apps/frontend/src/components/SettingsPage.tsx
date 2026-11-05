@@ -214,7 +214,18 @@ export interface SettingsPageProps extends Partial<TeamWorkspaceViewProps> {
   onScopeChange?: (s: Scope) => void;
   /** When true, renders SettingsPanel + MainCard side by side. Defaults to false. */
   withPanel?: boolean;
+  /** Show the section switcher at every width (the context panel is collapsed). Below lg it always shows. */
+  showSectionSwitcher?: boolean;
+  /** In a team workspace only Team settings apply; other sections show a notice with this action. */
+  onOpenPersonalWorkspace?: () => void;
   className?: string;
+}
+
+const SETTINGS_PAGE_SECTION_IDS: readonly string[] = SETTINGS_PAGE_NAV_GROUPS.flatMap((group) => group.items.map((item) => item.id));
+
+/** Returns `id` when it names a known settings section, otherwise "account". */
+export function normalizeSettingsSection(id: string | null | undefined): string {
+  return id && SETTINGS_PAGE_SECTION_IDS.includes(id) ? id : "account";
 }
 
 function getSectionLabel(id: string): string {
@@ -249,6 +260,8 @@ export function SettingsPage({
   onOpenChat,
   onOpenWork,
   withPanel = false,
+  showSectionSwitcher = false,
+  onOpenPersonalWorkspace,
   className = "",
 }: SettingsPageProps): JSX.Element {
   const [internalSection, setInternalSection] = useState(initialSection);
@@ -265,7 +278,7 @@ export function SettingsPage({
   const currentLabel = getSectionLabel(activeSection);
 
   const mainCardContent = (
-    <MainCard className="h-full">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {/* 48px standard header row */}
       <header className="h-12 min-h-[48px] w-full px-5 flex items-center justify-between border-b border-[#e4e4e7] dark:border-zinc-800 shrink-0 bg-white dark:bg-[#121214] select-none">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs min-w-0">
@@ -294,9 +307,42 @@ export function SettingsPage({
         ) : null}
       </header>
 
+      {/* Compact section switcher: phones and a collapsed context panel */}
+      <div className={`shrink-0 border-b border-[#e4e4e7] px-4 py-2 dark:border-zinc-800 ${showSectionSwitcher ? "" : "lg:hidden"}`}>
+        <label className="flex items-center gap-2 text-xs text-[#71717a] dark:text-zinc-400">
+          <span className="shrink-0">Section</span>
+          <select
+            aria-label="Settings section"
+            value={SETTINGS_PAGE_SECTION_IDS.includes(activeSection) ? activeSection : "account"}
+            onChange={(event) => handleSectionChange(event.target.value)}
+            className="min-h-11 min-w-0 flex-1 rounded-lg border border-[#e4e4e7] bg-white px-2 text-sm text-[#0a0a0a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+          >
+            {SETTINGS_PAGE_NAV_GROUPS.map((group) => (
+              <optgroup key={group.heading} label={group.heading}>
+                {group.items.map((item) => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+      </div>
+
       {/* Body content based on section */}
       <div className="flex-1 overflow-y-auto">
-        {activeSection === "team" ? (
+        {onOpenPersonalWorkspace && activeSection !== "team" ? (
+          <section aria-label="Personal workspace setting" className="m-6 max-w-xl text-sm text-[#0a0a0a] dark:text-zinc-100">
+            <h2 className="text-base font-medium">Open this setting in your personal workspace</h2>
+            <p className="mt-2 text-[#71717a] dark:text-zinc-400">{currentLabel} applies to your account or this deployment, not to the selected team.</p>
+            <button
+              type="button"
+              onClick={onOpenPersonalWorkspace}
+              className="mt-4 min-h-11 rounded-lg border border-[#e4e4e7] px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] dark:border-zinc-800"
+            >
+              Switch to personal workspace
+            </button>
+          </section>
+        ) : activeSection === "team" ? (
           <TeamWorkspaceView
             actorId={actorId ?? null}
             workspaceId={workspaceId}
@@ -319,7 +365,7 @@ export function SettingsPage({
           </div>
         )}
       </div>
-    </MainCard>
+    </div>
   );
 
   if (withPanel) {
@@ -332,7 +378,7 @@ export function SettingsPage({
           scope={scope}
           onScopeChange={onScopeChange}
         />
-        {mainCardContent}
+        <MainCard className="h-full">{mainCardContent}</MainCard>
       </div>
     );
   }

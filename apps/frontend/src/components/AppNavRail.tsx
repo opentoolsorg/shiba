@@ -240,13 +240,19 @@ const CURATED_WORKFLOWS = [
   },
 ];
 
-const RAIL_MORE_ITEMS: { id: AppNavView; label: string; icon: LucideIcon }[] = [
-  { id: "integrations", label: "Extensions", icon: Blocks },
-  { id: "inbox", label: "Mailbox", icon: Inbox },
-  { id: "memory", label: "Memory", icon: Brain },
-  { id: "automations", label: "Automations", icon: Zap },
-  { id: "dashboard", label: "Insights", icon: LayoutDashboard },
-];
+const RAIL_MORE_ITEMS: { id: AppNavView; label: string; icon: LucideIcon }[] = (
+  [
+    { id: "integrations", label: "Extensions", icon: Blocks },
+    { id: "inbox", icon: Inbox },
+    { id: "memory", icon: Brain },
+    { id: "automations", icon: Zap },
+    { id: "dashboard", label: "Insights", icon: LayoutDashboard },
+  ] as { id: AppNavView; label?: string; icon: LucideIcon }[]
+).map(({ id, label, icon }) => ({
+  id,
+  icon,
+  label: label ?? APP_NAV_ITEMS.find((item) => item.id === id)?.label ?? id,
+}));
 
 const AGENTS_VIEWS: AppNavView[] = ["custom-agents", "employee-tools", "swarm", "tasks"];
 const CHATS_VIEWS: AppNavView[] = ["threads", "collaboration"];
@@ -340,8 +346,26 @@ export function AppNavRail({
         setTeamMenuOpen(false);
       }
     }
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      for (const [ref, close] of [
+        [moreRef, setMoreMenuOpen],
+        [accountRef, setAccountMenuOpen],
+        [teamRef, setTeamMenuOpen],
+      ] as const) {
+        const trigger = ref.current?.querySelector<HTMLElement>("[aria-haspopup]");
+        if (trigger?.getAttribute("aria-expanded") === "true") {
+          close(false);
+          trigger.focus();
+        }
+      }
+    }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
   }, []);
 
   const filteredSessions = useMemo(() => {
@@ -413,10 +437,7 @@ export function AppNavRail({
           }
         }}
       >
-        <nav
-          aria-label="App Icon Rail"
-          className="w-full h-full flex flex-col items-center justify-between"
-        >
+        <div className="w-full h-full flex flex-col items-center justify-between">
           {/* Top: Round logo mark + Primary items (Work, Agents, Chat, More) */}
           <div className="flex flex-col items-center gap-3 w-full">
             <Tooltip content="Shiba Home" side="right">
@@ -433,7 +454,7 @@ export function AppNavRail({
               </a>
             </Tooltip>
 
-            <nav aria-label="Primary navigation" className="w-full">
+            <nav aria-label="App Icon Rail" className="w-full">
               <ul className="flex flex-col items-center gap-1.5 w-full list-none p-0 m-0">
                 {/* Work */}
                 <li>
@@ -550,7 +571,7 @@ export function AppNavRail({
                   onClick={toggleSidebar}
                   aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                   aria-expanded={!collapsed}
-                  aria-controls={sidebarPanelId || navigationId}
+                  aria-controls={sidebarPanelId ? (collapsed ? undefined : sidebarPanelId) : navigationId}
                   className={`${railBtnBase} ${railBtnInactive}`}
                 >
                   <PanelLeft className="size-5" strokeWidth={1.8} aria-hidden="true" />
@@ -660,7 +681,7 @@ export function AppNavRail({
                           onOpenSetup();
                           setAccountMenuOpen(false);
                         }}
-                        className="w-full flex items-center justify-between px-3 py-2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)] transition-colors"
+                        className="w-full flex items-center justify-between px-3 py-2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
                       >
                         <span>Setup</span>
                         <span className="text-[11px] text-[var(--primary)] font-mono">
@@ -704,7 +725,7 @@ export function AppNavRail({
                           onSignOut();
                           setAccountMenuOpen(false);
                         }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-[var(--destructive-fg)] hover:bg-[var(--destructive-soft)] transition-colors border-t border-[var(--border-1)] mt-1"
+                        className="w-full flex items-center gap-2 px-3 py-2 text-[var(--destructive-fg)] hover:bg-[var(--destructive-soft)] transition-colors border-t border-[var(--border-1)] mt-1 focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
                       >
                         <LogOut className="size-3.5" />
                         <span>Sign out</span>
@@ -715,7 +736,7 @@ export function AppNavRail({
               ) : null}
             </div>
           </div>
-        </nav>
+        </div>
       </aside>
     );
   }
@@ -1517,7 +1538,7 @@ export function AppNavRail({
                         setAccountMenuOpen(false);
                         if (variant === "sheet") onClose?.();
                       }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-[var(--destructive-fg)] hover:bg-[var(--destructive-soft)] transition-colors border-t border-[var(--border-1)] mt-1"
+                      className="w-full flex items-center gap-2 px-3 py-2 text-[var(--destructive-fg)] hover:bg-[var(--destructive-soft)] transition-colors border-t border-[var(--border-1)] mt-1 focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
                     >
                       <LogOut className="size-3.5" />
                       <span>Sign out</span>

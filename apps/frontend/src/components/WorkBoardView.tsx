@@ -26,8 +26,6 @@ export interface WorkBoardTask {
   attempts?: TaskHistoryAttempt[];
 }
 
-export type WorkBoardItem = WorkBoardTask | TaskHistoryItem;
-
 export interface WorkBoardViewProps {
   tasks: (WorkBoardTask | TaskHistoryItem)[];
   onOpen: (id: string) => void;
@@ -156,10 +154,6 @@ export function deriveKanbanColumn(status: string): KanbanColumnId {
     case "done":
       return "done";
 
-    case "submitting":
-    case "pending":
-    case "ready":
-    case "todo":
     default:
       return "todo";
   }
@@ -239,8 +233,6 @@ function getTaskBadge(status: string) {
         icon: LoaderCircle,
         spin: true,
       };
-    case "pending":
-    case "ready":
     default:
       return {
         label: statusLabel(s),
@@ -370,7 +362,7 @@ export function WorkBoardView({
                             </div>
                           </div>
                         </div>
-                        {col.id === "needs_approval" && onReview ? (
+                        {col.id === "needs_approval" && task.status !== "needs-provider" && onReview ? (
                           <button
                             type="button"
                             onClick={() => onReview(task.id)}

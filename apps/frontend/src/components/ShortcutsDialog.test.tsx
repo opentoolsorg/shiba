@@ -17,6 +17,16 @@ describe("ShortcutsDialog", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("lists the implemented rail, work and chat shortcuts without upcoming markers", () => {
+    render(<ShortcutsDialog open onClose={vi.fn()} />);
+    expect(screen.getByText("⌥1–7")).toBeTruthy();
+    expect(screen.getByText("⌘,")).toBeTruthy();
+    expect(screen.getByText("C")).toBeTruthy();
+    expect(screen.getByText("/")).toBeTruthy();
+    expect(screen.queryByText(/upcoming/i)).toBeNull();
+    expect(screen.getByText(/Single-key shortcuts/)).toBeTruthy();
+  });
+
   it("renders nothing while closed", () => {
     const { container } = render(<ShortcutsDialog open={false} onClose={vi.fn()} />);
     expect(container.firstChild).toBeNull();

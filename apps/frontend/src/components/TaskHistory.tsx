@@ -1,4 +1,3 @@
-import React from "react";
 import {
   AlertCircle,
   Ban,
@@ -193,7 +192,7 @@ export function TaskHistory({
                 data-testid={`task-history-${task.taskId}`}
                 className="group flex flex-col rounded-lg transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/50"
               >
-                <div className="flex h-9 min-h-[36px] items-center justify-between gap-3 px-2.5">
+                <div className="flex min-h-[36px] items-center justify-between gap-3 px-2.5">
                   <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <TaskStatusIcon status={latest.status} />
                     <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
@@ -212,7 +211,7 @@ export function TaskHistory({
                       <button
                         type="button"
                         onClick={() => onSelectRun(latestRunId)}
-                        className="rounded px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-700"
+                        className="inline-flex items-center rounded px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-700 max-lg:min-h-11 max-lg:min-w-11 max-lg:justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                       >
                         Open
                       </button>
@@ -222,7 +221,7 @@ export function TaskHistory({
                       <button
                         type="button"
                         onClick={() => onCancel(task.taskId, latest.attempt)}
-                        className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-[var(--destructive-fg)] hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                        className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-[var(--destructive-fg)] hover:bg-rose-50 dark:hover:bg-rose-950/30 max-lg:min-h-11 max-lg:min-w-11 max-lg:justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                       >
                         <Square size={12} aria-hidden="true" /> Cancel
                       </button>
@@ -232,7 +231,7 @@ export function TaskHistory({
                       <button
                         type="button"
                         onClick={() => onRetry(task.taskId)}
-                        className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30"
+                        className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30 max-lg:min-h-11 max-lg:min-w-11 max-lg:justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                       >
                         <RotateCcw size={12} aria-hidden="true" /> Retry
                       </button>

@@ -4,7 +4,7 @@ import { ChevronDown } from "lucide-react";
 export type Scope = "personal" | "workspace";
 
 const iconButton =
-  "size-7 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400";
+  "size-7 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 
 export function PanelIconButton({ label, onClick, children }: { label: string; onClick?: () => void; children: ReactNode }): JSX.Element {
   return <button type="button" aria-label={label} title={label} onClick={onClick} className={iconButton}>{children}</button>;
@@ -34,10 +34,10 @@ export function ContextPanel({ title, actions, scope, onScopeChange, children, c
 export function ScopeSwitch({ scope, onChange, label }: { scope: Scope; onChange: (scope: Scope) => void; label: string }): JSX.Element {
   return (
     <div className="shrink-0 px-3 pb-3">
-      <div role="tablist" aria-label={label} className="flex h-8 items-center gap-0.5 rounded-md bg-[#f4f4f5] p-0.5 dark:bg-zinc-800/80">
+      <div role="group" aria-label={label} className="flex items-center gap-0.5 rounded-md bg-[#f4f4f5] p-0.5 dark:bg-zinc-800/80">
         {(["personal", "workspace"] as const).map((value) => (
-          <button key={value} type="button" role="tab" aria-selected={scope === value} onClick={() => onChange(value)}
-            className={`flex h-7 flex-1 items-center justify-center rounded text-[12px] font-medium transition-all ${scope === value ? "bg-white text-[#0a0a0a] shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:bg-zinc-900 dark:text-zinc-100" : "text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-200"}`}>
+          <button key={value} type="button" aria-pressed={scope === value} onClick={() => onChange(value)}
+            className={`flex min-h-11 flex-1 items-center justify-center rounded text-[12px] font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${scope === value ? "bg-white text-[#0a0a0a] shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:bg-zinc-900 dark:text-zinc-100" : "text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-200"}`}>
             {value === "personal" ? "Personal" : "Workspace"}
           </button>
         ))}
@@ -56,7 +56,7 @@ export function PanelNavItem({ icon: Icon, label, active = false, disabled = fal
 }): JSX.Element {
   return (
     <button type="button" onClick={onClick} disabled={disabled} aria-current={active ? "page" : undefined}
-      className={`flex h-[34px] w-full items-center gap-3 rounded-lg px-2.5 text-left text-[14px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${active ? "bg-[#e4e4e7] font-medium text-[#0a0a0a] dark:bg-zinc-800 dark:text-zinc-100" : "text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100"}`}>
+      className={`flex h-[34px] w-full items-center gap-3 rounded-lg px-2.5 text-left text-[14px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${active ? "bg-[#e4e4e7] font-medium text-[#0a0a0a] dark:bg-zinc-800 dark:text-zinc-100" : "text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100"}`}>
       {Icon ? <Icon className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" /> : null}
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {trailing}
@@ -78,7 +78,7 @@ export function PanelGroup({ label, emptyText, action, defaultOpen = true, child
     <section aria-label={label} className="mt-4 flex flex-col first:mt-1">
       <div className="flex items-center justify-between px-1">
         <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
-          className="flex w-fit items-center gap-1.5 rounded py-0.5 text-[12px] font-medium text-[#71717a] hover:text-[#0a0a0a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:text-zinc-100">
+          className="flex w-fit items-center gap-1.5 rounded py-0.5 text-[12px] font-medium text-[#71717a] hover:text-[#0a0a0a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] dark:text-zinc-400 dark:hover:text-zinc-100">
           {label}
           <ChevronDown className={`size-3 transition-transform duration-150 ${open ? "" : "-rotate-90"}`} strokeWidth={2} aria-hidden="true" />
         </button>

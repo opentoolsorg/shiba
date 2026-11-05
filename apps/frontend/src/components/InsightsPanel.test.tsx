@@ -23,7 +23,7 @@ describe("InsightsPanel", () => {
     expect(screen.getByRole("heading", { name: "Insights" })).toBeTruthy();
 
     // Check scope switch
-    const workspaceTab = screen.getByRole("tab", { name: "Workspace" });
+    const workspaceTab = screen.getByRole("button", { name: "Workspace" });
     fireEvent.click(workspaceTab);
     expect(onScopeChange).toHaveBeenCalledWith("workspace");
 

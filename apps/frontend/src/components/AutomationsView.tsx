@@ -125,7 +125,7 @@ export function AutomationsPanel({
             type="button"
             onClick={onNewAutomation}
             aria-label="New automation"
-            className="flex size-7 items-center justify-center rounded-md text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] transition-colors dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            className="flex size-7 items-center justify-center rounded-md text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] transition-colors dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
           >
             <Plus className="size-4" aria-hidden="true" />
           </button>
@@ -222,6 +222,11 @@ export function AutomationsView({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tab, setTab] = useState<"automations" | "recipes" | "triggers">("automations");
   const [query, setQuery] = useState("");
+  useEffect(() => {
+    if (selectedAutomationId === "automations" || selectedAutomationId === "recipes" || selectedAutomationId === "triggers") {
+      setTab(selectedAutomationId);
+    }
+  }, [selectedAutomationId]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const copyTimerRef = useRef<number | null>(null);
@@ -360,7 +365,7 @@ export function AutomationsView({
               onClick={onToggleSidebar}
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-expanded={!sidebarCollapsed}
-              className="flex size-7 items-center justify-center rounded-md text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              className="flex size-7 items-center justify-center rounded-md text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 touch:min-h-11"
             >
               <PanelLeft className="size-4" strokeWidth={1.75} aria-hidden="true" />
             </button>
@@ -399,7 +404,7 @@ export function AutomationsView({
               placeholder="Search automations…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="h-8 w-36 sm:w-48 rounded-lg border border-[#e4e4e7] bg-white pl-8 pr-2.5 text-xs text-[#0a0a0a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+              className="h-8 w-36 sm:w-48 rounded-lg border border-[#e4e4e7] bg-white pl-8 pr-2.5 text-xs text-[#0a0a0a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 touch:min-h-11"
             />
           </label>
 
@@ -413,9 +418,9 @@ export function AutomationsView({
                 key={value}
                 type="button"
                 aria-pressed={tab === value}
-                onClick={() => setTab(value)}
+                onClick={() => { setTab(value); onSelectAutomation?.(value); }}
                 className={
-                  "rounded px-2.5 py-1 text-xs capitalize transition-colors " +
+                  "rounded px-2.5 py-1 text-xs capitalize transition-colors  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]" +
                   (tab === value
                     ? "bg-white font-medium text-[#0a0a0a] shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:bg-zinc-900 dark:text-zinc-100"
                     : "text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-200")
@@ -432,7 +437,7 @@ export function AutomationsView({
               setQuery("");
               setTab("recipes");
             }}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-[13px] font-medium text-[#0a0a0a] transition-colors hover:bg-[#f4f4f5] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-[13px] font-medium text-[#0a0a0a] transition-colors hover:bg-[#f4f4f5] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 touch:min-h-11"
           >
             <Plus className="size-3.5" aria-hidden="true" />
             New automation
@@ -472,7 +477,7 @@ export function AutomationsView({
                         if (rec) setQuery(rec.name);
                         setTab("recipes");
                       }}
-                      className="rounded-full border border-[#e4e4e7] bg-white px-3 py-1 text-xs font-medium text-[#71717a] hover:border-zinc-400 hover:text-[#0a0a0a] transition-colors dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:text-zinc-100"
+                      className="rounded-full border border-[#e4e4e7] bg-white px-3 py-1 text-xs font-medium text-[#71717a] hover:border-zinc-400 hover:text-[#0a0a0a] transition-colors dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:text-zinc-100 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                     >
                       {chip.label}
                     </button>
@@ -487,7 +492,7 @@ export function AutomationsView({
                 <button
                   type="button"
                   onClick={refresh}
-                  className="h-8 rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#f4f4f5] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                  className="h-8 rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#f4f4f5] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                 >
                   Refresh
                 </button>
@@ -527,7 +532,7 @@ export function AutomationsView({
                           onClick={() =>
                             setCollapsed((current) => ({ ...current, [key]: !current[key] }))
                           }
-                          className="flex min-h-11 w-full items-center justify-between px-4 text-left text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800/50 transition-colors"
+                          className="flex min-h-11 w-full items-center justify-between px-4 text-left text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                         >
                           <div className="flex items-center gap-2">
                             {collapsed[key] ? (
@@ -571,7 +576,7 @@ export function AutomationsView({
                                   aria-label={`${a.enabled ? "Disable" : "Enable"} ${a.id}`}
                                   disabled={busyId !== null}
                                   onClick={() => void setAutomationEnabled(a.id, !a.enabled)}
-                                  className="h-8 rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                                  className="h-8 rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                                 >
                                   {busyId === `toggle-${a.id}`
                                     ? "Updating…"
@@ -584,7 +589,7 @@ export function AutomationsView({
                                     type="button"
                                     disabled={busyId !== null}
                                     onClick={() => void triggerNow(a.id)}
-                                    className="h-8 rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                                    className="h-8 rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                                   >
                                     {busyId === `run-${a.id}` ? "Queuing…" : "Run now"}
                                   </button>
@@ -616,13 +621,13 @@ export function AutomationsView({
                     value={repoUrl}
                     onChange={(e) => setRepoUrl(e.target.value)}
                     placeholder="https://github.com/owner/repo"
-                    className="h-9 min-w-0 flex-1 basis-64 rounded-lg border border-[#e4e4e7] bg-white px-3 text-xs text-[#0a0a0a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                    className="h-9 min-w-0 flex-1 basis-64 rounded-lg border border-[#e4e4e7] bg-white px-3 text-xs text-[#0a0a0a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 touch:min-h-11"
                   />
                   <select
                     aria-label="Bot for new automations"
                     value={customAgentId}
                     onChange={(e) => setCustomAgentId(e.target.value)}
-                    className="h-9 rounded-lg border border-[#e4e4e7] bg-white px-3 text-xs text-[#0a0a0a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 max-w-full"
+                    className="h-9 rounded-lg border border-[#e4e4e7] bg-white px-3 text-xs text-[#0a0a0a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 max-w-full touch:min-h-11"
                   >
                     <option value="">No bot</option>
                     {customAgents.map((agent) => (
@@ -662,7 +667,7 @@ export function AutomationsView({
                           busyId !== null || deployed || automations === null || loadError !== null
                         }
                         onClick={() => void deployRecipe(recipe)}
-                        className="h-8 rounded-lg border border-[#e4e4e7] bg-white px-3 text-xs font-medium text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                        className="h-8 rounded-lg border border-[#e4e4e7] bg-white px-3 text-xs font-medium text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                       >
                         {busyId === recipe.id ? "Creating…" : deployed ? "Created" : "Use recipe"}
                       </button>
@@ -740,7 +745,7 @@ export function AutomationsView({
                             type="button"
                             aria-label={`Copy ${label?.toLowerCase()} endpoint`}
                             onClick={() => void copyToClipboard(endpoint!, endpoint!)}
-                            className="h-7 rounded-md border border-[#e4e4e7] bg-white px-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#f4f4f5] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                            className="h-7 rounded-md border border-[#e4e4e7] bg-white px-2.5 text-xs font-medium text-[#0a0a0a] hover:bg-[#f4f4f5] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                           >
                             {copiedEndpoint === endpoint ? "Copied" : "Copy"}
                           </button>

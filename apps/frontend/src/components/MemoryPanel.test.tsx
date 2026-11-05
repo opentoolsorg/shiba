@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryPanel } from "./MemoryPanel";
 
 const json = (value: unknown) => Response.json(value);
@@ -97,23 +97,8 @@ describe("MemoryPanel", () => {
     expect(onSync).toHaveBeenCalled();
   });
 
-  it("fetches memory data automatically when external props are omitted", async () => {
-    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
-      const path = String(input);
-      if (path === "/api/memory/facts") {
-        return json({ facts: [{ id: "f1", fact: "Fact 1" }] });
-      }
-      if (path === "/api/memory/sessions") {
-        return json({ sessions: [{ id: "s1" }, { id: "s2" }] });
-      }
-      if (path === "/api/memory/sources") {
-        return json({ sources: [{ id: "src1" }] });
-      }
-      if (path === "/api/memory/projects") {
-        return json({ projects: [{ id: "p1", name: "Auto Project" }] });
-      }
-      return json({});
-    });
+  it("never fetches and shows empty values when data is omitted", () => {
+    const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
 
     render(
@@ -125,8 +110,6 @@ describe("MemoryPanel", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(screen.getByText("Auto Project")).toBeDefined();
-    });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

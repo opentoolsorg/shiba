@@ -55,7 +55,7 @@ describe("ChatsPanel", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Personal" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: "Personal" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByText("Implement auth provider")).toBeTruthy();
     expect(screen.getByText("Refactor API routing")).toBeTruthy();
 
@@ -119,7 +119,7 @@ describe("ChatsPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("tab", { name: "Workspace" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: "Workspace" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByText("General Engineering")).toBeTruthy();
     expect(screen.getByText("incident-response")).toBeTruthy();
     expect(screen.getByText("Shiba completed PR #42")).toBeTruthy();

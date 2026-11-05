@@ -8,9 +8,9 @@
  *   - Workspace Sources (private uploaded/noted memory sources count)
  *   - Recorded Sessions (Memory DO recorded sessions count)
  * Projects group:
- *   - Lists real projects saved in workspace memory.
+ *   - Lists the projects passed in by the app. The panel never fetches.
  */
-import { useCallback, useEffect, useState, type JSX } from "react";
+import type { JSX } from "react";
 import {
   Brain,
   Database,
@@ -26,8 +26,6 @@ import {
   PanelNavItem,
   type Scope,
 } from "./ui/ContextPanel";
-
-export type MemoryNavId = "facts" | "sources" | "sessions";
 
 export interface MemoryCounts {
   facts: number;
@@ -54,72 +52,24 @@ export interface MemoryPanelProps {
   className?: string;
 }
 
-async function apiJson<T>(path: string): Promise<T> {
-  const response = await fetch(path);
-  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) {
-    throw new Error(typeof body.error === "string" ? body.error : `Request failed: ${response.status}`);
-  }
-  return body;
-}
-
 export function MemoryPanel({
   scope,
   onScopeChange,
   active,
   onSelect,
-  counts: externalCounts,
-  projects: externalProjects,
+  counts: providedCounts,
+  projects = [],
   selectedProject = "",
   onSelectProject,
   onSearch,
   onSync,
   className = "",
 }: MemoryPanelProps): JSX.Element {
-  const [internalProjects, setInternalProjects] = useState<MemoryPanelProject[]>([]);
-  const [internalCounts, setInternalCounts] = useState<MemoryCounts>({
-    facts: 0,
-    sources: 0,
-    sessions: 0,
-  });
-
-  const projects = externalProjects ?? internalProjects;
   const counts: MemoryCounts = {
-    facts: externalCounts?.facts ?? internalCounts.facts,
-    sources: externalCounts?.sources ?? internalCounts.sources,
-    sessions: externalCounts?.sessions ?? internalCounts.sessions,
+    facts: providedCounts?.facts ?? 0,
+    sources: providedCounts?.sources ?? 0,
+    sessions: providedCounts?.sessions ?? 0,
   };
-
-  const loadData = useCallback(async () => {
-    try {
-      const [factsRes, sessionsRes, sourcesRes, projectsRes] = await Promise.all([
-        apiJson<{ facts?: unknown[] }>("/api/memory/facts").catch(() => ({ facts: [] })),
-        apiJson<{ sessions?: unknown[] }>("/api/memory/sessions").catch(() => ({ sessions: [] })),
-        apiJson<{ sources?: unknown[] }>("/api/memory/sources").catch(() => ({ sources: [] })),
-        apiJson<{ projects?: MemoryPanelProject[] }>("/api/memory/projects").catch(() => ({ projects: [] })),
-      ]);
-
-      const factsList = Array.isArray(factsRes.facts) ? factsRes.facts : [];
-      const sessionsList = Array.isArray(sessionsRes.sessions) ? sessionsRes.sessions : [];
-      const sourcesList = Array.isArray(sourcesRes.sources) ? sourcesRes.sources : [];
-      const projectsList = Array.isArray(projectsRes.projects) ? projectsRes.projects : [];
-
-      setInternalProjects(projectsList);
-      setInternalCounts({
-        facts: factsList.length,
-        sessions: sessionsList.length,
-        sources: sourcesList.length,
-      });
-    } catch {
-      // Fallback silently
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!externalCounts || !externalProjects) {
-      void loadData();
-    }
-  }, [externalCounts, externalProjects, loadData]);
 
   const countBadge = (val: number) => (
     <span className="ml-auto font-mono text-[11px] px-1.5 py-0.2 rounded-md text-[#71717a] dark:text-zinc-400">

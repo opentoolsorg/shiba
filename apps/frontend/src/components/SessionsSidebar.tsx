@@ -6,7 +6,7 @@
  * Nav rows (34px tall, 14px, 16px icon, gap 12): List (active), Board, Timeline, Organization.
  * Collapsible groups (12px muted label + chevron):
  *   - Waiting on you → "Nothing waiting on you" (waiting-approval / needs-provider)
- *   - Running → "Nothing running" (running / live / ready)
+ *   - Running → "Nothing running" (running / live)
  *   - Recent → "No recent tasks" (everything else)
  */
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
@@ -21,7 +21,7 @@ import {
   X,
 } from "lucide-react";
 import type { AgentPrincipal } from "../types";
-import { formatTimeAgo, statusLabel } from "../ui-helpers";
+import { statusLabel } from "../ui-helpers";
 import { Tooltip } from "./Tooltip";
 import type { WorkHeaderViewMode } from "./WorkHeader";
 
@@ -229,7 +229,7 @@ export function SessionsSidebar({
   // Map groups onto Shiba session states; the synthetic "default" session is never listed.
   const groupable = filtered.filter((s) => s.id !== "default");
   const isWaiting = (s: SessionItem) => s.status === "waiting-approval" || s.status === "needs-provider";
-  const isRunning = (s: SessionItem) => !isWaiting(s) && (s.live || s.status === "live" || s.status === "running" || s.status === "ready");
+  const isRunning = (s: SessionItem) => !isWaiting(s) && (s.live || s.status === "live" || s.status === "running");
   const groups = [
     { key: "waiting", label: "Waiting on you", empty: "Nothing waiting on you", items: groupable.filter(isWaiting) },
     { key: "running", label: "Running", empty: "Nothing running", items: groupable.filter(isRunning) },
@@ -352,16 +352,15 @@ export function SessionsSidebar({
       {variant !== "sessions" ? (
         <div className="px-3 pb-3 shrink-0">
           <div
-            className="h-8 p-0.5 bg-[#f4f4f5] dark:bg-zinc-800/80 rounded-md flex items-center gap-0.5"
-            role="tablist"
+            className="p-0.5 bg-[#f4f4f5] dark:bg-zinc-800/80 rounded-md flex items-center gap-0.5"
+            role="group"
             aria-label="Work scope"
           >
             <button
               type="button"
-              role="tab"
-              aria-selected={activeScope === "personal"}
+              aria-pressed={activeScope === "personal"}
               onClick={() => handleScopeChange("personal")}
-              className={`flex-1 h-7 rounded text-[12px] font-medium transition-all flex items-center justify-center ${
+              className={`flex-1 min-h-11 rounded text-[12px] font-medium transition-all flex items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
                 activeScope === "personal"
                   ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
                   : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-200"
@@ -371,10 +370,9 @@ export function SessionsSidebar({
             </button>
             <button
               type="button"
-              role="tab"
-              aria-selected={activeScope === "workspace"}
+              aria-pressed={activeScope === "workspace"}
               onClick={() => handleScopeChange("workspace")}
-              className={`flex-1 h-7 rounded text-[12px] font-medium transition-all flex items-center justify-center ${
+              className={`flex-1 min-h-11 rounded text-[12px] font-medium transition-all flex items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
                 activeScope === "workspace"
                   ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
                   : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-200"

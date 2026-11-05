@@ -7,16 +7,16 @@ import { Brain, ChevronRight, History, RefreshCw, Search, X } from "lucide-react
 import type { MemoryFact, MemorySession } from "../types";
 import { formatTimeAgo } from "../ui-helpers";
 import { MemorySourcesView } from "./MemorySourcesView";
-import { EmptyState, MainCard, type Scope } from "./ui/ContextPanel";
+import { EmptyState, type Scope } from "./ui/ContextPanel";
 
 const FIELD =
-  "w-full border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400 font-sans";
+  "w-full border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400 font-sans touch:min-h-11";
 const BUTTON =
-  "border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-[#0a0a0a] dark:text-zinc-100 rounded-lg hover:bg-[#f4f4f5] dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors inline-flex items-center justify-center gap-1.5";
+  "border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-[#0a0a0a] dark:text-zinc-100 rounded-lg hover:bg-[#f4f4f5] dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors inline-flex items-center justify-center gap-1.5 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 const PRIMARY =
-  "bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-xs font-medium rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors shadow-xs inline-flex items-center justify-center gap-1.5";
+  "bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-xs font-medium rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors shadow-xs inline-flex items-center justify-center gap-1.5 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 const DANGER =
-  "border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 px-3 py-1.5 text-xs font-medium rounded-lg hover:bg-rose-100 dark:hover:bg-rose-900/60 disabled:opacity-50 transition-colors inline-flex items-center justify-center gap-1.5";
+  "border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 px-3 py-1.5 text-xs font-medium rounded-lg hover:bg-rose-100 dark:hover:bg-rose-900/60 disabled:opacity-50 transition-colors inline-flex items-center justify-center gap-1.5 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
@@ -223,7 +223,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
       : "Recorded Sessions";
 
   return (
-    <MainCard className={className}>
+    <div className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${className}`.trim()}>
       {/* 48px Header row: Breadcrumb + Actions */}
       <div className="h-12 border-b border-[#e4e4e7] dark:border-zinc-800 px-4 flex items-center justify-between shrink-0">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs font-mono text-[#71717a] dark:text-zinc-400">
@@ -239,7 +239,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
             type="button"
             onClick={() => setShowSearchInput((prev) => !prev)}
             aria-label="Toggle search input"
-            className="p-1.5 text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 rounded-md hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors"
+            className="p-1.5 text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 rounded-md hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
           >
             <Search className="size-4" />
           </button>
@@ -249,7 +249,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
             disabled={loading}
             aria-label="Reload memory"
             title="Reload memory facts and sessions"
-            className="p-1.5 text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 rounded-md hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+            className="p-1.5 text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 rounded-md hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors disabled:opacity-50 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
           >
             <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
           </button>
@@ -263,7 +263,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
             <button
               type="button"
               onClick={() => handleSelectView("facts")}
-              className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all ${
+              className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
                 viewMode === "facts"
                   ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-xs font-semibold"
                   : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100"
@@ -274,7 +274,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
             <button
               type="button"
               onClick={() => handleSelectView("sessions")}
-              className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all ${
+              className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
                 viewMode === "sessions"
                   ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-xs font-semibold"
                   : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100"
@@ -285,7 +285,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
             <button
               type="button"
               onClick={() => handleSelectView("sources")}
-              className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all ${
+              className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
                 viewMode === "sources"
                   ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-xs font-semibold"
                   : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100"
@@ -319,7 +319,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                     type="button"
                     onClick={() => setQuery("")}
                     aria-label="Clear input text"
-                    className="absolute inset-y-0 right-0 pr-2 flex items-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100"
+                    className="absolute inset-y-0 right-0 pr-2 flex items-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                   >
                     <X className="size-3.5" />
                   </button>
@@ -335,7 +335,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                     setQuery("");
                     void load();
                   }}
-                  className="text-xs text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 px-1 font-medium"
+                  className="text-xs text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 px-1 font-medium touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                 >
                   Clear
                 </button>
@@ -351,7 +351,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                       key={src}
                       type="button"
                       onClick={() => setSourceFilter(src)}
-                      className={`px-2 py-0.5 rounded-md border text-xs font-mono transition-colors ${
+                      className={`px-2 py-0.5 rounded-md border text-xs font-mono transition-colors  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
                         sourceFilter === src
                           ? "bg-white dark:bg-zinc-800 text-[#0a0a0a] dark:text-zinc-100 border-[#0a0a0a] dark:border-zinc-400 font-semibold shadow-xs"
                           : "bg-transparent border-transparent hover:border-[#e4e4e7] dark:hover:border-zinc-700 text-[#71717a] dark:text-zinc-400"
@@ -368,7 +368,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                     <select
                       value={agentFilter}
                       onChange={(e) => setAgentFilter(e.target.value)}
-                      className="text-xs font-mono bg-white dark:bg-zinc-800 border border-[#e4e4e7] dark:border-zinc-700 rounded-md px-2 py-0.5 text-[#0a0a0a] dark:text-zinc-100 focus:outline-none"
+                      className="text-xs font-mono bg-white dark:bg-zinc-800 border border-[#e4e4e7] dark:border-zinc-700 rounded-md px-2 py-0.5 text-[#0a0a0a] dark:text-zinc-100 focus:outline-none touch:min-h-11"
                     >
                       <option value="all">All agents</option>
                       {availableAgents.map((ag) => (
@@ -391,7 +391,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
             <button
               type="button"
               onClick={() => setNotice(null)}
-              className="text-emerald-800 dark:text-emerald-300 hover:underline font-semibold"
+              className="text-emerald-800 dark:text-emerald-300 hover:underline font-semibold touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               Dismiss
             </button>
@@ -404,7 +404,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
             <button
               type="button"
               onClick={() => void load()}
-              className="text-rose-800 dark:text-rose-300 underline font-semibold"
+              className="text-rose-800 dark:text-rose-300 underline font-semibold touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               Retry
             </button>
@@ -423,7 +423,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                 setQuery("");
                 void load();
               }}
-              className="font-mono underline text-xs font-medium"
+              className="font-mono underline text-xs font-medium touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               Reset
             </button>
@@ -586,7 +586,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                         type="button"
                         onClick={() => setExpandedSession(expanded ? null : session.id)}
                         aria-expanded={expanded}
-                        className="w-full text-left p-3 hover:bg-[#fafafa] dark:hover:bg-zinc-800/50 transition-colors flex items-center gap-2"
+                        className="w-full text-left p-3 hover:bg-[#fafafa] dark:hover:bg-zinc-800/50 transition-colors flex items-center gap-2 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                       >
                         <ChevronRight
                           className={`size-4 text-[#71717a] dark:text-zinc-400 transition-transform shrink-0 ${
@@ -626,6 +626,6 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
           </section>
         ) : null}
       </div>
-    </MainCard>
+    </div>
   );
 }

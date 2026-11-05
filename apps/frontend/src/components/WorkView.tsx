@@ -59,6 +59,15 @@ const STATUS_GROUPS = [
   { id: "done", name: "Done", dotClass: "bg-[var(--muted-foreground-3)]" },
 ] as const;
 
+/** One status mapping for Board and Timeline so cancelled, PR open and needs-provider read the same in both. */
+function workStatus(task: WorkTask, approvalStatus: "needs-approval" | "waiting-approval"): string {
+  if (task.group === "needs-approval") return task.rawStatus === "needs-provider" ? "needs-provider" : approvalStatus;
+  if (task.group === "running") return "running";
+  if (task.group === "pr-open") return "pr-open";
+  if (task.group === "attention") return task.rawStatus && deriveKanbanColumn(task.rawStatus) === "attention" ? task.rawStatus : "error";
+  return "completed";
+}
+
 export function WorkView(props: WorkViewProps): JSX.Element {
   // A distinct component/key prevents personal drafts and team filters crossing scopes.
   return props.workspaceId ? <TeamWorkView key={props.workspaceId} {...props} workspaceId={props.workspaceId} /> : <PersonalWorkView {...props} />;
@@ -110,7 +119,7 @@ function PersonalWorkView({
     const runIds = new Set(runs.map((r) => r.runId));
     for (const s of sessions) {
       if (s.id === "default" || runIds.has(s.id)) continue;
-      const group: WorkTask["group"] = s.status === "waiting-approval" ? "needs-approval" : s.status === "running" || s.live ? "running" : ["error", "failed", "aborted", "cancelled", "unknown"].includes(s.status) ? "attention" : "done";
+      const group: WorkTask["group"] = s.status === "waiting-approval" || s.status === "needs-provider" ? "needs-approval" : s.status === "running" || s.live ? "running" : ["error", "failed", "aborted", "cancelled", "unknown"].includes(s.status) ? "attention" : "done";
       map.set(`session-${s.id}`, { id: s.id, kind: "session", title: s.title || "Untitled thread", repo: s.repoName || "", group, stateLabel: group === "attention" ? statusLabel(s.status) : STATUS_GROUPS.find((g) => g.id === group)!.name, updatedAt: s.updatedAt, rawStatus: s.status });
     }
     return Array.from(map.values()).sort((a, b) => b.updatedAt - a.updatedAt);
@@ -131,7 +140,7 @@ function PersonalWorkView({
     return filteredTasks.map((t) => ({
       id: t.id,
       title: t.title,
-      status: t.group === "needs-approval" ? "needs-approval" : t.group === "running" ? "running" : t.group === "pr-open" ? "pr-open" : t.group === "attention" ? (t.rawStatus && deriveKanbanColumn(t.rawStatus) === "attention" ? t.rawStatus : "error") : "completed",
+      status: workStatus(t, "needs-approval"),
       updatedAt: t.updatedAt,
       repoName: t.repo,
     }));
@@ -141,7 +150,7 @@ function PersonalWorkView({
     return filteredTasks.map((t) => ({
       id: t.id,
       title: t.title,
-      status: t.group === "needs-approval" ? "waiting-approval" : t.group === "running" ? "running" : t.group === "pr-open" ? "completed" : t.group === "attention" ? "error" : "completed",
+      status: workStatus(t, "waiting-approval"),
       updatedAt: t.updatedAt,
       repoName: t.repo,
     }));
@@ -162,7 +171,7 @@ function PersonalWorkView({
             {task.repo ? <span className="shrink-0 font-mono text-xs text-[var(--muted-foreground-2)]">{task.repo}</span> : null}
             <span className="rounded-full bg-[var(--section)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-1)]">{task.stateLabel}</span>
           </button>
-          {task.group === "needs-approval" && onReviewApproval ? (
+          {task.group === "needs-approval" && task.rawStatus !== "needs-provider" && onReviewApproval ? (
             <button type="button" onClick={() => onReviewApproval(task.id)} className={viewButtonClass}>
               Review
             </button>

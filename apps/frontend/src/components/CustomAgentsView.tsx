@@ -248,14 +248,14 @@ function ScopedCustomAgentsView({
   };
 
   const appliedInitialAgent = useRef<string | null>(null);
+  // startEdit only sets component state; it is intentionally not a dependency.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     if (!initialAgentId || appliedInitialAgent.current === initialAgentId || !agents) return;
     const agent = agents.find((item) => item.id === initialAgentId);
     appliedInitialAgent.current = initialAgentId;
     if (agent) startEdit(agent);
     onInitialAgentApplied?.();
-    // startEdit only sets component state; it is intentionally not a dependency.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   }, [initialAgentId, agents, onInitialAgentApplied]);
 
   const saveAgent = async () => {

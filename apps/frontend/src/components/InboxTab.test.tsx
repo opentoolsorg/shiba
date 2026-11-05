@@ -88,7 +88,7 @@ describe("InboxTab", () => {
 
     expect(screen.getByText("Personal")).toBeDefined();
     expect(screen.getByText("Mailbox")).toBeDefined();
-    expect(screen.getByText("Inbox")).toBeDefined();
+    expect(screen.getByText("Inbox", { selector: "[aria-current=\"page\"]" })).toBeDefined();
 
     await waitFor(() => {
       expect(screen.getByText("Urgent deployment query")).toBeDefined();

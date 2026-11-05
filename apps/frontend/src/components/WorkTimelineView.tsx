@@ -152,8 +152,9 @@ export function WorkTimelineView({
             {group.tasks.map((task) => {
               const ts = getTaskTimestamp(task);
               const formattedTime = formatRowTime(ts);
-              const chipClass = statusChipClass(task.status);
-              const label = statusLabel(task.status);
+              const prOpen = task.status === "pr-open";
+              const chipClass = statusChipClass(prOpen ? "completed" : task.status);
+              const label = prOpen ? "PR open" : statusLabel(task.status);
 
               return (
                 <div key={task.id} className="flex items-center gap-2">

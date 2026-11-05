@@ -316,6 +316,61 @@ describe("AppNavRail desktop 52px icon rail (every view)", () => {
     }
   });
 
+  it("retains sidebar focus for an external shortcut toggle without stealing focus from the main view", () => {
+    const props = { activeView: "tasks" as const, onNavigate: vi.fn(), onToggleCollapse: vi.fn(), variant: "rail" as const };
+    const { rerender } = render(<><AppNavRail {...props} collapsed={false} /><input aria-label="Main task" /></>);
+    screen.getByRole("button", { name: "Collapse sidebar" }).focus();
+    rerender(<><AppNavRail {...props} collapsed /><input aria-label="Main task" /></>);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Expand sidebar" }));
+    const task = screen.getByRole("textbox", { name: "Main task" });
+    task.focus();
+    rerender(<><AppNavRail {...props} collapsed={false} /><input aria-label="Main task" /></>);
+    expect(document.activeElement).toBe(task);
+  });
+
+  it("points the sidebar toggle at the rail when no panel exists and omits aria-controls for a collapsed panel", () => {
+    const props = { activeView: "work" as const, onNavigate: vi.fn(), onToggleCollapse: vi.fn(), variant: "rail" as const };
+    const { rerender } = render(<AppNavRail {...props} />);
+    const aside = screen.getByRole("complementary", { name: "Primary Left Rail" });
+    expect(screen.getByRole("button", { name: "Collapse sidebar" }).getAttribute("aria-controls")).toBe(aside.id);
+    rerender(<AppNavRail {...props} sidebarPanelId="work-panel" collapsed />);
+    expect(screen.getByRole("button", { name: "Expand sidebar" }).getAttribute("aria-controls")).toBeNull();
+    rerender(<AppNavRail {...props} sidebarPanelId="work-panel" />);
+    expect(screen.getByRole("button", { name: "Collapse sidebar" }).getAttribute("aria-controls")).toBe("work-panel");
+  });
+
+  it("keeps Tool policy and MCP out of the rail More menu, reachable from the Agents rail item", () => {
+    const onNavigate = vi.fn();
+    render(<AppNavRail activeView="employee-tools" onNavigate={onNavigate} variant="rail" />);
+    expect(screen.getByRole("button", { name: "Agents" }).getAttribute("aria-current")).toBe("page");
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(screen.queryByRole("menuitem", { name: "Tool policy" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "MCP" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+    expect(onNavigate).toHaveBeenCalledWith("custom-agents");
+  });
+
+  it("closes the More and account menus on Escape and returns focus to the trigger", () => {
+    render(<AppNavRail activeView="work" onNavigate={vi.fn()} variant="rail" />);
+    const more = screen.getByRole("button", { name: "More" });
+    fireEvent.click(more);
+    expect(screen.getByRole("menu", { name: "Additional views" })).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu", { name: "Additional views" })).toBeNull();
+    expect(document.activeElement).toBe(more);
+    const profile = screen.getByRole("button", { name: "Workspace profile" });
+    fireEvent.click(profile);
+    expect(screen.getByRole("menu", { name: "Account actions" })).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu", { name: "Account actions" })).toBeNull();
+    expect(document.activeElement).toBe(profile);
+  });
+
+  it("has no nested navigation landmarks in the compact rail", () => {
+    render(<AppNavRail activeView="work" onNavigate={vi.fn()} variant="rail" />);
+    expect(screen.getAllByRole("navigation")).toHaveLength(1);
+  });
+
   it("renders bottom utilities and workspace profile popover on work view", () => {
     const onToggleTheme = vi.fn();
     const onOpenShortcuts = vi.fn();

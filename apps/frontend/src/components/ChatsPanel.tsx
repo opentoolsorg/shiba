@@ -52,6 +52,8 @@ export interface ChatsPanelProps {
   onSelectActivity?: (id: string) => void;
 
   onSearchClick?: () => void;
+  /** Set to false when the app has no real team rooms, channels or activity to list. */
+  showWorkspaceGroups?: boolean;
   className?: string;
 }
 
@@ -83,6 +85,7 @@ export function ChatsPanel({
   activityItems = [],
   onSelectActivity,
   onSearchClick,
+  showWorkspaceGroups = true,
   className = "",
 }: ChatsPanelProps): JSX.Element {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -221,7 +224,12 @@ export function ChatsPanel({
       ) : null}
 
       {/* Scope: Workspace */}
-      {scope === "workspace" ? (
+      {scope === "workspace" && !showWorkspaceGroups ? (
+        <p className="px-2.5 py-2 text-[12px] text-[#71717a] dark:text-zinc-400">
+          Team chats and shared work open in the main view.
+        </p>
+      ) : null}
+      {scope === "workspace" && showWorkspaceGroups ? (
         <>
           {/* PanelGroup: Chats */}
           <PanelGroup

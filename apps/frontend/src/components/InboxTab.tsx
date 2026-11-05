@@ -38,16 +38,15 @@ import type {
 import { formatTimeAgo } from "../ui-helpers";
 import {
   EmptyState,
-  MainCard,
   type Scope,
 } from "./ui/ContextPanel";
 
 const GHOST_BUTTON =
-  "text-[12px] bg-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-[#e4e4e7] dark:border-zinc-800 text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 font-medium py-1.5 px-3 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5";
+  "text-[12px] bg-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-[#e4e4e7] dark:border-zinc-800 text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 font-medium py-1.5 px-3 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 const ACCENT_BUTTON =
-  "text-[12px] bg-[#0a0a0a] hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 text-white dark:text-zinc-900 font-medium py-1.5 px-3 rounded-lg transition-colors shadow-xs inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed";
+  "text-[12px] bg-[#0a0a0a] hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 text-white dark:text-zinc-900 font-medium py-1.5 px-3 rounded-lg transition-colors shadow-xs inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 const SECONDARY_BUTTON =
-  "text-[12px] bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 border border-transparent text-[#0a0a0a] dark:text-zinc-100 font-medium py-1.5 px-3 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50";
+  "text-[12px] bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 border border-transparent text-[#0a0a0a] dark:text-zinc-100 font-medium py-1.5 px-3 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
@@ -117,6 +116,8 @@ function replySubject(subject: string): string {
 export interface InboxTabProps {
   /** Jumps to the Approvals tab so a queued send is one click away. */
   onOpenApprovals?: () => void;
+  /** Show the folder switcher even when the folder is controlled (phones, collapsed panel). */
+  showFolderSwitcher?: boolean;
   activeFolder?: string;
   onSelectFolder?: (folder: string) => void;
   scope?: Scope;
@@ -130,6 +131,7 @@ export interface InboxTabProps {
 
 export function InboxTab({
   onOpenApprovals,
+  showFolderSwitcher = false,
   activeFolder: externalFolder,
   onSelectFolder,
   scope = "personal",
@@ -449,7 +451,7 @@ export function InboxTab({
     : `${displayedEmails.length} ${displayedEmails.length === 1 ? "message" : "messages"}`;
 
   return (
-    <MainCard className={className}>
+    <div className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${className}`.trim()}>
       {/* 48px Header row with breadcrumb */}
       <header className="h-12 min-h-[48px] w-full px-4 border-b border-[#e4e4e7] dark:border-zinc-800 flex items-center justify-between select-none shrink-0 bg-white dark:bg-zinc-900">
         <div className="flex items-center gap-2 min-w-0">
@@ -463,7 +465,7 @@ export function InboxTab({
                 {folderTitle}
               </li>
             </ol>
-            <span className="text-[12px] text-[#71717a] dark:text-zinc-400 select-none shrink-0 font-normal ml-2" role="status">
+            <span className="text-[12px] text-[#71717a] dark:text-zinc-400 select-none shrink-0 font-normal ml-2">
               {countLabel}
             </span>
           </nav>
@@ -487,7 +489,7 @@ export function InboxTab({
                 aria-label="Search mail"
                 // biome-ignore lint/a11y/noAutofocus: field is revealed by an explicit user action
                 autoFocus
-                className="h-8 w-48 sm:w-64 rounded-md border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 px-2.5 text-[12px] text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                className="h-8 w-48 sm:w-64 rounded-md border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 px-2.5 text-[12px] text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400 touch:min-h-11"
               />
               <button type="submit" disabled={searching} className={ACCENT_BUTTON}>
                 Search
@@ -499,7 +501,7 @@ export function InboxTab({
                   setSearch("");
                   void loadMail();
                 }}
-                className="size-8 flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100"
+                className="size-8 flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                 aria-label="Close search"
               >
                 <X className="size-4" strokeWidth={1.75} />
@@ -510,7 +512,7 @@ export function InboxTab({
               type="button"
               onClick={() => setSearchOpen(true)}
               aria-label="Search mail"
-              className="size-8 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] hover:bg-[#f4f4f5] dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              className="size-8 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] hover:bg-[#f4f4f5] dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 transition-colors touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               <Search className="size-4" strokeWidth={1.75} aria-hidden="true" />
             </button>
@@ -522,7 +524,7 @@ export function InboxTab({
             disabled={loading}
             aria-label="Refresh mailbox"
             title="Refresh mailbox"
-            className="size-8 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] hover:bg-[#f4f4f5] dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            className="size-8 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] hover:bg-[#f4f4f5] dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 transition-colors touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
           >
             <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} strokeWidth={1.75} aria-hidden="true" />
           </button>
@@ -533,7 +535,7 @@ export function InboxTab({
             aria-expanded={settingsOpen}
             aria-label="Mailbox settings"
             title="Configure mailboxes"
-            className="h-8 px-2.5 rounded-lg border border-[#e4e4e7] dark:border-zinc-800 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 text-[12px] font-medium text-[#0a0a0a] dark:text-zinc-100 flex items-center gap-1.5 transition-colors"
+            className="h-8 px-2.5 rounded-lg border border-[#e4e4e7] dark:border-zinc-800 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 text-[12px] font-medium text-[#0a0a0a] dark:text-zinc-100 flex items-center gap-1.5 transition-colors touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
           >
             <Settings className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
             <span className="hidden sm:inline">Settings</span>
@@ -544,7 +546,7 @@ export function InboxTab({
               type="button"
               onClick={onOpenApprovals}
               aria-label="View queued approvals"
-              className="h-8 px-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[12px] font-medium flex items-center gap-1.5 transition-colors shadow-xs"
+              className="h-8 px-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[12px] font-medium flex items-center gap-1.5 transition-colors shadow-xs touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               <Clock className="size-3.5" strokeWidth={2} aria-hidden="true" />
               <span>{queuedDraftsCount} Queued</span>
@@ -567,7 +569,7 @@ export function InboxTab({
             </div>
             <button
               type="button"
-              className="text-emerald-700 dark:text-emerald-400 font-medium hover:underline shrink-0 text-xs inline-flex items-center gap-1"
+              className="text-emerald-700 dark:text-emerald-400 font-medium hover:underline shrink-0 text-xs inline-flex items-center gap-1 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
               onClick={onOpenApprovals}
             >
               Approvals Queue →
@@ -587,7 +589,7 @@ export function InboxTab({
             <button
               type="button"
               onClick={() => setError(null)}
-              className="text-rose-600 dark:text-rose-400 hover:opacity-75 font-medium text-xs"
+              className="text-rose-600 dark:text-rose-400 hover:opacity-75 font-medium text-xs touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               Dismiss
             </button>
@@ -612,7 +614,7 @@ export function InboxTab({
               <button
                 type="button"
                 onClick={() => setSettingsOpen(false)}
-                className="size-7 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors"
+                className="size-7 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                 aria-label="Close settings"
               >
                 <X className="size-4" />
@@ -680,7 +682,7 @@ export function InboxTab({
                         onChange={(e) => setNewAddress(e.target.value)}
                         placeholder="agent@shiba.dev"
                         aria-label="Mailbox address"
-                        className="w-full text-[12px] font-mono bg-white dark:bg-zinc-900 border border-[#e4e4e7] dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                        className="w-full text-[12px] font-mono bg-white dark:bg-zinc-900 border border-[#e4e4e7] dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-zinc-400 touch:min-h-11"
                       />
                     </div>
                     <div>
@@ -693,7 +695,7 @@ export function InboxTab({
                         onChange={(e) => setNewLabel(e.target.value)}
                         placeholder="e.g. Primary Assistant"
                         aria-label="Mailbox label"
-                        className="w-full text-[12px] bg-white dark:bg-zinc-900 border border-[#e4e4e7] dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                        className="w-full text-[12px] bg-white dark:bg-zinc-900 border border-[#e4e4e7] dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-zinc-400 touch:min-h-11"
                       />
                     </div>
                     <div className="sm:col-span-2">
@@ -707,7 +709,7 @@ export function InboxTab({
                         maxLength={128}
                         placeholder="e.g. claude-code (from mint-token --agent)"
                         aria-label="Cloud agent token principal"
-                        className="w-full text-[12px] font-mono bg-white dark:bg-zinc-900 border border-[#e4e4e7] dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                        className="w-full text-[12px] font-mono bg-white dark:bg-zinc-900 border border-[#e4e4e7] dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-zinc-400 touch:min-h-11"
                       />
                       <p className="text-[11px] text-[#71717a] dark:text-zinc-500 mt-1">Leave blank for dashboard-only mail. Re-enter an existing address to assign or change its agent.</p>
                     </div>
@@ -793,7 +795,7 @@ export function InboxTab({
           <details className="border border-blue-200 dark:border-blue-900/60 bg-blue-50/40 dark:bg-blue-950/20 p-3.5 rounded-xl text-xs text-[#0a0a0a] dark:text-zinc-200">
             <summary className="cursor-pointer font-semibold">First mailbox: from setup to a received message</summary>
             <ol className="mt-2 ml-4 list-decimal space-y-1.5 text-[#71717a] dark:text-zinc-400">
-              <li><button type="button" onClick={() => setSettingsOpen(true)} className="text-blue-600 dark:text-blue-400 hover:underline">Register a mailbox</button> and assign the exact MCP token principal.</li>
+              <li><button type="button" onClick={() => setSettingsOpen(true)} className="text-blue-600 dark:text-blue-400 hover:underline touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]">Register a mailbox</button> and assign the exact MCP token principal.</li>
               <li><a href="/docs/api/#email-api" className="text-blue-600 dark:text-blue-400 hover:underline">Configure Cloudflare Email Routing</a> for that address to this Worker. Registration does not configure routing.</li>
               <li><a href="/?tab=agents" className="text-blue-600 dark:text-blue-400 hover:underline">Mint and connect an agent token</a> with <code>email:read</code> (and draft/send scopes only if needed).</li>
               <li>Send a test email from another address; confirm it appears here and the agent&apos;s <code>list_emails</code> can see it.</li>
@@ -802,24 +804,23 @@ export function InboxTab({
         ) : null}
 
         {/* Fallback filter switcher if operated standalone (no externalFolder passed) */}
-        {externalFolder === undefined ? (
-          <div className="flex items-center gap-1 bg-[#f4f4f5] dark:bg-zinc-800/80 p-1 rounded-lg w-fit">
-            {(["inbox", "unread", "sent", "drafts", "queued"] as const).map((key) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setFolder(key)}
-                className={`text-[12px] font-medium px-3 py-1 rounded-md transition-all ${
-                  folder === key
-                    ? "bg-white text-[#0a0a0a] shadow-xs dark:bg-zinc-900 dark:text-zinc-100"
-                    : "text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100"
-                }`}
-              >
-                {key.charAt(0).toUpperCase() + key.slice(1)}
-              </button>
-            ))}
-          </div>
-        ) : null}
+        <div role="group" aria-label="Mailbox folders" className={`flex items-center gap-1 bg-[#f4f4f5] dark:bg-zinc-800/80 p-1 rounded-lg w-fit max-w-full overflow-x-auto ${externalFolder === undefined || showFolderSwitcher ? "" : "lg:hidden"}`}>
+          {(["inbox", "unread", "sent", "drafts", "queued"] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFolder(key)}
+              aria-pressed={folder === key}
+              className={`text-[12px] font-medium px-3 py-1 min-h-11 lg:min-h-0 rounded-md transition-all  focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
+                folder === key
+                  ? "bg-white text-[#0a0a0a] shadow-xs dark:bg-zinc-900 dark:text-zinc-100"
+                  : "text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100"
+              }`}
+            >
+              {key.charAt(0).toUpperCase() + key.slice(1)}
+            </button>
+          ))}
+        </div>
 
         {/* Sacred Approval Boundary Outbound Section (Drafts & Queued Sends) */}
         {(folder === "drafts" || folder === "queued" || (folder === "inbox" && queuedDraftsCount > 0) || folder === "all") && displayedDrafts.length > 0 ? (
@@ -842,7 +843,7 @@ export function InboxTab({
               <button
                 type="button"
                 onClick={onOpenApprovals}
-                className="text-[12px] text-blue-600 dark:text-blue-400 hover:underline font-medium ml-auto"
+                className="text-[12px] text-blue-600 dark:text-blue-400 hover:underline font-medium ml-auto touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
               >
                 Open Approvals Queue →
               </button>
@@ -1023,7 +1024,7 @@ export function InboxTab({
                         type="button"
                         onClick={() => void toggleExpanded(email)}
                         aria-expanded={expanded}
-                        className="w-full text-left p-3.5 hover:bg-[#fafafa] dark:hover:bg-zinc-800/50 transition-colors flex flex-col gap-1.5"
+                        className="w-full text-left p-3.5 hover:bg-[#fafafa] dark:hover:bg-zinc-800/50 transition-colors flex flex-col gap-1.5 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <span
@@ -1208,7 +1209,7 @@ export function InboxTab({
                                     rows={5}
                                     placeholder="Compose reply message here. Saved drafts require human review before dispatch…"
                                     aria-label="Reply message body"
-                                    className="w-full text-xs font-mono bg-[#fafafa] dark:bg-zinc-800 border border-[#e4e4e7] dark:border-zinc-700 rounded-lg p-3 text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                                    className="w-full text-xs font-mono bg-[#fafafa] dark:bg-zinc-800 border border-[#e4e4e7] dark:border-zinc-700 rounded-lg p-3 text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] focus:outline-none focus:ring-1 focus:ring-zinc-400 touch:min-h-11"
                                   />
 
                                   <div className="flex items-center justify-between gap-2 pt-1">
@@ -1246,6 +1247,6 @@ export function InboxTab({
           </section>
         ) : null}
       </div>
-    </MainCard>
+    </div>
   );
 }

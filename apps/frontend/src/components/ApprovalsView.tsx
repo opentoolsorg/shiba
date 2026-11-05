@@ -87,7 +87,7 @@ export function ApprovalsView({
               onClick={onToggleSidebar}
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-expanded={!sidebarCollapsed}
-              className="flex size-7 items-center justify-center rounded-md text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] transition-colors dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               <PanelLeft className="size-4" strokeWidth={1.75} aria-hidden="true" />
             </button>
@@ -125,7 +125,7 @@ export function ApprovalsView({
               onChange={(e) => setQuery(e.target.value)}
               // biome-ignore lint/a11y/noAutofocus: field is revealed by an explicit user action
               autoFocus
-              className="h-8 w-40 sm:w-56 rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+              className="min-h-11 w-40 sm:w-56 rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             />
           ) : null}
           <button
@@ -136,7 +136,7 @@ export function ApprovalsView({
               setSearchOpen(!searchOpen);
               setQuery("");
             }}
-            className="flex size-8 items-center justify-center rounded-lg border border-[#e4e4e7] bg-white text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-[#e4e4e7] bg-white text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] transition-colors dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
           >
             <Search className="size-3.5" aria-hidden="true" />
           </button>
@@ -144,7 +144,7 @@ export function ApprovalsView({
             <button
               type="button"
               onClick={onRefresh}
-              className="flex h-8 items-center rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-[13px] font-medium text-[#0a0a0a] transition-colors hover:bg-[#f4f4f5] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+              className="flex min-h-11 items-center rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-[13px] font-medium text-[#0a0a0a] transition-colors hover:bg-[#f4f4f5] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               Refresh
             </button>
@@ -166,7 +166,7 @@ export function ApprovalsView({
 
           <section aria-labelledby="pending-approvals-heading" className="rounded-xl border border-[#e4e4e7] bg-white dark:border-zinc-800 dark:bg-zinc-900/40 p-4">
             <details open className="group">
-              <summary className="min-h-9 cursor-pointer rounded-lg px-2 text-sm text-[#0a0a0a] dark:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400">
+              <summary className="min-h-11 cursor-pointer rounded-lg px-2 text-sm text-[#0a0a0a] dark:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]">
                 <h2 id="pending-approvals-heading" className="inline-flex items-center gap-2 py-1 font-medium text-sm">
                   <span aria-hidden="true" className="size-2 rounded-full bg-amber-500" />
                   Needs approval
@@ -231,7 +231,7 @@ export function ApprovalsView({
                       onClick={() => setOutcomeFilter(f)}
                       aria-pressed={outcomeFilter === f}
                       className={
-                        "rounded px-2.5 py-1 text-xs capitalize transition-colors " +
+                        "min-h-11 rounded px-3 text-xs capitalize transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] " +
                         (outcomeFilter === f
                           ? "bg-white font-medium text-[#0a0a0a] shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:bg-zinc-900 dark:text-zinc-100"
                           : "text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-200")

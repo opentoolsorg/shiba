@@ -81,10 +81,10 @@ describe("AgentsPanel", () => {
     fireEvent.click(newBtn);
     expect(onNewAgent).toHaveBeenCalledOnce();
 
-    const personalTab = screen.getByRole("tab", { name: "Personal" });
-    const workspaceTab = screen.getByRole("tab", { name: "Workspace" });
-    expect(personalTab.getAttribute("aria-selected")).toBe("true");
-    expect(workspaceTab.getAttribute("aria-selected")).toBe("false");
+    const personalTab = screen.getByRole("button", { name: "Personal" });
+    const workspaceTab = screen.getByRole("button", { name: "Workspace" });
+    expect(personalTab.getAttribute("aria-pressed")).toBe("true");
+    expect(workspaceTab.getAttribute("aria-pressed")).toBe("false");
 
     fireEvent.click(workspaceTab);
     expect(onScopeChange).toHaveBeenCalledWith("workspace");

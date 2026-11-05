@@ -273,7 +273,7 @@ describe("app Work and Threads routing", () => {
     }));
     render(<App />);
     await screen.findByText("SHARED-TEAM-ONLY");
-    fireEvent.click(screen.getByRole("button", { name: /workspace/i }));
+    fireEvent.click(screen.getByRole("button", { name: /(· workspace|^Workspace profile)$/ }));
     expect(screen.getByRole("menuitemradio", { name: "Design team" }).getAttribute("aria-checked")).toBe("true");
     await act(async () => { window.history.pushState(null, "", "/threads/"); window.dispatchEvent(new PopStateEvent("popstate")); });
     await screen.findByText(/Chat with your team/);
@@ -334,14 +334,69 @@ describe("app Work and Threads routing", () => {
       if (path === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
       if (path === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId: id, name: "Design team", version: 1, createdAt: 1, membership: { workspaceId: id, userId: actor, role: "owner", version: 1, joinedAt: 1 } }] });
       if (path === "/api/collaboration/rooms") return Response.json({ rooms: [] });
+      if (path === "/api/sessions") return Response.json({ sessions: [{ id: "personal-1", name: "Personal secret plan", agentName: "agent-a", updatedAt: 2 }, { id: "personal-2", name: "Private budget notes", agentName: "agent-b", updatedAt: 1 }] });
       return originalFetch(url, options);
     }));
     localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actor)}`, id);
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     render(<App />);
     const chats = await screen.findByRole("complementary", { name: "Chats" });
-    await waitFor(() => expect(within(chats).getByRole("tab", { name: "Workspace" }).getAttribute("aria-selected")).toBe("true"));
+    await waitFor(() => expect(within(chats).getByRole("button", { name: "Workspace" }).getAttribute("aria-pressed")).toBe("true"));
     expect(screen.queryByText("Recents")).toBeNull();
+    expect(screen.queryByText("Personal secret plan")).toBeNull();
+    expect(screen.queryByText("Private budget notes")).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url) === "/api/sessions")).toBe(false);
+  });
+
+  it.each(["/inbox/", "/memory/"])("never fetches or shows personal %s data in a team workspace", async (path) => {
+    const id = `ws_${"f".repeat(24)}`, actor = "owner@example.com";
+    window.history.replaceState(null, "", path);
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const requested = String(url);
+      if (requested === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
+      if (requested === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId: id, name: "Design team", version: 1, createdAt: 1, membership: { workspaceId: id, userId: actor, role: "owner", version: 1, joinedAt: 1 } }] });
+      if (requested.startsWith("/api/emails")) return Response.json({ emails: [{ id: "e1", status: "unread", direction: "inbound", subject: "PERSONAL-SUBJECT" }] });
+      if (requested.startsWith("/api/drafts")) return Response.json({ drafts: [] });
+      if (requested === "/api/mailboxes") return Response.json({ mailboxes: [{ address: "me@personal.example", label: "PERSONAL-MAILBOX" }] });
+      if (requested === "/api/memory/projects") return Response.json({ projects: [{ id: "p1", name: "PERSONAL-PROJECT" }] });
+      if (requested.startsWith("/api/memory/")) return Response.json({ facts: [{ id: "f1" }], sessions: [], sources: [] });
+      return originalFetch(url, options);
+    }));
+    localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actor)}`, id);
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Open this feature in your personal workspace" });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    const personalCalls = vi.mocked(fetch).mock.calls.map(([url]) => String(url)).filter((url) => /^\/api\/(emails|drafts|mailboxes|memory)/.test(url));
+    expect(personalCalls).toEqual([]);
+    expect(screen.queryByRole("complementary", { name: path === "/inbox/" ? "Mailbox" : "Memory" })).toBeNull();
+    expect(screen.queryByText(/PERSONAL-/)).toBeNull();
+  });
+
+  it("starts an agent thread from the Agents panel through the shared creation guard", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/custom-agents/");
+    const originalFetch = fetch;
+    const template = EMPLOYEE_TEMPLATES.find((item) => item.id === "research")!;
+    const profile = { id: "research-agent", slug: template.slug, version: 1, config: { ...template.config, harness: "opencode" } };
+    let finish!: (response: Response) => void;
+    const createSession = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/custom-agents") return Response.json({ agents: [profile] });
+      if (String(url) === "/api/sessions" && options?.method === "POST") return createSession();
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const start = await screen.findByRole("button", { name: `New thread with ${profile.config.name}` });
+    fireEvent.click(start);
+    fireEvent.click(start);
+    fireEvent.click(start);
+    expect(createSession).toHaveBeenCalledOnce();
+    await act(async () => finish(Response.json({}, { status: 503 })));
+    fireEvent.click(start);
+    expect(createSession).toHaveBeenCalledTimes(2);
+    await act(async () => finish(Response.json({ session: { id: "agent-thread", name: profile.config.name, agentName: "research-chat", updatedAt: 1, metadata: { customAgentId: profile.id } } })));
   });
 
   it("removes invitation secrets from the address before sign-in without submitting them", async () => {
@@ -430,7 +485,7 @@ describe("app Work and Threads routing", () => {
     }));
     render(<App />);
     await screen.findByTestId("private-mailbox");
-    fireEvent.click(screen.getByRole("button", { name: /workspace/i }));
+    fireEvent.click(screen.getByRole("button", { name: /(· workspace|^Workspace profile)$/ }));
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Private-safe team" }));
     await waitFor(() => expect(screen.queryByTestId("private-mailbox")).toBeNull());
     await act(async () => { window.dispatchEvent(new Event("online")); document.dispatchEvent(new Event("visibilitychange")); });

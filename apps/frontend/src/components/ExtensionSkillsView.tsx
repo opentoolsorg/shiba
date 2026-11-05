@@ -202,7 +202,7 @@ export function ExtensionSkillsView({
             <button
               type="button"
               onClick={onOpenRunSkills}
-              className="inline-flex h-7 items-center rounded-md border border-[#e4e4e7] px-2.5 text-xs font-medium text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              className="inline-flex min-h-11 items-center rounded-md border border-[#e4e4e7] px-2.5 text-xs font-medium text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               Run-attached skills
             </button>
@@ -214,7 +214,7 @@ export function ExtensionSkillsView({
                 setMutationError(null);
                 setDialog({ mode: "create" });
               }}
-              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               <Plus className="size-3.5" /> New Skill
             </button>
@@ -223,14 +223,14 @@ export function ExtensionSkillsView({
       </header>
 
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#e4e4e7] px-4 py-2.5 dark:border-zinc-800">
-        <div role="tablist" aria-label="Skill scope" className="flex h-7 items-center gap-0.5 rounded-md bg-[#f4f4f5] p-0.5 dark:bg-zinc-800/80">
+        <div role="tablist" aria-label="Skill scope" className="flex items-center gap-0.5 rounded-md bg-[#f4f4f5] p-0.5 dark:bg-zinc-800/80">
           {VIEWS.map((item) => (
             <button
               key={item.id}
               type="button"
               role="tab"
               aria-selected={view === item.id}
-              className={`flex h-6 items-center rounded px-2.5 text-xs font-medium transition-colors ${
+              className={`flex min-h-11 items-center rounded px-3 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
                 view === item.id
                   ? "bg-white text-[#0a0a0a] shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
                   : "text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-200"
@@ -253,7 +253,7 @@ export function ExtensionSkillsView({
             placeholder="Search skills…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="h-7 w-48 rounded-md border border-[#e4e4e7] bg-[#f4f4f5] pl-8 pr-2.5 text-xs text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100"
+            className="min-h-11 w-48 rounded-md border border-[#e4e4e7] bg-[#f4f4f5] pl-8 pr-2.5 text-xs text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
           />
         </div>
       </div>
@@ -275,7 +275,7 @@ export function ExtensionSkillsView({
           {loadError ? (
             <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
               <p role="alert" className="flex-1">{loadError}</p>
-              <button type="button" className="font-semibold underline" disabled={loading} onClick={() => void load()}>Retry</button>
+              <button type="button" className="font-semibold underline min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]" disabled={loading} onClick={() => void load()}>Retry</button>
             </div>
           ) : null}
 
@@ -301,7 +301,7 @@ export function ExtensionSkillsView({
                       setMutationError(null);
                       setDialog({ mode: "create" });
                     }}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                   >
                     <Plus className="size-3.5" /> New Skill
                   </button>
@@ -368,7 +368,7 @@ function SkillCard({
         <button
           type="button"
           onClick={onEdit}
-          className="min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-zinc-400"
+          className="min-w-0 flex-1 text-left min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
         >
           <span className="block truncate text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100">{skill.name || "Untitled"}</span>
           <span className="mt-0.5 line-clamp-2 block text-xs text-[#71717a] dark:text-zinc-400">{skill.description || "No description provided."}</span>
@@ -398,7 +398,7 @@ function SkillCard({
               title={skill.enabled ? "Disable" : "Enable"}
               disabled={busy}
               onClick={onToggle}
-              className="flex size-7 items-center justify-center rounded text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               {skill.enabled ? <ToggleRight className="size-4 text-emerald-600 dark:text-emerald-400" /> : <ToggleLeft className="size-4" />}
             </button>
@@ -408,7 +408,7 @@ function SkillCard({
             aria-label={`${skill.permissions?.canEdit === false ? "View" : "Edit"} ${skill.name}`}
             title={skill.permissions?.canEdit === false ? "View" : "Edit"}
             onClick={onEdit}
-            className="flex size-7 items-center justify-center rounded text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
           >
             {skill.permissions?.canEdit === false ? <Eye className="size-3.5" /> : <Pencil className="size-3.5" />}
           </button>
@@ -534,7 +534,7 @@ function SkillDialog({
           <button
             type="button"
             aria-label="Close"
-            className="flex size-7 items-center justify-center rounded-md text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             onClick={onClose}
           >
             <X className="size-4" />
@@ -554,7 +554,7 @@ function SkillDialog({
                   onClick={() =>
                     void scopeAction(() => onMove(skill, scope === "workspace" ? "personal" : "workspace"))
                   }
-                  className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                 >
                   {scope === "workspace" ? <UserRound className="size-3.5" /> : <Users className="size-3.5" />}
                   {scope === "workspace" ? "Move to Personal" : "Share to Workspace"}
@@ -566,7 +566,7 @@ function SkillDialog({
                       type="button"
                       disabled={actionBusy}
                       onClick={() => void scopeAction(() => onRestore(skill))}
-                      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-200"
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                     >
                       <RotateCcw className="size-3.5" /> Restore
                     </button>
@@ -576,7 +576,7 @@ function SkillDialog({
                       type="button"
                       disabled={actionBusy}
                       onClick={() => void scopeAction(() => onArchive(skill))}
-                      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-200"
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                     >
                       <Archive className="size-3.5" /> Archive
                     </button>
@@ -595,7 +595,7 @@ function SkillDialog({
               value={values.name}
               onChange={(e) => update("name", e.target.value)}
               placeholder="My skill"
-              className="h-8 w-full rounded-md border border-[#e4e4e7] bg-[#f4f4f5] px-2.5 text-xs text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100"
+              className="min-h-11 w-full rounded-md border border-[#e4e4e7] bg-[#f4f4f5] px-2.5 text-xs text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             />
           </label>
 
@@ -607,7 +607,7 @@ function SkillDialog({
               value={values.description}
               onChange={(e) => update("description", e.target.value)}
               placeholder="What should this skill help with?"
-              className="h-8 w-full rounded-md border border-[#e4e4e7] bg-[#f4f4f5] px-2.5 text-xs text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100"
+              className="min-h-11 w-full rounded-md border border-[#e4e4e7] bg-[#f4f4f5] px-2.5 text-xs text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             />
           </label>
 
@@ -623,7 +623,7 @@ function SkillDialog({
               value={values.instructions}
               onChange={(e) => update("instructions", e.target.value)}
               placeholder="Markdown is supported."
-              className="w-full resize-y rounded-md border border-[#e4e4e7] bg-[#f4f4f5] p-2.5 font-mono text-xs leading-relaxed text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100"
+              className="w-full resize-y rounded-md border border-[#e4e4e7] bg-[#f4f4f5] p-2.5 font-mono text-xs leading-relaxed text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             />
           </label>
 
@@ -641,7 +641,7 @@ function SkillDialog({
                 aria-checked={values.enabled}
                 aria-label={values.enabled ? "Enabled" : "Disabled"}
                 onClick={() => update("enabled", !values.enabled)}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
               >
                 {values.enabled ? (
                   <ToggleRight className="size-6 text-emerald-600 dark:text-emerald-400" />
@@ -663,7 +663,7 @@ function SkillDialog({
                 type="button"
                 onClick={() => void deleteSkill()}
                 disabled={deleting}
-                className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
               >
                 {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
                 Delete
@@ -676,7 +676,7 @@ function SkillDialog({
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex h-7 items-center rounded-md border border-[#e4e4e7] px-3 text-xs font-medium text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              className="inline-flex min-h-11 items-center rounded-md border border-[#e4e4e7] px-3 text-xs font-medium text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               Cancel
             </button>
@@ -686,7 +686,7 @@ function SkillDialog({
                 aria-label={state.mode === "edit" ? "Save" : "Create"}
                 onClick={() => void submit()}
                 disabled={saving}
-                className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
               >
                 {saving ? <Loader2 className="size-3.5 animate-spin" /> : saved ? <Check className="size-3.5" /> : null}
                 {saving ? "Saving…" : saved ? "Saved" : state.mode === "edit" ? "Save" : "Create skill"}

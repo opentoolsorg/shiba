@@ -320,6 +320,30 @@ describe("WorkView", () => {
     expect(screen.getByTestId("kanban-column-pr_open").textContent).toContain("Fix flaky checkout test");
   });
 
+  it("keeps cancelled and PR-open labels distinct in the Timeline", () => {
+    const cancelled: RetainedRun = { ...mockRuns[2]!, runId: "run-cancelled", task: "Dropped migration", status: "cancelled" };
+    render(<WorkView runs={[...mockRuns, cancelled]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Timeline" }));
+    const timeline = screen.getByRole("region", { name: "Timeline view" });
+    expect(within(timeline).getByText("Cancelled")).toBeTruthy();
+    expect(within(timeline).getByText("PR open")).toBeTruthy();
+    expect(within(timeline).queryByText("Error")).toBeNull();
+  });
+
+  it("groups needs-provider chats with waiting work and offers no approval review for them", () => {
+    const onReviewApproval = vi.fn();
+    const sessions = [{ id: "s-np", title: "Connect a provider", repoName: "", status: "needs-provider", updatedAt: 5 }];
+    render(<WorkView sessions={sessions} onReviewApproval={onReviewApproval} />);
+    const waiting = screen.getByRole("region", { name: /^Needs approval - 1$/ });
+    expect(waiting.textContent).toContain("Connect a provider");
+    expect(screen.getByRole("region", { name: /^Done - 0$/ }).textContent).not.toContain("Connect a provider");
+    expect(screen.queryByRole("button", { name: /^Review/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Board" }));
+    expect(screen.queryByRole("button", { name: /^Review/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Timeline" }));
+    expect(screen.queryByRole("button", { name: /^Review/ })).toBeNull();
+  });
+
   it("returns a workspace-scoped controlled Organization view to List", () => {
     const onViewChange = vi.fn();
     render(<WorkView workspaceId={`ws_${"a".repeat(24)}`} view="organization" onViewChange={onViewChange} />);
