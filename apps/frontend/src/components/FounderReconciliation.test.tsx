@@ -3,7 +3,7 @@ import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FounderReconciliation } from "./FounderReconciliation";
-import { RECON_ACTOR, RECON_WORKSPACE, reconScope, reconciliationDraft } from "../founder-reconciliation-fixtures";
+import { RECON_ACTOR, RECON_WORKSPACE, reconScope, reconciliationDraft, completedReconciliationCapture, rollingReconciliationFixture } from "../founder-reconciliation-fixtures";
 import { hubspotGrant } from "../founder-hubspot-fixtures";
 import { stripeGrant } from "../founder-stripe-fixtures";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -60,5 +60,81 @@ describe("private receipt comparison", () => {
     vi.stubGlobal("fetch", vi.fn(async (path: RequestInfo | URL) => { if (String(path) !== "/api/founder-reconciliations") return new Response("unavailable", { status: 503 }); return ++requests === 1 ? held : Response.json({ ...reconScope, actorId: next, drafts: [] }); }));
     const view = render(<FounderReconciliation workspaceId={RECON_WORKSPACE} actorId={RECON_ACTOR} onClose={() => {}} />); view.rerender(<FounderReconciliation workspaceId={RECON_WORKSPACE} actorId={next} onClose={() => {}} />);
     await screen.findByText(/eligible native HubSpot invoice snapshot is unavailable/); await act(async () => { const d = reconciliationDraft(); release(Response.json({ ...reconScope, drafts: [{ id: d.id, digest: d.digest, state: "draft", expiresAt: d.expiresAt }] })); }); expect(screen.queryByRole("button", { name: "Review comparison" })).toBeNull();
+  });
+});
+
+describe("reviewed rolling reconciliation UI", () => {
+  async function openCompleted(options: { rejectRolling?: boolean; holdRolling?: Promise<Response> } = {}) {
+    const capture = await completedReconciliationCapture();
+    const send = vi.fn(async (path: RequestInfo | URL, init?: RequestInit) => {
+      const p = String(path);
+      if (p.endsWith("/rolling")) {
+        if (options.holdRolling) return options.holdRolling;
+        if (options.rejectRolling) return new Response("revoked", { status: 409 });
+        const selection = JSON.parse(String(init?.body));
+        return Response.json({ ...reconScope, report: rollingReconciliationFixture(capture, selection) });
+      }
+      if (p === "/api/founder-reconciliations") return Response.json({ ...reconScope, drafts: [capture.draft] });
+      if (p.endsWith(capture.draft.id)) return Response.json({ ...reconScope, draft: capture.draft, report: capture.report });
+      return new Response("unavailable", { status: 503 });
+    });
+    vi.stubGlobal("fetch", send);
+    const view = render(<FounderReconciliation workspaceId={RECON_WORKSPACE} actorId={RECON_ACTOR} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review comparison" }));
+    await screen.findByRole("region", { name: "Rolling-period reconciliation" });
+    return { ...capture, send, view, calls: () => send.mock.calls.filter(([path]) => String(path).endsWith("/rolling")) };
+  }
+  const reviewRolling = () => fireEvent.click(screen.getByLabelText(/I reviewed this exact UTC period/));
+  const submitRolling = () => fireEvent.click(screen.getByRole("button", { name: "Compose reviewed rolling report" }));
+  it("shows period, source basis and mapping before an unchecked review; never auto-composes", async () => {
+    const fixture = await openCompleted();
+    expect(fixture.calls()).toHaveLength(0);
+    expect(screen.getByLabelText(/I reviewed this exact UTC period/)).toHaveProperty("checked", false);
+    expect(screen.getByRole("button", { name: "Compose reviewed rolling report" })).toHaveProperty("disabled", true);
+    expect(screen.getByText(/Period basis: Stripe invoice created timestamp/)).toBeTruthy();
+    expect(screen.getByText(/amount unit: major-decimal/)).toBeTruthy();
+    reviewRolling(); submitRolling();
+    const result = await screen.findByRole("region", { name: "Rolling report result" });
+    expect(result.textContent).toContain("90071992547409930001");
+    expect(result.textContent).toContain("stripe_capture_has_more_pages");
+    expect(fixture.calls()).toHaveLength(1);
+    expect(screen.getByLabelText(/I reviewed this exact UTC period/)).toHaveProperty("checked", false);
+  });
+  it("resets output and consent on metric, period and end changes; displays exact unavailable reasons", async () => {
+    const fixture = await openCompleted();
+    reviewRolling(); submitRolling(); await screen.findByRole("region", { name: "Rolling report result" });
+    fireEvent.change(screen.getByLabelText("Metric definition"), { target: { value: "mrr" } });
+    expect(screen.queryByRole("region", { name: "Rolling report result" })).toBeNull();
+    expect(screen.getByLabelText(/I reviewed this exact UTC period/)).toHaveProperty("checked", false);
+    reviewRolling(); submitRolling();
+    const result = await screen.findByRole("region", { name: "Rolling report result" });
+    expect(result.textContent).toContain("subscription_lifecycle_snapshots_not_captured");
+    expect(result.querySelector("table")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Period length (days)"), { target: { value: "1" } });
+    expect(screen.queryByRole("region", { name: "Rolling report result" })).toBeNull();
+    reviewRolling();
+    fireEvent.change(screen.getByLabelText("Period end (UTC, exclusive)"), { target: { value: new Date((fixture.asOf - 60) * 1000).toISOString().slice(0, 19) } });
+    expect(screen.getByLabelText(/I reviewed this exact UTC period/)).toHaveProperty("checked", false);
+    expect(fixture.calls()).toHaveLength(2);
+  });
+  it("clears private results and blocks retries when authority is revoked after proof", async () => {
+    const fixture = await openCompleted({ rejectRolling: true });
+    reviewRolling(); submitRolling();
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("region", { name: "Rolling report result" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Rolling-period reconciliation" })).toBeNull();
+    expect(screen.getByText(/uncertain action is not retried automatically/)).toBeTruthy();
+    expect(fixture.calls()).toHaveLength(1);
+  });
+  it("discards a held rolling result after switching native actors", async () => {
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => { release = resolve; });
+    const fixture = await openCompleted({ holdRolling: held });
+    reviewRolling(); submitRolling();
+    fixture.view.rerender(<FounderReconciliation workspaceId={RECON_WORKSPACE} actorId="other@example.test" onClose={() => {}} />);
+    await act(async () => { release(Response.json({ ...reconScope, report: rollingReconciliationFixture(fixture) })); });
+    expect(screen.queryByRole("region", { name: "Rolling report result" })).toBeNull();
+    expect(screen.queryByText("90071992547409930001")).toBeNull();
+    expect(fixture.calls()).toHaveLength(1);
   });
 });
