@@ -36,6 +36,57 @@ New artifact links use `?landing=1#token=…`. The fragment must remain absent f
 
 Spend execution remains out of scope until the user supplies the pending provider, operation and amount/currency decision. Do not substitute a generic run approval for a payment approval.
 
+## Gated metadata observer and blocked run observation
+
+`node scripts/control-plane-live-acceptance.mjs` prints all seven cases as blocked and performs zero network requests. Even after explicit live opt-in, the command requests only identity and deployment metadata, then reports `non_waking_observation_unavailable`. It never requests approvals, run detail, a session registry or room connection. The current generic approval endpoint fans out to the owner, owned sessions and default orchestrators; reading those agents can wake approved run, email or publication recovery outside the selected fixture. A dedicated non-waking observation contract is missing. A broad consent flag to recover unrelated work would not fix this scope gap.
+
+Before sampling a live test deployment, review the exact origin and owner, expected Git revision and Worker version. Session, approval, frozen input hash and image digest remain explicit fixture selectors for the blocked future run observation. This command does not verify those run selectors. Keep the configuration and evidence outside the repository. The configuration contains no credentials:
+
+```json
+{
+  "schemaVersion": 1,
+  "origin": "https://your-isolated-preview.workers.dev",
+  "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "versionId": "12345678-abcd-4123-8123-123456789abc",
+  "imageDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "scope": {
+    "kind": "dashboard-session",
+    "fixtureLabel": "isolated-nonproduction",
+    "ownerId": "verified-fixture-owner@your-domain.dev",
+    "teamId": null,
+    "sessionId": "23456789-abcd-4123-8123-123456789abc",
+    "approvalId": "existing-human-approved-id",
+    "runId": "agent-tool:existing-human-approved-id",
+    "inputHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "expectedApproval": "approved",
+  "observeMs": 1000
+}
+```
+
+The example identifiers are placeholders. Both `expectedApproval` modes remain blocked in live mode. Local protocol helpers test the intended requirements: a pending approval must be unexpired with no existing run; an approved run must have matching named-human decision and frozen input hash. These helpers cannot establish the live approval state. Pending input hashes are additionally unavailable from the current approval read API.
+
+Only when the operator is authorized to sample that test host's identity and deployment metadata, supply its existing cookies through the secret environment variable `SHIBA_LIVE_COOKIE`, set `SHIBA_CONTROL_PLANE_LIVE=1`, then invoke:
+
+```bash
+node scripts/control-plane-live-acceptance.mjs \
+  --config /private/shiba-live-config.json \
+  --execute-read-only \
+  --output /private/shiba-live-evidence.json
+```
+
+Do not put cookies in the JSON, command arguments, shell history, screenshots or committed evidence. The command creates a new output file with mode `0600` and refuses to overwrite an existing file. It uses the repository's pinned desktop `playwright-core` HTTP request context with normal TLS verification and redirects disabled; no Chromium installation is needed for these metadata reads. Its two megabyte JSON limit is checked after Playwright buffers the response, so it is a parsing bound rather than a wire or transport memory cap. No browser profile, trace, screenshot, terminal body, cookie, human identity or raw run/approval ID is exported. Failures log fixed local error codes only. Both explicit opt-in gates are required before any network request.
+
+The observer first requires anonymous `/api/whoami` to return `401`, then checks the authenticated fixture owner and `GET /api/setup/deployment`. That authenticated route derives `versionId` and the exact lowercase 40-character revision tag from Cloudflare's platform version metadata, not a request header. Missing metadata, an untagged older deployment, an authentication failure or sampled version mismatch blocks the command. Start and end samples are not continuous revision proof and cannot detect a deployment that changes away and back between requests. Cloudflare documents [version and deployment identity](https://developers.cloudflare.com/workers/versions-and-deployments/) separately from mutable storage state; this tag is deployment provenance, not proof that every storage migration or sibling service is at the same revision. The configured image digest is retained as an expected selector with `imageDigestVerified: false`; an operator must verify the actual deployed container application separately.
+
+Local transport helpers exercise `subscribe`, confirmed socket closure and reconnection from an earlier retained cursor. They compare stable sequence and event hashes, count stdout and stderr frames, reject altered/missing/duplicate/reordered retained events, require exactly one non-backward completion frontier and report `run:replay_gap`, `stream_gap` and `stream_limited` markers. Empty terminal evidence is blocked. The live entry point cannot call these helpers until a safe scoped read contract exists. Even a future completed-run replay pass would cover only part of case 4; it would not prove two-user authorization, revocation or active source transport recovery.
+
+The smallest safe next contract is an authenticated, exact owner/session/run/approval read projection that does not fetch the owner, default or execution agent and cannot trigger recovery. It must bind the frozen input hash, attributed human decision, explicit fixture scope and deployment provenance, recheck current audience and source grants, and distinguish pending, absent, stale and unknown states. Retained-event bounds, source counts and durable acknowledgments must come from trusted redacted publication checkpoints, not client declarations. Building and validating that projection requires coordinated writer changes; this observer does not invent one or weaken the approval-before-execution gate.
+
+Raw source sequences and durable acknowledgments remain binding-only. The report deliberately leaves `sourceFrameCount` and `acknowledgedThrough` null, and case 7 blocked. To finish the direct original requirement, an authorized operator must separately interrupt the reader RPC during the existing approved harness process while its original container survives, retain the job/container identity and source counts before and after, and compare those counts to the durable acknowledgment and redacted room events. Facet/parent eviction, lost responses and unfinished secret-bearing lines are additional recovery cases; none is simulated as a live pass by this driver. Container replacement and output exceeding the 4 MiB/4,096 source-frame or 2,048 room-event bounds require explicit loss or gap outcomes and do not imply a requirement to resume a destroyed process.
+
+Focused local verification is `node --test scripts/control-plane-live-acceptance.test.mjs`. Its injected observers and protocol fixtures exercise the safety gates and replay comparison without Cloudflare, model, container or Slack calls. The backend's `test/acceptance/control-plane-live-driver.test.ts` runs these same regressions in aggregate CI. They do not satisfy the seven live cases. An executed metadata observation exits `2` with `non_waking_observation_unavailable`, every live scenario blocked and `fullPlanAccepted: false`; a configuration, identity or revision failure exits `1`. The default offline checklist exits `0` without accepting any case. `pnpm test:live` still covers the separately opted-in TypeSafe test only, and `pnpm test:ephemeral` still establishes reachability only.
+
 ## Authorized preview continuation
 
 On November 4 the user authorized a non-production preview after the fixes and checks. Production deployment and merging remain excluded. The supported PR workflow selects isolated stage `pr-188`, pins checkout to the event's exact PR head and requires remote state for both deployment and later cleanup. It does not bootstrap or migrate state infrastructure automatically.
