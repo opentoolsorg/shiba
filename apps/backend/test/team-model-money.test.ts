@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatMicroUsd, parseMicroUsd, teamModelMaximumDebitMicroUsd, teamModelQuotedCostMicroUsd, isTeamModelMoneyContract } from "@shiba/shared";
+import { formatMicroUsd, parseMicroUsd, teamModelMaximumDebitMicroUsd, teamModelQuotedCostMicroUsd, isTeamModelMoneyContract, teamModelPriceQuoteDigest } from "@shiba/shared";
 import { prepareTeamModelMoney, requireTeamModelMoney, teamModelUsageReceipt } from "../src/team-model-money.js";
 
 describe("Money v2 pure reference arithmetic and fixture usage receipts", () => {
@@ -8,6 +8,14 @@ describe("Money v2 pure reference arithmetic and fixture usage receipts", () => 
     expect(teamModelMaximumDebitMicroUsd(64)).toBe(7956);
     expect(teamModelQuotedCostMicroUsd(1, 1)).toBe(2);
     expect(formatMicroUsd(8341)).toBe("$0.008341");
+  });
+  it("binds explicit text operation while preserving legacy text quote digests", () => {
+    const money = prepareTeamModelMoney(100_000, 64, 2_000_000, 1_000_000);
+    expect(money.quote.operation).toBe("text-generation");
+    expect(isTeamModelMoneyContract({ ...money, quote: { ...money.quote, operation: "embedding" } }, 64)).toBe(false);
+    const { operation: _operation, digest: _digest, ...legacyQuote } = money.quote;
+    expect(isTeamModelMoneyContract({ ...money, quote: { ...legacyQuote, digest: teamModelPriceQuoteDigest(legacyQuote) } }, 64)).toBe(true);
+    expect(isTeamModelMoneyContract({ ...money, quote: { ...legacyQuote, digest: money.quote.digest } }, 64)).toBe(false);
   });
   it.each(["0", "0.000000", "1.000001", "1.01", "2", "0.0000001", "1e-2", "-0.01", "NaN", " 0.1", "0.1 "])("rejects unsupported or inexact dollar input %s", (value) => {
     expect(parseMicroUsd(value)).toBeNull();
@@ -32,7 +40,7 @@ describe("Money v2 pure reference arithmetic and fixture usage receipts", () => 
   });
   it("retains exact binding and upward quoted usage as information, not an invoice", async () => {
     const receipt = await teamModelUsageReceipt({ id: "fixture-response", model: "@cf/zai-org/glm-4.7-flash", usage: { prompt_tokens: 32, completion_tokens: 8, total_tokens: 40 } }, "a".repeat(64), 64);
-    expect(receipt.quotedMicroUsd).toBe(6); expect(JSON.parse(receipt.json)).toMatchObject({ inputHash: "a".repeat(64), promptTokens: 32, completionTokens: 8, quotedMicroUsd: 6 });
+    expect(receipt.quotedMicroUsd).toBe(6); expect(JSON.parse(receipt.json)).toMatchObject({ operation: "text-generation", inputHash: "a".repeat(64), promptTokens: 32, completionTokens: 8, quotedMicroUsd: 6 });
     expect(receipt.hash).toMatch(/^[a-f0-9]{64}$/);
   });
 });
