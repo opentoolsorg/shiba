@@ -1101,13 +1101,12 @@ describe("dashboard approval routes", () => {
 });
 
 describe("InboxTab + MemoryTab SSR", () => {
-  it("guides first-time users to register, route, and verify mail without claiming delivery", () => {
+  it("renders the mailbox shell without claiming delivery before mail loads", () => {
     const html = renderToStaticMarkup(
       React.createElement(InboxTab, { onOpenApprovals: () => {} }),
     );
-    expect(html).toContain("Register a mailbox");
-    expect(html).toContain("Configure Cloudflare Email Routing");
-    expect(html).toContain("Send a test email");
+    expect(html).toContain("Loading mail…");
+    expect(html).toContain("All mailboxes");
     expect(html).not.toContain("No mailboxes currently paired.");
   });
   it("renders the loading state without a live backend", () => {
@@ -1119,15 +1118,17 @@ describe("InboxTab + MemoryTab SSR", () => {
     expect(memory).toContain("Loading memory");
   });
 
-  it("renders the enhanced activity summary bar and approval boundary indicators in SSR", () => {
+  it("renders the folder switcher, settings entry, and search in SSR", () => {
     const inbox = renderToStaticMarkup(
       React.createElement(InboxTab, { onOpenApprovals: () => {} }),
     );
-    expect(inbox).toContain("Mailbox activity summary");
-    expect(inbox).toContain("Approval-Gated Send");
-    expect(inbox).toContain("Mailbox Settings");
-    expect(inbox).toContain("All Mail");
-    expect(inbox).toContain("Search mail");
+    expect(inbox).toContain("Inbox");
+    expect(inbox).toContain("Unread");
+    expect(inbox).toContain("Sent");
+    expect(inbox).toContain("Drafts");
+    expect(inbox).toContain("Queued");
+    expect(inbox).toContain("Settings");
+    expect(inbox).toContain('aria-label="Search mail"');
   });
 });
 

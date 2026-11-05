@@ -58,8 +58,8 @@ describe("dashboard components SSR (T14 sweep)", () => {
         onOpenSetup: () => {},
       }),
     );
-    expect(html).toContain("New task");
-    expect(html).toContain("Active");
+    expect(html).toContain("Waiting on you");
+    expect(html).toContain("Running");
     expect(html).toContain("Ship the inbox tab");
     expect(html).toContain("Recent");
     expect(html).toContain("Fix flaky audit test");
@@ -83,7 +83,7 @@ describe("dashboard components SSR (T14 sweep)", () => {
         onOpenSetup: () => {},
       }),
     );
-    expect(html).toContain("No sessions yet");
+    expect(html).toContain("No recent tasks");
   });
 
   it("OnboardingModal renders optional setup paths with per-step review buttons", () => {
@@ -203,11 +203,10 @@ describe("dashboard components SSR (T14 sweep)", () => {
         onOpenShortcuts: () => {},
       })
     );
-    expect(html).toContain("New thread");
-    expect(html).toContain("Threads");
-    expect(html).toContain("Pull requests");
-    expect(html).toContain("Automations");
-    expect(html).toContain("More");
+    expect(html).toContain('aria-label="Chats"');
+    expect(html).toContain('aria-label="Agents"');
+    expect(html).toContain('aria-label="More"');
+    expect(html).toContain('aria-label="Settings"');
     expect(html).not.toContain("Architecture");
     expect(html).toContain("3"); // Pending approval badge on the More button
     expect(html).toContain("aria-current");
