@@ -31,6 +31,22 @@ function ArchiveContent({ runId, sessionId, onClose }: { runId: string; sessionI
     } catch { if (active(signal)) { clear(); setError("Current native archive access, source authority or checkpoint could not be verified. No work was restarted."); } }
     finally { if (active(signal)) { pending.current = false; setBusy(false); } }
   };
+  const download = async (signal: AbortSignal) => {
+    const selected = currentPage.current;
+    if (!active(signal) || pending.current || !selected) return;
+    pending.current = true; setBusy(true); setError(null);
+    try {
+      const snapshot = await client.exportSnapshot(selected.archiveId, signal);
+      if (!active(signal) || snapshot.expiresAt <= Date.now()) return;
+      const url = URL.createObjectURL(new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" }));
+      try {
+        if (!active(signal) || snapshot.expiresAt <= Date.now()) return;
+        const link = document.createElement("a"); link.href = url; link.download = `shiba-retained-output-${snapshot.archiveId.slice(0, 12)}.json`;
+        link.click();
+      } finally { window.setTimeout(() => URL.revokeObjectURL(url), 0); }
+    } catch { if (active(signal)) { clear(); setError("Current native archive access, source authority or checkpoint could not be verified. No work was restarted."); } }
+    finally { if (active(signal)) { pending.current = false; setBusy(false); } }
+  };
   useEffect(() => {
     const current = new AbortController(); controller.current = current; pending.current = false; void load(current.signal);
     const refresh = () => { if (document.visibilityState !== "hidden") void load(current.signal); };
@@ -50,9 +66,11 @@ function ArchiveContent({ runId, sessionId, onClose }: { runId: string; sessionI
     {busy && <p role="status" className="mt-2">Checking current native source authority…</p>}{error && <p role="alert" className="mt-2">{error}</p>}
     {missing && <p className="mt-2">No current private archive was approved for this run. Legacy, shared-context, local and personal runs keep their existing output behavior.</p>}
     {page && <><p className="mt-2">Expires {new Date(page.expiresAt).toISOString()} · source ACK {page.acknowledgedThrough} · last observed source {page.lastObservedSource} · retained events {page.eventCount}.</p>
-      {page.incompleteTail ? <p role="status" className="mt-2">Only the externally acknowledged retained projection is available. The unacknowledged tail is unknown; this is not proof the command finished.</p>
+      {page.incompleteTail ? <p role="status" className="mt-2">This is the committed sanitized projection; the source ACK and observed frontier can differ. The unacknowledged tail is unknown; this is not proof the command finished.</p>
         : <p role="status" className="mt-2">Original source exit receipt: {page.finalExitCode}. This does not establish tests, artifacts, settlement or publication.</p>}
       <pre data-testid="retained-archive-content" className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words">{text}</pre>
+      <button type="button" className={`${BUTTON} mt-2`} disabled={busy} onClick={() => { const signal = controller.current?.signal; if (signal) void download(signal); }}>Download verified retained output</button>
+      <p className="mt-2">The JSON download contains the retained events and source outcome. A saved copy remains on your device after the archive lease ends.</p>
       {total > MAX_DISPLAY && <p className="mt-2">The panel shows the last {MAX_DISPLAY.toLocaleString()} characters from the loaded pages. Retained source pages remain separately bounded.</p>}
       {page.hasMore && <button type="button" className={`${BUTTON} mt-2`} disabled={busy} onClick={() => { const signal = controller.current?.signal; if (signal) void load(signal, true); }}>Read next retained page</button>}
     </>}

@@ -6,6 +6,23 @@ import { startJournalWorkerFixture, waitFor } from "./worker-journal-fixture.mjs
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const sourceText = (page, stream = "stdout") => page.frames.filter((frame) => frame.stream === stream).map((frame) => Buffer.from(frame.dataBase64, "base64").toString("utf8")).join("");
 const archiveText = (page, stream = "stdout") => page.events.filter((frame) => frame.event.stream === stream).map((frame) => frame.event.data).join("");
+async function readPages(fixture, first = undefined) {
+  const pages = [first ?? (await fixture.api("/archive")).body];
+  while (pages.at(-1).hasMore) {
+    const previous = pages.at(-1);
+    const response = await fixture.api(`/archive?after=${previous.nextCursor}`);
+    assert.equal(response.status, 200);
+    const page = response.body;
+    assert.equal(page.after, previous.nextCursor);
+    assert.equal(page.previousChainDigest, previous.events.at(-1).chainDigest);
+    pages.push(page);
+  }
+  const events = pages.flatMap((page) => page.events);
+  assert.deepEqual(events.map((event) => event.ordinal), events.map((_, index) => index + 1));
+  assert.equal(new Set(events.map((event) => event.eventId)).size, events.length);
+  assert.equal(events.at(-1)?.chainDigest, pages.at(-1).chainDigest);
+  return { ...pages[0], events, pages: pages.length };
+}
 test("actual workerd replacement archive retains committed sanitized prefix and never STARTs again", { timeout: 120_000, skip: process.platform !== "linux" && "Fixed journal fixture requires Linux identity" }, async (context) => {
   const files = ["./worker-archive-replacement-entry.ts", "./worker-journal-fixture.mjs", "../../src/run-output-archive.ts", "../../src/run-output-archive-admission.ts", "../../src/run-output-archive-reservations.ts", "../../src/run-output-archive-store.ts", "../../src/conversation-room-do.ts", "../../src/run-journal-publisher.ts", "../../src/sandbox/execution-journal.ts"];
   const sourceHashes = async () => Object.fromEntries(await Promise.all(files.map(async (file) => [file, digest(await readFile(new URL(file, import.meta.url)))])));
@@ -37,8 +54,9 @@ test("actual workerd replacement archive retains committed sanitized prefix and 
       return stdout.includes("fixture-secret-value\n🙂\n");
     });
     assert.equal((await fixture.api("/publish", { frames: middle.frames })).status, 200);
-    const beforeLoss = (await fixture.api("/archive")).body;
-    const expected = "prefix\n[fixture-redacted]\n🙂\n";
+    const beforeLoss = await readPages(fixture);
+    const expected = `prefix\n${Array.from({ length: 36 }, (_, i) => `page-line-${i}-${"x".repeat(3990)}\n`).join("")}[fixture-redacted]\n🙂\n`;
+    assert(beforeLoss.pages > 1, "actual source output crosses an archive page boundary");
     assert.equal(digest(archiveText(beforeLoss)), digest(expected));
     assert.equal(archiveText(beforeLoss, "stderr"), "stderr-prefix\n");
     assert.equal(beforeLoss.acknowledgedThrough, middle.cursor);
@@ -48,7 +66,10 @@ test("actual workerd replacement archive retains committed sanitized prefix and 
     assert(unacknowledged.cursor > beforeLoss.acknowledgedThrough);
     await fixture.destroySource(); assert.equal(fixture.sourceAlive(), false); assert.equal(await fixture.launches(), 1);
     assert.equal((await fixture.api("/replace", {})).status, 200); await fixture.restart();
-    const retained = (await fixture.api("/archive")).body;
+    const firstRetainedPage = (await fixture.api("/archive")).body;
+    assert.equal(firstRetainedPage.hasMore, true);
+    await fixture.restart();
+    const retained = await readPages(fixture, firstRetainedPage);
     assert.equal(retained.state, "incomplete"); assert.equal(retained.incompleteTail, true); assert.equal(retained.tailUpperBound, null);
     assert.equal(retained.acknowledgedThrough, beforeLoss.acknowledgedThrough); assert.equal(retained.chainDigest, beforeLoss.chainDigest);
     assert.equal(digest(archiveText(retained)), digest(expected)); assert(!JSON.stringify(retained).includes("unacknowledged-tail"));
@@ -62,7 +83,7 @@ test("actual workerd replacement archive retains committed sanitized prefix and 
     assert.deepEqual(await sourceHashes(), sourceAtStart, "Executed recovery sources stayed frozen through the runtime drill");
     context.diagnostic(JSON.stringify({ sourceAtStart, kind: "actual-local-workerd-replacement-archive", runtimes: fixture.trace.workerStarts, sqliteAndD1: true, actualTcpWebSocket: true,
       sourceLaunches: await fixture.launches(), replacementStarts: 0, committedSourceFrontier: retained.acknowledgedThrough, emittedButUnacknowledgedFrontier: unacknowledged.cursor,
-      tailUnknown: true, stdoutSha256: digest(expected), revokedReadDenied: true, externalRequests: 0,
+      tailUnknown: true, archivePages: retained.pages, pagedContinuationAfterRestart: true, stdoutSha256: digest(expected), revokedReadDenied: true, externalRequests: 0,
       boundary: "Actual workerd/SQLite/D1/TCP and production Node journal; native Container epoch/claim RPC fixture. No Container, provider, model or coding CLI." }));
     socket.client.close();
   } finally { await fixture.stop(); }
