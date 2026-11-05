@@ -1,5 +1,15 @@
-import { useEffect, useRef, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import { X } from "lucide-react";
+
+const SINGLE_KEY_STORAGE = "shiba:single-key-shortcuts";
+
+export function singleKeyShortcutsEnabled(): boolean {
+  try { return localStorage.getItem(SINGLE_KEY_STORAGE) !== "off"; } catch { return true; }
+}
+
+function setSingleKeyShortcutsEnabled(enabled: boolean): void {
+  try { localStorage.setItem(SINGLE_KEY_STORAGE, enabled ? "on" : "off"); } catch { /* the toggle still applies to this view */ }
+}
 
 export interface ShortcutItem {
   id: string;
@@ -62,6 +72,7 @@ export function ShortcutsDialog({
   onClose: () => void;
 }): JSX.Element | null {
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  const [singleKey, setSingleKey] = useState(singleKeyShortcutsEnabled);
 
   useEffect(() => {
     if (!open) return;
@@ -97,6 +108,10 @@ export function ShortcutsDialog({
             <p className="text-xs text-[#71717a] dark:text-zinc-400 mt-0.5">
               Single-key shortcuts (?, D, J, K, C, /) only work with no modifier held and no text field focused.
             </p>
+            <label className="mt-2 flex min-h-11 items-center gap-2 text-xs text-[#0a0a0a] dark:text-zinc-100">
+              <input type="checkbox" checked={singleKey} onChange={(e) => { setSingleKey(e.target.checked); setSingleKeyShortcutsEnabled(e.target.checked); }} />
+              Enable single-key shortcuts
+            </label>
           </div>
           <button
             ref={closeRef}

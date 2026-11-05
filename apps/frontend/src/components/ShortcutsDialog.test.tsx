@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { ShortcutsDialog } from "./ShortcutsDialog";
+import { ShortcutsDialog, singleKeyShortcutsEnabled } from "./ShortcutsDialog";
 
 afterEach(() => cleanup());
 
@@ -30,5 +30,16 @@ describe("ShortcutsDialog", () => {
   it("renders nothing while closed", () => {
     const { container } = render(<ShortcutsDialog open={false} onClose={vi.fn()} />);
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe("single-key shortcut setting", () => {
+  it("persists turning single-key shortcuts off", () => {
+    localStorage.removeItem("shiba:single-key-shortcuts");
+    render(<ShortcutsDialog open onClose={() => {}} />);
+    const toggle = screen.getByRole("checkbox", { name: "Enable single-key shortcuts" }) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    fireEvent.click(toggle);
+    expect(singleKeyShortcutsEnabled()).toBe(false);
   });
 });

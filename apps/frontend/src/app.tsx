@@ -97,7 +97,7 @@ import { AuthScreen, SessionPending, SessionProblem } from "./components/AuthScr
 import { ShibaMark } from "./components/ShibaMark";
 import { authClient } from "./auth-client";
 import { CommandMenu, type CommandItem } from "./components/ui/command-menu";
-import { ShortcutsDialog } from "./components/ShortcutsDialog";
+import { ShortcutsDialog, singleKeyShortcutsEnabled } from "./components/ShortcutsDialog";
 import { useTheme } from "./components/ThemeProvider";
 import { Tooltip } from "./components/Tooltip";
 import { extractPendingApprovals, extractCompletedDiff, parseRepoName, readPromptParam, runsListUrl, statusChipClass, statusLabel } from "./ui-helpers";
@@ -1996,6 +1996,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         if (target) { e.preventDefault(); openView(target); }
         return;
       }
+      // WCAG 2.1.4: single-character shortcuts can be turned off in the shortcuts dialog.
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && !singleKeyShortcutsEnabled()) return;
       if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === "c" || e.key === "C") && currentNavigation.current.view === "work") {
         const input = document.querySelector<HTMLInputElement>('input[placeholder*="Add a task"]');
         if (input) { e.preventDefault(); input.focus(); }
