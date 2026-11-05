@@ -8,7 +8,7 @@
  * No live model, provider credentials, publication or external marketing action.
  */
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {execFileSync, spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import {createWriteStream} from 'node:fs';
 import {access, chmod, mkdir, mkdtemp, readFile, stat, writeFile} from 'node:fs/promises';
@@ -58,6 +58,23 @@ export function fixtureWorkerVars(origin,auth,keys){
   return {SHIBA_LOCAL_RUNTIME:'1',BETTER_AUTH_URL:origin,BETTER_AUTH_OWNER_EMAIL:auth.email,
     BETTER_AUTH_BOOTSTRAP_TOKEN:auth.bootstrapToken,PAIRING_SECRET:keys.pairing,
     BETTER_AUTH_SECRET:keys.auth,INTERNAL_SIGNING_KEY:keys.signing,MEMORY_ENABLED:'0',TYPESAFE_API_KEY:''};
+}
+
+export function signalFixtureGroup(pgid,signal,{kill=process.kill,platform=process.platform,listProcesses=()=>execFileSync('ps',['-A','-o','pgid=,stat='],{encoding:'utf8'})}={}){
+  assert(Number.isSafeInteger(pgid)&&pgid>0,'Fixture process group must be a positive integer.');
+  try{kill(-pgid,signal);return true;}catch(error){
+    if(error.code==='ESRCH')return false;
+    if(error.code!=='EPERM'||platform!=='darwin')throw error;
+    // Darwin can return EPERM for a zombie-only group; live members still fail cleanup.
+    const rows=listProcesses().trim().split('\n').filter(Boolean);
+    assert(rows.length>0,'Cannot confirm fixture process-group exit from an empty process list.');
+    for(const row of rows){
+      const match=row.trim().match(/^(\d+)\s+(\S+)$/);
+      assert(match,'Cannot parse fixture process-group state.');
+      if(Number(match[1])===pgid&&!match[2].startsWith('Z'))throw error;
+    }
+    return false;
+  }
 }
 
 async function assertFreePort(port){
@@ -131,12 +148,12 @@ export async function main(){
   }
   async function stopOwned(entry){
     if(entry.stopped||!entry.child.pid)return;
-    const signalGroup=signal=>{try{process.kill(-entry.child.pid,signal);}catch(error){if(error.code!=='ESRCH')throw error;}};
+    const signalGroup=signal=>signalFixtureGroup(entry.child.pid,signal);
     // Signal the owned group even after its leader exits: descendants may remain.
-    signalGroup('SIGTERM');
+    if(!signalGroup('SIGTERM')){entry.stopped=true;return;}
     const deadline=Date.now()+4000;
     while(Date.now()<deadline){
-      try{process.kill(-entry.child.pid,0);}catch(error){if(error.code==='ESRCH'){entry.stopped=true;return;}throw error;}
+      if(!signalGroup(0)){entry.stopped=true;return;}
       await delay(100);
     }
     signalGroup('SIGKILL');
