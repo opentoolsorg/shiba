@@ -252,7 +252,8 @@ export async function readFounderConnectorState(env: Env, member: WorkspaceNativ
   const now = Date.now(), enabled = current.state === "enabled" && current.expires_at > now;
   const occurrences: FounderConnectorOccurrence[] = (records.results ?? []).map((item) => {
     const observed = available.has(item.id);
-    const approval = observed ? approvals.approvals.find((candidate) => candidate.id === item.approval_id) ?? null : null;
+    const cached = observed ? approvals.approvals.find((candidate) => candidate.id === item.approval_id) ?? null : null;
+    const approval = cached ? { ...cached, canDecide: cached.canDecide && now < cached.expiresAt, canExecute: cached.canExecute && now < cached.expiresAt } : null;
     const expired = item.expires_at <= now;
     const status = item.state === "cancelled" ? "cancelled" : item.state === "expired" || expired ? "expired" : collisions.has(item.id) ? "unknown" : approval ? approval.status === "pending" ? "awaiting-approval" : approval.status : item.approval_id ? "unknown" : "pending";
     return { id: item.id, planId: item.plan_id, planVersion: item.plan_version, digest: item.digest, scheduledAt: item.scheduled_at, createdAt: item.created_at,
