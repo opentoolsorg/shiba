@@ -1,9 +1,9 @@
-import { TEAM_MODEL_TEXT_MODEL } from "@shiba/shared";
+import { TEAM_MODEL_TEXT_MODEL, TEAM_MODEL_LLAMA_MODEL } from "@shiba/shared";
 import type { Env } from "./env.js";
 import type { WorkspaceNativeMember } from "./workspace-native-authority.js";
 import { membershipSql, updateGuarded } from "./workspace-integrations-store.js";
 import {
-  TeamModelError, TEAM_MODEL_CALL_TIMEOUT_MS, fundingBinding, fundingContract, readTeamModelFunding, readTeamModelTurn,
+  TeamModelError, TEAM_MODEL_CALL_TIMEOUT_MS, TEAM_MODEL_ACTOR_LIMIT_MICRO_USD, TEAM_MODEL_WORKSPACE_LIMIT_MICRO_USD, fundingBinding, fundingContract, readTeamModelFunding, readTeamModelTurn,
   requireTeamModelPolicy, sourceGuard, teamModelTurnHash, type TeamModelFundingRow, type TeamModelInput, type TeamModelSourceSnapshot, type TeamModelTurnRow,
 } from "./team-model-store.js";
 import { redactSecrets } from "./security.js";
@@ -16,7 +16,7 @@ function exactTurn(row: TeamModelTurnRow) {
 }
 async function runningCurrent(env: Env, member: WorkspaceNativeMember, grant: TeamModelFundingRow, turn: TeamModelTurnRow) {
   requireTeamModelPolicy(env, grant.policy_key);
-  const contract = fundingContract(grant), money = requireTeamModelMoney(contract.money, contract.maxOutputTokens);
+  const contract = fundingContract(grant), money = requireTeamModelMoney(contract.money, contract.maxOutputTokens, Date.now(), contract.model);
   const source = sourceGuard(fundingBinding(grant), JSON.parse(turn.sources_json) as TeamModelSourceSnapshot), actor = membershipSql(member), exact = exactTurn(turn);
   const current = await env.AGENT_AUDIT.prepare(`SELECT 1 AS current WHERE ${source.sql} AND ${actor.sql}
     AND EXISTS(SELECT 1 FROM team_model_funding WHERE id=? AND version=? AND digest=? AND binding_json=? AND contract_json=? AND state='active' AND policy_key=? AND json_extract(contract_json,'$.expiresAt')>${DB_NOW})
@@ -26,11 +26,18 @@ async function runningCurrent(env: Env, member: WorkspaceNativeMember, grant: Te
       money.quote.dispatchUntil, turn.id, grant.id, turn.input_hash, money.quote.digest, money.maximumDebitPerCallMicroUsd).first();
   if (!current) throw new TeamModelError("team_model_dispatch_authority_changed", 403);
 }
-function outputText(value: unknown): string {
+function outputText(value: unknown, model: string): string {
+  if (model === TEAM_MODEL_LLAMA_MODEL) {
+    if (!value || typeof value !== "object" || !("response" in value) || typeof value.response !== "string" || ("tool_calls" in value && value.tool_calls !== undefined)) throw new TeamModelError("team_model_output_unconfirmed");
+    return boundedText(value.response);
+  }
   if (!value || typeof value !== "object" || !("choices" in value) || !Array.isArray(value.choices) || value.choices.length !== 1) throw new TeamModelError("team_model_output_unconfirmed");
   const choice: unknown = value.choices[0];
   if (!choice || typeof choice !== "object" || !("message" in choice) || !choice.message || typeof choice.message !== "object" || !("content" in choice.message) || typeof choice.message.content !== "string") throw new TeamModelError("team_model_output_unconfirmed");
-  const text = redactSecrets(choice.message.content);
+  return boundedText(choice.message.content);
+}
+function boundedText(value: string): string {
+  const text = redactSecrets(value);
   const bytes = new TextEncoder().encode(text);
   if (bytes.byteLength <= 8192) return text;
   const suffix = "\n[truncated]";
@@ -48,11 +55,11 @@ export async function executeTeamModelTurn(env: Env, member: WorkspaceNativeMemb
   requireTeamModelPolicy(env, grant.policy_key);
   if (binding.recipient.userId !== member.userId || binding.recipient.accountId !== member.accountId || turn.input_hash !== input.inputHash || await teamModelTurnHash(turn, grant) !== turn.input_hash) throw new TeamModelError("team_model_exact_turn_required", 403);
   if (["running", "completed", "unknown", "cancelled", "blocked"].includes(turn.status)) return id;
-  const money = requireTeamModelMoney(contract.money, contract.maxOutputTokens);
+  const money = requireTeamModelMoney(contract.money, contract.maxOutputTokens, Date.now(), contract.model);
   if (turn.status !== "approved" || turn.version !== input.expectedVersion || turn.grant_version !== grant.version) throw new TeamModelError("team_model_turn_not_approved", 403);
   const modelInput = JSON.parse(turn.input_json) as TeamModelInput;
   const bytes = new TextEncoder().encode(turn.input_json).byteLength;
-  if (bytes !== turn.input_bytes || bytes > contract.maxInputBytes || modelInput.max_completion_tokens !== contract.maxOutputTokens || modelInput.stream !== false || modelInput.n !== 1 || modelInput.tool_choice !== "none" || modelInput.store !== false || JSON.stringify(modelInput.modalities) !== '["text"]' || modelInput.chat_template_kwargs.enable_thinking !== false) throw new TeamModelError("team_model_input_policy_changed", 403);
+  if (bytes !== turn.input_bytes || bytes > contract.maxInputBytes || money.quote.model !== contract.model || modelInput.stream !== false || (contract.model === TEAM_MODEL_LLAMA_MODEL ? modelInput.max_tokens !== contract.maxOutputTokens || Object.keys(modelInput).sort().join(",") !== "max_tokens,messages,stream" : modelInput.max_completion_tokens !== contract.maxOutputTokens || modelInput.n !== 1 || modelInput.tool_choice !== "none" || modelInput.store !== false || JSON.stringify(modelInput.modalities) !== '["text"]' || modelInput.chat_template_kwargs?.enable_thinking !== false)) throw new TeamModelError("team_model_input_policy_changed", 403);
   await options.beforeDispatch();
   const source = sourceGuard(binding, JSON.parse(turn.sources_json) as TeamModelSourceSnapshot), actor = membershipSql(member);
   const now = Date.now(), dispatchDeadline = Math.min(now + TEAM_MODEL_CALL_TIMEOUT_MS, turn.expires_at, contract.expiresAt, money.quote.dispatchUntil);
@@ -63,13 +70,19 @@ export async function executeTeamModelTurn(env: Env, member: WorkspaceNativeMemb
       WHERE id=? AND version=? AND digest=? AND binding_json=? AND contract_json=? AND state='active' AND policy_key=?
         AND used_requests<? AND reserved_input_bytes+?<=? AND reserved_output_tokens+?<=? AND json_extract(contract_json,'$.expiresAt')>${DB_NOW}
         AND ?>${DB_NOW} AND ${teamModelLedgerDebitSql("team_model_funding.id")}+?<=?
+        AND COALESCE((SELECT SUM(l.reserved_micro_usd) FROM team_model_money_ledger l WHERE l.workspace_id=?),0)+?<=?
+        AND COALESCE((SELECT SUM(l.reserved_micro_usd) FROM team_model_money_ledger l JOIN team_model_funding f ON f.id=l.grant_id AND f.workspace_id=l.workspace_id
+          WHERE l.workspace_id=? AND json_extract(f.binding_json,'$.recipient.accountId')=?),0)+?<=?
         AND ${source.sql} AND ${actor.sql}
         AND EXISTS(SELECT 1 FROM team_model_turns WHERE ${exact.sql} AND version=? AND status='approved' AND expires_at>${DB_NOW})
         AND NOT EXISTS(SELECT 1 FROM team_model_turns busy WHERE busy.grant_id=? AND busy.status IN ('running','unknown'))
         AND NOT EXISTS(SELECT 1 FROM team_model_money_ledger WHERE grant_id=? AND state IN ('held','unknown'))`)
       .bind(bytes, contract.maxOutputTokens, now, grant.id, turn.grant_version, grant.digest, grant.binding_json, grant.contract_json, grant.policy_key,
         contract.maxRequests, bytes, contract.maxRequests * contract.maxInputBytes, contract.maxOutputTokens, contract.maxRequests * contract.maxOutputTokens,
-        money.quote.dispatchUntil, money.maximumDebitPerCallMicroUsd, money.budgetMicroUsd, ...source.values, ...actor.values, ...exact.values, input.expectedVersion, grant.id, grant.id),
+        money.quote.dispatchUntil, money.maximumDebitPerCallMicroUsd, money.budgetMicroUsd,
+        member.workspaceId, money.maximumDebitPerCallMicroUsd, TEAM_MODEL_WORKSPACE_LIMIT_MICRO_USD,
+        member.workspaceId, member.accountId, money.maximumDebitPerCallMicroUsd, TEAM_MODEL_ACTOR_LIMIT_MICRO_USD,
+        ...source.values, ...actor.values, ...exact.values, input.expectedVersion, grant.id, grant.id),
     env.AGENT_AUDIT.prepare(`UPDATE team_model_turns SET status='running',version=version+1,updated_at=?,dispatch_deadline=? WHERE ${exact.sql} AND version=? AND status='approved' AND changes()=1`)
       .bind(now, dispatchDeadline, ...exact.values, input.expectedVersion),
     env.AGENT_AUDIT.prepare(`INSERT INTO team_model_money_ledger(turn_id,grant_id,workspace_id,input_hash,quote_digest,reserved_micro_usd,state,created_at,updated_at)
@@ -110,16 +123,19 @@ export async function executeTeamModelTurn(env: Env, member: WorkspaceNativeMemb
     // waiting on a possibly stalled final authority read.
     await Promise.race([runningCurrent(env, member, grant, turn), aborted]);
     options.signal?.throwIfAborted(); controller.signal.throwIfAborted(); requireTeamModelPolicy(env, grant.policy_key);
-    requireTeamModelMoney(contract.money, contract.maxOutputTokens);
+    requireTeamModelMoney(contract.money, contract.maxOutputTokens, Date.now(), contract.model);
     if (Date.now() >= dispatchDeadline || Date.now() >= turn.expires_at || Date.now() >= contract.expiresAt) throw new TeamModelError("team_model_turn_expired", 403);
     // No await, mutable caller argument, credential lookup or fallback here.
     dispatched = true;
-    const inference = env.AI.run(TEAM_MODEL_TEXT_MODEL, modelInput, { signal: controller.signal });
+    const inference = contract.model === TEAM_MODEL_LLAMA_MODEL
+      ? env.AI.run(TEAM_MODEL_LLAMA_MODEL, { messages: modelInput.messages, max_tokens: modelInput.max_tokens, stream: false }, { signal: controller.signal })
+      : env.AI.run(TEAM_MODEL_TEXT_MODEL, { messages: modelInput.messages, max_completion_tokens: modelInput.max_completion_tokens,
+        stream: false, n: 1, modalities: ["text"], tool_choice: "none", store: false, chat_template_kwargs: { enable_thinking: false } }, { signal: controller.signal });
     polling = poll();
     const result = await Promise.race([inference, aborted]);
     controller.signal.throwIfAborted();
-    receipt = await teamModelUsageReceipt(result, turn.input_hash, contract.maxOutputTokens);
-    output = outputText(result);
+    receipt = await teamModelUsageReceipt(result, turn.input_hash, contract.maxOutputTokens, contract.model, turn.id);
+    output = outputText(result, contract.model);
   } catch (error) { errorCode = dispatched ? error instanceof Error && error.message === "team_model_usage_unknown" ? "team_model_usage_unknown" : "team_model_outcome_unknown" : "team_model_dispatch_blocked"; }
   finally {
     stopped = true; clearTimeout(timeout); if (pollTimer) clearTimeout(pollTimer); wake?.(); stopPolling?.(); await polling;

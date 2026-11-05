@@ -69,9 +69,12 @@ import { handleFounderAutomaticReads } from "./founder-auto-read-routes.js";
 import { tickFounderAutomaticReads } from "./founder-auto-read-runtime.js";
 import { handleFounderAutomaticReadPermit } from "./founder-auto-read-permits.js";
 import { handleFounderAutomaticSlack } from "./founder-automatic-slack-routes.js";
+import { handleFounderStripeReads } from "./founder-stripe-routes.js";
+import { tickFounderStripeReads } from "./founder-stripe-runtime.js";
 import { tickFounderAutomaticSlack } from "./founder-automatic-slack-tick.js";
 import { handleRunOutputArchives } from "./run-output-archive-routes.js";
 import { handleSlackInstallations } from "./slack-installations-routes.js";
+import { handleSlackCoworker } from "./slack-coworker-routes.js";
 import { handleMultiInstallationSlackCallback } from "./slack-installations-routing.js";
 import { handleSharedComputers } from "./shared-computer-routes.js";
 import { ComputerSession } from "./computer-session.js";
@@ -186,6 +189,8 @@ export const DASHBOARD_VIEWS = new Set([
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
+      try { await tickFounderStripeReads(env); }
+      catch (error) { console.error("Founder Stripe read scheduling failed", redactSecrets(String(error))); }
       try { await tickFounderAutomaticReads(env); }
       catch (error) { console.error("Founder automatic read scheduling failed", redactSecrets(String(error))); }
       try { await tickFounderAutomaticSlack(env); }
@@ -337,6 +342,8 @@ export default {
       if (outputArchiveResponse) return outputArchiveResponse;
       const slackInstallationResponse = await handleSlackInstallations(request, env);
       if (slackInstallationResponse) return slackInstallationResponse;
+      const slackCoworkerResponse = await handleSlackCoworker(request, env);
+      if (slackCoworkerResponse) return slackCoworkerResponse;
       const sharedComputerResponse = await handleSharedComputers(request, env);
       if (sharedComputerResponse) return sharedComputerResponse;
       const workspaceIntegrationResponse = await handleWorkspaceIntegrations(request, env);
@@ -388,6 +395,8 @@ export default {
       if (reportSlackResponse) return reportSlackResponse;
       const founderAutomaticResponse = await handleFounderAutomaticReads(request, env);
       if (founderAutomaticResponse) return founderAutomaticResponse;
+      const founderStripeResponse = await handleFounderStripeReads(request, env);
+      if (founderStripeResponse) return founderStripeResponse;
       const founderAutomaticSlackResponse = await handleFounderAutomaticSlack(request, env);
       if (founderAutomaticSlackResponse) return founderAutomaticSlackResponse;
       const founderEvidenceResponse = await handleFounderEvidenceReports(request, env);

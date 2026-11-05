@@ -1,8 +1,8 @@
 export const UPSTREAM_REVISION = "d89dc9f24f5a057bb500272d7dbf333837c77c68";
 export const GATE_PREFIX = "/v1/shiba/read-gate/";
-export type ReadOperationId = "figma.get_file_metadata" | "linear.list_issues_by_team_id" | "github.list_pull_requests";
+export type ReadOperationId = "figma.get_file_metadata" | "figma.list_comments" | "linear.list_issues_by_team_id" | "github.list_pull_requests" | "googleads.campaign_daily_metrics";
 export interface ReadOperation {
-  id: ReadOperationId; service: "figma" | "linear" | "github"; inputSchema: Record<string, unknown>;
+  id: ReadOperationId; service: "figma" | "linear" | "github" | "googleads"; inputSchema: Record<string, unknown>;
   method: "GET" | "POST"; origin: string; inputSchemaHash: string; executorHash: string; queryHash: string | null;
   maxPages: 1; maxBytes: 32768;
 }
@@ -13,13 +13,13 @@ export interface ReadRequest {
   grantId: string; grantVersion: number; occurrenceId: string; stepId: string; stepDigest: string;
   principal: { kind: "schedule"; id: string }; workspaceId: string; alias: string;
   connectionId: string; providerConnectionId: string; authorizationFingerprint: string;
-  operationId: ReadOperationId; arguments: Record<string, unknown>; expiresAt: number;
+  operationId: ReadOperationId; arguments: Record<string, unknown>; sourceFingerprint?: string; expiresAt: number;
   maxBytes: number; maxDurationMs: number;
   /** Worker-only opaque capabilities; the signing key stays exclusively in the parent. */
   capabilities: { claim: string; dispatch: string; complete: string };
 }
 /** Private Worker-only credential. Never serialize this object or store it in a receipt. */
-export interface OAuthReadCredential { accessToken: string; rawConnectionId: string; revision: string; consentId: string; expiresAt: number | null; privateRedactions?: readonly string[] }
+export interface OAuthReadCredential { accessToken: string; rawConnectionId: string; revision: string; consentId: string; expiresAt: number | null; privateRedactions?: readonly string[]; developerToken?: string; sourceFingerprint?: string }
 export interface GatewayReadReceipt {
   format: "shiba.scheduled-read.receipt.v1"; stepId: string; stepDigest: string; versionId: string; manifestDigest: string;
   operationId: ReadOperationId; state: "completed" | "failed" | "unknown"; capturedAt: number; bytes: number;

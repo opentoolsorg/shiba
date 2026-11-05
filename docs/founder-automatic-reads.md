@@ -6,7 +6,7 @@ report does not authorize a schedule. The dashboard exposes this flow only in
 an explicitly selected team workspace; route authority remains server-owned.
 
 The initial UI offers only operations returned by the audited read gateway:
-fixed Figma file metadata, GitHub pull-request listing and a fixed bounded
+fixed Figma file metadata and file comments, GitHub pull-request listing and a fixed bounded
 Linear team-issue query. Users cannot provide a URL, GraphQL document, arbitrary
 filter, executable code or another operation. Generic connector catalog
 metadata, including an advisory read classification, is not standing authority.
@@ -75,7 +75,7 @@ Occurrences have a distinct scheduler principal. The UI does not fabricate a
 human approval or Execute button for them. It exposes the server's completion,
 partial, failed, unknown or blocked state and never automatically retries one.
 
-Reports cite bounded captured responses. Dataset completeness is unknown and
+Reports cite bounded captured responses and record the selected source revision, fixed arguments, capture time, bytes, request and result digests, and reviewed runtime and executor pins. Figma comment captures project comment IDs, text, timestamps and parent references; other provider fields are dropped and known credentials redacted before persistence. Dataset completeness is unknown and
 business success is unverified. An empty page or transport completion does not
 establish business coverage. No MRR, churn, reconciliation, financial totals or
 company-level conclusion is computed or invented.
@@ -110,3 +110,13 @@ the exact deployed revision, an authorized native creator, current eligible
 source grants, an operator-reviewed gateway version/manifest pin and explicit permission for
 the bounded provider calls. No credentials, account, live schedule, provider
 read, model call or Slack send is created by the frontend tests or browser drill.
+
+## Current provider boundaries
+
+The weekly ads recipe names both Meta and Google Ads. Pinned OpenConnector `d89dc9f24f5a057bb500272d7dbf333837c77c68` declares Meta as API-key authenticated and Google Ads as OAuth with an additional secret developer token and explicit customer ID. Its generic GAQL operation accepts arbitrary query text. None is an audited scheduled-read operation here. Stripe is API-key authenticated in that pinned provider, while the OpenConnector lane admits only encrypted OAuth credentials. A separate default-off [Stripe lane](founder-stripe-read-design.md) uses an explicitly reviewed restricted-key contract. HubSpot–Stripe reconciliation remains unavailable; it cannot be inferred from account badges or fixture data. Supporting these sources needs a separately reviewed secret boundary, exact resource selectors, fixed queries and response contracts, and explicit original-owner consent.
+
+Figma's [comments endpoint](https://developers.figma.com/docs/rest-api/comments-endpoints/) requires `file_comments:read`; an installed OAuth account may lack this scope or file access. Its exact file key is reviewed as a distinct operation and does not extend a metadata-only grant. The bounded capture is not a complete comment history, and no ticket is created. The source additions change the gateway build and manifest: an operator must review and pin a new deployed version before use. Existing grants retain their frozen contract and fail closed when runtime pins change; they do not acquire the new operation.
+
+The separately scoped Google Ads operation, `googleads.campaign_daily_metrics`, uses a fixed v25 `GoogleAdsService.Search` query for campaign ID/name, date, impressions, clicks and cost micros. The reviewed arguments name a ten-digit customer and login customer and an inclusive date window of at most 30 days; the query returns at most 25 rows in one request, and dataset completeness remains unknown. The input never accepts GAQL, arbitrary filters, URLs, headers or credentials. The developer token comes only from the selected encrypted OAuth connection's `oauthClientSecretExtra` in the sibling Worker. It is not returned to Shiba, the browser, container, or receipts. Google documents [call headers and manager-account access](https://developers.google.com/google-ads/api/docs/concepts/call-structure), [Search query syntax](https://developers.google.com/google-ads/api/docs/query/structure), and [date-segmented metrics](https://developers.google.com/google-ads/api/docs/reporting/segmentation). The pinned upstream source declares the v25 endpoint and secretExtra field.
+
+Google Ads requires a dedicated read runtime token scoped to this exact operation and one selected connection; an Ads grant contains only that one read step. It also requires an independently provisioned high-entropy `SHIBA_AUTOMATIC_SOURCE_FINGERPRINT_KEY` (at least 43 URL-safe characters generated from a cryptographically random key) in the sibling Worker. Preparation uses a one-purpose parent-signed nonce and current native source guard; the sibling consumes it before reading encrypted connection metadata and returns only an HMAC fingerprint binding the OAuth source, revision and developer token after a final parent proof. Human review freezes the fingerprint and exact query inputs; dispatch checks the current source fingerprint again before the existing one-use dispatch permit. A missing token, fingerprint key, changed source, denied runtime scope or revoked native authority fails closed. Rotating the fingerprint key invalidates existing Ads approvals. The secret is never included in the reviewed contract. Operator configuration and a separately reviewed manifest/version pin are required; no Google Ads account or provider call has been tested here. The changed manifest requires a new operator pin; existing grants pinned to the prior manifest fail closed and require fresh review. Existing operations do not gain access to this operation. Meta Ads is not implemented by this operation.

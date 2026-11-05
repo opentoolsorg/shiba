@@ -1,0 +1,10 @@
+import { z } from "zod";
+const id=z.string().regex(/^fsc_[a-f0-9]{32}$/),digest=z.string().regex(/^[a-f0-9]{64}$/);
+export const founderStripeSelectionSchema=z.strictObject({kind:z.enum(["invoices","balance_transactions"]),createdGte:z.number().int().nonnegative(),createdLt:z.number().int().positive(),limit:z.number().int().min(1).max(25)});
+export const founderStripeDraftSchema=z.strictObject({accountId:z.string().regex(/^acct_[A-Za-z0-9]{1,200}$/),mode:z.enum(["live","test"]),restrictedKey:z.string().min(24).max(260),expiresAt:z.number().int().positive(),maxCalls:z.number().int().min(2).max(8),selection:founderStripeSelectionSchema,readOnlyAttestation:z.literal("restricted-key-read-only-for-selected-resources")});
+export const founderStripeDecisionSchema=z.strictObject({digest,reviewed:z.literal(true),readConsent:z.literal("allow-exact-scheduled-stripe-reads-and-quota"),readOnlyAttestation:z.literal("restricted-key-read-only-for-selected-resources")});
+export const founderStripeGrantSchema=z.object({id,accountId:z.string(),mode:z.enum(["live","test"]),revision:z.number().int().positive(),expiresAt:z.number().int(),fingerprint:digest,digest,selection:founderStripeSelectionSchema,maxCalls:z.number().int(),usedCalls:z.number().int(),state:z.enum(["draft","verifying","verified","enabled","running","blocked","exhausted","revoked"]),nextDueAt:z.number().int().nullable(),executorDigest:digest,apiVersion:z.literal("2025-10-29.clover"),schedule:z.literal("daily-fixed-interval"),maxBytes:z.literal(32768),maxDurationMs:z.literal(5000),maxPages:z.literal(1)});
+export const founderStripeReceiptSchema=z.object({id:z.string().regex(/^fsr_[a-f0-9]{32}$/),state:z.enum(["dispatching","completed","unknown"]),createdAt:z.number().int(),expiresAt:z.number().int()});
+export type FounderStripeGrant=z.infer<typeof founderStripeGrantSchema>;
+export type FounderStripeReceipt=z.infer<typeof founderStripeReceiptSchema>;
+export type FounderStripeDraft=z.infer<typeof founderStripeDraftSchema>;

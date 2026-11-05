@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { teamModelMoneyContractSchema, teamModelMoneyStateSchema, teamModelTurnCostSchema } from "./team-model-money.js";
+import { teamModelMoneyContractSchema, teamModelMoneyStateSchema, teamModelTurnCostSchema, TEAM_MODEL_LLAMA_MODEL } from "./team-model-money.js";
 
 /** Interactive, deployment-funded text only. This contract grants no tools. */
 export const TEAM_MODEL_TEXT_MODEL = "@cf/zai-org/glm-4.7-flash";
@@ -7,7 +7,7 @@ const positive = z.number().int().positive();
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const fundingBase = z.object({
   roomId: z.string().regex(/^room_[a-f0-9]{24}$/), employeeId: z.string().min(1).max(128), employeeVersion: positive,
-  memberId: z.string().email().max(254), memberVersion: positive, model: z.literal(TEAM_MODEL_TEXT_MODEL),
+  memberId: z.string().email().max(254), memberVersion: positive, model: z.enum([TEAM_MODEL_TEXT_MODEL, TEAM_MODEL_LLAMA_MODEL]),
   maxRequests: positive.max(10), maxInputBytes: positive.max(16_384), maxOutputTokens: positive.max(1024), expiresAt: positive,
 }).strict();
 export const teamModelFundingInputSchema = fundingBase.extend({ currency: z.literal("USD"), budgetMicroUsd: z.number().int().safe().positive().max(1_000_000) }).strict();

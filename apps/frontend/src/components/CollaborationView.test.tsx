@@ -1207,3 +1207,89 @@ it("shows reloaded human instructions and frozen context, then removes them when
   expect(screen.queryByText(/Frozen note from human:owner@example.test/)).toBeNull();
   expect(screen.getByText("Assignment context is unavailable. A source or membership changed.")).toBeTruthy();
 });
+
+describe("Slack draft room review", () => {
+  const workspaceId = PERSONAL_WORKSPACE;
+  const draft = { id: "draft-1", workspaceId, actorId: "member@example.test", text: "Untrusted Slack request" };
+  const detail = { ...roomDetail, members: roomDetail.members.map((member) => ({ ...member, status: "active" })) };
+  function setupFetch() {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [detail.room] });
+      if (path === "/api/collaboration/rooms/room-1") return Response.json(detail);
+      return Response.json({ agents: [], computers: [] });
+    });
+    vi.stubGlobal("fetch", fetcher); return fetcher;
+  }
+  it("requires matching native identity and an explicit room review before copying without posting", async () => {
+    const fetcher = setupFetch(), consumed = vi.fn();
+    const view = render(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={{ ...draft, actorId: "other@example.test" }} onTaskDraftConsumed={consumed}/>);
+    await screen.findByRole("heading", { name: "Shared room" }); fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    expect(screen.queryByText(draft.text)).toBeNull();
+    view.rerender(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={{ ...draft, workspaceId: "ws_" + "f".repeat(24) }} onTaskDraftConsumed={consumed}/>);
+    expect(screen.queryByRole("region", { name: "Review Slack draft" })).toBeNull();
+    view.rerender(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={draft} onTaskDraftConsumed={consumed}/>);
+    expect(await screen.findByText(draft.text)).toBeTruthy();
+    expect(screen.getByLabelText("Employee task request")).toHaveProperty("value", "");
+    expect(screen.getByText(/Submitting a room task can share/).textContent).toContain("Shared room");
+    fireEvent.click(screen.getByRole("button", { name: "Use Slack draft in this room task" }));
+    expect(screen.getByLabelText("Employee task request")).toHaveProperty("value", draft.text);
+    expect(consumed).toHaveBeenCalledExactlyOnceWith(draft.id);
+    expect(fetcher.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+    view.rerender(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={{ ...draft, actorId: "other@example.test" }} onTaskDraftConsumed={consumed}/>);
+    expect(screen.queryByRole("region", { name: "Review Slack draft" })).toBeNull();
+  });
+  it("requires a fresh replacement confirmation after the unsent task changes and rejects oversized drafts", async () => {
+    setupFetch(); const consumed = vi.fn();
+    const view=render(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={draft} onTaskDraftConsumed={consumed}/>);
+    await screen.findByRole("heading", { name: "Shared room" }); fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    const task=screen.getByLabelText("Employee task request"); fireEvent.change(task, { target: { value: "Existing unsent task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review replacing my unsent task" }));
+    fireEvent.change(task, { target: { value: "Changed unsent task" } });
+    expect(screen.queryByRole("button", { name: "Confirm replacing my unsent task" })).toBeNull();
+    expect(task).toHaveProperty("value", "Changed unsent task");
+    fireEvent.click(screen.getByRole("button", { name: "Review replacing my unsent task" }));
+    view.rerender(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={{ ...draft, text: "Changed Slack statement" }} onTaskDraftConsumed={consumed}/>);
+    expect(screen.queryByRole("button", { name: "Confirm replacing my unsent task" })).toBeNull();
+    expect(task).toHaveProperty("value", "Changed unsent task");
+    view.rerender(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={draft} onTaskDraftConsumed={consumed}/>);
+    fireEvent.click(screen.getByRole("button", { name: "Review replacing my unsent task" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm replacing my unsent task" }));
+    expect(task).toHaveProperty("value", draft.text);expect(consumed).toHaveBeenCalledExactlyOnceWith(draft.id);
+    view.rerender(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={{ ...draft, id: "too-long", text: "x".repeat(4001) }} onTaskDraftConsumed={consumed}/>);
+    expect(screen.getByRole("alert").textContent).toContain("4,000");
+    expect(screen.getByRole("button", { name: "Review replacing my unsent task" })).toHaveProperty("disabled", true);
+    expect(task).toHaveProperty("value", draft.text);
+  });
+  it("does not offer the draft to a removed room member", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [detail.room] });
+      if (path === "/api/collaboration/rooms/room-1") return Response.json({ ...detail, members: detail.members.map((member) => ({ ...member, status: "removed" })) });
+      return Response.json({ agents: [], computers: [] });
+    }));
+    const consumed = vi.fn(); render(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={draft} onTaskDraftConsumed={consumed}/>);
+    await screen.findByRole("heading", { name: "Shared room" }); fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    expect(screen.queryByRole("region", { name: "Review Slack draft" })).toBeNull(); expect(consumed).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Employee task request")).toHaveProperty("value", "");
+  });
+  it("does not copy a draft or carry a replacement confirmation across room switches", async () => {
+    const second = { ...detail, room: { ...detail.room, roomId: "room-2", title: "Second room" } };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [detail.room, second.room] });
+      if (path === "/api/collaboration/rooms/room-1") return Response.json(detail);
+      if (path === "/api/collaboration/rooms/room-2") return Response.json(second);
+      return Response.json({ agents: [], computers: [] });
+    }));
+    const consumed=vi.fn();render(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={draft} onTaskDraftConsumed={consumed}/>);
+    await screen.findByRole("heading", { name: "Shared room" });fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    fireEvent.change(screen.getByLabelText("Employee task request"),{target:{value:"Unsent"}});
+    fireEvent.click(screen.getByRole("button",{name:"Review replacing my unsent task"}));
+    fireEvent.click(screen.getByRole("button",{name:/Second room/}));
+    await screen.findByRole("heading",{name:"Second room"});
+    expect(screen.getByLabelText("Employee task request")).toHaveProperty("value","");
+    expect(screen.queryByRole("button",{name:"Confirm replacing my unsent task"})).toBeNull();
+    expect(consumed).not.toHaveBeenCalled();
+  });
+});

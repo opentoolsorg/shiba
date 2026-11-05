@@ -1,5 +1,7 @@
 # Four-priority completion snapshot
 
+The [v3 product extension](four-priorities-v3-20261105.md) records subsequent source, budget, Slack, computer and recovery changes. This earlier snapshot retains its historical evidence.
+
 Snapshot: November 5, 2026. PR [#188](https://github.com/opentoolsorg/shiba/pull/188), branch `feat/prince-multi-agent-control-plane`. This index accompanies the integrated implementation. Scoped local evidence below is separate from commit-specific GitHub checks; [PR checks](https://github.com/opentoolsorg/shiba/pull/188/checks) and the reported exact commit/run identify aggregate verification. Preview work is paused at the user's request.
 
 The four priorities have bounded implementations and meaningful local evidence. Full live completion and reference-product parity are **not established**. Counts below identify distinct scoped gates, not an aggregate test total; several overlap.

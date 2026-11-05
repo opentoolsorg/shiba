@@ -29,6 +29,10 @@ export interface Env {
   SHIBA_SHARED_COMPUTER_IMAGE?: string;
   /** Default-off bounded standing reads through an operator-pinned service. */
   FOUNDER_AUTOMATIC_READS_ENABLED?: string;
+  /** Separate opt-in native-owner restricted Stripe read lane. */
+  FOUNDER_STRIPE_READS_ENABLED?: string;
+  /** Worker-only purpose-separated encryption key; never a Stripe account key. */
+  FOUNDER_STRIPE_CREDENTIAL_KEY?: string;
   OPEN_CONNECTOR_READ_GATEWAY?: Fetcher;
   /** Separate least-privilege read-lane runtime key; never the manual runtime key. */
   OPEN_CONNECTOR_READ_RUNTIME_TOKEN?: string;

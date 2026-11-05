@@ -179,6 +179,7 @@ export const Worker = Cloudflare.Worker("Worker", {
     SHIBA_SHARED_COMPUTER: "0",
     SHIBA_SHARED_COMPUTER_IMAGE: "",
     FOUNDER_AUTOMATIC_READS_ENABLED: "false",
+    FOUNDER_STRIPE_READS_ENABLED: "false",
     OPEN_CONNECTOR_READ_VERSION_ID: "",
     OPEN_CONNECTOR_READ_MANIFEST_SHA256: "",
     SLACK_INSTALLATIONS_ENABLED: "false",
@@ -314,6 +315,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "LINEAR_DEFAULT_REPO_URL",
       "SLACK_SIGNING_SECRET",
       "SLACK_INSTALLATION_KEYRING",
+      "FOUNDER_STRIPE_CREDENTIAL_KEY",
       "SLACK_APPROVERS",
       // Dashboard emails allowed to resolve shared ("default" DO) approvals:
       // automations, review lane, Sentry, email. Unset = nobody.
@@ -414,6 +416,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "SHIBA_SHARED_COMPUTER",
       "SHIBA_SHARED_COMPUTER_IMAGE",
       "FOUNDER_AUTOMATIC_READS_ENABLED",
+      "FOUNDER_STRIPE_READS_ENABLED",
       "OPEN_CONNECTOR_READ_VERSION_ID",
       "OPEN_CONNECTOR_READ_MANIFEST_SHA256",
       "SLACK_INSTALLATIONS_ENABLED",
