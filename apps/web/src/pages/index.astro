@@ -219,7 +219,7 @@ const steps = [
         <article class="hire-card">
           <div class="card-num">03</div>
           <h3>Waits for your approval</h3>
-          <p>Never merges code, writes to production, or acts on external services until you inspect the proposal and grant permission.</p>
+          <p>Never merges code, writes to production, or acts on external services during task execution until you inspect the proposal and grant permission. Planning may call a model provider before approval.</p>
           <div class="vignette-box approval-vignette">
             <div class="vignette-bar"><span>Gate: Human Review</span><span class="vignette-alert">Pending</span></div>
             <div class="vignette-approval-row">
@@ -397,9 +397,10 @@ const steps = [
           <pre class="terminal-body"><code><span class="term-prompt">$</span> git clone https://github.com/princepal9120/shiba.git
 <span class="term-prompt">$</span> cd shiba &amp;&amp; pnpm install
 <span class="term-prompt">$</span> pnpm shiba dev
-<span class="term-dim">› worker listening at http://127.0.0.1:8787</span>
-<span class="term-dim">› sandbox container image built: standard-4</span>
-<span class="term-ok">✓ ready for task assignment</span></code></pre>
+<span class="term-dim">› local dev server at http://localhost:8788</span>
+<span class="term-dim">› created apps/backend/.dev.vars</span>
+<span class="term-dim">› next: add GITHUB_TOKEN to .dev.vars, set up AI Gateway BYOK keys</span>
+<span class="term-ok">✓ ready once GitHub and model access are configured</span></code></pre>
         </div>
       </div>
     </section>
@@ -526,6 +527,7 @@ const steps = [
     var tabBtns = document.querySelectorAll('[data-delivers-tab]');
     var panels = document.querySelectorAll('[data-delivers-panel]');
     if (tabBtns.length > 0 && panels.length > 0) {
+      document.documentElement.classList.add('delivers-js');
       tabBtns.forEach(function(btn) {
         btn.addEventListener('click', function() {
           var role = btn.getAttribute('data-delivers-tab');
@@ -878,8 +880,9 @@ const steps = [
     background: var(--accent);
     color: var(--on-accent);
   }
-  .delivers-panel { display: none; padding: 24px; gap: 24px; grid-template-columns: 1fr 1fr; }
-  .delivers-panel.is-active { display: grid; }
+  .delivers-panel { padding: 24px; gap: 24px; grid-template-columns: 1fr 1fr; }
+  .delivers-panel { display: grid; }
+  .delivers-js .delivers-panel:not(.is-active) { display: none; }
   .compare-col {
     padding: 20px;
     border: 1.5px solid var(--hairline);

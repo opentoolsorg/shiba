@@ -107,7 +107,7 @@ const finalSchemas = schema
     <!-- Preconnect Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 
     <!-- Structured Data (JSON-LD) -->
     {finalSchemas.map((s) => (
@@ -278,7 +278,7 @@ const finalSchemas = schema
             if (!siteNav.contains(document.activeElement) && document.activeElement !== menuBtn) setMenu(false);
           });
         });
-        matchMedia('(max-width: 1000px)').addEventListener('change', () => setMenu(false));
+        matchMedia('(max-width: 800px)').addEventListener('change', () => setMenu(false));
       }
 
     </script>
