@@ -83,6 +83,8 @@ export function isJsonObject(value: unknown): value is Record<string, JsonValue>
 }
 
 export interface PendingApproval extends OnboardingRunFields {
+  /** Explicit bounded sanitized-output retention reviewed with this exact run. */
+  outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   threadKey: string;
   approvalId: string;
   repoUrl: string;
@@ -193,6 +195,7 @@ export interface ApprovalExecution {
 }
 
 export interface CreateApprovalInput extends OnboardingRunFields {
+  outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   threadKey: string;
   approvalId: string;
   repoUrl: string;
@@ -256,6 +259,7 @@ export function createPendingApproval(
       approvalId: input.approvalId,
       repoUrl: input.repoUrl,
       ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget } : {}),
+      ...(input.outputArchive !== undefined ? { outputArchive: { ...input.outputArchive } } : {}),
       task: input.task,
       ...(input.baseBranch !== undefined ? { baseBranch: input.baseBranch } : {}),
       ...(input.publishPullRequest !== undefined ? { publishPullRequest: input.publishPullRequest } : {}),
@@ -408,6 +412,7 @@ export interface ApprovalEvidence {
 
 /** The fields the human approves — the input-hash surface. */
 export interface RunInputFields extends OnboardingRunFields {
+  outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   repoUrl: string;
   /** Included in the approval hash; absent on legacy repository runs. */
   executionTarget?: ExecutionTarget;
@@ -546,6 +551,7 @@ export function runInputHash(input: RunInputFields): string {
     ...onboardingRunFields(input) as unknown as JsonObject,
     repoUrl: input.repoUrl,
     ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget as unknown as JsonValue } : {}),
+    ...(input.outputArchive !== undefined ? { outputArchive: input.outputArchive as unknown as JsonValue } : {}),
     task: input.task,
     baseBranch: input.baseBranch,
     publishPullRequest: input.publishPullRequest,

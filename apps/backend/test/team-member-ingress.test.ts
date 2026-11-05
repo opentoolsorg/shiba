@@ -166,6 +166,20 @@ async function member(f: ReturnType<typeof fixture>) {
 }
 
 describe("full Worker ingress for restricted native team members", () => {
+  it("rejects forged automatic-read permits before native auth, storage or agent lookup", async () => {
+    const f = fixture();
+    const prepare = vi.fn(() => { throw new Error("Unauthorized storage lookup"); });
+    const env = { ...f.env, AGENT_AUDIT: { prepare } } as unknown as Env;
+    const response = await worker.fetch(request("/internal/founder-automatic-read/permit", "POST", {
+      stage: "dispatch", requestDigest: "a".repeat(64), capability: "forged.signature",
+    }), env);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "automatic_read_capability_denied" });
+    expect(prepare).not.toHaveBeenCalled();
+    expect(routing.getAgentByName).not.toHaveBeenCalled();
+    expect(routing.routeAgentRequest).not.toHaveBeenCalled();
+  });
+
   it("routes funded text through native member policy without a legacy orchestrator or implicit billing", async () => {
     const f = fixture(), m = await member(f);
     const anonymousProbe = await worker.fetch(request("/api/__shiba_preview_auth_probe__"), f.env);
@@ -178,6 +192,16 @@ describe("full Worker ingress for restricted native team members", () => {
     }), f.env);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "team_model_room_required" });
+    const desktop = await worker.fetch(request("/api/shared-computers/state?roomId=not-a-room", "GET", undefined, {
+      cookie: m.cookie, "X-Shiba-Workspace": m.workspace.workspaceId,
+    }), f.env);
+    expect(desktop.status).toBe(400);
+    expect(await desktop.json()).toEqual({ error: "shared_computer_room_required" });
+    const installation = await worker.fetch(request("/api/slack/installations", "GET", undefined, {
+      cookie: m.cookie, "X-Shiba-Workspace": m.workspace.workspaceId,
+    }), f.env);
+    expect(installation.status).toBe(403);
+    expect(await installation.json()).toEqual({ error: "slack_installation_native_owner_required" });
     const operatorRoute = await worker.fetch(request("/api/providers/codex/connect", "POST", {}, {
       cookie: m.cookie, "X-Shiba-Workspace": m.workspace.workspaceId,
     }), f.env);

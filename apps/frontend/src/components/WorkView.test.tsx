@@ -164,7 +164,9 @@ describe("WorkView", () => {
     render(<WorkView onQuickAddTask={vi.fn().mockRejectedValue(new Error("Offline"))} />);
     const input = screen.getByRole("textbox", { name: "Draft a task and press Enter" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Keep this offline draft" } });
-    fireEvent.submit(input.closest("form")!);
+    await act(async () => {
+      fireEvent.submit(input.closest("form")!);
+    });
     expect((await screen.findByRole("alert")).textContent).toContain("Your draft has been kept");
     expect(input.value).toBe("Keep this offline draft");
     expect(input.disabled).toBe(false);

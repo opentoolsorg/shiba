@@ -23,10 +23,17 @@ export interface Env {
   ConversationRoom: DurableObjectNamespace<ConversationRoom>;
   OpenCodeAgent: DurableObjectNamespace<OpenCodeAgent>;
   Sandbox: DurableObjectNamespace<Sandbox>;
-  /** Optional separate offline desktop; never the coding container. */
+  /** Optional isolated offline desktop namespace; absent means unavailable. */
   ComputerSession?: DurableObjectNamespace<import("./computer-session.js").ComputerSession>;
   SHIBA_SHARED_COMPUTER?: string;
   SHIBA_SHARED_COMPUTER_IMAGE?: string;
+  /** Default-off bounded standing reads through an operator-pinned service. */
+  FOUNDER_AUTOMATIC_READS_ENABLED?: string;
+  OPEN_CONNECTOR_READ_GATEWAY?: Fetcher;
+  /** Separate least-privilege read-lane runtime key; never the manual runtime key. */
+  OPEN_CONNECTOR_READ_RUNTIME_TOKEN?: string;
+  OPEN_CONNECTOR_READ_VERSION_ID?: string;
+  OPEN_CONNECTOR_READ_MANIFEST_SHA256?: string;
   /** Bound to the Automations Durable Object class in wrangler.jsonc. */
   Automations: DurableObjectNamespace;
   /**
@@ -283,17 +290,17 @@ export interface Env {
   SLACK_APPROVERS?: string;
   /** Optional. Worker-only bot token for verified Slack replies, cards and opt-in session status. */
   SLACK_BOT_TOKEN?: string;
-  /** Opt-in managed installations; encrypted bot credentials stay in Worker storage. */
+  /** Managed installations are opt-in; credentials stay in encrypted Worker storage. */
   SLACK_INSTALLATIONS_ENABLED?: string;
   SLACK_OAUTH_APP_ID?: string;
   SLACK_OAUTH_CLIENT_ID?: string;
   SLACK_OAUTH_REDIRECT_URI?: string;
   SLACK_OAUTH_PKCE_ENABLED?: string;
   SLACK_OAUTH_QUERY_REDACTION_VERIFIED?: string;
+  SLACK_INSTALLATION_KEYRING?: string;
   SLACK_LEGACY_MODE_ENABLED?: string;
   SLACK_LEGACY_TEAM_ID?: string;
   SLACK_LEGACY_APP_ID?: string;
-  SLACK_INSTALLATION_KEYRING?: string;
   /** Native agent sessions are dark unless exactly `true`; requires an agent-enabled Slack installation. */
   SLACK_AGENT_SESSIONS_ENABLED?: string;
   /** Exact single Slack workspace allowed for optional native session status. */

@@ -69,6 +69,7 @@ import { stagePrPublishApproval } from "../pr-publish-approval.js";
 import { ExecutionRecoveryStore, type ExecutionRecoveryStorage } from "../execution-recovery-store.js";
 import { createRunJournalPublisher } from "../run-journal-publisher.js";
 import type { PreparedRuntimeExecution } from "../runtime-recovery.js";
+import { prepareRunOutputArchive } from "../run-output-archive-admission.js";
 
 export async function pinSandboxEgress(
   env: Env,
@@ -427,6 +428,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             this.envScrub = runEnv !== undefined ? runEnvScrubber(runEnv) : null;
             const openJournal = async (capsule: PreparedRuntimeExecution) => {
               if (!input.runRoom) return;
+              const archive = input.outputArchive ? await prepareRunOutputArchive(this.env, input, capsule) : undefined;
               // safeText applies the approved env scrubber to complete values,
               // including JSON escapes. The journal flushes one line at a time,
               // so also protect eligible fragments of multiline values. Apply
@@ -437,7 +439,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
               const parts = [...(this.env.GITHUB_TOKEN ?? "").split(/\r?\n/), ...envParts]
                 .filter(Boolean).sort((a, b) => b.length - a.length);
               journalPublisher = await createRunJournalPublisher(this.env, input.runRoom,
-                { jobId: capsule.jobId, generation: capsule.envelopeHash },
+                { jobId: capsule.jobId, generation: capsule.envelopeHash, ...(archive ? { archive } : {}) },
                 // The publisher bounds complete redacted lines. Do not truncate
                 // between whole-value and fragment scrubbing: expanded markers
                 // could otherwise cut a credential before its fragment matches.
@@ -465,7 +467,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
                 onSettlementStarted: () => recoveryStore!.settling(input),
               } : {}),
               onJournalFrame: async (frame) => { await journalPublisher?.accept(frame); },
-              onJournalEnd: async () => { await journalPublisher?.end(); },
+              onJournalEnd: async (exitCode) => { await journalPublisher?.end(exitCode); },
               ...(roomPublisher ? {
                 onTerminal: (stream: "stdout" | "stderr", data: string) => { if (!journalPublisher) roomPublisher?.terminal(stream, data); },
                 onDiff: (diff: string) => { void roomPublisher?.diff(diff); },

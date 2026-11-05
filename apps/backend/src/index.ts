@@ -65,10 +65,16 @@ import { Spaces } from "./spaces-do.js";
 import { handleFounderSkills } from "./founder-skills-routes.js";
 import { handleFounderConnectorJobs } from "./founder-connector-routes.js";
 import { handleFounderEvidenceReports } from "./founder-evidence-routes.js";
-import { handleSharedComputers } from "./shared-computer-routes.js";
-import { ComputerSession } from "./computer-session.js";
+import { handleFounderAutomaticReads } from "./founder-auto-read-routes.js";
+import { tickFounderAutomaticReads } from "./founder-auto-read-runtime.js";
+import { handleFounderAutomaticReadPermit } from "./founder-auto-read-permits.js";
+import { handleFounderAutomaticSlack } from "./founder-automatic-slack-routes.js";
+import { tickFounderAutomaticSlack } from "./founder-automatic-slack-tick.js";
+import { handleRunOutputArchives } from "./run-output-archive-routes.js";
 import { handleSlackInstallations } from "./slack-installations-routes.js";
 import { handleMultiInstallationSlackCallback } from "./slack-installations-routing.js";
+import { handleSharedComputers } from "./shared-computer-routes.js";
+import { ComputerSession } from "./computer-session.js";
 import { handleReportSlack } from "./report-slack-routes.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
 import { handleOrgModelKeys } from "./org-model-keys-routes.js";
@@ -179,6 +185,12 @@ export const DASHBOARD_VIEWS = new Set([
 
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil((async () => {
+      try { await tickFounderAutomaticReads(env); }
+      catch (error) { console.error("Founder automatic read scheduling failed", redactSecrets(String(error))); }
+      try { await tickFounderAutomaticSlack(env); }
+      catch (error) { console.error("Founder automatic Slack scheduling failed", redactSecrets(String(error))); }
+    })());
     ctx.waitUntil(tickFounderReviewSchedules(env).catch((error: unknown) => {
       console.error("Founder review scheduling failed", redactSecrets(String(error)));
     }));
@@ -241,6 +253,12 @@ export default {
   },
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     try {
+      // A one-purpose Worker capability, verified before any identity or D1 lookup.
+      // No dashboard, model or Durable Object execution authority is inherited.
+      if (new URL(request.url).pathname === "/internal/founder-automatic-read/permit") {
+        const permit = await handleFounderAutomaticReadPermit(request, env);
+        if (permit) return permit;
+      }
       if (!claudeSubscriptionDeprecationWarned && env.SHIBA_CLAUDE_SUBSCRIPTION === "1") {
         claudeSubscriptionDeprecationWarned = true;
         console.warn(
@@ -312,6 +330,8 @@ export default {
       }
       const memberPolicyResponse = await enforceTeamMemberApiPolicy(request, env);
       if (memberPolicyResponse) return memberPolicyResponse;
+      const outputArchiveResponse = await handleRunOutputArchives(request, env);
+      if (outputArchiveResponse) return outputArchiveResponse;
       const slackInstallationResponse = await handleSlackInstallations(request, env);
       if (slackInstallationResponse) return slackInstallationResponse;
       const sharedComputerResponse = await handleSharedComputers(request, env);
@@ -363,6 +383,10 @@ export default {
       if (founderConnectorResponse) return founderConnectorResponse;
       const reportSlackResponse = await handleReportSlack(request, env);
       if (reportSlackResponse) return reportSlackResponse;
+      const founderAutomaticResponse = await handleFounderAutomaticReads(request, env);
+      if (founderAutomaticResponse) return founderAutomaticResponse;
+      const founderAutomaticSlackResponse = await handleFounderAutomaticSlack(request, env);
+      if (founderAutomaticSlackResponse) return founderAutomaticSlackResponse;
       const founderEvidenceResponse = await handleFounderEvidenceReports(request, env);
       if (founderEvidenceResponse) return founderEvidenceResponse;
       const founderSkillsResponse = await handleFounderSkills(request, env);

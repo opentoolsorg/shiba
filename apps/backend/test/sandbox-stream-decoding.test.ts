@@ -24,7 +24,7 @@ describe("sandbox output decoding", () => {
     const ctx = {
       container,
       blockConcurrencyWhile: (run: () => Promise<unknown>) => run(),
-      storage: { setAlarm: vi.fn(async () => undefined) },
+      storage: { kv: { get: () => undefined }, setAlarm: vi.fn(async () => undefined) },
     };
     const sandbox = new Sandbox(ctx as unknown as ConstructorParameters<typeof Sandbox>[0], {} as Env);
     const output = vi.fn();
@@ -54,7 +54,7 @@ describe("sandbox output decoding", () => {
     const ctx = {
       container,
       blockConcurrencyWhile: (run: () => Promise<unknown>) => run(),
-      storage: { setAlarm: vi.fn(async () => undefined) },
+      storage: { kv: { get: () => undefined }, setAlarm: vi.fn(async () => undefined) },
     };
     const sandbox = new Sandbox(ctx as unknown as ConstructorParameters<typeof Sandbox>[0], {} as Env);
     const seen: string[] = [];

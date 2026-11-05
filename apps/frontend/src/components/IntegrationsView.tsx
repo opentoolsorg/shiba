@@ -147,11 +147,21 @@ const UNREAD_PRIVATE_BINDINGS: IntegrationBindingInputs = { setupLoading: true, 
 
 export function IntegrationsView(props: IntegrationsViewProps): JSX.Element {
   if (!props.workspaceId && props.allowPersonalScope === false) return <section aria-label="Workspace app setup unavailable" className="p-4 text-[var(--ink)]"><h2 className="text-xl">Select a workspace for app setup</h2><p className="mt-2 text-sm">Personal integration setup is unavailable for this session. Choose an active team workspace to view explicitly shared accounts.</p>{props.onChooseWorkspace && <button type="button" className="mt-4 min-h-11 border border-[var(--line)] px-3 text-xs" onClick={props.onChooseWorkspace}>Choose a workspace</button>}</section>;
-  if (props.workspaceId) return <div className="min-w-0 space-y-4"><WorkspaceConnectorsPanel key={`${props.actorId}:${props.workspaceId}:${props.workspaceRole}`} bindingInputs={UNREAD_PRIVATE_BINDINGS}
+  if (props.workspaceId) return <WorkspaceIntegrationSettings key={`${props.actorId}:${props.workspaceId}:${props.workspaceRole}`} {...props} workspaceId={props.workspaceId} />;
+  return <PersonalIntegrationsView {...props} />;
+}
+
+function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspaceId: string }): JSX.Element {
+  const [showSlack, setShowSlack] = useState(false);
+  return <div className="min-w-0 space-y-4"><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
     actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
     allowPersonalScope={props.allowPersonalScope} onPersonalScope={props.onPersonalScope} />
-    {props.workspaceRole === "owner" && props.actorId && <SlackInstallationsPanel workspaceId={props.workspaceId} actorId={props.actorId} />}</div>;
-  return <PersonalIntegrationsView {...props} />;
+    {props.workspaceRole === "owner" && props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showSlack} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowSlack((shown) => !shown)}>
+        {showSlack ? "Close Slack installation setup" : "Manage Slack installations"}
+      </button>
+      {showSlack && <SlackInstallationsPanel workspaceId={props.workspaceId} actorId={props.actorId} />}
+    </section>}</div>;
 }
 
 function PersonalIntegrationsView({
