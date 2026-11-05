@@ -30,7 +30,11 @@ partial, corrupt, expired, mismatched or revoked snapshots cannot release restor
 payloads. Only explicit identical-content upload retries are allowed; a changed
 attempt cannot replace the committed checkpoint. Revocation writes a sticky
 transactional tombstone before deleting the object. Expiry cleanup can run after
-session expiry, including retry after uncertain deletion. A pending or revoked
+session expiry, including retry after uncertain deletion. An in-flight upload can
+finish after deletion; capture reconciles a retired object on settlement, and
+`cleanupRetired` must run from alarms to reconcile late or uncertain storage
+effects. Physical deletion is not an atomic cross-service revocation guarantee;
+the sticky receipt blocks reads while bytes await reconciliation. A pending or revoked
 claim is never interpreted as permission to execute anything.
 
 The mandatory caller authorization callback is rechecked around storage awaits.
@@ -61,7 +65,7 @@ does not change their shared schemas or duplicate their filesystem helpers:
 2. Instantiate only with a run-isolated transactional Durable Object receipt,
    private `ARTIFACTS`, and the real current authorization/source/lease verifier.
    No direct client-provided policy may become authority. Wire alarms to
-   `purgeExpired` and source/session revocation to sticky retirement.
+   `purgeExpired`/`cleanupRetired` and source/session revocation to sticky retirement.
 3. Use the execution owner's descriptor-anchored exporter. Reject symlinks in
    every ancestor and leaf, hard links, special files and changed-file races.
    This store takes strings and cannot independently inspect filesystem identity.
@@ -85,3 +89,16 @@ mismatch, corruption, partial uploads, identical/changed retries, concurrent
 claims, revocation during I/O, sticky retirement on deletion failure, expiry,
 unsafe paths, credential-like contents and byte bounds. No live provider,
 container, account, Slack, paid inference, managed preview or deployment is used.
+
+Acceptance commands for this branch:
+
+- `pnpm -C apps/backend exec vitest run test/run-file-checkpoint.test.ts test/execution-recovery-store.test.ts test/runtime-recovery.test.ts test/run-output-archives.test.ts --maxWorkers=1`: **89 passed across four suites**, including **39** new checkpoint cases and all 25 retained-output cases. No assertion or timeout was weakened.
+- `pnpm -C apps/backend typecheck`: backend source and test projects passed after aligning installation with the fetched head's unchanged lockfile.
+- `pnpm exec eslint apps/backend/src/run-file-checkpoint.ts` and `git diff --check`: passed.
+- Independent read-only security review found two races, both fixed with deterministic regressions: final authorization vs local receipt revocation, and a late upload after deletion. The reviewer independently passed the 37-case suite before the last two contract/authorization cases were added and reported no blocker for the disabled library scope.
+
+The initial credential fixture correctly failed because an incomplete PEM header
+was accepted; capture now explicitly rejects such headers. Initial typechecks
+before installing the fetched head's dependencies failed on missing modules;
+there were no dependency or lockfile changes. This branch does not claim a fresh
+root-wide, desktop, browser or live end-to-end gate. No UI changed.
