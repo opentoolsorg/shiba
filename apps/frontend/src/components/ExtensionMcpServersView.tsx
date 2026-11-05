@@ -2,7 +2,7 @@ import { useRef, useState, type JSX } from "react";
 import { ChevronRight, Plus, Server } from "lucide-react";
 import { CuratedMcpConnections } from "./CuratedMcpConnections";
 import { ExternalMcpManagement } from "./ExternalMcpManagement";
-import { MainCard, type Scope } from "./ui/ContextPanel";
+import { type Scope } from "./ui/ContextPanel";
 
 export interface ExtensionMcpServersViewProps {
   scope?: Scope;
@@ -10,7 +10,7 @@ export interface ExtensionMcpServersViewProps {
 
 /**
  * ExtensionMcpServersView — MCP hub under More > Extensions.
- * Wraps curated connections and external MCP registry in MainCard.
+ * Curated connections and external MCP registry; the host view supplies the card.
  */
 export function ExtensionMcpServersView({ scope = "personal" }: ExtensionMcpServersViewProps = {}): JSX.Element {
   const [revision, setRevision] = useState(0);
@@ -28,7 +28,7 @@ export function ExtensionMcpServersView({ scope = "personal" }: ExtensionMcpServ
   };
 
   return (
-    <MainCard className="bg-white dark:bg-zinc-900">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
           <ol className="flex items-center gap-1.5 min-w-0">
@@ -90,6 +90,6 @@ export function ExtensionMcpServersView({ scope = "personal" }: ExtensionMcpServ
           </div>
         </div>
       </div>
-    </MainCard>
+    </div>
   );
 }

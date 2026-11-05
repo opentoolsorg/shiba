@@ -7,8 +7,8 @@
  * (`/api/setup/status`, `/api/mailboxes`) or says honestly that it isn't
  * supported yet — no fake toggles.
  */
-import { useEffect, useMemo, useState, type JSX, type ReactNode } from "react";
-import { ChevronRight, Plus } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from "react";
+import { ChevronRight, Search } from "lucide-react";
 import type { AcpProvidersSnapshot, McpCapabilityDirectoryEntry, McpCapabilityInvocationReceipt, TeamWorkspaceRole } from "@shiba/shared";
 import { type SetupStatus, useMailboxes, useSetupStatus } from "../live-status";
 import { useSavedSkills } from "../saved";
@@ -181,6 +181,7 @@ function PersonalIntegrationsView({
   const [invocations, setInvocations] = useState<McpCapabilityInvocationReceipt[]>([]);
   const [invocationHistoryError, setInvocationHistoryError] = useState<string | null>(null);
   const [catalogRefresh, setCatalogRefresh] = useState(0);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [setupSearch, setSetupSearch] = useState("");
   const [libraryCatalog, setLibraryCatalog] = useState<Array<{ slug: string; name: string; summary: string; installed: boolean }>>([]);
   const [spacesCatalog, setSpacesCatalog] = useState<Array<{ id: string; name: string; template: string }>>([]);
@@ -549,21 +550,21 @@ function PersonalIntegrationsView({
             <button
               type="button"
               onClick={() => {
-                const input = document.querySelector('input[aria-label="Search app accounts"]') || document.querySelector('input[aria-label="Search integrations"]');
-                if (input instanceof HTMLElement) {
+                const input = bodyRef.current?.querySelector<HTMLInputElement>('input[aria-label^="Search"]');
+                if (input) {
                   input.focus();
                   input.scrollIntoView({ behavior: "smooth", block: "center" });
                 }
               }}
-              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              className="inline-flex h-7 max-lg:min-h-11 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
-              <Plus className="size-3.5" /> New Connector
+              <Search className="size-3.5" aria-hidden="true" /> Search connectors
             </button>
           ) : null}
         </div>
       </header>
 
-      <div className="min-h-0 min-w-0 w-full flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      <div ref={bodyRef} className="min-h-0 min-w-0 w-full flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
         <div className="min-w-0 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex flex-col items-start justify-between gap-3 lg:flex-row lg:gap-4">
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">

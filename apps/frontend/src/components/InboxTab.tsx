@@ -804,7 +804,8 @@ export function InboxTab({
         ) : null}
 
         {/* Fallback filter switcher if operated standalone (no externalFolder passed) */}
-        <div role="group" aria-label="Mailbox folders" className={`flex items-center gap-1 bg-[#f4f4f5] dark:bg-zinc-800/80 p-1 rounded-lg w-fit max-w-full overflow-x-auto ${externalFolder === undefined || showFolderSwitcher ? "" : "lg:hidden"}`}>
+        <div className={`flex flex-wrap items-center gap-2 ${externalFolder === undefined || showFolderSwitcher ? "" : "lg:hidden"}`}>
+        <div role="group" aria-label="Mailbox folders" className={`flex items-center gap-1 bg-[#f4f4f5] dark:bg-zinc-800/80 p-1 rounded-lg w-fit max-w-full overflow-x-auto`}>
           {(["inbox", "unread", "sent", "drafts", "queued"] as const).map((key) => (
             <button
               key={key}
@@ -820,6 +821,20 @@ export function InboxTab({
               {key.charAt(0).toUpperCase() + key.slice(1)}
             </button>
           ))}
+        </div>
+          <select
+            value={mailbox}
+            onChange={(event) => setMailbox(event.target.value)}
+            aria-label="Mailbox"
+            className="min-h-11 lg:min-h-0 max-w-full rounded-lg border border-[#e4e4e7] bg-white px-2.5 py-1.5 text-[12px] font-mono text-[#0a0a0a] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+          >
+            <option value="">All mailboxes</option>
+            {(mailboxes ?? []).map((record) => (
+              <option key={record.address} value={record.address}>
+                {record.label ? `${record.label} (${record.address})` : record.address}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Sacred Approval Boundary Outbound Section (Drafts & Queued Sends) */}

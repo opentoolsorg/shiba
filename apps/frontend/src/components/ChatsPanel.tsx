@@ -7,7 +7,6 @@ import {
   type Scope,
 } from "./ui/ContextPanel";
 import { type SessionItem, statusDotClass } from "./SessionsSidebar";
-import { Tooltip } from "./Tooltip";
 
 export interface TeamRoomItem {
   id: string;

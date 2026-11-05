@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentsPanel } from "./AgentsPanel";
 import type { CustomAgentWire } from "./CustomAgentsView";

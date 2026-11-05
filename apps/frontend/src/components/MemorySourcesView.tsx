@@ -1,6 +1,6 @@
 /** Owner-scoped, self-hostable memory notes and source references in clean panel style. */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type JSX } from "react";
-import { Database, FileText, Search, Upload } from "lucide-react";
+import { Database, } from "lucide-react";
 import { EmptyState } from "./ui/ContextPanel";
 
 type SourceKind = "note" | "document" | "conversation" | "reference" | "other";
@@ -61,8 +61,11 @@ const PRIMARY =
   "bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-xs font-medium rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors shadow-xs touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 const KINDS: SourceKind[] = ["note", "document", "conversation", "reference", "other"];
 
-export function MemorySourcesView(): JSX.Element {
+export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts: { sources: number }) => void } = {}): JSX.Element {
   const [sources, setSources] = useState<MemorySource[]>([]);
+  useEffect(() => {
+    onCountsChange?.({ sources: sources.length });
+  }, [sources.length, onCountsChange]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [kind, setKind] = useState<SourceKind>("note");

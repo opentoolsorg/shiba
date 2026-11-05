@@ -3,12 +3,16 @@ import { X } from "lucide-react";
 
 const SINGLE_KEY_STORAGE = "shiba:single-key-shortcuts";
 
+// Fallback for when storage throws: the last choice made in this page load.
+let singleKeyFallback = true;
+
 export function singleKeyShortcutsEnabled(): boolean {
-  try { return localStorage.getItem(SINGLE_KEY_STORAGE) !== "off"; } catch { return true; }
+  try { return localStorage.getItem(SINGLE_KEY_STORAGE) !== "off"; } catch { return singleKeyFallback; }
 }
 
 function setSingleKeyShortcutsEnabled(enabled: boolean): void {
-  try { localStorage.setItem(SINGLE_KEY_STORAGE, enabled ? "on" : "off"); } catch { /* the toggle still applies to this view */ }
+  singleKeyFallback = enabled;
+  try { localStorage.setItem(SINGLE_KEY_STORAGE, enabled ? "on" : "off"); } catch { /* the in-memory fallback above keeps the toggle working */ }
 }
 
 export interface ShortcutItem {
@@ -38,6 +42,7 @@ export const KEYBOARD_SHORTCUT_GROUPS: ShortcutGroup[] = [
     items: [
       { id: "rail", label: "Go to Work, Agents, Chats, Extensions, Mailbox, Memory, Settings", keys: "⌥1–7" },
       { id: "sidebar", label: "Toggle sidebar", keys: "⌘B" },
+      { id: "sessions-panel", label: "Collapse or expand the side panel", keys: "[" },
       { id: "new", label: "New thread", keys: "⌘⇧O" },
       { id: "next", label: "Next thread", keys: "J" },
       { id: "prev", label: "Previous thread", keys: "K" },
@@ -106,7 +111,7 @@ export function ShortcutsDialog({
               Available across Shiba and the application shell
             </p>
             <p className="text-xs text-[#71717a] dark:text-zinc-400 mt-0.5">
-              Single-key shortcuts (?, D, J, K, C, /) only work with no modifier held and no text field focused.
+              Single-key shortcuts (?, D, J, K, C, /, [) only work with no modifier held and no text field focused.
             </p>
             <label className="mt-2 flex min-h-11 items-center gap-2 text-xs text-[#0a0a0a] dark:text-zinc-100">
               <input type="checkbox" checked={singleKey} onChange={(e) => { setSingleKey(e.target.checked); setSingleKeyShortcutsEnabled(e.target.checked); }} />

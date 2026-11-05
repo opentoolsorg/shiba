@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { ChevronRight } from "lucide-react";
 import { LoadErrorState } from "./LoadErrorState";
-import { EmptyState, PageHeader, SkeletonLines, StatusNotice } from "./surface";
+import { EmptyState, SkeletonLines, StatusNotice } from "./surface";
 import { agentThreads, type WebThread } from "../agent-threads";
 import { formatTimeAgo } from "../ui-helpers";
 import { sanitizeCustomAgentSlug, type CustomAgentConfig, type CustomAgentRoleTemplateId } from "@shiba/shared";

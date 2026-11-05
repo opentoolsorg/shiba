@@ -63,7 +63,7 @@ export interface MemoryTabProps {
   initialFacts?: MemoryFact[];
   initialSessions?: MemorySession[];
   onForgetFact?: (factId: string) => void;
-  onCountsChange?: (counts: { facts: number; sessions: number }) => void;
+  onCountsChange?: (counts: Partial<{ facts: number; sessions: number; sources: number }>) => void;
   className?: string;
 }
 
@@ -431,7 +431,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
         ) : null}
 
         {/* Sources View */}
-        {viewMode === "sources" ? <MemorySourcesView /> : null}
+        {viewMode === "sources" ? <MemorySourcesView onCountsChange={onCountsChange} /> : null}
 
         {/* Facts View */}
         {viewMode === "facts" ? (

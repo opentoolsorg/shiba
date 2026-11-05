@@ -5,20 +5,14 @@
  * Scope switch: Personal | Workspace.
  * Nav:
  *   - Banked Facts (Memory DO facts count)
- *   - Workspace Sources (private uploaded/noted memory sources count)
+ *   - Sources (private uploaded/noted memory sources count)
  *   - Recorded Sessions (Memory DO recorded sessions count)
  * Projects group:
- *   - Lists the projects passed in by the app. The panel never fetches.
+ *   - Lists the projects passed in by the app; hidden when there are none.
+ *     The panel never fetches.
  */
 import type { JSX } from "react";
-import {
-  Brain,
-  Database,
-  FolderGit2,
-  History,
-  RefreshCw,
-  Search,
-} from "lucide-react";
+import { Brain, Database, FolderGit2, History, RefreshCw, Search } from "lucide-react";
 import {
   ContextPanel,
   PanelGroup,
@@ -109,7 +103,7 @@ export function MemoryPanel({
         />
         <PanelNavItem
           icon={Database}
-          label="Workspace Sources"
+          label="Sources"
           active={active === "sources"}
           onClick={() => onSelect("sources")}
           trailing={countBadge(counts.sources)}
@@ -124,24 +118,22 @@ export function MemoryPanel({
       </div>
 
       {/* Projects / Collections */}
-      <PanelGroup
-        label="Projects"
-        emptyText="No projects saved"
-        defaultOpen={true}
-      >
-        {projects.map((proj) => {
-          const isSelected = selectedProject === proj.id;
-          return (
-            <PanelNavItem
-              key={proj.id}
-              icon={FolderGit2}
-              label={proj.name}
-              active={isSelected}
-              onClick={() => onSelectProject?.(isSelected ? "" : proj.id)}
-            />
-          );
-        })}
-      </PanelGroup>
+      {projects.length > 0 ? (
+        <PanelGroup label="Projects" emptyText="No projects saved" defaultOpen={true}>
+          {projects.map((proj) => {
+            const isSelected = selectedProject === proj.id;
+            return (
+              <PanelNavItem
+                key={proj.id}
+                icon={FolderGit2}
+                label={proj.name}
+                active={isSelected}
+                onClick={() => onSelectProject?.(isSelected ? "" : proj.id)}
+              />
+            );
+          })}
+        </PanelGroup>
+      ) : null}
     </ContextPanel>
   );
 }

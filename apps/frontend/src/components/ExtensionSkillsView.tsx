@@ -28,7 +28,7 @@ import {
   restoreExtensionSkill,
   updateExtensionSkill,
 } from "../extension-skills";
-import { EmptyState, MainCard, type Scope } from "./ui/ContextPanel";
+import { EmptyState, type Scope } from "./ui/ContextPanel";
 
 const VIEWS: Array<{ id: ExtensionSkillView; label: string }> = [
   { id: "personal", label: "Personal" },
@@ -194,7 +194,7 @@ export function ExtensionSkillsView({
   const crumbs = [scopeCrumb, "Extensions", "Skills"];
 
   return (
-    <MainCard className="bg-white dark:bg-zinc-900">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
           <ol className="flex items-center gap-1.5 min-w-0">
@@ -361,7 +361,7 @@ export function ExtensionSkillsView({
           onRestore={(skill) => perform(skill, () => restoreExtensionSkill(skill._id, requestScope()), "Skill restored.")}
         />
       ) : null}
-    </MainCard>
+    </div>
   );
 }
 

@@ -41,7 +41,7 @@ describe("MemoryPanel", () => {
 
     expect(screen.getByText("Memory")).toBeDefined();
     expect(screen.getByRole("button", { name: /Banked Facts/i })).toBeDefined();
-    expect(screen.getByRole("button", { name: /Workspace Sources/i })).toBeDefined();
+    expect(screen.getByRole("button", { name: /Sources/i })).toBeDefined();
     expect(screen.getByRole("button", { name: /Recorded Sessions/i })).toBeDefined();
 
     expect(screen.getByText("42")).toBeDefined();
@@ -68,7 +68,7 @@ describe("MemoryPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Workspace Sources/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
     expect(onSelect).toHaveBeenCalledWith("sources");
 
     fireEvent.click(screen.getByRole("button", { name: /Alpha Project/i }));

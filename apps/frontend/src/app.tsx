@@ -377,6 +377,8 @@ function toolRunInput(run: ToolRunRecord): Record<string, unknown> {
 type MainView = AppNavView;
 const DEFAULT_VIEW: MainView = "work";
 /** Views that work inside a team workspace; every other view is personal-only. */
+/** Views that render their own MainCard, so the shell must not add a second one. */
+const SELF_CARDED_VIEWS: readonly string[] = ["dashboard", "activity", "analytics", "diff", "approvals", "automations", "providers", "spaces", "integrations"];
 const TEAM_WORKSPACE_VIEWS: readonly string[] = ["team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "integrations", "settings"];
 
 const VIEW_ALIASES: Record<string, AppNavView> = {
@@ -693,6 +695,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const teamDirectory = useTeamWorkspaceDirectory({ actorId: teamIdentityAvailable ? orchestratorName?.trim().toLowerCase() ?? null : null, enabled: teamIdentityAvailable });
   const workspaceAuthorityReady = !teamIdentityAvailable || teamDirectory.verified;
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
+  // Entering Settings inside a team workspace lands on its only team section, not a personal-only notice.
+  useEffect(() => {
+    if (mainView === "settings" && teamWorkspaceId) setSettingsSection("team");
+  }, [mainView, teamWorkspaceId]);
   // The directory forgets its selection when switching to Personal; keep the last team separately for the Workspace tab.
   useEffect(() => {
     if (teamWorkspaceId && orchestratorName) rememberLastTeamWorkspace(orchestratorName.trim().toLowerCase(), teamWorkspaceId);
@@ -2640,7 +2646,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       />
     );
   } else if (mainView === "memory") {
-    destinationPanel = <MemoryPanel {...panelProps} active={memoryView} onSelect={(id) => setMemoryView(id as "facts" | "sources" | "sessions")} counts={privateData ? memoryCounts : noMemoryCounts} projects={[]} />;
+    destinationPanel = <MemoryPanel {...panelProps} active={memoryView} onSelect={(id) => setMemoryView(id as "facts" | "sources" | "sessions")} counts={privateData ? memoryCounts : noMemoryCounts} />;
   } else if (["dashboard", "analytics", "activity", "diff", "approvals"].includes(mainView)) {
     destinationPanel = <InsightsPanel {...panelProps} active={mainView} onSelect={(id) => { if (isNavId(id)) openView(id); }} pendingApprovalsCount={teamWorkspaceId ? 0 : pendingApprovals.length + visibleStoredApprovals.length} />;
   } else if (mainView === "automations") {
@@ -2848,7 +2854,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
         <div className={`flex-1 flex min-w-0 min-h-0 ${mainView === "work" ? "" : "gap-2 p-2"}`}>
           {destinationPanel && mainView !== "work" && !sessionsCollapsed ? <div className="hidden lg:flex">{destinationPanel}</div> : null}
-          <MainCard className={mainView === "work" || mainView === "settings" ? "!rounded-none !border-0 !bg-transparent !shadow-none" : ""}>
+          <MainCard className={mainView === "work" || mainView === "settings" || (!personalOnlyNotice && SELF_CARDED_VIEWS.includes(mainView)) ? "!rounded-none !border-0 !bg-transparent !shadow-none" : ""}>
           {inboxMounted && privateDataEnabled ? (
             <div
               className="flex flex-1 flex-col h-full min-h-0 overflow-hidden"
