@@ -77,7 +77,8 @@ async function current(request: Request, env: Env, scope: CollaborationScope, ow
   const pinned = await getCustomAgentVersion(env, collaborationEmployeeOrgId(scope), approval.customAgentId!, approval.customAgentVersion!);
   return Boolean(profile && pinned && profile.version === approval.customAgentVersion &&
     await isCollaborationApprovalDispatchable(env, { handoffId: handoff.handoffId, approvalId: approval.approvalId,
-      employeeId: approval.customAgentId!, employeeVersion: approval.customAgentVersion!, task: approval.task }));
+    employeeId: approval.customAgentId!, employeeVersion: approval.customAgentVersion!, task: approval.task,
+    personalExecution: handoff.handoffId.startsWith("scx_") ? approval.personalExecution ?? null : undefined }));
 }
 
 /** Exact requester-only decision lane; no default DO, session fanout, or autonomous decision. */

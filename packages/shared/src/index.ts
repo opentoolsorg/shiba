@@ -66,6 +66,7 @@ export * from "./team-model-sessions.js";
 export * from "./founder-evidence-reports.js";
 export * from "./report-slack.js";
 export * from "./team-model-money.js";
+export * from "./slack-coworker-execution.js";
 export * from "./shared-computers.js";
 export * from "./slack-installations.js";
 export * from "./founder-automatic-reads.js";

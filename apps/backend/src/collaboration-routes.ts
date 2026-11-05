@@ -61,8 +61,11 @@ import { queueCollaborationRun } from "./runs-routes.js";
 import { isSupportedEmployeeToolScope, resolveEmployeeRunToolContext } from "./employee-run-tools.js";
 import { signInternalRequest } from "./edge-identity.js";
 import { bindCollaborationContextApproval, freezeCollaborationContext, isCollaborationContextCurrent, prepareCollaborationHumanAssignment, readCollaborationHumanAssignment } from "./collaboration-context.js";
+import { consumeSlackCoworkerSubmission, bindSlackCoworkerApproval } from "./slack-coworker-execution.js";
 import { createCollaborationMemory, listCollaborationMemory, revokeCollaborationMemory } from "./collaboration-memory.js";
 import { resolvePersonalExecutionOwner, resolvePersonalExecutionGrant } from "./personal-execution-store.js";
+import { parseAgentResult } from "./opencode-input.js";
+import { redactSecrets } from "./security.js";
 
 const PREFIX = "/api/collaboration";
 const BODY_LIMIT = 16 * 1024;
@@ -455,6 +458,11 @@ export async function handleCollaboration(
                 })
               : {};
             const run = runBody.run;
+            // Retained coding summaries also carry the structured result payload.
+            // The room displays its human summary, not serialized file contents.
+            const runSummary = typeof run?.summary === "string"
+              ? redactSecrets(parseAgentResult(run.summary)?.summary ?? run.summary).slice(0, 4_000)
+              : undefined;
             // Executor reads yield. A source grant can be revoked while its manifest is loading.
             if (!await isCollaborationContextCurrent(env, handoff.handoffId)) {
               return { ...handoff, execution: { unavailable: true, runStatus: "unknown", error: "A selected shared source was revoked or changed." } };
@@ -488,7 +496,7 @@ export async function handleCollaboration(
                 );
               const replyLines = [
                 `Completed approved task: ${handoff.taskId}`,
-                (run.summary?.trim() || "Completed with no summary.").slice(0, 1_800),
+                (runSummary?.trim() || "Completed with no summary.").slice(0, 1_800),
                 ...(run.pullUrl ? [`Pull request: ${run.pullUrl.slice(0, 300)}`] : []),
                 ...(artifacts.length
                   ? [`Deliverables: ${artifacts.map((item) => item.path).join(", ")}`]
@@ -514,7 +522,7 @@ export async function handleCollaboration(
                 runId: handoff.runId,
                 approvalStatus: approval?.status ?? "unknown",
                 ...(runBody.run?.status ? { runStatus: runBody.run.status } : {}),
-                ...(runBody.run?.summary ? { summary: runBody.run.summary } : {}),
+                ...(runSummary ? { summary: runSummary } : {}),
                 ...(runBody.run?.error || runBody.run?.errorWire?.userMessage
                   ? { error: (runBody.run.error ?? runBody.run.errorWire?.userMessage)?.slice(0, 800) }
                   : runBody.run?.status === "unknown"
@@ -939,6 +947,10 @@ export async function handleCollaboration(
     ) {
       const roomId = path[1] ?? "";
       const body = await bodyObject(request);
+      if (typeof body.handoffId === "string" && body.handoffId.startsWith("scx_") &&
+          !await consumeSlackCoworkerSubmission(env, request, body, scope.workspaceId, scope.userId, roomId)) {
+        return json({ error: "Slack coworker submission is unavailable." }, 403);
+      }
       const actorId = humanActorId(scope.userId);
       if (body.actorId !== undefined && body.actorId !== actorId) {
         return json({ error: "Agent identities are not callable from a human session." }, 403);
@@ -1309,6 +1321,10 @@ export async function handleCollaboration(
         }
         const runId = `agent-tool:${approval.approvalId}`;
         // A pending approval cannot dispatch until both this binding and the handoff link exist.
+        if (!await bindSlackCoworkerApproval(env, saved.handoffId, approval.approvalId, approval.task)) {
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          return json({ error: "Slack coworker approval source changed.", handoffId: saved.handoffId, retryable: false }, 409);
+        }
         await bindCollaborationContextApproval(env, saved.handoffId, approval.approvalId, approval.task);
         if (
           !(await linkCollaborationHandoffRun(

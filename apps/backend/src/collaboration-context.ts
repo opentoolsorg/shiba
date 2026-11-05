@@ -300,11 +300,11 @@ export async function isCollaborationContextCurrent(env: Env, handoffId: string,
 
 /** Pre-approval queue fence; the later dispatch fence additionally requires the linked approval. */
 export async function isCollaborationContextQueueable(
-  env: Env, scope: CollaborationScope, roomId: string, handoffId: string, task: string,
+  env: Env, scope: CollaborationScope, roomId: string, handoffId: string, task: string, personalExecution?: unknown,
 ): Promise<boolean> {
   try {
     await access(env, scope, roomId);
-    if (!await isSlackCoworkerExecutionCurrent(env, handoffId, scope, roomId)) return false;
+    if (!await isSlackCoworkerExecutionCurrent(env, handoffId, scope, roomId, task, undefined, handoffId.startsWith("scx_") ? personalExecution ?? null : undefined)) return false;
     const handoff = await getCollaborationHandoff(env, scope, handoffId);
     if (!handoff || handoff.status !== "active" || handoff.roomId !== roomId || handoff.senderUserId !== scope.userId) return false;
     const saved = await row(env, handoffId);
@@ -315,7 +315,7 @@ export async function isCollaborationContextQueueable(
   } catch { return false; }
 }
 
-async function currentAtDepth(env: Env, handoffId: string, task: string | undefined, approvalId: string | undefined, budget: ValidationBudget): Promise<boolean> {
+async function currentAtDepth(env: Env, handoffId: string, task: string | undefined, approvalId: string | undefined, budget: ValidationBudget, personalExecution?: unknown): Promise<boolean> {
   const parentTrail = budget.trail;
   try {
     if (budget.remaining-- <= 0 || budget.trail.size >= 4 || budget.trail.has(handoffId)) return false;
@@ -329,7 +329,7 @@ async function currentAtDepth(env: Env, handoffId: string, task: string | undefi
     }>();
     if (!handoff || handoff.status !== "active") return false;
     const scope = { tenantId: handoff.tenant_id, workspaceId: handoff.workspace_id, userId: handoff.sender_user_id };
-    if (!await isSlackCoworkerExecutionCurrent(env, handoffId, scope, handoff.room_id)) return false;
+    if (!await isSlackCoworkerExecutionCurrent(env, handoffId, scope, handoff.room_id, task, approvalId, personalExecution)) return false;
     if (!await isCollaborationSlackRoomAudienceAuthorized(env, scope, handoff.room_id)) return false;
     if (handoff.recipient_actor_id.startsWith("agent:") && (!handoff.approval_id || !handoff.profile_version ||
         !await isCollaborationHandoffDispatchable(env, { handoffId, approvalId: handoff.approval_id,
@@ -355,7 +355,7 @@ async function currentAtDepth(env: Env, handoffId: string, task: string | undefi
 
 export async function isCollaborationApprovalDispatchable(
   env: Env,
-  input: { handoffId: string; approvalId: string; employeeId: string; employeeVersion: number; task: string },
+  input: { handoffId: string; approvalId: string; employeeId: string; employeeVersion: number; task: string; personalExecution?: unknown },
 ): Promise<boolean> {
   if (!await isCollaborationHandoffDispatchable(env, input)) return false;
   const handoff = await env.AGENT_AUDIT.prepare("SELECT tenant_id,workspace_id,room_id,sender_user_id FROM collaboration_handoffs WHERE handoff_id=?")
@@ -363,5 +363,5 @@ export async function isCollaborationApprovalDispatchable(
   if (!handoff || !await isCollaborationSlackRoomAudienceAuthorized(env, {
     tenantId: handoff.tenant_id, workspaceId: handoff.workspace_id, userId: handoff.sender_user_id,
   }, handoff.room_id)) return false;
-  return isCollaborationContextCurrent(env, input.handoffId, input.task, input.approvalId);
+  return currentAtDepth(env, input.handoffId, input.task, input.approvalId, { remaining: 16, trail: new Set() }, input.personalExecution);
 }

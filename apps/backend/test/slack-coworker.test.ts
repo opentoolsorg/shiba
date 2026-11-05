@@ -112,14 +112,15 @@ async function executionFixture() {
   return {...f,selection};
 }
 describe("Slack execution submission receipts",()=>{
-  it("claims a verified scoped draft once and retains a source fence after queueing",async()=>{
+  it("claims a historical draft once but never authorizes a v1 receipt",async()=>{
     const f=await executionFixture();
     const submissions=await Promise.allSettled([claimSlackCoworkerExecution(f.env,f.member,f.selection),claimSlackCoworkerExecution(f.env,f.member,f.selection)]);
     expect(submissions.filter(r=>r.status==="fulfilled")).toHaveLength(1);
     const claimed=(submissions.find(r=>r.status==="fulfilled") as PromiseFulfilledResult<{handoffId:string;task:string}>).value;
     expect(claimed.task).toBe("Build a local artifact");
-    expect(await isSlackCoworkerExecutionCurrent(f.env,claimed.handoffId,f.member,f.selection.roomId)).toBe(true);
+    expect(await isSlackCoworkerExecutionCurrent(f.env,claimed.handoffId,f.member,f.selection.roomId)).toBe(false);
     await finishSlackCoworkerExecution(f.env,claimed.handoffId,"queued");
+    expect(await isSlackCoworkerExecutionCurrent(f.env,claimed.handoffId,f.member,f.selection.roomId)).toBe(false);
     expect(await isSlackCoworkerExecutionCurrent(f.env,claimed.handoffId,f.member,"room_other")).toBe(false);
     expect(await isSlackCoworkerExecutionCurrent(f.env,claimed.handoffId,{...f.member,userId:"other@test"},f.selection.roomId)).toBe(false);
     f.sqlite.exec("UPDATE slack_installations SET generation=generation+1");

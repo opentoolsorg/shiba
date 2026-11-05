@@ -7,6 +7,12 @@ rechecked on November 5 is `22f790cf3bf27395b6aa27c373485187e9f93199` on
 native-onboarding fixture Worker startup. `d424d03` is historical baseline
 validation, not the latest head. Older reports describe narrower checkpoints.
 
+The later [Slack V2 acceptance checkpoint](slack-coworker-v2-20261105.md) updates
+only the Slack implementation: exact reviewed audience/runtime previews,
+one-shot signed submission and a combined native approval/local-mailbox fixture.
+The historical checks below do not certify that later increment. Live Slack
+delivery and provider execution remain unverified.
+
 ## Feature status and evidence
 
 | Requested area | Local implementation evidence | Remaining boundary |
