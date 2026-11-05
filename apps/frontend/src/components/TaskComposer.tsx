@@ -364,7 +364,7 @@ export function TaskComposer({
   const localTargetBlocked = runTarget === "local" && (
     !localRunAvailable || !targetMachineId || localComputersLoading || localComputersError !== null
   );
-  const artifactPathsValid = parseArtifactDeliverables(artifactDeliverables).success;
+  const artifactPathsValid = parseArtifactDeliverables(artifactDeliverables, runTarget).success;
   const computerTaskBlocked =
     Boolean(routeDescription.blockedReason) ||
     (executionTargetKind === "artifact-workspace" && !artifactPathsValid) ||
@@ -836,7 +836,7 @@ export function TaskComposer({
                   type="button"
                   role="menuitemradio"
                   aria-checked={runTarget === "local"}
-                  disabled={executionTargetKind === "artifact-workspace" || !localRunAvailable || localComputersLoading}
+                  disabled={!localRunAvailable || localComputersLoading}
                   className={menuRowClass}
                   onClick={() => {
                     onRunTargetChange("local");
@@ -847,8 +847,7 @@ export function TaskComposer({
                   <span className="flex-1 min-w-0">
                     <span className="block font-medium">Local (Paired computer)</span>
                     <span className="block text-[10px] text-[var(--muted-foreground-2)]">
-                      {executionTargetKind === "artifact-workspace" ? "Artifact files require the cloud sandbox"
-                        : localComputersLoading ? "Checking paired computers…" : localRunAvailable
+                      {localComputersLoading ? "Checking paired computers…" : localRunAvailable
                         ? "Run on a paired computer"
                         : "Pair a computer in Remote Access first"}
                     </span>
@@ -887,7 +886,7 @@ export function TaskComposer({
 
       {executionTargetKind === "artifact-workspace" ? (
         <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)]/60 p-2.5 flex flex-col gap-1.5">
-          <label htmlFor={idFor("artifact-deliverables")} className={sectionLabelClass}>Output files (optional, one path per line)</label>
+          <label htmlFor={idFor("artifact-deliverables")} className={sectionLabelClass}>{runTarget === "local" ? "Output files (required, one path per line)" : "Output files (optional, one path per line)"}</label>
           <textarea
             id={idFor("artifact-deliverables")}
             aria-label="Artifact deliverables"
@@ -898,7 +897,9 @@ export function TaskComposer({
             placeholder="deliverables/brief.md"
           />
           <p className="text-[10px] leading-relaxed text-[var(--muted-foreground-2)]">
-            Leave blank to collect all final files in out/ as a ZIP. Drafts are saved as workspace artifacts after approval.
+            {runTarget === "local"
+              ? "Local: specify 1–8 UTF-8 files (.md, .txt, .json, .csv), at most 16 KiB per file and 64 KiB total. Only approved paths are exported. No Git or clone, blank outputs, ZIP collection, or automatic cloud fallback. Execution starts only after approval."
+              : "Leave blank to collect all final files in out/ as a ZIP. Drafts are saved as workspace artifacts after approval."}
           </p>
         </div>
       ) : null}
