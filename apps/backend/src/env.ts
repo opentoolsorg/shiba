@@ -60,7 +60,7 @@ export interface Env {
   ChatGptAuth?: DurableObjectNamespace;
   /** Per-user Antigravity / Cursor / xAI OAuth on the Providers card. */
   UserProviderOAuth?: DurableObjectNamespace;
-  /** Viktor-class hosted Space mini-apps (one DO stub per org:space id). */
+  /** Hosted Space mini-apps (one DO stub per org:space id). */
   Spaces?: DurableObjectNamespace;
   /** Google OAuth client id for Antigravity sign-in (defaults to the public Antigravity IDE client). */
   GOOGLE_ANTIGRAVITY_CLIENT_ID?: string;

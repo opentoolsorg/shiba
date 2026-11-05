@@ -1,5 +1,5 @@
 /**
- * AppNavRail — OpenBot-inspired workspace shell navigation:
+ * AppNavRail — workspace shell navigation:
  * Compact icon rail or expanded sidebar (workspace, agents/workflows and threads).
  * Phones use a separate full navigation sheet.
  */
@@ -696,7 +696,7 @@ export function AppNavRail({
           </div>
         </div>
 
-        {/* View Switcher: Agents | Workflows (OpenBot SidebarViewSwitch) */}
+        {/* View Switcher: Agents | Workflows (SidebarViewSwitch) */}
         {workspaceSwitcher}
         <div className="grid grid-cols-2 p-0.5 rounded-lg bg-[var(--secondary)] mb-2.5 text-xs font-medium shrink-0">
           <button

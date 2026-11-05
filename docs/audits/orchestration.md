@@ -1,6 +1,6 @@
 # Bot, thread, and orchestration audit
 
-Audited on 2026-10-28 against Shiba's checked-out code and Overlay commit `49146167572130e171db8d566edc0bf2f176aa73`. This report distinguishes executable local tests from external-provider proof. Overlay was inspected as a reference; its services and paid providers were not executed here.
+Audited on 2026-10-28 against Shiba's checked-out code. This report distinguishes executable local tests from external-provider proof.
 
 ## Actual execution path
 
@@ -54,16 +54,16 @@ Regression suites:
 - `apps/backend/test/custom-agent-approval-gate.test.ts`
 - `apps/backend/test/v1-subagents.test.ts`
 
-## Relevant Overlay comparison
+## Orchestration capability status
 
-| Capability | Overlay evidence | Shiba evidence and status | Remaining work |
-| --- | --- | --- | --- |
-| Bot and agent identity | `convex/agents/connectedAgents.ts`, `convex/agents/agentThreads.ts`, `src/shared/agents/agent-lineage.ts` contain explicit agent/thread identity and lineage. External runtimes are launch-gated in `FEATURES.md`. | PARTIAL: D1 custom profiles and named web sessions exist; custom profile instructions/model/provider are frozen before execution. Selected-profile errors and mandatory approval are now locally tested. | Complete browser and provider-backed bot-to-thread journeys; keep thread identity distinct from run identity when adding multi-run APIs. |
-| Runtime lifecycle | `convex/agents/remoteRunModel.ts` and `remoteRuns.ts` record explicit attempts, cancellation, reconciliation, and recovery facts. | PARTIAL: generation fences, terminal outcomes, pre-sandbox restart resumes, outcome-unknown after possible side effects, container leak tracking, and hierarchical cancellation have local tests. | Validate restart/reconciliation against actual deployed providers. Preserve unknown outcomes instead of replaying possibly completed external mutations. |
-| Subagent observability | Reference agent lineage helpers and connected-agent run state exist; code presence does not prove enabled external execution. | WORKING for the locally tested persisted read projection: internal subagent records now appear through public tree/detail APIs. Live spawning against real providers is NOT VERIFIED. | Persist full harness transcripts only if needed; the current API explicitly exposes task/summary, not invented live message history. |
-| Approval and permissions | Overlay has native approval and attempt-scoped policy/recovery code; launch availability depends on feature gates. | WORKING for tested local approval semantics: a profile never approves its own new task; explicitly approved subagent budgets remain the delegation mechanism. | Run deployed provider acceptance checks without weakening the human approval, scoped GitHub, or external credential invariants. |
+| Capability | Shiba evidence and status | Remaining work |
+| --- | --- | --- |
+| Bot and agent identity | PARTIAL: D1 custom profiles and named web sessions exist; custom profile instructions/model/provider are frozen before execution. Selected-profile errors and mandatory approval are now locally tested. | Complete browser and provider-backed bot-to-thread journeys; keep thread identity distinct from run identity when adding multi-run APIs. |
+| Runtime lifecycle | PARTIAL: generation fences, terminal outcomes, pre-sandbox restart resumes, outcome-unknown after possible side effects, container leak tracking, and hierarchical cancellation have local tests. | Validate restart/reconciliation against actual deployed providers. Preserve unknown outcomes instead of replaying possibly completed external mutations. |
+| Subagent observability | WORKING for the locally tested persisted read projection: internal subagent records now appear through public tree/detail APIs. Live spawning against real providers is NOT VERIFIED. | Persist full harness transcripts only if needed; the current API explicitly exposes task/summary, not invented live message history. |
+| Approval and permissions | WORKING for tested local approval semantics: a profile never approves its own new task; explicitly approved subagent budgets remain the delegation mechanism. | Run deployed provider acceptance checks without weakening the human approval, scoped GitHub, or external credential invariants. |
 
-Adopt explicit lineage, visible lifecycle facts, attempt/generation fencing, and truthful unavailable states. Do not import Overlay's Convex, managed computer, billing, or external-runtime assumptions merely to match its feature vocabulary. Shiba's Worker/DO architecture and approval boundaries are already established contracts.
+Adopt explicit lineage, visible lifecycle facts, attempt/generation fencing, and truthful unavailable states. Do not import managed computer, billing, or external-runtime assumptions merely to match a reference feature vocabulary. Shiba's Worker/DO architecture and approval boundaries are already established contracts.
 
 ## Validation evidence
 

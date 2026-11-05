@@ -1,4 +1,4 @@
-/** Typed same-origin client for the Overlay-compatible extensions API. */
+/** Typed same-origin client for the extensions API. */
 import { integrationProviderConnectionsResponseSchema } from "@shiba/shared";
 export type ExtensionView = "personal" | "workspace" | "archived";
 export type ExtensionScope = Exclude<ExtensionView, "archived">;

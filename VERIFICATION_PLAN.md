@@ -1,7 +1,7 @@
 # Verification Plan — what PLAN.md rev 4 still leaves open, and how to check it yourself
 
 **Audited:** 2026-09-17 against branch `feat/landing-page-and-provider-cleanup`.
-**Re-audited:** 2026-09-27 against branch `feat/roomote-parity-wip` — all G-gaps below re-checked; G1–G11 now resolve (see per-row evidence).
+**Re-audited:** 2026-09-27 against commit `fad8eac76da91456b6ea38beb40766ada1480295` — all G-gaps below re-checked; G1–G11 now resolve (see per-row evidence).
 **Baseline observed here:** `pnpm typecheck` PASS · `pnpm lint` PASS · `pnpm test` 272/272 across 21 files · `wrangler deploy --dry-run` FAIL (Docker CLI present at `/opt/homebrew/bin/docker`, daemon not running).
 
 Every claim below carries a command or a file:line so you can confirm it without trusting this document.
