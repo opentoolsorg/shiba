@@ -18,6 +18,9 @@ test("pure plan leaves original config intact, defaults off and creates no resou
   assert.deepEqual(result.configuration.d1_databases, original.d1_databases); assert.deepEqual(result.configuration.triggers, original.triggers); assert.deepEqual(result.configuration.assets, original.assets);
   assert.equal(result.configuration.compatibility_date, original.compatibility_date); assert.equal(result.configuration.observability.traces.enabled, true);
   assert(!JSON.stringify(result.configuration).includes("AGENT_AUDIT")); assert(!result.entry.includes("INTERNAL_SIGNING_KEY"));
+  assert.equal(result.conditionalSecrets[0].worker, "existing-sibling-only");
+  assert.equal(result.conditionalSecrets[0].generated, false);
+  assert(!Object.hasOwn(result.configuration.vars, "SHIBA_AUTOMATIC_SOURCE_FINGERPRINT_KEY"));
 });
 test("wrapper uses the exact reviewed constructor/store APIs and delegates original manual fetch and scheduled handlers", () => {
   const entry = readGatewayEntry(options.adapterImport);

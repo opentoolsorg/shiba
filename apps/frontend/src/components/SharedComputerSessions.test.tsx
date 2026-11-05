@@ -242,6 +242,155 @@ describe("explicit offline shared computer UI", () => {
     expect(screen.queryByRole("button", { name: "Capture current display" })).toBeNull();
     expect(screen.queryByRole("img")).toBeNull();
   });
+  it("starts sampled refresh only on request and fences a late capture after STOP", async () => {
+    const f = fixture("running"),
+      original = f.fetcher.getMockImplementation()!;
+    let resolve!: (response: Response) => void;
+    f.fetcher.mockImplementation((path, init) =>
+      String(path).endsWith("/capture")
+        ? new Promise((done) => {
+            resolve = done;
+          })
+        : original(path, init),
+    );
+    const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:private");
+    render(<SharedComputerSessions {...f.props} />);
+    await selectSession(f.session.id);
+    expect(f.calls.filter((call) => call.path.endsWith("/capture"))).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Start live refresh" }));
+    await waitFor(() => expect(resolve).toBeTypeOf("function"));
+    fireEvent.click(screen.getByRole("button", { name: /^Stop dedicated desktop/ }));
+    await screen.findByText(/Dedicated desktop destruction acknowledged/);
+    await act(async () => {
+      resolve(
+        new Response(new Uint8Array([255, 216, 255, 217]), {
+          headers: { "content-type": "image/jpeg", "cache-control": "no-store, private" },
+        }),
+      );
+    });
+    expect(create).not.toHaveBeenCalled();
+    expect(screen.queryByRole("img")).toBeNull();
+  });
+  it("does not display a sampled frame when the viewer loses access before the post-capture check", async () => {
+    const f = fixture("running"),
+      original = f.fetcher.getMockImplementation()!;
+    let resolve!: (response: Response) => void;
+    f.fetcher.mockImplementation((path, init) =>
+      String(path).endsWith("/capture")
+        ? new Promise((done) => {
+            resolve = done;
+          })
+        : original(path, init),
+    );
+    const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:private");
+    render(<SharedComputerSessions {...f.props} />);
+    await selectSession(f.session.id);
+    fireEvent.click(screen.getByRole("button", { name: "Start live refresh" }));
+    await waitFor(() => expect(resolve).toBeTypeOf("function"));
+    f.session.canView = false;
+    await act(async () => {
+      resolve(
+        new Response(new Uint8Array([255, 216, 255, 217]), {
+          headers: { "content-type": "image/jpeg", "cache-control": "no-store, private" },
+        }),
+      );
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Stop live refresh" })).toBeNull(),
+    );
+    expect(create).not.toHaveBeenCalled();
+    expect(screen.queryByRole("img")).toBeNull();
+  });
+  it("fences an in-flight frame when the tab becomes hidden", async () => {
+    const f = fixture("running"),
+      original = f.fetcher.getMockImplementation()!;
+    let resolve!: (response: Response) => void;
+    f.fetcher.mockImplementation((path, init) =>
+      String(path).endsWith("/capture")
+        ? new Promise((done) => {
+            resolve = done;
+          })
+        : original(path, init),
+    );
+    const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:private");
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    render(<SharedComputerSessions {...f.props} />);
+    await selectSession(f.session.id);
+    fireEvent.click(screen.getByRole("button", { name: "Start live refresh" }));
+    await waitFor(() => expect(resolve).toBeTypeOf("function"));
+    hidden.mockReturnValue(true);
+    fireEvent(document, new Event("visibilitychange"));
+    await act(async () => {
+      resolve(
+        new Response(new Uint8Array([255, 216, 255, 217]), {
+          headers: { "content-type": "image/jpeg", "cache-control": "no-store, private" },
+        }),
+      );
+    });
+    expect(create).not.toHaveBeenCalled();
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByRole("button", { name: "Start live refresh" })).toBeTruthy();
+  });
+  it("limits an opt-in refresh run to fifteen captures and never overlaps them", async () => {
+    const f = fixture("running");
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:private");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const interval = globalThis.setInterval;
+    let tick: (() => void) | undefined;
+    vi.spyOn(globalThis, "setInterval").mockImplementation(((callback: () => void, ms: number) => {
+      if (ms === 2000) tick = callback;
+      return interval(callback, ms);
+    }) as typeof setInterval);
+    render(<SharedComputerSessions {...f.props} />);
+    await selectSession(f.session.id);
+    fireEvent.click(screen.getByRole("button", { name: "Start live refresh" }));
+    await waitFor(() =>
+      expect(f.calls.filter((call) => call.path.endsWith("/capture"))).toHaveLength(1),
+    );
+    for (let count = 2; count <= 15; count++) {
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Capture current display" })).toHaveProperty(
+          "disabled",
+          false,
+        ),
+      );
+      await act(async () => {
+        tick?.();
+        tick?.();
+      });
+      await waitFor(() =>
+        expect(f.calls.filter((call) => call.path.endsWith("/capture"))).toHaveLength(count),
+      );
+    }
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Capture current display" })).toHaveProperty(
+        "disabled",
+        false,
+      ),
+    );
+    await act(async () => {
+      tick?.();
+    });
+    expect(f.calls.filter((call) => call.path.endsWith("/capture"))).toHaveLength(15);
+    expect(screen.getByRole("button", { name: "Start live refresh" })).toBeTruthy();
+  });
+  it("stops sampled refresh on a failed capture without retrying", async () => {
+    const f = fixture("running"),
+      original = f.fetcher.getMockImplementation()!;
+    f.fetcher.mockImplementation((path, init) =>
+      String(path).endsWith("/capture")
+        ? Promise.resolve(new Response(null, { status: 403 }))
+        : original(path, init),
+    );
+    render(<SharedComputerSessions {...f.props} />);
+    await selectSession(f.session.id);
+    fireEvent.click(screen.getByRole("button", { name: "Start live refresh" }));
+    await screen.findByRole("alert");
+    expect(f.fetcher.mock.calls.filter(([path]) => String(path).endsWith("/capture"))).toHaveLength(
+      1,
+    );
+    expect(screen.queryByRole("img")).toBeNull();
+  });
   it("keeps at most one metadata refresh pending without hidden retries", async () => {
     const f = fixture("running"),
       base = f.fetcher.getMockImplementation();

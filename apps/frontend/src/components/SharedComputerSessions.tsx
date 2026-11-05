@@ -42,12 +42,16 @@ function ComputerScope(scope: SharedComputerScope) {
   const [stops, setStops] = useState<StopRef[]>([]),
     [blocked, setBlocked] = useState<string[]>([]);
   const [stopping, setStopping] = useState<string[]>([]);
+  const [mouseButton, setMouseButton] = useState<"left" | "middle" | "right">("left");
+  const [live, setLive] = useState(false);
   const mounted = useRef(false),
     abort = useRef(new AbortController()),
     operating = useRef(false),
     refreshing = useRef(false),
     latches = useRef(new Set<string>()),
-    objectUrl = useRef<string | null>(null);
+    objectUrl = useRef<string | null>(null),
+    captureEpoch = useRef(0),
+    liveAttempts = useRef(0);
   const session = state?.sessions.find((s) => s.id === selection),
     current = Boolean(state?.available && session && session.contract.expiresAt > now);
   const lease = Boolean(
@@ -89,6 +93,8 @@ function ComputerScope(scope: SharedComputerScope) {
   };
   const deny = (cause: unknown) => {
     if (!mounted.current) return;
+    captureEpoch.current++;
+    setLive(false);
     clearImage();
     setReview("");
     if (cause instanceof SharedComputerRequestError && [401, 403, 404].includes(cause.status)) {
@@ -140,12 +146,12 @@ function ComputerScope(scope: SharedComputerScope) {
     // Metadata only: no automatic capture, allocation, renewal, input or retry.
     const timer = setInterval(() => {
       if (!operating.current) {
-        effect.current.clearImage();
+        if (!live) effect.current.clearImage();
         void effect.current.refresh();
       }
     }, 5000);
     return () => clearInterval(timer);
-  }, [shouldPoll]);
+  }, [shouldPoll, live]);
   useEffect(() => {
     if (
       image &&
@@ -234,10 +240,85 @@ function ComputerScope(scope: SharedComputerScope) {
       }
     });
   };
+  const capture = (target: SharedComputerSession) => {
+    const epoch = captureEpoch.current;
+    void perform(`capture:${target.id}:${crypto.randomUUID()}`, target.id, async () => {
+      const blob = await client.capture(target, abort.current.signal);
+      const checked = await client.state(abort.current.signal);
+      if (!mounted.current || epoch !== captureEpoch.current) return;
+      adopt(checked);
+      const selected = checked.sessions.find((s) => s.id === target.id);
+      if (
+        !selected?.canView ||
+        selected.state !== "running" ||
+        selected.digest !== target.digest ||
+        selected.contract.expiresAt <= Date.now() ||
+        latches.current.has(`stop:${target.id}`) ||
+        document.hidden
+      )
+        return;
+      if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
+      const url = URL.createObjectURL(blob);
+      objectUrl.current = url;
+      setImage({
+        url,
+        sessionId: target.id,
+        digest: target.digest,
+        expiresAt: Math.min(Date.now() + 5000, selected.contract.expiresAt),
+      });
+    });
+  };
+  const captureRef = useRef(capture);
+  captureRef.current = capture;
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  useEffect(() => {
+    if (live && (!current || !session?.canView || blocked.includes(session.id))) {
+      captureEpoch.current++;
+      setLive(false);
+      effect.current.clearImage();
+    }
+  }, [live, current, session, blocked]);
+  useEffect(() => {
+    if (!live || !session || !current || !session.canView || blocked.includes(session.id)) return;
+    const tick = () => {
+      if (document.hidden) {
+        captureEpoch.current++;
+        setLive(false);
+        effect.current.clearImage();
+        return;
+      }
+      if (operating.current || refreshing.current) return;
+      if (liveAttempts.current >= 15) {
+        setLive(false);
+        return;
+      }
+      liveAttempts.current++;
+      const latest = sessionRef.current;
+      if (latest && latest.id === session.id && latest.digest === session.digest)
+        captureRef.current(latest);
+    };
+    tick();
+    const timer = setInterval(tick, 2000);
+    const visibility = () => {
+      if (document.hidden) {
+        captureEpoch.current++;
+        setLive(false);
+        effect.current.clearImage();
+      }
+    };
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", visibility);
+    };
+  }, [live, session?.id, session?.digest, current, session?.canView, blocked]);
   const stop = async (item: StopRef) => {
     const key = `stop:${item.id}`;
     if (!mounted.current || latches.current.has(key)) return;
     latches.current.add(key);
+    captureEpoch.current++;
+    setLive(false);
     setStopping((old) => [...old, item.id]);
     setBlocked((old) => (old.includes(item.id) ? old : [...old, item.id]));
     clearImage();
@@ -398,6 +479,8 @@ function ComputerScope(scope: SharedComputerScope) {
             value={selection}
             disabled={busy}
             onChange={(e) => {
+              captureEpoch.current++;
+              setLive(false);
               clearImage();
               setSelection(e.target.value);
               setReview("");
@@ -542,41 +625,59 @@ function ComputerScope(scope: SharedComputerScope) {
                 type="button"
                 className={BUTTON}
                 disabled={busy || !current || blocked.includes(session.id)}
-                onClick={() => {
-                  void perform(`capture:${reviewKey}:${Date.now()}`, session.id, async () => {
-                    const blob = await client.capture(session, abort.current.signal);
-                    const checked = await client.state(abort.current.signal);
-                    if (!mounted.current) return;
-                    adopt(checked);
-                    const selected = checked.sessions.find((s) => s.id === session.id);
-                    if (
-                      !selected?.canView ||
-                      selected.state !== "running" ||
-                      selected.digest !== session.digest ||
-                      selected.contract.expiresAt <= Date.now() ||
-                      latches.current.has(`stop:${session.id}`)
-                    )
-                      return;
-                    const url = URL.createObjectURL(blob);
-                    objectUrl.current = url;
-                    setImage({
-                      url,
-                      sessionId: session.id,
-                      digest: session.digest,
-                      expiresAt: Math.min(Date.now() + 5000, selected.contract.expiresAt),
-                    });
-                  });
-                }}
+                onClick={() => capture(session)}
               >
                 Capture current display
               </button>
             )}
+            {session.canView && (
+              <button
+                type="button"
+                className={BUTTON}
+                disabled={!current || blocked.includes(session.id)}
+                onClick={() => {
+                  captureEpoch.current++;
+                  if (live) {
+                    setLive(false);
+                    clearImage();
+                  } else {
+                    liveAttempts.current = 0;
+                    setLive(true);
+                  }
+                }}
+              >
+                {live ? "Stop live refresh" : "Start live refresh"}
+              </button>
+            )}
           </div>
+          {session.canView && (
+            <p className="mt-2 text-xs">
+              Live refresh is opt-in, samples at most every two seconds for up to 15 captures, and
+              uses the shared capture budget. It stops on errors or when this tab is hidden.
+            </p>
+          )}
           {session.lease && (
             <p className="mt-3 break-all text-xs">
               Exclusive control: {session.lease.ownerId} · lease v{session.lease.version} · expires{" "}
               {new Date(session.lease.expiresAt).toLocaleTimeString()}
             </p>
+          )}
+          {image?.sessionId === session.id && (
+            <label className="mt-3 block text-xs">
+              Desktop click button
+              <select
+                className={FIELD}
+                value={mouseButton}
+                disabled={!lease || busy}
+                onChange={(event) =>
+                  setMouseButton(event.target.value as "left" | "middle" | "right")
+                }
+              >
+                <option value="left">Left</option>
+                <option value="middle">Middle</option>
+                <option value="right">Right</option>
+              </select>
+            </label>
           )}
           {image?.sessionId === session.id && (
             <figure className="mt-3">
@@ -610,7 +711,7 @@ function ComputerScope(scope: SharedComputerScope) {
                               Math.floor(((event.clientY - bounds.top) / bounds.height) * 768),
                             ),
                           ),
-                    button: "left",
+                    button: mouseButton,
                   });
                 }}
               >
@@ -623,7 +724,7 @@ function ComputerScope(scope: SharedComputerScope) {
                 />
               </button>
               <figcaption className="mt-1 text-xs">
-                Manual capture, not live video. Cleared after five seconds or a scope/access change.
+                Sampled image, not live video. Cleared after five seconds or a scope/access change.
                 Click only while you hold exclusive control.
               </figcaption>
             </figure>
@@ -652,7 +753,24 @@ function ComputerScope(scope: SharedComputerScope) {
                 Type exact shared text
               </button>
               <div className="mt-2 flex flex-wrap gap-2">
-                {(["Tab", "Return", "BackSpace", "Escape"] as const).map((key) => (
+                {(
+                  [
+                    "Tab",
+                    "Return",
+                    "BackSpace",
+                    "Escape",
+                    "Delete",
+                    "Left",
+                    "Right",
+                    "Up",
+                    "Down",
+                    "Home",
+                    "End",
+                    "Page_Up",
+                    "Page_Down",
+                    "space",
+                  ] as const
+                ).map((key) => (
                   <button
                     type="button"
                     className={BUTTON}
@@ -662,7 +780,7 @@ function ComputerScope(scope: SharedComputerScope) {
                     {key}
                   </button>
                 ))}
-                {(["up", "down"] as const).map((direction) => (
+                {(["up", "down", "left", "right"] as const).map((direction) => (
                   <button
                     type="button"
                     className={BUTTON}

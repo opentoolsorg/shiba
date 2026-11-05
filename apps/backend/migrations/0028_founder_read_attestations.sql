@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS founder_read_attestations (id TEXT PRIMARY KEY, nonce TEXT NOT NULL, request_digest TEXT NOT NULL, pins_json TEXT NOT NULL, expires_at INTEGER NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','claimed','consumed')));

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { TEAM_MODEL_TEXT_MODEL, teamModelMaximumDebitMicroUsd } from "@shiba/shared";
+import { TEAM_MODEL_TEXT_MODEL, TEAM_MODEL_LLAMA_MODEL, teamModelMaximumDebitMicroUsd } from "@shiba/shared";
 import type { Env } from "../src/env.js";
 import { handleTeamModelSessions } from "../src/team-model-routes.js";
 import { createTeamWorkspace, createTeamWorkspaceInvitation, acceptTeamWorkspaceInvitation, getTeamWorkspaceMembership } from "../src/team-workspaces-store.js";
@@ -103,6 +103,63 @@ function holdAuthorityRead(env: Env, nth: number) {
 }
 
 describe("default-off native funded text with actual routes/SQLite and fixture AI only", { timeout: 20_000 }, () => {
+  it("binds a reviewed Llama quote and max_tokens to the selected direct binding", async () => {
+    const f = await fixture(); f.env.SHIBA_TEAM_MODEL_MODEL = TEAM_MODEL_LLAMA_MODEL;
+    const grant = await f.fund({ model: TEAM_MODEL_LLAMA_MODEL, maxOutputTokens: 1024 });
+    const approved = await f.approve(await f.turn(grant));
+    f.run.mockResolvedValueOnce({ response: "Llama fixture", usage: { prompt_tokens: 32, completion_tokens: 8, total_tokens: 40 } });
+    expect((await f.execute(approved)).body.turn).toMatchObject({ status: "completed", output: "Llama fixture" });
+    expect(f.run.mock.calls[0]![0]).toBe(TEAM_MODEL_LLAMA_MODEL);
+    expect(f.run.mock.calls[0]![1]).toMatchObject({ max_tokens: 1024, stream: false });
+    expect(f.run.mock.calls[0]![1]).not.toHaveProperty("max_completion_tokens");
+    expect(f.sqlite.prepare("SELECT reserved_micro_usd FROM team_model_money_ledger").get()).toEqual({ reserved_micro_usd: 5158 });
+    const receipt = JSON.parse(String(f.sqlite.prepare("SELECT receipt_json FROM team_model_money_ledger").get()!.receipt_json));
+    expect(receipt).toMatchObject({ requestedModel: TEAM_MODEL_LLAMA_MODEL, bindingRequestId: approved.id, providerModel: null, providerCompletionId: null });
+  });
+  it.each(["missing usage", "wrong echoed model"])("holds the Llama reservation on %s", async (kind) => {
+    const f = await fixture(); f.env.SHIBA_TEAM_MODEL_MODEL = TEAM_MODEL_LLAMA_MODEL;
+    const grant = await f.fund({ model: TEAM_MODEL_LLAMA_MODEL }), approved = await f.approve(await f.turn(grant));
+    f.run.mockResolvedValueOnce(kind === "missing usage" ? { response: "unconfirmed" } : { response: "unconfirmed", model: TEAM_MODEL_TEXT_MODEL, usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+    expect((await f.execute(approved)).body.turn).toMatchObject({ status: "unknown", output: null });
+    expect(f.sqlite.prepare("SELECT state FROM team_model_money_ledger").get()).toEqual({ state: "unknown" });
+    await f.execute(approved); expect(f.run).toHaveBeenCalledTimes(1);
+  });
+  it("requires a distinct native sponsor and requester", async () => {
+    const f = await fixture(), operator = await getTeamWorkspaceMembership(f.env, f.workspace.workspaceId, OPERATOR);
+    const result = await f.call("/funding/prepare", "POST", { ...f.fundingInput, memberId: OPERATOR, memberVersion: operator!.version });
+    expect(result.response.status).toBe(403); expect(f.calls).toHaveLength(0);
+  });
+  it("synthesizes a report only from explicitly reviewed native sources", async () => {
+    const f = await fixture(), grant = await f.fund();
+    const pending = await f.turn(grant, { prompt: "Synthesize the selected sources into a short report.", messageIds: ["message-human"], memoryRefs: [{ id: f.note.id, version: f.note.version, sha256: f.note.sha256 }] });
+    expect(f.calls).toHaveLength(0);
+    const approved = await f.approve(pending);
+    expect(f.calls).toHaveLength(0);
+    expect((await f.execute(approved)).body.turn).toMatchObject({ status: "completed" });
+    expect(JSON.stringify(f.calls[0]!.input)).toContain("Explicit shared objective");
+    expect(JSON.stringify(f.calls[0]!.input)).toContain("A deliberately selected fact.");
+    expect(f.calls[0]!.input).toMatchObject({ stream: false, tool_choice: "none", store: false });
+  });
+  it("keeps previously authorized output readable while a prior policy cannot dispatch", async () => {
+    const f = await fixture(), grant = await f.fund(), approved = await f.approve(await f.turn(grant));
+    await f.execute(approved);
+    const previous = JSON.stringify({ version: "shiba.team-text.v1", model: TEAM_MODEL_TEXT_MODEL, enabled: true });
+    f.sqlite.prepare("UPDATE team_model_funding SET policy_key=? WHERE id=?").run(previous, grant.id);
+    const state = await f.call(`/state?roomId=${f.roomId}`);
+    expect((state.body.turns as Array<Record<string, unknown>>)[0]).toMatchObject({ output: "Fixture text response", canApprove: false, canExecute: false });
+    expect((state.body.grants as Array<Record<string, unknown>>)[0]).toMatchObject({ unavailableReason: "team_model_policy_changed", canActivate: false });
+  });
+  it.each(["requester", "workspace"])("enforces the cumulative %s ceiling before AI.run across grants", async (scope) => {
+    const f = await fixture(), prior = await f.fund(), grant = await f.fund({ maxOutputTokens: 1024, budgetMicroUsd: 100_000 });
+    const approved = await f.approve(await f.turn(grant));
+    const insert = f.sqlite.prepare("INSERT INTO team_model_money_ledger(turn_id,grant_id,workspace_id,input_hash,quote_digest,reserved_micro_usd,state,created_at,updated_at) VALUES(?,?,?,?,?,8341,'confirmed',1,1)");
+    // Workspace scope includes all ledger records, even orphaned legacy rows.
+    const count = scope === "requester" ? 119 : 1199;
+    for (let i = 0; i < count; i++) insert.run(`prior-${i}`, scope === "requester" ? prior.id : "other-grant", f.workspace.workspaceId, "prior-hash", "prior-quote");
+    expect((await f.execute(approved)).response.status).toBe(409);
+    expect(f.calls).toHaveLength(0);
+    expect(f.sqlite.prepare("SELECT used_requests FROM team_model_funding WHERE id=?").get(grant.id)).toEqual({ used_requests: 0 });
+  });
   it("enforces the exact USD envelope atomically and never releases it after confirmed lower usage", async () => {
     const f = await fixture(), grant = await f.fund({ maxOutputTokens: 1024, budgetMicroUsd: 8341 }), approved = await f.approve(await f.turn(grant));
     const [one, duplicate] = await Promise.all([f.execute(approved), f.execute(approved)]);
