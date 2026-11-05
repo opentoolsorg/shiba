@@ -23,6 +23,10 @@ export interface Env {
   ConversationRoom: DurableObjectNamespace<ConversationRoom>;
   OpenCodeAgent: DurableObjectNamespace<OpenCodeAgent>;
   Sandbox: DurableObjectNamespace<Sandbox>;
+  /** Optional separate offline desktop; never the coding container. */
+  ComputerSession?: DurableObjectNamespace<import("./computer-session.js").ComputerSession>;
+  SHIBA_SHARED_COMPUTER?: string;
+  SHIBA_SHARED_COMPUTER_IMAGE?: string;
   /** Bound to the Automations Durable Object class in wrangler.jsonc. */
   Automations: DurableObjectNamespace;
   /**

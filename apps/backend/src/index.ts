@@ -65,6 +65,8 @@ import { Spaces } from "./spaces-do.js";
 import { handleFounderSkills } from "./founder-skills-routes.js";
 import { handleFounderConnectorJobs } from "./founder-connector-routes.js";
 import { handleFounderEvidenceReports } from "./founder-evidence-routes.js";
+import { handleSharedComputers } from "./shared-computer-routes.js";
+import { ComputerSession } from "./computer-session.js";
 import { handleSlackInstallations } from "./slack-installations-routes.js";
 import { handleMultiInstallationSlackCallback } from "./slack-installations-routing.js";
 import { handleReportSlack } from "./report-slack-routes.js";
@@ -113,6 +115,7 @@ export {
   Automations,
   ChatGptAuth,
   ConversationRoom,
+  ComputerSession,
   UserProviderOAuth,
   CodingOrchestrator,
   LocalDispatch,
@@ -312,6 +315,8 @@ export default {
       if (memberPolicyResponse) return memberPolicyResponse;
       const slackInstallationResponse = await handleSlackInstallations(request, env);
       if (slackInstallationResponse) return slackInstallationResponse;
+      const sharedComputerResponse = await handleSharedComputers(request, env);
+      if (sharedComputerResponse) return sharedComputerResponse;
       const workspaceIntegrationResponse = await handleWorkspaceIntegrations(request, env);
       if (workspaceIntegrationResponse) return workspaceIntegrationResponse;
       const personalExecutionResponse = await handlePersonalExecution(request, env);

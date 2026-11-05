@@ -30,6 +30,7 @@ const workspaceApi = [
   /^\/api\/collaboration(?:\/|$)/,
   /^\/api\/personal-execution(?:\/|$)/,
   /^\/api\/team-model-sessions(?:\/|$)/,
+  /^\/api\/shared-computers(?:\/|$)/,
   /^\/api\/slack\/installations(?:\/|$)/,
   /^\/api\/founder-skills(?:\/|$)/,
   /^\/api\/workspace-integrations(?:\/|$)/,
@@ -62,6 +63,7 @@ export async function enforceTeamMemberApiPolicy(request: Request, env: Env): Pr
   // exact handlers independently verify native account UUID, origin and the
   // immutable stored owner; the exception grants no reads, queue or decisions.
   if ((request.method === "POST" && path === "/api/personal-execution/harness/control") ||
+    (request.method === "POST" && /^\/api\/shared-computers\/sessions\/scs_[a-f0-9]{32}\/stop$/.test(path)) ||
     (request.method === "DELETE" && /^\/api\/personal-execution\/computers\/[A-Za-z0-9_-]{1,128}$/.test(path))) return null;
   if (workspaceApi.some((rule) => rule.test(path))) {
     const url = new URL(request.url), selectors = url.searchParams.getAll("workspaceId");

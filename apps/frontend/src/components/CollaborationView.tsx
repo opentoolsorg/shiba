@@ -12,6 +12,7 @@ import type { TeamWorkspaceDetail, TeamWorkspaceMembership } from "@shiba/shared
 import { useCollaborationRoomRealtime } from "../collaboration-room-realtime";
 import { PersonalExecutionSetup } from "./PersonalExecutionSetup";
 import { TeamModelSessions } from "./TeamModelSessions";
+import { SharedComputerSessions } from "./SharedComputerSessions";
 import { BootstrapVerificationPanel } from "./BootstrapVerificationPanel";
 import type { PersonalExecutionGrant } from "../personal-execution-client";
 
@@ -267,6 +268,7 @@ function ScopedCollaborationView({
   const [executionTarget, setExecutionTarget] = useState("sandbox");
   const [personalExecutionMode, setPersonalExecutionMode] = useState(false);
   const [showTeamModels, setShowTeamModels] = useState(false);
+  const [showSharedComputer, setShowSharedComputer] = useState(false);
   const [showBootstrapVerification, setShowBootstrapVerification] = useState(false);
   const [personalGrant, setPersonalGrant] = useState<PersonalExecutionGrant | null>(null);
   const personalGrantIntent = useRef("");
@@ -297,6 +299,7 @@ function ScopedCollaborationView({
     setRecipientActorId("");
     setPersonalExecutionMode(false);
     setShowTeamModels(false);
+    setShowSharedComputer(false);
     setShowBootstrapVerification(false);
     setPersonalGrant(null);
     personalGrantIntent.current = "";
@@ -1525,6 +1528,12 @@ function ScopedCollaborationView({
                       {workspaceId && <div className="mb-3 border border-[var(--line)] p-3"><button type="button" className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowTeamModels((shown) => !shown)}>{showTeamModels ? "Close funded text sessions" : "Open funded team text sessions"}</button>{showTeamModels && detailTab === "work" && <TeamModelSessions workspaceId={workspaceId} roomId={activeRoomId} actorId={detail.currentUserId}
                         messages={detail.messages.filter((item) => item.senderKind === "human" && !item.sourceSlackEventId && !item.sourceSlackTeamId && !item.sourceSlackChannelId && !item.sourceSlackThreadTs && !item.sourceSlackUserId && !item.sourceRunId && !item.sourceHandoffId && !item.sourceArtifactRefs?.length).map((item) => ({ id: item.messageId, author: item.senderUserId, body: item.body }))}
                         notes={(detail.memory ?? []).filter((note) => note.revokedAt === null).map((note) => ({ id: note.id, version: note.version, sha256: note.sha256, title: note.title, body: note.content }))} />}</div>}
+                      {workspaceId && <div className="mb-3 border border-[var(--line)] p-3">
+                        <button type="button" className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" aria-expanded={showSharedComputer} onClick={() => setShowSharedComputer((shown) => !shown)}>
+                          {showSharedComputer ? "Close shared computer" : "Open shared computer"}
+                        </button>
+                        {showSharedComputer && detailTab === "work" && <SharedComputerSessions key={`${workspaceId}:${activeRoomId}:${detail.currentUserId}`} workspaceId={workspaceId} roomId={activeRoomId} actorId={detail.currentUserId} />}
+                      </div>}
                       <form onSubmit={createHandoff} className="flex flex-col gap-2">
                         <input
                           aria-label="Task ID"

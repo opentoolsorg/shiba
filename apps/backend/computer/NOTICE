@@ -1,0 +1,16 @@
+Shiba offline shared-computer image
+
+The sandbox-shim binary is copied from the official Cloudflare Sandbox 1.0.1
+image, pinned as docker.io/cloudflare/sandbox:1.0.1 at manifest
+sha256:e796e813de8213fb062bba279ddeddbf61277389a2cc7b3e4620075a9188843b.
+Cloudflare Sandbox SDK is distributed under Apache License 2.0. The license
+is reproduced beside this notice as LICENSE-sandbox. Source and release
+history: https://github.com/cloudflare/sandbox-sdk .
+
+Debian image and packages are distributed under their individual terms.
+Retain /usr/share/doc/*/copyright and the copied package-specific copyright
+files alongside /usr/share/shiba-computer/packages.tsv. X.Org, Openbox,
+Chromium, scrot, xdotool and all bundled dependencies retain their notices.
+This inventory does not replace their license or corresponding-source duties.
+
+Shiba first-party source remains subject to the repository LICENSE.
