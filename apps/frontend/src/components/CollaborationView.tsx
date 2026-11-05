@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { TeamWorkspaceDetail, TeamWorkspaceMembership } from "@shiba/shared";
 import { useCollaborationRoomRealtime } from "../collaboration-room-realtime";
+import { SlackDraftSubmission } from "./SlackDraftSubmission";
 import { PersonalExecutionSetup } from "./PersonalExecutionSetup";
 import { TeamModelSessions } from "./TeamModelSessions";
 import { SharedComputerSessions } from "./SharedComputerSessions";
@@ -196,7 +197,7 @@ function request(method: string, body?: unknown): RequestInit {
 }
 
 export type CollaborationExecutionHandoff = Handoff & { roomId: string };
-export type IncomingTaskDraft = { id: string; workspaceId: string; actorId: string; text: string; source?: "slack" | "team-onboarding"; draftTaskId?: string; draftTaskVersion?: number; progressRevision?: number; expiresAt?: number };
+export type IncomingTaskDraft = { id: string; workspaceId: string; actorId: string; text: string; slackDraftId?: string; source?: "slack" | "team-onboarding"; draftTaskId?: string; draftTaskVersion?: number; progressRevision?: number; expiresAt?: number };
 
 export interface CollaborationViewProps {
   workspaceId?: string;
@@ -1577,7 +1578,12 @@ function ScopedCollaborationView({
                         </button>
                         {showSharedComputer && detailTab === "work" && <SharedComputerSessions key={`${workspaceId}:${activeRoomId}:${detail.currentUserId}`} workspaceId={workspaceId} roomId={activeRoomId} actorId={detail.currentUserId} />}
                       </div>}
-                      {reviewableSlackDraft && incomingTaskDraft && <section aria-label={incomingTaskDraft.source === "team-onboarding" ? "Review saved team task" : "Review Slack draft"} className="mb-3 min-w-0 space-y-2 border border-[var(--line)] bg-[var(--paper)] p-3 text-xs">
+                      {reviewableSlackDraft && incomingTaskDraft?.slackDraftId && workspaceId && <SlackDraftSubmission
+                        key={`${workspaceId}:${detail.currentUserId}:${activeRoomId}:${incomingTaskDraft.slackDraftId}`}
+                        workspaceId={workspaceId} actorId={detail.currentUserId} roomId={activeRoomId}
+                        draftId={incomingTaskDraft.slackDraftId} text={incomingTaskDraft.text}
+                        agents={recipients.filter((member) => member.actorId.startsWith("agent:")).map((member) => member.actorId)} />}
+                      {reviewableSlackDraft && incomingTaskDraft && !incomingTaskDraft.slackDraftId && <section aria-label={incomingTaskDraft.source === "team-onboarding" ? "Review saved team task" : "Review Slack draft"} className="mb-3 min-w-0 space-y-2 border border-[var(--line)] bg-[var(--paper)] p-3 text-xs">
                         {incomingTaskDraft.source === "team-onboarding" ? <><p className="font-semibold">Review saved team task</p><p>Saved draft version {incomingTaskDraft.draftTaskVersion} · progress revision {incomingTaskDraft.progressRevision}</p><p>Review before using in room {detail.room.title}. This creates an editable copy; later setup edits do not update it, and the saved version may no longer be current. It grants no employee, source, or tool access. Submitting a room task can share its instructions with room participants and requires normal approval.</p></> : <><p className="font-semibold">Untrusted self-authored Slack statement</p><p>Review before using in room {detail.room.title}. Submitting a room task can share its instructions with that room's participants. Copying here does not send a task or share room context; later Slack edits cannot retract the copied text.</p></>}
                         <blockquote className="whitespace-pre-wrap break-words">{incomingTaskDraft.text}</blockquote>
                         {!validSlackDraft && <p role="alert">This draft must contain 1–4,000 characters before it can be used. It has not been shortened.</p>}

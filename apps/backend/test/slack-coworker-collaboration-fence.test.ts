@@ -80,7 +80,7 @@ async function fixture(slack: boolean, human = false) {
     grantedCapabilities: ["room.read"], profileVersion: human ? null : 1, status: "active", createdAt: 4, cancelledAt: null,
   };
   expect(await createRootCollaborationHandoff(env, scope, handoff, contextWrite)).not.toBeNull();
-  return { env, scope, handoffId, revoke: () => revokeSlackCoworkerIntake(env, member, grant.id) };
+  return { env, sqlite, scope, handoffId, revoke: () => revokeSlackCoworkerIntake(env, member, grant.id) };
 }
 
 describe("Slack coworker authority at real collaboration context boundaries", () => {
@@ -105,6 +105,31 @@ describe("Slack coworker authority at real collaboration context boundaries", ()
     expect(await queueable()).toBe(!slack);
     expect(await isCollaborationContextCurrent(f.env, f.handoffId, frozen.task, APPROVAL)).toBe(!slack);
     expect(await dispatchable()).toBe(!slack);
+  });
+
+  it.each([
+    "UPDATE slack_installations SET generation=generation+1",
+    "UPDATE slack_installations SET state='revoked'",
+    "UPDATE slack_coworker_bindings SET status='revoked'",
+    "UPDATE user SET emailVerified=0",
+    "UPDATE team_workspace_memberships SET version=version+1",
+  ])("fences a frozen Slack approval after authority changes: %s", async sql => {
+    const f = await fixture(true);
+    const frozen = await freezeCollaborationContext(f.env, f.scope, ROOM, f.handoffId, TASK, ["selected_fact"], []);
+    const dispatchable = () => isCollaborationApprovalDispatchable(f.env, {
+      handoffId: f.handoffId, approvalId: APPROVAL, employeeId: "helper", employeeVersion: 1, task: frozen.task,
+    });
+    expect(await dispatchable()).toBe(false);
+    await bindCollaborationContextApproval(f.env, f.handoffId, APPROVAL, frozen.task);
+    await linkCollaborationHandoffRun(f.env, f.scope, f.handoffId, APPROVAL, `agent-tool:${APPROVAL}`);
+    await finishSlackCoworkerExecution(f.env, f.handoffId, "queued");
+    expect(await dispatchable()).toBe(true);
+
+    f.sqlite.exec(sql);
+
+    expect(await isCollaborationContextQueueable(f.env, f.scope, ROOM, f.handoffId, frozen.task)).toBe(false);
+    expect(await isCollaborationContextCurrent(f.env, f.handoffId, frozen.task, APPROVAL)).toBe(false);
+    expect(await dispatchable()).toBe(false);
   });
 
   it.each([true, false])("withholds a frozen human assignment after intake revocation (Slack: %s)", async (slack) => {
