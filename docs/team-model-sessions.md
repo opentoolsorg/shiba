@@ -4,8 +4,7 @@ This optional lane provides interactive text responses through the deployment's
 Workers AI binding. It has no tools, app execution, MCP, coding CLI, specialists,
 Think orchestration, schedules, subscriptions or external provider fallback.
 The feature is off unless `SHIBA_TEAM_MODEL_SESSIONS=1`. The only supported
-`SHIBA_TEAM_MODEL_MODEL` value is `@cf/zai-org/glm-4.7-flash`, which is also the
-pinned default. Other values fail closed.
+`SHIBA_TEAM_MODEL_MODEL` values are `@cf/zai-org/glm-4.7-flash` (the default) and `@cf/meta/llama-3.1-8b-instruct-fp8`. The deployment selects exactly one; the funder explicitly selects that same model. Other values fail closed.
 
 ## Funding and human decisions
 
@@ -14,7 +13,7 @@ and a current owner or admin of the selected workspace. Workspace administration
 alone does not authorize deployment billing. Access-only accounts, API tokens,
 automation identities and models cannot issue or approve funding.
 
-The issuer selects a real native member, an active room employee at its exact
+The issuer selects a distinct real native member as requester, an active room employee at its exact
 profile revision, and explicit limits. The server freezes the native UUIDs,
 verified emails, workspace membership roles and revisions, room participants,
 employee configuration, model policy and limits into a digest. The funding
@@ -44,7 +43,7 @@ lists 5,500 input and 36,400 output neurons per million tokens at $0.011 per
 tokens and $0.4004 per million output tokens. These exceed the rounded token
 table where it differs. The reference does not lock the provider's price.
 
-Every call reserves the entire 131,072-token input context plus the selected
+GLM calls reserve the entire 131,072-token input context plus the selected
 maximum completion tokens, without assuming a byte-to-token estimate. Each
 component rounds upward to a whole microdollar. At the maximum 1,024 output
 tokens the permanent reservation is 8,341 microUSD ($0.008341). Free allocations
@@ -68,9 +67,17 @@ never decreases. Concurrent requests and lost acknowledgements cannot double
 invoke or double-debit the same turn. No reservation is released or refunded,
 including when a valid response reports lower usage.
 
-The direct model response must include the exact model, a bounded completion
-ID and integer prompt, completion and total token counts within the frozen
-bounds, with a matching total. These provider-reported values and their hash
+The policy also caps cumulative permanent reservations across grants at $1
+per native requester account within a workspace and $10 per workspace. The
+same atomic dispatch transaction checks both ceilings before calling AI. They
+are lifetime limits with no automatic reset; revoked, cancelled, unknown and
+confirmed reservations all count. They are application authorizations, not
+invoice caps. The policy revision is frozen with the funding review; older
+grants require a fresh review before new dispatch.
+
+Cloudflare's [Llama 3.1 8B FP8 model page](https://developers.cloudflare.com/workers-ai/models/llama-3.1-8b-instruct-fp8/) lists a 32,000-token context and $0.152/$0.287 per million input/output tokens. Llama reserves the whole 32,000-token input context plus maximum output, or 5,158 microUSD at 1,024 output tokens. The binding uses `max_tokens` and a text response. Its receipt records the requested model and server turn ID as binding attribution; a provider model or completion ID is recorded only if returned. This is not provider attestation. Returned model, if present, must match. Required usage is validated against the frozen bounds; absent or malformed usage leaves an unknown permanent hold. Other models, providers and CLI subscriptions are unsupported without their own quote and receipt contract.
+
+GLM responses must include the exact model and a bounded completion ID. Both adapters require integer prompt, completion and total token counts within the frozen bounds, with a matching total. These provider-reported values and their hash
 produce an informational quoted-usage receipt, not an invoice or proof of
 payment. Missing, inconsistent, unsupported or uncertain usage keeps the full
 reservation, marks the outcome unknown and blocks further work on that grant.
@@ -93,6 +100,12 @@ imports and employee-result provenance are not inherited. Rooms with an active
 Slack source link are unavailable in this first slice; a deployment bot's
 visibility does not become a member's model permission.
 
+For example, a requester can select up to twelve qualifying room messages and
+eight shared notes, ask for a short report synthesizing them, inspect the exact
+prepared input and provenance, approve it, and then execute once. The same
+funding, source revocation, input byte and reservation limits apply; this is
+human-reviewed text synthesis rather than an automatic report or tool action.
+
 The requester alone can read their turn prompts and outputs. A same-room
 manager or the funding issuer does not automatically gain access. Reads recheck
 the current native identities, funding, room, profile and selected sources in a
@@ -111,8 +124,7 @@ and re-adding a participant cannot revive a previously approved grant.
 
 One D1 transaction reserves the request, full input byte count and maximum
 completion tokens and claims the approved turn. The runtime then makes at most
-one application-level `AI.run` call using the exact model, `stream:false`, one
-text choice, `tool_choice:none`, `store:false` and thinking disabled. No tools,
+one application-level `AI.run` call using the exact model and `stream:false`. GLM additionally fixes one text choice, `tool_choice:none`, `store:false` and thinking disabled; Llama uses its documented `max_tokens` text binding with no tool parameters. No tools,
 functions, web search or gateway retry configuration is passed.
 
 The final native, funding, source and expiry checks precede the call. Model

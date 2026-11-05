@@ -1,10 +1,11 @@
 /** Parent-only one-use capabilities. The INTERNAL_SIGNING_KEY never reaches the gateway. */
-import { digest, readRequestDigest, boundedBody, type ReadRequest, type GatewayReadReceipt } from "@shiba/openconnector-read-gateway";
+import { digest, hash, readRequestDigest, boundedBody, type ReadRequest, type GatewayReadReceipt } from "@shiba/openconnector-read-gateway";
 import type { Env } from "./env.js";
-import { automaticAvailability, automaticGrantGuard, automaticContract, type AutomaticGrantRow, type AutomaticStepRow, type AutomaticOccurrenceRow } from "./founder-auto-read-store.js";
+import { automaticAvailability, automaticGrantGuard, automaticPinsGuard, automaticContract, type AutomaticPins, type AutomaticGrantRow, type AutomaticStepRow, type AutomaticOccurrenceRow } from "./founder-auto-read-store.js";
+import { openConnectorWorkspaceConnectionName } from "./integrations/openconnector-provider.js";
 import { FOUNDER_SQL_NOW } from "./founder-connector-context.js";
 import { WorkspaceIntegrationError } from "./workspace-integrations-store.js";
-type Stage="claim"|"dispatch"|"complete";
+type Stage="claim"|"dispatch"|"complete"|"attest_claim"|"attest_complete";
 interface Capability {format:"shiba.auto-read.cap.v1";stage:Stage;stepId:string;nonce:string;requestDigest:string;expiresAt:number}
 const encoder=new TextEncoder(),domain="shiba:auto-read-capability:v1\n";
 function encode(bytes:Uint8Array){let text="";for(const b of bytes)text+=String.fromCharCode(b);return btoa(text).replaceAll("+","-").replaceAll("/","_").replace(/=+$/u,"");}
@@ -15,6 +16,15 @@ export async function mintAutomaticReadCapabilities(env:Env,input:Omit<ReadReque
   const bound={...input,capabilities:{claim:"unused",dispatch:"unused",complete:"unused"}},requestDigest=await readRequestDigest(bound);
   const base={format:"shiba.auto-read.cap.v1" as const,stepId:input.stepId,nonce,requestDigest,expiresAt:input.expiresAt};
   return{requestDigest,capabilities:{claim:await seal(env,{...base,stage:"claim"}),dispatch:await seal(env,{...base,stage:"dispatch"}),complete:await seal(env,{...base,stage:"complete"})}};
+}
+export async function mintGoogleAdsAttestation(env:Env,pins:AutomaticPins,bound:{alias:string;providerConnectionId:string;authorizationFingerprint:string;versionId:string;manifestDigest:string}) {
+  if(bound.alias!==await openConnectorWorkspaceConnectionName(pins.member.workspaceId) || bound.versionId!==env.OPEN_CONNECTOR_READ_VERSION_ID || bound.manifestDigest!==env.OPEN_CONNECTOR_READ_MANIFEST_SHA256 || !pins.sources.some(source=>source.operationId==="googleads.campaign_daily_metrics" && source.binding.providerKey==="googleads" && source.binding.providerConnectionId===bound.providerConnectionId && source.binding.fingerprint===bound.authorizationFingerprint))throw new WorkspaceIntegrationError("automatic_read_sources_changed",409);
+  await env.AGENT_AUDIT.prepare(`DELETE FROM founder_read_attestations WHERE expires_at<${FOUNDER_SQL_NOW}`).run();
+  const requestDigest=await hash(bound),nonce=await digest(`${crypto.randomUUID()}:${crypto.randomUUID()}`),stepId=`att_${crypto.randomUUID().replaceAll("-","")}`,expiresAt=Date.now()+15000,source=automaticPinsGuard(pins);
+  const inserted=await env.AGENT_AUDIT.prepare(`INSERT INTO founder_read_attestations(id,nonce,request_digest,pins_json,expires_at,state) SELECT ?,?,?,?,?,'pending' WHERE ${source.sql} AND ?>${FOUNDER_SQL_NOW}`).bind(stepId,nonce,requestDigest,JSON.stringify(pins),expiresAt,...source.values,expiresAt).run();
+  if(inserted.meta.changes!==1)throw new WorkspaceIntegrationError("automatic_read_sources_changed",409);
+  const base={format:"shiba.auto-read.cap.v1" as const,stepId,nonce,requestDigest,expiresAt};
+  return {claim:await seal(env,{...base,stage:"attest_claim"}),complete:await seal(env,{...base,stage:"attest_complete"})};
 }
 async function verify(env:Env,wire:unknown,stage:Stage,requestDigest:string):Promise<Capability>{
   try{if(typeof wire!=="string"||wire.length>4096)throw new Error("invalid");const parts=wire.split(".");if(parts.length!==2)throw new Error("invalid");
@@ -38,9 +48,17 @@ export async function handleFounderAutomaticReadPermit(request:Request,env:Env):
   if(request.method!=="POST"||url.search||!/^application\/json(?:;|$)/i.test(request.headers.get("content-type")??""))return json({error:"automatic_read_capability_denied"},403);
   try{let body:unknown;try{body=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(await boundedBody(request.body,80000)));}catch{return json({error:"automatic_read_capability_denied"},403);}
     const b=body as {stage?:Stage;capability?:unknown;requestDigest?:string;receipt?:unknown};
-    if(!b||typeof b!=="object"||Array.isArray(b)||!b.stage||!["claim","dispatch","complete"].includes(b.stage)||typeof b.requestDigest!=="string"||!/^[a-f0-9]{64}$/.test(b.requestDigest)||Object.keys(b).some(k=>!["stage","capability","requestDigest",...(b.stage==="complete"?["receipt"]:[])].includes(k)))return json({error:"automatic_read_capability_denied"},403);
+    if(!b||typeof b!=="object"||Array.isArray(b)||!b.stage||!["claim","dispatch","complete","attest_claim","attest_complete"].includes(b.stage)||typeof b.requestDigest!=="string"||!/^[a-f0-9]{64}$/.test(b.requestDigest)||Object.keys(b).some(k=>!["stage","capability","requestDigest",...(b.stage==="complete"?["receipt"]:[])].includes(k)))return json({error:"automatic_read_capability_denied"},403);
     const cap=await verify(env,b.capability,b.stage,b.requestDigest);
     const unavailable=automaticAvailability(env);if(unavailable)throw new WorkspaceIntegrationError(unavailable,503);
+    if(b.stage==="attest_claim"||b.stage==="attest_complete"){
+      const row=await env.AGENT_AUDIT.prepare("SELECT pins_json FROM founder_read_attestations WHERE id=? AND nonce=? AND request_digest=? AND expires_at=?").bind(cap.stepId,cap.nonce,cap.requestDigest,cap.expiresAt).first<{pins_json:string}>();
+      if(!row)throw new WorkspaceIntegrationError("automatic_read_capability_denied",403);
+      const source=automaticPinsGuard(JSON.parse(row.pins_json) as AutomaticPins);
+      const changed=await env.AGENT_AUDIT.prepare(`UPDATE founder_read_attestations SET state=? WHERE id=? AND nonce=? AND request_digest=? AND expires_at=? AND state=? AND expires_at>${FOUNDER_SQL_NOW} AND ${source.sql}`).bind(b.stage==="attest_claim"?"claimed":"consumed",cap.stepId,cap.nonce,cap.requestDigest,cap.expiresAt,b.stage==="attest_claim"?"pending":"claimed",...source.values).run();
+      if(changed.meta.changes!==1)throw new WorkspaceIntegrationError("automatic_read_capability_denied",403);
+      return json({ok:true});
+    }
     const step=await env.AGENT_AUDIT.prepare("SELECT * FROM founder_automatic_read_steps WHERE id=? AND nonce=? AND request_digest=?").bind(cap.stepId,cap.nonce,cap.requestDigest).first<AutomaticStepRow>();
     if(!step?.request_json||step.expires_at!==cap.expiresAt)throw new WorkspaceIntegrationError("automatic_read_capability_denied",403);
     const input=JSON.parse(step.request_json) as Omit<ReadRequest,"capabilities">;

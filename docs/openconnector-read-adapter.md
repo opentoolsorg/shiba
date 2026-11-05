@@ -62,6 +62,17 @@ apply migrations, deploy or enable the feature. Start with an already prepared,
 configured, clean upstream checkout at `.openconnector/v1.9.4`. The helper checks
 the exact Git revision and immutable source blob hashes before writing anything.
 
+Google Ads additionally requires the sibling-only secret
+`SHIBA_AUTOMATIC_SOURCE_FINGERPRINT_KEY`: an operator-provisioned cryptographically
+random base64url key of 43–128 characters, with at least 16 distinct characters.
+The plan reports this requirement without generating or placing a value in
+configuration. It is not a parent Worker secret. A dedicated runtime token must
+allow only `googleads.campaign_daily_metrics` and the exact selected connection.
+An encrypted, current OAuth source must include the documented `adwords` scope
+and developer-token configuration. Preparation and execution recheck an opaque
+keyed source fingerprint. Rotation invalidates the reviewed Ads grant. These
+requirements do not activate a feature or certify live vendor compatibility.
+
 Set `PARENT_WORKER_NAME` to the exact existing parent Worker selected by the
 operator, then inspect the local plan:
 

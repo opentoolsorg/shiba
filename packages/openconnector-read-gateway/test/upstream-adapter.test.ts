@@ -96,6 +96,26 @@ describe("pinned upstream adapter with actual Apache API sources and SQLite fixt
     const f = await fixture(), response = await f.call(); expect(response.status).toBe(200); const body = await response.text(); expect(body).not.toContain(ACCESS); expect(body).not.toContain(REFRESH); expect(body).not.toContain(TOKEN);
     expect(f.provider).toHaveBeenCalledOnce(); expect(f.db.connectionReads).toBe(2); expect(f.db.queries.filter((sql) => sql.includes("from connections"))).toEqual(["select * from connections where service = ? and connection_name = ?", "select * from connections where service = ? and connection_name = ?"]); expect(f.stages).toEqual(["claim", "dispatch", "complete"]);
   });
+  it("attests an exact encrypted Google Ads source with a scoped token and two parent proofs", async () => {
+    const f=await fixture(),developerToken="fictional-developer-token-12345678";
+    f.db.sqlite.exec("UPDATE connections SET service='googleads' WHERE id='raw-one'");
+    f.db.sqlite.exec(`UPDATE runtime_tokens SET allowed_actions='["googleads.campaign_daily_metrics"]'`);
+    await f.save({...f.credential,profile:{...f.credential.profile,grantedScopes:["https://www.googleapis.com/auth/adwords"]},metadata:{...f.credential.metadata,oauthClientSecretExtra:{developerToken}}});
+    const manifestDigest=await hash(await readGatewayManifest());
+    const body={alias:ALIAS,providerConnectionId:`ocg_${await digest(JSON.stringify([ALIAS,"googleads","raw-one","consent-one"]))}`,authorizationFingerprint:await digest(JSON.stringify([ALIAS,"googleads","consent-one"])),versionId:VERSION,manifestDigest,capabilities:{claim:"fixture-claim",complete:"fixture-complete"}};
+    const request=()=>new Request("https://sibling.test/v1/shiba/read-gate/attest-googleads",{method:"POST",headers:{authorization:`Bearer ${TOKEN}`,"content-type":"application/json"},body:JSON.stringify(body)});
+    const env={...f.env,SHIBA_AUTOMATIC_SOURCE_FINGERPRINT_KEY:"fixture-fingerprint-key-long-enough-for-test"};
+    const response=await handlePinnedUpstreamReadGateway(request(),env,modules,f.manual);
+    expect(response.status).toBe(200);const result=await response.json() as {sourceFingerprint:string};expect(result.sourceFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(result)).not.toContain(developerToken);expect(f.stages).toEqual(["attest_claim","attest_complete"]);expect(f.provider).not.toHaveBeenCalled();
+    f.db.sqlite.exec("UPDATE runtime_tokens SET allowed_actions='[\"github.list_pull_requests\"]'");
+    expect((await handlePinnedUpstreamReadGateway(request(),env,modules,f.manual)).status).toBe(403);expect(f.stages).toHaveLength(2);
+  });
+  it("does not widen a metadata-only token to the new comments operation", async () => {
+    const f = await fixture(); f.db.sqlite.exec("UPDATE connections SET service='figma' WHERE id='raw-one'"); f.db.sqlite.exec(`UPDATE runtime_tokens SET allowed_actions='["figma.get_file_metadata"]'`);
+    const input = { ...f.input, operationId: "figma.list_comments", arguments: { fileKey: "file123" }, providerConnectionId: `ocg_${await digest(JSON.stringify([ALIAS, "figma", "raw-one", "consent-one"]))}`, authorizationFingerprint: await digest(JSON.stringify([ALIAS, "figma", "consent-one"])) };
+    expect((await f.call(input)).status).toBe(403); expect(f.provider).not.toHaveBeenCalled(); expect(f.stages).not.toContain("dispatch");
+  });
   it.each(["off", "missing-version", "missing-reverse"])("denies %s before provider or credential use", async (mode) => { const f = await fixture(); if (mode === "off") f.env.SHIBA_AUTOMATIC_READ_GATEWAY_ENABLED = "false"; else if (mode === "missing-version") delete (f.env as Partial<typeof f.env>).CF_VERSION_METADATA; else delete (f.env as Partial<typeof f.env>).SHIBA_AUTOMATIC_AUTHORITY; expect((await f.call()).status).toBe(503); expect(f.provider).not.toHaveBeenCalled(); expect(f.db.connectionReads).toBe(0); });
   it.each(["empty-actions", "wildcard-actions", "empty-connections", "wrong-connection", "revoked-token", "admin-token"])("denies unscoped or changed runtime authority: %s", async (mode) => { const f = await fixture(); if (mode === "empty-actions") f.db.sqlite.exec("UPDATE runtime_tokens SET allowed_actions='[]'"); if (mode === "wildcard-actions") f.db.sqlite.exec("UPDATE runtime_tokens SET allowed_actions='[\"*\"]'"); if (mode === "empty-connections") f.db.sqlite.exec("UPDATE runtime_tokens SET allowed_connections='[]'"); if (mode === "wrong-connection") f.db.sqlite.exec("UPDATE runtime_tokens SET allowed_connections='[\"other\"]'"); if (mode === "revoked-token") f.db.sqlite.exec("DELETE FROM runtime_tokens"); expect((await f.call(undefined, mode === "admin-token" ? "Bearer fixture-admin-not-valid" : `Bearer ${TOKEN}`)).status).toBe(403); expect(f.provider).not.toHaveBeenCalled(); });
   it.each(["plaintext", "api-key", "expired", "invalid-expiry", "reauth", "missing-consent", "short-refresh", "saas"])("denies %s without refresh, API-key or default-connection fallback", async (mode) => {

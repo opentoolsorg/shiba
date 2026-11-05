@@ -95,6 +95,8 @@ export function planReadGateway(manual, { parentWorker, adapterImport }) {
   configuration.services = [...(configuration.services ?? []), { binding: "SHIBA_AUTOMATIC_AUTHORITY", service: parentWorker }];
   configuration.observability = { ...configuration.observability, enabled: true, traces: { ...configuration.observability?.traces, enabled: true } };
   return { upstreamRevision: revision, deploys: false, provisions: false, enabled: false,
+    conditionalSecrets: [{ operation: "googleads.campaign_daily_metrics", binding: "SHIBA_AUTOMATIC_SOURCE_FINGERPRINT_KEY", worker: "existing-sibling-only", generated: false,
+      requirement: "Operator-provisioned cryptographically random base64url key, 43–128 characters with at least 16 distinct characters. Rotation invalidates Google Ads grants." }],
     entryPath: "src/server/shiba-read-entry.ts", configPath: "wrangler.shiba-read.jsonc", entry: readGatewayEntry(adapterImport), configuration,
     nextStep: "Review the separate configuration, exact platform version and generated manifest pin. No credential, resource, deployment or feature activation is performed by this helper." };
 }
