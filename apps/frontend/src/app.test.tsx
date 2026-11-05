@@ -452,6 +452,29 @@ describe("app Work and Threads routing", () => {
     }
   });
 
+  it("opens the memory Sources view without a render loop", async () => {
+    window.history.replaceState(null, "", "/memory/");
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const requested = String(url);
+      if (requested === "/api/whoami") return Response.json({ agent: "owner@example.com", auth: "access" });
+      if (requested === "/api/workspaces") return Response.json({ workspaces: [] });
+      if (requested === "/api/memory/projects") return Response.json({ projects: [] });
+      if (requested.startsWith("/api/memory/")) return Response.json({ facts: [], sessions: [], sources: [] });
+      if (requested.startsWith("/api/emails")) return Response.json({ emails: [] });
+      if (requested.startsWith("/api/drafts")) return Response.json({ drafts: [] });
+      if (requested === "/api/mailboxes") return Response.json({ mailboxes: [] });
+      return originalFetch(url, options);
+    }));
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Sources/ }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+    const calls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    expect(calls.filter((url) => url.startsWith("/api/memory/sources")).length).toBeGreaterThan(0);
+    expect(calls.filter((url) => url.startsWith("/api/memory/sources")).length).toBeLessThanOrEqual(4);
+  });
+
   it("starts an agent thread from the Agents panel through the shared creation guard", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/custom-agents/");

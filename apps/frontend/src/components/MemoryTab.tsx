@@ -163,17 +163,20 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
     }
   }, [query]);
 
+  const loadedOnce = useRef(false);
+  useEffect(() => {
+    if (!loadedOnce.current) { loadedOnce.current = true; return; }
+    onCountsChange?.({ facts: facts.length, sessions: sessions.length });
+  }, [facts.length, sessions.length, onCountsChange]);
+
   const forgetFact = useCallback(
     async (factId: string) => {
       setForgetBusy(factId);
       setError(null);
       try {
         await apiJson(`/api/memory/facts/${encodeURIComponent(factId)}`, { method: "DELETE" });
-        setFacts((prev) => {
-          const next = prev.filter((fact) => fact.id !== factId);
-          onCountsChange?.({ facts: next.length, sessions: sessions.length });
-          return next;
-        });
+        // Keep the updater pure; the parent is told about the new count in the effect below.
+        setFacts((prev) => prev.filter((fact) => fact.id !== factId));
         setNotice("Fact forgotten from agent memory.");
         onForgetFact?.(factId);
         if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
@@ -188,7 +191,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
         setConfirmForget(null);
       }
     },
-    [onForgetFact, onCountsChange, sessions.length],
+    [onForgetFact],
   );
 
   const availableAgents = useMemo(() => {

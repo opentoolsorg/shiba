@@ -79,9 +79,13 @@ export function ShortcutsDialog({
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const [singleKey, setSingleKey] = useState(singleKeyShortcutsEnabled);
 
+  // Focus only on open; onClose identity changes must not pull focus back.
+  useEffect(() => {
+    if (open) closeRef.current?.focus();
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
-    closeRef.current?.focus();
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();

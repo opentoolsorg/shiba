@@ -43,3 +43,13 @@ describe("single-key shortcut setting", () => {
     expect(singleKeyShortcutsEnabled()).toBe(false);
   });
 });
+
+describe("ShortcutsDialog focus", () => {
+  it("does not pull focus back to Close when the onClose identity changes", () => {
+    const { rerender } = render(<ShortcutsDialog open onClose={() => {}} />);
+    const toggle = screen.getByRole("checkbox", { name: "Enable single-key shortcuts" });
+    toggle.focus();
+    rerender(<ShortcutsDialog open onClose={() => {}} />);
+    expect(document.activeElement).toBe(toggle);
+  });
+});
