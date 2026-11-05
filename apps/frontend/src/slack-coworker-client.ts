@@ -27,5 +27,11 @@ export class SlackCoworkerClient {
   async confirm(c:z.infer<typeof challenge>,signal:AbortSignal){return z.object({id,slackUserId:id,teamId:id}).strict().parse(await this.request('/confirm',signal,{installationId:c.installationId,challengeId:c.id,slackUserId:c.slackUserId,reviewed:true}));}
   async grant(bindingId:string,channelId:string,threadTs:string,signal:AbortSignal){return z.object({id,channelId:id,threadTs:ts,expiresAt:time}).strict().parse(await this.request('/intake/grant',signal,{bindingId:id.parse(bindingId),channelId:id.parse(channelId),threadTs:ts.parse(threadTs),reviewed:true}));}
   async revoke(path:'/revoke'|'/intake/revoke',value:string,signal:AbortSignal){return z.object({ok:z.literal(true)}).strict().parse(await this.request(path,signal,{id:id.parse(value),reviewed:true}));}
+  async submit(draftId:string,roomId:string,recipientActorId:string,personalExecution:{grantId:string;expectedVersion:number},signal:AbortSignal){
+    const selection=z.object({id:z.string().regex(/^sd_[a-f0-9]{32}$/),roomId:z.string().regex(/^room_[a-f0-9]{24}$/),recipientActorId:z.string().regex(/^agent:[A-Za-z0-9_-]{1,100}$/),personalExecution:z.object({grantId:z.string().regex(/^plex_[a-f0-9]{32}$/),expectedVersion:z.number().int().positive()}).strict(),reviewed:z.literal(true)}).strict().parse({id:draftId,roomId,recipientActorId,personalExecution,reviewed:true});
+    const receipt=z.object({handoffId:z.string().regex(/^scx_[a-f0-9]{32}$/),state:z.enum(['queued','blocked','unknown']),approvalRequired:z.literal(true)}).strict().parse(await this.request('/drafts/submit',signal,selection));
+    if(receipt.handoffId!==`scx_${draftId.slice(3)}`)throw new Error('Receipt mismatch');
+    return receipt;
+  }
   async adopt(value:CoworkerDraft,signal:AbortSignal){const result=draft.parse(await this.request('/drafts/adopt',signal,{id:value.id,reviewed:true}));if(JSON.stringify(result)!==JSON.stringify(value))throw new Error('Draft changed');return result;}
 }
