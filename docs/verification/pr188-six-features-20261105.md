@@ -1,11 +1,11 @@
 # PR 188: six-feature acceptance checkpoint
 
 **Not all requested features are complete.** This report describes a bounded
-hardening increment, not a deployed release. The baseline head rechecked on
-November 5 is `d424d0385ae632fda3f802356f845301bf1774b9`, branch
-`feat/prince-multi-agent-control-plane`. This increment needs its own exact-head
-CI and Desktop acceptance; baseline success does not establish that acceptance.
-Older completion reports describe their own narrower checkpoints.
+hardening increment, not a deployed release. Current application-code head
+rechecked on November 5 is `22f790cf3bf27395b6aa27c373485187e9f93199` on
+`feat/prince-multi-agent-control-plane`. Its CI passed; Desktop failed during
+native-onboarding fixture Worker startup. `d424d03` is historical baseline
+validation, not the latest head. Older reports describe narrower checkpoints.
 
 ## Feature status and evidence
 
@@ -46,8 +46,11 @@ Parent-run focused checks on this working increment:
   nonblocking open plus `fstat` directory validation instead. All **25 live-diff
   tests passed** in both agent and parent runs, including symlinks, regular-file
   and FIFO substitutions and existing anchored-read race checks. A fresh full
-  workspace rerun is in progress. Native Electron/macOS and deployed acceptance
-  remain unverified for this increment; desktop unit tests passed in the first run.
+  workspace rerun finished with 5,802 backend tests passed, three live skips and
+  one failed native cancellation deadline fixture (its test-start marker was not
+  observed). All six unchanged cancellation cases then passed in isolation.
+  This local full run is not green; it began before the funding merge and is not
+  an exact-head certificate. No assertion or timeout was weakened.
 - `build:validate` is a GitHub workflow label, **not a package script**. Running
   `pnpm build:validate` reports command not found; the actual package/CI gates
   must be used instead.
@@ -65,11 +68,38 @@ integration, desktop execution or live-service end-to-end proof**.
 - [Funding preparation](pr188-boundaries-20261105-funding-prepared-390-dark.png)
 - [Report definitions](pr188-boundaries-20261105-reports-ready-390-dark.png)
 
-Published-head checks only (not proof of these working changes):
+Exact application-head validation (`22f790cf`):
 
-- [CI](https://github.com/opentoolsorg/shiba/actions/runs/42058909884): success.
-- [Desktop](https://github.com/opentoolsorg/shiba/actions/runs/42058910174): success.
-- Preview deploy/destroy jobs: skipped. The live preview remains paused.
+- [CI](https://github.com/opentoolsorg/shiba/actions/runs/42090354921): **success**.
+  All nine workspace test packages passed: **7,423 tests**, three opt-in live
+  skips. Types/SDK synchronization, lint/import/Knip, build/docs and fixture
+  browser acceptance passed. These are not live provider or billing proofs.
+- [Desktop](https://github.com/opentoolsorg/shiba/actions/runs/42090354887):
+  **failure**. The native-onboarding fixture Worker did not become ready within
+  its unchanged 45-second budget (51 probes, last request timed out). Eight
+  other Electron cases and both image jobs passed; unsigned packaging and the
+  full native acceptance are not certified by this failed run.
+- Preview deploy/update/destroy and desktop release jobs: skipped. Preview
+  remains paused; no production deployment or merge occurred.
+- Local merged-tree types/SDK sync, lint, build and five built-site tests passed.
+  Secret scanning passed; `env:load` failed because `CLOUDFLARE_ACCOUNT_ID` is
+  empty. Deployment environment validation remains unverified.
+- Supplied [artifact retry review](https://github.com/opentoolsorg/shiba/pull/188#discussion_r4466157714)
+  was revalidated against `app.tsx`: generated workspace IDs are excluded from
+  the intent key and the original target/command are retained on failure.
+  **26 frontend tests across two files passed**. No source change is needed for
+  the reported same-composer retry bug. Reload/remount durability is not proven.
+
+### Code and test entry points
+
+| Area | Source | Focused tests |
+| --- | --- | --- |
+| Slack | [submission routes](../../apps/backend/src/slack-coworker-routes.ts), [source fences](../../apps/backend/src/collaboration-context.ts) | [identity/receipts](../../apps/backend/test/slack-coworker.test.ts), [revocation](../../apps/backend/test/slack-coworker-collaboration-fence.test.ts) |
+| Shared computer | [online boundary](../shared-computer-online-boundary.md) | [access/leases](../../apps/backend/test/shared-computers.test.ts), [security](../../apps/backend/test/shared-computer.security-v3.test.ts) |
+| Funding | [store](../../apps/backend/src/team-model-store.ts), [text adapters](../../apps/backend/src/team-model-adapters.ts) | [caps/approvals](../../apps/backend/test/team-model-sessions.test.ts), [adapters](../../apps/backend/test/team-model-adapters.test.ts) |
+| Recovery | [retained archive](../../apps/backend/src/run-output-archive-store.ts) | [integrity/recovery](../../apps/backend/test/run-output-archives.test.ts) |
+| Claude/artifacts | [fail-closed login](../../apps/backend/src/harness/claude-login.ts), [daemon](../../scripts/shiba-local-daemon.mjs) | [input contract](../../apps/backend/test/opencode-input.test.ts), [daemon deliverables](../../apps/backend/test/local-daemon-deliverables.test.ts) |
+| Reports | [rolling windows](../../apps/backend/src/founder-reconciliation-rolling.ts) | [metric/window rules](../../apps/backend/test/founder-reconciliation-rolling.test.ts) |
 
 ## Security and review state
 
