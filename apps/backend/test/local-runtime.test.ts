@@ -785,6 +785,20 @@ describe("LocalRuntimeAdapter", () => {
     expect(result.files).toEqual([]);
   });
 
+  it("rejects duplicate daemon change paths instead of accepting a missing manifest entry", async () => {
+    const expectedDeliverables = ["brief.md", "notes.md"];
+    const { client } = makeClient({ status: async () => ({ status: "settled", result: {
+      ...RESULT, baseRevision: undefined, changedFiles: ["brief.md", "brief.md"], diff: "",
+      files: expectedDeliverables.map((path) => ({ path, content: "Complete text", encoding: "utf8" })),
+    } }) as never });
+    const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, repoUrl: "", expectedDeliverables,
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables } } as never, NOOP_EMIT, {});
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("unapproved files");
+    expect(result.files).toEqual([]);
+  });
+
   it.each([
     { expectedDeliverables: [] },
     { expectedDeliverables: ["other.md"] },
