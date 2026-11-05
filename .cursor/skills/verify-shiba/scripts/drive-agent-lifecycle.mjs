@@ -257,7 +257,8 @@ try {
   });
   const reviewReadPromise = panelResponse("review");
   await page.goto(new URL("/app/", base).href);
-  await page.getByRole("option").filter({ hasText: name }).first().click();
+  await openAppView(page, "Chats");
+  await page.getByRole("complementary", { name: "Chats", exact: true }).getByRole("region", { name: "Recents", exact: true }).getByRole("button").filter({ hasText: name }).first().click();
   await page.getByTestId("run-agent-version").filter({ hasText: "Bot profile v2" }).first().waitFor();
   const reviewRead = await reviewReadPromise;
   assert.equal(new URL(reviewRead.url()).searchParams.get("session"), sessionId);

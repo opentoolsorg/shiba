@@ -28,9 +28,9 @@ export async function openAppView(page, view) {
   }
   await rail.getByRole("button", { name: "More", exact: true }).click();
   await page.getByRole("menu", { name: "Additional views", exact: true })
-    .getByRole("menuitem", { name: view === "Integrations" ? "Extensions" : "Insights", exact: true }).click();
+    .getByRole("menuitem", { name: view === "Integrations" ? "Extensions" : /^Insights(?:\s+\d+)?$/, exact: true }).click();
   if (view !== "Integrations") {
     await page.getByRole("complementary", { name: "Insights", exact: true })
-      .getByRole("button", { name: view, exact: true }).click();
+      .getByRole("button", { name: view === "Approvals" ? /^Approvals(?:\s+\d+(?: pending approvals)?)?$/ : view, exact: true }).click();
   }
 }
