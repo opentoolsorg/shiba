@@ -11,6 +11,7 @@ const id = z.string().min(1).max(200);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const time = z.number().int().positive();
 export const AUTOMATIC_SLACK_RENDER_POLICY = "complete-qualified-markdown.v1" as const;
+export const AUTOMATIC_SLACK_COMPACT_RENDER_POLICY = "complete-qualified-compact-json.v2" as const;
 export const AUTOMATIC_SLACK_MAX_TTL_MS = 28 * 86_400_000;
 export const AUTOMATIC_SLACK_FUTURE_CONSENT =
   "share-future-completed-reports-from-this-exact-read-grant" as const;
@@ -50,7 +51,7 @@ export const automaticSlackGrantSchema = z.strictObject({
   ownerId: z.string().max(320),
   ownerAccountId: id,
   destination: reportSlackDestinationSchema,
-  renderPolicy: z.literal(AUTOMATIC_SLACK_RENDER_POLICY),
+  renderPolicy: z.enum([AUTOMATIC_SLACK_RENDER_POLICY, AUTOMATIC_SLACK_COMPACT_RENDER_POLICY]),
   maxBytes: z.literal(REPORT_SLACK_MAX_BYTES),
   disclosureScope: z.literal(REPORT_SLACK_DISCLOSURE_SCOPE),
   futureAudienceScope: z.literal(AUTOMATIC_SLACK_AUDIENCE_CONSENT),

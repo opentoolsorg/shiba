@@ -10,7 +10,7 @@ import {
   resolveSubagentSandboxId,
   type SubagentSandboxMode,
 } from "@shiba/shared";
-import { runInputHash, type ApprovalEvidence, type PendingApproval } from "@shiba/shared";
+import { runInputHash, type ApprovalEvidence } from "@shiba/shared";
 import { makeSandboxId } from "../security.js";
 import { createRun, type DecisionTap, type DelegatedRun } from "../runs.js";
 
@@ -35,8 +35,6 @@ export function mintSubagentRun(args: {
   denId?: string;
   /** @deprecated Use denId */
   captainId?: string;
-  budgetApproval?: Pick<PendingApproval, "approvalId" | "decidedBy" | "decidedAt" | "subagentBudget">;
-  parentBudgetRemaining?: number;
   /** Human approval of this exact frozen child task. Aggregate budget is not approval. */
   childApproval?: ApprovalEvidence;
   decisionTap?: DecisionTap;

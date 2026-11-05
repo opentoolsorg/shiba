@@ -23,6 +23,8 @@ describe("unreleased team-model migration collaboration prerequisites", () => {
       const original = legacy.sqlite.prepare("SELECT * FROM team_model_funding").get();
       const moneyMigration = readFileSync(new URL("../migrations/0017_team_model_money.sql", import.meta.url), "utf8");
       legacy.sqlite.exec(moneyMigration); legacy.sqlite.exec(moneyMigration);
+      const budgetMigration = readFileSync(new URL("../migrations/0025_team_model_budget_v3.sql", import.meta.url), "utf8");
+      legacy.sqlite.exec(budgetMigration); legacy.sqlite.exec(budgetMigration);
       await ensureTeamModelSchema({ AGENT_AUDIT: runtime.database } as Env);
       expect(legacy.sqlite.prepare("SELECT * FROM team_model_funding").get()).toEqual(original);
       expect(legacy.sqlite.prepare("PRAGMA table_info(team_model_money_ledger)").all()).toEqual(runtime.sqlite.prepare("PRAGMA table_info(team_model_money_ledger)").all());
