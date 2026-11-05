@@ -13,7 +13,6 @@ import { AUDIT_RETENTION_MS, pruneAuditLog } from "./audit.js";
 import { Automations } from "./automations-do.js";
 import { automationsStub, seenDelivery } from "./automations-stub.js";
 import { ensureLiveCodingModel } from "./coding-model.js";
-import { handleInboundEmail } from "./email-handler.js";
 import type { Env } from "./env.js";
 import { Mailbox } from "./mailbox-do.js";
 import { MCP_PRINCIPAL_HEADER } from "./mcp-gateway.js";
@@ -25,12 +24,7 @@ import { handleActivity } from "./activity-routes.js";
 import { handleApprovals } from "./approvals-routes.js";
 import { handleWorkspaceIntegrations } from "./workspace-integrations-routes.js";
 import { handlePersonalExecution } from "./personal-execution-routes.js";
-import { handleTeamModelSessions } from "./team-model-routes.js";
-import { tickFounderReviewSchedules } from "./founder-review-schedules.js";
-import { tickFounderConnectorJobs } from "./founder-connector-jobs.js";
 import { handleOnboardingProgress } from "./onboarding-progress.js";
-import { handleTeamOnboardingTask } from "./team-onboarding-task.js";
-import { handleCollaborationWithRealtime } from "./collaboration-room-routes.js";
 import { handleTeamWorkspaces } from "./team-workspaces-routes.js";
 import { handleTeamWork } from "./team-work-routes.js";
 import { handleEmployeeBundles } from "./employee-bundles-routes.js";
@@ -63,41 +57,17 @@ import { handleSkillLibrary } from "./skill-library-routes.js";
 import { handleSkills } from "./skills-routes.js";
 import { handleSpaces } from "./spaces-routes.js";
 import { Spaces } from "./spaces-do.js";
-import { handleFounderSkills } from "./founder-skills-routes.js";
-import { handleFounderConnectorJobs } from "./founder-connector-routes.js";
-import { handleFounderEvidenceReports } from "./founder-evidence-routes.js";
-import { handleFounderAutomaticReads } from "./founder-auto-read-routes.js";
-import { tickFounderAutomaticReads } from "./founder-auto-read-runtime.js";
-import { handleFounderAutomaticReadPermit } from "./founder-auto-read-permits.js";
-import { handleFounderAutomaticSlack } from "./founder-automatic-slack-routes.js";
-import { handleFounderStripeReads } from "./founder-stripe-routes.js";
-import { tickFounderStripeReads } from "./founder-stripe-runtime.js";
-import { handleFounderMetaReads } from "./founder-meta-routes.js";
-import { tickFounderMetaReads } from "./founder-meta-runtime.js";
-import { handleFounderHubSpotReads } from "./founder-hubspot-routes.js";
-import { tickFounderHubSpotReads } from "./founder-hubspot-runtime.js";
-import { handleFounderReconciliations } from "./founder-reconciliation-routes.js";
-import { handleFounderReconciliationSchedules } from "./founder-reconciliation-schedule-routes.js";
-import { tickFounderReconciliationSchedules } from "./founder-reconciliation-schedule-runtime.js";
-import { handleFounderReconciliationSlack } from "./founder-reconciliation-slack-routes.js";
-import { tickFounderReconciliationSlack } from "./founder-reconciliation-slack-tick.js";
-import { handleFounderStripeAutomaticSlack } from "./founder-automatic-slack-stripe-routes.js";
-import { tickFounderStripeAutomaticSlack } from "./founder-automatic-slack-stripe-tick.js";
-import { tickFounderAutomaticSlack } from "./founder-automatic-slack-tick.js";
 import { handleRunOutputArchives } from "./run-output-archive-routes.js";
 import { handleSlackInstallations } from "./slack-installations-routes.js";
-import { handleSlackCoworker } from "./slack-coworker-routes.js";
 import { handleMultiInstallationSlackCallback } from "./slack-installations-routing.js";
 import { handleSharedComputers } from "./shared-computer-routes.js";
 import { ComputerSession } from "./computer-session.js";
-import { handleReportSlack } from "./report-slack-routes.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
 import { handleOrgModelKeys } from "./org-model-keys-routes.js";
 import { handleMeta } from "./meta-routes.js";
 import { handleRuns } from "./runs-routes.js";
 import { handleSwarm } from "./swarm-routes.js";
 import { handleDenRoutes } from "./den-routes.js";
-import { handleV1 } from "./v1-routes.js";
 import { handleUsage } from "./usage-routes.js";
 import { handleScreenshot } from "./screenshots-routes.js";
 import { handleE2eEvidence } from "./e2e-evidence-routes.js";
@@ -129,6 +99,10 @@ import {
   DEFAULT_SESSION_ID,
   WEB_SESSION_PREFIX,
 } from "./web-sessions.js";
+// Rarely-hit route and cron handlers (founder-*, report/slack coworker, v1,
+// collaboration, team-model, first-run seed, inbound email) are loaded with
+// `await import()` at their call sites: evaluating them at Worker startup
+// pushed deploys past the startup CPU limit.
 
 export {
   ExplorerAgent,
@@ -201,29 +175,29 @@ export const DASHBOARD_VIEWS = new Set([
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
-      try { await tickFounderStripeReads(env); }
+      try { await (await import("./founder-stripe-runtime.js")).tickFounderStripeReads(env); }
       catch (error) { console.error("Founder Stripe read scheduling failed", redactSecrets(String(error))); }
-      try { await tickFounderMetaReads(env); }
+      try { await (await import("./founder-meta-runtime.js")).tickFounderMetaReads(env); }
       catch (error) { console.error("Founder Meta read scheduling failed", redactSecrets(String(error))); }
-      try { await tickFounderHubSpotReads(env); }
+      try { await (await import("./founder-hubspot-runtime.js")).tickFounderHubSpotReads(env); }
       catch (error) { console.error("Founder HubSpot read scheduling failed", redactSecrets(String(error))); }
-      try { await tickFounderReconciliationSchedules(env); }
+      try { await (await import("./founder-reconciliation-schedule-runtime.js")).tickFounderReconciliationSchedules(env); }
       catch (error) { console.error("Founder standing comparison scheduling failed", redactSecrets(String(error))); }
-      try { await tickFounderAutomaticReads(env); }
+      try { await (await import("./founder-auto-read-runtime.js")).tickFounderAutomaticReads(env); }
       catch (error) { console.error("Founder automatic read scheduling failed", redactSecrets(String(error))); }
-      try { await tickFounderAutomaticSlack(env); }
+      try { await (await import("./founder-automatic-slack-tick.js")).tickFounderAutomaticSlack(env); }
       catch (error) { console.error("Founder automatic Slack scheduling failed", redactSecrets(String(error))); }
-      try { await tickFounderStripeAutomaticSlack(env); }
+      try { await (await import("./founder-automatic-slack-stripe-tick.js")).tickFounderStripeAutomaticSlack(env); }
       catch (error) { console.error("Founder Stripe Slack scheduling failed", redactSecrets(String(error))); }
-      try { await tickFounderReconciliationSlack(env); }
+      try { await (await import("./founder-reconciliation-slack-tick.js")).tickFounderReconciliationSlack(env); }
       catch (error) { console.error("Founder combined-report Slack scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./slack-coworker-private-status.js")).tickSlackCoworkerPrivateStatus(env); }
       catch (error) { console.error("Private Slack status scheduling failed", redactSecrets(String(error))); }
     })());
-    ctx.waitUntil(tickFounderReviewSchedules(env).catch((error: unknown) => {
+    ctx.waitUntil(import("./founder-review-schedules.js").then((m) => m.tickFounderReviewSchedules(env)).catch((error: unknown) => {
       console.error("Founder review scheduling failed", redactSecrets(String(error)));
     }));
-    ctx.waitUntil(tickFounderConnectorJobs(env).catch((error: unknown) => {
+    ctx.waitUntil(import("./founder-connector-jobs.js").then((m) => m.tickFounderConnectorJobs(env)).catch((error: unknown) => {
       console.error("Founder connector scheduling failed", redactSecrets(String(error)));
     }));
     ctx.waitUntil(
@@ -278,14 +252,14 @@ export default {
   },
   // Email Routing delivery — registered-mailbox gate + store, see email-handler.ts.
   async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
-    await handleInboundEmail(message, env, ctx);
+    await (await import("./email-handler.js")).handleInboundEmail(message, env, ctx);
   },
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     try {
       // A one-purpose Worker capability, verified before any identity or D1 lookup.
       // No dashboard, model or Durable Object execution authority is inherited.
       if (new URL(request.url).pathname === "/internal/founder-automatic-read/permit") {
-        const permit = await handleFounderAutomaticReadPermit(request, env);
+        const permit = await (await import("./founder-auto-read-permits.js")).handleFounderAutomaticReadPermit(request, env);
         if (permit) return permit;
       }
       if (!claudeSubscriptionDeprecationWarned && env.SHIBA_CLAUDE_SUBSCRIPTION === "1") {
@@ -322,9 +296,6 @@ export default {
       }
       if (request.method === "GET" || request.method === "HEAD") {
         const section = url.pathname.split("/")[1] ?? "";
-        if (section === "open-source-devin-alternative") {
-          return Response.redirect(`https://tryshiba.dev/why-shiba/${url.search}`, 301);
-        }
         if (MARKETING_SECTIONS.has(section)) {
           return Response.redirect(`https://tryshiba.dev${url.pathname}${url.search}`, 301);
         }
@@ -366,7 +337,7 @@ export default {
       if (outputArchiveResponse) return outputArchiveResponse;
       const slackInstallationResponse = await handleSlackInstallations(request, env);
       if (slackInstallationResponse) return slackInstallationResponse;
-      const slackCoworkerResponse = await handleSlackCoworker(request, env);
+      const slackCoworkerResponse = await (await import("./slack-coworker-routes.js")).handleSlackCoworker(request, env);
       if (slackCoworkerResponse) return slackCoworkerResponse;
       const sharedComputerResponse = await handleSharedComputers(request, env);
       if (sharedComputerResponse) return sharedComputerResponse;
@@ -374,12 +345,14 @@ export default {
       if (workspaceIntegrationResponse) return workspaceIntegrationResponse;
       const personalExecutionResponse = await handlePersonalExecution(request, env);
       if (personalExecutionResponse) return personalExecutionResponse;
-      const teamModelResponse = await handleTeamModelSessions(request, env);
+      const teamModelResponse = await (await import("./team-model-routes.js")).handleTeamModelSessions(request, env);
       if (teamModelResponse) return teamModelResponse;
       const workResponse = await handleTeamWork(request, env);
       if (workResponse) return workResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);
       if (workspaceResponse) return workspaceResponse;
+      const seedResponse = await (await import("./first-run-seed.js")).handleFirstRunSeed(request, env);
+      if (seedResponse) return seedResponse;
       const bundleResponse = await handleEmployeeBundles(request, env);
       if (bundleResponse) return bundleResponse;
       const gmailResponse = await handleGmail(request, env);
@@ -393,7 +366,7 @@ export default {
       }
       const metaResponse = await handleMeta(request, env);
       if (metaResponse) return metaResponse;
-      const teamOnboardingTask = await handleTeamOnboardingTask(request, env);
+      const teamOnboardingTask = await (await import("./team-onboarding-task.js")).handleTeamOnboardingTask(request, env);
       if (teamOnboardingTask) return teamOnboardingTask;
       const onboardingResponse = await handleOnboardingProgress(request, env);
       if (onboardingResponse) return onboardingResponse;
@@ -415,31 +388,31 @@ export default {
       if (skillsResponse) return skillsResponse;
       const spacesResponse = await handleSpaces(request, env);
       if (spacesResponse) return spacesResponse;
-      const founderConnectorResponse = await handleFounderConnectorJobs(request, env);
+      const founderConnectorResponse = await (await import("./founder-connector-routes.js")).handleFounderConnectorJobs(request, env);
       if (founderConnectorResponse) return founderConnectorResponse;
-      const reportSlackResponse = await handleReportSlack(request, env);
+      const reportSlackResponse = await (await import("./report-slack-routes.js")).handleReportSlack(request, env);
       if (reportSlackResponse) return reportSlackResponse;
-      const founderAutomaticResponse = await handleFounderAutomaticReads(request, env);
+      const founderAutomaticResponse = await (await import("./founder-auto-read-routes.js")).handleFounderAutomaticReads(request, env);
       if (founderAutomaticResponse) return founderAutomaticResponse;
-      const founderStripeResponse = await handleFounderStripeReads(request, env);
+      const founderStripeResponse = await (await import("./founder-stripe-routes.js")).handleFounderStripeReads(request, env);
       if (founderStripeResponse) return founderStripeResponse;
-      const founderMetaResponse = await handleFounderMetaReads(request, env);
+      const founderMetaResponse = await (await import("./founder-meta-routes.js")).handleFounderMetaReads(request, env);
       if (founderMetaResponse) return founderMetaResponse;
-      const founderHubSpotResponse = await handleFounderHubSpotReads(request, env);
+      const founderHubSpotResponse = await (await import("./founder-hubspot-routes.js")).handleFounderHubSpotReads(request, env);
       if (founderHubSpotResponse) return founderHubSpotResponse;
-      const reconciliationResponse = await handleFounderReconciliations(request, env);
+      const reconciliationResponse = await (await import("./founder-reconciliation-routes.js")).handleFounderReconciliations(request, env);
       if (reconciliationResponse) return reconciliationResponse;
-      const standingComparisonResponse = await handleFounderReconciliationSchedules(request, env);
+      const standingComparisonResponse = await (await import("./founder-reconciliation-schedule-routes.js")).handleFounderReconciliationSchedules(request, env);
       if (standingComparisonResponse) return standingComparisonResponse;
-      const reconciliationSlackResponse = await handleFounderReconciliationSlack(request, env);
+      const reconciliationSlackResponse = await (await import("./founder-reconciliation-slack-routes.js")).handleFounderReconciliationSlack(request, env);
       if (reconciliationSlackResponse) return reconciliationSlackResponse;
-      const stripeSlackResponse = await handleFounderStripeAutomaticSlack(request, env);
+      const stripeSlackResponse = await (await import("./founder-automatic-slack-stripe-routes.js")).handleFounderStripeAutomaticSlack(request, env);
       if (stripeSlackResponse) return stripeSlackResponse;
-      const founderAutomaticSlackResponse = await handleFounderAutomaticSlack(request, env);
+      const founderAutomaticSlackResponse = await (await import("./founder-automatic-slack-routes.js")).handleFounderAutomaticSlack(request, env);
       if (founderAutomaticSlackResponse) return founderAutomaticSlackResponse;
-      const founderEvidenceResponse = await handleFounderEvidenceReports(request, env);
+      const founderEvidenceResponse = await (await import("./founder-evidence-routes.js")).handleFounderEvidenceReports(request, env);
       if (founderEvidenceResponse) return founderEvidenceResponse;
-      const founderSkillsResponse = await handleFounderSkills(request, env);
+      const founderSkillsResponse = await (await import("./founder-skills-routes.js")).handleFounderSkills(request, env);
       if (founderSkillsResponse) return founderSkillsResponse;
       const orgSandboxResponse = await handleOrgSandboxSettings(request, env);
       if (orgSandboxResponse) return orgSandboxResponse;
@@ -473,7 +446,7 @@ export default {
       if (approvalsResponse) {
         return approvalsResponse;
       }
-      const collaborationResponse = await handleCollaborationWithRealtime(request, env);
+      const collaborationResponse = await (await import("./collaboration-room-routes.js")).handleCollaborationWithRealtime(request, env);
       if (collaborationResponse) return collaborationResponse;
       const computersResponse = await handleComputers(request, env);
       if (computersResponse) {
@@ -498,7 +471,7 @@ export default {
       if (swarmResponse) {
         return swarmResponse;
       }
-      const v1Response = await handleV1(request, env);
+      const v1Response = await (await import("./v1-routes.js")).handleV1(request, env);
       if (v1Response) return v1Response;
       const usageResponse = await handleUsage(request, env);
       if (usageResponse) {

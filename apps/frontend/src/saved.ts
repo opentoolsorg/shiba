@@ -15,6 +15,7 @@ export interface SavedSkill {
   status: SavedSkillStatus;
   owned: boolean;
   name: string;
+  description?: string;
   /** Optional source metadata; the backend never downloads or executes it. */
   sourceUrl?: string;
   instructions: string;

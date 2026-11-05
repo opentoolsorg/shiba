@@ -1,12 +1,14 @@
 import type { AcpProviderCard, AcpProvidersSnapshot } from "@shiba/shared";
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { desktopCanSignInClaude, desktopCodexAuthorizationUrl } from "../desktop-provider";
 import { describeProviderRoute } from "../supported-task-routes";
 import { LoadErrorState } from "./LoadErrorState";
 import { ConnectionsCard } from "./ModelRoutingSection";
 import { providerPhaseLabel } from "./provider-phase";
-import { EmptyState, PageHeader, StatusNotice } from "./surface";
+import { EmptyState, StatusNotice } from "./surface";
 import { ToneChip } from "./ToneChip";
+import { MainCard, type Scope } from "./ui/ContextPanel";
 
 type CardAction =
   | "oauth"
@@ -723,6 +725,7 @@ export function ProvidersBoard({
   onTest,
   onDisconnect,
   onDefault,
+  scope = "personal",
 }: {
   snapshot: AcpProvidersSnapshot | null;
   loading: boolean;
@@ -738,6 +741,7 @@ export function ProvidersBoard({
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
+  scope?: Scope;
 }): JSX.Element {
   const ready =
     snapshot?.providers.filter((provider) => provider.connection.phase === "connected").length ?? 0;
@@ -747,27 +751,50 @@ export function ProvidersBoard({
       snapshot.defaultProviderId)
     : null;
 
+  const scopeCrumb = scope === "workspace" ? "Workspace" : "Personal";
+  const crumbs = [scopeCrumb, "Extensions", "Providers"];
+
   return (
-    <div
+    <MainCard
       data-testid="providers-page"
-      className="flex h-full flex-1 flex-col overflow-hidden bg-[var(--bg)] text-[var(--fg)]"
+      className="bg-white dark:bg-zinc-900"
     >
-      <PageHeader
-        title="Providers"
-        detail="Choose a supported API credential, ChatGPT connection, or paired local CLI. Account, billing and work type depend on the selected task route. Saved configuration checks do not run a model or verify quota."
-      >
-        {defaultLabel ? (
-          <span
-            data-testid="providers-org-default"
-            className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]"
-          >
-            Org default · {defaultLabel}
+      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
+          <ol className="flex items-center gap-1.5 min-w-0">
+            {crumbs.map((crumb, idx) => {
+              const isLast = idx === crumbs.length - 1;
+              return (
+                <li key={`${crumb}-${idx}`} className="flex items-center gap-1.5 min-w-0">
+                  {idx > 0 ? (
+                    <ChevronRight className="size-3.5 text-[#71717a] shrink-0 dark:text-zinc-500" strokeWidth={1.5} aria-hidden="true" />
+                  ) : null}
+                  <span
+                    className={isLast ? "truncate text-[14px] font-medium text-[#0a0a0a] dark:text-zinc-100" : "truncate text-[14px] text-[#71717a] dark:text-zinc-400"}
+                    aria-current={isLast ? "page" : undefined}
+                  >
+                    {crumb}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {defaultLabel ? (
+            <span
+              data-testid="providers-org-default"
+              className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#71717a] dark:text-zinc-400"
+            >
+              Org default · {defaultLabel}
+            </span>
+          ) : null}
+          <span className="border border-[#e4e4e7] bg-[#fafafa] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[#71717a] dark:border-zinc-800 dark:bg-zinc-800/50 dark:text-zinc-400">
+            {snapshot ? `${ready} of ${total} connected` : "—"}
           </span>
-        ) : null}
-        <span className="border border-[var(--border-1)] bg-[var(--card)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-          {snapshot ? `${ready} of ${total} connected` : "—"}
-        </span>
-      </PageHeader>
+        </div>
+      </header>
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="mx-auto flex max-w-6xl flex-col gap-8">
@@ -813,11 +840,15 @@ export function ProvidersBoard({
           </section>
         </div>
       </div>
-    </div>
+    </MainCard>
   );
 }
 
-export function ProvidersView(): JSX.Element {
+export interface ProvidersViewProps {
+  scope?: Scope;
+}
+
+export function ProvidersView({ scope = "personal" }: ProvidersViewProps = {}): JSX.Element {
   const [snapshot, setSnapshot] = useState<AcpProvidersSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -908,6 +939,7 @@ export function ProvidersView(): JSX.Element {
       onDefault={(id) =>
         void run(id, "default", () => postProvider(`/api/providers/${id}/default`, {}))
       }
+      scope={scope}
     />
   );
 }

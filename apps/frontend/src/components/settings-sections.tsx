@@ -1,5 +1,5 @@
 /**
- * Settings section bodies mounted by SettingsModal (the popup).
+ * Settings section bodies mounted by SettingsPage.
  * Sections mount only the live data they need from /api/setup/status,
  * /api/agents, and /api/whoami, /api/auth/*) rather than duplicating
  * internals; sections with no real data source are omitted, not stubbed.

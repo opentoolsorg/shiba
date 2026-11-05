@@ -109,6 +109,7 @@ export interface SandboxInstance {
 
   gitCheckout(repoUrl: string, opts: { branch: string; targetDir: string }): Promise<void>;
   writeFile(path: string, content: string): Promise<void>;
+  writeFileStream?(path: string, body: ReadableStream<Uint8Array>): Promise<void>;
   readFile(path: string, opts?: { maxBytes?: number; signal?: AbortSignal }): Promise<ReadFileResult>;
   readFileStream?(path: string): Promise<ReadableStream<Uint8Array>>;
 

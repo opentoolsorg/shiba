@@ -194,7 +194,8 @@ export class Sandbox extends DurableObject<Env> {
     }
   }
 
-  async writeFile(path: string, content: string): Promise<void> {
+  // T69: a stream is an R2 body going straight into the container, no base64 round-trip.
+  async writeFile(path: string, content: string | ReadableStream<Uint8Array>): Promise<void> {
     await this.#ensureRunning();
     const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "/";
     await this.#files.mkdir(dir, { recursive: true }).catch(() => undefined);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type JSX } from "react";
-import { ExternalLink, Plus } from "lucide-react";
+import { ChevronRight, ExternalLink, Plus } from "lucide-react";
 import { LoadErrorState } from "./LoadErrorState";
+import { MainCard, type Scope } from "./ui/ContextPanel";
 
 interface SpaceSummary {
   id: string;
@@ -30,7 +31,11 @@ function spaceIdFromPath(): string | null {
   }
 }
 
-export function SpacesView(): JSX.Element {
+export interface SpacesViewProps {
+  scope?: Scope;
+}
+
+export function SpacesView({ scope = "personal" }: SpacesViewProps = {}): JSX.Element {
   const [spaces, setSpaces] = useState<SpaceSummary[]>([]);
   const [templates, setTemplates] = useState<SpaceTemplate[]>([]);
   const [name, setName] = useState("");
@@ -122,85 +127,156 @@ export function SpacesView(): JSX.Element {
     }
   };
 
+  const scopeCrumb = scope === "workspace" ? "Workspace" : "Personal";
+  const crumbs = detailId && detail?.id === detailId
+    ? [scopeCrumb, "Extensions", "Apps", detail.name]
+    : [scopeCrumb, "Extensions", "Apps"];
+
   if (detailId && detail?.id === detailId) {
     return (
-      <div className="flex-1 min-w-0 min-h-0 overflow-y-auto bg-[var(--bg)] text-[var(--fg)]">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-4">
-          <button type="button" onClick={() => { window.history.pushState(window.history.state, "", "/spaces/"); setDetailId(null); }} className="text-xs text-[var(--primary)] self-start">
-            ← All spaces
-          </button>
-          <h2 className="text-lg font-semibold">{detail.name}</h2>
-          <p className="text-xs text-[var(--muted-foreground-2)]">Template: {detail.template}</p>
-          <ul className="flex flex-col gap-2">
-            {detail.items.length === 0 ? (
-              <li className="text-xs text-[var(--muted-foreground-2)]">No items yet.</li>
-            ) : detail.items.map((item) => (
-              <li key={`${item.kind}:${item.ref}`} className="rounded border border-[var(--border-1)] px-3 py-2 text-xs font-mono">
-                {item.kind} · {item.ref}
-              </li>
-            ))}
-          </ul>
+      <MainCard className="bg-white dark:bg-zinc-900">
+        <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+          <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
+            <ol className="flex items-center gap-1.5 min-w-0">
+              {crumbs.map((crumb, idx) => {
+                const isLast = idx === crumbs.length - 1;
+                return (
+                  <li key={`${crumb}-${idx}`} className="flex items-center gap-1.5 min-w-0">
+                    {idx > 0 ? (
+                      <ChevronRight className="size-3.5 text-[#71717a] shrink-0 dark:text-zinc-500" strokeWidth={1.5} aria-hidden="true" />
+                    ) : null}
+                    <span
+                      className={isLast ? "truncate text-[14px] font-medium text-[#0a0a0a] dark:text-zinc-100" : "truncate text-[14px] text-[#71717a] dark:text-zinc-400"}
+                      aria-current={isLast ? "page" : undefined}
+                    >
+                      {crumb}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+        </header>
+
+        <div className="flex-1 min-w-0 min-h-0 overflow-y-auto bg-[var(--bg)] text-[var(--fg)]">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-4">
+            <button type="button" onClick={() => { window.history.pushState(window.history.state, "", "/spaces/"); setDetailId(null); }} className="text-xs text-[var(--primary)] self-start">
+              ← All spaces
+            </button>
+            <h2 className="text-lg font-semibold">{detail.name}</h2>
+            <p className="text-xs text-[var(--muted-foreground-2)]">Template: {detail.template}</p>
+            <ul className="flex flex-col gap-2">
+              {detail.items.length === 0 ? (
+                <li className="text-xs text-[var(--muted-foreground-2)]">No items yet.</li>
+              ) : detail.items.map((item) => (
+                <li key={`${item.kind}:${item.ref}`} className="rounded border border-[var(--border-1)] px-3 py-2 text-xs font-mono">
+                  {item.kind} · {item.ref}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
-      </div>
+      </MainCard>
     );
   }
 
   return (
-    <div className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-[var(--bg)] text-[var(--fg)]">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
-        <div>
-          <h2 className="text-lg font-semibold font-sans tracking-tight">Spaces</h2>
-          <p className="text-xs text-[var(--muted-foreground-2)] mt-0.5">
-            Hosted mini-apps the coworker can extend. Sharing and run scoping arrive in a later slice.
-          </p>
-        </div>
-
-        {error ? <LoadErrorState message={error} onRetry={() => { setError(null); void loadIndex(); }} /> : null}
-
-        <div className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] p-4 flex flex-col gap-4 shadow-[var(--sh-card)]">
-          <h3 className="text-sm font-semibold">Create Space</h3>
-          <label className="flex flex-col gap-1 text-xs">
-            <span className="text-[var(--muted-foreground-2)]">Name</span>
-            <input value={name} onChange={(event) => setName(event.target.value)} className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--section)] px-3 py-2 text-sm" />
-          </label>
-          <fieldset className="flex flex-col gap-2">
-            <legend className="text-xs text-[var(--muted-foreground-2)] mb-1">Template</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {(templates.length > 0 ? templates : [{ id: "blank", label: "Blank", description: "Empty space" }]).map((entry) => (
-                <label key={entry.id} className={`flex flex-col gap-1 rounded border px-3 py-2 text-xs cursor-pointer ${template === entry.id ? "border-[var(--primary)]/40 bg-[var(--primary-soft)]" : "border-[var(--border-1)]"}`}>
-                  <span className="flex items-center gap-2 font-medium">
-                    <input type="radio" name="space-template" checked={template === entry.id} onChange={() => setTemplate(entry.id)} />
-                    {entry.label}
+    <MainCard className="bg-white dark:bg-zinc-900">
+      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
+          <ol className="flex items-center gap-1.5 min-w-0">
+            {crumbs.map((crumb, idx) => {
+              const isLast = idx === crumbs.length - 1;
+              return (
+                <li key={`${crumb}-${idx}`} className="flex items-center gap-1.5 min-w-0">
+                  {idx > 0 ? (
+                    <ChevronRight className="size-3.5 text-[#71717a] shrink-0 dark:text-zinc-500" strokeWidth={1.5} aria-hidden="true" />
+                  ) : null}
+                  <span
+                    className={isLast ? "truncate text-[14px] font-medium text-[#0a0a0a] dark:text-zinc-100" : "truncate text-[14px] text-[#71717a] dark:text-zinc-400"}
+                    aria-current={isLast ? "page" : undefined}
+                  >
+                    {crumb}
                   </span>
-                  <span className="text-[var(--muted-foreground-2)] pl-6">{entry.description}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <button type="button" disabled={busy} onClick={() => void createSpace()} className="self-start bg-[var(--primary)] text-[var(--primary-text)] min-h-10 rounded-[var(--radius-button)] text-[13px] font-semibold px-4 flex items-center gap-2 disabled:opacity-50">
-            <Plus aria-hidden className="size-4" />
-            Create Space
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              const input = document.querySelector('input[class*="rounded"]');
+              if (input instanceof HTMLElement) {
+                input.focus();
+                input.scrollIntoView({ behavior: "smooth", block: "center" });
+              }
+            }}
+            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          >
+            <Plus className="size-3.5" /> New Space
           </button>
         </div>
+      </header>
 
-        <div className="flex flex-col gap-2">
-          <h3 className="text-sm font-semibold">Your spaces</h3>
-          {spaces.length === 0 ? (
-            <p className="text-xs text-[var(--muted-foreground-2)]">No spaces yet.</p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {spaces.map((space) => (
-                <li key={space.id}>
-                  <button type="button" onClick={() => openSpace(space.id)} className="w-full text-left rounded border border-[var(--border-1)] px-3 py-2 text-xs flex justify-between gap-2 hover:bg-[var(--section)]">
-                    <span className="font-medium">{space.name}</span>
-                    <span className="text-[var(--muted-foreground-2)] flex items-center gap-1">{space.template}<ExternalLink className="size-3" /></span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+      <div className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-[var(--bg)] text-[var(--fg)]">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
+          <div>
+            <h2 className="text-lg font-semibold font-sans tracking-tight">Spaces</h2>
+            <p className="text-xs text-[var(--muted-foreground-2)] mt-0.5">
+              Hosted mini-apps the coworker can extend. Sharing and run scoping arrive in a later slice.
+            </p>
+          </div>
+
+          {error ? <LoadErrorState message={error} onRetry={() => { setError(null); void loadIndex(); }} /> : null}
+
+          <div className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] p-4 flex flex-col gap-4 shadow-[var(--sh-card)]">
+            <h3 className="text-sm font-semibold">Create Space</h3>
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="text-[var(--muted-foreground-2)]">Name</span>
+              <input value={name} onChange={(event) => setName(event.target.value)} className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--section)] px-3 py-2 text-sm" />
+            </label>
+            <fieldset className="flex flex-col gap-2">
+              <legend className="text-xs text-[var(--muted-foreground-2)] mb-1">Template</legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(templates.length > 0 ? templates : [{ id: "blank", label: "Blank", description: "Empty space" }]).map((entry) => (
+                  <label key={entry.id} className={`flex flex-col gap-1 rounded border px-3 py-2 text-xs cursor-pointer ${template === entry.id ? "border-[var(--primary)]/40 bg-[var(--primary-soft)]" : "border-[var(--border-1)]"}`}>
+                    <span className="flex items-center gap-2 font-medium">
+                      <input type="radio" name="space-template" checked={template === entry.id} onChange={() => setTemplate(entry.id)} />
+                      {entry.label}
+                    </span>
+                    <span className="text-[var(--muted-foreground-2)] pl-6">{entry.description}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <button type="button" disabled={busy} onClick={() => void createSpace()} className="self-start bg-[var(--primary)] text-[var(--primary-text)] min-h-10 rounded-[var(--radius-button)] text-[13px] font-semibold px-4 flex items-center gap-2 disabled:opacity-50">
+              <Plus aria-hidden className="size-4" />
+              Create Space
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <h3 className="text-sm font-semibold">Your spaces</h3>
+            {spaces.length === 0 ? (
+              <p className="text-xs text-[var(--muted-foreground-2)]">No spaces yet.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {spaces.map((space) => (
+                  <li key={space.id}>
+                    <button type="button" onClick={() => openSpace(space.id)} className="w-full text-left rounded border border-[var(--border-1)] px-3 py-2 text-xs flex justify-between gap-2 hover:bg-[var(--section)]">
+                      <span className="font-medium">{space.name}</span>
+                      <span className="text-[var(--muted-foreground-2)] flex items-center gap-1">{space.template}<ExternalLink className="size-3" /></span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </MainCard>
   );
 }

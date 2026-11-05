@@ -59,6 +59,23 @@ function remember(actorId: string, id: string): void {
     /* Storage is optional. */
   }
 }
+const lastKey = (actorId: string) => `shiba:last-team-workspace:${encodeURIComponent(actorId)}`;
+/** The last non-empty team workspace, which survives switching to the personal workspace. */
+export function lastTeamWorkspace(actorId: string): string {
+  try {
+    const id = localStorage.getItem(lastKey(actorId));
+    return isTeamWorkspaceId(id) ? id : "";
+  } catch {
+    return "";
+  }
+}
+export function rememberLastTeamWorkspace(actorId: string, id: string): void {
+  try {
+    if (id) localStorage.setItem(lastKey(actorId), id);
+  } catch {
+    /* Storage is optional. */
+  }
+}
 interface DirectoryState {
   verified: boolean;
   scope: string;

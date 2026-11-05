@@ -20,15 +20,9 @@ SDK stream recovery covers the SDK's persisted child message protocol. It does n
 
 The runtime supports nesting. Shiba's depth limit of one, child tool allowlists, execution time limits, concurrency limits, approval checks, and isolated workspace requirements must therefore be enforced by Shiba rather than assumed from the SDK.
 
-## Overlay
+## Slack agent personas
 
-Verified revision: `771afc840ea0a32ccfae864ce16a46554a8d89af`. The repository includes the [GNU AGPL version 3 license](https://github.com/LayerNorm/overlay-web/blob/771afc840ea0a32ccfae864ce16a46554a8d89af/LICENSE) and a separate commercial licensing document. No commercial license is assumed.
-
-The [Slack reply implementation](https://github.com/LayerNorm/overlay-web/blob/771afc840ea0a32ccfae864ce16a46554a8d89af/src/server/surfaces/slack-reply.ts) resolves a bot token from the specific team installation, sets the agent's `username` on a threaded `chat.postMessage`, and can edit an existing working message using `chat.update`. Missing or revoked installation credentials cause a degraded connection result.
-
-The [Slack app manifest documentation](https://github.com/LayerNorm/overlay-web/blob/771afc840ea0a32ccfae864ce16a46554a8d89af/internal/develop/surfaces-slack-app.md) includes `chat:write.customize`, `assistant:write`, and the `agent_view` feature. The [OAuth implementation](https://github.com/LayerNorm/overlay-web/blob/771afc840ea0a32ccfae864ce16a46554a8d89af/src/server/surfaces/slack-oauth.ts) requests the customization scope.
-
-`agent_view` is an app messaging experience configured through the Slack manifest. It is not a standalone status API. Slack's [agent development guide](https://docs.slack.dev/ai/developing-agents/) describes the feature and the separate assistant thread APIs. The [message API documentation](https://docs.slack.dev/reference/methods/chat.postMessage/) documents `username`, `icon_url`, and `icon_emoji` customization and its scope requirement. Persona names are presentation only and confer no approval authority.
+The Slack `agent_view` feature is an app messaging experience configured through the Slack manifest. It is not a standalone status API. Slack's [agent development guide](https://docs.slack.dev/ai/developing-agents/) describes the feature and the separate assistant thread APIs. The [message API documentation](https://docs.slack.dev/reference/methods/chat.postMessage/) documents `username`, `icon_url`, and `icon_emoji` customization and its scope requirement. Persona names are presentation only and confer no approval authority.
 
 The portable pattern is one installation credential selected by workspace plus explicit specialist display names and a stable status message. Shiba must retain signature verification, workspace checks, approver allowlists, and server owned action IDs.
 

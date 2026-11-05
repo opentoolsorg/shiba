@@ -27,6 +27,7 @@ import type { ExecutionTarget } from "./execution-target.js";
 import type { ApprovedRoute } from "./model.js";
 import { MAX_RECEIPTS } from "./receipts.js";
 import type { Receipt, ReceiptKind } from "./receipts.js";
+import type { RunAttachment } from "./run-attachments.js";
 import type { RunErrorCode } from "./run-errors.js";
 import { terminalStatusForError } from "./run-errors.js";
 import type { DelegatedRun, ForkLineage, RunPatch } from "./runs.js";
@@ -90,6 +91,7 @@ export interface QueuedRunInput extends OnboardingRunFields {
   envSealed?: string;
   /** T72: approval-hashed opt-in to the repo's setup script. */
   runSetup?: boolean;
+  attachments?: RunAttachment[];
 }
 
 export type RunCommand =
@@ -191,6 +193,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.customAgentVersion !== undefined ? { customAgentVersion: run.customAgentVersion } : {}),
       ...(run.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: run.employeeToolPolicyVersion } : {}),
       ...(run.skillPins !== undefined ? { skillPins: run.skillPins } : {}),
+      ...(run.attachments?.length ? { attachments: run.attachments } : {}),
     })
   );
 }
@@ -268,6 +271,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.envDigest !== undefined ? { envDigest: command.input.envDigest } : {}),
           ...(command.input.envSealed !== undefined ? { envSealed: command.input.envSealed } : {}),
           ...(command.input.runSetup === true ? { runSetup: true } : {}),
+          ...(command.input.attachments?.length ? { attachments: command.input.attachments } : {}),
           ...(approval !== undefined ? { approval } : {}),
           status: "pending",
           generation: 0,
@@ -332,7 +336,8 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.captainId === command.input.captainId &&
           run.role === command.input.role &&
           run.envDigest === command.input.envDigest &&
-          (run.runSetup === true) === (command.input.runSetup === true);
+          (run.runSetup === true) === (command.input.runSetup === true) &&
+          JSON.stringify(run.attachments ?? []) === JSON.stringify(command.input.attachments ?? []);
         if (sameInput) {
           return { events: [{ type: "run.queued", commandId: command.commandId, at, run, replayed: true }] };
         }

@@ -134,9 +134,22 @@ describe("agent conversation", () => {
     expect(onPrefill).toHaveBeenCalledWith("Research my top three competitors and write a one-page brief");
   });
 
-  it("shows saved configuration without unsupported library or computer tabs", () => {
+  it("shows saved configuration with Details, Library, and Computer tabs", () => {
     const onClose = vi.fn();
-    render(<AgentDetailsPanel agent={agent} onClose={onClose} onEdit={vi.fn()} />);
+    render(
+      <AgentDetailsPanel
+        agent={{
+          ...agent,
+          config: {
+            ...agent.config,
+            expectedDeliverables: ["research/report.md"],
+            sandboxProvider: "docker-local",
+          },
+        }}
+        onClose={onClose}
+        onEdit={vi.fn()}
+      />
+    );
     const panel = screen.getByRole("complementary", { name: "Agent details" });
     expect(panel.className).not.toContain("absolute");
     expect(panel.className).toContain("w-full");
@@ -145,13 +158,40 @@ describe("agent conversation", () => {
     for (const label of ["Model", "Instructions", "Tools", "Advanced"]) expect(within(details).getByText(label)).toBeTruthy();
     expect(within(details).getAllByText("Workspace default").length).toBeGreaterThan(0);
     expect(details.textContent).toContain(agent.config.instructions);
-    expect(screen.queryByRole("tablist")).toBeNull();
-    expect(screen.queryByText("Library")).toBeNull();
-    expect(screen.queryByText("Computer")).toBeNull();
+    expect(screen.getByRole("tablist", { name: "Agent details tabs" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Details" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Library" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Computer" })).toBeTruthy();
     expect(screen.getByText("Research · Runs on opencode")).toBeTruthy();
     expect(panel.querySelector('[data-employee-role="research"]')).toBeTruthy();
+
+    // Check switching to Library tab
+    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    expect(screen.getByText("research/report.md")).toBeTruthy();
+
+    // Check switching to Computer tab
+    fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
+    expect(screen.getByText(/Sandbox: docker-local/)).toBeTruthy();
+
     fireEvent.click(screen.getByRole("button", { name: "Close agent details" }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("shows empty library and computer states when not configured", () => {
+    const emptyAgent: CustomAgentWire = {
+      ...agent,
+      config: {
+        ...agent.config,
+        expectedDeliverables: [],
+        sandboxProvider: undefined,
+      },
+    };
+    render(<AgentDetailsPanel agent={emptyAgent} onClose={vi.fn()} onEdit={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    expect(screen.getByText("No files yet")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
+    expect(screen.getByText("No computer")).toBeTruthy();
   });
 });
 

@@ -88,7 +88,7 @@ describe("owned OpenConnector accounts through normal HTTP paths", () => {
     connected();
     render(<WorkspaceConnectorsPanel actorId="alice" bindingInputs={bindingInputs} />);
     expect(await screen.findByText(/Alice HubSpot/)).toBeTruthy();
-    expect(screen.queryByRole("tab", { name: "Workspace" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Move to Workspace" })).toBeNull();
     expect(
       fetcher.mock.calls.every(([path]) => !String(path).includes("/extensions/connectors")),

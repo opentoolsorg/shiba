@@ -54,7 +54,7 @@ export function SessionProblem({
         <button
           type="button"
           onClick={onRetry}
-          className="w-full min-h-11 bg-[var(--primary)] text-white text-sm font-semibold"
+          className="w-full min-h-11 bg-[var(--primary)] text-[var(--primary-text)] text-sm font-semibold"
         >
           Retry
         </button>
@@ -265,7 +265,7 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
           <button
             type="submit"
             disabled={pending || (mode === "signup" && policy?.locked === true) || (mode === "invite" && !invitationPolicy?.enabled)}
-            className="w-full min-h-11 rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] disabled:opacity-60 text-white text-sm font-semibold transition-colors shadow-[var(--sh-card)] active:scale-[0.98]"
+            className="w-full min-h-11 rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] disabled:opacity-60 text-[var(--primary-text)] text-sm font-semibold transition-colors shadow-[var(--sh-card)] active:scale-[0.98]"
           >
             {pending
               ? "Working…"

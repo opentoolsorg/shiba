@@ -301,4 +301,14 @@ describe("IntegrationsView capability catalog", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Connectors" }));
     expect(await screen.findByRole("heading", { name: "Configured connections" })).toBeTruthy();
   });
+
+  it("renders breadcrumbs and Search connectors header action", async () => {
+    stubIntegrationsFetch();
+    render(<IntegrationsView scope="workspace" />);
+    const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(nav.textContent).toContain("Workspace");
+    expect(nav.textContent).toContain("Extensions");
+    expect(nav.textContent).toContain("Connectors");
+    expect(screen.getByRole("button", { name: /Search connectors/i })).toBeTruthy();
+  });
 });

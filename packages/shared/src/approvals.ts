@@ -8,6 +8,7 @@ import type { RuntimeSelection } from "./local-runtime.js";
 import type { ExecutionTarget } from "./execution-target.js";
 import type { ApprovedRoute } from "./model.js";
 import type { AgentRole } from "./roles.js";
+import type { RunAttachment } from "./run-attachments.js";
 import type { ForkLineage } from "./runs.js";
 import { MAX_PENDING_APPROVALS } from "./steering.js";
 
@@ -157,6 +158,8 @@ export interface PendingApproval extends OnboardingRunFields {
   collaborationHandoffId?: string;
   /** Reviewed skill versions resolved by the authenticated Worker at intake. */
   skillPins?: SkillExecutionPin[];
+  /** T69: files copied into `.shiba/attachments/` before the first turn. */
+  attachments?: RunAttachment[];
   orgId?: string;
   /**
    * T52: the delegation role this run was queued under. The role pin
@@ -233,6 +236,7 @@ export interface CreateApprovalInput extends OnboardingRunFields {
   employeeToolPolicyVersion?: number;
   collaborationHandoffId?: string;
   skillPins?: SkillExecutionPin[];
+  attachments?: RunAttachment[];
   orgId?: string;
   role?: AgentRole;
   kind?: ApprovalKind;
@@ -289,6 +293,7 @@ export function createPendingApproval(
       ...(input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion } : {}),
       ...(input.collaborationHandoffId !== undefined ? { collaborationHandoffId: input.collaborationHandoffId } : {}),
       ...(input.skillPins !== undefined ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
@@ -458,6 +463,8 @@ export interface RunInputFields extends OnboardingRunFields {
   /** Room handoff whose live membership/cancellation state fences this run. */
   collaborationHandoffId?: string;
   skillPins?: SkillExecutionPin[];
+  /** T69: each file's sha256 is approved, so the sandbox copy must be byte-identical. */
+  attachments?: RunAttachment[];
   role?: AgentRole;
 }
 
@@ -581,6 +588,9 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion } : {}),
     ...(input.collaborationHandoffId !== undefined ? { collaborationHandoffId: input.collaborationHandoffId } : {}),
     ...(input.skillPins !== undefined ? { skillPins: input.skillPins as unknown as JsonValue } : {}),
+    ...(input.attachments?.length
+      ? { attachments: input.attachments.map(({ name, sha256, size }) => ({ name, sha256, size })) }
+      : {}),
     ...(input.role !== undefined ? { role: input.role } : {}),
     ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
   });

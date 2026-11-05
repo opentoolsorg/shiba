@@ -19,7 +19,8 @@
  * email transport and a mounted restricted-member API policy. Invited accounts
  * never inherit the unverified bootstrap identity allowance.
  */
-import { APIError, betterAuth } from "better-auth";
+// better-auth loads on first use (see createBetterAuth): evaluating it at
+// Worker startup pushed deploys past the startup CPU limit.
 import { BOOTSTRAP_VERIFICATION_DDL, handleBootstrapVerification, type BootstrapVerificationAdapter } from "./bootstrap-verification.js";
 export type { BootstrapVerificationAdapter } from "./bootstrap-verification.js";
 import {
@@ -151,6 +152,7 @@ export async function ensureBetterAuthSchema(env: {
   schemaInitialized.add(db);
 }
 
+/** A pending instance: concurrent first callers share one construction. */
 type BetterAuthInstance = ReturnType<typeof createBetterAuth>;
 const instances = new WeakMap<BetterAuthLaneEnv, Map<BetterAuthEnrollmentAdapter | undefined, BetterAuthInstance>>();
 const AUTH_OPERATION_HEADER = "x-shiba-internal-auth-operation";
@@ -218,6 +220,7 @@ function assertOwnerBootstrap(
   env: BetterAuthLaneEnv,
   request: Request | undefined,
   email: string,
+  APIError: typeof import("better-auth").APIError,
 ): void {
   const token = configuredSecret(env.BETTER_AUTH_BOOTSTRAP_TOKEN);
   const owner = configuredSecret(env.BETTER_AUTH_OWNER_EMAIL);
@@ -268,7 +271,8 @@ function withDeadline(work: Promise<Response>, ms: number): Promise<Response> {
   });
 }
 
-function createBetterAuth(env: BetterAuthLaneEnv, enrollment?: BetterAuthEnrollmentAdapter) {
+async function createBetterAuth(env: BetterAuthLaneEnv, enrollment?: BetterAuthEnrollmentAdapter) {
+  const { APIError, betterAuth } = await import("better-auth");
   return betterAuth({
     appName: "shiba",
     // Upstream background-task logging can include raw transport exceptions.
@@ -344,7 +348,7 @@ function createBetterAuth(env: BetterAuthLaneEnv, enrollment?: BetterAuthEnrollm
             const email = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
             const accountId = crypto.randomUUID();
             if ((row?.c ?? 0) === 0) {
-              assertOwnerBootstrap(env, context?.request, email);
+              assertOwnerBootstrap(env, context?.request, email, APIError);
               await recordBetterAuthAccountPolicy(env.AGENT_AUDIT!, { accountId, email,
                 kind: "bootstrap", invitationId: null, workspaceId: null });
             } else {
@@ -373,8 +377,11 @@ export function betterAuthFor(env: BetterAuthLaneEnv, enrollment?: BetterAuthEnr
   if (!byEnrollment) { byEnrollment = new Map(); instances.set(env, byEnrollment); }
   let instance = byEnrollment.get(enrollment);
   if (!instance) {
+    const cache = byEnrollment;
     instance = createBetterAuth(env, enrollment);
-    byEnrollment.set(enrollment, instance);
+    cache.set(enrollment, instance);
+    // A failed construction is not cached, as before the lazy import.
+    instance.catch(() => cache.delete(enrollment));
   }
   return instance;
 }
@@ -437,7 +444,7 @@ export async function handleBetterAuth(
         // Always overwrite caller input. The marker is request-local and is
         // never included in a response, email, persisted row or log.
         headers.set(AUTH_OPERATION_HEADER, operationId);
-        const response = await betterAuthFor(env, enrollment).handler(new Request(request, { headers }));
+        const response = await (await betterAuthFor(env, enrollment)).handler(new Request(request, { headers }));
         return delivery.failed ? Response.json({ error: "Verification delivery failed. Sign in and resend verification, or ask your workspace owner to check email setup." },
           { status: 503, headers: { "Cache-Control": "no-store" } }) : response;
       })(),
@@ -479,7 +486,7 @@ export async function resolveBetterAuthSessionAccount(
   }
   try {
     await ensureBetterAuthSchema(env as { AGENT_AUDIT: D1Database });
-    const session = await betterAuthFor(env).api.getSession({
+    const session = await (await betterAuthFor(env)).api.getSession({
       headers: request.headers,
     });
     if (!session?.user?.id || !session.session.id) return null;

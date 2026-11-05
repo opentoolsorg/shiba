@@ -108,6 +108,7 @@ export async function exportEmployeeBundle(
     profile: { name: config.name, instructions: config.instructions, harness: config.harness,
       ...(config.codingModel ? { codingModel: config.codingModel } : {}),
       ...(config.emoji ? { emoji: config.emoji } : {}),
+      ...(config.mascotPreset ? { mascotPreset: config.mascotPreset } : {}),
       ...(config.roleTemplateId ? { roleTemplateId: config.roleTemplateId } : {}),
       expectedDeliverables: config.expectedDeliverables ?? [],
       provenance: { kind: "employee", id: profile.id, revision: String(profile.version) } },
@@ -144,6 +145,7 @@ export async function importEmployeeBundle(
   const config = JSON.stringify({ name: recipe.profile.name, instructions: recipe.profile.instructions,
     harness: recipe.profile.harness, ...(recipe.profile.emoji ? { emoji: recipe.profile.emoji } : {}),
     ...(recipe.profile.codingModel ? { codingModel: recipe.profile.codingModel } : {}),
+    ...(recipe.profile.mascotPreset ? { mascotPreset: recipe.profile.mascotPreset } : {}),
     ...(recipe.profile.roleTemplateId ? { roleTemplateId: recipe.profile.roleTemplateId } : {}),
     expectedDeliverables: recipe.profile.expectedDeliverables, approvalPolicy: "standard" });
   const gate = `EXISTS (SELECT 1 FROM employee_bundle_imports WHERE org_id=? AND owner_id=? AND import_id=? AND employee_id=?)`;

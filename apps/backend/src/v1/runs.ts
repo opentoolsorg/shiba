@@ -152,6 +152,7 @@ export async function handleRuns(ctx: V1Context): Promise<Response | null> {
         : {}),
       ...(run.route?.reasoningEffort ? { reasoningEffort: run.route.reasoningEffort } : {}),
       ...(run.runSetup === true ? { runSetup: true } : {}),
+      ...(run.attachments?.length ? { attachments: run.attachments } : {}),
       ...(run.authAccount ? { authAccount: run.authAccount } : {}),
       ...(run.runtime ? { runtime: run.runtime } : {}),
       ...(run.targetMachineId ? { targetMachineId: run.targetMachineId } : {}),

@@ -1,5 +1,4 @@
-import { createEmailVerificationToken } from "better-auth/api";
-import { verifyJWT } from "better-auth/crypto";
+// better-auth/api and /crypto load per call: they are too heavy for Worker startup.
 
 export interface BootstrapVerificationAdapter {
   enabled: boolean;
@@ -79,6 +78,7 @@ export async function handleBootstrapVerification(
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 1 ||
       !("token" in body) || typeof body.token !== "string" || body.token.length > 4096) return failure(400);
     const token = body.token;
+    const { verifyJWT } = await import("better-auth/crypto");
     const payload = await verifyJWT<TokenPayload>(token, env.BETTER_AUTH_SECRET);
     if (!payload || payload.shibaPurpose !== PURPOSE || payload.shibaOrigin !== canonical || payload.updateTo !== undefined ||
       typeof payload.shibaAccountId !== "string" || !payload.shibaAccountId || typeof payload.shibaNonce !== "string" || !payload.shibaNonce ||
@@ -114,6 +114,7 @@ export async function handleBootstrapVerification(
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 1 || !("expectedSnapshot" in body) || body.expectedSnapshot !== expectedSnapshot) return failure(409);
   if (identity.emailVerified) return response({ sent: false, emailVerified: true });
   const nonce = crypto.randomUUID();
+  const [{ createEmailVerificationToken }, { verifyJWT }] = await Promise.all([import("better-auth/api"), import("better-auth/crypto")]);
   const token = await createEmailVerificationToken(env.BETTER_AUTH_SECRET, identity.email, undefined, 3600,
     { shibaPurpose: PURPOSE, shibaAccountId: identity.accountId, shibaNonce: nonce, shibaOrigin: canonical });
   const signed = await verifyJWT<TokenPayload>(token, env.BETTER_AUTH_SECRET);

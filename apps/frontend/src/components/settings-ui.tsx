@@ -1,9 +1,17 @@
-/** Shared chrome for Settings surfaces — token-based card. */
+/** Shared chrome for Settings surfaces — token-based card and rows. */
 import type { JSX, ReactNode } from "react";
 
-export function Card({ children }: { children: ReactNode }): JSX.Element {
+export function Card({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}): JSX.Element {
   return (
-    <div className="rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)] overflow-hidden">
+    <div
+      className={`rounded-xl border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs overflow-hidden ${className}`.trim()}
+    >
       {children}
     </div>
   );

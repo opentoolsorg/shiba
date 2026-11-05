@@ -1,5 +1,6 @@
 /** Authenticated, versioned skill library. Source URLs are provenance only. */
 import { useEffect, useEffectEvent, useRef, useState, type JSX } from "react";
+import { ChevronRight } from "lucide-react";
 import { teamWorkspaceHeaders, TeamWorkspaceRequestError } from "../team-workspaces-client";
 import type { LibrarySkillCard, SavedSkill } from "../saved";
 import { SkillLibraryCards } from "./SkillLibraryCards";
@@ -17,14 +18,31 @@ import {
 } from "../saved";
 import { FounderSkillLibrary } from "./FounderSkillLibrary";
 import { ExtensionSkillsView } from "./ExtensionSkillsView";
+import { MainCard, type Scope } from "./ui/ContextPanel";
 
 const FIELD =
   "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors";
 
-export function SkillsView({ embedded = false, workspaceId, actorId, workspaceRole }: { embedded?: boolean; workspaceId?: string; actorId?: string | null; workspaceRole?: "owner" | "admin" | "member" } = {}): JSX.Element {
-  const scope = `${actorId ?? ""}\0${workspaceId ?? ""}`;
-  const current = useRef(scope); current.current = scope;
-  return workspaceId ? <TeamSkillsSurface key={scope} actorId={actorId?.trim().toLowerCase()} workspaceId={workspaceId} isCurrent={() => current.current === scope} canManage={workspaceRole === "owner" || workspaceRole === "admin"} /> : <PersonalSkillsView key={scope} embedded={embedded} />;
+export function SkillsView({
+  embedded = false,
+  workspaceId,
+  actorId,
+  workspaceRole,
+  scope,
+}: {
+  embedded?: boolean;
+  workspaceId?: string;
+  actorId?: string | null;
+  workspaceRole?: "owner" | "admin" | "member";
+  scope?: Scope;
+} = {}): JSX.Element {
+  const currentScope = `${actorId ?? ""}\0${workspaceId ?? ""}`;
+  const current = useRef(currentScope); current.current = currentScope;
+  return workspaceId ? (
+    <TeamSkillsSurface key={currentScope} actorId={actorId?.trim().toLowerCase()} workspaceId={workspaceId} isCurrent={() => current.current === currentScope} canManage={workspaceRole === "owner" || workspaceRole === "admin"} />
+  ) : (
+    <PersonalSkillsView key={currentScope} embedded={embedded} scope={scope} />
+  );
 }
 
 function TeamSkillsSurface({ workspaceId, actorId, isCurrent, canManage }: { workspaceId: string; actorId?: string; isCurrent: () => boolean; canManage: boolean }): JSX.Element {
@@ -32,13 +50,13 @@ function TeamSkillsSurface({ workspaceId, actorId, isCurrent, canManage }: { wor
   return <div className="flex h-full min-h-0 flex-1 flex-col"><nav aria-label="Team skill types" className="flex flex-wrap gap-2 border-b border-[var(--line)] p-3"><button type="button" aria-pressed={surface === "run"} className={TEAM_CONTROL} onClick={() => setSurface("run")}>Run-attached skills</button><button type="button" aria-pressed={surface === "extensions"} className={TEAM_CONTROL} onClick={() => setSurface("extensions")}>Team instruction skills</button></nav>{surface === "run" ? <TeamSkillReview actorId={actorId} workspaceId={workspaceId} isCurrent={isCurrent} canManage={canManage} /> : <ExtensionSkillsView workspaceId={workspaceId} canManage={canManage} />}</div>;
 }
 
-function PersonalSkillsView({ embedded }: { embedded: boolean }): JSX.Element {
+function PersonalSkillsView({ embedded, scope }: { embedded: boolean; scope?: Scope }): JSX.Element {
   const [surface, setSurface] = useState<"extensions" | "run">("extensions");
   return (
     <div className="flex h-full min-h-0 min-w-0 w-full flex-1 bg-[var(--bg)] text-[var(--fg)]">
       {surface === "extensions"
-        ? <ExtensionSkillsView embedded={embedded} onOpenRunSkills={() => setSurface("run")} />
-        : <RunAttachedSkillsView onOpenExtensions={() => setSurface("extensions")} />}
+        ? <ExtensionSkillsView embedded={embedded} scope={scope} onOpenRunSkills={() => setSurface("run")} />
+        : <RunAttachedSkillsView onOpenExtensions={() => setSurface("extensions")} scope={scope} />}
     </div>
   );
 }
@@ -176,7 +194,7 @@ function TeamSkillReview({ workspaceId, actorId, isCurrent, canManage }: { works
   </section>;
 }
 
-function RunAttachedSkillsView({ onOpenExtensions }: { onOpenExtensions: () => void }): JSX.Element {
+function RunAttachedSkillsView({ onOpenExtensions, scope }: { onOpenExtensions: () => void; scope?: Scope }): JSX.Element {
   const savedSkills = useSavedSkills();
   const skills = savedSkills.skills;
   const [name, setName] = useState("");
