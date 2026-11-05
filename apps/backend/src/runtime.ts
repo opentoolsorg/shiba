@@ -859,6 +859,10 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
   ): Promise<CodingTaskResult> {
     const signals = opts?.signals ?? [];
     const artifact = input.executionTarget?.kind === "artifact-workspace" ? input.executionTarget : undefined;
+    if (artifact && (!input.targetMachineId?.trim() || !input.initiatorUserId?.trim() ||
+      !expectedDeliverablesSchema.safeParse(artifact.expectedDeliverables).success)) {
+      return failureResult("Local artifacts require an explicit paired computer, owner and safe approved deliverable paths.", 0, "", signals);
+    }
     if (input.executionTarget?.kind === "connected-app" || (artifact && (
       input.personalExecution || input.repoUrl || input.publishPullRequest || !artifact.expectedDeliverables.length ||
       JSON.stringify(input.expectedDeliverables) !== JSON.stringify(artifact.expectedDeliverables)))) {
@@ -1031,6 +1035,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
         try {
           if (artifact && (result.diff !== "" || result.baseRevision !== undefined ||
             result.changedFiles.length !== artifact.expectedDeliverables.length ||
+            new Set(result.changedFiles).size !== result.changedFiles.length ||
             result.changedFiles.some((file) => !artifact.expectedDeliverables.includes(file)) ||
             result.files.length !== artifact.expectedDeliverables.length ||
             result.files.some((file) => !artifact.expectedDeliverables.includes(file.path)))) {
