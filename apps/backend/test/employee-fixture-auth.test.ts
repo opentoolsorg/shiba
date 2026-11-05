@@ -7,7 +7,7 @@ const fixture = pathToFileURL(resolve(import.meta.dirname, "../../../.cursor/ski
 
 function check(source: string) {
   const result = spawnSync(process.execPath, ["--input-type=module", "-e",
-    `import assert from 'node:assert/strict'; import {createFixtureAuth,fixtureAuthRequest,fixtureChildEnv,fixtureWorkerVars} from ${JSON.stringify(fixture)}; ${source}`],
+    `import assert from 'node:assert/strict'; import {createFixtureAuth,fixtureAuthRequest,fixtureChildEnv,fixtureWorkerVars,signalFixtureGroup} from ${JSON.stringify(fixture)}; ${source}`],
   { env: {}, encoding: "utf8" });
   expect(result.stderr).toBe("");
   expect(result.stdout).toBe("");
@@ -54,6 +54,54 @@ describe("isolated employee fixture bootstrap", () => {
       const env=fixtureChildEnv({PATH:'/fixture/bin',BETTER_AUTH_BOOTSTRAP_TOKEN:'operator-setup',INTERNAL_SIGNING_KEY:'operator-signing',AI_GATEWAY_TOKEN:'operator-model',TYPESAFE_API_KEY:'operator-typesafe'},'/fixture/private');
       for(const name of ['BETTER_AUTH_BOOTSTRAP_TOKEN','INTERNAL_SIGNING_KEY','AI_GATEWAY_TOKEN','TYPESAFE_API_KEY'])assert(!Object.hasOwn(env,name),'Operator credentials must not be inherited.');
       assert.equal(env.PATH,'/fixture/bin');assert.equal(env.HOME,'/fixture/private/home');
+    `);
+  });
+});
+
+
+describe("employee fixture process-group cleanup", () => {
+  it("signals the owned group and treats ESRCH as already stopped", () => {
+    check(`
+      let calls=0;
+      assert.equal(signalFixtureGroup(123,'SIGTERM',{kill:(pid,signal)=>{assert.equal(pid,-123);assert.equal(signal,'SIGTERM');calls++;}}),true);
+      assert.equal(calls,1);
+      assert.equal(signalFixtureGroup(123,0,{kill:()=>{throw Object.assign(new Error('gone'),{code:'ESRCH'});}}),false);
+      assert.throws(()=>signalFixtureGroup(0,'SIGTERM'));
+    `);
+  });
+
+  it("confirms Darwin EPERM groups have no live members for termination and liveness probes", () => {
+    check(`
+      const denied=Object.assign(new Error('kill EPERM'),{code:'EPERM'});
+      for(const signal of ['SIGTERM',0,'SIGKILL']){
+        for(const processes of ['123 Z\\n456 S','456 S','123 Z+\\n123 Z']){
+          assert.equal(signalFixtureGroup(123,signal,{platform:'darwin',kill:()=>{throw denied;},listProcesses:()=>processes}),false);
+        }
+      }
+    `);
+  });
+
+  it("never hides permission failures for a live descendant, even with a zombie leader", () => {
+    check(`
+      const denied=Object.assign(new Error('kill EPERM'),{code:'EPERM'});
+      for(const processes of ['123 S','123 Z\\n123 R+']){
+        assert.throws(()=>signalFixtureGroup(123,0,{platform:'darwin',kill:()=>{throw denied;},listProcesses:()=>processes}),error=>error===denied);
+      }
+      for(const platform of ['linux','darwin']){
+        const code=platform==='linux'?'EPERM':'EINVAL';
+        const failure=Object.assign(new Error(code),{code});
+        assert.throws(()=>signalFixtureGroup(123,'SIGTERM',{platform,kill:()=>{throw failure;},listProcesses:()=>{throw new Error('must not inspect');}}),error=>error===failure);
+      }
+    `);
+  });
+
+  it("fails closed if process-state inspection fails or cannot be parsed", () => {
+    check(`
+      const kill=()=>{throw Object.assign(new Error('kill EPERM'),{code:'EPERM'});};
+      for(const processes of ['','unexpected output','123']){
+        assert.throws(()=>signalFixtureGroup(123,'SIGTERM',{platform:'darwin',kill,listProcesses:()=>processes}));
+      }
+      assert.throws(()=>signalFixtureGroup(123,'SIGTERM',{platform:'darwin',kill,listProcesses:()=>{throw new Error('ps failed');}}),/ps failed/);
     `);
   });
 });
