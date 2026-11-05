@@ -2,6 +2,7 @@ import type { TeamWorkspaceMembership, WorkspaceIntegrationApproval } from "@shi
 import type { Env } from "./env.js";
 import { hashToolArgs } from "./mcp-gateway.js";
 import { getIntegrationProvider } from "./integrations/runtime.js";
+import { assertActionArgumentsAllowed, assertActionInputAllowed } from "./integrations/action-input-policy.js";
 import { redactSecrets } from "./security.js";
 import type { WorkspaceNativeMember } from "./workspace-native-authority.js";
 import { COLLAB_TENANT_ID } from "./collaboration-store.js";
@@ -86,8 +87,10 @@ export async function previewWorkspaceAction(env: Env, member: WorkspaceNativeMe
   await assertWorkspaceMemberCurrent(env, member);
   const current = await assertWorkspaceIntegrationGrant(env, { workspaceId: member.workspaceId, actorId: member.userId, employeeId: input.employeeId,
     employeeVersion: input.employeeVersion, connectionId, permission: "execute" });
+  assertActionArgumentsAllowed(current.connection.provider_key, input.arguments, input.actionId);
   const actions = await getIntegrationProvider(env).searchActions({ userId: member.userId, workspaceId: member.workspaceId, toolkitSlug: current.connection.provider_key, actionId: input.actionId, limit: 1 });
   if (actions.length !== 1 || actions[0]!.service !== current.connection.provider_key || actions[0]!.id !== input.actionId) throw new WorkspaceIntegrationError("workspace_action_unavailable", 404);
+  assertActionInputAllowed(actions[0]!, input.arguments);
   const binding = captureBinding(current, await hashToolArgs(actions[0]!.inputSchema ?? {}), options.resultAudience);
   await currentBinding(env, binding);
   await assertWorkspaceMemberCurrent(env, member);

@@ -1,6 +1,7 @@
 import { parseChatThreadName, type IntegrationProviderConnection } from "@shiba/shared";
 import { registerIntegrationTools, integrationToolInput } from "./mcp-integration-tools.js";
 import { getIntegrationProvider } from "./integrations/runtime.js";
+import { assertActionArgumentsAllowed, assertActionInputAllowed, IntegrationActionInputPolicyError, CREDENTIAL_INPUT_UNAVAILABLE } from "./integrations/action-input-policy.js";
 import type { TokenRecord } from "./agent-tokens.js";
 import { verifyToken } from "./agent-tokens.js";
 import type { Env } from "./env.js";
@@ -363,6 +364,11 @@ export async function dispatchEmployeeToolForPrincipal(
   const toolName = toolNameRaw as keyof typeof EMPLOYEE_TOOL_ACTIONS;
   const action = EMPLOYEE_TOOL_ACTIONS[toolName];
   if (toolName.startsWith("integrations.") && !integrationToolInput(toolName, args)) return jsonError("invalid_integration_tool_input", 400);
+  if (toolName === "integrations.execute") {
+    try { assertActionArgumentsAllowed(String(args.toolkitSlug), args.arguments as Record<string, unknown>, String(args.toolSlug)); }
+    catch { return jsonError(CREDENTIAL_INPUT_UNAVAILABLE, 409); }
+    if (String(args.toolSlug).startsWith("googleads.") && args.toolkitSlug !== "googleads") return jsonError("integration_action_unavailable", 409);
+  }
   const orgId = principal.orgId;
   const actorId = principal.principal;
   const employee = await getCustomAgentById(env, orgId, employeeId);
@@ -431,6 +437,15 @@ export async function dispatchEmployeeToolForPrincipal(
     try { connections = await provider.listConnections({ userId: connection.accountId }); }
     catch { return jsonError("integration_connections_unavailable", 503); }
     if (!connections.some((item) => item.providerKey === resourceId && item.id === connection.connectionId && item.executionReady === true)) return jsonError("integration_connection_disconnected", 403);
+    if (toolName === "integrations.execute" && resourceId === "googleads") {
+      try {
+        const actions = await provider.searchActions({ userId: connection.accountId, toolkitSlug: resourceId, actionId: String(args.toolSlug), limit: 1 });
+        if (actions.length !== 1 || actions[0]!.id !== args.toolSlug || actions[0]!.service !== resourceId) return jsonError("integration_action_unavailable", 409);
+        assertActionInputAllowed(actions[0]!, args.arguments as Record<string, unknown>);
+      } catch (error) {
+        return jsonError(error instanceof IntegrationActionInputPolicyError ? CREDENTIAL_INPUT_UNAVAILABLE : "integration_action_unavailable", 409);
+      }
+    }
   }
   const policy = { ...connectionPolicy(toolName), version: connection.policyVersion };
 

@@ -7,6 +7,7 @@ import type {
 import { z } from "zod";
 import { isTeamWorkspaceId, integrationActionOperationTypeSchema } from "@shiba/shared";
 import type { Env } from "../env.js";
+import { assertActionArgumentsAllowed, assertActionInputAllowed, IntegrationActionInputPolicyError, requiresProtectedActionInput } from "./action-input-policy.js";
 import type {
   FetchImpl,
   IntegrationActionQuery,
@@ -264,7 +265,10 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     const actions = query.actionId
       ? [this.parse(z.object({ success: z.literal(true), data: actionSchema }), await this.request(`/v1/actions/${encodeURIComponent(query.actionId)}`, "runtime", { headers })).data]
       : this.parse(z.object({ success: z.literal(true), data: z.array(actionSchema) }), await this.request(`/v1/actions/search?${params}`, "runtime", { headers })).data;
-    return actions.filter((action) => action.service === query.toolkitSlug && (!query.actionId || action.id === query.actionId));
+    const selected = actions.filter((action) => action.service === query.toolkitSlug && (!query.actionId || action.id === query.actionId));
+    if (query.actionId) selected.forEach((action) => assertActionInputAllowed(action));
+    // Never expose a schema that asks a person or model to paste a developer credential.
+    return selected.filter((action) => !requiresProtectedActionInput(action));
   }
 
   async executeTool(context: IntegrationExecuteContext): Promise<IntegrationProviderExecuteResponse> {
@@ -276,7 +280,14 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
         }
       };
       assertSendCurrent();
+      assertActionArgumentsAllowed(context.toolkitSlug ?? "", context.arguments, context.toolSlug);
       if (!context.toolkitSlug || !context.approvedConnectionId) return { ok: false, status: "failed", error: "A current employee-approved app connection is required." };
+      if (context.toolSlug.startsWith("googleads.") && context.toolkitSlug !== "googleads") return { ok: false, status: "failed", error: "The requested action does not belong to the approved integration." };
+      if (context.toolkitSlug === "googleads") {
+        const actions = await this.searchActions({ userId: context.userId, workspaceId: context.workspaceId, toolkitSlug: context.toolkitSlug, actionId: context.toolSlug, limit: 1 });
+        if (actions.length !== 1) return { ok: false, status: "failed", error: "The requested Google Ads action is unavailable." };
+        assertActionInputAllowed(actions[0]!, context.arguments);
+      }
       const rows = await this.ownedConnectionRows(context.userId, context.workspaceId);
       let selected: (typeof rows)[number] | undefined;
       for (const row of rows) {
@@ -299,7 +310,7 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
       if (!result.success) return { ok: false, status: "failed", error: "OpenConnector action failed." };
       return { ok: true, status: "completed", output: result.data };
     } catch (error) {
-      return { ok: false, status: "failed", error: error instanceof OpenConnectorIntegrationProviderError ? error.message : "OpenConnector action failed." };
+      return { ok: false, status: "failed", error: error instanceof OpenConnectorIntegrationProviderError || error instanceof IntegrationActionInputPolicyError ? error.message : "OpenConnector action failed." };
     }
   }
 }

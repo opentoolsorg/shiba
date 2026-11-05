@@ -6,6 +6,7 @@ import { createTeamWorkspace, createTeamWorkspaceInvitation, acceptTeamWorkspace
 import { createCustomAgent } from "../src/custom-agents-store.js";
 import { openConnectorConnectionName, openConnectorWorkspaceConnectionName } from "../src/integrations/openconnector-provider.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { CREDENTIAL_INPUT_UNAVAILABLE } from "../src/integrations/action-input-policy.js";
 
 const actor = vi.hoisted(() => ({ email: "owner@example.test", native: true, accounts: {} as Record<string, string>, nativeReads: 0, afterNativeRead: undefined as (() => void) | undefined }));
 vi.mock("@shiba/auth/better-auth", async (original) => ({ ...await original<typeof import("@shiba/auth/better-auth")>(),
@@ -22,7 +23,7 @@ const OWNER = "owner@example.test", MEMBER = "member@example.test", ADMIN = "adm
 beforeEach(() => { actor.email = OWNER; actor.native = true; actor.accounts = {}; actor.nativeReads = 0; actor.afterNativeRead = undefined; });
 afterEach(() => { vi.restoreAllMocks(); });
 type Account = { id: string; service: string; connectionName: string; configured: boolean; virtual: boolean; oauthAuthorizationId: string; profile: { displayName: string } };
-async function fixture() {
+async function fixture(service = "github", inputSchema: Record<string, unknown> = { type: "object", properties: { title: { type: "string" } } }) {
   const db = customAgentD1();
   db.sqlite.exec('CREATE TABLE "user" (id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy (account_id TEXT PRIMARY KEY,email TEXT)');
   for (const email of [OWNER, MEMBER, ADMIN, "other-owner@example.test"]) {
@@ -46,22 +47,22 @@ async function fixture() {
       const snapshot = structuredClone(accounts); afterAccountRead?.(); afterAccountRead = undefined;
       return Response.json(snapshot);
     }
-    if (url.pathname === "/v1/providers/github/setup") return Response.json({ success: true, data: { service: "github", oauthClient: { configured: true, missingFields: [] } } });
-    if (url.pathname === "/api/providers") return Response.json([{ service: "github", displayName: "GitHub", authTypes: ["oauth2"] }]);
+    if (url.pathname === `/v1/providers/${service}/setup`) return Response.json({ success: true, data: { service, oauthClient: { configured: true, missingFields: [] } } });
+    if (url.pathname === "/api/providers") return Response.json([{ service, displayName: "Fixture app", authTypes: ["oauth2"] }]);
     if (url.pathname === "/api/oauth/authorizations") {
       const body = JSON.parse(String(init?.body)) as { service: string; connectionName: string };
       pending = { ...body, state: crypto.randomUUID() };
       expect(body.connectionName.startsWith("w_")).toBe(true);
       return Response.json({ state: pending.state, authorizationUrl: `https://oauth.vendor.example/authorize?state=${pending.state}` });
     }
-    if (url.pathname === "/api/connections/github" && init?.method === "DELETE") {
+    if (url.pathname === `/api/connections/${service}` && init?.method === "DELETE") {
       const body = JSON.parse(String(init.body)) as { connectionName: string };
       for (let index = accounts.length - 1; index >= 0; index -= 1) if (accounts[index]?.connectionName === body.connectionName) accounts.splice(index, 1);
       return Response.json({ ok: true });
     }
-    const action = { id: "github.create_issue", service: "github", name: "Create issue", description: "Fixture write", inputSchema: { type: "object", properties: { title: { type: "string" } } } };
+    const action = { id: `${service}.create_issue`, service, name: "Create issue", description: "Fixture write", inputSchema };
     if (url.pathname === "/v1/actions/search") return Response.json({ success: true, data: [action] });
-    if (url.pathname === "/v1/actions/github.create_issue") {
+    if (url.pathname === `/v1/actions/${action.id}`) {
       if (init?.method !== "POST") return Response.json({ success: true, data: action });
       expect(new Headers(init.headers).get("x-oo-connector-alias")).toMatch(/^w_/);
       effects.push(JSON.parse(String(init.body)));
@@ -89,7 +90,7 @@ async function fixture() {
   };
   const connect = async () => {
     actor.email = OWNER;
-    const created = await call("/connect", "POST", { providerKey: "github", audienceConsent: "workspace-members" });
+    const created = await call("/connect", "POST", { providerKey: service, audienceConsent: "workspace-members" });
     expect(created.response.status, JSON.stringify(created.body)).toBe(201);
     const connection = created.body.connection as { id: string; version: number };
     const consent = pending!;
@@ -106,10 +107,10 @@ async function fixture() {
       actorMembershipVersion: member!.version, expectedConnectionVersion: connection.version, expectedGrantVersion: null, permissions: ["discover", "execute"] });
     expect(result.response.status, JSON.stringify(result.body)).toBe(200);
   };
-  const actionRequest = async (connection: { id: string }) => {
+  const actionRequest = async (connection: { id: string }, args: Record<string, unknown> = { title: "Exact human approved title" }) => {
     actor.email = MEMBER;
     return call(`/connections/${connection.id}/actions/request`, "POST", { employeeId: employee.id, employeeVersion: employee.version,
-      actionId: "github.create_issue", arguments: { title: "Exact human approved title" }, requestId: crypto.randomUUID() });
+      actionId: `${service}.create_issue`, arguments: args, requestId: crypto.randomUUID() });
   };
   return { ...db, env, workspace, other, employee, request, call, connect, grant, actionRequest, effects, transport, accounts,
     afterAccountRead(fn: () => void) { afterAccountRead = fn; }, unknownAction() { rejectAction = true; },
@@ -117,6 +118,22 @@ async function fixture() {
     releaseAction() { holdAction!(Response.json({ success: true, data: { id: "held-result" } })); } };
 }
 describe("workspace-shared connections with real route/SQLite and fixture sibling HTTP", { timeout: 20_000 }, () => {
+  it.each(["required credential", "supplied credential", "safe schema"])("blocks Google Ads credential inputs before shared approval storage: %s", async (scenario) => {
+    const f = await fixture("googleads", scenario === "required credential" ? { type: "object", properties: { developerToken: { type: "string" } }, required: ["developerToken"] } : { type: "object", properties: { customerId: { type: "string" } } });
+    const { connection } = await f.connect(); await f.grant(connection);
+    const requested = await f.actionRequest(connection, scenario === "supplied credential" ? { developerToken: "fixture-do-not-persist" } : { customerId: "fixture" });
+    expect(requested.response.status).toBe(scenario === "safe schema" ? 202 : 409);
+    if (scenario !== "safe schema") expect(requested.body).toEqual({ error: CREDENTIAL_INPUT_UNAVAILABLE });
+    const approvals = f.sqlite.prepare("SELECT arguments_json FROM workspace_app_approvals").all();
+    expect(approvals).toHaveLength(scenario === "safe schema" ? 1 : 0);
+    expect(JSON.stringify([requested.body, approvals])).not.toContain("fixture-do-not-persist");
+    expect(f.effects).toHaveLength(0);
+    actor.email = MEMBER;
+    const discovered = await f.call(`/connections/${connection.id}/actions?employeeId=${f.employee.id}&employeeVersion=${f.employee.version}`);
+    expect(discovered.response.status).toBe(200);
+    expect(JSON.stringify(discovered.body)).not.toContain("developerToken");
+    expect(discovered.body.actions).toHaveLength(scenario === "required credential" ? 0 : 1);
+  });
   it("keeps the append-only migration compatible and requires fresh consent and grants after disconnect", async () => {
     const f = await fixture();
     f.sqlite.exec(readFileSync(new URL("../migrations/0010_workspace_integrations.sql", import.meta.url), "utf8"));

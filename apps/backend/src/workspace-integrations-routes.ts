@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { IntegrationActionInputPolicyError, CREDENTIAL_INPUT_UNAVAILABLE } from "./integrations/action-input-policy.js";
 import type { Env } from "./env.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { rejectCrossOriginMutation } from "./dashboard-mutation.js";
@@ -77,6 +78,7 @@ export async function handleWorkspaceIntegrations(request: Request, env: Env): P
     return result;
   } catch (error) {
     if (error instanceof WorkspaceIntegrationError) return json({ error: error.code }, error.status);
+    if (error instanceof IntegrationActionInputPolicyError) return json({ error: CREDENTIAL_INPUT_UNAVAILABLE }, 409);
     return json({ error: "workspace_integrations_unavailable" }, 503);
   }
 }

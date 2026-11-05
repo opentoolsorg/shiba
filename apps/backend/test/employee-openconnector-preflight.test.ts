@@ -7,6 +7,7 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { createEmployeeRunTools } from "../src/employee-run-tools.js";
 import { buildSessionAgentName } from "../src/web-sessions.js";
 import { OpenConnectorIntegrationProvider } from "../src/integrations/openconnector-provider.js";
+import { CREDENTIAL_INPUT_UNAVAILABLE } from "../src/integrations/action-input-policy.js";
 
 const auth = vi.hoisted(() => ({ human: true, sessions: [] as unknown[] }));
 vi.mock("../src/request-auth.js", () => ({ isAuthorizedRequest: async () => auth.human, resolveUserId: async () => "owner@example.test" }));
@@ -28,6 +29,29 @@ beforeEach(() => { auth.human = true; auth.sessions = []; });
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("employee route through the real OpenConnector provider with fixture HTTP", () => {
+  it.each(["required credential", "supplied credential", "misbound credential", "safe schema"])("checks Google Ads before persisting any approval: %s", async (scenario) => {
+    const { database, sqlite } = customAgentD1(), alias = await openConnectorConnectionName(ACCOUNT);
+    const posts: unknown[] = [];
+    const transport = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/connections") return Response.json([{ id: "fixture-googleads-account", service: "googleads", connectionName: alias, configured: true, virtual: false, oauthAuthorizationId: "fixture-consent", profile: { displayName: "Owner" } }]);
+      if (init?.method === "POST") { posts.push(init.body); throw new Error("No action should execute before approval"); }
+      return Response.json({ success: true, data: { id: "googleads.fixture", service: "googleads", name: "Fixture", inputSchema: scenario === "required credential" ? { required: ["developerToken"], properties: { developerToken: { type: "string" } } } : { type: "object", properties: {} } } });
+    });
+    const env = { AGENT_AUDIT: database, CodingOrchestrator: {}, OPEN_CONNECTOR: { fetch: transport }, OPEN_CONNECTOR_ADMIN_TOKEN: "fixture-admin", OPEN_CONNECTOR_RUNTIME_TOKEN: "fixture-runtime", DASHBOARD_APPROVERS: "owner@example.test" } as unknown as Env;
+    const employee = await createCustomAgent(env, "self-hosted", "googleads-input-policy", { name: "Ads", instructions: "No secrets in action arguments", harness: "opencode" });
+    expect((await handleEmployeeTools(new Request(`https://shiba.test/api/employee-tools/${employee.id}/policy`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedVersion: 1, actorId: "agent-a", role: "operator", resourcesByCapability: { "mcp:shiba:integrations.execute": ["googleads"] } }) }), env))?.status).toBe(200);
+    auth.human = false; transport.mockClear();
+    const response = await handleEmployeeTools(request(`/api/employee-tools/${employee.id}/call`, { tool: "integrations.execute", args: { toolkitSlug: scenario === "misbound credential" ? "github" : "googleads", toolSlug: "googleads.fixture", arguments: scenario === "supplied credential" || scenario === "misbound credential" ? { developerToken: "fixture-do-not-persist" } : { customerId: "fixture" } } }), env);
+    const result = await response!.json();
+    expect(response!.status).toBe(scenario === "safe schema" ? 202 : 409);
+    if (scenario !== "safe schema") expect(result).toEqual({ ok: false, error: CREDENTIAL_INPUT_UNAVAILABLE });
+    expect(posts).toHaveLength(0);
+    const approvals = sqlite.prepare("SELECT payload_json FROM employee_tool_approvals").all();
+    expect(approvals).toHaveLength(scenario === "safe schema" ? 1 : 0);
+    expect(JSON.stringify([result, approvals])).not.toContain("fixture-do-not-persist");
+    if (scenario === "supplied credential" || scenario === "misbound credential") expect(transport).not.toHaveBeenCalled();
+  });
   it("requires exact human approval even for a provider-labelled read that accepts raw GraphQL mutations", async () => {
     const { database, sqlite } = customAgentD1(), alias = await openConnectorConnectionName(ACCOUNT);
     const metadata = { id: "linear.run_query", service: "linear", name: "Run query", operationType: "read", inputSchema: { type: "object", properties: { query: { type: "string" } } } };
