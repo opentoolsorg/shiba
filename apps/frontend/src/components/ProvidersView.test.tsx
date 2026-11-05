@@ -114,15 +114,15 @@ describe("ProvidersView sign-in", () => {
     expect(fetchMock.mock.calls.some(([url]) => /\/(connect|verify|default|test)$/.test(String(url)))).toBe(false);
   });
 
-  it("describes paired Claude account reuse separately from sandbox artifacts and legacy tokens", async () => {
+  it("describes paired Claude artifacts separately from cloud subscription and legacy tokens", async () => {
     const claude = { ...card({ phase: "connected", signInKind: "claude-daemon", testOk: true, userCode: null, verificationUri: null }), id: "claude", label: "Claude Code", harness: "claude-acp" } satisfies AcpProviderCard;
     vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? { org: "self-hosted", defaultProviderId: null, providers: [claude] } : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));
     render(<ProvidersView />);
     const route = await screen.findByTestId("provider-route-claude");
     expect(route.textContent).toContain("claude-code");
-    expect(route.textContent).toContain("Paired local computer · repository work");
+    expect(route.textContent).toContain("Paired local computer · repositories and explicit artifacts");
     expect(route.textContent).toContain("identity and billing are not reported");
-    expect(screen.getByText(/Repository-free artifacts require a sandbox API route/)).toBeTruthy();
+    expect(screen.getByText(/Artifacts require explicit UTF-8 output paths/)).toBeTruthy();
   });
 
   it("labels a saved legacy token as deployment-gated rather than native cloud login", async () => {

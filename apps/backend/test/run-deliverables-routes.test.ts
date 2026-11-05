@@ -201,13 +201,13 @@ describe("authenticated requested-deliverable downloads", () => {
     Object.assign(run, { repoUrl: "", runtime: "local", targetMachineId: "paired-artifacts",
       executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["reports/brief.md"] } });
     state.sessions.set("owner-a", [SESSION]);
-    const path = "/api/runs/same-run/deliverables/0?session=" + SESSION;
+    const path = `/api/runs/same-run/deliverables/0?session=${SESSION}`;
     expect((await handleRuns(request(path, "owner-b"), env))?.status).toBe(404);
     expect(get).not.toHaveBeenCalled();
     const downloaded = await handleRuns(request(path), env);
     expect(downloaded?.status).toBe(200);
-    expect(await downloaded!.text()).toBe(text);
-    expect(downloaded!.headers.get("content-disposition")).toBe('attachment; filename="brief.md"');
+    expect(await downloaded?.text()).toBe(text);
+    expect(downloaded?.headers.get("content-disposition")).toBe('attachment; filename="brief.md"');
     get.mockClear();
     state.sessions.set("owner-a", []);
     expect((await handleRuns(request(path), env))?.status).toBe(404);
