@@ -19,6 +19,18 @@ const INPUT: CodingTaskInput = {
 };
 
 describe("agent tool input envelope", () => {
+  it("preserves an explicit local artifact target and its bounded output contract", () => {
+    const input: CodingTaskInput = { ...INPUT, repoUrl: "", runtime: "local", expectedDeliverables: ["out/brief.md"],
+      executionTarget: { kind: "artifact-workspace", workspaceId: "local-brief", expectedDeliverables: ["out/brief.md"] } };
+    expect(parseAgentToolInput([{ role: "user", text: formatAgentToolInput(input) }])).toEqual(input);
+    expect(() => formatAgentToolInput({ ...input, expectedDeliverables: ["other.md"] })).toThrow();
+    expect(() => formatAgentToolInput({ ...input, repoUrl: INPUT.repoUrl })).toThrow();
+    expect(() => formatAgentToolInput({ ...input, publishPullRequest: true })).toThrow();
+    expect(() => formatAgentToolInput({ ...input, expectedDeliverables: [], executionTarget: {
+      kind: "artifact-workspace", workspaceId: "unbounded", expectedDeliverables: [],
+    } })).toThrow("directory discovery is not supported");
+  });
+
   it("round-trips through format and parse", () => {
     const envelope = formatAgentToolInput(INPUT);
     expect(envelope.startsWith(`${TOOL_INPUT_MARKER}\n`)).toBe(true);

@@ -13,7 +13,7 @@ Shiba supports several ways to pay for model inference. Pick the mode that match
 | --- | --- | --- | --- |
 | Anthropic | API key via AI Gateway BYOK | Yes — default for `claude-code` / OpenCode | [Claude legal & compliance](https://code.claude.com/docs/en/legal-and-compliance) |
 | Anthropic | Worker-stored `claude setup-token` (`claude-subscription`) | **Deprecated** — third-party storage/relay of Claude.ai tokens is not permitted | [Claude legal & compliance](https://code.claude.com/docs/en/legal-and-compliance) |
-| Anthropic | Operator runs `claude` `/login` in their sandbox (`claude-login`) | Yes — unmodified CLI, Anthropic's own flow | [Claude legal & compliance](https://code.claude.com/docs/en/legal-and-compliance) |
+| Anthropic | Native cloud login (`claude-login`) | Unavailable — no authorized per-user credential volume; credentials must not enter containers | [Claude legal & compliance](https://code.claude.com/docs/en/legal-and-compliance) |
 | OpenAI | API key via AI Gateway BYOK | Yes — default for `codex` / OpenCode | [OpenAI API authentication](https://platform.openai.com/docs/api-reference/introduction) |
 | OpenAI | Sign in with ChatGPT plan (`openai-subscription` + `codex-subscription`) | Yes for **open-source, self-hosted** instances; shared/paid hosted shiba needs [OpenAI's interest form](https://developers.openai.com/siwc/token-sharing-open-source.md) first | [SIWC OSS](https://developers.openai.com/siwc/token-sharing-open-source.md), [Codex app-server](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server) |
 
@@ -37,7 +37,8 @@ Optional: `npx shiba-login` loopback helper (posts the callback code to shiba) �
 ## Claude
 
 - No shiba-managed Claude OAuth. Do not read, store, or relay `~/.claude` credentials.
-- Use **API keys** (BYOK), or the operator runs **`claude auth login`** in their own sandbox terminal (`claude-login` harness).
+- Use **API keys** (BYOK), or explicitly pair an operator-owned local daemon using an already authenticated official Claude CLI.
+- Native cloud **`claude-login` is unavailable**: no authorized per-user credential volume is provisioned, and native credentials must not enter a sandbox. A derived config-directory path is not a credential mount. Direct configuration and launch fail closed.
 - `SHIBA_CLAUDE_SUBSCRIPTION` defaults to `0`.
 
 ## API keys (unchanged)

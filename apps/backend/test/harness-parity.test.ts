@@ -77,15 +77,16 @@ describe("harness registry parity", () => {
     expect(HARNESS_NAMES).toEqual(Object.keys(HARNESSES));
   });
 
-  it("keeps shared harness ids equal to registered harnesses with runtimes", () => {
+  it("keeps shared harness ids equal to runnable harnesses plus the reserved native Claude id", () => {
     const runnableNames = Object.entries(HARNESSES)
       .filter(([, harness]) => harness.capabilities().supportedRuntimes.length > 0)
       .map(([name]) => name)
       .sort();
-    expect([...HARNESS_IDS].sort()).toEqual(runnableNames);
+    expect(HARNESSES["claude-login"]?.capabilities().supportedRuntimes).toEqual([]);
+    expect([...HARNESS_IDS].sort()).toEqual([...runnableNames, "claude-login"].sort());
   });
 
-  it("accepts every shared harness id in each input schema and the catalog", () => {
+  it("preserves shared input ids but excludes unavailable native Claude from the runnable catalog", () => {
     const allSubscriptionsEnabled = {
       SHIBA_CLAUDE_SUBSCRIPTION: "1",
       SHIBA_CODEX_SUBSCRIPTION: "1",
@@ -129,8 +130,18 @@ describe("harness registry parity", () => {
           },
         ]).harness,
       ).toBe(harness);
-      expect(catalogIds).toContain(harness);
+      if (harness === "claude-login") expect(catalogIds).not.toContain(harness);
+      else expect(catalogIds).toContain(harness);
     }
+  });
+
+  it("rejects reserved native Claude intake before approval or execution", async () => {
+    const instance = agent();
+    const response = await queueRun(instance, "claude-login");
+    expect(response.status).toBe(400);
+    expect((await response.json() as { error: string }).error).toMatch(/not runnable|unavailable/i);
+    expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
+    expect(mocks.execute).not.toHaveBeenCalled();
   });
 
   it("keeps default-model keys and harness names reciprocal", () => {

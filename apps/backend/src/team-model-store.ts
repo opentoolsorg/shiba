@@ -1,7 +1,7 @@
 import {
   TEAM_MODEL_TEXT_MODEL, TEAM_MODEL_LLAMA_MODEL, type TeamModelFunding, type TeamModelFundingContract, type TeamModelFundingInput,
   type TeamModelSource, type TeamModelStateResponse, type TeamModelTurn, type TeamModelTurnInput,
-  isTeamModelMoneyContract,
+  isTeamModelMoneyContract, teamModelFundingContractSchema,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { COLLAB_TENANT_ID, ensureCollaborationSchema, getCollaborationMembership, getCollaborationRoom, humanActorId, listCollaborationMessages } from "./collaboration-store.js";
@@ -96,7 +96,13 @@ export async function ensureTeamModelSchema(env: Env) {
   for (const sql of TEAM_MODEL_SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
   initialized.add(env.AGENT_AUDIT);
 }
-export function fundingContract(row: TeamModelFundingRow) { return JSON.parse(row.contract_json) as TeamModelFundingContract; }
+export function fundingContract(row: TeamModelFundingRow): TeamModelFundingContract {
+  let value: unknown;
+  try { value = JSON.parse(row.contract_json); } catch { throw new TeamModelError("team_model_contract_unsupported", 403); }
+  const parsed = teamModelFundingContractSchema.strict().safeParse(value);
+  if (!parsed.success) throw new TeamModelError("team_model_contract_unsupported", 403);
+  return parsed.data;
+}
 export function fundingBinding(row: TeamModelFundingRow) { return JSON.parse(row.binding_json) as TeamModelBinding; }
 export function modelId(prefix: "tmf" | "tmt") { return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`; }
 function roomGuard(binding: Pick<TeamModelBinding, "workspaceId" | "roomId">, value: RoomParticipant) {

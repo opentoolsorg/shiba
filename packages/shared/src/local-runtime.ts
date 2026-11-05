@@ -12,6 +12,7 @@
  * Everything in this file is pure — shared between the Worker's envelope
  * builder, the dispatch DO's records, and (mirrored in JS) the daemon.
  */
+import { artifactWorkspaceExecutionTargetSchema, type ArtifactWorkspaceExecutionTarget } from "./execution-target.js";
 import { expectedDeliverablesSchema } from "./deliverables.js";
 import { z } from "zod";
 import { REASONING_EFFORTS } from "./model.js";
@@ -58,7 +59,8 @@ const PATH_MAX = 4_096;
 export const localRunEnvelopeSchema = z.object({
   version: z.literal(1),
   sandboxId: z.string().min(1).max(128),
-  repoUrl: z.string().min(1).max(2048),
+  repoUrl: z.string().max(2048),
+  executionTarget: artifactWorkspaceExecutionTargetSchema.optional(),
   baseBranch: z.string().min(1).max(256),
   task: z.string().min(1).max(TASK_MAX),
   customAgentId: z.string().min(1).max(128).optional(),
@@ -114,7 +116,10 @@ export const localRunEnvelopeSchema = z.object({
       resumeThreadId: z.string().min(1).max(256).optional(),
     })
     .optional(),
-}).refine((value) => value.personalExecution ? value.argv.length === 0 : value.argv.length > 0, { message: "Personal execution cannot adopt harness argv; operator execution requires it." });
+}).refine((value) => value.executionTarget
+  ? !value.personalExecution && value.repoUrl === "" && value.executionTarget.expectedDeliverables.length > 0
+    && JSON.stringify(value.executionTarget.expectedDeliverables) === JSON.stringify(value.expectedDeliverables)
+  : value.repoUrl.length > 0, { message: "Local artifacts require an explicit target and matching nonempty approved deliverables, with no repository or personal grant." }).refine((value) => value.personalExecution ? value.argv.length === 0 : value.argv.length > 0, { message: "Personal execution cannot adopt harness argv; operator execution requires it." });
 export type LocalRunEnvelope = z.infer<typeof localRunEnvelopeSchema>;
 
 /** The daemon's report — what the adapter hands the verify gate. */
@@ -225,6 +230,7 @@ export function buildLocalRunEnvelope(args: {
     skillPins?: Array<{ skillId: string; version: number; name: string; sourceUrl?: string }>;
     orgId?: string;
     personalExecution?: PersonalExecutionClaim;
+    executionTarget?: ArtifactWorkspaceExecutionTarget;
     testCommand?: string[];
     expectedDeliverables?: string[];
   };
@@ -263,6 +269,7 @@ export function buildLocalRunEnvelope(args: {
     version: 1,
     sandboxId: input.sandboxId,
     repoUrl: input.repoUrl,
+    ...(input.executionTarget ? { executionTarget: input.executionTarget } : {}),
     baseBranch: input.baseBranch,
     task: input.task,
     ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),

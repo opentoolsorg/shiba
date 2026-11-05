@@ -147,3 +147,55 @@ export async function adoptSlackCoworkerDraft(env:SlackInstallationEnv,member:Wo
 export async function revokeSlackCoworkerIntake(env:SlackInstallationEnv,member:WorkspaceNativeMember,id:string) {
  const m=memberGuard(member),r=await env.AGENT_AUDIT.prepare(`UPDATE slack_coworker_intake_grants SET status='revoked' WHERE id=? AND workspace_id=? AND account_id=? AND status='active' AND ${m.sql}`).bind(id,member.workspaceId,member.accountId,...m.values).run();if(r.meta.changes!==1)fail();
 }
+
+export interface SlackCoworkerExecutionSelection {
+  id: string;
+  roomId: string;
+  recipientActorId: string;
+  personalExecution: { grantId: string; expectedVersion: number };
+  reviewed: true;
+}
+interface SlackExecutionReceipt {
+  handoff_id: string; draft_id: string; workspace_id: string; account_id: string;
+  member_json: string; selection_json: string; state: string;
+}
+async function executionSchema(env: SlackInstallationEnv) {
+  await env.AGENT_AUDIT.prepare(`CREATE TABLE IF NOT EXISTS slack_coworker_execution_receipts (
+    handoff_id TEXT PRIMARY KEY,draft_id TEXT NOT NULL UNIQUE,workspace_id TEXT NOT NULL,account_id TEXT NOT NULL,
+    member_json TEXT NOT NULL,selection_json TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('dispatching','queued','blocked','unknown')),
+    created_at INTEGER NOT NULL
+  )`).run();
+}
+/** One draft has one submission attempt; an uncertain queue result is never automatically replayed. */
+export async function claimSlackCoworkerExecution(env: SlackInstallationEnv, member: WorkspaceNativeMember, selection: SlackCoworkerExecutionSelection) {
+  await executionSchema(env);
+  const guard = draftGuard(member);
+  const draft = await env.AGENT_AUDIT.prepare(`SELECT d.text FROM slack_coworker_drafts d WHERE d.id=? AND ${guard.sql}`)
+    .bind(selection.id, ...guard.values).first<{ text: string }>();
+  if (!draft) fail();
+  const handoffId = `scx_${selection.id.slice(3)}`;
+  const result = await env.AGENT_AUDIT.prepare(`INSERT OR IGNORE INTO slack_coworker_execution_receipts
+    (handoff_id,draft_id,workspace_id,account_id,member_json,selection_json,state,created_at)
+    SELECT ?,?,?,?,?,?,'dispatching',? WHERE EXISTS(SELECT 1 FROM slack_coworker_drafts d WHERE d.id=? AND d.text=? AND ${guard.sql})`)
+    .bind(handoffId, selection.id, member.workspaceId, member.accountId, JSON.stringify(member), JSON.stringify(selection), Date.now(), selection.id, draft.text, ...guard.values).run();
+  if (result.meta.changes !== 1) throw new SlackInstallationError("slack_coworker_execution_already_submitted", 409);
+  return { handoffId, task: draft.text };
+}
+export async function finishSlackCoworkerExecution(env: SlackInstallationEnv, handoffId: string, state: "queued" | "blocked" | "unknown") {
+  await env.AGENT_AUDIT.prepare("UPDATE slack_coworker_execution_receipts SET state=? WHERE handoff_id=? AND state='dispatching'").bind(state, handoffId).run();
+}
+/** Reserved IDs fail closed even when a receipt/table is missing. Legacy handoffs are unaffected. */
+export async function isSlackCoworkerExecutionCurrent(env: SlackInstallationEnv, handoffId: string, scope: { workspaceId: string; userId: string }, roomId: string) {
+  if (!handoffId.startsWith("scx_")) return true;
+  try {
+    if (env.SLACK_INSTALLATIONS_ENABLED?.trim() !== "true") return false;
+    const receipt = await env.AGENT_AUDIT.prepare("SELECT * FROM slack_coworker_execution_receipts WHERE handoff_id=? AND workspace_id=? AND state IN ('dispatching','queued')")
+      .bind(handoffId, scope.workspaceId).first<SlackExecutionReceipt>();
+    if (!receipt) return false;
+    const member = JSON.parse(receipt.member_json) as WorkspaceNativeMember;
+    const selection = JSON.parse(receipt.selection_json) as SlackCoworkerExecutionSelection;
+    if (member.workspaceId !== scope.workspaceId || member.userId !== scope.userId || member.accountId !== receipt.account_id || selection.roomId !== roomId) return false;
+    const guard = draftGuard(member);
+    return Boolean(await env.AGENT_AUDIT.prepare(`SELECT 1 FROM slack_coworker_drafts d WHERE d.id=? AND ${guard.sql}`).bind(receipt.draft_id, ...guard.values).first());
+  } catch { return false; }
+}

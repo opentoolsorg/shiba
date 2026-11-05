@@ -10,7 +10,8 @@ import { stripeAvailable, type StripeEnv } from "./founder-stripe-store.js";
 import { hubspotAvailable } from "./founder-hubspot-store.js";
 import { FOUNDER_HUBSPOT_EXECUTOR_DIGEST } from "./founder-hubspot-generated.js";
 import { createFounderReconciliation,listFounderReconciliations,composeFounderReconciliation,readFounderReconciliation,revokeFounderReconciliation } from "./founder-reconciliation-store.js";
-const pattern=/^\/api\/founder-reconciliations(?:\/(frc_[a-f0-9]{32})(?:\/(compose|revoke|download))?)?\/?$/;
+import { founderRollingComparisonDecisionSchema, rollingFounderComparison } from "./founder-reconciliation-rolling.js";
+const pattern=/^\/api\/founder-reconciliations(?:\/(frc_[a-f0-9]{32})(?:\/(compose|revoke|download|rolling))?)?\/?$/;
 const headers={"cache-control":"no-store","referrer-policy":"no-referrer","x-content-type-options":"nosniff"};
 const json=(v:unknown,status=200)=>Response.json(v,{status,headers});
 const revoke=z.strictObject({digest:z.string().regex(/^[a-f0-9]{64}$/)});
@@ -25,6 +26,7 @@ export async function handleFounderReconciliations(request:Request,env:StripeEnv
    let body:unknown;try{body=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(await boundedBody(request.body,8192)));}catch{return scoped({error:"reconciliation_request_invalid"},400);}
    if(!id){const result=await createFounderReconciliation(env,member,body,session);({proofSql,proofValues}=result);leaseExpiresAt=Math.min(leaseExpiresAt,result.leaseExpiresAt);requiresSources=true;expectedRuntime={versionId:result.draft.sources.hubspot.runtimeVersionId,manifestDigest:result.draft.sources.hubspot.manifestDigest};payload={draft:result.draft};status=201;}
    else if(action==="compose"){const input=founderReconciliationDecisionSchema.parse(body),result=await composeFounderReconciliation(env,member,id,input.digest,session);({proofSql,proofValues}=result);leaseExpiresAt=Math.min(leaseExpiresAt,result.leaseExpiresAt);requiresSources=true;expectedRuntime={versionId:result.draft.sources.hubspot.runtimeVersionId,manifestDigest:result.draft.sources.hubspot.manifestDigest};payload={draft:result.draft,report:result.report};}
+   else if(action==="rolling"){const input=founderRollingComparisonDecisionSchema.parse(body),result=await readFounderReconciliation(env,member,id,session);({proofSql,proofValues}=result);leaseExpiresAt=Math.min(leaseExpiresAt,result.leaseExpiresAt);requiresSources=true;expectedRuntime={versionId:result.draft.sources.hubspot.runtimeVersionId,manifestDigest:result.draft.sources.hubspot.manifestDigest};payload={report:rollingFounderComparison(result.draft,result.report,input)};}
    else if(action==="revoke")payload={draft:await revokeFounderReconciliation(env,member,id,revoke.parse(body).digest,session)};
    else return scoped({error:"method_not_allowed"},405);
   }else return scoped({error:"method_not_allowed"},405);

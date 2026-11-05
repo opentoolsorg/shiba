@@ -6,10 +6,12 @@ import { installationSnapshot, type SlackInstallationEnv, type SlackInstallation
 import { handleMultiInstallationSlackCallback } from "../src/slack-installations-routing.js";
 
 import { handleSlackCoworker } from "../src/slack-coworker-routes.js";
+const queue = vi.hoisted(() => ({ calls: 0, input: undefined as Record<string, unknown> | undefined, status: 201, fail: false }));
+vi.mock("../src/collaboration-routes.js", () => ({ handleCollaboration: async (request: Request) => { queue.calls++; queue.input=await request.json() as Record<string,unknown>; if(queue.fail) throw new Error("unknown queue outcome"); return Response.json({privateTask:"must not leak"},{status:queue.status}); } }));
 const native = vi.hoisted(() => ({ calls: 0, hook: undefined as (() => void) | undefined }));
 vi.mock("../src/request-auth.js", async original => ({ ...await original<typeof import("../src/request-auth.js")>(), isAuthorizedRequest: async () => true, resolveUserId: async () => "owner@example.test" }));
 vi.mock("@shiba/auth/better-auth", async original => ({ ...await original<typeof import("@shiba/auth/better-auth")>(), resolveBetterAuthSessionAccount: async () => { native.calls++; native.hook?.(); return { policy: { accountId: "native1", email: "owner@example.test", kind: "invited" }, emailVerified: true }; } }));
-beforeEach(() => { native.calls = 0; native.hook = undefined; });
+beforeEach(() => { queue.calls=0;queue.input=undefined;queue.status=201;queue.fail=false; native.calls = 0; native.hook = undefined; });
 function fixture() {
   const db=customAgentD1();
   db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT)');
@@ -91,5 +93,49 @@ describe("independent Slack planting and source revocation v3", () => {
     expect(native.calls).toBe(2);
     expect(f.sqlite.prepare("SELECT state FROM slack_installations").get()).toEqual({ state: "revoked" });
     expect(await response!.text()).not.toContain("private revoked draft");
+  });
+});
+
+async function submissionFixture() {
+  const f=fixture(); f.env.SLACK_INSTALLATIONS_ENABLED="true";
+  const c=await beginSlackCoworkerBinding(f.env,f.member,f.installation);
+  await observeSlackCoworkerChallenge(f.env,f.installation,c.secret,"UHUMAN");
+  await confirmSlackCoworkerOnSlack(f.env,f.installation,c.id,"UHUMAN",true);
+  const binding=await confirmSlackCoworkerBinding(f.env,f.member,f.installation,c.id,"UHUMAN");
+  await grantSlackCoworkerIntake(f.env,f.member,binding.id,"GPRIVATE","123.0001");
+  await intakeSlackCoworkerEvent(f.env,f.installation,"ESUBMIT",{user:"UHUMAN",channel:"GPRIVATE",thread_ts:"123.0001",ts:`${Math.floor(Date.now()/1000)+1}.0001`,text:"Execute only on my paired local computer"});
+  const draft=f.sqlite.prepare("SELECT id FROM slack_coworker_drafts").get() as {id:string};
+  const body={id:draft.id,roomId:"room_"+"2".repeat(24),recipientActorId:"agent:helper",personalExecution:{grantId:"plex_"+"3".repeat(32),expectedVersion:1},reviewed:true};
+  const request=(input:unknown=body)=>new Request("https://shiba.test/api/slack/coworker/drafts/submit",{method:"POST",headers:{Origin:"https://shiba.test","Content-Type":"application/json","X-Shiba-Workspace":f.member.workspaceId},body:JSON.stringify(input)});
+  return {...f,body,request};
+}
+describe("native-reviewed Slack execution bridge",()=>{
+  it("queues the signed draft with only a selected personal execution grant, not an approval",async()=>{
+    const f=await submissionFixture();
+    const response=await handleSlackCoworker(f.request(),f.env);
+    expect(response?.status).toBe(201);
+    expect(await response?.json()).toMatchObject({state:"queued",approvalRequired:true});
+    expect(queue.input).toMatchObject({task:"Execute only on my paired local computer",personalExecution:f.body.personalExecution,budget:0,grantedCapabilities:["room.read","message.send"]});
+    expect(queue.input).not.toHaveProperty("approved");
+    expect((await handleSlackCoworker(f.request(),f.env))?.status).toBe(409);
+    expect(queue.calls).toBe(1);
+  });
+  it.each([{reviewed:false},{runtime:"cloud"},{personalExecution:undefined},{recipientActorId:"human:other"}])("rejects missing consent and scope overrides %j",async change=>{
+    const f=await submissionFixture();
+    expect((await handleSlackCoworker(f.request({...f.body,...change}),f.env))?.status).toBe(400);
+    expect(queue.calls).toBe(0);
+  });
+  it("does not expose the downstream private body or replay uncertain effects",async()=>{
+    const f=await submissionFixture();queue.fail=true;
+    const response=await handleSlackCoworker(f.request(),f.env);
+    expect(response?.status).toBe(503);
+    expect(await response?.json()).toMatchObject({state:"unknown",approvalRequired:true});
+    expect((await handleSlackCoworker(f.request(),f.env))?.status).toBe(409);
+    expect(queue.calls).toBe(1);
+  });
+  it("rechecks native authority after claiming and before queue effects",async()=>{
+    const f=await submissionFixture();native.hook=()=>{if(native.calls===3)f.sqlite.exec("UPDATE user SET emailVerified=0");};
+    expect((await handleSlackCoworker(f.request(),f.env))?.status).toBe(503);
+    expect(queue.calls).toBe(0);
   });
 });

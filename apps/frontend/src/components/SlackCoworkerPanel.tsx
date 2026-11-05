@@ -25,6 +25,7 @@ function ScopedSlackCoworkerPanel({workspaceId,actorId,onAdoptTask,client:provid
     finally{if(current(owner,seq)){operating.current=false;setBusy(false);}}}
   return <section aria-label="Slack coworker" className="min-w-0 space-y-3 border border-[var(--line)] bg-[var(--paper)] p-4 text-sm text-[var(--ink)]">
     <h3 className="text-base font-semibold">Slack coworker</h3><p className="text-xs text-[var(--ink-2)]">Link your native account and review your own Slack statements as private drafts. Slack identity does not grant source access, provider funding, or execution.</p>
+    <p className="text-xs text-[var(--ink-2)]">Installing the Slack app is not execution approval. Verify the exact workspace and Slack user, then grant only the intended channel and thread. Linking an identity and allowing message intake are separate from approving a task.</p>
     {error&&<p role="alert">{error}</p>}<p className="break-all text-xs">Workspace {workspaceId} · Member {actorId}</p>
     <label>Managed installation ID <input className={INPUT} value={installationId} disabled={busy||uncertain} onChange={e=>setInstallationId(e.target.value)}/></label>{' '}
     <button type="button" className={BUTTON} disabled={busy||uncertain} onClick={()=>void act(async(signal,owner,seq)=>{const result=await client.begin(installationId,signal);if(current(owner,seq))setSecret(result.secret);})}>Begin identity link</button>
