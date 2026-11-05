@@ -1234,9 +1234,10 @@ export async function handleCollaboration(
           return invalidBody("Connected-app room work is not supported yet.");
         }
         const runtime = personalExecution || body.runtime === "local" ? "local" : "sandbox";
-        if (requestedTarget?.kind === "artifact-workspace" && personalExecution) {
+        if (requestedTarget?.kind === "artifact-workspace" && runtime === "local" &&
+            (personalExecution || collaborationEmployeeOrgId(scope).startsWith("team:"))) {
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
-          return invalidBody("Personal account grants currently authorize repository work only. Choose a paired local API route for artifact work.");
+          return json({ error: "Team and personal-account local artifact grants are unavailable. Operator pairing does not authorize another workspace's execution." }, 403);
         }
         if (requestedTarget?.kind === "artifact-workspace" && runtime === "local" && requestedTarget.expectedDeliverables.length === 0) {
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());

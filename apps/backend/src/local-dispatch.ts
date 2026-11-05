@@ -47,6 +47,7 @@ import { isPersonalOwnerCurrent, personalComputerMatches, personalGrantFence, is
 import { validatePersonalExecutionClaim } from "./personal-execution-claim.js";
 
 const RECORD_PREFIX = "run:";
+const ARTIFACT_DISPATCH_PREFIX = "artifact-dispatched:";
 const MAX_LOCAL_EVENT_BATCH = 64;
 const MAX_SESSION_EVENTS = 200;
 const COMPUTER_PREFIX = "computer:";
@@ -151,6 +152,9 @@ export class LocalDispatch extends DurableObject<Env> {
         (record.status === "settled" || record.status === "cancelled") &&
         now - (record.settledAt ?? record.envelope.createdAt) > 7 * 24 * 60 * 60 * 1000
       ) {
+        if (record.envelope.executionTarget?.kind === "artifact-workspace") {
+          await this.ctx.storage.put(`${ARTIFACT_DISPATCH_PREFIX}${record.envelope.sandboxId}`, true);
+        }
         await this.deleteRecord(record.envelope.sandboxId);
       }
     }
@@ -221,6 +225,14 @@ export class LocalDispatch extends DurableObject<Env> {
     await this.reapStaleClaims(now);
     const machineId = request.headers.get(LOCAL_MACHINE_HEADER) ?? undefined;
     const machine = machineId ? await this.ctx.storage.get<ComputerRecord>(`${COMPUTER_PREFIX}${machineId}`) : undefined;
+    if (["/result", "/events", "/approval", "/control"].includes(url.pathname)) {
+      const body = await request.clone().json().catch(() => ({})) as { sandboxId?: unknown };
+      const record = typeof body.sandboxId === "string" ? await this.getRecord(body.sandboxId) : null;
+      if (record?.envelope.executionTarget?.kind === "artifact-workspace" &&
+        (!machine?.tokenHash?.trim() || machine.personalExecution || record.targetMachineId !== machineId)) {
+        return Response.json({ error: "Artifact claim requires its paired computer." }, { status: 403 });
+      }
+    }
     if (request.headers.get(LOCAL_ADAPTER_CALLER_HEADER) === "1" && ["/status", "/result", "/events", "/approval", "/control"].includes(url.pathname)) {
       const sandboxId = request.method === "GET" ? url.searchParams.get("sandboxId") : (await request.clone().json().catch(() => ({})) as { sandboxId?: unknown }).sandboxId;
       const record = typeof sandboxId === "string" ? await this.getRecord(sandboxId) : null;
@@ -371,6 +383,11 @@ export class LocalDispatch extends DurableObject<Env> {
         return Response.json({ error: "Invalid run envelope." }, { status: 400 });
       }
       const existing = await this.getRecord(parsed.data.sandboxId);
+      const artifact = parsed.data.executionTarget?.kind === "artifact-workspace";
+      if ((existing && (artifact || existing.envelope.executionTarget?.kind === "artifact-workspace")) ||
+        await this.ctx.storage.get(`${ARTIFACT_DISPATCH_PREFIX}${parsed.data.sandboxId}`)) {
+        return Response.json({ error: "Local artifact execution was already dispatched; create a new approval instead of retrying." }, { status: 409 });
+      }
       if (existing && parsed.data.personalExecution) return Response.json({ error: "Personal execution was already dispatched." }, { status: 409 });
       if (existing !== null && existing.status !== "settled" && existing.status !== "cancelled") {
         return Response.json(
@@ -409,6 +426,7 @@ export class LocalDispatch extends DurableObject<Env> {
         typeof body.dashboardOwnerId === "string" && body.dashboardOwnerId.trim() !== ""
           ? body.dashboardOwnerId.trim().slice(0, 200)
           : undefined;
+      if (artifact && (!target || !dashboardOwnerId)) return Response.json({ error: "Local artifacts require a paired computer and owner." }, { status: 403 });
       const record: LocalDispatchRecord = {
         envelope: parsed.data,
         status: "pending",
@@ -427,6 +445,22 @@ export class LocalDispatch extends DurableObject<Env> {
         });
         return inserted ? Response.json({ ok: true }) : Response.json({ error: "Personal dispatch changed or already exists." }, { status: 409 });
       }
+      if (artifact) {
+        if (!this.ctx.storage.transaction) return Response.json({ error: "Artifact dispatch storage unavailable." }, { status: 503 });
+        const inserted = await this.ctx.storage.transaction(async (tx) => {
+          const fence = `${ARTIFACT_DISPATCH_PREFIX}${parsed.data.sandboxId}`;
+          if (await tx.get(fence) || await tx.get(`${RECORD_PREFIX}${parsed.data.sandboxId}`)) return false;
+          const computer = await tx.get<ComputerRecord>(`${COMPUTER_PREFIX}${target}`);
+          if (!computer?.tokenHash?.trim() || computer.personalExecution || !Number.isFinite(computer.lastHeartbeat) ||
+            Math.abs(Date.now() - computer.lastHeartbeat) > LOCAL_HEARTBEAT_STALE_MS ||
+            !computer.harnesses.includes(LOCAL_DAEMON_HARNESSES[parsed.data.harness] ?? "")) return false;
+          // Keep a small replay fence after the bounded run audit record is pruned.
+          await tx.put(fence, true);
+          await tx.put(`${RECORD_PREFIX}${parsed.data.sandboxId}`, record);
+          return true;
+        });
+        return inserted ? Response.json({ ok: true }) : Response.json({ error: "Artifact execution was already dispatched." }, { status: 409 });
+      }
       await this.putRecord(record);
       return Response.json({ ok: true });
     }
@@ -439,6 +473,8 @@ export class LocalDispatch extends DurableObject<Env> {
       const records = await this.ctx.storage.list<LocalDispatchRecord>({ prefix: RECORD_PREFIX });
       const pending = [...records.values()]
         .filter((record) => record.status === "pending")
+        .filter((record) => record.envelope.executionTarget?.kind !== "artifact-workspace" ||
+          Boolean(machine?.tokenHash?.trim() && !machine.personalExecution && record.targetMachineId === machineId))
         .filter((record) => machine?.personalExecution
           ? Boolean(record.envelope.personalExecution && record.targetMachineId === machineId)
           : !record.envelope.personalExecution)
@@ -874,8 +910,26 @@ export class LocalDispatch extends DurableObject<Env> {
       }
       const existing = await this.ctx.storage.get<ComputerRecord>(`${COMPUTER_PREFIX}${body.machineId}`);
       if (existing?.personalExecution) return Response.json({ error: "Computer not found." }, { status: 404 });
-      // Dropping the record drops the token hash with it: the next /authorize misses → 401.
-      await this.ctx.storage.delete(`${COMPUTER_PREFIX}${body.machineId}`);
+      const outstanding = await this.ctx.storage.list<LocalDispatchRecord>({ prefix: RECORD_PREFIX });
+      const hasArtifacts = [...outstanding.values()].some((record) => record.envelope.executionTarget?.kind === "artifact-workspace" &&
+        record.targetMachineId === body.machineId && ["pending", "claimed"].includes(record.status));
+      if (!hasArtifacts) {
+        await this.ctx.storage.delete(`${COMPUTER_PREFIX}${body.machineId}`);
+        return Response.json({ ok: true });
+      }
+      if (!this.ctx.storage.transaction) return Response.json({ error: "Computer revocation storage unavailable." }, { status: 503 });
+      await this.ctx.storage.transaction(async (tx) => {
+        // Dropping the record invalidates the credential and every artifact claim together.
+        await tx.delete(`${COMPUTER_PREFIX}${body.machineId}`);
+        const records = await tx.list<LocalDispatchRecord>({ prefix: RECORD_PREFIX });
+        for (const record of records.values()) {
+          if (record.envelope.executionTarget?.kind === "artifact-workspace" && record.targetMachineId === body.machineId &&
+            ["pending", "claimed"].includes(record.status)) {
+            await tx.put(`${RECORD_PREFIX}${record.envelope.sandboxId}`, { ...record, status: "cancelled", claimToken: undefined, settledAt: now });
+            await tx.put(`${ARTIFACT_DISPATCH_PREFIX}${record.envelope.sandboxId}`, true);
+          }
+        }
+      });
       return Response.json({ ok: true });
     }
 
