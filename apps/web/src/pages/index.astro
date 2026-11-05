@@ -1,5 +1,6 @@
 ---
 import AgentCast from '../components/AgentCast.astro';
+import HeroDemo from '../components/HeroDemo.astro';
 import MarketingPage from '../layouts/MarketingPage.astro';
 import ShibaMascot from '../components/ShibaMascot.astro';
 
@@ -106,7 +107,7 @@ const steps = [
         <span class="eyebrow-chip">Open source · Self-hosted</span>
         <h1 id="home-title" class="hero-title">
           AI employees for<br />
-          <span class="title-accent title-accent-work">the work</span> <span class="title-accent title-accent-company">behind your company.</span>
+          <span class="title-accent">the work behind your company.</span>
         </h1>
         <p class="hero-subhead">
           From code and design to marketing, sales, operations, finance, and revenue work. Give Shiba a task, review the plan, and keep the final decision.
@@ -119,7 +120,7 @@ const steps = [
         </div>
         <div class="hero-disclosures">
           <p class="hero-note">Free software to self-host. Hosting and model usage cost extra.</p>
-          <p class="hero-note">Normal tasks need a GitHub repository and your approval. Scoped automations require permission in advance. The demo is a simulation.</p>
+          <p class="hero-note">Tasks need a GitHub repository and your approval. The demo is a simulation.</p>
         </div>
 
         <!-- Static "Works with" chip row -->
@@ -135,19 +136,11 @@ const steps = [
           </div>
         </div>
       </div>
-    </section>
 
-    <section class="dashboard-showcase" aria-label="Shiba dashboard preview">
-      <figure id="dashboard" class="hero-product-frame">
-        <div class="dashboard-peek" aria-hidden="true"><ShibaMascot state="working" size={132} /></div>
-        <div class="dashboard-capture">
-          <picture>
-            <source data-theme-source srcset="/assets/dashboard/agents-dark.png" media="(prefers-color-scheme: dark)" />
-            <img src="/assets/dashboard/agents-light.png" width="1280" height="844" fetchpriority="high" decoding="async" alt="Shiba dashboard Agents page with role templates for Engineering, Marketing, Sales, Product, Design, Research, Operations and QA beside the workspace sidebar." />
-          </picture>
-          <figcaption class="caption-5">The real Shiba dashboard, running locally before a repository is connected.</figcaption>
-        </div>
-      </figure>
+      <!-- 3-Pane Product Window -->
+      <div class="hero-product-frame">
+        <HeroDemo />
+      </div>
     </section>
 
     <!-- Section 2: Dark Manifesto Band -->
@@ -155,13 +148,36 @@ const steps = [
       <div class="manifesto-inner">
         <p class="manifesto-eyebrow">The Shiba principle</p>
         <h2 class="manifesto-quote">
-          AI employees that work in your repos with your approval or scoped permission granted in advance.
+          AI employees that work in your repos and wait for your approval.
         </h2>
         <div class="manifesto-actions">
           <a class="cta cta-primary" href="/docs/self-hosting/">Self host Shiba</a>
           <span class="manifesto-sub">Open source · AGPL-3.0-only · Your infrastructure</span>
         </div>
       </div>
+    </section>
+
+    <!-- Section 3: Real Dashboard (#dashboard) -->
+    <section id="dashboard" class="home-section dashboard-section" data-reveal aria-labelledby="dashboard-title">
+      <div class="section-head">
+        <p class="eyebrow">The real dashboard</p>
+        <h2 id="dashboard-title">Every employee,<br />one workspace.</h2>
+        <p class="section-lead">Start a bot from a role template, then give it work in its own thread. Plans, approvals and pull requests stay in one place.</p>
+      </div>
+      <figure class="dashboard-comic-panel">
+        <picture>
+          <source data-theme-source srcset="/assets/dashboard/agents-dark.png" media="(prefers-color-scheme: dark)" />
+          <img
+            src="/assets/dashboard/agents-light.png"
+            width="1280"
+            height="844"
+            loading="lazy"
+            decoding="async"
+            alt="Shiba dashboard Agents page with role templates for Engineering, Marketing, Sales, Product, Design, Research, Operations and QA beside the workspace sidebar."
+          />
+        </picture>
+        <figcaption class="caption-5">Screenshot of a local Shiba build before a repository is connected.</figcaption>
+      </figure>
     </section>
 
     <!-- Section 4: What makes Shiba a hire -->
@@ -203,7 +219,7 @@ const steps = [
         <article class="hire-card">
           <div class="card-num">03</div>
           <h3>Waits for your approval</h3>
-          <p>Normal tasks wait for you to inspect and approve the proposal. Scoped unattended automations may act under permission granted in advance.</p>
+          <p>Never merges code, writes to production, or acts on external services during task execution until you inspect the proposal and grant permission. Planning may call a model provider before approval.</p>
           <div class="vignette-box approval-vignette">
             <div class="vignette-bar"><span>Gate: Human Review</span><span class="vignette-alert">Pending</span></div>
             <div class="vignette-approval-row">
@@ -233,7 +249,6 @@ const steps = [
               type="button"
               class:list={['delivers-tab-btn', { 'is-active': i === 0 }]}
               data-delivers-tab={c.id}
-              aria-controls={`compare-${c.id}`}
               aria-pressed={i === 0 ? 'true' : 'false'}
             >
               {c.role}
@@ -243,7 +258,7 @@ const steps = [
 
         <div class="delivers-panels">
           {chatbotComparisons.map((c, i) => (
-            <div class:list={['delivers-panel', { 'is-active': i === 0 }]} data-delivers-panel={c.id} id={`compare-${c.id}`}>
+            <div class:list={['delivers-panel', { 'is-active': i === 0 }]} data-delivers-panel={c.id}>
               <div class="compare-col chatbot-col">
                 <div class="compare-badge">Standard chatbot</div>
                 <h4>Suggests theory</h4>
@@ -308,7 +323,31 @@ const steps = [
             </div>
           </div>
         </div>
-
+        <div class="permission-visual" aria-label="Example of the approval boundary">
+          <div class="permission-top">
+            <span class="permission-icon" aria-hidden="true">◇</span>
+            <span>Example approval</span>
+            <span class="permission-status">Waiting for you</span>
+          </div>
+          <div class="permission-plan">
+            <span class="small-label">Proposed task</span>
+            <strong>Prepare a draft budget from supplied figures</strong>
+            <div class="permission-data">
+              <span>Repository</span><code>example/team-workspace</code>
+              <span>Branch</span><code>task/draft-budget</code>
+            </div>
+          </div>
+          <div class="gate-line"><span></span><b>Human approval required</b><span></span></div>
+          <div class="permission-bottom">
+            <span class="lock-symbol" aria-hidden="true">⌑</span>
+            <div>
+              <strong>Sandbox not started</strong>
+              <p>Review the request before work begins.</p>
+            </div>
+            <span class="quiet-dot" aria-hidden="true"></span>
+          </div>
+          <p class="visual-caption">Illustrative boundary, not a live run. Planning may call a model before approval.</p>
+        </div>
       </div>
     </section>
 
@@ -347,6 +386,21 @@ const steps = [
               <p>{step.text}</p>
             </article>
           ))}
+        </div>
+
+        <!-- Terminal tile with real command from docs -->
+        <div class="terminal-tile" aria-label="Terminal installation command">
+          <div class="terminal-bar">
+            <span class="term-dots"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span></span>
+            <span class="term-title">bash — shiba local setup</span>
+          </div>
+          <pre class="terminal-body"><code><span class="term-prompt">$</span> git clone https://github.com/princepal9120/shiba.git
+<span class="term-prompt">$</span> cd shiba &amp;&amp; pnpm install
+<span class="term-prompt">$</span> pnpm shiba dev
+<span class="term-dim">› local dev server at http://localhost:8788</span>
+<span class="term-dim">› created apps/backend/.dev.vars</span>
+<span class="term-dim">› next: add GITHUB_TOKEN to .dev.vars, set up AI Gateway BYOK keys</span>
+<span class="term-ok">✓ ready once GitHub and model access are configured</span></code></pre>
         </div>
       </div>
     </section>
@@ -426,11 +480,16 @@ const steps = [
     <!-- Section 12: Closing CTA -->
     <section class="closing-section" data-reveal aria-labelledby="closing-title">
       <div class="closing-inner">
-        <h2 id="closing-title">Your next employee runs on your terms.</h2>
-        <div class="closing-actions">
+        <p class="eyebrow">Your next employee runs on your terms.</p>
+        <h2 id="closing-title">Give the next task<br />a clear place to start.</h2>
+        <p class="closing-lead">Set up Shiba, choose one piece of work, and review what comes back.</p>
+        <div class="hero-actions">
           <a class="cta cta-primary" href="/docs/self-hosting/">Self host Shiba</a>
+          <a class="secondary-quiet-link" href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer">
+            Star on GitHub <span aria-hidden="true">↗</span>
+          </a>
         </div>
-        <p class="closing-note">Open source · AGPL-3.0-only · github.com/princepal9120/shiba</p>
+        <span class="closing-note">Start with a small task. Keep the final decision.</span>
       </div>
     </section>
   </div>
@@ -468,6 +527,7 @@ const steps = [
     var tabBtns = document.querySelectorAll('[data-delivers-tab]');
     var panels = document.querySelectorAll('[data-delivers-panel]');
     if (tabBtns.length > 0 && panels.length > 0) {
+      document.documentElement.classList.add('delivers-js');
       tabBtns.forEach(function(btn) {
         btn.addEventListener('click', function() {
           var role = btn.getAttribute('data-delivers-tab');
@@ -477,23 +537,10 @@ const steps = [
             b.setAttribute('aria-pressed', String(active));
           });
           panels.forEach(function(p) {
-            var active = p.getAttribute('data-delivers-panel') === role;
-            p.classList.toggle('is-active', active);
-            p.hidden = !active;
+            p.classList.toggle('is-active', p.getAttribute('data-delivers-panel') === role);
           });
         });
-        btn.addEventListener('keydown', function(event) {
-          var index = Array.prototype.indexOf.call(tabBtns, btn);
-          var next = event.key === 'ArrowRight' ? (index + 1) % tabBtns.length
-            : event.key === 'ArrowLeft' ? (index + tabBtns.length - 1) % tabBtns.length
-            : event.key === 'Home' ? 0 : event.key === 'End' ? tabBtns.length - 1 : -1;
-          if (next < 0) return;
-          event.preventDefault();
-          tabBtns[next].focus();
-          tabBtns[next].click();
-        });
       });
-      tabBtns[0].click();
     }
 
     // Mascot corner peek observer
@@ -528,14 +575,18 @@ const steps = [
 </script>
 
 <style>
-  /* Shared width keeps landing sections aligned. */
+  /* 1120px hairline frame column (GetOverlay layout style) */
   .landing {
-    width: 100%;
-    max-width: 1440px;
+    max-width: 1120px;
     margin-inline: auto;
+    border-left: 1px solid var(--hairline);
+    border-right: 1px solid var(--hairline);
     background: var(--paper);
     color: var(--ink);
     font-family: 'Geist Mono', monospace;
+  }
+  @media (max-width: 1120px) {
+    .landing { border-left: none; border-right: none; }
   }
 
   /* Section baseline and anchor scroll clearance */
@@ -548,13 +599,6 @@ const steps = [
     .home-hero, .manifesto-band, .home-section, .closing-section {
       padding: 64px 20px;
     }
-  }
-  /* Every section's content shares one 1200px column, as in the wireframe. */
-  .home-hero, .manifesto-band, .home-section, .closing-section {
-    padding-inline: max(40px, calc((100% - 1200px) / 2));
-  }
-  @media (max-width: 768px) {
-    .home-hero, .manifesto-band, .home-section, .closing-section { padding-inline: 20px; }
   }
 
   /* Shared Typography & Buttons */
@@ -642,12 +686,12 @@ const steps = [
   /* SECTION 1: Single-Column Hero */
   .home-hero { text-align: center; }
   .hero-header-stack {
-    max-width: 1200px;
+    max-width: 860px;
     margin-inline: auto;
     display: flex;
     flex-direction: column;
     align-items: center;
-    margin-bottom: 0;
+    margin-bottom: 48px;
   }
   .hero-title {
     font: 400 clamp(44px, 7vw, 76px)/0.95 'Bebas Neue', 'Geist', sans-serif;
@@ -656,22 +700,9 @@ const steps = [
     margin: 0 0 20px;
     color: var(--ink);
   }
-  .title-accent {
-    font-family: 'Instrument Serif', Georgia, serif;
-    font-style: italic;
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: -0.01em;
-    color: var(--navy);
-  }
-  .title-accent-work {
-    border-bottom: 5px solid #7c3aed;
-  }
-  .title-accent-company {
-    border-bottom: 5px solid #e8590c;
-  }
+  .title-accent { color: var(--accent); }
   .hero-subhead {
-    max-width: 640px;
+    max-width: 560px;
     font: 400 15px/1.6 'Geist Mono', monospace;
     color: var(--ink-2);
     margin: 0 0 28px;
@@ -697,7 +728,7 @@ const steps = [
     margin-top: 12px;
   }
   .works-label { margin: 0; font-size: 11px; color: var(--ink-2); }
-  .works-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-start; }
+  .works-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
   .works-chip {
     display: inline-flex;
     align-items: center;
@@ -711,58 +742,49 @@ const steps = [
   }
   .chip-icon { display: block; flex: none; }
 
-  .dashboard-showcase {
-    max-width: 1280px;
+  .hero-product-frame {
+    max-width: 1040px;
     margin-inline: auto;
-    padding: 0 40px 72px;
-  }
-  .hero-product-frame { position: relative; width: 100%; max-width: none; margin: 0; text-align: left; }
-  .dashboard-peek { position: absolute; right: 24px; top: -104px; width: 132px; z-index: 1; pointer-events: none; }
-  @media (max-width: 768px) {
-    .dashboard-showcase { padding: 0 20px 48px; }
-    .dashboard-peek { top: -78px; right: 12px; width: 104px; }
-    .dashboard-peek :global(svg) { width: 100% !important; }
+    text-align: left;
   }
 
-  /* SECTION 2: Dark Manifesto Band & SECTION 12: Closing CTA */
-  .manifesto-band,
-  .closing-section {
+  /* SECTION 2: Dark Manifesto Band */
+  .manifesto-band {
     background: #131209;
     color: #F6F1E6;
     text-align: center;
   }
-  .manifesto-inner,
-  .closing-inner { max-width: 800px; margin-inline: auto; }
-  .manifesto-quote,
-  .closing-inner h2 {
+  .manifesto-inner { max-width: 800px; margin-inline: auto; }
+  .manifesto-quote {
     font: 400 clamp(32px, 5.5vw, 52px)/1.02 'Bebas Neue', 'Geist', sans-serif;
     letter-spacing: 0.02em;
     text-transform: uppercase;
     color: #F6F1E6;
     margin: 0 0 32px;
   }
-  .manifesto-actions,
-  .closing-actions { display: flex; flex-direction: column; align-items: center; gap: 14px; }
-  .manifesto-sub,
-  .closing-note { font: 400 12px/1.4 'Geist Mono', monospace; color: #A9A291; }
-  .closing-note { margin: 20px 0 0; }
+  .manifesto-actions { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .manifesto-sub { font: 400 12px/1.4 'Geist Mono', monospace; color: #A9A291; }
 
   /* SECTION 3: Real Dashboard Comic Panel */
-  .dashboard-capture { margin: 0; background: transparent; }
-  .dashboard-capture picture { display: block; }
-  .dashboard-capture img { display: block; width: 100%; height: auto; border: 0; border-radius: 0; box-shadow: none; }
+  .dashboard-comic-panel {
+    margin: 0;
+    border: 2px solid var(--border);
+    box-shadow: -4px 4px 0 var(--border);
+    background: var(--card);
+  }
+  .dashboard-comic-panel img { display: block; width: 100%; height: auto; }
   .caption-5 {
     padding: 12px 16px;
     font: 400 12px/1.5 'Geist Mono', monospace;
     color: var(--ink-2);
-    background: transparent;
+    border-top: 1.5px solid var(--hairline);
+    background: color-mix(in srgb, var(--panel-2) 40%, var(--card));
   }
 
   /* SECTION 4: What Makes Shiba a Hire */
   .hire-section { position: relative; }
   .hire-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
   .hire-card {
-    min-width: 0;
     border: 2px solid var(--border);
     box-shadow: -3px 3px 0 var(--border);
     background: var(--card);
@@ -801,7 +823,7 @@ const steps = [
   .tool-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--hairline); background: var(--card); border-radius: 4px; }
   .tools-caption { margin: 0; font-size: 11px; color: var(--ink-2); }
   .vignette-alert { color: var(--accent); font-weight: 600; font-size: 10px; text-transform: uppercase; }
-  .vignette-approval-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .vignette-approval-row { display: flex; gap: 8px; margin-top: 6px; }
   .vignette-btn {
     padding: 6px 12px;
     border: 1.5px solid var(--border);
@@ -819,7 +841,7 @@ const steps = [
     width: 90px;
     height: 90px;
     opacity: 0;
-    transform: translateX(20px);
+    transform: translateX(30px);
     transition: opacity 300ms var(--ease-out), transform 300ms var(--ease-out);
     pointer-events: none;
   }
@@ -858,8 +880,9 @@ const steps = [
     background: var(--accent);
     color: var(--on-accent);
   }
-  .delivers-panel { display: grid; padding: 24px; gap: 24px; grid-template-columns: 1fr 1fr; }
-  .delivers-panel[hidden] { display: none; }
+  .delivers-panel { padding: 24px; gap: 24px; grid-template-columns: 1fr 1fr; }
+  .delivers-panel { display: grid; }
+  .delivers-js .delivers-panel:not(.is-active) { display: none; }
   .compare-col {
     padding: 20px;
     border: 1.5px solid var(--hairline);
@@ -921,8 +944,7 @@ const steps = [
   .compare-result.ok { color: var(--accent); }
 
   /* SECTION 7: #trust Tagline Reveal */
-  .trust-layout { display: block; }
-  .trust-copy { max-width: 960px; }
+  .trust-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 48px; align-items: start; }
   .tagline-reveal {
     font: 400 clamp(40px, 6vw, 68px)/0.96 'Bebas Neue', 'Geist', sans-serif;
     letter-spacing: 0.02em;
@@ -946,6 +968,27 @@ const steps = [
     color: var(--ink);
   }
   .trust-details p { font-size: 13px; line-height: 1.6; color: var(--ink-2); margin: 0; }
+
+  .permission-visual {
+    border: 2px solid var(--border);
+    box-shadow: -4px 4px 0 var(--border);
+    background: var(--card);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .permission-top { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+  .permission-status { margin-left: auto; color: var(--accent); font-weight: 600; text-transform: uppercase; font-size: 11px; }
+  .permission-plan strong { display: block; font: 400 22px/1.2 'Bebas Neue', 'Geist', sans-serif; margin: 6px 0 10px; color: var(--ink); }
+  .small-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); }
+  .permission-data { display: grid; grid-template-columns: 80px 1fr; gap: 6px; font-size: 11px; color: var(--ink-2); }
+  .gate-line { display: flex; align-items: center; gap: 10px; color: var(--accent); font-size: 11px; text-transform: uppercase; font-weight: 600; }
+  .gate-line span { flex: 1; height: 1.5px; background: currentColor; }
+  .permission-bottom { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1.5px solid var(--border); background: var(--paper); border-radius: 4px; }
+  .permission-bottom strong { display: block; font-size: 12px; margin-bottom: 2px; }
+  .permission-bottom p { margin: 0; font-size: 11px; color: var(--ink-2); }
+  .visual-caption { font-size: 11px; color: var(--ink-2); margin: 0; text-align: center; }
 
   /* SECTION 8: 2x3 Hairline Controls Grid */
   .controls-grid {
@@ -988,6 +1031,36 @@ const steps = [
     color: var(--ink);
   }
   .step-card p { font: 400 13px/1.5 'Geist Mono', monospace; color: var(--ink-2); margin: 0; }
+
+  .terminal-tile {
+    border: 2px solid var(--border);
+    box-shadow: -4px 4px 0 var(--border);
+    background: #111111;
+    color: #F6F1E6;
+    overflow: hidden;
+  }
+  .terminal-bar {
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    background: #1F1F1F;
+    border-bottom: 1.5px solid #333333;
+  }
+  .term-dots { display: flex; gap: 6px; margin-right: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot.red { background: #E26D5A; }
+  .dot.yellow { background: #EBC04B; }
+  .dot.green { background: #8FBC6F; }
+  .term-title { font-size: 11px; color: #A9A291; text-transform: uppercase; letter-spacing: 0.04em; }
+  .terminal-body {
+    padding: 16px 20px;
+    margin: 0;
+    font: 400 13px/1.7 'Geist Mono', monospace;
+    overflow-x: auto;
+  }
+  .term-prompt { color: var(--accent); font-weight: 600; }
+  .term-dim { color: #888888; display: block; }
+  .term-ok { color: #8FBC6F; display: block; font-weight: 600; }
 
   /* SECTION 10: #proof */
   .proof-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 48px; }
@@ -1042,9 +1115,22 @@ const steps = [
   }
   .faq-answer p { margin: 0; }
 
+  /* SECTION 12: Closing CTA */
+  .closing-section { text-align: center; }
+  .closing-inner { max-width: 760px; margin-inline: auto; }
+  .closing-inner h2 {
+    font: 400 clamp(40px, 6vw, 64px)/0.96 'Bebas Neue', 'Geist', sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin: 0 0 16px;
+    color: var(--ink);
+  }
+  .closing-lead { font: 400 15px/1.6 'Geist Mono', monospace; color: var(--ink-2); margin: 0 0 28px; }
+  .closing-note { display: block; margin-top: 16px; font: 400 12px/1.4 'Geist Mono', monospace; color: var(--ink-2); }
+
   /* Responsive Breakpoints */
   @media (max-width: 900px) {
-    .hire-grid, .steps-grid { grid-template-columns: minmax(0, 1fr); }
+    .hire-grid, .steps-grid { grid-template-columns: 1fr; }
     .delivers-panel { grid-template-columns: 1fr; }
     .trust-layout, .proof-layout, .faq-layout { grid-template-columns: 1fr; gap: 32px; }
     .controls-grid { grid-template-columns: 1fr; }
