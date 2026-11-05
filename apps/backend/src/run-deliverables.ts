@@ -8,8 +8,8 @@ import {
   type RunArtifactBundle,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
-import { zipSync } from "fflate";
 import { assertWorkspaceArtifactConfiguration, createArtifactDownloadUrl, type ArtifactDownloadClaims } from "./artifact-download.js";
+import { prepareWorkspaceArchive } from "./workspace-archive.js";
 
 export interface CapturedFile {
   path: string;
@@ -28,7 +28,7 @@ export function isWorkspaceArtifactPath(path: string): boolean {
     path.split("/").every((part) => part === part.trim() && /^[A-Za-z0-9][A-Za-z0-9._ -]*$/.test(part));
 }
 
-function artifactBytes(file: CapturedFile): Uint8Array {
+function artifactBytes(file: CapturedFile): Uint8Array<ArrayBuffer> {
   if (file.content === null) throw new Error(`Artifact ${file.path} was not captured completely.`);
   if (file.encoding === "utf8") {
     if (file.content.length > MAX_WORKSPACE_ARTIFACT_BYTES) throw new Error(`Artifact ${file.path} exceeds its byte limit.`);
@@ -48,7 +48,7 @@ function artifactBytes(file: CapturedFile): Uint8Array {
 }
 
 /** Deterministic ZIP store format. Bounded entries avoid ZIP64 and decompression expansion. */
-export function workspaceArtifactArchive(files: readonly CapturedFile[]): { bytes: Uint8Array<ArrayBuffer>; fileCount: number } {
+function prepareCapturedWorkspaceArchive(files: readonly CapturedFile[]) {
   const selected = files.filter((file) => file.path.startsWith("out/"));
   if (selected.length > MAX_WORKSPACE_ARTIFACT_FILES) throw new Error("Workspace artifact file count exceeds its limit.");
   const names = new Set<string>();
@@ -64,12 +64,19 @@ export function workspaceArtifactArchive(files: readonly CapturedFile[]): { byte
     if (totalBytes > MAX_WORKSPACE_ARTIFACT_TOTAL_BYTES) throw new Error("Workspace artifact bytes exceed their total limit.");
     return { name, bytes };
   }).sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
-  const archive = new Uint8Array(zipSync(Object.fromEntries(entries.map((entry) => [entry.name, entry.bytes])), {
-    level: 0,
-    mtime: new Date(1980, 0, 1, 0, 0, 0),
-  }));
-  if (archive.byteLength > MAX_WORKSPACE_ARCHIVE_BYTES) throw new Error("Workspace archive exceeds its size limit.");
-  return { bytes: archive, fileCount: entries.length };
+  return prepareWorkspaceArchive(entries, MAX_WORKSPACE_ARCHIVE_BYTES);
+}
+
+/** Buffered adapter for callers that need bytes; persistence uses the stream directly. */
+export function workspaceArtifactArchive(files: readonly CapturedFile[]): { bytes: Uint8Array<ArrayBuffer>; fileCount: number } {
+  const archive = prepareCapturedWorkspaceArchive(files);
+  const bytes = new Uint8Array(archive.byteLength);
+  let offset = 0;
+  for (const chunk of archive.chunks()) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { bytes, fileCount: archive.fileCount };
 }
 
 export function workspaceArchiveStorageKey(scope: string, sha256: string): string {
@@ -82,25 +89,41 @@ export async function persistWorkspaceArchive(
   identity: { ownerId: string; runId: string; sandboxId: string },
   files: readonly CapturedFile[],
   now = Date.now(),
+  signal?: AbortSignal,
 ): Promise<RunArtifactBundle> {
+  signal?.throwIfAborted();
   if (!identity.ownerId || !identity.runId || !identity.sandboxId ||
       Object.values(identity).some((part) => part.length > 512)) throw new Error("Workspace archive requires an owned run identity.");
   assertWorkspaceArtifactConfiguration(env);
-  const archive = workspaceArtifactArchive(files);
-  const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", archive.bytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const archive = prepareCapturedWorkspaceArchive(files);
+  const { sha256 } = archive;
   const scopeBytes = new TextEncoder().encode(JSON.stringify([identity.ownerId, identity.runId, identity.sandboxId]));
   const scope = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", scopeBytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  const claims: ArtifactDownloadClaims = { version: 1, scope, sha256, bytes: archive.bytes.byteLength, fileCount: archive.fileCount, issuedAt: now, expiresAt: now + 7 * 24 * 60 * 60 * 1000 };
+  const claims: ArtifactDownloadClaims = { version: 1, scope, sha256, bytes: archive.byteLength, fileCount: archive.fileCount, issuedAt: now, expiresAt: now + 7 * 24 * 60 * 60 * 1000 };
   // Sign before persisting. Missing signing configuration cannot leave orphaned output behind.
   const downloadUrl = await createArtifactDownloadUrl(env, claims);
-  const body = new Response(archive.bytes).body;
-  if (!body) throw new Error("Workspace archive stream could not be initialized.");
-  const stored = await env.ARTIFACTS.put(workspaceArchiveStorageKey(scope, sha256), body, {
-    httpMetadata: { contentType: "application/zip", contentDisposition: 'attachment; filename="artifacts.zip"' },
-    customMetadata: { scope, sha256, bytes: String(claims.bytes), fileCount: String(claims.fileCount) },
-    sha256,
-  });
-  if (!stored) throw new Error("Workspace archive could not be stored.");
+  signal?.throwIfAborted();
+  const transfer = new AbortController();
+  const transferSignal = signal ? AbortSignal.any([signal, transfer.signal]) : transfer.signal;
+  const { readable, writable } = new FixedLengthStream(archive.byteLength);
+  const pumping = archive.writeTo(writable, transferSignal);
+  // Observe producer failures immediately, including while R2 is still consuming the body.
+  void pumping.catch((error: unknown) => transfer.abort(error));
+  try {
+    const stored = await env.ARTIFACTS.put(workspaceArchiveStorageKey(scope, sha256), readable, {
+      httpMetadata: { contentType: "application/zip", contentDisposition: 'attachment; filename="artifacts.zip"' },
+      customMetadata: { scope, sha256, bytes: String(claims.bytes), fileCount: String(claims.fileCount) },
+      sha256,
+    });
+    if (!stored) throw new Error("Workspace archive could not be stored.");
+    await pumping;
+    transferSignal.throwIfAborted();
+  } catch (error) {
+    transfer.abort(error);
+    await readable.cancel(error).catch(() => {});
+    await pumping.catch(() => {});
+    throw error;
+  }
   return { path: "artifacts.zip", mediaType: "application/zip", bytes: claims.bytes, sha256, fileCount: claims.fileCount, downloadUrl, expiresAt: claims.expiresAt };
 }
 

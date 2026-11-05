@@ -23,7 +23,7 @@ function downloadRequest(link: string): Request {
 function storage() {
   type Stored = { bytes: Uint8Array<ArrayBuffer>; metadata: Record<string, string>; checksum: ArrayBuffer };
   const objects = new Map<string, Stored>();
-  const put = vi.fn(async (key: string, body: ReadableStream, options: R2PutOptions) => {
+  const put = vi.fn(async (key: string, body: ReadableStream, options: R2PutOptions): Promise<{ key: string } | null> => {
     const bytes = new Uint8Array(await new Response(body).arrayBuffer());
     objects.set(key, { bytes, metadata: options.customMetadata ?? {}, checksum: await crypto.subtle.digest("SHA-256", bytes) });
     return { key };
@@ -109,6 +109,105 @@ describe("ephemeral workspace artifact archives", () => {
       await persistWorkspaceArchive(s.env, changed, [file("out/report.txt", "same content")], NOW);
     }
     expect(s.objects.size).toBe(4);
+  });
+
+  it("uploads bounded chunks at the total binary byte limit without buffering the ZIP", async () => {
+    const s = storage();
+    const sizes: number[] = [];
+    const originalPut = s.put.getMockImplementation()!;
+    s.put.mockImplementation(async (key, body, options) => {
+      const chunks = body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) { sizes.push(chunk.byteLength); controller.enqueue(chunk); },
+      }));
+      return originalPut(key, chunks, options);
+    });
+    const content = Buffer.alloc(MAX_WORKSPACE_ARTIFACT_BYTES, 255).toString("base64");
+    const files = Array.from({ length: 8 }, (_, index) => file(`out/${index}.bin`, content, "base64"));
+    const bundle = await persistWorkspaceArchive(s.env, identity, files, NOW);
+    expect(bundle.fileCount).toBe(8);
+    expect(sizes.length).toBeGreaterThan(128);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(65_536);
+    const stored = [...s.objects.values()][0]!;
+    expect(stored.metadata).toMatchObject({ sha256: bundle.sha256, bytes: String(stored.bytes.byteLength) });
+    expect(s.put.mock.calls[0]?.[2].sha256).toBe(bundle.sha256);
+    const lastFile = unzipSync(stored.bytes)["7.bin"]!;
+    expect(lastFile.byteLength).toBe(MAX_WORKSPACE_ARTIFACT_BYTES);
+    expect(lastFile.every((byte) => byte === 255)).toBe(true);
+  });
+
+  it("freezes file bytes before signing and waits for the private upload acknowledgment", async () => {
+    const s = storage();
+    const captured = file("out/report.txt", "reviewed bytes");
+    let acknowledge!: () => void;
+    const acknowledgment = new Promise<void>((resolve) => { acknowledge = resolve; });
+    const originalPut = s.put.getMockImplementation()!;
+    s.put.mockImplementation(async (...args) => { await acknowledgment; return originalPut(...args); });
+    let completed = false;
+    const pending = persistWorkspaceArchive(s.env, identity, [captured], NOW).then((result) => { completed = true; return result; });
+    captured.path = "out/../secret.txt";
+    captured.content = "mutable replacement";
+    await vi.waitFor(() => expect(s.put).toHaveBeenCalledOnce());
+    expect(completed).toBe(false);
+    expect(s.objects.size).toBe(0);
+    acknowledge();
+    const bundle = await pending;
+    const bytes = [...s.objects.values()][0]!.bytes;
+    expect(new TextDecoder().decode(unzipSync(bytes)["report.txt"])).toBe("reviewed bytes");
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(bundle.sha256);
+  });
+
+  it.each(["reject", "null"] as const)("stops a producer when R2 returns %s without consuming the stream", async (outcome) => {
+    const s = storage();
+    s.put.mockImplementation(async () => {
+      if (outcome === "reject") throw new Error("Injected upload rejection.");
+      return null;
+    });
+    await expect(persistWorkspaceArchive(s.env, identity, [file("out/report.txt", "report")], NOW)).rejects.toThrow();
+    expect(s.objects.size).toBe(0);
+  });
+
+  it("fails closed after a partial upload and permits a fresh retry", async () => {
+    const s = storage();
+    const originalPut = s.put.getMockImplementation()!;
+    s.put.mockImplementationOnce(async (_key, body) => {
+      const reader = body.getReader();
+      try {
+        expect((await reader.read()).done).toBe(false);
+        await reader.cancel(new Error("Injected partial upload failure."));
+        throw new Error("Injected partial upload failure.");
+      } finally { reader.releaseLock(); }
+    });
+    await expect(persistWorkspaceArchive(s.env, identity, [file("out/report.txt", "report")], NOW)).rejects.toThrow("partial upload");
+    expect(s.objects.size).toBe(0);
+    s.put.mockImplementation(originalPut);
+    const bundle = await persistWorkspaceArchive(s.env, identity, [file("out/report.txt", "report")], NOW);
+    expect(s.objects.size).toBe(1);
+    expect(bundle.fileCount).toBe(1);
+  });
+
+  it("aborts a blocked producer without waiting for a further storage read", async () => {
+    const s = storage();
+    const abort = new AbortController();
+    let started!: () => void;
+    const firstRead = new Promise<void>((resolve) => { started = resolve; });
+    s.put.mockImplementation(async (_key, body) => {
+      const reader = body.getReader();
+      try {
+        await reader.read();
+        started();
+        await reader.closed;
+        return { key: "unexpected" };
+      } finally { reader.releaseLock(); }
+    });
+    const pending = persistWorkspaceArchive(s.env, identity, [file("out/report.txt", "x".repeat(100_000))], NOW, abort.signal);
+    const rejected = expect(pending).rejects.toThrow("Cancelled artifact export");
+    await firstRead;
+    abort.abort(new Error("Cancelled artifact export"));
+    await rejected;
+    expect(s.objects.size).toBe(0);
+    s.put.mockClear();
+    await expect(persistWorkspaceArchive(s.env, identity, [], NOW, abort.signal)).rejects.toThrow("Cancelled artifact export");
+    expect(s.put).not.toHaveBeenCalled();
   });
 
   it("rejects unsigned, tampered, duplicated and cross-key capabilities before storage reads", async () => {

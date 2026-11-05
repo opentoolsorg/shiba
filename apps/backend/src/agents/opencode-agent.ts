@@ -511,7 +511,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
               ownerId: input.accessAgent,
               runId: `agent-tool:${input.dispatchApprovalId}`,
               sandboxId: input.sandboxId,
-            }, result.files);
+            }, result.files, Date.now(), signal);
             result = { ...result, artifactBundle };
             checkCancelled();
           }
