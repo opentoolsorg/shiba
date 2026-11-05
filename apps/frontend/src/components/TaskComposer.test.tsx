@@ -40,6 +40,19 @@ function renderComposer(variant: "hero" | "docked", overrides: Partial<TaskCompo
 }
 
 describe("TaskComposer", () => {
+  it("closes the runtime menu on its trigger pointer/click sequence and on outside activation", () => {
+    renderComposer("docked", { repoUrl: "https://github.com/example/work", task: "Prepare a report", onRunTargetChange: vi.fn() });
+    const trigger = screen.getByRole("button", { name: "Run on: Cloud" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menuitemradio", { name: /Cloud \(Sandbox\)/ })).toBeTruthy();
+    fireEvent.pointerDown(trigger);
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("menuitemradio", { name: /Cloud \(Sandbox\)/ })).toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(trigger);
+    fireEvent.pointerDown(screen.getByRole("textbox", { name: "Task description" }));
+    expect(screen.queryByRole("menuitemradio", { name: /Cloud \(Sandbox\)/ })).toBeNull();
+  });
   it("places repository and execution target below the prompt and send controls", () => {
     const onSubmit = vi.fn();
     renderComposer("hero", { task: "Write a market report", onRunTargetChange: vi.fn(), onSubmit });

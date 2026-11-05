@@ -258,7 +258,10 @@ function Popover({
       panel.querySelector<HTMLElement>("input:not(:disabled), button:not(:disabled), select:not(:disabled)")?.focus();
     }
     const onPointerDown = (event: PointerEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) onClose();
+      const target = event.target as Node;
+      // The trigger owns its toggle. Closing during pointer-down would make
+      // its subsequent click reopen the popover instead of closing it.
+      if (ref.current && !ref.current.contains(target) && !document.getElementById(labelledBy)?.contains(target)) onClose();
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -274,7 +277,7 @@ function Popover({
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [open, onClose, returnFocusId]);
+  }, [open, onClose, labelledBy, returnFocusId]);
   if (!open) return null;
   return (
     <div
