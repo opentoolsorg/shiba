@@ -32,16 +32,19 @@ describe("Slack source-fenced native submission", () => {
     expect(JSON.parse(String(init.body))).toEqual({ id: props.draftId, roomId: props.roomId,
       recipientActorId: "agent:fixture", personalExecution: { grantId: personalFixture().grant.snapshot.grantId, expectedVersion: 1 }, reviewed: true });
   });
-  for (const mode of ["unknown", "duplicate", "malformed", "lost"] as const) {
+  for (const mode of ["unknown", "blocked", "duplicate", "malformed", "lost"] as const) {
     it(`does not retry a ${mode} outcome`, async () => {
       const fetcher = vi.fn(async () => {
         if (mode === "lost") throw new Error("fixture transport failure");
         if (mode === "duplicate") return Response.json({ error: "already_submitted" }, { status: 409 });
-        return Response.json({ handoffId: "scx_" + (mode === "malformed" ? "a" : "b").repeat(32), state: "unknown", approvalRequired: true });
+        return Response.json({ handoffId: "scx_" + (mode === "malformed" ? "a" : "b").repeat(32), state: mode === "blocked" ? "blocked" : "unknown", approvalRequired: true }, { status: mode === "blocked" ? 403 : 503 });
       });
       vi.stubGlobal("fetch", fetcher); render(<SlackDraftSubmission {...props} />); review();
       const submit = screen.getByRole("button", { name: "Submit Slack draft for approval" });
-      fireEvent.click(submit); await screen.findByRole("status"); fireEvent.click(submit);
+      fireEvent.click(submit);
+      if (mode === "unknown" || mode === "blocked") await screen.findByText(new RegExp(`Submission ${mode}:`));
+      else await screen.findByText(/Submission outcome unconfirmed/);
+      fireEvent.click(submit);
       expect(submit.hasAttribute("disabled")).toBe(true); expect(fetcher).toHaveBeenCalledTimes(1);
     });
   }

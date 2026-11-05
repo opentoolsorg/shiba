@@ -11,3 +11,26 @@ An explicitly selected binding, channel and thread permits future self-authored 
 A Slack-backed execution queue still needs proof of the native member's current access to the source including private-thread membership, delivery/reconciliation guarantees, and a source fence carried through the existing frozen review and execution gate. The personal execution path currently demands a native dashboard session, current personal provider grant and a collaboration handoff. A signed bot event cannot supply those credentials or a dashboard voucher. It also cannot authorize use of deployment billing. Native fixtures and fake signed requests do not establish a live Slack installation or current Slack membership.
 
 The local store admits at most three live link attempts, 16 active intake grants and 100 pending drafts per native account, with 1,000 retained challenge, grant and draft records each. Security tombstones are capped at 10,000 per Slack team; reaching that limit revokes active intake grants rather than accepting untracked late events. There is no automatic history recycling in this slice. Capacity exhaustion requires an operator-reviewed maintenance approach; it never causes an automatic retry or grants broader access.
+
+## Native source-fenced submission review
+
+Managed-installation drafts also offer **Review source-fenced submission**.
+Unlike the editable-copy action, this stages the original draft ID without
+consuming it. In an authorized native room, the member chooses a room agent,
+selects a current personal execution grant, and explicitly reviews the statement,
+room, agent and grant. Submission posts only those selectors to
+`/api/slack/coworker/drafts/submit`; the server resolves the source text.
+No selected messages, notes or private Slack thread history are imported.
+The ordinary collaboration frozen-task approval remains mandatory.
+
+A draft has one server-side receipt claim. Blocked and uncertain outcomes do not
+release that claim; the UI displays validated receipts and never automatically
+retries. Lost, malformed and mismatched responses remain unconfirmed. Identity
+or room changes unmount the review and discard late responses. Installation
+rotation, binding/intake revocation and native membership changes remain server
+fences through dispatch. The editable-copy action remains a separate native
+task workflow and does not preserve a Slack source fence.
+
+This bridge does not verify live private-channel membership, configure Slack,
+perform OAuth, send replies, or prove provider entitlement. Existing managed
+installation and two-surface identity verification are prerequisites.
