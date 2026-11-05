@@ -271,6 +271,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     }),
     ARTIFACTS: Cloudflare.R2.Bucket("ARTIFACTS", {
       name: `shiba-artifacts${resSuffix}`,
+      // Eligibility starts after the seven-day download capability window.
+      lifecycleRules: [{ id: "expire-run-archives", prefix: "run-archives/", enabled: true,
+        deleteObjectsTransition: { condition: { type: "Age", maxAge: 8 * 24 * 60 * 60 } } }],
     }),
     AGENT_AUDIT: Cloudflare.D1.Database("AGENT_AUDIT", {
       name: `shiba-audit${resSuffix}`,

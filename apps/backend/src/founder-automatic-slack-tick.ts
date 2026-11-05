@@ -17,7 +17,7 @@ import {
   automaticSlackLink,
   assertAutomaticSlackFamilyCode,
   packAutomaticSlackGuard,
-  renderAutomaticSlackReport,
+  renderAutomaticSlackSource,
   automaticSlackApprover,
   automaticSlackFamily,
   automaticSlackContentHash,
@@ -122,7 +122,7 @@ export async function tickFounderAutomaticSlack(
         a.readGrant.digest !== row.read_grant_digest
       )
         throw new Error();
-      const content = renderAutomaticSlackReport(a.report.markdown),
+      const content = renderAutomaticSlackSource(row, a.report),
         contentHash = await automaticSlackContentHash(content),
         sourceKey = await hashToolArgs({
           occurrenceId: a.occurrence.id,
@@ -136,10 +136,11 @@ export async function tickFounderAutomaticSlack(
         source = deliverySource(env, row, a);
       if (!syncCurrent(env, row, a, deadline)) throw new Error();
       const claimed = await env.AGENT_AUDIT.batch([
-        env.AGENT_AUDIT.prepare(`UPDATE founder_automatic_slack_grants SET used_sends=used_sends+1,state=CASE WHEN used_sends+1>=max_sends THEN 'exhausted' ELSE 'enabled' END WHERE id=? AND digest=? AND state='enabled' AND used_sends=? AND used_sends<max_sends AND approver_json=? AND approved_at=? AND ${source.sql}
+        env.AGENT_AUDIT.prepare(`UPDATE founder_automatic_slack_grants SET used_sends=used_sends+1,state=CASE WHEN used_sends+1>=max_sends THEN 'exhausted' ELSE 'enabled' END WHERE id=? AND digest=? AND family_json=? AND state='enabled' AND used_sends=? AND used_sends<max_sends AND approver_json=? AND approved_at=? AND ${source.sql}
           AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_deliveries WHERE destination_key=? AND (state IN ('sending','unknown') OR source_key=?))`).bind(
           row.id,
           row.digest,
+          row.family_json,
           row.used_sends,
           row.approver_json,
           row.approved_at,
@@ -203,13 +204,13 @@ export async function tickFounderAutomaticSlack(
         await assertAutomaticSlackFamilyCode(row);
         if (
           fresh.report.reportHash !== a.report.reportHash ||
-          renderAutomaticSlackReport(fresh.report.markdown) !== content
+          renderAutomaticSlackSource(row, fresh.report) !== content
         )
           throw new Error();
         const finalSource = deliverySource(env, row, fresh);
         const final =
           await env.AGENT_AUDIT.prepare(`SELECT 1 AS current FROM founder_automatic_slack_deliveries d WHERE d.id=? AND d.state='sending' AND d.lease_id=? AND d.content_hash=? AND d.content=? AND d.report_hash=? AND d.lease_expires_at>${FOUNDER_SQL_NOW} AND d.expires_at>${FOUNDER_SQL_NOW} AND ${finalSource.sql}
-          AND EXISTS(SELECT 1 FROM founder_automatic_slack_grants g WHERE g.id=? AND g.digest=? AND g.state IN ('enabled','exhausted') AND g.approver_json=? AND g.approved_at=? AND g.used_sends=? AND g.used_sends<=g.max_sends)
+          AND EXISTS(SELECT 1 FROM founder_automatic_slack_grants g WHERE g.id=? AND g.digest=? AND g.family_json=? AND g.state IN ('enabled','exhausted') AND g.approver_json=? AND g.approved_at=? AND g.used_sends=? AND g.used_sends<=g.max_sends)
           AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_deliveries other WHERE other.destination_key=d.destination_key AND other.id<>d.id AND other.state IN ('sending','unknown'))`)
             .bind(
               id,
@@ -220,6 +221,7 @@ export async function tickFounderAutomaticSlack(
               ...finalSource.values,
               row.id,
               row.digest,
+              row.family_json,
               row.approver_json,
               row.approved_at,
               row.used_sends + 1,

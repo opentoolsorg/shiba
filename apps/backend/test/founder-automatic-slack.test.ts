@@ -50,6 +50,9 @@ import { handleFounderAutomaticSlack } from "../src/founder-automatic-slack-rout
 import {
   ensureAutomaticSlackSchema,
   renderAutomaticSlackReport,
+  renderAutomaticSlackCompactReport,
+  renderAutomaticSlackSource,
+  type AutomaticSlackRow,
 } from "../src/founder-automatic-slack-store.js";
 import {
   tickFounderAutomaticSlack,
@@ -670,6 +673,20 @@ async function slackFixture(options: { weekly?: boolean } = {}) {
   };
 }
 describe("explicit standing Slack disclosure with actual automatic-read source guards, SQLite and fake Slack HTTP", () => {
+  it("freezes the new compact policy while retaining every source field and preserving the legacy size gate", async () => {
+    const f = await slackFixture(), { grant } = await f.prepare();
+    expect(grant.renderPolicy).toBe("complete-qualified-compact-json.v2");
+    expect(new TextEncoder().encode(grant.sampleContent!).length).toBeLessThanOrEqual(3500);
+    const encoded = grant.sampleContent!.split("\n\n", 2)[1]!;
+    const decoded = encoded.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+    expect(JSON.parse(decoded)).toEqual(JSON.parse(f.sample.json));
+    expect(() => renderAutomaticSlackReport(f.sample.markdown)).toThrow("automatic_slack_complete_report_too_large");
+    const row = f.sqlite.prepare("SELECT * FROM founder_automatic_slack_grants WHERE id=?").get(grant.id) as unknown as AutomaticSlackRow;
+    const legacy = { ...row, family_json: JSON.stringify({ ...JSON.parse(row.family_json), renderPolicy: "complete-qualified-markdown.v1" }) };
+    expect(renderAutomaticSlackSource(legacy, { ...f.sample, markdown: "legacy & full <report>" })).toBe(renderAutomaticSlackReport("legacy & full <report>"));
+    expect(() => renderAutomaticSlackSource(legacy, f.sample)).toThrow("automatic_slack_complete_report_too_large");
+    expect(() => renderAutomaticSlackCompactReport(f.sample.json.replace('"format":', '"format":"forged", "format":'))).toThrow("automatic_slack_content_unreviewable");
+  });
   it("requires owner disclosure and a different configured native human, then sends only a future completed report once", async () => {
     const f = await slackFixture(),
       { grant } = await f.prepare();
@@ -855,6 +872,12 @@ describe("explicit standing Slack disclosure with actual automatic-read source g
     expect((await tickFounderAutomaticSlack(f.env, f.deps)).blocked).toBe(1);
     expect(f.verify).not.toHaveBeenCalled();
     expect(f.post).not.toHaveBeenCalled();
+  });
+  it("refuses switching between known renderer versions under the same approved digest", async () => {
+    const f = await slackFixture(); await f.enabled(); await f.future();
+    f.sqlite.exec("UPDATE founder_automatic_slack_grants SET family_json=json_set(family_json,'$.renderPolicy','complete-qualified-markdown.v1')");
+    expect((await tickFounderAutomaticSlack(f.env, f.deps)).blocked).toBe(1);
+    expect(f.verify).not.toHaveBeenCalled(); expect(f.post).not.toHaveBeenCalled();
   });
   it("returns the raw UTF8 SHA256 receipt hash for the actual Unicode message sent", async () => {
     const f = await slackFixture();

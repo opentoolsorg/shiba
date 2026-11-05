@@ -20,7 +20,7 @@ const faqItems = [
 ];
 
 const schema = [
-  { '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'Shiba', url: 'https://tryshiba.dev/', description, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Cloudflare Workers', license: 'https://spdx.org/licenses/AGPL-3.0-only.html', sameAs: 'https://github.com/princepal9120/shiba', offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' }, featureList: ['AI employees for company work', 'Approval-gated sandbox execution', 'Reviewable draft files and diffs', 'Connected repository required for execution', 'Configurable agents and model connections'] },
+  { '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'Shiba', url: 'https://tryshiba.dev/', description, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Cloudflare Workers', license: 'https://spdx.org/licenses/AGPL-3.0-only.html', sameAs: 'https://github.com/princepal9120/shiba', offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' }, featureList: ['AI employees for company work', 'Approval-gated sandbox execution', 'Reviewable draft files and diffs', 'Repository tasks and configured private file workspaces', 'Configurable agents and model connections'] },
   { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqItems.map(item => ({ '@type': 'Question', name: item.q, acceptedAnswer: { '@type': 'Answer', text: item.a } })) },
 ];
 
@@ -85,17 +85,17 @@ const chatbotComparisons = [
 ];
 
 const controls = [
-  { title: 'Approval gate', text: 'Work pauses before any repository commit. You retain final authority over every merge.' },
+  { title: 'Approval gate', text: 'Approve the task and its scope before execution. Publishing changes requires a separate approval.' },
   { title: 'Your Cloudflare account', text: 'Runs on Workers and Containers in your cloud infrastructure. Stored data stays yours.' },
   { title: 'Sandbox per task', text: 'Each task executes in an ephemeral container with strict memory and CPU limits.' },
-  { title: 'Repository required', text: 'Non-coding and coding tasks operate inside a designated GitHub repository.' },
+  { title: 'Choose where work happens', text: 'Coding tasks use a GitHub repository. Document work can use a private workspace when artifact storage is configured.' },
   { title: 'Deployment-owned credentials', text: 'Model keys stay inside Cloudflare AI Gateway; containers never receive raw secrets.' },
   { title: 'Reviewable diffs', text: 'Inspect line-by-line diffs, generated drafts, and test logs before accepting work.' }
 ];
 
 const steps = [
   { num: '01', title: 'Self host in your account', text: 'Deploy to Cloudflare Workers with Docker sandbox container in minutes.' },
-  { num: '02', title: 'Connect a repository', text: 'Select a GitHub repo to give your AI employees context and output files.' },
+  { num: '02', title: 'Choose a workspace', text: 'Select a repository for code, or configure a private workspace for files.' },
   { num: '03', title: 'Assign your first task', text: 'Describe the work, review the proposed plan, and approve the run.' }
 ];
 ---
@@ -120,7 +120,7 @@ const steps = [
         </div>
         <div class="hero-disclosures">
           <p class="hero-note">Free software to self-host. Hosting and model usage cost extra.</p>
-          <p class="hero-note">Tasks need a GitHub repository and your approval. The demo is a simulation.</p>
+          <p class="hero-note">Approve a repository task or use a configured private file workspace. The demo is a simulation.</p>
         </div>
 
         <!-- Static "Works with" chip row -->
