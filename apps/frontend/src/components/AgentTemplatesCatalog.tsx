@@ -12,7 +12,7 @@ export function AgentTemplatesCatalog({ onUse }: { onUse: (template: (typeof AGE
   const [busy, setBusy] = useState(false);
   const [myTemplates, setMyTemplates] = useState<(typeof AGENT_TEMPLATES)[number][]>([]);
   const [myLoading, setMyLoading] = useState(false);
-  const categories = ["all", "product", "engineering", "ops", "competitor-inspired", "my"];
+  const categories = ["all", "product", "engineering", "ops", "community", "my"];
   useEffect(() => {
     if (category !== "my") return;
     setMyLoading(true);

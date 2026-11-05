@@ -1,4 +1,4 @@
-/** Typed same-origin client for the Overlay-compatible extensions API. */
+/** Typed same-origin client for the extensions API. */
 export type ExtensionView = "personal" | "workspace" | "archived";
 export type ExtensionScope = Exclude<ExtensionView, "archived">;
 export type McpTransport = "streamable-http" | "sse";

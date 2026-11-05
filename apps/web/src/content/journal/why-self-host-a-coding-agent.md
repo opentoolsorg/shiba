@@ -29,10 +29,8 @@ not a verified live cloud run.
 The usual offer is a binary. Run the vendor's agent on your machines, keep
 your repos on your side, and call it self-hosted.
 
-`PLAN.md` names the two reference points directly. Capy locks you to Capy's
-agent. Hoplite gives you theirs in the cloud or your own on your laptop,
-never your own in the cloud. Neither lets a team run their harness on their
-account against their model.
+`PLAN.md` names the setup this project targets: a team runs its harness in
+its cloud account with its chosen model provider.
 
 That is the gap. You can self-host the workload and still rent the judgment.
 The agent's identity, the model it thinks with, and the account it bills to
@@ -78,8 +76,8 @@ actually yours rather than borrowed under terms someone else wrote.
 
 ## Why I am building it
 
-The motivation is personal before it is strategic. I have used Devin, and I
-run my own Claude Code setup daily. Devin's coding quality is genuinely
+The motivation is personal before it is strategic. I have used hosted agents, and I
+run my own agent setup daily. Their coding quality is genuinely
 good, and that is exactly the problem: the quality made the tradeoffs
 visible, not the flaws.
 

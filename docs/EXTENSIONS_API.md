@@ -1,6 +1,6 @@
 # Extensions API contract
 
-The Integrations screen uses a small typed client for the Overlay-style extension
+The Integrations screen uses a small typed client for the extension
 views. Shiba currently has no `/api/v1/extensions/*` routes, so those requests
 return an error until the routes below are implemented. The frontend tests use
 fixtures for these contracts; they do not imply that the endpoints are live.
@@ -64,7 +64,7 @@ The create/update body supports `name`, `description`, `transport`, `url`,
 `{ headerName, headerValue }`. Updates omit it to keep the saved credential;
 `clearAuthConfig: true` clears it. New servers default to Streamable HTTP,
 enabled, no authentication, a 30-second runtime timeout, and the `allow` tool
-policy, matching Overlay's form defaults.
+policy.
 
 ## Workspace connectors
 
@@ -101,7 +101,7 @@ the matching OpenConnector account using `POST /api/v1/extensions/connectors`.
 
 `/api/v1/mcp/servers` manages Shiba's reviewed external MCP tools, worker-secret
 references, allow-listed destinations, and agent grants. Its transport, auth,
-and lifecycle differ from Overlay's general MCP server editor, so the frontend
-does not send Overlay-shaped requests to that route. The new extensions API
+and lifecycle differ from the general MCP server editor, so the frontend
+does not send extension-shaped requests to that route. The new extensions API
 needs a backend implementation before MCP CRUD and workspace connector scope
 changes can persist outside the fixture-backed UI tests.

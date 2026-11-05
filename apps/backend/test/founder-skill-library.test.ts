@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { founderSkillIdSchema, getFounderSkillLibraryEntry, listFounderSkillLibrary } from "@shiba/shared";
 
 describe("founder skill library", () => {
-  it("seeds six Viktor-style founder skills", () => {
+  it("seeds six founder skills", () => {
     expect(listFounderSkillLibrary()).toHaveLength(6);
     for (const entry of listFounderSkillLibrary()) {
       expect(founderSkillIdSchema.safeParse(entry.id).success).toBe(true);
