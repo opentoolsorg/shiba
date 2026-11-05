@@ -146,7 +146,7 @@ interface IntegrationsViewProps {
   allowPersonalScope?: boolean;
   onPersonalScope?: () => void;
   onChooseWorkspace?: () => void;
-  onAdoptSlackTask?: (task: string) => void;
+  onAdoptSlackTask?: (task: string, draftId?: string) => void;
 }
 const UNREAD_PRIVATE_BINDINGS: IntegrationBindingInputs = { setupLoading: true, mailboxCount: undefined, mailboxLoading: true,
   gmailConnected: null, gmailLoading: true, externalMcpServerCount: undefined, externalMcpCatalogConnections: undefined, externalMcpLoading: true };
