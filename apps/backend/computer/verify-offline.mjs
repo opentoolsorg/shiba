@@ -65,6 +65,7 @@ export async function verifyOfflineComputer({ image, output }) {
       await writeFile(resolve(destination, filename), data, { mode: 0o600 }); report.files.push({ filename, bytes: data.byteLength, sha256: HASH(data) }); return data;
     };
     const before = await capture("before.jpg");
+    await command(["exec", "--env", "DISPLAY=:1", name, "xdotool", "mousemove", "--sync", "256", "360", "click", "1"]);
     const literal = "SHIBA OFFLINE INPUT ACCEPTANCE - literal fixture text, no shell or external action. ".repeat(8);
     await command(["exec", "--env", "DISPLAY=:1", name, "xdotool", "type", "--clearmodifiers", "--delay", "0", "--", literal]);
     // The image is inspected visually via this artifact. Byte/raster changes
