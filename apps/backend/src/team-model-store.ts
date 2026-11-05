@@ -1,6 +1,7 @@
 import {
   TEAM_MODEL_TEXT_MODEL, type TeamModelFunding, type TeamModelFundingContract, type TeamModelFundingInput,
   type TeamModelSource, type TeamModelStateResponse, type TeamModelTurn, type TeamModelTurnInput,
+  isTeamModelMoneyContract,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { COLLAB_TENANT_ID, ensureCollaborationSchema, getCollaborationMembership, getCollaborationRoom, humanActorId, listCollaborationMessages } from "./collaboration-store.js";
@@ -11,6 +12,7 @@ import { membershipSql, assertWorkspaceMemberCurrent, insertGuarded, updateGuard
 import { resolveWorkspaceNativeGrantTarget, type WorkspaceNativeMember } from "./workspace-native-authority.js";
 import { hashToolArgs } from "./mcp-gateway.js";
 import { redactSecrets } from "./security.js";
+import { TEAM_MODEL_MONEY_SCHEMA, prepareTeamModelMoney, requireTeamModelMoney, teamModelLedgerDebitSql } from "./team-model-money.js";
 
 export class TeamModelError extends Error { constructor(readonly code: string, readonly status = 409) { super(code); } }
 function requireChanged(result: D1Result) { if (result.meta.changes !== 1) throw new TeamModelError("team_model_authority_or_version_changed"); }
@@ -72,7 +74,8 @@ const TURN_SCHEMA = `CREATE TABLE IF NOT EXISTS team_model_turns (
   status TEXT NOT NULL,output TEXT,error_code TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,dispatch_deadline INTEGER,
   UNIQUE(workspace_id,requester_account_id,request_id))`;
 const AFFECTED = `(json_extract(binding_json,'$.issuerRoom.actorId')=OLD.actor_id OR json_extract(binding_json,'$.recipientRoom.actorId')=OLD.actor_id OR json_extract(binding_json,'$.employeeRoom.actorId')=OLD.actor_id)`;
-export const TEAM_MODEL_SCHEMA = [FUNDING_SCHEMA, TURN_SCHEMA,
+export const TEAM_MODEL_SCHEMA = [FUNDING_SCHEMA, TURN_SCHEMA, TEAM_MODEL_MONEY_SCHEMA,
+  `CREATE INDEX IF NOT EXISTS team_model_money_grant ON team_model_money_ledger(grant_id,state)`,
   `CREATE INDEX IF NOT EXISTS team_model_room_funding ON team_model_funding(workspace_id,room_id,created_at)`,
   `CREATE INDEX IF NOT EXISTS team_model_grant_turns ON team_model_turns(grant_id,status,created_at)`,
   `CREATE TRIGGER IF NOT EXISTS team_model_room_membership_changed AFTER UPDATE OF status,role,capabilities_json,profile_version,user_id,actor_kind ON collaboration_memberships
@@ -196,8 +199,11 @@ export async function prepareTeamModelFunding(env: Env, issuer: WorkspaceNativeM
   await snapshotCollaborationMemory(env, { tenantId: COLLAB_TENANT_ID, workspaceId: issuer.workspaceId, userId: issuer.userId }, room.roomId, []);
   const binding: TeamModelBinding = { workspaceId: issuer.workspaceId, roomId: room.roomId, roomCreatedAt: room.createdAt, roomOwnerId: room.createdByUserId, roomVisibility: room.visibility,
     issuer, recipient, issuerRoom, recipientRoom, employeeRoom, employeeId: employee.id, employeeVersion: employee.version, employeeConfig: JSON.stringify(employee.config), policyKey: policy.key };
-  const contract: TeamModelFundingContract = { ...input, issuerId: issuer.userId, employeeName: employee.config.name, employeeInstructions: redactSecrets(employee.config.instructions),
-    billing: "deployment-workers-ai", audience: "requesting-member", tools: [], credentialRef: null };
+  const { currency: _currency, budgetMicroUsd, ...baseInput } = input;
+  if (_currency !== "USD") throw new TeamModelError("team_model_currency_unsupported", 400);
+  const contract: TeamModelFundingContract = { ...baseInput, issuerId: issuer.userId, employeeName: employee.config.name, employeeInstructions: redactSecrets(employee.config.instructions),
+    billing: "deployment-workers-ai", audience: "requesting-member", tools: [], credentialRef: null,
+    money: prepareTeamModelMoney(budgetMicroUsd, input.maxOutputTokens, input.expiresAt) };
   const id = modelId("tmf"), digest = await hashToolArgs({ id, version: 1, binding, contract });
   const now = Date.now();
   if (contract.expiresAt <= now || contract.expiresAt > now + DAY_MS) throw new TeamModelError("team_model_expiry_out_of_range", 400);
@@ -214,10 +220,11 @@ export async function activateTeamModelFunding(env: Env, member: WorkspaceNative
   requireTeamModelPolicy(env, binding.policyKey);
   if (input.billingConsent !== true || input.reviewed !== true || row.version !== input.expectedVersion || row.digest !== input.digest || row.state !== "draft") throw new TeamModelError("team_model_exact_billing_review_required", 403);
   if (await hashToolArgs({ id, version: 1, binding, contract }) !== row.digest) throw new TeamModelError("team_model_funding_digest_changed", 403);
+  const money = requireTeamModelMoney(contract.money, contract.maxOutputTokens);
   const guard = fundingGuard(binding), now = Date.now();
   requireChanged(await updateGuarded(env, "team_model_funding", { state: "active", version: row.version + 1, updated_at: now },
-    `id=? AND state='draft' AND version=? AND digest=? AND review_expires_at>${DB_NOW} AND json_extract(contract_json,'$.expiresAt')>${DB_NOW} AND ${guard.sql}`,
-    [id, row.version, input.digest, ...guard.values]).run());
+    `id=? AND state='draft' AND version=? AND digest=? AND review_expires_at>${DB_NOW} AND json_extract(contract_json,'$.expiresAt')>${DB_NOW} AND ?>${DB_NOW} AND ${guard.sql}`,
+    [id, row.version, input.digest, money.quote.dispatchUntil, ...guard.values]).run());
   return id;
 }
 export async function revokeTeamModelFunding(env: Env, member: WorkspaceNativeMember, id: string, expectedVersion: number) {
@@ -248,6 +255,7 @@ async function freezeSources(env: Env, member: WorkspaceNativeMember, binding: T
 export async function prepareTeamModelTurn(env: Env, member: WorkspaceNativeMember, input: TeamModelTurnInput) {
   const row = await readTeamModelFunding(env, member.workspaceId, input.grantId), binding = fundingBinding(row), contract = fundingContract(row);
   requireTeamModelPolicy(env, binding.policyKey);
+  const money = requireTeamModelMoney(contract.money, contract.maxOutputTokens);
   if (binding.recipient.accountId !== member.accountId || binding.recipient.userId !== member.userId || row.version !== input.expectedGrantVersion || row.state !== "active") throw new TeamModelError("team_model_funded_recipient_required", 403);
   if (redactSecrets(input.prompt) !== input.prompt) throw new TeamModelError("team_model_remove_secret_from_prompt", 400);
   await assertTeamModelSource(env, row, member);
@@ -263,7 +271,7 @@ export async function prepareTeamModelTurn(env: Env, member: WorkspaceNativeMemb
   };
   const inputJson = JSON.stringify(modelInput), inputBytes = new TextEncoder().encode(inputJson).byteLength;
   if (inputBytes > contract.maxInputBytes) throw new TeamModelError("team_model_full_input_exceeds_grant", 400);
-  const id = modelId("tmt"), now = Date.now(), expiresAt = Math.min(contract.expiresAt, now + REVIEW_TTL_MS);
+  const id = modelId("tmt"), now = Date.now(), expiresAt = Math.min(contract.expiresAt, money.quote.dispatchUntil, now + REVIEW_TTL_MS);
   if (expiresAt <= now) throw new TeamModelError("team_model_funding_expired", 403);
   const inputHash = await hashToolArgs({ id, grantId: row.id, grantVersion: row.version, grantDigest: row.digest, binding,
     input: modelInput, sources, requesterId: member.userId, requesterAccountId: member.accountId, expiresAt });
@@ -272,9 +280,11 @@ export async function prepareTeamModelTurn(env: Env, member: WorkspaceNativeMemb
     requester_account_id: member.accountId, request_id: input.requestId, request_hash: requestHash, version: 1, grant_version: row.version, input_hash: inputHash,
     prompt: input.prompt, input_json: inputJson, sources_json: JSON.stringify(sources), input_bytes: inputBytes, expires_at: expiresAt,
     status: "pending", output: null, error_code: null, created_at: now, updated_at: now, dispatch_deadline: null },
-    { sql: `${guard.sql} AND ${actor.sql} AND EXISTS(SELECT 1 FROM team_model_funding WHERE id=? AND version=? AND state='active' AND used_requests<? AND json_extract(contract_json,'$.expiresAt')>${DB_NOW})
-      AND NOT EXISTS(SELECT 1 FROM team_model_turns WHERE grant_id=? AND status IN ('running','unknown')) AND (SELECT COUNT(*) FROM team_model_turns WHERE grant_id=?)<20`,
-      values: [...guard.values, ...actor.values, row.id, row.version, contract.maxRequests, row.id, row.id] });
+    { sql: `${guard.sql} AND ${actor.sql} AND EXISTS(SELECT 1 FROM team_model_funding WHERE id=? AND version=? AND state='active' AND used_requests<? AND json_extract(contract_json,'$.expiresAt')>${DB_NOW}
+      AND ?>${DB_NOW} AND ${teamModelLedgerDebitSql("team_model_funding.id")}+?<=?)
+      AND NOT EXISTS(SELECT 1 FROM team_model_turns WHERE grant_id=? AND status IN ('running','unknown')) AND NOT EXISTS(SELECT 1 FROM team_model_money_ledger WHERE grant_id=? AND state IN ('held','unknown'))
+      AND (SELECT COUNT(*) FROM team_model_turns WHERE grant_id=?)<20`,
+      values: [...guard.values, ...actor.values, row.id, row.version, contract.maxRequests, money.quote.dispatchUntil, money.maximumDebitPerCallMicroUsd, money.budgetMicroUsd, row.id, row.id, row.id] });
   try { requireChanged(await insert.run()); }
   catch (error) {
     const existing = await env.AGENT_AUDIT.prepare("SELECT id,request_hash FROM team_model_turns WHERE workspace_id=? AND requester_account_id=? AND request_id=?")
@@ -292,11 +302,13 @@ export async function approveTeamModelTurn(env: Env, member: WorkspaceNativeMemb
   const row = await readTeamModelTurn(env, member, id), grant = await readTeamModelFunding(env, member.workspaceId, row.grant_id);
   if (input.reviewed !== true || row.input_hash !== input.inputHash || await teamModelTurnHash(row, grant) !== row.input_hash) throw new TeamModelError("team_model_exact_turn_review_required", 403);
   requireTeamModelPolicy(env, grant.policy_key);
+  const contract = fundingContract(grant), money = requireTeamModelMoney(contract.money, contract.maxOutputTokens);
   const source = sourceGuard(fundingBinding(grant), JSON.parse(row.sources_json) as TeamModelSourceSnapshot), actor = membershipSql(member);
   requireChanged(await updateGuarded(env, "team_model_turns", { status: "approved", version: row.version + 1, updated_at: Date.now() },
     `id=? AND version=? AND status='pending' AND input_hash=? AND requester_account_id=? AND expires_at>${DB_NOW} AND ${actor.sql} AND ${source.sql}
-      AND EXISTS(SELECT 1 FROM team_model_funding WHERE id=? AND version=? AND state='active') AND NOT EXISTS(SELECT 1 FROM team_model_turns other WHERE other.grant_id=? AND other.status IN ('running','unknown'))`,
-    [id, input.expectedVersion, input.inputHash, member.accountId, ...actor.values, ...source.values, grant.id, row.grant_version, grant.id]).run());
+      AND EXISTS(SELECT 1 FROM team_model_funding WHERE id=? AND version=? AND state='active' AND ?>${DB_NOW} AND ${teamModelLedgerDebitSql("team_model_funding.id")}+?<=?)
+      AND NOT EXISTS(SELECT 1 FROM team_model_turns other WHERE other.grant_id=? AND other.status IN ('running','unknown')) AND NOT EXISTS(SELECT 1 FROM team_model_money_ledger WHERE grant_id=? AND state IN ('held','unknown'))`,
+    [id, input.expectedVersion, input.inputHash, member.accountId, ...actor.values, ...source.values, grant.id, row.grant_version, money.quote.dispatchUntil, money.maximumDebitPerCallMicroUsd, money.budgetMicroUsd, grant.id, grant.id]).run());
   return id;
 }
 export async function cancelTeamModelTurn(env: Env, member: WorkspaceNativeMember, id: string, expectedVersion: number) {
@@ -308,19 +320,26 @@ export async function cancelTeamModelTurn(env: Env, member: WorkspaceNativeMembe
   return id;
 }
 
-interface FinalSourceRow { id: string; kind: string; busy: number; used_requests: number; reserved_input_bytes: number; reserved_output_tokens: number }
+interface FinalSourceRow { id: string; kind: string; busy: number; used_requests: number; reserved_input_bytes: number; reserved_output_tokens: number; money_json: string | null }
+interface FinalMoney { authorizedDebitMicroUsd: number; reportedQuotedMicroUsd: number; unknownReservedMicroUsd: number; turnState: "held" | "confirmed" | "unknown" | null; turnDebit: number; turnReported: number | null }
+function finalMoney(row: FinalSourceRow | undefined): FinalMoney | null { return row?.money_json ? JSON.parse(row.money_json) as FinalMoney : null; }
 async function finalModelReadFence(env: Env, member: WorkspaceNativeMember, roomId: string, roomMember: RoomParticipant, snapshots: Array<{ kind: "funding" | "turn"; grant: TeamModelFundingRow; turn?: TeamModelTurnRow }>) {
   const actor = membershipSql(member), room = roomGuard({ workspaceId: member.workspaceId, roomId }, roomMember);
   const mapped = snapshots.map((snapshot) => ({ ...snapshot, binding: fundingBinding(snapshot.grant), sources: snapshot.turn ? JSON.parse(snapshot.turn.sources_json) as TeamModelSourceSnapshot : { messages: [], notes: [] } }));
   const at = (path: string) => `json_extract(s.value,'$.${path}')`;
   const reader = `${actor.sql} AND ${room.sql} AND NOT EXISTS(SELECT 1 FROM collaboration_slack_room_links WHERE tenant_id='${COLLAB_TENANT_ID}' AND workspace_id=? AND room_id=? AND status='active')`;
   const readerValues = [...actor.values, ...room.values, member.workspaceId, roomId];
-  const rows = await env.AGENT_AUDIT.prepare(`SELECT '' AS id,'actor' AS kind,0 AS busy,0 AS used_requests,0 AS reserved_input_bytes,0 AS reserved_output_tokens WHERE ${reader}
-    UNION ALL SELECT '' AS id,'funder' AS kind,0,0,0,0 WHERE ${reader} AND EXISTS(SELECT 1 FROM shiba_auth_account_policy WHERE account_id=? AND email=? AND kind='bootstrap') AND ?<>'member'
+  const rows = await env.AGENT_AUDIT.prepare(`SELECT '' AS id,'actor' AS kind,0 AS busy,0 AS used_requests,0 AS reserved_input_bytes,0 AS reserved_output_tokens,NULL AS money_json WHERE ${reader}
+    UNION ALL SELECT '' AS id,'funder' AS kind,0,0,0,0,NULL WHERE ${reader} AND EXISTS(SELECT 1 FROM shiba_auth_account_policy WHERE account_id=? AND email=? AND kind='bootstrap') AND ?<>'member'
     UNION ALL SELECT CASE WHEN ${at("kind")}='turn' THEN ${at("turn.id")} ELSE g.id END,${at("kind")},
-      EXISTS(SELECT 1 FROM team_model_turns busy WHERE busy.grant_id=g.id AND busy.status IN ('running','unknown')),g.used_requests,g.reserved_input_bytes,g.reserved_output_tokens
+      (EXISTS(SELECT 1 FROM team_model_turns busy WHERE busy.grant_id=g.id AND busy.status IN ('running','unknown')) OR EXISTS(SELECT 1 FROM team_model_money_ledger l WHERE l.grant_id=g.id AND l.state IN ('held','unknown'))),g.used_requests,g.reserved_input_bytes,g.reserved_output_tokens,
+      json_object('authorizedDebitMicroUsd',${teamModelLedgerDebitSql("g.id")},'reportedQuotedMicroUsd',COALESCE((SELECT SUM(reported_micro_usd) FROM team_model_money_ledger WHERE grant_id=g.id AND state='confirmed'),0),
+        'unknownReservedMicroUsd',COALESCE((SELECT SUM(reserved_micro_usd) FROM team_model_money_ledger WHERE grant_id=g.id AND state='unknown'),0),
+        'turnState',(SELECT state FROM team_model_money_ledger WHERE turn_id=${at("turn.id")}),
+        'turnDebit',COALESCE((SELECT reserved_micro_usd FROM team_model_money_ledger WHERE turn_id=${at("turn.id")}),0),
+        'turnReported',(SELECT reported_micro_usd FROM team_model_money_ledger WHERE turn_id=${at("turn.id")}))
     FROM json_each(?) s JOIN team_model_funding g ON g.id=${at("grant.id")} AND g.workspace_id=? AND g.room_id=? AND g.version=${at("grant.version")}
-      AND g.digest=${at("grant.digest")} AND g.binding_json=${at("grant.binding_json")} AND g.state IN ('draft','active') AND g.policy_key=?
+      AND g.digest=${at("grant.digest")} AND g.binding_json=${at("grant.binding_json")} AND g.contract_json=${at("grant.contract_json")} AND g.state IN ('draft','active') AND g.policy_key=?
     WHERE json_extract(g.contract_json,'$.expiresAt')>CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)
       AND ${jsonFundingAuthority("json_extract(s.value,'$.binding')")}
       AND (${at("kind")}='funding' OR EXISTS(SELECT 1 FROM team_model_turns t WHERE t.id=${at("turn.id")} AND t.version=${at("turn.version")}
@@ -341,6 +360,10 @@ async function finalModelReadFence(env: Env, member: WorkspaceNativeMember, room
 }
 function fundingDto(row: TeamModelFundingRow, member: WorkspaceNativeMember, current: FinalSourceRow | undefined, canFund: boolean, enabled: boolean): TeamModelFunding {
   const contract = fundingContract(row), binding = fundingBinding(row), now = Date.now(), busy = Boolean(current?.busy);
+  const moneyValid = isTeamModelMoneyContract(contract.money, contract.maxOutputTokens), ledger = finalMoney(current);
+  const quoteCurrent = moneyValid && contract.money!.quote.dispatchUntil > now && contract.money!.quote.createdAt <= now;
+  const money = moneyValid && ledger ? { currency: "USD" as const, authorizedDebitMicroUsd: ledger.authorizedDebitMicroUsd, remainingBudgetMicroUsd: Math.max(0, contract.money!.budgetMicroUsd - ledger.authorizedDebitMicroUsd),
+    reportedQuotedMicroUsd: ledger.reportedQuotedMicroUsd, unknownReservedMicroUsd: ledger.unknownReservedMicroUsd } : undefined;
   const ownIssuer = member.userId === binding.issuer.userId && member.accountId === binding.issuer.accountId;
   const ownRecipient = member.userId === binding.recipient.userId && member.accountId === binding.recipient.accountId;
   return { id: row.id, version: row.version, digest: row.digest,
@@ -348,19 +371,25 @@ function fundingDto(row: TeamModelFundingRow, member: WorkspaceNativeMember, cur
     contract: current && enabled ? contract : { ...contract, employeeInstructions: "" }, reviewExpiresAt: row.review_expires_at,
     usedRequests: current?.used_requests ?? row.used_requests, reservedInputBytes: current?.reserved_input_bytes ?? row.reserved_input_bytes,
     reservedOutputTokens: current?.reserved_output_tokens ?? row.reserved_output_tokens,
-    canActivate: Boolean(current && enabled && ownIssuer && canFund && row.state === "draft" && row.review_expires_at > now),
-    canRevoke: row.state !== "revoked" && (canFund || ownRecipient), unavailableReason: !enabled ? "team_model_disabled" : !current ? "team_model_source_changed" : busy ? "team_model_outcome_requires_inspection" : null };
+    ...(money ? { money } : {}),
+    canActivate: Boolean(current && enabled && ownIssuer && canFund && row.state === "draft" && row.review_expires_at > now && quoteCurrent),
+    canRevoke: row.state !== "revoked" && (canFund || ownRecipient), unavailableReason: !enabled ? "team_model_disabled" : !current ? "team_model_source_changed" : busy ? "team_model_outcome_requires_inspection" : !moneyValid ? "team_model_budget_upgrade_required" : !quoteCurrent ? "team_model_price_quote_expired" : money && money.remainingBudgetMicroUsd < contract.money!.maximumDebitPerCallMicroUsd ? "team_model_budget_insufficient" : null };
 }
 function turnDto(row: TeamModelTurnRow, grant: TeamModelFundingRow, current: FinalSourceRow | undefined, enabled: boolean): TeamModelTurn {
   const contract = fundingContract(grant), input = JSON.parse(row.input_json) as TeamModelInput, sources = JSON.parse(row.sources_json) as TeamModelSourceSnapshot;
   const expired = Date.now() >= row.expires_at, lost = row.status === "running" && Date.now() >= (row.dispatch_deadline ?? row.updated_at + TEAM_MODEL_CALL_TIMEOUT_MS);
   const usable = Boolean(current && enabled && grant.state === "active"), status = lost ? "unknown" : !usable && row.status !== "cancelled" ? "blocked" : row.status;
+  const ledger = finalMoney(current), moneyValid = isTeamModelMoneyContract(contract.money, contract.maxOutputTokens);
+  const costCurrent = moneyValid && contract.money!.quote.dispatchUntil > Date.now() && contract.money!.quote.createdAt <= Date.now() &&
+    contract.money!.budgetMicroUsd - (ledger?.authorizedDebitMicroUsd ?? 0) >= contract.money!.maximumDebitPerCallMicroUsd;
   return { id: row.id, grantId: grant.id, version: row.version, roomId: row.room_id, requesterId: row.requester_id, employeeId: contract.employeeId, model: contract.model,
     requestedPrompt: usable ? row.prompt : "", messages: usable ? input.messages : [], sources: usable ? sources.public : [], inputHash: row.input_hash,
     inputBytes: row.input_bytes, maxOutputTokens: contract.maxOutputTokens, expiresAt: row.expires_at, status,
     output: usable && row.status === "completed" ? row.output : null, error: !usable ? "team_model_source_changed" : lost ? "team_model_outcome_unknown" : expired && ["pending", "approved"].includes(status) ? "team_model_turn_expired" : row.error_code,
-    canApprove: usable && !current?.busy && !expired && row.status === "pending" && (current?.used_requests ?? grant.used_requests) < contract.maxRequests,
-    canExecute: usable && !current?.busy && !expired && row.status === "approved" && (current?.used_requests ?? grant.used_requests) < contract.maxRequests,
+    ...(usable && moneyValid && ledger ? { cost: { currency: "USD" as const, maximumDebitMicroUsd: contract.money!.maximumDebitPerCallMicroUsd, quoteDigest: contract.money!.quote.digest, dispatchUntil: contract.money!.quote.dispatchUntil,
+      authorizedDebitMicroUsd: ledger.turnDebit, reportedQuotedMicroUsd: ledger.turnReported, state: ledger.turnState ?? "not-dispatched" as const } } : {}),
+    canApprove: usable && costCurrent && !current?.busy && !expired && row.status === "pending" && (current?.used_requests ?? grant.used_requests) < contract.maxRequests,
+    canExecute: usable && costCurrent && !current?.busy && !expired && row.status === "approved" && (current?.used_requests ?? grant.used_requests) < contract.maxRequests,
     canCancel: ["pending", "approved", "running", "completed"].includes(row.status) || (row.status === "unknown" && row.error_code !== "team_model_cancelled_after_dispatch") };
 }
 export async function readTeamModelState(env: Env, member: WorkspaceNativeMember, roomId: string): Promise<TeamModelStateResponse> {
@@ -368,6 +397,8 @@ export async function readTeamModelState(env: Env, member: WorkspaceNativeMember
   const { member: roomMember } = await assertTeamModelRoom(env, member, roomId);
   await env.AGENT_AUDIT.prepare(`UPDATE team_model_turns SET status='unknown',version=version+1,output=NULL,error_code='team_model_dispatch_receipt_unknown',updated_at=?
     WHERE workspace_id=? AND room_id=? AND status='running' AND dispatch_deadline<=${DB_NOW}`).bind(Date.now(), member.workspaceId, roomId).run();
+  await env.AGENT_AUDIT.prepare(`UPDATE team_model_money_ledger SET state='unknown',updated_at=? WHERE workspace_id=? AND state='held'
+    AND EXISTS(SELECT 1 FROM team_model_turns t WHERE t.id=turn_id AND (t.status<>'running' OR t.dispatch_deadline<=${DB_NOW}))`).bind(Date.now(), member.workspaceId).run();
   // Initialize the existing scoped note table without inheriting any note text.
   await snapshotCollaborationMemory(env, { tenantId: COLLAB_TENANT_ID, workspaceId: member.workspaceId, userId: member.userId }, roomId, []);
   const policy = teamModelPolicy(env), policyDigest = await hashToolArgs(policy.key);

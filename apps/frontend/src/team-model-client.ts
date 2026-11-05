@@ -1,4 +1,5 @@
 import { teamModelStateResponseSchema, teamModelFundingResponseSchema, teamModelTurnResponseSchema,
+  isTeamModelMoneyContract,
   type TeamModelStateResponse, type TeamModelFundingResponse, type TeamModelTurnResponse, type TeamModelFundingInput, type TeamModelTurnInput } from "@shiba/shared";
 
 const canonical = (value: unknown): string => JSON.stringify(value && typeof value === "object"
@@ -40,8 +41,10 @@ export class TeamModelClient {
   }
   async prepareFunding(input: Omit<TeamModelFundingInput, "roomId">, signal: AbortSignal): Promise<Funding> {
     const { grant } = await this.request("/funding/prepare", teamModelFundingResponseSchema, signal, { roomId: this.roomId, ...input });
-    const fields: Array<keyof Omit<TeamModelFundingInput, "roomId">> = ["employeeId", "employeeVersion", "memberId", "memberVersion", "model", "maxRequests", "maxInputBytes", "maxOutputTokens", "expiresAt"];
-    if (grant.contract.roomId !== this.roomId || grant.contract.issuerId !== this.actorId || fields.some((key) => grant.contract[key] !== input[key]) || grant.state !== "draft") throw new Error("The exact funding contract could not be verified.");
+    const fields = ["employeeId", "employeeVersion", "memberId", "memberVersion", "model", "maxRequests", "maxInputBytes", "maxOutputTokens", "expiresAt"] as const;
+    if (grant.contract.roomId !== this.roomId || grant.contract.issuerId !== this.actorId || fields.some((key) => grant.contract[key] !== input[key]) || grant.state !== "draft" ||
+      !isTeamModelMoneyContract(grant.contract.money, grant.contract.maxOutputTokens) || grant.contract.money.currency !== input.currency || grant.contract.money.budgetMicroUsd !== input.budgetMicroUsd ||
+      grant.contract.money.quote.dispatchUntil <= Date.now() || grant.contract.money.quote.dispatchUntil > grant.contract.expiresAt) throw new Error("The exact funding contract could not be verified.");
     return grant;
   }
   private fundingReceipt(next: Funding, previous: Funding): Funding {
@@ -49,6 +52,7 @@ export class TeamModelClient {
     return next;
   }
   async activateFunding(grant: Funding, signal: AbortSignal): Promise<Funding> {
+    if (!isTeamModelMoneyContract(grant.contract.money, grant.contract.maxOutputTokens) || grant.contract.money.quote.dispatchUntil <= Date.now()) throw new Error("A current exact USD quote and budget review is required.");
     const body = await this.request(`/funding/${encodeURIComponent(grant.id)}/activate`, teamModelFundingResponseSchema, signal, { expectedVersion: grant.version, digest: grant.digest, billingConsent: true, reviewed: true });
     return this.fundingReceipt(body.grant, grant);
   }
@@ -57,23 +61,28 @@ export class TeamModelClient {
     return this.fundingReceipt(body.grant, grant);
   }
   async prepareTurn(grant: Funding, input: TeamModelTurnDraft, signal: AbortSignal): Promise<Turn> {
+    if (!isTeamModelMoneyContract(grant.contract.money, grant.contract.maxOutputTokens) || grant.contract.money.quote.dispatchUntil <= Date.now()) throw new Error("A current exact USD quote and budget review is required.");
     const { turn } = await this.request("/turns/prepare", teamModelTurnResponseSchema, signal, { grantId: grant.id, expectedGrantVersion: grant.version, ...input });
     const selectedMessages = [...input.messageIds].sort(), messages = turn.sources.filter((source) => source.kind === "message").map((source) => source.id).sort();
     const notes = turn.sources.filter((source) => source.kind === "note");
     if (turn.roomId !== this.roomId || turn.requesterId !== this.actorId || turn.grantId !== grant.id || turn.employeeId !== grant.contract.employeeId || turn.model !== grant.contract.model ||
       turn.requestedPrompt !== input.prompt || turn.inputBytes > grant.contract.maxInputBytes || turn.maxOutputTokens !== grant.contract.maxOutputTokens || turn.expiresAt > grant.contract.expiresAt ||
+      !turn.cost || turn.cost.quoteDigest !== grant.contract.money.quote.digest || turn.cost.maximumDebitMicroUsd !== grant.contract.money.maximumDebitPerCallMicroUsd || turn.cost.dispatchUntil !== grant.contract.money.quote.dispatchUntil || turn.expiresAt > turn.cost.dispatchUntil ||
       JSON.stringify(messages) !== JSON.stringify(selectedMessages) || notes.length !== input.memoryRefs.length || input.memoryRefs.some((ref) => !notes.some((note) => note.id === ref.id && note.version === ref.version && note.sha256 === ref.sha256))) throw new Error("The exact prompt, model and source receipt could not be verified.");
     return turn;
   }
   private turnReceipt(next: Turn, previous: Turn): Turn {
     if (next.id !== previous.id || next.roomId !== this.roomId || next.requesterId !== this.actorId || next.grantId !== previous.grantId || next.inputHash !== previous.inputHash || next.model !== previous.model || next.employeeId !== previous.employeeId || next.version < previous.version) throw new Error("The exact team model turn receipt could not be verified. Inspect its outcome before another action.");
+    if (next.cost && previous.cost && (next.cost.quoteDigest !== previous.cost.quoteDigest || next.cost.maximumDebitMicroUsd !== previous.cost.maximumDebitMicroUsd || next.cost.dispatchUntil !== previous.cost.dispatchUntil || next.cost.authorizedDebitMicroUsd < previous.cost.authorizedDebitMicroUsd)) throw new Error("The exact team model cost receipt could not be verified.");
     return next;
   }
   async approveTurn(turn: Turn, signal: AbortSignal): Promise<Turn> {
+    if (!turn.cost || turn.cost.dispatchUntil <= Date.now()) throw new Error("A current exact USD quote and budget review is required.");
     const body = await this.request(`/turns/${encodeURIComponent(turn.id)}/approve`, teamModelTurnResponseSchema, signal, { expectedVersion: turn.version, inputHash: turn.inputHash, reviewed: true });
     return this.turnReceipt(body.turn, turn);
   }
   async executeTurn(turn: Turn, signal: AbortSignal): Promise<Turn> {
+    if (!turn.cost || turn.cost.dispatchUntil <= Date.now()) throw new Error("A current exact USD quote and budget review is required.");
     const body = await this.request(`/turns/${encodeURIComponent(turn.id)}/execute`, teamModelTurnResponseSchema, signal, { expectedVersion: turn.version, inputHash: turn.inputHash });
     return this.turnReceipt(body.turn, turn);
   }

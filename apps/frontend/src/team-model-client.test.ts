@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TeamModelClient, TeamModelRequestError } from "./team-model-client";
 import { teamModelFixture, TEAM_MODEL_ACTOR, TEAM_MODEL_OPERATOR, TEAM_MODEL_ROOM, TEAM_MODEL_WORKSPACE } from "./team-model-fixtures";
+import { teamModelPriceQuoteDigest } from "@shiba/shared";
 const signal = () => new AbortController().signal;
 const client = (fetcher: typeof fetch, actor = TEAM_MODEL_ACTOR) => new TeamModelClient(TEAM_MODEL_WORKSPACE, TEAM_MODEL_ROOM, actor, fetcher);
 const fundingResponse = (grant = teamModelFixture().grant) => ({ ok: true, workspaceId: TEAM_MODEL_WORKSPACE, roomId: TEAM_MODEL_ROOM, grant });
@@ -9,6 +10,28 @@ const errorFrom = async (operation: Promise<unknown>) => { const error = await o
 afterEach(() => vi.unstubAllGlobals());
 
 describe("team model exact scoped client", () => {
+  it.each(["budget", "quote rate", "quote digest", "currency"])("rejects a changed %s in the prepared billing contract", async (changed) => {
+    const { grant } = teamModelFixture(); grant.state = "draft";
+    const { roomId: _room, issuerId: _issuer, employeeName: _name, employeeInstructions: _instructions, billing: _billing, audience: _audience, tools: _tools, credentialRef: _credential, money: _money, ...base } = grant.contract;
+    const input = { ...base, currency: "USD" as const, budgetMicroUsd: 100_000 };
+    const body = JSON.parse(JSON.stringify(grant));
+    if (changed === "budget") body.contract.money.budgetMicroUsd++;
+    if (changed === "quote rate") body.contract.money.quote.outputMicroUsdPerMillionTokens = 1;
+    if (changed === "quote digest") body.contract.money.quote.digest = "0".repeat(64);
+    if (changed === "currency") body.contract.money.currency = "EUR";
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(fundingResponse(body)));
+    expect((await errorFrom(client(fetcher, TEAM_MODEL_OPERATOR).prepareFunding(input, signal()))).message).toMatch(/verified/);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it("refuses expired price reviews or amountless activation and execution before HTTP", async () => {
+    const { grant, turn } = teamModelFixture(), fetcher = vi.fn<typeof fetch>();
+    const { digest: _digest, ...quote } = { ...grant.contract.money!.quote, createdAt: Date.now() - 900_001, dispatchUntil: Date.now() - 1 };
+    grant.contract.money!.quote = { ...quote, digest: teamModelPriceQuoteDigest(quote) };
+    await errorFrom(client(fetcher).activateFunding(grant, signal()));
+    turn.cost!.dispatchUntil = quote.dispatchUntil; await errorFrom(client(fetcher).executeTurn(turn, signal()));
+    delete grant.contract.money; await errorFrom(client(fetcher).activateFunding(grant, signal()));
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it("mount state reads use an exact room and workspace without starting effects", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(teamModelFixture().state)), c = client(fetcher), abort = signal();
     expect(fetcher).not.toHaveBeenCalled(); await c.state(abort);
@@ -30,7 +53,8 @@ describe("team model exact scoped client", () => {
   });
   it("prepares exact funding without activating it and rejects changed member versions", async () => {
     const { grant } = teamModelFixture(); grant.state = "draft"; grant.canActivate = true; grant.contract.issuerId = TEAM_MODEL_OPERATOR;
-    const { roomId: _, issuerId: _issuer, employeeName: _name, employeeInstructions: _instructions, billing: _billing, audience: _audience, tools: _tools, credentialRef: _credential, ...input } = grant.contract;
+    const { roomId: _, issuerId: _issuer, employeeName: _name, employeeInstructions: _instructions, billing: _billing, audience: _audience, tools: _tools, credentialRef: _credential, money: _money, ...base } = grant.contract;
+    const input = { ...base, currency: "USD" as const, budgetMicroUsd: grant.contract.money!.budgetMicroUsd };
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(fundingResponse(grant))).mockResolvedValueOnce(Response.json(fundingResponse({ ...grant, contract: { ...grant.contract, memberVersion: 999 } })));
     await client(fetcher, TEAM_MODEL_OPERATOR).prepareFunding(input, signal());
     expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual({ roomId: TEAM_MODEL_ROOM, ...input });

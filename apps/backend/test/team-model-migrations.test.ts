@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ensureCollaborationSchema } from "../src/collaboration-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { ensureTeamModelSchema } from "../src/team-model-store.js";
+import type { Env } from "../src/env.js";
 
 const migration = readFileSync(new URL("../migrations/0013_team_model_sessions.sql", import.meta.url), "utf8");
 const room = "room_aaaaaaaaaaaaaaaaaaaaaaaa", workspace = "ws_aaaaaaaaaaaaaaaaaaaaaaaa", member = "human:member@example.test";
@@ -14,6 +16,21 @@ function seedFunding(sqlite: ReturnType<typeof customAgentD1>["sqlite"]) {
     .run(workspace, room, JSON.stringify({ recipientRoom: { actorId: member } }));
 }
 describe("unreleased team-model migration collaboration prerequisites", () => {
+  it("adds the canonical append-only money ledger without changing legacy rows or weakening its constraints", async () => {
+    const legacy = customAgentD1(), runtime = customAgentD1();
+    try {
+      legacy.sqlite.exec(migration); seedRoom(legacy.sqlite); seedFunding(legacy.sqlite);
+      const original = legacy.sqlite.prepare("SELECT * FROM team_model_funding").get();
+      const moneyMigration = readFileSync(new URL("../migrations/0017_team_model_money.sql", import.meta.url), "utf8");
+      legacy.sqlite.exec(moneyMigration); legacy.sqlite.exec(moneyMigration);
+      await ensureTeamModelSchema({ AGENT_AUDIT: runtime.database } as Env);
+      expect(legacy.sqlite.prepare("SELECT * FROM team_model_funding").get()).toEqual(original);
+      expect(legacy.sqlite.prepare("PRAGMA table_info(team_model_money_ledger)").all()).toEqual(runtime.sqlite.prepare("PRAGMA table_info(team_model_money_ledger)").all());
+      expect(legacy.sqlite.prepare("PRAGMA index_list(team_model_money_ledger)").all()).toEqual(runtime.sqlite.prepare("PRAGMA index_list(team_model_money_ledger)").all());
+      const insert = legacy.sqlite.prepare("INSERT INTO team_model_money_ledger(turn_id,grant_id,workspace_id,input_hash,quote_digest,reserved_micro_usd,state,created_at,updated_at) VALUES(?,'grant','workspace','hash','quote',?,'held',1,1)");
+      insert.run("turn", 8341); expect(() => insert.run("turn", 8341)).toThrow(); expect(() => insert.run("oversized", 8342)).toThrow(); expect(() => insert.run("negative", -1)).toThrow();
+    } finally { legacy.sqlite.close(); runtime.sqlite.close(); }
+  });
   it("creates the complete canonical room and membership schema on an empty database", async () => {
     const migrated = customAgentD1(), runtime = customAgentD1();
     try {
