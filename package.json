@@ -39,6 +39,7 @@
     "bootstrap": "node scripts/setup.mjs",
     "shiba": "node scripts/shiba.mjs",
     "test": "turbo run test",
+    "test:personal-daemon": "node --test scripts/personal-cli-auth.test.mjs scripts/personal-daemon.test.mjs",
     "test:acceptance": "node apps/backend/test/acceptance/run.mjs",
     "test:built": "cd apps/backend && pnpm test test/marketing-pages.test.ts test/marketing-seo.test.ts",
     "test:ephemeral": "node scripts/ephemeral-stack.mjs --alchemy",

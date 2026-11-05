@@ -16,3 +16,5 @@ Pure wire schemas, hashes and DTOs belong to `@shiba/shared`; Worker policy, cre
 Scoped independent reviews reproduced and closed duplicate dispatch, cached-result revocation and founder approval-expiry races. They do not constitute whole-PR security approval: the earlier automated review exceeded its file limit, and existing review threads have not been resolved by this work.
 
 The [PR checks](https://github.com/opentoolsorg/shiba/pull/188/checks) identify each exact pushed head. Do not sum overlapping focused test counts. An earlier concurrent local aggregate was interrupted after stale generated Vitest caches filled the temporary filesystem; it is not a passing result. Only verified generated caches older than one hour were removed before the final bounded rerun. Live service acceptance remains separate from local and browser fixtures.
+
+The existing Linux CI check also runs `pnpm test:personal-daemon`, so standalone native-auth and daemon subprocess regressions are checked alongside the workspace suites. It uses fixture accounts, CLIs and network responses, with no login or inference.
