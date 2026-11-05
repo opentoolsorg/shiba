@@ -196,10 +196,10 @@ test("actual native shared UI retains goal, thread, approved output and review a
 
     await page.goto(`${fixture.origin}/custom-agents/`);
     await page.getByText("Advanced settings", { exact: true }).click();
-    await page.getByPlaceholder("security-reviewer").fill("native-fixture-researcher");
-    await page.getByPlaceholder("Security reviewer").fill("Native Fixture Researcher");
+    await page.getByLabel("Slug", { exact: true }).fill("native-fixture-researcher");
+    await page.getByLabel("Name", { exact: true }).fill("Native Fixture Researcher");
     await page
-      .getByPlaceholder("Standing instructions prepended to every run")
+      .getByLabel("Instructions", { exact: true })
       .fill("Use only supplied fixture facts. Produce the required report for human review.");
     await page.getByLabel("Required deliverables").fill("reports/native-fixture.md");
     // Saving is asynchronous. Confirm the Worker accepted this exact UI write
