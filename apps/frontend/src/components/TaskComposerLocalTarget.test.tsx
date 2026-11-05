@@ -7,10 +7,10 @@ import { TaskComposer } from "./TaskComposer";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-function Harness({ onSubmit, initialTarget = "local" }: { onSubmit: () => void; initialTarget?: "sandbox" | "local" }) {
+function Harness({ onSubmit, initialTarget = "local", artifact = false }: { onSubmit: () => void; initialTarget?: "sandbox" | "local"; artifact?: boolean }) {
   const [target, setTarget] = useState<"sandbox" | "local">(initialTarget);
   const fleet = useLocalRunTarget({ harness: "opencode", desktopStatus: null });
-  return <TaskComposer repoUrl="https://github.com/example/project" task="Fix the parser" baseBranch="main"
+  return <TaskComposer executionTargetKind={artifact ? "artifact-workspace" : "repository"} artifactDeliverables="reports/brief.md" repoUrl={artifact ? "" : "https://github.com/example/project"} task="Fix the parser" baseBranch="main"
     publishPullRequest={false} harness="opencode" busy={false} isSubmitting={false} clearing={false}
     routing={{ codingModel: "", connectionId: "", onCodingModelChange: vi.fn(), onConnectionChange: vi.fn(), reasoningEffort: "" as const, onReasoningEffortChange: vi.fn() }}
     onRepoUrlChange={vi.fn()} onTaskChange={vi.fn()} onBaseBranchChange={vi.fn()} onPublishPullRequestChange={vi.fn()}
@@ -92,4 +92,23 @@ it("keeps Local selected and blocks sending after its computer goes offline", as
   fireEvent.click(screen.getByRole("menuitemradio", { name: /Cloud \(Sandbox\)/ }));
   expect(screen.getByRole("button", { name: "Run on: Cloud" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(false);
+});
+
+it("selects a paired computer for explicit artifacts and never falls back after revocation", async () => {
+  let revoked = false;
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ computers: [{ ...computer("artifact"), revoked }] })));
+  const submit = vi.fn();
+  render(<Harness onSubmit={submit} initialTarget="sandbox" artifact />);
+  fireEvent.click(screen.getByRole("button", { name: "Run on: Cloud" }));
+  const local = screen.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ });
+  await waitFor(() => expect(local.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(local);
+  await screen.findByText("Local: Mac artifact");
+  fireEvent.click(screen.getByRole("button", { name: "Send task" }));
+  expect(submit).toHaveBeenCalledOnce();
+  revoked = true;
+  fireEvent.click(screen.getByRole("button", { name: "Run on: Local" }));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh paired computers" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(true));
+  expect(screen.getByRole("button", { name: "Run on: Local" })).toBeTruthy();
 });

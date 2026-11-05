@@ -864,6 +864,10 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
       JSON.stringify(input.expectedDeliverables) !== JSON.stringify(artifact.expectedDeliverables)))) {
       return failureResult("Local artifact work requires a no-repository target, matching nonempty approved deliverables and no personal repository grant or publication.", 0, "", signals);
     }
+    if (artifact && (!input.targetMachineId?.trim() || !input.initiatorUserId?.trim() ||
+      !expectedDeliverablesSchema.safeParse(artifact.expectedDeliverables).success)) {
+      return failureResult("Local artifacts require an explicit paired computer, owner and safe approved deliverable paths.", 0, "", signals);
+    }
     input = input.personalExecution ? input : artifact ? {
       ...input,
       task: `${input.task}${onboardingSourceInstructions(input.onboardingSourceSnapshot)}\n\nWrite only these approved complete UTF-8 deliverables relative to your current working directory: ${artifact.expectedDeliverables.join(", ")}. Each file is limited to 16384 bytes, 65536 bytes total. Only these files will be privately exported; other files are not recoverable artifacts.`,
@@ -1031,6 +1035,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
         try {
           if (artifact && (result.diff !== "" || result.baseRevision !== undefined ||
             result.changedFiles.length !== artifact.expectedDeliverables.length ||
+            new Set(result.changedFiles).size !== result.changedFiles.length ||
             result.changedFiles.some((file) => !artifact.expectedDeliverables.includes(file)) ||
             result.files.length !== artifact.expectedDeliverables.length ||
             result.files.some((file) => !artifact.expectedDeliverables.includes(file.path)))) {
