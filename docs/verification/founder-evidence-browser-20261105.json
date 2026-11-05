@@ -1,0 +1,323 @@
+{
+  "kind": "local-Chromium-founder-evidence-and-manual-Slack-HTTP-fixture",
+  "startedAt": "2026-11-05T06:37:10.149Z",
+  "baseCommit": "25344644ed9fff46658e7b4a8c79cf481eadd4aa",
+  "boundary": "Actual React components, native browser fetch, shared parsers and product CSS; intercepted deterministic HTTP replaces Worker/native authentication, D1, connection metadata, provider accounts and every Slack effect. Fixture receipts are fictional and do not prove live data, permissions, delivery, full dashboard or scheduled workflows.",
+  "sourceAtStart": {
+    "apps/frontend/src/components/FounderEvidenceReports.tsx": "89a2ccd95d94d80ff2099000417e65d7405f4f854a23b16d118e5660e6e68346",
+    "apps/frontend/src/components/ReportSlackDisclosure.tsx": "3b67cb510d0ff22d77a570e9383a34d3163971ecbd3aead3907fed805e996834",
+    "apps/frontend/src/founder-evidence-client.ts": "bcd1126ffa969cee5100bfc34a5b80ecc207728a2091716180f0f67907bebb43",
+    "apps/frontend/src/report-slack-client.ts": "d88d703509c7ee48ca6ec279e95bcc17f593813a3254f82e69c8e2f447c3c0c8",
+    "packages/shared/src/founder-evidence-reports.ts": "3fda9223c70f02019381ba5d89e08fb97982214b66367aeb6ba02e1f32c045ab",
+    "packages/shared/src/report-slack.ts": "927b9262ed33a085024f7a0de23b873eb46b54d58f91e8897e0eb2bb90b10caa",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "assertions": [
+    {
+      "name": "Initial scoped reads select no receipts, create no report, download nothing and make no Slack request",
+      "status": "passed"
+    },
+    {
+      "name": "Explicit own excerpt selection yields an exact hashed preview with unknown completeness and unverified business success",
+      "status": "passed"
+    },
+    {
+      "name": "Reviewed Create saves one private immutable fixture report without automatic download, Slack draft or send",
+      "status": "passed"
+    },
+    {
+      "name": "Explicit authenticated download returns the exact hash-verified Markdown bytes",
+      "status": "passed"
+    },
+    {
+      "name": "Explicit Copy uses the same verified private bytes",
+      "status": "passed"
+    },
+    {
+      "name": "Opening separate Slack review only reads current configured policy and creates no draft or send",
+      "status": "passed"
+    },
+    {
+      "name": "Private Slack draft preserves complete small report and exact destination; broader audience consent is still required",
+      "status": "passed"
+    },
+    {
+      "name": "Explicit disclosure consent alone sends nothing and names all Slack channel or thread readers",
+      "status": "passed"
+    },
+    {
+      "name": "Separate human approve-and-send creates exactly one simulated receipt; no real Slack request occurs",
+      "status": "passed"
+    },
+    {
+      "name": "1280px dark has no horizontal viewport overflow",
+      "status": "passed"
+    },
+    {
+      "name": "390px light has no horizontal viewport overflow",
+      "status": "passed"
+    },
+    {
+      "name": "320px light has no horizontal viewport overflow",
+      "status": "passed"
+    },
+    {
+      "name": "Response-loss injection blocks repeat sends even when refresh returns an older disclosed state",
+      "status": "passed"
+    },
+    {
+      "name": "A-to-B workspace switch discards late private download before any Blob or anchor effect",
+      "status": "passed"
+    },
+    {
+      "name": "Revoked-source focus refresh removes cached evidence, transfer controls and Slack content",
+      "status": "passed"
+    },
+    {
+      "name": "Frozen source bytes and zero Chromium page errors; all external traffic and business or model endpoints excluded",
+      "status": "passed"
+    }
+  ],
+  "api": [
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/options",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/options",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/preview",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "employeeId": "employee-one",
+        "employeeVersion": 2,
+        "skillId": "skill-one",
+        "skillVersion": 3,
+        "receipts": [
+          {
+            "approvalId": "wca-evidence-0",
+            "inputHash": "1111111111111111111111111111111111111111111111111111111111111111",
+            "resultDigest": "3333333333333333333333333333333333333333333333333333333333333333"
+          },
+          {
+            "approvalId": "wca-evidence-1",
+            "inputHash": "2222222222222222222222222222222222222222222222222222222222222222",
+            "resultDigest": "4444444444444444444444444444444444444444444444444444444444444444"
+          }
+        ],
+        "expiresAt": 1793864220000
+      }
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "employeeId": "employee-one",
+        "employeeVersion": 2,
+        "skillId": "skill-one",
+        "skillVersion": 3,
+        "receipts": [
+          {
+            "approvalId": "wca-evidence-0",
+            "inputHash": "1111111111111111111111111111111111111111111111111111111111111111",
+            "resultDigest": "3333333333333333333333333333333333333333333333333333333333333333"
+          },
+          {
+            "approvalId": "wca-evidence-1",
+            "inputHash": "2222222222222222222222222222222222222222222222222222222222222222",
+            "resultDigest": "4444444444444444444444444444444444444444444444444444444444444444"
+          }
+        ],
+        "expiresAt": 1793864220000,
+        "expectedReportHash": "715fb27bdb91f11999af901574fee39fd8c87786d7684f74486dd3c7af41d79a",
+        "requestId": "2d3fe845-a4cc-40b1-86dd-f703be930690"
+      }
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/fer-fixture/download",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/fer-fixture/download",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/fer-fixture/slack",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/fer-fixture/slack/preview",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "requestId": "c4da5b06-b215-46c4-8747-a8fdbfca5d4c",
+        "reportHash": "715fb27bdb91f11999af901574fee39fd8c87786d7684f74486dd3c7af41d79a",
+        "roomId": "room-one",
+        "linkId": "link-one",
+        "expiresAt": 1793861220000
+      }
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/fer-fixture/slack/intents/rsi-one/disclose",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 1,
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "contentHash": "77ebc9e85fd028c9819aa5ffaac3cf3e538c8f52d9d21a4479771f6ed790672f",
+        "expiresAt": 1793861220000,
+        "reviewed": true,
+        "disclosureConsent": "share-report-to-configured-slack-thread",
+        "audienceConsent": "all-people-with-access-to-selected-slack-channel-thread"
+      }
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/fer-fixture/slack/intents/rsi-one/approve",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 1,
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "contentHash": "77ebc9e85fd028c9819aa5ffaac3cf3e538c8f52d9d21a4479771f6ed790672f",
+        "expiresAt": 1793861220000,
+        "reviewed": true
+      }
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/fer-fixture/slack",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/fer-fixture/slack/intents/rsi-unknown/approve",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 1,
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "contentHash": "77ebc9e85fd028c9819aa5ffaac3cf3e538c8f52d9d21a4479771f6ed790672f",
+        "expiresAt": 1793861220000,
+        "reviewed": true
+      }
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/fer-fixture/slack",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/fer-fixture/download",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/options",
+      "method": "GET",
+      "workspaceId": "ws_bbbbbbbbbbbbbbbbbbbbbbbb",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports",
+      "method": "GET",
+      "workspaceId": "ws_bbbbbbbbbbbbbbbbbbbbbbbb",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/options",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/fer-fixture",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports/options",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-hubspot-stripe-reconcile/reports",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    }
+  ],
+  "blockedExternal": [],
+  "pageErrors": [],
+  "consoleErrors": [
+    "Failed to load resource: net::ERR_FAILED",
+    "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+    "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ],
+  "screenshots": [
+    {
+      "path": "founder-evidence-browser-20261105-desktop-dark.png",
+      "sha256": "23d6222cc1ec8cea098d99274457b279925dec4876e3d74663402069c2f77e19"
+    },
+    {
+      "path": "founder-evidence-browser-20261105-390-light.png",
+      "sha256": "1073654db703109a7f5ed0b34451655fca9f460a601f3a50f214762c0b29647f"
+    },
+    {
+      "path": "founder-evidence-browser-20261105-320-light.png",
+      "sha256": "522303be736d4566b173c4c2a1a85f1e802a45e554a697058053d5e5090276de"
+    }
+  ],
+  "sourceAtEnd": {
+    "apps/frontend/src/components/FounderEvidenceReports.tsx": "89a2ccd95d94d80ff2099000417e65d7405f4f854a23b16d118e5660e6e68346",
+    "apps/frontend/src/components/ReportSlackDisclosure.tsx": "3b67cb510d0ff22d77a570e9383a34d3163971ecbd3aead3907fed805e996834",
+    "apps/frontend/src/founder-evidence-client.ts": "bcd1126ffa969cee5100bfc34a5b80ecc207728a2091716180f0f67907bebb43",
+    "apps/frontend/src/report-slack-client.ts": "d88d703509c7ee48ca6ec279e95bcc17f593813a3254f82e69c8e2f447c3c0c8",
+    "packages/shared/src/founder-evidence-reports.ts": "3fda9223c70f02019381ba5d89e08fb97982214b66367aeb6ba02e1f32c045ab",
+    "packages/shared/src/report-slack.ts": "927b9262ed33a085024f7a0de23b873eb46b54d58f91e8897e0eb2bb90b10caa",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "status": "passed",
+  "simulatedSends": 2,
+  "browser": "154.0.8037.57",
+  "completedAt": "2026-11-05T06:37:22.740Z",
+  "expectedFaults": [
+    "One intercepted Slack response-loss request intentionally aborts.",
+    "Revoked-source read returns an intercepted 403; browser console errors from these injections are retained."
+  ]
+}

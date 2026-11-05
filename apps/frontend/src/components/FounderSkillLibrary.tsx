@@ -4,6 +4,7 @@ import { reloadSavedSkills, useSavedSkills } from "../saved";
 import { EmployeeBundleReview } from "./EmployeeBundleReview";
 import { FounderReviewSchedule } from "./FounderReviewSchedule";
 import { FounderConnectorPlan } from "./FounderConnectorPlan";
+import { FounderEvidenceReports } from "./FounderEvidenceReports";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
 
 interface LibrarySkill {
@@ -45,7 +46,9 @@ function FounderLibraryContent({ workspaceId, canManage, savedSkills, onInstalle
   const [setup, setSetup] = useState<{ recipe: EmployeeBundle; signal: AbortSignal } | null>(null);
   const [schedule, setSchedule] = useState<LibrarySkill | null>(null);
   const [connectorPlan, setConnectorPlan] = useState<LibrarySkill | null>(null);
+  const [evidence, setEvidence] = useState<LibrarySkill | null>(null);
   const connectorButton = useRef<HTMLButtonElement | null>(null);
+  const evidenceButton = useRef<HTMLButtonElement | null>(null);
   const controller = useRef<AbortController | null>(null);
   const pending = useRef(false);
   const loadEpoch = useRef(0);
@@ -135,8 +138,9 @@ function FounderLibraryContent({ workspaceId, canManage, savedSkills, onInstalle
               <div className="flex flex-wrap gap-2">
                 <button type="button" disabled={!canManage || busyId !== null || skill.installed} onClick={() => void install(skill.id)} className={button}>{skill.installed ? "Instructions installed" : "Install draft"}</button>
                 {!workspaceId && <button type="button" aria-label={`Review employee setup: ${skill.name}`} disabled={busyId !== null} onClick={() => void reviewSetup(skill.id)} className={button}>Review employee setup</button>}
-                {canManage && <button type="button" aria-label={`Schedule review drafts: ${skill.name}`} disabled={busyId !== null} onClick={() => { setSchedule(skill); setSetup(null); setConnectorPlan(null); }} className={button}>Schedule review drafts</button>}
-                {workspaceId && canManage && <button type="button" aria-label={`Configure app action reviews: ${skill.name}`} disabled={busyId !== null} onClick={(event) => { connectorButton.current = event.currentTarget; setConnectorPlan(skill); setSchedule(null); setSetup(null); }} className={button}>Configure app action reviews</button>}
+                {canManage && <button type="button" aria-label={`Schedule review drafts: ${skill.name}`} disabled={busyId !== null} onClick={() => { setSchedule(skill); setSetup(null); setConnectorPlan(null); setEvidence(null); }} className={button}>Schedule review drafts</button>}
+                {workspaceId && canManage && <button type="button" aria-label={`Configure app action reviews: ${skill.name}`} disabled={busyId !== null} onClick={(event) => { connectorButton.current = event.currentTarget; setConnectorPlan(skill); setSchedule(null); setSetup(null); setEvidence(null); }} className={button}>Configure app action reviews</button>}
+                {workspaceId && canManage && <button type="button" aria-label={`Build private evidence: ${skill.name}`} disabled={busyId !== null} onClick={(event) => { evidenceButton.current = event.currentTarget; setEvidence(skill); setConnectorPlan(null); setSchedule(null); setSetup(null); }} className={button}>Build private evidence</button>}
               </div>
             </li>
           ))}
@@ -145,6 +149,9 @@ function FounderLibraryContent({ workspaceId, canManage, savedSkills, onInstalle
       {schedule && <FounderReviewSchedule key={`${workspaceId ?? "personal"}:${schedule.id}`} libraryId={schedule.id} name={schedule.name} suggested={schedule.schedule} workspaceId={workspaceId} onClose={() => setSchedule(null)} />}
       {connectorPlan && workspaceId && <FounderConnectorPlan workspaceId={workspaceId} libraryId={connectorPlan.id} name={connectorPlan.name} timezone={connectorPlan.schedule.timezone} onClose={() => {
         const signal = controller.current?.signal; setConnectorPlan(null); if (signal && current(signal) && connectorButton.current?.isConnected) connectorButton.current.focus();
+      }} />}
+      {evidence && workspaceId && <FounderEvidenceReports workspaceId={workspaceId} libraryId={evidence.id} name={evidence.name} onClose={() => {
+        const signal = controller.current?.signal; setEvidence(null); if (signal && current(signal) && evidenceButton.current?.isConnected) evidenceButton.current.focus();
       }} />}
       {setup ? <EmployeeBundleReview key={setup.recipe.profile.provenance?.id} recipe={setup.recipe} onClose={() => setSetup(null)} onImported={(result) => {
         if (!current(setup.signal)) return;
