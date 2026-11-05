@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import type { FounderReconciliationDraft, FounderReconciliationReport, FounderStripeGrant, FounderStripeReceipt, FounderHubSpotGrant, FounderHubSpotReceipt } from "@shiba/shared";
-import { FounderReconciliationClient, type ReconciliationMetadata } from "../founder-reconciliation-client";
+import { FounderReconciliationClient, type ReconciliationMetadata, type RollingMetric, type RollingReport, type RollingSelection } from "../founder-reconciliation-client";
 import { FounderReconciliationSchedules } from "./FounderReconciliationSchedules";
 const BUTTON = "min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 py-2 text-xs disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
 const FIELD = "mt-1 min-h-11 min-w-0 w-full border border-[var(--input-line)] bg-[var(--paper)] px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
@@ -69,7 +69,61 @@ function ReconciliationContent({ workspaceId, actorId, onClose }: Props): JSX.El
       {draft.state === "draft" && <><label className="mt-2 flex min-h-11 gap-2"><input type="checkbox" checked={review === reviewKey} disabled={busy} onChange={(e) => setReview(e.target.checked ? reviewKey : "")} />I reviewed the exact captured sources, IDs, selected CRM properties, amount unit and basis, time windows, expiry and uncertainty.</label><button type="button" className={BUTTON} disabled={busy || uncertain || review !== reviewKey || draft.expiresAt <= Date.now()} onClick={compose}>Compose private comparison</button></>}
       {draft.state !== "revoked" && <button type="button" className={`${BUTTON} mt-3`} disabled={busy || uncertain} onClick={() => revoke(draft)}>Revoke comparison</button>}
     </article>}
+    {draft?.state === "completed" && report && <RollingComparison key={`${draft.id}:${draft.digest}`} draft={draft} busy={busy} uncertain={uncertain} submit={async (selection) => {
+      let output: RollingReport | null = null;
+      const epoch = contentEpoch.current;
+      await perform(async (signal) => { const result = await client.rolling(draft, selection, signal); if (active(signal) && epoch === contentEpoch.current) output = result; });
+      return output;
+    }} />}
     {draft?.state === "completed" && report && <section className="mt-3"><button type="button" className={BUTTON} onClick={() => setShowFuture((shown) => !shown)}>{showFuture ? "Close standing comparison setup" : "Configure future private comparisons"}</button>{showFuture && <FounderReconciliationSchedules workspaceId={workspaceId} actorId={actorId} sampleId={draft.id} onClose={() => setShowFuture(false)} />}</section>}
     {draft && report && <div className="mt-3 border-t border-[var(--line)] pt-3"><p>Private bounded comparison · dataset completeness unknown · business success unverified. Unmatched means not found in the captured page; an uncaptured deal was not returned by the source.</p><p className="mt-2">Rows distinguish equal matches, differences, duplicate IDs, missing or invalid IDs, uncaptured deals, unmatched invoices and non-comparable amounts. Provider invoice status and creation time are shown where supplied; a numerical match does not prove payment or business success.</p><p className="mt-2 break-all">Report hash {draft.reportHash}</p><pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words">{JSON.stringify(report, null, 2)}</pre></div>}
+  </section>;
+}
+
+function RollingComparison({ draft, busy, uncertain, submit }: { draft: FounderReconciliationDraft; busy: boolean; uncertain: boolean; submit: (selection: RollingSelection) => Promise<RollingReport | null> }): JSX.Element {
+  const [periodDays, setPeriodDays] = useState("7"), [metric, setMetric] = useState<RollingMetric>("invoice-paid-snapshot");
+  const [asOf, setAsOf] = useState(() => new Date(Math.min(Math.floor(Date.now() / 1000), draft.sources.stripe.createdLt) * 1000).toISOString().slice(0, 19));
+  const [reviewed, setReviewed] = useState(false), [output, setOutput] = useState<RollingReport | null>(null);
+  const epoch = useRef(0), inFlight = useRef(false);
+  useEffect(() => () => { epoch.current++; }, []);
+  const reset = () => { epoch.current++; setReviewed(false); setOutput(null); };
+  const end = Date.parse(`${asOf}Z`) / 1000, days = Number(periodDays), start = end - days * 86400;
+  const valid = Number.isSafeInteger(end) && Number.isSafeInteger(days) && days >= 1 && days <= 28 && start >= draft.sources.stripe.createdGte && end <= draft.sources.stripe.createdLt && end <= Math.floor(Date.now() / 1000);
+  const unavailable = metric !== "invoice-paid-snapshot";
+  const compose = async () => {
+    if (!reviewed || !valid || busy || uncertain || inFlight.current) return;
+    const current = ++epoch.current; inFlight.current = true; setOutput(null); setReviewed(false);
+    try { const result = await submit({ asOf: end, periodDays: days, metric }); if (epoch.current === current) setOutput(result); }
+    finally { inFlight.current = false; }
+  };
+  return <section aria-label="Rolling-period reconciliation" className="mt-4 border border-[var(--line)] p-3">
+    <h5 className="font-semibold">Reviewed rolling-period reconciliation</h5>
+    <p className="mt-2">Private captured inputs only. No provider fetch, future consent, automatic refresh, or Slack sharing. Each submission needs a new review.</p>
+    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+      <label>Period length (days)<input className={FIELD} type="number" min="1" max="28" step="1" value={periodDays} disabled={busy} onChange={(e) => { reset(); setPeriodDays(e.target.value); }} /></label>
+      <label>Period end (UTC, exclusive)<input className={FIELD} type="datetime-local" step="1" value={asOf} disabled={busy} onChange={(e) => { reset(); setAsOf(e.target.value); }} /></label>
+      <label>Metric definition<select className={FIELD} value={metric} disabled={busy} onChange={(e) => { reset(); setMetric(e.target.value as RollingMetric); }}><option value="invoice-paid-snapshot">Invoice paid snapshot (qualified)</option><option value="mrr">MRR (unavailable)</option><option value="churn">Churn (unavailable)</option></select></label>
+    </div>
+    <p className="mt-2">{valid ? `${new Date(start * 1000).toISOString()} inclusive → ${new Date(end * 1000).toISOString()} exclusive · UTC · ${days * 86400} seconds` : "Choose 1–28 whole days wholly within the captured Stripe window, ending no later than now."}</p>
+    <p className="mt-2">{unavailable ? metric === "mrr" ? "MRR is unavailable: subscription lifecycle snapshots, recurring price, quantity, intervals and effective dates, and an explicitly reviewed normalization definition are missing." : "Churn is unavailable: subscription lifecycle events, a period-start cohort, cancellation/reactivation effective dates, and a reviewed denominator and definition are missing." : "Invoice paid snapshot: sum amount_paid and attested CRM amounts for unique comparable matched invoices created in this window. Snapshot amounts are not payments received during the period, revenue, MRR or churn. Currencies are never combined."}</p>
+    <dl className="mt-3 space-y-2 break-words">
+      <div><dt className="font-semibold">Source dates and basis</dt><dd>HubSpot captured {new Date(draft.sources.hubspot.capturedAt).toISOString()} · account timezone {draft.sources.hubspot.timezoneName}; Stripe captured {new Date(draft.sources.stripe.capturedAt).toISOString()}. Period basis: Stripe invoice created timestamp, not payment date.</dd></div>
+      <div><dt className="font-semibold">Captured window and completeness</dt><dd>{new Date(draft.sources.stripe.createdGte * 1000).toISOString()} inclusive → {new Date(draft.sources.stripe.createdLt * 1000).toISOString()} exclusive. Stripe more pages: {draft.sources.stripe.hasMore ? "yes — partial input" : "no"}. Selected CRM deals are not a complete ledger. Independently timed captures may be stale; undated and duplicate rows remain unassigned.</dd></div>
+      <div><dt className="font-semibold">Reviewed mapping</dt><dd>Invoice ID: {draft.mapping.invoiceIdProperty}; paid amount: {draft.mapping.paidAmountProperty}; currency: {draft.mapping.currencyProperty}; amount unit: {draft.mapping.amountUnit}; basis: {draft.mapping.basisAttestation}.</dd></div>
+      <div><dt className="font-semibold">Frozen provenance</dt><dd className="break-all">Comparison {draft.id} · review digest {draft.digest} · report hash {draft.reportHash} · executor {draft.executorDigest}. Full source pins are in the frozen-source review above.</dd></div>
+    </dl>
+    <label className="mt-3 flex min-h-11 gap-2"><input type="checkbox" checked={reviewed} disabled={busy || uncertain || !valid} onChange={(e) => { setReviewed(e.target.checked); setOutput(null); }} />I reviewed this exact UTC period, metric definition, captured source dates, mapping, provenance and incomplete-data limitations. This review does not authorize future capture reuse.</label>
+    <button type="button" className={BUTTON} disabled={busy || uncertain || !valid || !reviewed} onClick={() => { void compose(); }}>Compose reviewed rolling report</button>
+    {output && <section aria-label="Rolling report result" className="mt-3 border-t border-[var(--line)] pt-3">
+      <h6 className="font-semibold">{output.selectedMetric} · {output.metricAvailability.status}</h6>
+      <p className="mt-2">{output.metricDefinition}</p>
+      {output.metricAvailability.status === "unavailable" && <><p className="mt-2">Missing data — no metric totals available:</p><ul className="list-disc pl-5">{output.metricAvailability.missingDataReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></>}
+      {output.metricAvailability.status === "qualified" && <><p className="mt-2">Exact integer minor units, per currency; not a complete ledger.</p>{output.perCurrency.length ? <div className="overflow-x-auto"><table className="mt-2 w-full text-left"><thead><tr>{["Currency", "Matched invoices", "CRM minor units", "Stripe minor units", "Difference (CRM − Stripe)"].map((label) => <th key={label} className="p-2">{label}</th>)}</tr></thead><tbody>{output.perCurrency.map((total) => <tr key={total.currency}>{[total.currency, total.matchedCount, total.crmMinor, total.stripeMinor, total.differenceMinor].map((value, i) => <td key={i} className="break-all p-2">{value}</td>)}</tr>)}</tbody></table></div> : <p>No comparable matched invoices in this captured period; this is not proof of zero activity.</p>}</>}
+      <p className="mt-2">Dataset completeness: {output.datasetCompleteness} · business success: {output.businessSuccess}. Assigned rows: {output.rows.length}; unassigned/ambiguous: {output.unassignedRows.length}; outside period: {output.outsidePeriodRowCount}.</p>
+      <p className="mt-2">Source ages at composition: HubSpot {output.completeness.sourceAgesMs.hubspot} ms; Stripe {output.completeness.sourceAgesMs.stripe} ms. Capture skew: {output.completeness.captureSkewMs} ms.</p>
+      <ul className="mt-2 list-disc pl-5">{output.completeness.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+      <p className="mt-2">{output.notice}</p>
+      <details className="mt-2"><summary className="min-h-11 cursor-pointer py-3">Inspect reproducible provenance, status counts and row evidence</summary><pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words">{JSON.stringify(output, null, 2)}</pre></details>
+    </section>}
   </section>;
 }
