@@ -48,12 +48,15 @@ async function fixture() {
 
 describe("private rolling capture endpoint", () => {
   it("returns the consented window and makes no extra persisted effects on retry", async () => {
-    const f = await fixture(), first = await handleFounderReconciliations(f.request(), f.env), second = await handleFounderReconciliations(f.request(), f.env);
+    const f = await fixture();
+    const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Provider calls are forbidden during rolling composition"));
+    const first = await handleFounderReconciliations(f.request(), f.env), second = await handleFounderReconciliations(f.request(), f.env);
     expect(first?.status).toBe(200);
     expect(first?.headers.get("cache-control")).toBe("no-store");
     const output = await first!.json();
     expect(output).toMatchObject({ report: { format: "shiba.founder-reconciliation.rolling-view.v1", rows: [{ invoiceId: "in_A" }], perCurrency: [{ stripeMinor: "1000" }] } });
     expect(await second!.json()).toEqual(output);
+    expect(fetch).not.toHaveBeenCalled();
     expect(f.db.sqlite.prepare("SELECT COUNT(*) AS n FROM founder_reconciliation_reports").get()).toEqual({ n: 1 });
   });
   it.each(["source", "session", "owner", "tenant", "report", "pin"])("withholds output after %s authority changes", async change => {
@@ -68,18 +71,47 @@ describe("private rolling capture endpoint", () => {
     expect(response?.status).toBeGreaterThanOrEqual(400);
     expect(await response!.text()).not.toContain("in_A");
   });
-  it("withholds output when the source is revoked after the store's positive read proof", async () => {
+  it.each([
+    ["source revocation", "UPDATE proof_state SET current=0"],
+    ["session deletion", "DELETE FROM session"],
+    ["session reassignment", "UPDATE session SET userId='different-native-owner'"],
+    ["session expiry", "UPDATE session SET expiresAt=0"],
+    ["report revocation", "UPDATE founder_reconciliation_reports SET state='revoked',report_json=NULL,report_hash=NULL"],
+    ["report replacement", "UPDATE founder_reconciliation_reports SET report_json='{}'"],
+  ])("withholds output after %s between the store read and final route proof", async (_change, mutation) => {
     const f = await fixture(), prepare = f.env.AGENT_AUDIT.prepare.bind(f.env.AGENT_AUDIT);
     let proofs = 0;
     const wrap = (statement: D1PreparedStatement, sql: string): D1PreparedStatement => new Proxy(statement, { get(target, key) {
       if (key === "bind") return (...values: unknown[]) => wrap(target.bind(...values), sql);
-      if (key === "first") return async () => { const result = await target.first(); if (sql.includes("SELECT s.expiresAt AS session_expires FROM founder_reconciliation_reports") && ++proofs === 1) f.db.sqlite.exec("UPDATE proof_state SET current=0"); return result; };
+      if (key === "first") return async () => {
+        const result = await target.first();
+        if (sql.includes("SELECT s.expiresAt AS session_expires FROM founder_reconciliation_reports") && ++proofs === 1) {
+          expect(result).not.toBeNull();
+          f.db.sqlite.exec(mutation);
+        }
+        return result;
+      };
       const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value;
     } });
     f.env.AGENT_AUDIT.prepare = sql => wrap(prepare(sql), sql);
     const response = await handleFounderReconciliations(f.request(), f.env);
+    expect(proofs).toBe(2);
     expect(response?.status).toBe(403);
-    expect(await response!.text()).not.toContain("in_A");
+    expect(response?.headers.get("cache-control")).toBe("no-store");
+    const output = await response!.json();
+    expect(output).toMatchObject({ error: "reconciliation_authority_changed" });
+    expect(output).not.toHaveProperty("report");
+    expect(JSON.stringify(output)).not.toContain("in_A");
+  });
+  it.each(["manager", "native session"])("requires a current %s before reading captured evidence", async authority => {
+    const f = await fixture();
+    if (authority === "manager") state.member = { ...state.member!, role: "member" };
+    else state.session = null;
+    const response = await handleFounderReconciliations(f.request(), f.env);
+    expect(response?.status).toBe(403);
+    expect(await response!.json()).toMatchObject({
+      error: authority === "manager" ? "reconciliation_native_manager_required" : "reconciliation_native_session_required",
+    });
   });
   it("requires current digest and explicit metric consent, rejects foreign origins and oversized bodies", async () => {
     const f = await fixture();
