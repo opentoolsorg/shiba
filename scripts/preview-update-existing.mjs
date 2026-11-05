@@ -178,7 +178,9 @@ export async function inspectAssets(directory) {
 export async function verifyHttpBuild(directory, fetcher = fetch) {
   const origin = `https://${TARGET.hostname}`;
   const get = (path) => fetcher(`${origin}${path}`, { redirect: "error", headers: { "Cache-Control": "no-cache" }, signal: AbortSignal.timeout(30_000) });
-  const privateApi = await get("/api/runs");
+  // Probe an unmatched protected path. Reading retained runs can wake work if
+  // authentication is misconfigured, which is precisely what this checks.
+  const privateApi = await get("/api/__shiba_preview_auth_probe__");
   if (privateApi.status !== 401) fail("Anonymous preview API is not locked; stop and inspect authentication.");
   const index = await readFile(join(directory, "app/index.html"));
   const entries = [...new Set([...index.toString("utf8").matchAll(/(?:src|href)=["'](\/[^"']+\.(?:js|css))["']/g)].map((match) => match[1]))];

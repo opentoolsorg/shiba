@@ -121,7 +121,7 @@ test("post-deploy HTTP proof requires locked API and exact built HTML/entrypoint
     await mkdir(join(dir, "app")); await mkdir(join(dir, "assets"));
     const html = '<html><link href="/assets/app.css"/><script src="/assets/app.js"></script></html>';
     await writeFile(join(dir, "app/index.html"), html); await writeFile(join(dir, "assets/app.css"), "body{}"); await writeFile(join(dir, "assets/app.js"), "new build");
-    const replies = new Map([["/api/runs", [401, "Unauthorized"]], ["/app/", [200, html]], ["/assets/app.css", [200, "body{}"]], ["/assets/app.js", [200, "new build"]]]);
+    const replies = new Map([["/api/__shiba_preview_auth_probe__", [401, "Unauthorized"]], ["/app/", [200, html]], ["/assets/app.css", [200, "body{}"]], ["/assets/app.js", [200, "new build"]]]);
     const fetcher = async (url, options) => {
       assert.equal(new URL(url).hostname, TARGET.hostname); assert.equal(options.redirect, "error");
       assert.equal(options.headers.Authorization, undefined);
@@ -129,9 +129,9 @@ test("post-deploy HTTP proof requires locked API and exact built HTML/entrypoint
       return new Response(body, { status });
     };
     assert.deepEqual(await verifyHttpBuild(dir, fetcher), { anonymousApiStatus: 401, dashboardHtmlVerified: true, staticEntrypointsVerified: 2 });
-    replies.set("/api/runs", [200, "private output"]);
+    replies.set("/api/__shiba_preview_auth_probe__", [404, "Unmatched route"]);
     await assert.rejects(verifyHttpBuild(dir, fetcher), /not locked/);
-    replies.set("/api/runs", [401, "Unauthorized"]); replies.set("/assets/app.js", [200, "old build"]);
+    replies.set("/api/__shiba_preview_auth_probe__", [401, "Unauthorized"]); replies.set("/assets/app.js", [200, "old build"]);
     await assert.rejects(verifyHttpBuild(dir, fetcher), /differs/);
     replies.set("/assets/app.js", [404, "Missing"]);
     await assert.rejects(verifyHttpBuild(dir, fetcher), /entrypoint failed/);
