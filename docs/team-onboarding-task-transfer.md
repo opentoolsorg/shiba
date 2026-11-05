@@ -60,6 +60,17 @@ or private-source refusal. Component tests cover exact save/read verification,
 late replies, conflicts, replacement, room selection and expiry. Source review
 found no concrete blocker within this snapshot contract.
 
+The first aggregate browser gate, CI #532, exposed an existing thread-test timing
+race after switching from the default session: it read `aria-checked` before the
+authenticated resume request completed. The browser drivers now wait for the
+same required checked state under their existing 30-second locator timeout and
+retain the explicit assertion. A regression holds the actual resume request,
+observes that the new profile is still unselected, releases it, and requires the
+correct named profile. The focused local Worker/Chromium thread journey passed,
+including that delayed-resume case, persistence, keyboard and mobile checks;
+its fixture records and process groups were cleaned up. This tests asynchronous
+selection without changing product selection or execution behavior.
+
 These tests do not establish deployed Cloudflare, installed identity/provider or
 live multiplayer acceptance. Final-head aggregate checks are recorded on PR
 #188. Preview remains paused, and no external messages or model runs were made.
