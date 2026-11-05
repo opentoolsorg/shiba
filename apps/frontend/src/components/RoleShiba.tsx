@@ -12,6 +12,7 @@ const accessories: Record<EmployeeRole, ReactNode> = {
   gtm: <><path d="m39 52 5-15 11-6-2 13-12 10zM47 38l4 4M39 48l-5 1 5-7M47 51l-1 7 6-8M35 54l-3 4M39 57l-1 3" /><circle cx="49" cy="38" r="2" /></>,
   hr: <><circle cx="44" cy="39" r="4" /><circle cx="55" cy="43" r="3" /><path d="M37 54v-4a7 7 0 0 1 14 0v4zM51 48a6 6 0 0 1 10 5v1h-7M27 45l3 3 5-6" /></>,
   finance: <><rect x="37" y="34" width="21" height="24" rx="2" /><path d="M41 38h13v5H41zM41 48h2M48 48h2M55 48h0M41 53h2M48 53h2M55 53h0" /></>,
+  qa: <><rect x="37" y="35" width="20" height="20" rx="3" /><path d="M43 35v-3h8v3" /><path d="m42 45 3 3 7-7M42 51h10" /></>,
   custom: <><path d="m25 43 7 7 7-7" /><rect x="22" y="48" width="20" height="10" rx="2" /><path d="M27 53h10" /></>,
 };
 

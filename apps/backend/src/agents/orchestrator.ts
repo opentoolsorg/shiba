@@ -66,6 +66,8 @@ import {
   type ContainerBudgetConfig,
   type ExecutionTarget,
   resolveMaxConcurrentRuns,
+  parseRunAttachments,
+  type RunAttachment,
 } from "@shiba/shared";
 import { buildDenDigest, buildPackFromRuns } from "../den/digest.js";
 import { sandboxSelectionForRun } from "../sandbox/run-selection.js";
@@ -130,6 +132,7 @@ import { DASHBOARD_ORG_ID, intakeOrgIdForOrchestrator, orgIdFromIntake } from ".
 import { resolveTeamHandoffRunScope, teamHandoffWorkspaceId } from "../collaboration-run-scope.js";
 import { sealChildDispatch } from "../child-dispatch.js";
 import { openRunEnv } from "../run-env-seal.js";
+import { verifyRunAttachments } from "../run-attachments.js";
 import { COMPUTER_PREVIEW_MESSAGE, resolveRuntimeName } from "../runtime.js";
 import { assertRunPreflight } from "../run-preflight.js";
 import { readModelConfig, resolveCodingRoute, revalidateCodingRoute } from "../model-policy.js";
@@ -1574,6 +1577,23 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return (last?.metadata as { shibaTask?: { environment?: unknown } } | undefined)?.shibaTask?.environment;
   }
 
+  /** T69: the files the human attached in the composer; the model's tool call can't add any. */
+  private composerAttachments(): unknown {
+    const last = this.messages?.filter((m) => m.role === "user").at(-1);
+    return (last?.metadata as { shibaTask?: { attachments?: unknown } } | undefined)?.shibaTask?.attachments;
+  }
+
+  /** T69: a list is accepted only if every file is already stored under this orchestrator. */
+  private async intakeAttachments(raw: unknown, runtime: string | undefined): Promise<RunAttachment[] | undefined> {
+    const attachments = parseRunAttachments(raw);
+    if (attachments === undefined) return undefined;
+    if ((runtime ?? resolveRuntimeName(this.env.RUNTIME)) === "local") {
+      throw new Error("Attachments aren't supported on the local runtime yet.");
+    }
+    await verifyRunAttachments(this.env, this.name ?? "", attachments);
+    return attachments;
+  }
+
   /**
    * T68: accept a sealed env blob only if it opens for this orchestrator, and
    * freeze the names from the opened values — never the client's own list.
@@ -2092,6 +2112,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ? { forkCheckpointRef: reserved.forkedFrom.checkpointRef }
           : {}),
         ...(reserved.runSetup === true ? { runSetup: true } : {}),
+        ...(reserved.attachments?.length ? { attachments: reserved.attachments, attachmentOwner: this.name } : {}),
         // T68: read from the hashed run record; the child opens it with envOwner.
         ...(reserved.envSealed !== undefined && reserved.envDigest !== undefined
           ? { envSealed: reserved.envSealed, envDigest: reserved.envDigest, envOwner: this.name }
@@ -2687,6 +2708,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     reasoningEffort?: unknown;
     environment?: unknown;
     runSetup?: unknown;
+    attachments?: unknown;
     authAccount?: unknown;
     runtime?: unknown;
     targetMachineId?: unknown;
@@ -3218,6 +3240,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         { status: 400 },
       );
     }
+    let attachments: RunAttachment[] | undefined;
+    try {
+      attachments = await this.intakeAttachments(input.attachments, effectiveRuntime);
+    } catch (error) {
+      return Response.json({ error: error instanceof Error ? error.message : "Invalid attachments." }, { status: 400 });
+    }
     // Profile/model validation above yields to other requests. A concurrent
     // retry may have committed the same command meanwhile, so re-check at
     // the synchronous mint boundary before writing a second approval.
@@ -3296,6 +3324,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(customAgentId ? { customAgentId } : {}),
           ...(runEnv ?? {}),
           ...(runSetup ? { runSetup: true } : {}),
+          ...(attachments !== undefined ? { attachments } : {}),
           ...(customAgentVersion !== undefined ? { customAgentVersion } : {}),
           ...(employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion } : {}),
           ...(collaborationHandoffId ? { collaborationHandoffId } : {}),
@@ -3483,6 +3512,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             : {}),
           ...(parent.runSetup === true ? { runSetup: true } : {}),
           ...(parent.expectedDeliverables !== undefined ? { expectedDeliverables: parent.expectedDeliverables } : {}),
+          ...(parent.attachments?.length ? { attachments: parent.attachments } : {}),
           forkedFrom,
           ...(agentPrincipal !== null ? { queuedBy: agentPrincipal } : {}),
           createdAt: Date.now(),
@@ -4102,6 +4132,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (runSetup && chatFrozenRuntime === "local") {
       throw new Error("Repo setup isn't supported on the local runtime yet.");
     }
+    const attachments = await this.intakeAttachments(this.composerAttachments(), chatFrozenRuntime);
     if (chatFrozenRuntime === "local" && !isDashboardAgentName(this.name)) {
       throw new Error('runtime "local" requires SHIBA_LOCAL_RUNTIME=1 and a dashboard session.');
     }
@@ -4125,6 +4156,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(runSetup ? { runSetup: true } : {}),
         ...(customAgentVersion !== undefined ? { customAgentVersion } : {}),
         ...(employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion } : {}),
+        ...(attachments !== undefined ? { attachments } : {}),
         ...(typeof input.authAccount === "string" && input.authAccount.trim()
           ? { authAccount: input.authAccount.trim().slice(0, 32) }
           : {}),
@@ -4201,6 +4233,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ...(record.runSetup === true ? { runSetup: true } : {}),
       ...(record.customAgentVersion !== undefined ? { customAgentVersion: record.customAgentVersion } : {}),
       ...(record.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: record.employeeToolPolicyVersion } : {}),
+      ...(record.attachments?.length ? { attachments: record.attachments } : {}),
       ...(continuationKey !== undefined ? { continuationKey } : {}),
       decisionTap: (command, decision) => this.spineTap(command, decision),
       // T40: the run carries its approval evidence from birth — who decided,
@@ -4236,6 +4269,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...denIdWireFields(resolveDenId(record)),
         ...(record.envDigest !== undefined ? { envNames: record.envNames ?? [], envDigest: record.envDigest } : {}),
         ...(record.runSetup === true ? { runSetup: true } : {}),
+        ...(record.attachments?.length ? { attachments: record.attachments } : {}),
       }),
     });
     return { ...run, ...(parseSlackCommandScope(record.threadKey) ? { slackCommandOrigin: record.threadKey } : {}) };
@@ -4520,6 +4554,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(coding.authAccount !== undefined ? { authAccount: coding.authAccount } : {}),
         // A CI fix usually needs the same environment the tests ran in.
         ...(coding.runSetup === true ? { runSetup: true } : {}),
+        ...(coding.attachments?.length ? { attachments: coding.attachments } : {}),
         createdAt: Date.now(),
       });
       this.writeApprovals(approvals);

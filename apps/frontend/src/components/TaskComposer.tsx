@@ -30,6 +30,7 @@ import {
   Laptop,
   Lock,
   Mic,
+  Paperclip,
   Plus,
   Search,
   SlidersHorizontal,
@@ -38,6 +39,7 @@ import {
   X,
 } from "lucide-react";
 import { Tooltip } from "./Tooltip";
+import { formatBytes } from "../ui-helpers";
 import { AgentConversationEmpty } from "./AgentExperience";
 import type { SavedSkill } from "../saved";
 import { HARNESS_REASONING_EFFORTS, type ConnectedComputer, type CustomAgentRoleTemplateId, type ReasoningEffort } from "@shiba/shared";
@@ -113,6 +115,10 @@ export interface TaskComposerProps {
   reviewAfterPublish?: boolean;
   runSetup?: boolean;
   onRunSetupChange?: (value: boolean) => void;
+  attachments?: { name: string; size: number }[];
+  attachmentsUploading?: boolean;
+  onAttachFiles?: (files: File[]) => void;
+  onRemoveAttachment?: (name: string) => void;
   harness: string;
   /** Paired local computers are verified through the authenticated fleet API. */
   executionTargetKind?: "repository" | "artifact-workspace";
@@ -315,6 +321,10 @@ export function TaskComposer({
   publishPullRequest,
   reviewAfterPublish = false,
   runSetup = false,
+  attachments = [],
+  attachmentsUploading = false,
+  onAttachFiles,
+  onRemoveAttachment,
   harness,
   runTarget = "sandbox",
   executionTargetKind = "repository",
@@ -376,6 +386,7 @@ export function TaskComposer({
   );
   const sendDisabled = busy || isSubmitting || clearing || Boolean(blockedReason) || !hasComposerInput({ task, repoUrl, executionTargetKind, appToolsWork }) || (appToolsWork ? appToolsWorkIssue !== null : computerTaskBlocked);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const hero = variant === "hero";
 
   const [open, setOpen] = useState<PopoverKind>(null);
@@ -543,7 +554,7 @@ export function TaskComposer({
 
   const handleSubmit = (event: SyntheticEvent) => {
     event.preventDefault();
-    if (sendDisabled) return;
+    if (sendDisabled || attachmentsUploading) return;
     setOpen(null);
     stopListening();
     onSubmit(event);
@@ -1110,6 +1121,37 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
         }`}
         aria-label="Task description"
       />
+
+      {/* Attachment chips */}
+      {attachments.length > 0 || attachmentsUploading ? (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {attachments.map((file) => (
+            <span
+              key={file.name}
+              className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--fg)]"
+            >
+              <Paperclip aria-hidden="true" className="size-2.5 text-[var(--muted-foreground-2)]" />
+              <span>{file.name}</span>
+              <span className="text-[var(--muted-foreground-2)]">({formatBytes(file.size)})</span>
+              {onRemoveAttachment ? (
+                <button
+                  type="button"
+                  aria-label={`Remove ${file.name}`}
+                  onClick={() => onRemoveAttachment(file.name)}
+                  className="hover:text-[var(--fg)] cursor-pointer text-[var(--muted-foreground-2)]"
+                >
+                  <X aria-hidden="true" className="size-2.5" />
+                </button>
+              ) : null}
+            </span>
+          ))}
+          {attachmentsUploading ? (
+            <span className="text-[10px] text-[var(--muted-foreground-2)] font-medium">
+              Uploading…
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Selected skills removable chips */}
       {customAgentId && !selectedCustomAgent ? (
@@ -1799,6 +1841,37 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
+        {/* Attach files */}
+        {onAttachFiles ? (
+          <>
+            <input
+              type="file"
+              ref={fileInputRef}
+              multiple
+              className="sr-only"
+              tabIndex={-1}
+              onChange={(e) => {
+                const files = e.target.files ? Array.from(e.target.files) : [];
+                if (files.length > 0) {
+                  onAttachFiles(files);
+                }
+                e.target.value = "";
+              }}
+            />
+            <Tooltip content="Attach files" side="top">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={attachmentsUploading}
+                aria-label="Attach files"
+                className="inline-flex items-center justify-center size-8 touch:min-h-11 touch:w-11 rounded-[var(--radius-button)] border text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border-[var(--border-1)] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Paperclip aria-hidden="true" className="size-4" />
+              </button>
+            </Tooltip>
+          </>
+        ) : null}
+
         {/* Voice dictation */}
         {getSpeechRecognitionClass() ? (
           <Tooltip content="Dictate — uses your browser's speech recognition" side="top">
@@ -1822,7 +1895,7 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
         <Tooltip content="Send task" shortcut="⌘↵" side="top">
           <button
             type="submit"
-            disabled={sendDisabled || isSubmitting}
+            disabled={sendDisabled || isSubmitting || attachmentsUploading}
             aria-label={isSubmitting ? "Sending…" : "Send task"}
             className="inline-flex items-center justify-center size-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] bg-[var(--primary)] hover:opacity-90 text-[var(--primary-text)] rounded-[var(--radius-button)] transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[var(--sh-plate)] active:scale-95"
           >

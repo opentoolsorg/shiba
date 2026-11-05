@@ -59,6 +59,7 @@ import { boundTail, parseGitHubRepoUrl, redactSecrets } from "../security.js";
 import { captureBrowserE2eEvidence, formatBrowserE2ePrSection } from "../browser-e2e/capture.js";
 import { captureRunPreview } from "../screenshot.js";
 import { guardRunEnvLeak, openRunEnv, runEnvDiffLeakName, runEnvScrubber } from "../run-env-seal.js";
+import { openRunAttachment } from "../run-attachments.js";
 import { assertChildDispatchAuthorized } from "../child-dispatch.js";
 import { createSlackRunProgress } from "../slack.js";
 import type { SlackProgressReporter } from "../slack-persona.js";
@@ -149,6 +150,11 @@ export function createSandboxOps(
     },
     async writeFile(path, content) {
       await (await instance()).writeFile(path, content);
+    },
+    async writeFileStream(path, body) {
+      const sandbox = await instance();
+      if (sandbox.writeFileStream === undefined) throw new Error("This sandbox provider can't take attachments yet.");
+      await sandbox.writeFileStream(path, body);
     },
     async exec(command, opts) {
       opts?.signal?.throwIfAborted();
@@ -478,6 +484,9 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
                 onStreamGap: () => { void roomPublisher?.publish({ kind: "status", status: "stream_gap", message: "Harness transport ended before its outcome was confirmed. Execution outcome is uncertain." }); },
               } : {}),
               ...(runEnv !== undefined && this.envScrub !== null ? { env: runEnv, scrub: this.envScrub } : {}),
+              ...(runInput.attachments?.length
+                ? { openAttachment: (attachment) => openRunAttachment(this.env, runInput.attachmentOwner ?? "", attachment) }
+                : {}),
               // T44: an oversize diff lands in R2 instead of being truncated
               // away — the settle receipt carries this key.
               exportDiff: async (diff) => {

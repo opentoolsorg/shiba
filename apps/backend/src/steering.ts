@@ -239,6 +239,7 @@ export async function handleSteeringRequest(
           ? { envNames: run.envNames ?? [], envDigest: run.envDigest, envSealed: run.envSealed }
           : {}),
         ...(run.runSetup === true ? { runSetup: true } : {}),
+        ...(run.attachments?.length ? { attachments: run.attachments } : {}),
         ...(by !== undefined ? { queuedBy: by } : run.queuedBy !== undefined ? { queuedBy: run.queuedBy } : {}),
         createdAt: now,
       }),

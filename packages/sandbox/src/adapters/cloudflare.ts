@@ -22,7 +22,7 @@ export interface CloudflareSandboxRpc {
   setOutboundInitiatorUserId?(userId: string): Promise<void>;
   setOutboundGatewayByokAlias?(alias: string): Promise<void>;
   gitCheckout(repoUrl: string, opts: { branch: string; targetDir: string }): Promise<void>;
-  writeFile(path: string, content: string): Promise<void>;
+  writeFile(path: string, content: string | ReadableStream<Uint8Array>): Promise<void>;
   exec(
     command: string,
     options?: {
@@ -107,6 +107,7 @@ function wrapRpc(
 
     gitCheckout: (repoUrl, opts) => rpc.gitCheckout(repoUrl, opts),
     writeFile: (path, content) => rpc.writeFile(path, content),
+    writeFileStream: (path, body) => rpc.writeFile(path, body),
 
     async readFile(path, opts) {
       const stream = await rpc.readFileStream(path);

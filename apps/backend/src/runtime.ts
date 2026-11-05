@@ -13,7 +13,7 @@ import { approvedRuntimeIdentity, assertPreparedRuntimeExecution, runtimeIdentit
  * are harness-dispatched (default: OpenCode).
  */
 
-import type { RunSignal, RunSignalKind, RunUsage } from "@shiba/shared";
+import type { RunAttachment, RunSignal, RunSignalKind, RunUsage } from "@shiba/shared";
 import {
   buildLocalRunEnvelope,
   expectedDeliverablesSchema,
@@ -56,6 +56,7 @@ import { PiErrorEvent, PiEventError } from "./harness/pi.js";
 import { HARNESS_RETRY, withRetry } from "./harness/retry.js";
 import type { AgentHarness } from "./harness/types.js";
 import type { CodingTaskInput, CodingTaskResult } from "./opencode-input.js";
+import { placeRunAttachments, withAttachmentNote } from "./run-attachments.js";
 import { DUMMY_PROVIDER_KEY } from "./provider-gateway.js";
 import { runRepoSetup, setupOverlap } from "./repo-setup.js";
 import { boundTail, redactSecrets, shellJoin } from "./security.js";
@@ -106,6 +107,8 @@ export interface SandboxOps {
   pinEgress?(): Promise<void>;
   gitCheckout(repoUrl: string, opts: { branch: string; targetDir: string }): Promise<void>;
   writeFile(path: string, content: string): Promise<void>;
+  /** T69: only providers that can stream bytes in take attachments. */
+  writeFileStream?(path: string, body: ReadableStream<Uint8Array>): Promise<void>;
   exec(
     command: string,
     opts?: {
@@ -150,6 +153,8 @@ export interface RuntimeAdapter {
       env?: Record<string, string>;
       /** T68: applied to sandbox output before truncation, so a cut can't leave part of a value behind. */
       scrub?: (text: string) => string;
+      /** T69: opens one approved attachment's stored bytes. */
+      openAttachment?: (attachment: RunAttachment) => Promise<ReadableStream<Uint8Array>>;
       /**
        * T42 run-signal collector: the adapter appends each milestone it
        * crosses, in order, and the result envelope carries the same list
@@ -240,6 +245,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       scrub?: (text: string) => string;
       signals?: RunSignal[];
       exportDiff?: (diff: string) => Promise<string>;
+      openAttachment?: (attachment: RunAttachment) => Promise<ReadableStream<Uint8Array>>;
       onTerminal?: (stream: "stdout" | "stderr", data: string) => void;
       onDiff?: (diff: string) => void;
       onDiffPreviewStatus?: (status: "limited" | "unavailable", reason?: string) => void;
@@ -257,7 +263,8 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     input = withDeliverableInstructions(input);
     const ephemeral = isEphemeralWorkspace(input.executionTarget);
     const workdir = ephemeral ? "/workspace" : `/workspace/${input.sandboxId}`;
-    const configValue = this.harness.configFile(input, input.sandboxId);
+    const harnessInput = withAttachmentNote(input);
+    const configValue = this.harness.configFile(harnessInput, input.sandboxId);
     const configFiles =
       configValue === null ? [] : Array.isArray(configValue) ? configValue : [configValue];
     const config = configFiles[0] ?? null;
@@ -273,7 +280,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     // executor — argv-prefix allowlist (adapter-internal git + the harness's
     // own argv prefix + its declared execAllowlist), timeout, output cap, receipts.
     const capabilities = this.harness.capabilities(input.codingModel);
-    const harnessArgv = this.harness.buildArgv(input, workdir);
+    const harnessArgv = this.harness.buildArgv(harnessInput, workdir);
     const sessionKind = sessionProvider(this.harness.name);
     const sessionScript =
       sessionKind === null ? null : `/workspace/${input.sandboxId}.agent-harness.mjs`;
@@ -328,7 +335,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         cwd: workdir,
         model: bareModelId(input.codingModel),
         ...(input.route?.reasoningEffort ? { reasoningEffort: input.route.reasoningEffort } : {}),
-        prompt: input.task,
+        prompt: harnessInput.task,
         permissionMode: "accept-edits",
         checkpoints: true,
         logDir: "/tmp/shiba-sessions",
@@ -428,6 +435,18 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           baseRevision = head.stdout.trim();
         } catch (error) {
           return failureResult(`Repository base revision capture failed: ${shortError(error, scrub)}`, 0, "", signals);
+        }
+      }
+
+      if (input.attachments?.length) {
+        const openAttachment = opts?.openAttachment;
+        if (openAttachment === undefined) return failureResult("Attachments were approved but can't be opened.", 0, "", signals);
+        await emit({ phase: "configure", message: `Copying ${input.attachments.length} attachment(s).`, fraction: 0.08 });
+        try {
+          const failure = await placeRunAttachments(ops, workdir, input.attachments, openAttachment, { signals, signal: opts?.signal });
+          if (failure !== null) return failureResult(failure, 0, "", signals);
+        } catch (error) {
+          return failureResult(`Attachments failed: ${shortError(error, scrub)}`, 0, "", signals);
         }
       }
 
@@ -870,6 +889,9 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
     }
     if (input.runSetup === true) {
       return failureResult("Repo setup is not supported on the local runtime.", 0, "", signals);
+    }
+    if (input.attachments?.length) {
+      return failureResult("Attachments are not supported on the local runtime.", 0, "", signals);
     }
     if (!this.harness.capabilities(input.codingModel).supportedRuntimes.includes("local")) {
       return failureResult(

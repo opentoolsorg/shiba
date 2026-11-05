@@ -6,7 +6,7 @@ import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useConversationRoomRealtime, type ConversationRoomMessage } from "./conversation-room-realtime";
 import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HARNESS_REASONING_EFFORTS, onboardingTaskText, type ReasoningEffort } from "@shiba/shared";
+import { HARNESS_REASONING_EFFORTS, MAX_RUN_ATTACHMENTS, MAX_RUN_ATTACHMENT_BYTES, MAX_RUN_ATTACHMENTS_TOTAL_BYTES, onboardingTaskText, type ReasoningEffort, type RunAttachment } from "@shiba/shared";
 import { normalizeRunStatus, type VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
 import { ActivityReportView } from "./components/ActivityReportView";
@@ -505,6 +505,11 @@ export function App(): React.JSX.Element {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
   const [envVars, setEnvVars] = useState<{ name: string; value: string }[]>([]);
   const [connectionId, setConnectionId] = useState("");
+  const [attachments, setAttachments] = useState<RunAttachment[]>([]);
+  const [attachmentsUploading, setAttachmentsUploading] = useState(false);
+  const attachmentsUploadingRef = useRef(false);
+  const attachmentsRef = useRef<RunAttachment[]>([]);
+  attachmentsRef.current = attachments;
   const [refreshToken, setRefreshToken] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -592,6 +597,77 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [webSessions, setWebSessions] = useState<WebThread[]>([]);
   const [sessionRegistryOwner, setSessionRegistryOwner] = useState<string | null>(null);
+
+  // Uploads belong to one session; drop results that arrive after switching threads.
+  const attachmentsGeneration = useRef(0);
+  useEffect(() => {
+    attachmentsGeneration.current += 1;
+    attachmentsRef.current = [];
+    setAttachments([]);
+  }, [selectedSessionId]);
+
+  const attachFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0 || attachmentsUploadingRef.current) return;
+      const generation = attachmentsGeneration.current;
+      attachmentsUploadingRef.current = true;
+      setAttachmentsUploading(true);
+      try {
+        for (const file of files) {
+          if (generation !== attachmentsGeneration.current) return;
+          const current = attachmentsRef.current;
+          if (current.length >= MAX_RUN_ATTACHMENTS) {
+            setNotice(`A run takes at most ${MAX_RUN_ATTACHMENTS} attachments.`);
+            continue;
+          }
+          if (file.size > MAX_RUN_ATTACHMENT_BYTES) {
+            setNotice(`Attachment ${file.name} must be at most ${MAX_RUN_ATTACHMENT_BYTES} bytes.`);
+            continue;
+          }
+          if (current.reduce((sum, a) => sum + a.size, 0) + file.size > MAX_RUN_ATTACHMENTS_TOTAL_BYTES) {
+            setNotice(`Attachments must total at most ${MAX_RUN_ATTACHMENTS_TOTAL_BYTES} bytes.`);
+            continue;
+          }
+          const uploadUrl = sessionApiAvailable
+            ? `/api/runs/attachments?name=${encodeURIComponent(file.name)}&session=${encodeURIComponent(selectedSessionId)}`
+            : `/api/runs/attachments?name=${encodeURIComponent(file.name)}`;
+          try {
+            const res = await fetch(uploadUrl, {
+              method: "POST",
+              headers: { "content-type": "application/octet-stream" },
+              body: file,
+            });
+            const data = (await res.json().catch(() => ({}))) as Partial<RunAttachment> & { error?: string };
+            if (generation !== attachmentsGeneration.current) return;
+            if (!res.ok || !data.name || !data.sha256 || typeof data.size !== "number") {
+              setNotice(data.error ?? `Failed to upload ${file.name} (${res.status}).`);
+              continue;
+            }
+            if (attachmentsRef.current.some((a) => a.name === data.name)) {
+              setNotice(`Two attachments are named ${data.name}.`);
+              continue;
+            }
+            const next = [...attachmentsRef.current, { name: data.name, sha256: data.sha256, size: data.size }];
+            attachmentsRef.current = next;
+            setAttachments(next);
+          } catch (error) {
+            if (generation !== attachmentsGeneration.current) return;
+            setNotice(`Failed to upload ${file.name}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      } finally {
+        attachmentsUploadingRef.current = false;
+        setAttachmentsUploading(false);
+      }
+    },
+    [selectedSessionId, sessionApiAvailable],
+  );
+
+  const removeAttachment = useCallback((name: string) => {
+    const next = attachmentsRef.current.filter((a) => a.name !== name);
+    attachmentsRef.current = next;
+    setAttachments(next);
+  }, []);
   // Persistent workspace panel removed from the thread view; functionality promoted to standalone views.
   const [mobileSessionsOpen, setMobileSessionsOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -1457,8 +1533,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     async (event?: React.FormEvent, options?: { forceWork?: boolean; customAgentId?: string }) => {
       const selectedCustomAgentId = options?.customAgentId ?? customAgentId;
       if (event) event.preventDefault();
-      if (submitInFlight.current || clearInFlight.current) return;
+      if (submitInFlight.current || clearInFlight.current || attachmentsUploadingRef.current) return;
       if (!composerScope || !composerVisible) { setNotice("Wait for your conversation draft to reconnect before sending."); return; }
+      if (attachments.length > 0 && ((!options?.forceWork && conversationMode === "chat") || appToolsWork)) {
+        setNotice("Attachments are supported for sandbox work tasks. Switch to Work mode or remove the files first.");
+        return;
+      }
       if (!options?.forceWork && conversationMode === "chat") {
         if (!task.trim()) {
           setNotice("Enter a message first.");
@@ -1585,6 +1665,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         }
         if (runSetup) {
           setNotice(`Repo setup isn't supported for ${directTarget} yet.`);
+          return;
+        }
+        if (attachments.length > 0) {
+          setNotice("Attachments aren't supported for runs on this computer yet.");
           return;
         }
         setNotice(null);
@@ -1757,6 +1841,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         ...(effort ? [`Reasoning effort: ${effort}`] : []),
         ...(sealedEnv ? [`Environment variables: ${sealedEnv.names.join(", ")}`] : []),
         ...(runSetup ? ["Run repo setup: yes"] : []),
+        ...(attachments.length ? [`Attachments: ${attachments.map((a) => a.name).join(", ")}`] : []),
         ...(connectionId.trim() ? [`Model connection: ${connectionId.trim()}`] : []),
         `Open a pull request with the result: ${publishPullRequest ? "yes" : "no"}`,
         ...(publishPullRequest
@@ -1794,6 +1879,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               ...(runSetup ? { runSetup: true } : {}),
               ...(selectedCustomAgentId ? { customAgentId: selectedCustomAgentId } : {}),
               ...(projectContextId ? { projectContextId } : {}),
+              ...(attachments.length ? { attachments } : {}),
             },
           },
         });
@@ -1803,6 +1889,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         } else {
           saveRepo(repoUrl.trim(), orchestratorName);
           setEnvVars([]);
+          attachmentsGeneration.current += 1;
+          attachmentsRef.current = [];
+          setAttachments([]);
           refreshRuns();
         }
       } catch (error) {
@@ -1830,6 +1919,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       publishPullRequest,
       reviewAfterPublish,
       runSetup,
+      attachments,
       harness,
       customAgentId,
       projectContextId,
@@ -2029,7 +2119,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        if (!isSubmitting && hasComposerInput({ task, repoUrl, executionTargetKind, conversationMode, appToolsWork })) {
+        if (!isSubmitting && !attachmentsUploading && hasComposerInput({ task, repoUrl, executionTargetKind, conversationMode, appToolsWork })) {
           e.preventDefault();
           submitTask();
         }
@@ -3547,6 +3637,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     onReviewAfterPublishChange={setReviewAfterPublish}
                     runSetup={runSetup}
                     onRunSetupChange={setRunSetup}
+                    attachments={attachments}
+                    attachmentsUploading={attachmentsUploading}
+                    onAttachFiles={attachFiles}
+                    onRemoveAttachment={removeAttachment}
                     onHarnessChange={setHarness}
                     customAgents={customAgentPickerOptions}
                     customAgentId={customAgentId}

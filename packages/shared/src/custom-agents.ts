@@ -16,7 +16,7 @@ export type CustomAgentSandboxProvider = (typeof CUSTOM_AGENT_SANDBOX_PROVIDERS)
 
 /** Optional template provenance; these labels do not grant tools or connections. */
 export const CUSTOM_AGENT_ROLE_TEMPLATE_IDS = [
-  "engineering", "marketing", "sales", "product", "design", "research", "operations",
+  "engineering", "marketing", "sales", "product", "design", "research", "operations", "qa",
   "gtm", "hr", "finance",
 ] as const;
 export type CustomAgentRoleTemplateId = (typeof CUSTOM_AGENT_ROLE_TEMPLATE_IDS)[number];

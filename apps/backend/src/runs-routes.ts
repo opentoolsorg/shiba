@@ -23,6 +23,7 @@ import {
   resolveUserId,
 } from "./request-auth.js";
 import { sealRunEnv } from "./run-env-seal.js";
+import { storeRunAttachment } from "./run-attachments.js";
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 import { resolveSkillPins } from "./skills-store.js";
@@ -279,6 +280,16 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   }
   let intakeBody: Record<string, unknown> | undefined;
   let intakeKind = "run";
+  // T69: stored under the same DO the run lands on; intake only accepts files found there.
+  if (url.pathname === "/api/runs/attachments") {
+    if (request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405 });
+    if (request.headers.get("origin") !== url.origin) return Response.json({ error: "Same-origin request required." }, { status: 403 });
+    try {
+      return Response.json(await storeRunAttachment(env, resolved.agentName, url.searchParams.get("name") ?? "", request));
+    } catch (error) {
+      return Response.json({ error: error instanceof Error ? error.message : "Invalid attachment." }, { status: 400 });
+    }
+  }
   // Email-kind approvals freeze draft claims + mailbox payloads, and claim
   // recovery (releaseRestartedDraftClaim, sweepStaleDrafts, Slack resolve)
   // assumes they live on the one shared instance queueEmailApproval pins —
