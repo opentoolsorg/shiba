@@ -1,4 +1,34 @@
 -- Default-off interactive Workers AI funding, exact turns and permanent room-source invalidation.
+-- Collaboration was historically runtime-initialized. Establish the complete
+-- canonical prerequisite tables before attaching membership invalidation triggers.
+-- Keep these definitions aligned with collaboration-store.ts; existing rows stay intact.
+CREATE TABLE IF NOT EXISTS collaboration_rooms (
+  room_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  visibility TEXT NOT NULL CHECK (visibility IN ('private','shared')),
+  created_by_user_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS collaboration_rooms_scope ON collaboration_rooms(tenant_id, workspace_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS collaboration_memberships (
+  tenant_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  room_id TEXT NOT NULL REFERENCES collaboration_rooms(room_id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  actor_kind TEXT NOT NULL CHECK (actor_kind IN ('human','agent')),
+  role TEXT NOT NULL CHECK (role IN ('owner','member','agent')),
+  status TEXT NOT NULL CHECK (status IN ('active','removed')),
+  capabilities_json TEXT NOT NULL,
+  profile_version INTEGER,
+  created_at INTEGER NOT NULL,
+  removed_at INTEGER,
+  PRIMARY KEY (tenant_id, workspace_id, room_id, actor_id)
+);
+CREATE INDEX IF NOT EXISTS collaboration_memberships_user ON collaboration_memberships(tenant_id, workspace_id, user_id, status, room_id);
 CREATE TABLE IF NOT EXISTS team_model_funding (
   id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL,room_id TEXT NOT NULL,issuer_id TEXT NOT NULL,recipient_id TEXT NOT NULL,
   version INTEGER NOT NULL,digest TEXT NOT NULL,binding_json TEXT NOT NULL,contract_json TEXT NOT NULL,policy_key TEXT NOT NULL,
