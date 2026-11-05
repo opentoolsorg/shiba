@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { founderSkillIdSchema } from "./founder-skill-library.js";
+import { slackInstallationSnapshotSchema } from "./slack-installations.js";
 
 const id = z.string().min(1).max(200);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
@@ -12,6 +13,7 @@ export const reportSlackDestinationSchema = z.strictObject({
   teamId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), channelId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
   threadTs: z.string().regex(/^\d{1,20}\.\d{1,20}$/), ownerId: z.string().min(1).max(320),
   roomAudienceIds: z.array(z.string().min(1).max(320)).min(1).max(17),
+  installation: slackInstallationSnapshotSchema.optional(),
 });
 export type ReportSlackDestination = z.infer<typeof reportSlackDestinationSchema>;
 export const reportSlackPrepareSchema = z.strictObject({

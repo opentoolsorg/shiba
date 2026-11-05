@@ -279,6 +279,17 @@ export interface Env {
   SLACK_APPROVERS?: string;
   /** Optional. Worker-only bot token for verified Slack replies, cards and opt-in session status. */
   SLACK_BOT_TOKEN?: string;
+  /** Opt-in managed installations; encrypted bot credentials stay in Worker storage. */
+  SLACK_INSTALLATIONS_ENABLED?: string;
+  SLACK_OAUTH_APP_ID?: string;
+  SLACK_OAUTH_CLIENT_ID?: string;
+  SLACK_OAUTH_REDIRECT_URI?: string;
+  SLACK_OAUTH_PKCE_ENABLED?: string;
+  SLACK_OAUTH_QUERY_REDACTION_VERIFIED?: string;
+  SLACK_LEGACY_MODE_ENABLED?: string;
+  SLACK_LEGACY_TEAM_ID?: string;
+  SLACK_LEGACY_APP_ID?: string;
+  SLACK_INSTALLATION_KEYRING?: string;
   /** Native agent sessions are dark unless exactly `true`; requires an agent-enabled Slack installation. */
   SLACK_AGENT_SESSIONS_ENABLED?: string;
   /** Exact single Slack workspace allowed for optional native session status. */

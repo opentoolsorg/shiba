@@ -18,6 +18,13 @@ const state = (intents: ReportSlackIntent[] = []): ReportSlackState => ({ ok: tr
 const localExpiry = () => { const at = new Date(Date.now() + 600_000); return new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); };
 
 describe("separate manual report disclosure to Slack", () => {
+  it("shows the exact managed installation generation when one is frozen into the destination", async () => {
+    const current = intent(); current.destination = { ...destination, installation: { id: "install-one", workspaceId: EVIDENCE_WORKSPACE, ownerId: EVIDENCE_ACTOR, ownerAccountId: "native-owner", ownerMembershipVersion: 1, appId: "A_FIXTURE", teamId: destination.teamId, enterpriseId: null, botUserId: "U_BOT", botId: "B_BOT", installerSlackUserId: "U_OWNER", generation: 4, version: 3, tokenRevision: 2, scopes: ["chat:write"], expiresAt: null } };
+    const fetcher = vi.fn(async () => Response.json(state([current]))); vi.stubGlobal("fetch", fetcher);
+    render(<ReportSlackDisclosure {...props} />);
+    await screen.findByText("Managed Slack installation: app A_FIXTURE · team T_FIXTURE · installation install-one · generation 4 · version 3.");
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
   it("requires private draft, wider-audience disclosure and a second exact review before one send", async () => {
     let held: ReportSlackIntent | null = null; const writes: Array<{ path: string; body: Record<string, unknown> }> = [], effects = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

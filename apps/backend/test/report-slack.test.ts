@@ -10,6 +10,8 @@ import { handleReportSlack } from "../src/report-slack-routes.js";
 import { ensureReportSlackSchema, neutralizeReportSlackText, type ReportSlackDeps } from "../src/report-slack-store.js";
 import { REPORT_SLACK_SCHEMA } from "../src/report-slack-schema.js";
 import { postReportSlackMessage } from "../src/report-slack-sender.js";
+import { ensureSlackInstallations, installationDigest, installationPurpose, installationSnapshot, type SlackInstallationRow } from "../src/slack-installations-store.js";
+import { sealSlackSecret } from "../src/slack-installations-crypto.js";
 
 const identity = vi.hoisted(() => ({ email: "owner@example.test", native: true, accounts: {} as Record<string, string>, afterLoad: undefined as (() => void) | undefined }));
 vi.mock("../src/request-auth.js", async (original) => ({ ...await original<typeof import("../src/request-auth.js")>(), isAuthorizedRequest: async () => true, resolveUserId: async () => identity.email }));
@@ -60,6 +62,19 @@ async function fixture() {
   const disclose = async (intent: ReportSlackIntent) => { identity.email = OWNER; return call(`/intents/${intent.id}/disclose`, { ...decision(intent), disclosureConsent: "share-report-to-configured-slack-thread", audienceConsent: "all-people-with-access-to-selected-slack-channel-thread" }); };
   const send = async (intent: ReportSlackIntent, deps?: ReportSlackDeps) => { identity.email = ADMIN; return call(`/intents/${intent.id}/approve`, decision(intent), deps); };
   return { ...db, env, call, input, prepare, disclose, send, decision, workspaceId: workspace.workspaceId, roomId };
+}
+async function managedInstallation(f: Awaited<ReturnType<typeof fixture>>) {
+  Object.assign(f.env, { SLACK_INSTALLATIONS_ENABLED: "true", SLACK_OAUTH_APP_ID: "A123", SLACK_OAUTH_CLIENT_ID: "123.456", SLACK_OAUTH_REDIRECT_URI: "https://shiba.test/api/slack/installations/callback",
+    SLACK_OAUTH_PKCE_ENABLED: "true", SLACK_OAUTH_QUERY_REDACTION_VERIFIED: "true", SLACK_SIGNING_SECRET: "fixture-only", SLACK_INSTALLATION_KEYRING: JSON.stringify({ activeKeyId: "v1", keys: { v1: "11".repeat(32) } }),
+    SLACK_BOT_TOKEN: undefined, SLACK_APPROVALS_CHANNEL: "OTHER_LEGACY_CHANNEL" });
+  await ensureSlackInstallations(f.env);
+  const member = await getTeamWorkspaceMembership(f.env, f.workspaceId, OWNER);
+  const row: SlackInstallationRow = { id: "managed-report-install", workspace_id: f.workspaceId, owner_id: OWNER, owner_account_id: identity.accounts[OWNER]!, owner_member_json: JSON.stringify({ ...member, accountId: identity.accounts[OWNER] }),
+    app_id: "A123", team_id: "T123", bot_user_id: "U_MANAGED", bot_id: "B_MANAGED", installer_slack_user_id: "U_INSTALLER", scopes_json: '["chat:write"]', generation: 1, version: 1, token_revision: 1, state: "active", digest: "", token_key_id: null, token_cipher: null, token_expires_at: null, activation_expires_at: Date.now() + 600_000, created_at: Date.now(), refresh_claim_id: null };
+  row.digest = await installationDigest(row);
+  const sealed = await sealSlackSecret(f.env, { workspaceId: f.workspaceId, subject: row.id, purpose: installationPurpose(installationSnapshot(row)) }, JSON.stringify({ accessToken: "managed-tenant-fixture-token", expiresAt: null })); row.token_key_id = sealed.keyId; row.token_cipher = sealed.cipher;
+  f.sqlite.prepare(`INSERT INTO slack_installations(${Object.keys(row).join(",")}) VALUES(${Object.keys(row).map(() => "?").join(",")})`).run(...Object.values(row) as never[]);
+  return row;
 }
 
 describe("native one-shot report disclosure and Slack delivery", () => {
@@ -172,6 +187,42 @@ describe("native one-shot report disclosure and Slack delivery", () => {
     for (const sql of REPORT_SLACK_SCHEMA) sqlite.exec(sql);
     expect(sqlite.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='trigger' AND name LIKE 'report_slack_%'").get()).toMatchObject({ n: 9 }); sqlite.close();
   });
+  it("pins a managed installation and uses only that token for an explicitly allowed channel", async () => {
+    const f = await fixture(), installation = await managedInstallation(f), { intent } = await f.prepare();
+    expect(intent.destination.installation).toMatchObject({ id: installation.id, generation: 1, ownerAccountId: identity.accounts[OWNER] });
+    await f.disclose(intent);
+    const post = vi.fn(async () => ({ channel: "C123", ts: "1.1" })), verify = vi.fn(async (token: string) => { expect(token).toBe("managed-tenant-fixture-token"); return { teamId: "T123", userId: "U_MANAGED", botId: "B_MANAGED" }; });
+    const result = await f.send(intent, { verifyInstallation: verify, postMessage: post }); expect(result.response.status, JSON.stringify(result.value)).toBe(200); expect(result.value.intents[0]?.status).toBe("sent");
+    expect(post).toHaveBeenCalledExactlyOnceWith("managed-tenant-fixture-token", expect.objectContaining({ channel: "C123" }));
+  });
+  it.each(["generation", "bot", "mode"])("never falls back after managed installation %s changes", async (which) => {
+    const f = await fixture(); await managedInstallation(f); const { intent } = await f.prepare(); await f.disclose(intent);
+    f.env.SLACK_BOT_TOKEN = "legacy-token-must-never-send";
+    const post = vi.fn(async () => ({ channel: "C123", ts: "1.1" }));
+    const result = await f.send(intent, { verifyInstallation: async () => {
+      if (which === "generation") f.sqlite.prepare("UPDATE slack_installations SET generation=generation+1,version=version+1").run();
+      if (which === "mode") f.env.SLACK_INSTALLATIONS_ENABLED = "false";
+      return { teamId: "T123", userId: which === "bot" ? "OTHER_BOT" : "U_MANAGED", botId: "B_MANAGED" };
+    }, postMessage: post });
+    expect(result.response.status).toBeLessThan(500); expect(post).not.toHaveBeenCalled(); expect(f.sqlite.prepare("SELECT state FROM report_slack_deliveries").get()).toMatchObject({ state: "blocked" });
+  });
+  it.each(["active", "revoked"])("does not prepare a new legacy send to a historically managed team with mode off: %s", async (state) => {
+    const f=await fixture();await managedInstallation(f);f.sqlite.prepare("UPDATE slack_installations SET state=?").run(state);
+    f.env.SLACK_INSTALLATIONS_ENABLED="false";f.env.SLACK_BOT_TOKEN="operator-token-must-not-borrow";f.env.SLACK_APPROVALS_CHANNEL="C123";
+    expect((await f.call("/preview",f.input())).response.status).toBe(403);
+    expect(f.sqlite.prepare("SELECT count(*) AS n FROM report_slack_deliveries").get()).toMatchObject({n:0});
+  });
+  it("does not send when the final SQL reply arrives after the original disclosure deadline",async()=>{
+    const f=await fixture(),{intent}=await f.prepare();await f.disclose(intent);const prepare=f.database.prepare.bind(f.database);let crossed=false;
+    const wrap=(statement:D1PreparedStatement,sql:string):D1PreparedStatement=>new Proxy(statement,{get(target,key){
+      if(key==="bind")return(...args:unknown[])=>wrap(target.bind(...args),sql);
+      if(key==="first")return async(...args:unknown[])=>{const result=await Reflect.apply(target.first,target,args);if(result&&!crossed&&sql.includes("FROM report_slack_deliveries WHERE id=? AND state='sending' AND digest=?")){crossed=true;vi.spyOn(Date,"now").mockReturnValue(intent.expiresAt+1);}return result;};
+      const value=Reflect.get(target,key);return typeof value==="function"?value.bind(target):value;
+    }});
+    vi.spyOn(f.database,"prepare").mockImplementation(sql=>wrap(prepare(sql),sql));
+    const post=vi.fn(async()=>({channel:"C123",ts:"1.1"}));await f.send(intent,{verifyInstallation:async()=>({teamId:"T123",userId:"U_LEGACY",botId:"B_LEGACY"}),postMessage:post});
+    expect(crossed).toBe(true);expect(post).not.toHaveBeenCalled();expect(f.sqlite.prepare("SELECT state FROM report_slack_deliveries").get()).toMatchObject({state:"blocked"});
+  });
 });
 
 describe("isolated Slack report HTTP projection", () => {
@@ -179,7 +230,7 @@ describe("isolated Slack report HTTP projection", () => {
     const transport = vi.fn(async () => Response.json({ ok: true, channel: "C123", ts: "1710000000.100000" })); vi.stubGlobal("fetch", transport);
     await expect(postReportSlackMessage("fixture-token", { channel: "C123", threadTs: "1.2", text: "&lt;!channel&gt;", clientMsgId: crypto.randomUUID() })).resolves.toEqual({ channel: "C123", ts: "1710000000.100000" });
     expect(transport).toHaveBeenCalledTimes(1); const [url, init] = transport.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("https://slack.com/api/chat.postMessage"); expect(init.redirect).toBe("error");
+    expect(url).toBe("https://slack.com/api/chat.postMessage"); expect(init.redirect).toBe("manual");
     expect(JSON.parse(String(init.body))).toMatchObject({ mrkdwn: false, parse: "none", link_names: false, reply_broadcast: false, unfurl_links: false, unfurl_media: false, unfurl_app_links: false, text: "&lt;!channel&gt;" });
   });
   it.each([{ ok: true, channel: "C123", ts: "1.1", warning: "message_truncated" }, { ok: true }, { ok: false, error: "internal_error" }])("does not mistake an incomplete or uncertain Slack receipt for delivery", async (value) => {
