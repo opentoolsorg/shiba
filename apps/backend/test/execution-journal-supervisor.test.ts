@@ -263,21 +263,32 @@ describe("execution journal local supervisor", () => {
   it("bounds pipe draining when an escaped descendant outlives the deadline", async () => {
     const item = await fixture();
     const marker = path.join(item.root, "escaped-pid");
-    const nested = `require('node:fs').writeFileSync(${JSON.stringify(marker)},String(process.pid));process.stdout.on('error',()=>process.exit(0));setInterval(()=>process.stdout.write('held'),25);setTimeout(()=>process.exit(0),3000)`;
-    const startedAt = Date.now();
-    item.start(`require('node:child_process').spawn(${JSON.stringify(process.execPath)},['-e',${JSON.stringify(nested)}],{detached:true,stdio:['ignore',1,2]}).unref();process.exit(0)`, Date.now() + 400);
+    const nested = `require('node:fs').writeFileSync(${JSON.stringify(marker)},String(process.pid));process.stdout.on('error',()=>process.exit(0));process.stdout.write('held');setInterval(()=>process.stdout.write('held'),25);setTimeout(()=>process.exit(0),10000)`;
+    const deadline = Date.now() + 4_000;
+    item.start(`require('node:child_process').spawn(${JSON.stringify(process.execPath)},['-e',${JSON.stringify(nested)}],{detached:true,stdio:['ignore',1,2]}).unref();process.exit(0)`, deadline);
+    // Native startup competes with the full test suite. Prove the escaped
+    // writer exists before testing cleanup against the original deadline.
+    const pid = await eventually(async () => {
+      const value = Number(await fs.readFile(marker, "utf8").catch(() => ""));
+      return Number.isSafeInteger(value) && value > 1 ? value : 0;
+    }, (value) => value > 1, 3_000);
+    expect(Number.isSafeInteger(pid) && pid > 1).toBe(true);
+    expect(Date.now()).toBeLessThan(deadline);
+    // Receipt timing measures pipe cleanup, separately from reader startup.
+    await eventually(() => exists(path.join(item.root, item.jobId, "receipt.json")), Boolean, deadline - Date.now() + 2_500);
+    expect(Date.now() - deadline).toBeLessThan(2_500);
     const result = await drain(item);
     expect(result.page).toMatchObject({ state: "timed_out", done: true });
     expect(result.page.exitCode).not.toBe(0);
-    expect(Date.now() - startedAt).toBeLessThan(2_500);
-    const pid = Number(await fs.readFile(marker, "utf8"));
+    const stdout = Buffer.concat(result.frames.filter((frame) => frame.stream === "stdout").map((frame) => Buffer.from(frame.dataBase64, "base64"))).toString("utf8");
+    expect(stdout).toContain("held");
     await eventually(async () => {
       try {
         const stat = await fs.readFile(`/proc/${pid}/stat`, "utf8");
         return stat.slice(stat.lastIndexOf(")") + 2).startsWith("Z ");
       } catch { return true; }
     }, (gone) => gone);
-  });
+  }, 15_000);
 
   it("never signals another process named in tampered child PID metadata", async () => {
     const item = await fixture();
