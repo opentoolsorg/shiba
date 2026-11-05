@@ -15,7 +15,7 @@ export async function gmailOwner(request: Request, env: Env): Promise<string | n
   if (!isBetterAuthConfigured(env) || !env.AGENT_AUDIT) return null;
   try {
     await ensureBetterAuthSchema(env);
-    const session = await betterAuthFor(env).api.getSession({ headers: request.headers });
+    const session = await (await betterAuthFor(env)).api.getSession({ headers: request.headers });
     const id = session?.user?.id;
     return typeof id === "string" && id.trim() !== "" ? JSON.stringify(["better-auth", id]) : null;
   } catch { return null; }

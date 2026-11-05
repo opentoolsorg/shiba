@@ -170,7 +170,7 @@ async function resolveIdentity(request: Request, env: Env): Promise<OnboardingId
   if (!isBetterAuthConfigured(env) || !env.AGENT_AUDIT) return null;
   try {
     await ensureBetterAuthSchema(env);
-    const session = await betterAuthFor(env).api.getSession({ headers: request.headers });
+    const session = await (await betterAuthFor(env)).api.getSession({ headers: request.headers });
     const userId = session?.user?.id;
     const ownerEmail = session?.user?.email;
     if (typeof userId !== "string" || !userId.trim() || typeof ownerEmail !== "string" || !ownerEmail.trim()) return null;

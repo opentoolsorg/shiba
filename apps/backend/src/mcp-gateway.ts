@@ -20,12 +20,13 @@
  * never the args themselves, so an audit reader can compare calls without
  * learning what they contained.
  */
-import { createMcpHandler } from "agents/mcp";
-import {
+// agents/mcp and the SDK server load lazily (per /mcp request): evaluating
+// them at Worker startup pushed deploys past the startup CPU limit.
+import type {
   McpServer,
-  type CallToolResult as CallToolResultV2,
-  type McpRequestContext,
-  type ServerContext,
+  CallToolResult as CallToolResultV2,
+  McpRequestContext,
+  ServerContext,
 } from "@modelcontextprotocol/server";
 import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
@@ -415,6 +416,7 @@ export function visibleToolsForPrincipal(
  * falling back to that same request.
  */
 async function buildMcpServer(env: Env, mcpCtx: McpRequestContext): Promise<McpServer> {
+  const { McpServer } = await import("@modelcontextprotocol/server");
   const server = new McpServer({ name: "shiba", version: "0.1.0" });
   const registry = createToolRegistry(env);
   registerAllMcpTools(registry, env);
@@ -457,7 +459,8 @@ async function buildMcpServer(env: Env, mcpCtx: McpRequestContext): Promise<McpS
  * behind bearer auth first). `env` is closed over per request — stateless
  * serving makes per-request construction the supported shape.
  */
-export function createShibaMcpHandler(env: Env, route: string) {
+export async function createShibaMcpHandler(env: Env, route: string) {
+  const { createMcpHandler } = await import("agents/mcp");
   return createMcpHandler(
     (mcpCtx: McpRequestContext) => buildMcpServer(env, mcpCtx),
     { route },
