@@ -28,6 +28,9 @@ export interface SessionJobResult {
 export function eventText(event: SessionEvent): string;
 export interface SessionSpec extends Record<string, unknown> {
   reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  /** Full native payload is hashed before projection; unsafe reviews deny locally. */
+  exactApprovalReview?: boolean;
+  validateApprovalReview?: (completeReview: string) => boolean | Promise<boolean>;
 }
 
 export function runSessionJob(job: SessionSpec): Promise<SessionJobResult>;

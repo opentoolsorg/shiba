@@ -41,7 +41,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { copyOperatorAuth } from "./link-operator-auth.mjs";
+import { copyOperatorAuth, isSafePersonalApprovalReview, stagePersonalAuth, readPersonalAuthMaterial } from "./link-operator-auth.mjs";
+import { inspectStagedPersonalAccount, personalChildEnvironment, probePersonalAccount, validatePersonalSelection } from "./personal-cli-auth.mjs";
+import { assertPersonalConfigurationSafe, assertPersonalEnvelope, personalGitArgs, personalRunPaths, personalSessionOptions, validatePersonalBinding } from "./personal-execution-guard.mjs";
 import { collectLocalRepositorySnapshot } from "./local-repository-snapshot.mjs";
 import { connectReasonNetworkStdio, createReasonNetworkCompanion } from "./reason-network-companion.mjs";
 
@@ -73,6 +75,8 @@ const HELP_TEXT = `shiba-local-daemon — poll a Shiba deployment for local runs
 Usage:
   shiba-local-daemon [--once] [--poll <ms>]
   shiba-local-daemon --connect <workerUrl> --pair <token>
+  shiba-local-daemon --inspect-personal-auth <claude-code|codex>
+  shiba-local-daemon --personal-harness <claude-code|codex> --personal-billing native-subscription --personal-account <fingerprint>
 
 Environment:
   SHIBA_WORKER_URL          Worker origin (https://…), unless saved by --pair
@@ -110,6 +114,10 @@ function parseArgs(argv) {
     if (argv[i] === "--once") args.once = true;
     else if (argv[i] === "--connect" && argv[i + 1]) args.connect = argv[++i];
     else if (argv[i] === "--pair" && argv[i + 1]) args.pair = argv[++i];
+    else if (argv[i] === "--inspect-personal-auth" && argv[i + 1]) args.inspectPersonal = argv[++i];
+    else if (argv[i] === "--personal-harness" && argv[i + 1]) args.personalHarness = argv[++i];
+    else if (argv[i] === "--personal-billing" && argv[i + 1]) args.personalBilling = argv[++i];
+    else if (argv[i] === "--personal-account" && argv[i + 1]) args.personalAccount = argv[++i];
     else if (argv[i] === "--poll" && argv[i + 1]) {
       args.pollMs = Math.max(500, Number(argv[++i]) || DEFAULT_POLL_MS);
     } else if (argv[i] === "--help" || argv[i] === "-h") {
@@ -121,6 +129,11 @@ function parseArgs(argv) {
   }
   if (Boolean(args.connect) !== Boolean(args.pair))
     fail("--connect and --pair must be given together.", EXIT_USAGE);
+  if (args.inspectPersonal && (! ["claude-code", "codex"].includes(args.inspectPersonal) || args.connect || args.personalHarness || args.personalBilling || args.personalAccount)) fail("Inspect one supported personal harness separately.", EXIT_USAGE);
+  if (args.personalHarness || args.personalBilling || args.personalAccount) {
+    try { args.personalSelection = validatePersonalSelection({ harness: args.personalHarness, billingMode: args.personalBilling, accountFingerprint: args.personalAccount }); }
+    catch { fail("Explicit personal harness, native-subscription billing, and inspected account fingerprint are required.", EXIT_USAGE); }
+  }
   return args;
 }
 
@@ -136,6 +149,8 @@ let reasonNetworkExecutablePath = "";
 let reasonNetworkExecutableReady = false;
 let machineId = "";
 let harnesses = [];
+let personalBinding, personalSelection, personalReceipt;
+let personalRefreshPending, personalProbeController;
 let activeRunId;
 let activeHarnessChild;
 let heldClaim;
@@ -344,7 +359,7 @@ async function processReasonNetworkClaim(claim) {
   } catch (error) {
     // Only the send_message RPC write can make delivery uncertain, not connection or discovery.
     console.error(`shiba-local: Reason Network operation ${operation.operationId} ${attempted ? "outcome is unknown" : "was not sent"}: ${error.message}`);
-    if (error.status === 401) revoked();
+    if (error.status === 401) await revoked();
     await settle(attempted ? "unknown" : "rejected").catch(() => {});
   }
   return true;
@@ -618,7 +633,8 @@ async function collectResult(envelope, root, execution, baseRevision) {
       git: async (args, maxBytes) => {
         const chunks = [];
         let byteLength = 0;
-        const result = await runProcess(["git", "-C", cloneDir, ...args], { execution, timeoutMs: 60_000,
+        const result = await runProcess(personalBinding ? personalGitArgs(["-C", cloneDir, ...args]) : ["git", "-C", cloneDir, ...args], { execution, timeoutMs: 60_000,
+          ...(personalBinding ? { env: personalChildEnvironment(substitute(envelope.homeDir, root), process.env, envelope.harness) } : {}),
           onStdoutBytes: (chunk) => {
             byteLength += chunk.length;
             if (byteLength <= maxBytes) chunks.push(chunk);
@@ -634,13 +650,17 @@ async function collectResult(envelope, root, execution, baseRevision) {
 }
 
 async function execute(envelope, claimToken) {
+  if (personalBinding) {
+    try { assertPersonalEnvelope(envelope, { binding: personalBinding, selection: personalSelection, machineId, receipt: personalReceipt }); }
+    catch { return errorResult("Personal execution authorization or account changed."); }
+  } else if (envelope.personalExecution) return errorResult("Personal execution requires its owner-bound paired machine.");
   // Receipts belong to one approved task, even in a long-lived daemon.
   signals.length = 0;
   const startedAt = Date.now();
-  const root = path.join(runRoot, "runs", envelope.sandboxId);
+  const root = personalBinding ? personalRunPaths(runRoot, envelope.sandboxId).root : path.join(runRoot, "runs", envelope.sandboxId);
   const cloneDir = substitute(envelope.cloneDir, root);
   const homeDir = substitute(envelope.homeDir, root);
-  const env = childEnvironment(envelope.harness);
+  const env = personalBinding ? personalChildEnvironment(homeDir, process.env, envelope.harness) : childEnvironment(envelope.harness);
   for (const [key, value] of Object.entries(envelope.env)) {
     if (key === "LOCAL_ADAPTER_TOKEN" || key === "GITHUB_TOKEN" || key === "GH_TOKEN") continue;
     env[key] = substitute(value, root);
@@ -681,7 +701,7 @@ async function execute(envelope, claimToken) {
       if (control.interrupt) stopExecution("Local run interrupted.");
     } catch (error) {
       if (executionFinished) return;
-      if (error.status === 401) revoked();
+      if (error.status === 401) await revoked();
       if (error.status === 409 || error.status === 404 || error.status === 403) {
         stopExecution("Local run claim was revoked or cancelled.");
       }
@@ -693,15 +713,27 @@ async function execute(envelope, claimToken) {
 
   try {
     await writeLease(envelope.sandboxId);
+    let personalMaterial;
+    if (personalBinding) {
+      // Stage only the approved provider, before any repository-controlled code.
+      await fs.rm(root, { recursive: true, force: true });
+      await fs.mkdir(root, { recursive: true, mode: 0o700 });
+      personalMaterial = await stagePersonalAuth(homeDir, process.env.HOME, envelope.harness);
+      const receipt = await inspectStagedPersonalAccount({ harness: envelope.harness, homeDir, material: personalMaterial, signal: execution.signal });
+      assertPersonalEnvelope(envelope, { binding: personalBinding, selection: personalSelection, machineId, receipt });
+      const current = await post("control", { sandboxId: envelope.sandboxId, claimToken });
+      if (current.interrupt || stopped()) return errorResult("Personal execution was cancelled before clone.");
+    }
     // 1. clone — git on the operator's PATH, operator's own git credentials.
     await fs.rm(cloneDir, { recursive: true, force: true });
     await fs.mkdir(cloneDir, { recursive: true });
     const clone = await runProcess(
-      ["git", "clone", "--branch", envelope.baseBranch, envelope.repoUrl, cloneDir],
-      { timeoutMs: Math.min(remaining(), 5 * 60 * 1000), execution },
+      personalBinding ? personalGitArgs(["clone", "--no-recurse-submodules", "--branch", envelope.baseBranch, "--", envelope.repoUrl, cloneDir]) : ["git", "clone", "--branch", envelope.baseBranch, envelope.repoUrl, cloneDir],
+      { timeoutMs: Math.min(remaining(), 5 * 60 * 1000), execution, ...(personalBinding ? { env } : {}) },
     );
     if (stopReason) return errorResult(stopReason);
     if (clone.exitCode !== 0) {
+      if (personalBinding) return errorResult("Anonymous public repository clone failed; no credential or branch fallback was attempted.");
       // Branch may not exist remotely; clone default then checkout.
       const fallback = await runProcess(["git", "clone", envelope.repoUrl, cloneDir], {
         timeoutMs: Math.min(remaining(), 5 * 60 * 1000),
@@ -731,7 +763,7 @@ async function execute(envelope, claimToken) {
 
     // Freeze the actual cloned base before setup or repository-controlled code
     // can move HEAD or its branch. Publication must use this exact revision.
-    const base = await runProcess(["git", "--no-replace-objects", "-C", cloneDir, "rev-parse", "--verify", "HEAD^{commit}"], { execution, timeoutMs: 60_000 });
+    const base = await runProcess(["git", "--no-replace-objects", "-C", cloneDir, "rev-parse", "--verify", "HEAD^{commit}"], { execution, timeoutMs: 60_000, ...(personalBinding ? { env } : {}) });
     const baseRevision = base.stdout.trim();
     if (base.exitCode !== 0 || !/^[a-f0-9]{40}$/.test(baseRevision)) return errorResult("Could not freeze the repository base revision.");
 
@@ -739,7 +771,7 @@ async function execute(envelope, claimToken) {
     await fs.mkdir(homeDir, { recursive: true });
     // Subscription CLIs read auth from the run HOME. Copy those files
     // read-only. Never symlink the operator's ~/.claude or ~/.codex.
-    await copyOperatorAuth(homeDir, process.env.HOME);
+    if (!personalBinding) await copyOperatorAuth(homeDir, process.env.HOME);
     for (const argv of envelope.setupCommands) {
       if (stopReason) return errorResult(stopReason);
       const resolved = argv.map((part) => substitute(part, root));
@@ -774,6 +806,17 @@ async function execute(envelope, claimToken) {
       if (stopped()) return errorResult(stopReason);
       const texts = [];
       const session = envelope.session;
+      if (personalBinding) {
+        await assertPersonalConfigurationSafe(cloneDir, envelope.harness);
+        // A refresh/account change requires a new approval, never silently reseal.
+        const source = await readPersonalAuthMaterial(process.env.HOME, envelope.harness);
+        if (source.credentialDigest !== personalMaterial.credentialDigest) return errorResult("The selected personal account changed before launch.");
+        const receipt = await inspectStagedPersonalAccount({ harness: envelope.harness, homeDir, material: personalMaterial, signal: execution.signal });
+        assertPersonalEnvelope(envelope, { binding: personalBinding, selection: personalSelection, machineId, receipt });
+        const current = await post("control", { sandboxId: envelope.sandboxId, claimToken });
+        if (current.interrupt || stopped()) return errorResult("Personal execution was cancelled before launch.");
+        assertPersonalEnvelope(envelope, { binding: personalBinding, selection: personalSelection, machineId, receipt });
+      }
       const outcome = await runSessionJob({
         signal: execution.signal,
         provider: session.provider,
@@ -786,6 +829,9 @@ async function execute(envelope, claimToken) {
         logDir: homeDir,
         prompt: envelope.task,
         env,
+        ...(personalBinding ? personalSessionOptions(envelope.harness) : {}),
+        ...(personalBinding ? { exactApprovalReview: true,
+          validateApprovalReview: detail => isSafePersonalApprovalReview(detail, process.env.HOME, envelope.harness) } : {}),
         checkpoints: true,
         emitStdout: false,
         detached: process.platform !== "win32",
@@ -802,6 +848,7 @@ async function execute(envelope, claimToken) {
           if (!executionFinished) activeHarnessChild = owned;
         },
         onEvent: (event) => {
+          if (execution.signal.aborted || executionFinished) return;
           const text = eventText(event);
           if (text) texts.push(text);
           const body = {
@@ -820,7 +867,12 @@ async function execute(envelope, claimToken) {
           });
         },
         onApproval: async (request) => {
-          await post("approval", {
+          try {
+          if (execution.signal.aborted || stopped()) return "deny";
+          const exact = personalBinding ? { actionHash: request.actionHash,
+            expiresAt: Math.min(envelope.personalExecution.approvedUntil, envelope.personalExecution.snapshot.expiresAt, envelope.deadlineAt, Date.now() + 10 * 60_000) } : undefined;
+          if (exact && (!/^[a-f0-9]{64}$/.test(exact.actionHash ?? "") || exact.expiresAt <= Date.now())) return "deny";
+          const registered = await post("approval", {
             sandboxId: envelope.sandboxId,
             claimToken,
             request: {
@@ -828,19 +880,34 @@ async function execute(envelope, claimToken) {
               kind: request.kind,
               title: request.title,
               detail: request.detail,
+              ...(exact ?? {}),
             },
           });
+          if (exact && (registered.actionHash !== exact.actionHash || registered.expiresAt !== exact.expiresAt)) { stopExecution("Personal permission binding changed."); return "deny"; }
           const deadline = Date.now() + Math.min(remaining(), 10 * 60 * 1000);
           while (Date.now() < deadline) {
+            if (execution.signal.aborted || stopped() || (exact && Date.now() >= exact.expiresAt)) return "deny";
             const polled = await post("approval", {
               sandboxId: envelope.sandboxId,
               claimToken,
               requestId: request.requestId,
+              ...(exact ?? {}),
             });
-            if (polled.decision === "allow" || polled.decision === "deny") return polled.decision;
+            if (exact && (polled.actionHash !== exact.actionHash || polled.expiresAt !== exact.expiresAt)) { stopExecution("Personal permission binding changed."); return "deny"; }
+            if (polled.decision === "allow" || polled.decision === "deny") {
+              if (exact && polled.decision === "allow") {
+                const current = await post("control", { sandboxId: envelope.sandboxId, claimToken });
+                if (current.interrupt || execution.signal.aborted || stopped() || Date.now() >= exact.expiresAt) return "deny";
+              }
+              return polled.decision;
+            }
             await new Promise((resolve) => setTimeout(resolve, 300));
           }
           return "deny";
+          } catch (error) {
+            if (personalBinding) { stopExecution("Personal permission authority is unavailable."); return "deny"; }
+            throw error;
+          }
         },
       });
       activeHarnessChild = undefined;
@@ -942,6 +1009,7 @@ async function execute(envelope, claimToken) {
     await Promise.all([...ownedChildren].map(terminateOwnedChild));
     stopActiveExecution = undefined;
     await releaseLease(envelope.sandboxId);
+    if (personalBinding && !terminationFailure) await fs.rm(root, { recursive: true, force: true });
   }
 }
 
@@ -1005,19 +1073,23 @@ async function pair(url, pairingToken) {
   } catch (error) {
     rethrowLocalApiError(error, "pair");
   }
-  await writeConfig({ workerUrl, adapterToken: paired.adapterToken, machineId: paired.machineId });
+  if (paired.personalExecution) validatePersonalBinding(paired.personalExecution, workerUrl);
+  await writeConfig({ workerUrl, adapterToken: paired.adapterToken, machineId: paired.machineId,
+    ...(paired.personalExecution ? { personalExecution: paired.personalExecution } : {}) });
   console.log(`shiba-local: paired as ${paired.machineId}; saved ${configPath}`);
 }
 
-function revoked() {
+async function revoked() {
+  if (personalBinding) return gracefulStop(EXIT_REVOKED);
   // A revoked daemon cannot leave a permission-holding CLI behind.
   signalOwnedChild(activeHarnessChild, "SIGKILL");
   fail("adapter token revoked; re-pair", EXIT_REVOKED);
 }
 
 async function heartbeat() {
-  await refreshReasonNetworkCapability();
+  if (!personalBinding) await refreshReasonNetworkCapability();
   try {
+    if (personalBinding && activeRunId) await refreshPersonalReceipt();
     await post("heartbeat", {
       machineId,
       hostname,
@@ -1030,12 +1102,33 @@ async function heartbeat() {
     report({ state: "heartbeat", ok: true });
   } catch (error) {
     report({ state: "heartbeat", ok: false });
-    if (error.status === 401) revoked();
+    if (error.status === 401) await revoked();
     if (error.accessHtml) fail(error.message, EXIT_ACCESS);
     if (error.runtimeOff) fail(error.message, EXIT_RUNTIME_OFF);
     // Network blips are expected; the next tick retries.
     console.error(`shiba-local: heartbeat failed: ${error.message}`);
   }
+}
+
+async function refreshPersonalReceipt() {
+  if (personalRefreshPending) return personalRefreshPending;
+  personalRefreshPending = (async () => {
+    personalProbeController = new AbortController();
+    try {
+      const receipt = await probePersonalAccount({ harness: personalSelection.harness, signal: personalProbeController.signal });
+      if (receipt.accountFingerprint !== personalSelection.accountFingerprint) throw new Error("The explicitly selected personal account changed.");
+      if (activeRunId && personalReceipt && receipt.authVersion !== personalReceipt.authVersion) stopActiveExecution?.("Personal authentication changed during execution.");
+      await post("personal-account", { account: receipt });
+      personalReceipt = receipt;
+    } catch (error) {
+      stopActiveExecution?.("Personal account readiness is unavailable.");
+      if (error?.terminationUnconfirmed) unconfirmedTermination("personal authentication probe");
+      throw error;
+    }
+    finally { personalProbeController = undefined; }
+  })();
+  try { return await personalRefreshPending; }
+  finally { personalRefreshPending = undefined; }
 }
 
 const RESULT_ATTEMPTS = 4;
@@ -1046,7 +1139,7 @@ async function postResult(body) {
     try {
       return await post("result", body);
     } catch (error) {
-      if (error.status === 401) revoked();
+      if (error.status === 401) await revoked();
       const transient = error.status === undefined || error.status >= 500 || error.status === 429;
       if (!transient || attempt >= RESULT_ATTEMPTS || stopping) throw error;
       console.error(
@@ -1063,12 +1156,29 @@ async function postResult(body) {
 // ── Loop ────────────────────────────────────────────────────────────────
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.inspectPersonal) {
+    console.log(JSON.stringify(await probePersonalAccount({ harness: args.inspectPersonal })));
+    return;
+  }
+  if (args.personalSelection && process.env.LOCAL_ADAPTER_TOKEN) fail("Personal pairing cannot use an ambient operator credential.", EXIT_USAGE);
   await acquireLock();
-  harnesses = probeHarnesses();
-  await refreshReasonNetworkCapability({ strict: process.env.SHIBA_REASON_NETWORK_COMPANION === "1" });
+  const initialConfig = await readConfig();
+  const personalBoot = Boolean(args.personalSelection || initialConfig.personalExecution);
+  if (personalBoot && process.env.SHIBA_REASON_NETWORK_COMPANION === "1") fail("Personal execution cannot use the companion lane.", EXIT_USAGE);
+  harnesses = personalBoot ? [args.personalSelection?.harness ?? initialConfig.personalSelection?.harness].filter(Boolean) : probeHarnesses();
+  if (!personalBoot) await refreshReasonNetworkCapability({ strict: process.env.SHIBA_REASON_NETWORK_COMPANION === "1" });
   if (args.connect) await pair(args.connect, args.pair);
   // Env vars win so the pre-pairing deployment-bearer setup keeps working unchanged.
   const config = await readConfig();
+  if (config.personalExecution) {
+    personalBinding = validatePersonalBinding(config.personalExecution, deploymentOrigin(config.workerUrl));
+    if (process.env.LOCAL_ADAPTER_TOKEN || (process.env.SHIBA_WORKER_URL && deploymentOrigin(process.env.SHIBA_WORKER_URL) !== personalBinding.scope.origin) || reasonNetworkEnabled) fail("Personal pairing cannot use operator credentials, another deployment, or companion execution.", EXIT_USAGE);
+    personalSelection = args.personalSelection ?? config.personalSelection;
+    try { personalSelection = validatePersonalSelection(personalSelection); }
+    catch { fail("Inspect and explicitly select this personal machine's native CLI account before polling.", EXIT_USAGE); }
+    if (args.personalSelection) await writeConfig({ ...config, personalSelection });
+    harnesses = [personalSelection.harness];
+  } else if (args.personalSelection) fail("Personal selection requires an owner-bound personal pairing.", EXIT_USAGE);
   const configuredUrl = process.env.SHIBA_WORKER_URL ?? config.workerUrl ?? "";
   workerUrl = configuredUrl ? deploymentOrigin(configuredUrl) : "";
   const adapterToken = process.env.LOCAL_ADAPTER_TOKEN ?? config.adapterToken ?? "";
@@ -1111,16 +1221,21 @@ async function main() {
           continue;
         }
       } catch (error) {
-        if (error.status === 401) revoked();
+        if (error.status === 401) await revoked();
         console.error(`shiba-local: Reason Network companion poll failed: ${error.message}`);
         if (args.once) process.exit(1);
       }
     }
     let claim;
     try {
+      if (personalBinding) {
+        await refreshPersonalReceipt();
+      }
       claim = await post("claim", { operator });
     } catch (error) {
-      if (error.status === 401) revoked();
+      if (error.status === 401) await revoked();
+      if (personalBinding && (error.status === 403 || error.status === 409)) fail("Personal execution grant or account is unavailable; reconnect and approve a new task.");
+      if (terminationFailure) fail("Personal authentication process termination is unconfirmed.", EXIT_TERMINATION_UNKNOWN);
       if (error.accessHtml) fail(error.message, EXIT_ACCESS);
       if (error.runtimeOff) fail(error.message, EXIT_RUNTIME_OFF);
       console.error(`shiba-local: claim failed: ${error.message}`);
@@ -1206,6 +1321,8 @@ async function gracefulStop(code) {
   if (stopping) return;
   stopping = true;
   stopActiveExecution?.("daemon stopped");
+  personalProbeController?.abort();
+  if (personalRefreshPending) await personalRefreshPending.catch(() => {});
   const held = heldClaim;
   if (held === undefined) process.exit(code);
   await Promise.all([...ownedChildren].map(terminateOwnedChild));
@@ -1222,6 +1339,9 @@ async function gracefulStop(code) {
     ]);
   } catch {}
   await releaseLease(held.sandboxId).catch(() => {});
+  if (personalBinding && !terminationFailure) {
+    try { await fs.rm(personalRunPaths(runRoot, held.sandboxId).root, { recursive: true, force: true }); } catch {}
+  }
   process.exit(terminationFailure ? EXIT_TERMINATION_UNKNOWN : code);
 }
 process.on("SIGINT", () => void gracefulStop(130));
