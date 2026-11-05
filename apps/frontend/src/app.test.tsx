@@ -133,7 +133,7 @@ describe("app Work and Threads routing", () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
     await screen.findByRole("group", { name: "Work views" });
-    fireEvent.click(screen.getByRole("button", { name: "Threads" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     await screen.findByRole("textbox", { name: "Task draft" });
     act(() => { window.history.replaceState(null, "", "/"); window.dispatchEvent(new PopStateEvent("popstate")); });
     await screen.findByRole("group", { name: "Work views" });
@@ -207,7 +207,7 @@ describe("app Work and Threads routing", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ method: "POST" })));
     await act(async () => {});
     expect((screen.getByRole("textbox", { name: "Draft a task and press Enter" }) as HTMLInputElement).value).toBe("Different quick task");
-    fireEvent.click(screen.getByRole("button", { name: "Threads" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     expect((await screen.findByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Original unfinished task");
     expect(readDraft(composerDraftScope("test-operator", "default"))).toBe("Original unfinished task");
   });
@@ -226,17 +226,16 @@ describe("app Work and Threads routing", () => {
       return originalFetch(url, options);
     }));
     render(<App />);
-    const agentThread = await screen.findByRole("button", { name: "New thread with Research bot" });
+    const newTask = await screen.findByRole("button", { name: "New task" });
     const input = screen.getByRole("textbox", { name: "Draft a task and press Enter" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Keep quick-add draft" } });
     const form = input.closest("form")!;
-    const newThread = screen.getAllByRole("button", { name: "New thread" })[0]!;
     if (entry === "quick-add") fireEvent.submit(form);
-    else fireEvent.click(newThread);
-    fireEvent.click(newThread);
-    fireEvent.click(newThread);
+    else fireEvent.click(newTask);
+    fireEvent.click(newTask);
+    fireEvent.click(newTask);
     fireEvent.submit(form);
-    fireEvent.click(agentThread);
+    fireEvent.click(newTask);
     expect(createSession).toHaveBeenCalledOnce();
     await act(async () => finish(Response.json({}, { status: 503 })));
     expect(input.value).toBe("Keep quick-add draft");
@@ -270,11 +269,31 @@ describe("app Work and Threads routing", () => {
     }));
     render(<App />);
     await screen.findByText("SHARED-TEAM-ONLY");
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
     expect((screen.getByRole("combobox", { name: "Workspace" }) as HTMLSelectElement).value).toBe(id);
     await act(async () => { window.history.pushState(null, "", "/threads/"); window.dispatchEvent(new PopStateEvent("popstate")); });
     await screen.findByText(/Chat with your team/);
     expect(screen.queryByRole("textbox", { name: "Task draft" })).toBeNull();
     expect(fetch).toHaveBeenCalledWith("/api/collaboration/rooms", expect.objectContaining({ headers: expect.objectContaining({ "X-Shiba-Workspace": id }) }));
+  });
+
+  it("does not render personal session titles in the Work panel when a team workspace is selected", async () => {
+    const id = `ws_${"a".repeat(24)}`;
+    const actor = "owner@example.com";
+    localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actor)}`, id);
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
+      if (path === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId: id, name: "Design team", version: 1, createdAt: 1, membership: { workspaceId: id, userId: actor, role: "owner", version: 1, joinedAt: 1 } }] });
+      if (path === "/api/sessions") return Response.json({ sessions: [{ id: "personal-sess-1", name: "Personal Private Secret Session", agentName: "agent-1", updatedAt: 1 }] });
+      if (path === `/api/workspaces/${id}/work`) return Response.json({ workspaceId: id, currentActorId: `human:${actor}`, tasks: [], truncated: false });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await screen.findByRole("group", { name: "Work views" });
+    expect(screen.queryByText("Personal Private Secret Session")).toBeNull();
   });
 
   it("removes invitation secrets from the address before sign-in without submitting them", async () => {

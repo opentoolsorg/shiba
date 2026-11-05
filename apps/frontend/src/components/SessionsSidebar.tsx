@@ -1,11 +1,25 @@
 /**
- * SessionsSidebar — Devin-style left rail (280px).
- * Sessions grouped "Active" (live chat pinned) then "Recent" (runs,
- * newest first). Borderless rows: status dot + title + mono meta line.
- * Footer carries setup progress, docs link, and connection state.
+ * SessionsSidebar — Secondary Panel (~265px rounded-xl bordered card).
+ *
+ * Header row: title "Work" (14px/600) + search icon button.
+ * Segmented control: Personal (selected: white pill) | Workspace.
+ * Nav rows (34px tall, 14px, 16px icon, gap 12): List (active), Board, Timeline, Organization.
+ * Collapsible groups (12px muted label + chevron):
+ *   - Needs you → "Nothing needs you" (needs-approval / pending sessions)
+ *   - Assigned to me → "Nothing assigned to you" (live / active sessions)
+ *   - Everything → "No open tasks" (all sessions)
  */
-import { useMemo, useState } from "react";
-import { ChevronsLeft, Plus, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type JSX } from "react";
+import {
+  ChevronDown,
+  GanttChart,
+  Kanban,
+  List,
+  Network,
+  Plus,
+  Search,
+  X,
+} from "lucide-react";
 import type { AgentPrincipal } from "../types";
 import { formatTimeAgo, statusLabel } from "../ui-helpers";
 import { Tooltip } from "./Tooltip";
@@ -34,6 +48,16 @@ export interface SessionsSidebarProps {
   onOpenSetup: () => void;
   onToggleCollapse?: () => void;
   isMobileDrawer?: boolean;
+
+  /** Optional customization props */
+  variant?: "work" | "sessions";
+  title?: string;
+  scope?: "personal" | "workspace";
+  onScopeChange?: (scope: "personal" | "workspace") => void;
+  activeNav?: string;
+  onNavChange?: (nav: string) => void;
+  onSearchClick?: () => void;
+  className?: string;
 }
 
 export function statusDotClass(session: SessionItem): string {
@@ -46,7 +70,6 @@ export function statusDotClass(session: SessionItem): string {
   if (session.status === "completed") {
     return "bg-[var(--success)]";
   }
-  // Amber, not red: an ambiguous outcome is not a known failure.
   if (session.status === "unknown") {
     return "bg-[var(--attention)]";
   }
@@ -58,20 +81,6 @@ export function statusDotClass(session: SessionItem): string {
     return "bg-[var(--destructive)]";
   }
   return "bg-[var(--muted-foreground-3)]";
-}
-
-function connectionDotClass(tone: SessionsSidebarProps["connectionTone"]): string {
-  if (tone === "ok") return "bg-[var(--success)]";
-  if (tone === "pending") return "bg-[var(--warning-fg)] animate-pulse-subtle";
-  return "bg-[var(--destructive)]";
-}
-
-function GroupLabel({ children }: { children: string }) {
-  return (
-    <h3 className="px-3 pt-3.5 pb-1.5 text-[10px] font-mono font-semibold uppercase tracking-[0.1em] text-[var(--muted-foreground-2)] select-none">
-      {children}
-    </h3>
-  );
 }
 
 function SessionRow({
@@ -91,26 +100,18 @@ function SessionRow({
         type="button"
         onClick={() => onSelect(session.id)}
         aria-current={selected ? "true" : undefined}
-        className={`group w-full text-left rounded-[var(--radius-button)] px-3 py-2 flex items-start gap-2.5 transition-colors ${
-          selected ? "bg-[var(--secondary)] text-[var(--fg)]" : "hover:bg-[var(--secondary)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)]"
+        className={`group w-full text-left rounded-lg px-2.5 py-1.5 flex items-center gap-2.5 transition-colors ${
+          selected
+            ? "bg-[#e4e4e7] dark:bg-zinc-800 text-[#0a0a0a] dark:text-zinc-100 font-medium"
+            : "hover:bg-[#f4f4f5] dark:hover:bg-zinc-800/60 text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100"
         }`}
       >
         <span
-          className={`mt-[7px] size-1.5 rounded-full shrink-0 ${statusDotClass(session)}`}
+          className={`size-1.5 rounded-full shrink-0 ${statusDotClass(session)}`}
           aria-hidden="true"
         />
-        <span className="min-w-0 flex-1">
-          <span
-            className={`block text-[13px] font-medium truncate leading-snug ${
-              session.live ? "text-[var(--primary)]" : "text-[var(--fg)]"
-            }`}
-          >
-            {session.title || "Untitled session"}
-          </span>
-          <span className="block text-[11px] font-mono text-[var(--muted-foreground-3)] truncate mt-0.5 tabular-nums">
-            {session.repoName} · {statusLabel(session.status)} ·{" "}
-            {formatTimeAgo(session.updatedAt)}
-          </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] leading-tight">
+          {session.title || "Untitled session"}
         </span>
       </button>
     </Tooltip>
@@ -123,27 +124,27 @@ function AgentRow({ agent }: { agent: AgentPrincipal }) {
 
   return (
     <Tooltip content={tooltipText} side="right" align="start" delayMs={400}>
-      <div
-        className="group w-full text-left rounded-[var(--radius-button)] px-3 py-2 flex items-start gap-2.5 text-[var(--fg)]"
-      >
+      <div className="w-full text-left rounded-lg px-2.5 py-1.5 flex items-center gap-2.5 text-[#71717a] dark:text-zinc-400">
         <span
-          className={`mt-[7px] size-1.5 rounded-full shrink-0 ${
+          className={`size-1.5 rounded-full shrink-0 ${
             agent.live ? "bg-[var(--success)] animate-pulse-subtle" : "bg-[var(--muted-foreground-3)]"
           }`}
           aria-hidden="true"
         />
-        <span className="min-w-0 flex-1">
-          <span className="block text-[13px] font-medium truncate leading-snug">
-            {agent.principal}
-          </span>
-          <span className="block text-[11px] font-mono text-[var(--muted-foreground-3)] truncate mt-0.5 tabular-nums">
-            {scopeLabel}
-          </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] leading-tight">
+          {agent.principal}
         </span>
       </div>
     </Tooltip>
   );
 }
+
+const NAV_ITEMS = [
+  { id: "list", label: "List", icon: List },
+  { id: "board", label: "Board", icon: Kanban },
+  { id: "timeline", label: "Timeline", icon: GanttChart },
+  { id: "organization", label: "Organization", icon: Network },
+] as const;
 
 export function SessionsSidebar({
   sessions,
@@ -158,8 +159,62 @@ export function SessionsSidebar({
   onOpenSetup,
   onToggleCollapse,
   isMobileDrawer = false,
-}: SessionsSidebarProps) {
+  variant = "work",
+  title: customTitle,
+  scope: controlledScope,
+  onScopeChange,
+  activeNav: controlledNav,
+  onNavChange,
+  onSearchClick,
+  className = "",
+}: SessionsSidebarProps): JSX.Element {
+  const title = customTitle ?? (variant === "sessions" ? "Sessions" : "Work");
+  const [internalScope, setInternalScope] = useState<"personal" | "workspace">("personal");
+  const [internalNav, setInternalNav] = useState<string>("list");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if ((isSearchOpen || variant === "sessions") && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [isSearchOpen, variant]);
+
+  const [openGroups, setOpenGroups] = useState({
+    needsYou: true,
+    assignedToMe: true,
+    everything: true,
+    agents: true,
+  });
+
+  const activeScope = controlledScope ?? internalScope;
+  const currentNav = controlledNav ?? internalNav;
+
+  const handleScopeChange = (nextScope: "personal" | "workspace") => {
+    setInternalScope(nextScope);
+    onScopeChange?.(nextScope);
+  };
+
+  const handleNavChange = (nextNav: string) => {
+    setInternalNav(nextNav);
+    onNavChange?.(nextNav);
+  };
+
+  const handleSearchToggle = () => {
+    if (onSearchClick) {
+      onSearchClick();
+      return;
+    }
+    setIsSearchOpen((prev) => !prev);
+  };
+
+  const toggleGroup = (group: keyof typeof openGroups) => {
+    setOpenGroups((prev) => ({
+      ...prev,
+      [group]: !prev[group],
+    }));
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -170,179 +225,358 @@ export function SessionsSidebar({
     );
   }, [sessions, query]);
 
-  const activeSessions = filtered.filter((s) => s.live || s.status === "running" || s.status === "waiting-approval");
-  const recentSessions = filtered.filter((s) => !activeSessions.includes(s));
-  const setupComplete = setupDone !== null && setupDone >= setupTotal;
+  // Map groups onto Shiba session states
+  const needsYouSessions = filtered.filter(
+    (s) => s.status === "waiting-approval" || s.status === "pending",
+  );
+  const assignedToMeSessions = filtered.filter(
+    (s) =>
+      (s.live || s.status === "live" || s.status === "running") &&
+      s.status !== "waiting-approval",
+  );
+  const everythingSessions = filtered;
 
   return (
     <aside
-      className="w-[280px] shrink-0 h-full flex flex-col bg-[var(--chrome)] border-r border-[var(--border-1)]"
-      aria-label="Sessions"
+      className={`w-[265px] min-w-[265px] max-w-[265px] shrink-0 h-full flex flex-col bg-white dark:bg-[#121214] border border-[#e4e4e7] dark:border-zinc-800 rounded-xl shadow-sm overflow-hidden select-none ${className}`.trim()}
+      aria-label={title}
     >
-      {/* Header with collapse button */}
-      <div className="flex items-center justify-between px-3.5 pt-3.5 pb-2.5">
-        <div className="flex items-center gap-2">
-          <h2 className="text-[11px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-            Sessions
-          </h2>
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-[var(--radius-button)] bg-[var(--card)] border border-[var(--border-1)] text-[var(--muted-foreground-2)] tabular-nums">
-            {sessions.length}
-          </span>
-        </div>
-
-        {onToggleCollapse ? (
-          <Tooltip content={isMobileDrawer ? "Close sessions drawer" : "Collapse sidebar"} shortcut={isMobileDrawer ? "Esc" : "⌘B"} side="bottom">
+      {/* Header row: title + search/new thread icon buttons */}
+      <div className="px-4 pt-3.5 pb-2.5 flex items-center justify-between shrink-0">
+        <h2 className="text-[14px] font-semibold text-[#0a0a0a] dark:text-zinc-100 tracking-tight">
+          {title}
+        </h2>
+        <div className="flex items-center gap-1">
+          <Tooltip content="Search" side="bottom">
             <button
               type="button"
-              onClick={onToggleCollapse}
-              aria-label={isMobileDrawer ? "Close sessions" : "Collapse sidebar"}
-              className="size-7 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+              onClick={handleSearchToggle}
+              aria-label="Search"
+              aria-expanded={isSearchOpen}
+              className="size-7 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
             >
-              {isMobileDrawer ? (
-                <X aria-hidden="true" className="size-4" strokeWidth={2} />
-              ) : (
-                <ChevronsLeft aria-hidden="true" className="size-4" strokeWidth={1.8} />
-              )}
+              <Search className="size-4" strokeWidth={1.75} aria-hidden="true" />
             </button>
           </Tooltip>
-        ) : null}
-      </div>
 
-      {/* New task button */}
-      <div className="px-3 pb-2.5">
-        <Tooltip content="Start a new coding task session" side="bottom">
-          <button
-            type="button"
-            onClick={onNewTask}
-            className="w-full inline-flex min-h-9 items-center justify-center gap-1.5 font-medium text-[13px] px-3 rounded-[var(--radius-button)] bg-[var(--primary)] text-[var(--primary-text)] hover:opacity-95 transition-opacity"
-          >
-            <Plus aria-hidden="true" className="size-4" strokeWidth={2.5} />
-            New task
-          </button>
-        </Tooltip>
-      </div>
-
-      {/* Search */}
-      <div className="px-3 pb-2">
-        <div className="relative">
-          <Search
-            aria-hidden="true"
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-[var(--muted-foreground-2)]/60 pointer-events-none"
-            strokeWidth={2}
-          />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search sessions…"
-            aria-label="Search sessions"
-            className="w-full h-8 bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] pl-8 pr-7 text-[13px] text-[var(--fg)] placeholder:text-[var(--muted-foreground-3)] focus:border-[var(--ring)] focus:outline-none transition-colors"
-          />
-          {query ? (
-            <button
-              type="button"
-              onClick={() => setQuery("")}
-              aria-label="Clear search"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] text-xs"
-            >
-              ✕
-            </button>
+          {isMobileDrawer && onToggleCollapse ? (
+            <Tooltip content="Close drawer" side="bottom">
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                aria-label="Close drawer"
+                className="size-7 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+              >
+                <X className="size-4" strokeWidth={1.75} aria-hidden="true" />
+              </button>
+            </Tooltip>
           ) : null}
         </div>
       </div>
 
-      {/* Session list */}
-      <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {filtered.length === 0 ? (
-          <p className="text-[var(--muted-foreground-2)] text-xs px-3 py-8 text-center text-pretty">
-            {sessions.length === 0
-              ? "No sessions yet — start a task."
-              : "No sessions match your search."}
-          </p>
-        ) : null}
-        {activeSessions.length > 0 ? (
-          <section aria-label="Active sessions">
-            <GroupLabel>Active</GroupLabel>
-            <ul className="flex flex-col gap-0.5">
-              {activeSessions.map((session) => (
-                <li key={session.id}>
-                  <SessionRow
-                    session={session}
-                    selected={session.id === selectedId}
-                    onSelect={onSelect}
-                  />
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-        {agents.length > 0 ? (
-          <section aria-label="Agents">
-            <GroupLabel>Agents</GroupLabel>
-            <ul className="flex flex-col gap-0.5">
-              {agents.map((agent) => (
-                <li key={agent.principal}>
-                  <AgentRow agent={agent} />
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-        {recentSessions.length > 0 ? (
-          <section aria-label="Recent sessions">
-            <GroupLabel>Recent</GroupLabel>
-            <ul className="flex flex-col gap-0.5">
-              {recentSessions.map((session) => (
-                <li key={session.id}>
-                  <SessionRow
-                    session={session}
-                    selected={session.id === selectedId}
-                    onSelect={onSelect}
-                  />
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-      </div>
-
-      {/* Footer */}
-      <div className="border-t border-[var(--border-1)] px-3 py-3 flex flex-col gap-2.5 bg-[var(--chrome)]">
-        <Tooltip content={setupComplete ? "All 6 setup steps verified" : `${setupDone ?? 0} of ${setupTotal} setup steps complete`} side="top">
+      {/* New thread button in sessions variant */}
+      {variant === "sessions" ? (
+        <div className="px-3 pb-2 shrink-0">
           <button
             type="button"
-            onClick={onOpenSetup}
-            className={`inline-flex items-center gap-2 text-xs font-semibold rounded-[var(--radius-button)] px-2.5 py-1.5 border transition-colors w-fit ${
-              setupComplete
-                ? "text-[var(--primary)] border-[var(--primary)]/40 bg-[var(--primary-soft)] hover:bg-[var(--primary-soft-hover)]"
-                : "text-[var(--warning-fg)] border-[color-mix(in_oklch,var(--warning-fg)_40%,transparent)] bg-[color-mix(in_oklch,var(--warning-fg)_10%,transparent)] hover:bg-[var(--warning-fg)]/20"
-            }`}
+            onClick={onNewTask}
+            aria-label="New thread"
+            className="w-full h-8 px-3 rounded-lg bg-[#e4e4e7] hover:bg-[#d4d4d8] dark:bg-zinc-800 dark:hover:bg-zinc-700 text-[#0a0a0a] dark:text-zinc-100 text-[13px] font-medium flex items-center justify-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
           >
-            {setupComplete ? "Setup Guide" : `Setup ${setupDone ?? 0}/${setupTotal}`}
+            <Plus className="size-3.5" strokeWidth={2} aria-hidden="true" />
+            <span>New thread</span>
           </button>
-        </Tooltip>
-        <div className="flex items-center justify-between gap-2">
-          <Tooltip content="Documentation & API guides" side="top">
-            <a
-              href="/docs"
-              className="text-xs text-[var(--muted-foreground-2)] hover:text-[var(--fg)] transition-colors shrink-0"
+        </div>
+      ) : null}
+
+      {/* Inline search bar (revealed when search is active or query is typed, or in sessions variant) */}
+      {isSearchOpen || query || variant === "sessions" ? (
+        <div className="px-3 pb-2 pt-0.5 shrink-0">
+          <div className="relative">
+            <Search
+              aria-hidden="true"
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-[#71717a] pointer-events-none"
+              strokeWidth={1.75}
+            />
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search sessions…"
+              aria-label="Search sessions"
+              className="w-full h-7 bg-[#f4f4f5] dark:bg-zinc-800/60 rounded-md pl-7 pr-6 text-[12px] text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#a1a1aa] focus:outline-none focus:ring-1 focus:ring-zinc-400"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[#71717a] hover:text-[#0a0a0a] text-xs"
+              >
+                ✕
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Segmented control: Personal | Workspace (work variant only) */}
+      {variant !== "sessions" ? (
+        <div className="px-3 pb-3 shrink-0">
+          <div
+            className="h-8 p-0.5 bg-[#f4f4f5] dark:bg-zinc-800/80 rounded-md flex items-center gap-0.5"
+            role="tablist"
+            aria-label="Work scope"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeScope === "personal"}
+              onClick={() => handleScopeChange("personal")}
+              className={`flex-1 h-7 rounded text-[12px] font-medium transition-all flex items-center justify-center ${
+                activeScope === "personal"
+                  ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+                  : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-200"
+              }`}
             >
-              Docs
-            </a>
-          </Tooltip>
-          <Tooltip content={`Agent State: ${connectionLabel}`} side="top">
-            <span
-              className="inline-flex items-center gap-1.5 text-[11px] text-[var(--muted-foreground-2)] min-w-0 cursor-default"
+              Personal
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeScope === "workspace"}
+              onClick={() => handleScopeChange("workspace")}
+              className={`flex-1 h-7 rounded text-[12px] font-medium transition-all flex items-center justify-center ${
+                activeScope === "workspace"
+                  ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+                  : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-200"
+              }`}
             >
-              <span
-                className={`size-1.5 rounded-full shrink-0 ${connectionDotClass(connectionTone)}`}
+              Workspace
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Nav list rows: List, Board, Timeline, Organization (work variant only) */}
+      {variant !== "sessions" ? (
+        <nav className="px-3 flex flex-col gap-0.5 shrink-0" aria-label="Views">
+          {NAV_ITEMS.map((item) => {
+            const isActive = currentNav === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleNavChange(item.id)}
+                aria-current={isActive ? "page" : undefined}
+                className={`w-full h-[34px] px-2.5 rounded-lg flex items-center gap-3 text-[14px] transition-colors ${
+                  isActive
+                    ? "bg-[#e4e4e7] dark:bg-zinc-800 text-[#0a0a0a] dark:text-zinc-100 font-medium"
+                    : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800/50 font-normal"
+                }`}
+              >
+                <item.icon className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                <span className="truncate">{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      ) : null}
+
+      {/* Body: Full sessions list for sessions variant, or grouped collapsible sections for work variant */}
+      {variant === "sessions" ? (
+        <div className="flex-1 overflow-y-auto px-2 pb-2">
+          {filtered.length === 0 ? (
+            <p className="text-[12px] text-[#71717a] dark:text-zinc-500 px-3 py-8 text-center text-pretty">
+              {sessions.length === 0
+                ? "No sessions yet — start a thread."
+                : "No sessions match your search."}
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-0.5" aria-label="Sessions list">
+              {filtered.map((session) => (
+                <li key={session.id}>
+                  <SessionRow
+                    session={session}
+                    selected={session.id === selectedId}
+                    onSelect={onSelect}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <div className="mt-6 flex-1 overflow-y-auto px-4 pb-4 flex flex-col gap-4">
+        {/* Group: Needs you */}
+        <section aria-label="Needs you" className="flex flex-col">
+          <button
+            type="button"
+            onClick={() => toggleGroup("needsYou")}
+            aria-expanded={openGroups.needsYou}
+            className="flex items-center gap-1.5 text-[12px] font-medium text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 py-0.5 select-none transition-colors w-fit focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded"
+          >
+            <span>Needs you</span>
+            <ChevronDown
+              className={`size-3 text-[#71717a] transition-transform duration-150 ${
+                openGroups.needsYou ? "" : "-rotate-90"
+              }`}
+              strokeWidth={2}
+              aria-hidden="true"
+            />
+          </button>
+          {openGroups.needsYou ? (
+            needsYouSessions.length === 0 ? (
+              <p className="text-[12px] text-[#71717a] dark:text-zinc-500 py-1 select-none">
+                Nothing needs you
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-0.5 pt-1">
+                {needsYouSessions.map((session) => (
+                  <li key={session.id}>
+                    <SessionRow
+                      session={session}
+                      selected={session.id === selectedId}
+                      onSelect={onSelect}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : null}
+        </section>
+
+        {/* Group: Assigned to me */}
+        <section aria-label="Assigned to me" className="flex flex-col">
+          <button
+            type="button"
+            onClick={() => toggleGroup("assignedToMe")}
+            aria-expanded={openGroups.assignedToMe}
+            className="flex items-center gap-1.5 text-[12px] font-medium text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 py-0.5 select-none transition-colors w-fit focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded"
+          >
+            <span>Assigned to me</span>
+            <ChevronDown
+              className={`size-3 text-[#71717a] transition-transform duration-150 ${
+                openGroups.assignedToMe ? "" : "-rotate-90"
+              }`}
+              strokeWidth={2}
+              aria-hidden="true"
+            />
+          </button>
+          {openGroups.assignedToMe ? (
+            assignedToMeSessions.length === 0 ? (
+              <p className="text-[12px] text-[#71717a] dark:text-zinc-500 py-1 select-none">
+                Nothing assigned to you
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-0.5 pt-1">
+                {assignedToMeSessions.map((session) => (
+                  <li key={session.id}>
+                    <SessionRow
+                      session={session}
+                      selected={session.id === selectedId}
+                      onSelect={onSelect}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : null}
+        </section>
+
+        {/* Group: Everything */}
+        <section aria-label="Everything" className="flex flex-col">
+          <button
+            type="button"
+            onClick={() => toggleGroup("everything")}
+            aria-expanded={openGroups.everything}
+            className="flex items-center gap-1.5 text-[12px] font-medium text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 py-0.5 select-none transition-colors w-fit focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded"
+          >
+            <span>Everything</span>
+            <ChevronDown
+              className={`size-3 text-[#71717a] transition-transform duration-150 ${
+                openGroups.everything ? "" : "-rotate-90"
+              }`}
+              strokeWidth={2}
+              aria-hidden="true"
+            />
+          </button>
+          {openGroups.everything ? (
+            everythingSessions.length === 0 ? (
+              <p className="text-[12px] text-[#71717a] dark:text-zinc-500 py-1 select-none">
+                {query ? "No sessions match your search" : "No open tasks"}
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-0.5 pt-1">
+                {everythingSessions.map((session) => (
+                  <li key={session.id}>
+                    <SessionRow
+                      session={session}
+                      selected={session.id === selectedId}
+                      onSelect={onSelect}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : null}
+        </section>
+
+        {/* Group: Agents (when registered MCP agents exist) */}
+        {agents.length > 0 ? (
+          <section aria-label="Agents" className="flex flex-col">
+            <button
+              type="button"
+              onClick={() => toggleGroup("agents")}
+              aria-expanded={openGroups.agents}
+              className="flex items-center gap-1.5 text-[12px] font-medium text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 py-0.5 select-none transition-colors w-fit focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded"
+            >
+              <span>Agents</span>
+              <ChevronDown
+                className={`size-3 text-[#71717a] transition-transform duration-150 ${
+                  openGroups.agents ? "" : "-rotate-90"
+                }`}
+                strokeWidth={2}
                 aria-hidden="true"
               />
-              <span className="truncate">{connectionLabel}</span>
-            </span>
-          </Tooltip>
-        </div>
+            </button>
+            {openGroups.agents ? (
+              <ul className="flex flex-col gap-0.5 pt-1">
+                {agents.map((agent) => (
+                  <li key={agent.principal}>
+                    <AgentRow agent={agent} />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        ) : null}
       </div>
+      )}
+
+      {/* Optional discrete status footer if setup is incomplete or connection has error */}
+      {(setupDone !== null && setupDone < setupTotal) || connectionTone === "error" ? (
+        <div className="border-t border-[#e4e4e7] dark:border-zinc-800 px-3 py-2 flex items-center justify-between text-[11px] text-[#71717a] shrink-0 bg-[#fafafa] dark:bg-[#18181b]">
+          {setupDone !== null && setupDone < setupTotal ? (
+            <button
+              type="button"
+              onClick={onOpenSetup}
+              className="text-[var(--warning-fg)] hover:underline font-medium"
+            >
+              Setup {setupDone}/{setupTotal}
+            </button>
+          ) : (
+            <span />
+          )}
+          {connectionTone === "error" ? (
+            <span className="flex items-center gap-1.5 text-[var(--destructive)]">
+              <span className="size-1.5 rounded-full bg-[var(--destructive)]" />
+              {connectionLabel}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </aside>
   );
 }

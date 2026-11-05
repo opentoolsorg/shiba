@@ -43,7 +43,9 @@ import {
   useModelConfig,
 } from "./live-status";
 import { DashboardView } from "./components/DashboardView";
-import { WorkView } from "./components/WorkView";
+import { WorkView, type WorkViewMode } from "./components/WorkView";
+import type { OrganizationEmployee } from "./components/WorkOrganizationView";
+import { employeeRole, employeeRoleLabel } from "./employee-templates";
 import { TasksHomeView } from "./components/TasksHomeView";
 import { OnboardingModal, detectSetupSteps } from "./components/OnboardingModal";
 import { FirstRunWizard, type FirstRunProgressSnapshot, type FirstRunStepId } from "./components/FirstRunWizard";
@@ -575,6 +577,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       ? localStorage.getItem("shiba:sidebar-collapsed") === "true"
       : false,
   );
+  const [workPanelCollapsed, setWorkPanelCollapsed] = useState(() =>
+    typeof window !== "undefined"
+      ? localStorage.getItem("shiba:work-panel-collapsed") === "true"
+      : false,
+  );
+  const [workViewMode, setWorkViewMode] = useState<WorkViewMode>("list");
 
   const toggleSessionsCollapsed = useCallback(() => {
     setSessionsCollapsed((current) => {
@@ -582,6 +590,20 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       if (typeof window !== "undefined") {
         try {
           localStorage.setItem("shiba:sidebar-collapsed", String(next));
+        } catch {
+          // Ignore storage quota or access errors in private mode
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleWorkPanelCollapsed = useCallback(() => {
+    setWorkPanelCollapsed((current) => {
+      const next = !current;
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("shiba:work-panel-collapsed", String(next));
         } catch {
           // Ignore storage quota or access errors in private mode
         }
@@ -729,6 +751,18 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         emoji: agent.config.emoji,
         roleTemplateId: agent.config.roleTemplateId,
         expectedDeliverables: agent.config.expectedDeliverables,
+      })),
+    [customAgentRecords],
+  );
+  const workEmployees: OrganizationEmployee[] = useMemo(
+    () =>
+      customAgentRecords.map((record) => ({
+        id: record.id,
+        name: record.config.name,
+        role: employeeRoleLabel(employeeRole(record.slug, record.config.roleTemplateId)) || "Employee",
+        emoji: record.config.emoji,
+        slug: record.slug,
+        config: record.config,
       })),
     [customAgentRecords],
   );
@@ -2738,41 +2772,108 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : teamWorkspaceId && !["team", "work", "threads", "collaboration", "custom-agents", "skills", "providers"].includes(mainView) ? (
             <section className="m-4 min-w-0 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal workspace feature"><h1 className="text-xl font-medium">Open this feature in your personal workspace</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">This view uses personal or deployment settings. Team messages, context and results stay in the selected team’s shared chat and Work views.</p><button type="button" className="mt-4 min-h-11 border border-[var(--border-1)] px-4" onClick={() => teamDirectory.selectWorkspace("")}>Switch to personal workspace</button><button type="button" className="ml-3 min-h-11 border border-[var(--border-1)] px-4" onClick={() => openView("threads")}>Open team chat</button></section>
           ) : mainView === "inbox" ? null : mainView === "work" ? (
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-            {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
-            <WorkView
-              workspaceId={teamWorkspaceId || undefined}
-              workspaceName={teamWorkspace?.name}
-              currentActorId={orchestratorName ? `human:${orchestratorName.trim().toLowerCase()}` : undefined}
-              sharedTasks={sharedWork.tasks}
-              sharedTasksLoading={sharedWork.loading}
-              sharedTasksError={sharedWork.error ?? undefined}
-              onOpenTeam={() => openView("team")}
-              onOpenSharedTask={(item) => { setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
-              runs={retainedRuns}
-              sessions={sessions}
-              storedApprovals={visibleStoredApprovals}
-              pendingApprovals={pendingApprovals}
-              onSelectTask={(id, kind) => {
-                if (kind === "approval") { setMainView("approvals"); return; }
-                void handleSelectSession(id);
-                setMainView("threads");
-              }}
-              onNewTask={handleNewTask}
-              onQuickAddTask={async (taskText) => {
-                const id = await handleNewTask();
-                if (!id) return false;
-                if (!orchestratorName) return false;
-                const scope = composerDraftScope(orchestratorName, id);
-                quickDraft.current = { scope, text: taskText };
-                writeDraft(scope, taskText);
-                setTask(taskText);
-                return true;
-              }}
-              onReviewApproval={() => {
-                setMainView("approvals");
-              }}
-            />
+            <div className="flex min-h-0 flex-1 p-2 gap-2 bg-[var(--bg)] overflow-hidden">
+              {!workPanelCollapsed ? (
+                <div className="hidden lg:flex shrink-0 h-full">
+                  <SessionsSidebar
+                    title="Work"
+                    scope={teamWorkspaceId ? "workspace" : "personal"}
+                    onScopeChange={(scope) => {
+                      if (teamDirectory.loading) return;
+                      if (scope === "personal") {
+                        flushDraft();
+                        teamDirectory.selectWorkspace("");
+                      } else {
+                        const actorKey = orchestratorName
+                          ? `shiba:team-workspace:${encodeURIComponent(orchestratorName.trim().toLowerCase())}`
+                          : "";
+                        let rememberedId = "";
+                        try {
+                          if (actorKey) rememberedId = localStorage.getItem(actorKey) || "";
+                        } catch {
+                          /* storage optional */
+                        }
+                        const rememberedWorkspace = rememberedId
+                          ? teamDirectory.workspaces.find((w) => w.workspaceId === rememberedId)
+                          : undefined;
+
+                        if (rememberedWorkspace) {
+                          flushDraft();
+                          teamDirectory.selectWorkspace(rememberedWorkspace.workspaceId);
+                        } else if (teamDirectory.workspaces.length === 1) {
+                          flushDraft();
+                          teamDirectory.selectWorkspace(teamDirectory.workspaces[0]!.workspaceId);
+                        } else {
+                          openView("team");
+                        }
+                      }
+                    }}
+                    activeNav={workViewMode}
+                    onNavChange={(nav) => setWorkViewMode(nav as WorkViewMode)}
+                    onSearchClick={() => setCommandMenuOpen(true)}
+                    sessions={privateDataEnabled && sessionRegistryOwner === orchestratorName ? sessions : []}
+                    agents={privateDataEnabled ? agentPrincipals : []}
+                    selectedId={selectedRunId ?? selectedSessionId}
+                    onSelect={handleSelectSession}
+                    onNewTask={handleNewTask}
+                    connectionLabel={teamWorkspaceId ? "Shared workspace" : connectionState}
+                    connectionTone={
+                      identityError || agent.connectionError
+                        ? "error"
+                        : launchBlocked || !agent.identified
+                          ? "pending"
+                          : "ok"
+                    }
+                    setupDone={setupDone}
+                    setupTotal={SETUP_TOTAL_STEPS}
+                    onOpenSetup={openFirstRun}
+                    onToggleCollapse={toggleWorkPanelCollapsed}
+                  />
+                </div>
+              ) : null}
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
+                <WorkView
+                  view={workViewMode}
+                  onViewChange={setWorkViewMode}
+                  sidebarCollapsed={workPanelCollapsed}
+                  onToggleSidebar={toggleWorkPanelCollapsed}
+                  employees={workEmployees}
+                  // Browsing the org chart must not rewrite the composer's bot or model settings.
+                  onOpenEmployee={() => openView("custom-agents")}
+                  workspaceId={teamWorkspaceId || undefined}
+                  workspaceName={teamWorkspace?.name}
+                  currentActorId={orchestratorName ? `human:${orchestratorName.trim().toLowerCase()}` : undefined}
+                  sharedTasks={sharedWork.tasks}
+                  sharedTasksLoading={sharedWork.loading}
+                  sharedTasksError={sharedWork.error ?? undefined}
+                  onOpenTeam={() => openView("team")}
+                  onOpenSharedTask={(item) => { setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
+                  runs={retainedRuns}
+                  sessions={sessions}
+                  storedApprovals={visibleStoredApprovals}
+                  pendingApprovals={pendingApprovals}
+                  onSelectTask={(id, kind) => {
+                    if (kind === "approval") { setMainView("approvals"); return; }
+                    void handleSelectSession(id);
+                    setMainView("threads");
+                  }}
+                  onNewTask={handleNewTask}
+                  onQuickAddTask={async (taskText) => {
+                    const id = await handleNewTask();
+                    if (!id) return false;
+                    if (!orchestratorName) return false;
+                    const scope = composerDraftScope(orchestratorName, id);
+                    quickDraft.current = { scope, text: taskText };
+                    writeDraft(scope, taskText);
+                    setTask(taskText);
+                    return true;
+                  }}
+                  onReviewApproval={() => {
+                    setMainView("approvals");
+                  }}
+                />
+              </div>
             </div>
           ) : mainView === "tasks" ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -2854,6 +2955,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   />
                   <div className="absolute inset-y-0 left-0 shadow-[var(--sh-overlay)] bg-[var(--bg)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] animate-enter-x">
                     <SessionsSidebar
+                      variant="sessions"
                       sessions={sessions}
                       agents={agentPrincipals}
                       selectedId={selectedRunId ?? selectedSessionId}

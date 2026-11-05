@@ -1,78 +1,81 @@
-/* Shiba paper-OS theme — tryshiba.dev design tokens on the shell IA.
-   Dark charcoal paper (#191a18), periwinkle accent (#9cbce2), Geist +
-   Instrument Serif + Geist Mono, soft radii, soft shadows (Overlay-style shell). */
+/* Neutral theme tokens — design tokens for Shiba app shell.
+   Page bg #fafafa, text #0a0a0a, muted #71717a, border zinc-200 (#e4e4e7),
+   card white, secondary/hover grays (#f4f4f5/#e4e4e7), radii (6/8/12px), Geist font. */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   color-scheme: light;
-  /* Canonical names from design.md. The aliases below reference these. */
-  --paper: #fafaf9;
-  --ink: #222320;
-  --ink-2: #6a6f63;
-  --line: #e8e8e5;
-  --navy: #0000a8;
-  --paper-dot: #24272919;
-  --paper-shadow: #0000000f;
+  /* Light theme: clean neutral palette */
+  --paper: #fafafa;
+  --ink: #0a0a0a;
+  --ink-2: #71717a;
+  --line: #e4e4e7;
+  --navy: #0a0a0a;
+  --paper-dot: transparent;
+  --paper-shadow: transparent;
   --bg: var(--paper);
   --chrome: var(--bg);
-  --panel: #f4f4f2;
+  --panel: #fafafa;
   --card: #ffffff;
-  --card-hover: #f4f4f2;
+  --card-hover: #f4f4f5;
   --popover: #ffffff;
-  --popover-hover: oklch(0% 0 0/.04);
+  --popover-hover: #f4f4f5;
   --input: #ffffff;
   --button: #ffffff;
-  --button-hover: #f4f4f2;
+  --button-hover: #f4f4f5;
   --inverse: var(--fg);
   --inverse-hover: color-mix(in oklch, var(--fg) 88%, var(--bg));
   --inverse-text: var(--bg);
-  --secondary: oklch(0% 0 0/.05);
-  --secondary-hover: oklch(0% 0 0/.08);
-  --section: oklch(0% 0 0/.04);
-  --muted: #e0ded5;
-  --overlay: oklch(0% 0 0/.4);
-  --overlay-media: oklch(0% 0 0/.92);
-  --overlay-fg: oklch(100% 0 0);
+  --secondary: #f4f4f5;
+  --secondary-hover: #e4e4e7;
+  --section: #f4f4f5;
+  --muted: #f4f4f5;
+  --overlay: rgba(0, 0, 0, 0.4);
+  --overlay-media: rgba(0, 0, 0, 0.92);
+  --overlay-fg: #ffffff;
   --fg: var(--ink);
   --text: var(--fg);
-  --muted-foreground-1: #454840;
+  --muted-foreground-1: #52525b;
   --muted-foreground-2: var(--ink-2);
-  --muted-foreground-3: #a5a69b;
-  --icon-muted: #6a6f63;
+  --muted-foreground-3: #a1a1aa;
+  --icon-muted: #71717a;
   --text-link: var(--primary);
   --border-1: var(--line);
-  --border-2: #d3d2c8;
-  --border-3: #a5a69b;
+  --border-2: #e4e4e7;
+  --border-3: #d4d4d8;
   --primary: var(--navy);
   --shader-ink: var(--navy);
-  --primary-soft: color-mix(in oklch, var(--primary) 20%, transparent);
-  --primary-soft-hover: color-mix(in oklch, var(--primary) 26%, transparent);
-  --primary-text: oklch(100% 0 0);
-  --ring: var(--primary);
-  --destructive: #b52b2b;
-  --destructive-soft: color-mix(in oklch, var(--destructive) 12%, transparent);
-  --destructive-soft-hover: color-mix(in oklch, var(--destructive) 18%, transparent);
-  --destructive-text: oklch(100% 0 0);
-  --warning: #f99c00;
-  --warning-fg: #976400;
-  --warning-subtle: color-mix(in oklch, var(--warning) 12%, transparent);
-  --success: #227146;
+  --primary-soft: rgba(10, 10, 10, 0.06);
+  --primary-soft-hover: rgba(10, 10, 10, 0.1);
+  --primary-text: #ffffff;
+  --ring: #0a0a0a;
+  --destructive: #ef4444;
+  --destructive-fg: #b91c1c;
+  --destructive-soft: rgba(239, 68, 68, 0.1);
+  --destructive-soft-hover: rgba(239, 68, 68, 0.16);
+  --destructive-text: #ffffff;
+  --warning: #f59e0b;
+  --warning-fg: #b45309;
+  --warning-subtle: rgba(245, 158, 11, 0.1);
+  --success: #10b981;
+  --success-fg: #047857;
   --info: var(--navy);
-  --complete: #6b3fa0;
-  --attention: #b06e28;
-  --progress: #f99c00;
+  --complete: #8b5cf6;
+  --attention: #f59e0b;
+  --progress: #f59e0b;
   --purple: oklch(60% .21 292);
   --pink: oklch(63% .2 355);
   --orange: oklch(65% .17 55);
   --lime: oklch(63% .18 128);
-  --diff-add: #227146;
-  --diff-del: #b52b2b;
-  --diff-add-wash: color-mix(in lab, var(--card) 94%, var(--diff-add));
-  --diff-del-wash: color-mix(in lab, var(--card) 94%, var(--diff-del));
-  --diff-add-emphasis: color-mix(in oklch, var(--diff-add) 20%, transparent);
-  --diff-del-emphasis: color-mix(in oklch, var(--diff-del) 20%, transparent);
+  --diff-add: #10b981;
+  --diff-del: #ef4444;
+  --diff-add-wash: #f0fdf4;
+  --diff-del-wash: #fef2f2;
+  --diff-add-emphasis: rgba(16, 185, 129, 0.15);
+  --diff-del-emphasis: rgba(239, 68, 68, 0.15);
   --chart-1: oklch(63% .12 187);
   --chart-2: oklch(63% .16 20);
   --chart-3: oklch(60% .14 245);
@@ -82,32 +85,32 @@
   --chart-7: oklch(56% .17 330);
   --chart-8: oklch(67% .12 220);
   --chart-other: var(--muted-foreground-3);
-  --sh-plate: 0 1px 1px var(--paper-shadow);
+  --sh-plate: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --highlight-top: transparent;
   --card-hairline: transparent;
-  --sh-card: 0 1px 2px var(--paper-shadow);
-  --sh-overlay: 0 4px 16px var(--paper-shadow);
-  --sh-composer: 0 2px 8px var(--paper-shadow);
-  --sh-sheet: 0 8px 24px var(--paper-shadow);
-  --gradient-panel-air: linear-gradient(180deg in oklab, var(--panel) 0%, var(--bg) 100%);
+  --sh-card: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --sh-overlay: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+  --sh-composer: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  --sh-sheet: 0 20px 25px -5px rgba(0, 0, 0, 0.08);
+  --gradient-panel-air: none;
 
-  /* Radii — paper-OS: square corners everywhere */
+  /* Radii tokens: 6/8/12px */
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 8px;
-  --radius-lg: 10px;
+  --radius-lg: 12px;
   --radius: 8px;
   --radius-inner: 6px;
   --radius-button: 8px;
   --radius-kbd: 4px;
-  --radius-card: 10px;
+  --radius-card: 12px;
   --radius-overlay: 12px;
-  --radius-panel: 10px;
+  --radius-panel: 12px;
 
   /* Typography & fonts */
-  --font-sans: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-sans: "Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  --font-display: "Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-body: var(--font-sans);
 
   /* Focus & motion */
@@ -115,67 +118,72 @@
   --ease-out: cubic-bezier(0, 0, .2, 1);
   --dur-fast: 150ms;
   --dur-med: 320ms;
-
 }
 
 .dark, html.dark {
   color-scheme: dark;
-  --paper: #191a18;
-  --ink: #eae8e1;
-  --ink-2: #aaa99f;
-  --line: #3b3d36;
-  --navy: #9cbce2;
-  --paper-dot: #eae8e119;
-  --paper-shadow: #00000035;
+  /* Dark theme: sensible zinc dark values */
+  --paper: #09090b;
+  --ink: #fafafa;
+  --ink-2: #a1a1aa;
+  --line: #27272a;
+  --navy: #fafafa;
+  --paper-dot: transparent;
+  --paper-shadow: transparent;
   --chrome: var(--bg);
-  --panel: #1f201d;
-  --card: #222320;
-  --card-hover: #272824;
-  --popover: #272824;
-  --popover-hover: rgba(234,232,225,.07);
-  --input: #222320;
-  --button: #2a2b26;
-  --button-hover: #31322d;
+  --panel: #18181b;
+  --card: #18181b;
+  --card-hover: #27272a;
+  --popover: #18181b;
+  --popover-hover: #27272a;
+  --input: #18181b;
+  --button: #27272a;
+  --button-hover: #3f3f46;
   --inverse: var(--fg);
   --inverse-hover: color-mix(in oklch, var(--fg) 88%, var(--bg));
   --inverse-text: var(--bg);
-  --secondary: rgba(234,232,225,.07);
-  --secondary-hover: rgba(234,232,225,.11);
-  --section: rgba(234,232,225,.045);
-  --muted: #3b3d36;
-  --overlay: rgba(0,0,0,.55);
-  --overlay-media: rgba(0,0,0,.92);
-  --overlay-fg: #f6f4ed;
+  --secondary: #27272a;
+  --secondary-hover: #3f3f46;
+  --section: #18181b;
+  --muted: #27272a;
+  --overlay: rgba(0, 0, 0, 0.7);
+  --overlay-media: rgba(0, 0, 0, 0.95);
+  --overlay-fg: #fafafa;
   --text: var(--fg);
-  --muted-foreground-1: #c8c6bb;
-  --muted-foreground-3: #707368;
-  --icon-muted: #8d8e83;
+  --muted-foreground-1: #d4d4d8;
+  --muted-foreground-2: var(--ink-2);
+  --muted-foreground-3: #71717a;
+  --icon-muted: #a1a1aa;
   --text-link: var(--navy);
-  --border-2: #4b4d44;
-  --border-3: #707368;
+  --border-1: var(--line);
+  --border-2: #3f3f46;
+  --border-3: #52525b;
   --shader-ink: var(--navy);
-  --primary-soft: rgba(156,188,226,.16);
-  --primary-soft-hover: rgba(156,188,226,.24);
-  --primary-text: #191a18;
-  --ring: var(--navy);
-  --destructive: #ee9690;
-  --destructive-soft: rgba(238,150,144,.16);
-  --destructive-soft-hover: rgba(238,150,144,.24);
-  --destructive-text: #191a18;
-  --warning: #d9be80;
-  --warning-fg: #d9be80;
-  --warning-subtle: rgba(217,190,128,.12);
-  --success: #95c4a0;
+  --primary: var(--navy);
+  --primary-soft: rgba(250, 250, 250, 0.12);
+  --primary-soft-hover: rgba(250, 250, 250, 0.18);
+  --primary-text: #09090b;
+  --ring: #d4d4d8;
+  --destructive: #f87171;
+  --destructive-fg: #fca5a5;
+  --destructive-soft: rgba(248, 113, 113, 0.16);
+  --destructive-soft-hover: rgba(248, 113, 113, 0.24);
+  --destructive-text: #09090b;
+  --warning: #fbbf24;
+  --warning-fg: #fbbf24;
+  --warning-subtle: rgba(251, 191, 36, 0.12);
+  --success: #34d399;
+  --success-fg: #6ee7b7;
   --info: var(--navy);
-  --complete: #c9a9e0;
-  --attention: #d9a76a;
-  --progress: #d9be80;
+  --complete: #a78bfa;
+  --attention: #fbbf24;
+  --progress: #fbbf24;
   --purple: oklch(60% .21 292);
   --pink: oklch(63% .2 355);
   --orange: oklch(65% .17 55);
   --lime: oklch(63% .18 128);
-  --diff-add: #95c4a0;
-  --diff-del: #ee9690;
+  --diff-add: #34d399;
+  --diff-del: #f87171;
   --diff-add-wash: color-mix(in lab, var(--card) 90%, var(--diff-add));
   --diff-del-wash: color-mix(in lab, var(--card) 90%, var(--diff-del));
   --diff-add-emphasis: color-mix(in oklch, var(--diff-add) 32%, transparent);
@@ -189,15 +197,14 @@
   --chart-7: oklch(57.5% .16 330);
   --chart-8: oklch(66.5% .12 220);
   --chart-other: var(--muted-foreground-3);
-  --sh-plate: 0 1px 1px var(--paper-shadow);
-  --sh-card: 0 1px 2px var(--paper-shadow);
-  --sh-overlay: 0 4px 16px var(--paper-shadow);
-  --sh-composer: 0 2px 8px var(--paper-shadow);
-  --sh-sheet: 0 8px 24px var(--paper-shadow);
+  --sh-plate: none;
+  --sh-card: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
+  --sh-overlay: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+  --sh-composer: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --sh-sheet: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
   --highlight-top: transparent;
   --card-hairline: transparent;
-  --gradient-panel-air: linear-gradient(180deg in oklab, var(--panel) 0%, var(--bg) 100%);
-
+  --gradient-panel-air: none;
 }
 
 * {
@@ -217,8 +224,8 @@ body {
 h1, h2 {
   font-family: var(--font-display);
   font-style: normal;
-  font-weight: 400;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 h3, h4, h5, h6 {
@@ -236,26 +243,23 @@ code, pre, kbd, samp, .font-mono {
   font-family: var(--font-display);
 }
 
-/* Dot-grid background utility */
+/* Dot-grid background utility - disabled for clean app shell */
 .dot-grid {
-  background-image: radial-gradient(var(--paper-dot) 0.7px, transparent 0.7px);
-  background-size: 12px 12px;
-  background-position: 0 0;
+  background-image: none;
 }
 
 .dot-grid-subtle {
-  background-image: radial-gradient(color-mix(in oklch, var(--shader-ink) 40%, transparent) 1px, transparent 1px);
-  background-size: 16px 16px;
+  background-image: none;
 }
 
 /* Custom Scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--muted) transparent;
+  scrollbar-color: var(--border-1) transparent;
 }
 
 .dark * {
-  scrollbar-color: var(--border-2) transparent;
+  scrollbar-color: var(--border-1) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -268,7 +272,7 @@ code, pre, kbd, samp, .font-mono {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-2);
+  background: var(--border-1);
   border-radius: 9999px;
 }
 
