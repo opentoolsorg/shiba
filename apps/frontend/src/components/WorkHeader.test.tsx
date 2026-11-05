@@ -82,7 +82,9 @@ describe("WorkHeader", () => {
       />,
     );
 
-    const searchButton = screen.getByRole("button", { name: "Search" });
+    const searchButton = screen.getByRole("button", { name: "Filter tasks" });
+    expect(searchButton.getAttribute("aria-controls")).toBe("work-search");
+    expect(searchButton.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(searchButton);
     expect(onSearch).toHaveBeenCalledTimes(1);
 

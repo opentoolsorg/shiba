@@ -61,7 +61,7 @@ describe("SessionsSidebar", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Work" })).toBeTruthy();
-    const searchBtn = screen.getByRole("button", { name: "Search" });
+    const searchBtn = screen.getByRole("button", { name: "Search sessions" });
     expect(searchBtn).toBeTruthy();
 
     fireEvent.click(searchBtn);
@@ -84,7 +84,7 @@ describe("SessionsSidebar", () => {
       />,
     );
 
-    const searchBtn = screen.getByRole("button", { name: "Search" });
+    const searchBtn = screen.getByRole("button", { name: "Search sessions" });
     fireEvent.click(searchBtn);
 
     const searchInput = screen.getByRole("searchbox", { name: "Search sessions" });
@@ -171,16 +171,16 @@ describe("SessionsSidebar", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Needs you" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Assigned to me" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Everything" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Waiting on you" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Running" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Recent" })).toBeTruthy();
 
-    expect(screen.getByText("Nothing needs you")).toBeTruthy();
-    expect(screen.getByText("Nothing assigned to you")).toBeTruthy();
-    expect(screen.getByText("No open tasks")).toBeTruthy();
+    expect(screen.getByText("Nothing waiting on you")).toBeTruthy();
+    expect(screen.getByText("Nothing running")).toBeTruthy();
+    expect(screen.getByText("No recent tasks")).toBeTruthy();
   });
 
-  it("maps sessions by status into Needs you, Assigned to me, and Everything", () => {
+  it("maps sessions by status into Waiting on you, Running, and Recent", () => {
     const onSelect = vi.fn();
     render(
       <SessionsSidebar
@@ -197,10 +197,10 @@ describe("SessionsSidebar", () => {
       />,
     );
 
-    // Waiting approval appears in "Needs you"
+    // Waiting approval appears in "Waiting on you"
     expect(screen.getAllByText("Approve deployment to production").length).toBeGreaterThanOrEqual(1);
 
-    // Running appears in "Assigned to me"
+    // Running appears in "Running"
     const runningButtons = screen.getAllByRole("button", { name: /Refactor database migrations/i });
     expect(runningButtons.length).toBeGreaterThanOrEqual(1);
 
@@ -211,6 +211,23 @@ describe("SessionsSidebar", () => {
 
     // MCP agent appears in Agents group
     expect(screen.getByText("claude-code-subagent")).toBeTruthy();
+  });
+
+  it("groups needs-provider as waiting, ready as running, and never lists the default session", () => {
+    const sessions: SessionItem[] = [
+      { id: "default", title: "Default Session", repoName: "", status: "running", updatedAt: 1 },
+      { id: "p-1", title: "Needs a key", repoName: "", status: "needs-provider", updatedAt: 2 },
+      { id: "r-1", title: "Ready thread", repoName: "", status: "ready", updatedAt: 3 },
+      { id: "c-1", title: "Old thread", repoName: "", status: "completed", updatedAt: 4 },
+    ];
+    render(
+      <SessionsSidebar sessions={sessions} agents={[]} selectedId={null} onSelect={vi.fn()} onNewTask={vi.fn()} connectionLabel="Connected" connectionTone="ok" setupDone={null} setupTotal={6} onOpenSetup={vi.fn()} />,
+    );
+    const within = (name: string) => screen.getByRole("region", { name });
+    expect(within("Waiting on you").textContent).toContain("Needs a key");
+    expect(within("Running").textContent).toContain("Ready thread");
+    expect(within("Recent").textContent).toContain("Old thread");
+    expect(screen.queryByText("Default Session")).toBeNull();
   });
 
   it("toggles collapsible groups using aria-expanded buttons", () => {
@@ -229,17 +246,24 @@ describe("SessionsSidebar", () => {
       />,
     );
 
-    const needsYouButton = screen.getByRole("button", { name: "Needs you" });
+    const needsYouButton = screen.getByRole("button", { name: "Waiting on you" });
     expect(needsYouButton.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText("Nothing needs you")).toBeTruthy();
+    expect(screen.getByText("Nothing waiting on you")).toBeTruthy();
 
     fireEvent.click(needsYouButton);
     expect(needsYouButton.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByText("Nothing needs you")).toBeNull();
+    expect(screen.queryByText("Nothing waiting on you")).toBeNull();
 
     fireEvent.click(needsYouButton);
     expect(needsYouButton.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText("Nothing needs you")).toBeTruthy();
+    expect(screen.getByText("Nothing waiting on you")).toBeTruthy();
+  });
+
+  it("lists registered agents in the sessions drawer variant", () => {
+    render(
+      <SessionsSidebar variant="sessions" sessions={mockSessions} agents={mockAgents} selectedId={null} onSelect={vi.fn()} onNewTask={vi.fn()} connectionLabel="Connected" connectionTone="ok" setupDone={null} setupTotal={6} onOpenSetup={vi.fn()} />,
+    );
+    expect(screen.getByText("claude-code-subagent")).toBeTruthy();
   });
 
   it("renders sessions drawer variant with Sessions title, working New thread button, and full list without Work nav/scope", () => {
@@ -268,12 +292,13 @@ describe("SessionsSidebar", () => {
     fireEvent.click(newThreadBtn);
     expect(onNewTask).toHaveBeenCalledTimes(1);
 
-    expect(screen.getByRole("searchbox", { name: "Search sessions" })).toBeTruthy();
+    const drawerSearch = screen.getByRole("searchbox", { name: "Search sessions" });
+    expect(document.activeElement).not.toBe(drawerSearch);
 
     expect(screen.queryByRole("tab", { name: "Personal" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "Workspace" })).toBeNull();
     expect(screen.queryByRole("button", { name: "List" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Needs you" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Waiting on you" })).toBeNull();
 
     expect(screen.getByText("Approve deployment to production")).toBeTruthy();
     expect(screen.getByText("Refactor database migrations")).toBeTruthy();

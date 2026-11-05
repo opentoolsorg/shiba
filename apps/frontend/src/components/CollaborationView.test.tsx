@@ -73,8 +73,8 @@ describe("CollaborationView room access polling", () => {
     expect(sockets[0]!.sent.map((raw) => JSON.parse(raw))).toContainEqual({ type: "client_presence", cursor: { x: .25, y: .75 } });
     const viewer = { viewerId: "11111111-1111-4111-8111-111111111111", label: "teammate@example.test", typing: false, cursor: { x: .5, y: .25 } };
     act(() => sockets[0]!.receive({ type: "collaboration:presence", roomId: "room-1", viewers: [viewer] }));
-    const overlay = screen.getByTestId("collaboration-cursors"); const marker = overlay.querySelector<HTMLElement>("[data-room-cursor-viewer]");
-    expect(marker?.style.left).toBe("50%"); expect(marker?.style.top).toBe("25%"); expect(marker?.textContent).toContain("teammate@example.test"); expect(overlay.className).toContain("pointer-events-none"); expect(overlay.getAttribute("aria-hidden")).toBe("true");
+    const cursorLayer = screen.getByTestId("collaboration-cursors"); const marker = cursorLayer.querySelector<HTMLElement>("[data-room-cursor-viewer]");
+    expect(marker?.style.left).toBe("50%"); expect(marker?.style.top).toBe("25%"); expect(marker?.textContent).toContain("teammate@example.test"); expect(cursorLayer.className).toContain("pointer-events-none"); expect(cursorLayer.getAttribute("aria-hidden")).toBe("true");
     fireEvent.pointerLeave(pane); expect(JSON.parse(sockets[0]!.sent.at(-1)!)).toEqual({ type: "client_presence", cursor: null });
     act(() => sockets[0]!.close(1008)); expect(screen.queryByTestId("collaboration-cursors")).toBeNull();
   });

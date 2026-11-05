@@ -1,16 +1,17 @@
-import { useCallback, useMemo, useRef, useState, type JSX } from "react";
-import { Clock, LayoutGrid, List, ListChecks, PanelLeft, Plus, Search, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
+import { Clock, LayoutGrid, List, ListChecks, PanelLeft, Search, X } from "lucide-react";
 import type { RetainedRun, StoredApproval } from "../types";
 import { formatTimeAgo, parseRepoName, statusLabel, type PendingApproval as ChatPendingApproval } from "../ui-helpers";
 import type { SessionItem } from "./SessionsSidebar";
 import { ViewGroup, viewButtonClass } from "./ui/ViewChrome";
 import { selectTeamWorkItems, type TeamWorkFilter, type TeamWorkItem } from "../team-work-items";
-import { WorkHeader } from "./WorkHeader";
-import { WorkBoardView } from "./WorkBoardView";
+import { WorkHeader, type WorkHeaderViewMode } from "./WorkHeader";
+import { WorkBoardView, deriveKanbanColumn } from "./WorkBoardView";
+import { WorkQuickAdd } from "./WorkQuickAdd";
 import { WorkTimelineView } from "./WorkTimelineView";
 import { WorkOrganizationView, type OrganizationEmployee } from "./WorkOrganizationView";
 
-export type WorkViewMode = "list" | "board" | "timeline" | "organization";
+export type WorkViewMode = WorkHeaderViewMode;
 
 export interface WorkTask {
   id: string;
@@ -20,6 +21,8 @@ export interface WorkTask {
   group: "needs-approval" | "running" | "pr-open" | "attention" | "done";
   stateLabel: string;
   updatedAt: number;
+  /** Original run/session status, used to keep failure kinds distinct on the board. */
+  rawStatus?: string;
 }
 
 export interface WorkViewProps {
@@ -84,12 +87,6 @@ function PersonalWorkView({
     onViewChange?.(mode);
   }, [onViewChange]);
 
-  const [quickTaskText, setQuickTaskText] = useState("");
-  const [quickTaskPending, setQuickTaskPending] = useState(false);
-  const quickTaskInFlight = useRef(false);
-  const [quickTaskError, setQuickTaskError] = useState<string | null>(null);
-  const quickAddInputRef = useRef<HTMLInputElement>(null);
-
   const [filterQuery, setFilterQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const focusSearch = useCallback((input: HTMLInputElement | null) => { input?.focus(); }, []);
@@ -108,13 +105,13 @@ function PersonalWorkView({
     for (const r of runs) {
       if (r.archivedAt !== undefined) continue;
       const group: WorkTask["group"] = r.status === "running" || r.status === "pending" ? "running" : r.status !== "completed" ? "attention" : r.pullUrl ? "pr-open" : "done";
-      map.set(`run-${r.runId}`, { id: r.runId, kind: "run", title: r.task || "Untitled run", repo: parseRepoName(r.repoUrl) || "", group, stateLabel: group === "attention" ? statusLabel(r.status) : STATUS_GROUPS.find((g) => g.id === group)!.name, updatedAt: r.updatedAt || r.createdAt });
+      map.set(`run-${r.runId}`, { id: r.runId, kind: "run", title: r.task || "Untitled run", repo: parseRepoName(r.repoUrl) || "", group, stateLabel: group === "attention" ? statusLabel(r.status) : STATUS_GROUPS.find((g) => g.id === group)!.name, updatedAt: r.updatedAt || r.createdAt, rawStatus: r.status });
     }
     const runIds = new Set(runs.map((r) => r.runId));
     for (const s of sessions) {
       if (s.id === "default" || runIds.has(s.id)) continue;
       const group: WorkTask["group"] = s.status === "waiting-approval" ? "needs-approval" : s.status === "running" || s.live ? "running" : ["error", "failed", "aborted", "cancelled", "unknown"].includes(s.status) ? "attention" : "done";
-      map.set(`session-${s.id}`, { id: s.id, kind: "session", title: s.title || "Untitled thread", repo: s.repoName || "", group, stateLabel: group === "attention" ? statusLabel(s.status) : STATUS_GROUPS.find((g) => g.id === group)!.name, updatedAt: s.updatedAt });
+      map.set(`session-${s.id}`, { id: s.id, kind: "session", title: s.title || "Untitled thread", repo: s.repoName || "", group, stateLabel: group === "attention" ? statusLabel(s.status) : STATUS_GROUPS.find((g) => g.id === group)!.name, updatedAt: s.updatedAt, rawStatus: s.status });
     }
     return Array.from(map.values()).sort((a, b) => b.updatedAt - a.updatedAt);
   }, [runs, sessions, storedApprovals, pendingApprovals]);
@@ -134,7 +131,7 @@ function PersonalWorkView({
     return filteredTasks.map((t) => ({
       id: t.id,
       title: t.title,
-      status: t.group === "needs-approval" ? "needs-approval" : t.group === "running" ? "running" : t.group === "pr-open" ? "completed" : t.group === "attention" ? "error" : "completed",
+      status: t.group === "needs-approval" ? "needs-approval" : t.group === "running" ? "running" : t.group === "pr-open" ? "pr-open" : t.group === "attention" ? (t.rawStatus && deriveKanbanColumn(t.rawStatus) === "attention" ? t.rawStatus : "error") : "completed",
       updatedAt: t.updatedAt,
       repoName: t.repo,
     }));
@@ -185,6 +182,7 @@ function PersonalWorkView({
         countLabel={`${openCount} open`}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={onToggleSidebar ?? (() => {})}
+        searchOpen={searchOpen}
         onSearch={() => {
           setSearchOpen((prev) => !prev);
           if (searchOpen) setFilterQuery("");
@@ -206,7 +204,7 @@ function PersonalWorkView({
             value={filterQuery}
             onChange={(e) => setFilterQuery(e.target.value)}
             ref={focusSearch}
-            className="min-h-8 w-full bg-transparent text-sm outline-none placeholder:text-zinc-400 text-zinc-900 dark:text-zinc-100"
+            className="min-h-11 lg:min-h-8 w-full bg-transparent text-sm outline-none placeholder:text-zinc-400 text-zinc-900 dark:text-zinc-100"
           />
           <button
             type="button"
@@ -215,7 +213,7 @@ function PersonalWorkView({
               setSearchOpen(false);
               setFilterQuery("");
             }}
-            className="size-7 rounded-md flex items-center justify-center text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+            className="size-11 lg:size-7 rounded-md flex items-center justify-center text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
           >
             <X className="size-4" />
           </button>
@@ -224,48 +222,11 @@ function PersonalWorkView({
 
       {/* Quick Add dashed row */}
       <div className="px-4 pt-3 pb-2 shrink-0">
-        <form
-          aria-busy={quickTaskPending}
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const text = quickTaskText.trim();
-            if (!text || !onQuickAddTask || quickTaskInFlight.current) return;
-            quickTaskInFlight.current = true;
-            setQuickTaskPending(true);
-            setQuickTaskError(null);
-            try {
-              if (await onQuickAddTask(text)) setQuickTaskText("");
-            } catch {
-              setQuickTaskError("Could not create a thread. Your draft has been kept. Try again.");
-            } finally {
-              quickTaskInFlight.current = false;
-              setQuickTaskPending(false);
-            }
-          }}
-        >
-          <label
-            className={`w-full flex items-center gap-2 px-2.5 h-7 min-h-[28px] border border-dashed border-zinc-200 dark:border-zinc-800 rounded-lg bg-transparent transition-colors focus-within:border-zinc-400 dark:focus-within:border-zinc-600 ${
-              quickTaskPending || !onQuickAddTask ? "opacity-50 cursor-not-allowed" : "cursor-text"
-            }`}
-          >
-            <Plus className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 shrink-0" aria-hidden="true" />
-            <input
-              ref={quickAddInputRef}
-              type="text"
-              value={quickTaskText}
-              disabled={quickTaskPending || !onQuickAddTask}
-              placeholder="Add a task and press Enter"
-              aria-label="Draft a task and press Enter"
-              onChange={(e) => setQuickTaskText(e.target.value)}
-              className="w-full bg-transparent text-xs sm:text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none disabled:cursor-not-allowed"
-            />
-          </label>
-          {quickTaskError ? (
-            <p role="alert" className="mt-2 text-sm text-[var(--destructive)]">
-              {quickTaskError}
-            </p>
-          ) : null}
-        </form>
+        <WorkQuickAdd
+          onSubmit={(text) => onQuickAddTask?.(text)}
+          disabled={!onQuickAddTask}
+          aria-label="Draft a task and press Enter"
+        />
       </div>
 
       {/* Main body by view */}
@@ -281,7 +242,7 @@ function PersonalWorkView({
                 No tasks yet
               </h3>
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                Add a task above. It lands in Todo.
+                Add a task above to start a thread.
               </p>
             </div>
           ) : (
@@ -310,6 +271,7 @@ function PersonalWorkView({
           <WorkBoardView
             tasks={boardTasks}
             onOpen={handleOpenTask}
+            onReview={onReviewApproval}
             className="h-full"
           />
         </section>
@@ -318,6 +280,7 @@ function PersonalWorkView({
           <WorkTimelineView
             tasks={timelineTasks}
             onOpen={handleOpenTask}
+            onReview={onReviewApproval}
             className="h-full"
           />
         </section>
@@ -363,6 +326,10 @@ function TeamWorkView({
     setInternalView(mode);
     onViewChange?.(mode);
   }, [onViewChange]);
+  // Workspace scope has no Organization view; keep the panel selection in step with this card.
+  useEffect(() => {
+    if (controlledView === "organization") onViewChange?.("list");
+  }, [controlledView, onViewChange]);
 
   const [filter, setFilter] = useState<TeamWorkFilter>("all");
   const [query, setQuery] = useState("");
@@ -389,14 +356,14 @@ function TeamWorkView({
         <h3 className="break-words text-sm font-medium leading-6">{task.title}</h3>
         <p className="break-words text-xs text-[var(--muted-foreground-2)]">{task.assigneeKind === "agent" ? "Employee" : "Human"} · {task.assigneeName || "Name unavailable"}</p>
         <p className="break-words text-xs text-[var(--muted-foreground-2)]">Room · {task.roomTitle}</p>
-        {task.resultAvailable === false ? <p className="text-xs text-[var(--muted-foreground-2)]">Result unavailable</p> : task.resultAvailable === true ? <p className="text-xs text-[var(--success)]">Result available in room</p> : null}
+        {task.resultAvailable === false ? <p className="text-xs text-[var(--muted-foreground-2)]">Result unavailable</p> : task.resultAvailable === true ? <p className="text-xs text-[var(--success-fg)]">Result available in room</p> : null}
         {onOpenSharedTask ? <button type="button" onClick={() => onOpenSharedTask(task)} aria-label={`Open ${task.title} in ${task.roomTitle}`} className={`${viewButtonClass} w-full !rounded-none sm:w-fit`}>Open task in room</button> : null}
       </div>
     </article>;
   };
 
   return <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm text-[var(--fg)]">
-    <header className="flex h-12 min-h-[48px] w-full px-4 items-center justify-between border-b border-zinc-200 dark:border-zinc-800 shrink-0 select-none">
+    <header className="flex min-h-[48px] w-full flex-wrap gap-y-1 px-4 py-1 items-center justify-between border-b border-zinc-200 dark:border-zinc-800 shrink-0 select-none">
       <div className="flex items-center gap-2.5 min-w-0">
         {onToggleSidebar ? (
           <button
@@ -404,7 +371,7 @@ function TeamWorkView({
             onClick={onToggleSidebar}
             aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-expanded={!sidebarCollapsed}
-            className="size-7 rounded-md flex items-center justify-center text-[var(--icon-muted,#71717a)] hover:text-[var(--fg,#0a0a0a)] hover:bg-[var(--secondary,rgba(0,0,0,0.05))] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+            className="hidden size-7 rounded-md lg:flex items-center justify-center text-[var(--icon-muted,#71717a)] hover:text-[var(--fg,#0a0a0a)] hover:bg-[var(--secondary,rgba(0,0,0,0.05))] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
           >
             <PanelLeft className="size-4" strokeWidth={1.75} aria-hidden="true" />
           </button>
@@ -417,7 +384,7 @@ function TeamWorkView({
         </div>
       </div>
       <fieldset aria-label="Work views" className="flex min-w-0 max-w-full flex-wrap gap-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 p-0.5">
-        {([ ["list", "List", List], ["board", "Board", LayoutGrid], ["timeline", "Timeline", Clock] ] as const).map(([mode, label, Icon]) => <button key={mode} type="button" aria-pressed={activeView === mode} onClick={() => setView(mode)} className={`flex min-h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-[var(--ring)] transition-colors ${activeView === mode ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs" : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200"}`}><Icon aria-hidden="true" className="size-3.5" />{label}</button>)}
+        {([ ["list", "List", List], ["board", "Board", LayoutGrid], ["timeline", "Timeline", Clock] ] as const).map(([mode, label, Icon]) => <button key={mode} type="button" aria-pressed={activeView === mode} onClick={() => setView(mode)} className={`flex min-h-11 lg:min-h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-[var(--ring)] transition-colors ${activeView === mode ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs" : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200"}`}><Icon aria-hidden="true" className="size-3.5" />{label}</button>)}
       </fieldset>
     </header>
     <div className="mx-auto flex w-full min-w-0 max-w-5xl flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
@@ -432,7 +399,7 @@ function TeamWorkView({
         <label className="flex min-h-11 w-full min-w-0 items-center gap-2 border border-[var(--border-1)] bg-[var(--input)] px-3 sm:w-64"><Search aria-hidden="true" className="size-4 shrink-0 text-[var(--icon-muted)]" /><input type="search" aria-label="Filter shared work" placeholder="Filter shared work…" value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]" /></label>
       </div>
       {filter === "needs-you" ? <p className="text-xs text-[var(--muted-foreground-2)]">Pending approvals you are currently authorized to review. Decisions are made in the task’s room.</p> : null}
-      {sharedTasksError ? <p role="alert" className="text-sm text-[var(--destructive)]">{sharedTasksError}</p> : null}
+      {sharedTasksError ? <p role="alert" className="text-sm text-[var(--destructive-fg)]">{sharedTasksError}</p> : null}
       {sharedTasksLoading ? <p role="status" className="text-sm text-[var(--muted-foreground-2)]">Loading shared work…</p> : null}
       <section aria-label={`${activeView === "list" ? "List" : activeView === "board" ? "Board" : "Timeline"} view`} className={tasks.length === 0 ? "" : activeView === "board" ? "grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-2 xl:grid-cols-3" : activeView === "timeline" ? "ml-4 flex min-w-0 flex-col gap-4 border-l-2 border-[var(--border-1)] pl-6" : "flex min-w-0 flex-col gap-6"}>
         {tasks.length === 0 ? !sharedTasksLoading && !sharedTasksError ? <div className="border border-dashed border-[var(--border-2)] px-4 py-10 text-center"><p className="text-sm">{scopeTasks.length === 0 ? "No shared work yet" : "No shared work matches this view"}</p><p className="mt-2 text-xs text-[var(--muted-foreground-2)]">{scopeTasks.length === 0 ? "Create a handoff from a team room to track work here." : "Choose another filter or clear your search."}</p></div> : null : activeView === "timeline" ? tasks.map(taskCard) : TEAM_STATUS_GROUPS.map((group) => {

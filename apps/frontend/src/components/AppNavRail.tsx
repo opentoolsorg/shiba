@@ -691,7 +691,7 @@ export function AppNavRail({
                           onSignOut();
                           setAccountMenuOpen(false);
                         }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-[var(--destructive)] hover:bg-[var(--destructive-soft)] transition-colors border-t border-[var(--border-1)] mt-1"
+                        className="w-full flex items-center gap-2 px-3 py-2 text-[var(--destructive-fg)] hover:bg-[var(--destructive-soft)] transition-colors border-t border-[var(--border-1)] mt-1"
                       >
                         <LogOut className="size-3.5" />
                         <span>Sign out</span>
@@ -1701,7 +1701,7 @@ export function AppNavRail({
                         setAccountMenuOpen(false);
                         if (variant === "sheet") onClose?.();
                       }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-[var(--destructive)] hover:bg-[var(--destructive-soft)] transition-colors border-t border-[var(--border-1)] mt-1"
+                      className="w-full flex items-center gap-2 px-3 py-2 text-[var(--destructive-fg)] hover:bg-[var(--destructive-soft)] transition-colors border-t border-[var(--border-1)] mt-1"
                     >
                       <LogOut className="size-3.5" />
                       <span>Sign out</span>

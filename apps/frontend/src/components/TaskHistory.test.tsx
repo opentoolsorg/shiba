@@ -64,8 +64,8 @@ describe("TaskHistory", () => {
 
   it("renders the centered empty state when there are no tasks", () => {
     render(<TaskHistory tasks={[]} />);
-    expect(screen.getByText("No tasks yet")).toBeTruthy();
-    expect(screen.getByText("Add a task above. It lands in Todo.")).toBeTruthy();
+    expect(screen.getByText("No task attempts yet.")).toBeTruthy();
+    expect(screen.queryByText(/Add a task above/)).toBeNull();
   });
 
   it("renders loading state", () => {

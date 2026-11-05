@@ -173,7 +173,7 @@ describe("WorkView", () => {
   it("filters tasks when search input is used", () => {
     render(<WorkView runs={mockRuns} storedApprovals={mockApprovals} />);
 
-    const searchButton = screen.getByRole("button", { name: "Search" });
+    const searchButton = screen.getByRole("button", { name: "Filter tasks" });
     searchButton.focus();
     fireEvent.click(searchButton);
     const searchInput = screen.getByRole("searchbox", { name: "Filter tasks" });
@@ -190,7 +190,7 @@ describe("WorkView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close search" }));
     expect(screen.queryByRole("searchbox")).toBeNull();
     expect(screen.getByText("Bump Node to 22")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    fireEvent.click(screen.getByRole("button", { name: "Filter tasks" }));
     expect(document.activeElement).toBe(screen.getByRole("searchbox", { name: "Filter tasks" }));
   });
 
@@ -297,7 +297,34 @@ describe("WorkView", () => {
   it("renders centered empty state when there are zero tasks", () => {
     render(<WorkView runs={[]} storedApprovals={[]} sessions={[]} />);
     expect(screen.getByText("No tasks yet")).toBeTruthy();
-    expect(screen.getByText("Add a task above. It lands in Todo.")).toBeTruthy();
+    expect(screen.getByText("Add a task above to start a thread.")).toBeTruthy();
+  });
+
+  it("shows Review for pending approvals in Board and Timeline as well as List", () => {
+    const onReviewApproval = vi.fn();
+    render(<WorkView storedApprovals={mockApprovals} onReviewApproval={onReviewApproval} />);
+    fireEvent.click(screen.getByRole("button", { name: "Board" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Review/ }));
+    expect(onReviewApproval).toHaveBeenLastCalledWith("app-1");
+    fireEvent.click(screen.getByRole("button", { name: "Timeline" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Review/ }));
+    expect(onReviewApproval).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps failed runs out of Done and PR-open runs in their own board column", () => {
+    const failed: RetainedRun = { ...mockRuns[2]!, runId: "run-failed", task: "Broken migration", status: "error" };
+    render(<WorkView runs={[...mockRuns, failed]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Board" }));
+    expect(screen.getByTestId("kanban-column-attention").textContent).toContain("Broken migration");
+    expect(screen.getByTestId("kanban-column-done").textContent).not.toContain("Broken migration");
+    expect(screen.getByTestId("kanban-column-pr_open").textContent).toContain("Fix flaky checkout test");
+  });
+
+  it("returns a workspace-scoped controlled Organization view to List", () => {
+    const onViewChange = vi.fn();
+    render(<WorkView workspaceId={`ws_${"a".repeat(24)}`} view="organization" onViewChange={onViewChange} />);
+    expect(onViewChange).toHaveBeenCalledWith("list");
+    expect(screen.getByRole("region", { name: "List view" })).toBeTruthy();
   });
 
   it("supports controlled view and invokes onViewChange", () => {

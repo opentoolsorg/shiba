@@ -129,8 +129,8 @@ export function TaskHistory({
   onCancel,
   onSelectRun,
   className = "",
-  emptyTitle = "No tasks yet",
-  emptyDescription = "Add a task above. It lands in Todo.",
+  emptyTitle = "No task attempts yet.",
+  emptyDescription,
   "aria-label": ariaLabel = "Task list",
 }: TaskHistoryProps) {
   return (
@@ -166,9 +166,11 @@ export function TaskHistory({
           <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
             {emptyTitle}
           </h3>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            {emptyDescription}
-          </p>
+          {emptyDescription ? (
+            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+              {emptyDescription}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -283,4 +285,3 @@ export function TaskHistory({
   );
 }
 
-export default TaskHistory;

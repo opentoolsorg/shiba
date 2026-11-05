@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Suspense } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app";
@@ -293,7 +293,12 @@ describe("app Work and Threads routing", () => {
     }));
     render(<App />);
     await screen.findByRole("group", { name: "Work views" });
+    const panel = await screen.findByRole("complementary", { name: "Work" });
+    expect(panel).toBeTruthy();
+    expect(within(panel).queryByText("Personal Private Secret Session")).toBeNull();
+    expect(within(panel).queryByText("Default Session")).toBeNull();
     expect(screen.queryByText("Personal Private Secret Session")).toBeNull();
+    expect(screen.queryByText("Default Session")).toBeNull();
   });
 
   it("removes invitation secrets from the address before sign-in without submitting them", async () => {

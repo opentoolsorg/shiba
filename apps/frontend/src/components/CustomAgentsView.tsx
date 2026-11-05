@@ -64,6 +64,9 @@ export interface CustomAgentsViewProps {
   modelSuggestions?: string[];
   initialTemplateId?: EmployeeTemplate["id"] | null;
   onInitialTemplateApplied?: () => void;
+  /** Opens this saved employee for editing once the directory has loaded. */
+  initialAgentId?: string | null;
+  onInitialAgentApplied?: () => void;
   draftScope?: string;
   workspaceId?: string;
   actorId?: string;
@@ -88,6 +91,8 @@ function ScopedCustomAgentsView({
   modelSuggestions = [],
   initialTemplateId = null,
   onInitialTemplateApplied,
+  initialAgentId = null,
+  onInitialAgentApplied,
   draftScope,
   workspaceId,
   isCurrent,
@@ -239,6 +244,17 @@ function ScopedCustomAgentsView({
       expectedDeliverables: agent.config.expectedDeliverables?.join("\n") ?? "",
     });
   };
+
+  const appliedInitialAgent = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialAgentId || appliedInitialAgent.current === initialAgentId || !agents) return;
+    const agent = agents.find((item) => item.id === initialAgentId);
+    appliedInitialAgent.current = initialAgentId;
+    if (agent) startEdit(agent);
+    onInitialAgentApplied?.();
+    // startEdit only sets component state; it is intentionally not a dependency.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  }, [initialAgentId, agents, onInitialAgentApplied]);
 
   const saveAgent = async () => {
     if (!isActive() || savingAgent.current || busy) return;

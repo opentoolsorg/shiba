@@ -2,6 +2,7 @@ import type { JSX } from "react";
 import { useMemo } from "react";
 import { CheckSquare } from "lucide-react";
 import { statusChipClass, statusLabel } from "../ui-helpers";
+import { viewButtonClass } from "./ui/ViewChrome";
 
 export interface WorkTimelineTask {
   id: string;
@@ -17,6 +18,8 @@ export interface WorkTimelineTask {
 export interface WorkTimelineViewProps {
   tasks: WorkTimelineTask[];
   onOpen(id: string): void;
+  /** Opens the approval review for rows that are waiting on approval. */
+  onReview?(id: string): void;
   className?: string;
   emptyTitle?: string;
   emptyDescription?: string;
@@ -91,9 +94,10 @@ export function formatRowTime(timestamp: number): string {
 export function WorkTimelineView({
   tasks,
   onOpen,
+  onReview,
   className = "",
   emptyTitle = "No tasks yet",
-  emptyDescription = "Add a task above. It lands in Todo.",
+  emptyDescription = "Add a task above to start a thread.",
 }: WorkTimelineViewProps): JSX.Element {
   const sortedTasks = useMemo(() => {
     return [...tasks].sort((a, b) => getTaskTimestamp(b) - getTaskTimestamp(a));
@@ -152,11 +156,11 @@ export function WorkTimelineView({
               const label = statusLabel(task.status);
 
               return (
+                <div key={task.id} className="flex items-center gap-2">
                 <button
-                  key={task.id}
                   type="button"
                   onClick={() => onOpen(task.id)}
-                  className="w-full text-left px-3 py-2.5 flex items-center gap-3 rounded-lg hover:bg-zinc-100/70 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                  className="min-w-0 flex-1 text-left px-3 py-2.5 min-h-11 flex items-center gap-3 rounded-lg hover:bg-zinc-100/70 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
                 >
                   <span className="w-16 shrink-0 font-mono text-xs text-zinc-400 dark:text-zinc-500 tabular-nums">
                     {formattedTime}
@@ -178,6 +182,17 @@ export function WorkTimelineView({
                     {label}
                   </span>
                 </button>
+                {task.status === "waiting-approval" && onReview ? (
+                  <button
+                    type="button"
+                    onClick={() => onReview(task.id)}
+                    aria-label={`Review ${task.title}`}
+                    className={`${viewButtonClass} shrink-0`}
+                  >
+                    Review
+                  </button>
+                ) : null}
+                </div>
               );
             })}
           </div>

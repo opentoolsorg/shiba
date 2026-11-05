@@ -16,7 +16,7 @@ import { RoomExecutionPanel } from "./components/RoomExecutionPanel";
 import { RoomApprovalReview } from "./components/RoomApprovalReview";
 import { TeamWorkspaceView } from "./components/TeamWorkspaceView";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
-import { useTeamWorkspaceDirectory } from "./team-workspaces-client";
+import { lastTeamWorkspace, rememberLastTeamWorkspace, useTeamWorkspaceDirectory } from "./team-workspaces-client";
 import { useTeamWorkItems } from "./team-work-client";
 import { AnalyticsView } from "./components/AnalyticsView";
 import { AutomationsView } from "./components/AutomationsView";
@@ -475,6 +475,7 @@ export function App(): React.JSX.Element {
     setEmployeeOnboardingDismissed(true);
   };
   const [projectContextId, setProjectContextId] = useState("");
+  const [initialEmployeeId, setInitialEmployeeId] = useState<string | null>(null);
   const [initialEmployeeTemplateId, setInitialEmployeeTemplateId] = useState<EmployeeTemplate["id"] | null>(null);
   const [codingModel, setCodingModel] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
@@ -504,7 +505,7 @@ export function App(): React.JSX.Element {
   }, [notice]);
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [memoryInitialView, setMemoryInitialView] = useState<"facts" | "sources">("facts");
-  // Settings is a Kosuke-style popup, not a full view — every nav path that
+  // Settings is a popup, not a full view — every nav path that
   // would land on "settings" opens the modal over the current view instead.
   const [settingsModalOpen, setSettingsModalOpen] = useState(() => viewFromUrl() === "settings");
   // Last section the user had open in the settings modal — reopening lands
@@ -612,6 +613,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     });
   }, []);
 
+  // The rail toggle and the keyboard shortcut collapse whichever sidebar the current view shows.
+  const toggleActiveSidebar = mainView === "work" ? toggleWorkPanelCollapsed : toggleSessionsCollapsed;
+
   // The view itself is read in the useState initializers; only the run pick needs an effect.
   useEffect(() => {
     const runParam = new URLSearchParams(window.location.search).get("run");
@@ -670,6 +674,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const teamDirectory = useTeamWorkspaceDirectory({ actorId: teamIdentityAvailable ? orchestratorName?.trim().toLowerCase() ?? null : null, enabled: teamIdentityAvailable });
   const workspaceAuthorityReady = !teamIdentityAvailable || teamDirectory.verified;
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
+  // The directory forgets its selection when switching to Personal; keep the last team separately for the Workspace tab.
+  useEffect(() => {
+    if (teamWorkspaceId && orchestratorName) rememberLastTeamWorkspace(orchestratorName.trim().toLowerCase(), teamWorkspaceId);
+  }, [teamWorkspaceId, orchestratorName]);
   const teamWorkspace = teamDirectory.workspaces.find(item => item.workspaceId === teamWorkspaceId);
   const privateDataEnabled = signedIn && workspaceAuthorityReady && !teamDirectory.error && !teamWorkspaceId && !restrictedTeamMember;
   setSavedLibraryActor(privateDataEnabled ? orchestratorName : null);
@@ -1978,7 +1986,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         handleNewTaskRef.current();
       } else if ((e.metaKey || e.ctrlKey) && (e.key === "b" || e.key === "B")) {
         e.preventDefault();
-        toggleSessionsCollapsed();
+        toggleActiveSidebar();
       } else if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
         setSettingsModalOpen(true);
@@ -2001,6 +2009,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     executionTargetKind,
     conversationMode,
     appToolsWork,
+    toggleActiveSidebar,
     toggleSessionsCollapsed,
     toggleTheme,
     settingsModalOpen,
@@ -2452,7 +2461,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       id: "toggle-sessions",
       label: "Toggle sessions sidebar",
       hint: "⌘B",
-      run: toggleSessionsCollapsed,
+      run: toggleActiveSidebar,
     },
     {
       id: "toggle-theme",
@@ -2545,7 +2554,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       {/* LEFT: app navigation rail (lg+; phones use the sheet below) */}
       <AppNavRail
         workspaceSwitcher={<WorkspaceSwitcher workspaces={teamDirectory.workspaces} selectedWorkspaceId={teamWorkspaceId} loading={teamDirectory.loading} onSelect={(id) => { flushDraft(); teamDirectory.selectWorkspace(id); }} onManage={() => openView("team")} />}
-        collapsed={sessionsCollapsed}
+        collapsed={mainView === "work" ? workPanelCollapsed : sessionsCollapsed}
+        sidebarPanelId={mainView === "work" ? "work-panel" : undefined}
         activeView={mainView}
         onNavigate={openView}
         pendingApprovalCount={teamWorkspaceId ? 0 : pendingApprovals.length + visibleStoredApprovals.length}
@@ -2563,7 +2573,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         onSelectSession={handleSelectSession}
         onNewTask={handleNewTask}
         onOpenSearch={() => setCommandMenuOpen(true)}
-        onToggleCollapse={toggleSessionsCollapsed}
+        onToggleCollapse={toggleActiveSidebar}
         threadsLoading={threadsLoading}
         customAgentRecords={customAgentRecords}
         agentThreads={visibleWebSessions}
@@ -2708,7 +2718,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         {bannerMessage ? (
           <div
             role="alert"
-            className="shrink-0 flex items-center gap-3 px-4 py-2 bg-[var(--destructive-soft)] border-b border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] text-xs text-[var(--destructive)]"
+            className="shrink-0 flex items-center gap-3 px-4 py-2 bg-[var(--destructive-soft)] border-b border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] text-xs text-[var(--destructive-fg)]"
           >
             <span
               className="size-2 shrink-0 rounded-full bg-[var(--destructive)] animate-pulse"
@@ -2726,7 +2736,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 if (identityIssue) retryIdentity();
                 else if (privateDataEnabled) agent.reconnect();
               }}
-              className="shrink-0 touch:min-h-11 px-3 py-1 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_40%,transparent)] bg-[var(--card)] text-[var(--destructive)] font-medium hover:bg-[var(--destructive-soft)] transition-colors"
+              className="shrink-0 touch:min-h-11 px-3 py-1 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_40%,transparent)] bg-[var(--card)] text-[var(--destructive-fg)] font-medium hover:bg-[var(--destructive-soft)] transition-colors"
             >
               Retry now
             </button>
@@ -2774,7 +2784,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "inbox" ? null : mainView === "work" ? (
             <div className="flex min-h-0 flex-1 p-2 gap-2 bg-[var(--bg)] overflow-hidden">
               {!workPanelCollapsed ? (
-                <div className="hidden lg:flex shrink-0 h-full">
+                <div id="work-panel" className="hidden lg:flex shrink-0 h-full">
                   <SessionsSidebar
                     title="Work"
                     scope={teamWorkspaceId ? "workspace" : "personal"}
@@ -2784,15 +2794,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         flushDraft();
                         teamDirectory.selectWorkspace("");
                       } else {
-                        const actorKey = orchestratorName
-                          ? `shiba:team-workspace:${encodeURIComponent(orchestratorName.trim().toLowerCase())}`
-                          : "";
-                        let rememberedId = "";
-                        try {
-                          if (actorKey) rememberedId = localStorage.getItem(actorKey) || "";
-                        } catch {
-                          /* storage optional */
-                        }
+                        const rememberedId = orchestratorName ? lastTeamWorkspace(orchestratorName.trim().toLowerCase()) : "";
                         const rememberedWorkspace = rememberedId
                           ? teamDirectory.workspaces.find((w) => w.workspaceId === rememberedId)
                           : undefined;
@@ -2809,7 +2811,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       }
                     }}
                     activeNav={workViewMode}
-                    onNavChange={(nav) => setWorkViewMode(nav as WorkViewMode)}
+                    onNavChange={setWorkViewMode}
                     onSearchClick={() => setCommandMenuOpen(true)}
                     sessions={privateDataEnabled && sessionRegistryOwner === orchestratorName ? sessions : []}
                     agents={privateDataEnabled ? agentPrincipals : []}
@@ -2840,7 +2842,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   onToggleSidebar={toggleWorkPanelCollapsed}
                   employees={workEmployees}
                   // Browsing the org chart must not rewrite the composer's bot or model settings.
-                  onOpenEmployee={() => openView("custom-agents")}
+                  onOpenEmployee={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
                   workspaceId={teamWorkspaceId || undefined}
                   workspaceName={teamWorkspace?.name}
                   currentActorId={orchestratorName ? `human:${orchestratorName.trim().toLowerCase()}` : undefined}
@@ -3138,7 +3140,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                           waiting for your approval.
                         </span>
                       ) : (
-                        <span className="text-[var(--success)] flex items-center gap-2">
+                        <span className="text-[var(--success-fg)] flex items-center gap-2">
                           <svg
                             aria-hidden="true"
                             className="w-4 h-4"
@@ -3198,7 +3200,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     {chat.error ? (
                       <div
                         role="alert"
-                        className="text-xs text-[var(--destructive)] bg-[var(--destructive-soft)] p-3 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] flex items-start gap-2"
+                        className="text-xs text-[var(--destructive-fg)] bg-[var(--destructive-soft)] p-3 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] flex items-start gap-2"
                       >
                         <svg
                           aria-hidden="true"
@@ -3218,7 +3220,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       </div>
                     ) : null}
                     {runsError ? (
-                      <div className="text-xs text-[var(--destructive)] bg-[var(--destructive-soft)] p-3 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] flex items-start gap-2">
+                      <div className="text-xs text-[var(--destructive-fg)] bg-[var(--destructive-soft)] p-3 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] flex items-start gap-2">
                         <svg
                           aria-hidden="true"
                           className="w-4 h-4 text-[var(--destructive)] shrink-0 mt-0.5"
@@ -3596,6 +3598,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onStartThread={async (profile) => { await handleStartAgentThread(profile); }}
               initialTemplateId={initialEmployeeTemplateId}
               onInitialTemplateApplied={() => setInitialEmployeeTemplateId(null)}
+              initialAgentId={initialEmployeeId}
+              onInitialAgentApplied={() => setInitialEmployeeId(null)}
               connections={modelConnections}
               modelSuggestions={agentsDirectory.state.kind === "data" ? agentsDirectory.state.data.agents.map((agent) => agent.defaultModel).filter((model): model is string => typeof model === "string" && model.includes("/")) : []}
               threads={visibleWebSessions}
@@ -3614,7 +3618,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <RemoteAccessView />
           ) : null}
 
-          {/* SETTINGS — Kosuke-style popup over the current view */}
+          {/* SETTINGS — popup over the current view */}
           {settingsModalOpen && privateDataEnabled ? (
             <SettingsModal key={orchestratorName ?? "signed-out"}
               isOpen

@@ -13,7 +13,7 @@ describe("WorkTimelineView", () => {
     render(<WorkTimelineView tasks={[]} onOpen={onOpen} />);
 
     expect(screen.getByText("No tasks yet")).toBeTruthy();
-    expect(screen.getByText("Add a task above. It lands in Todo.")).toBeTruthy();
+    expect(screen.getByText("Add a task above to start a thread.")).toBeTruthy();
   });
 
   it("renders custom empty state text when provided", () => {

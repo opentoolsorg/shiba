@@ -29,6 +29,8 @@ describe("WorkBoardView", () => {
     expect(screen.getByText("No tasks in Todo")).toBeDefined();
     expect(screen.getByText("Nothing in progress")).toBeDefined();
     expect(screen.getByText("Nothing needs approval")).toBeDefined();
+    expect(screen.getByText("Nothing needs attention")).toBeDefined();
+    expect(screen.getByText("No open pull requests")).toBeDefined();
     expect(screen.getByText("No completed tasks")).toBeDefined();
   });
 
@@ -49,7 +51,8 @@ describe("WorkBoardView", () => {
     // Todo: 2 (task-1, task-2)
     // In progress: 1 (task-3)
     // Needs approval: 1 (task-4)
-    // Done: 2 (task-5, task-6)
+    // Done: 1 (task-5)
+    // Needs attention: 1 (task-6)
     const todoCol = screen.getByTestId("kanban-column-todo");
     expect(todoCol.textContent).toContain("2");
     expect(todoCol.textContent).toContain("Setup database");
@@ -64,10 +67,26 @@ describe("WorkBoardView", () => {
     expect(needsApprovalCol.textContent).toContain("Deploy to staging");
 
     const doneCol = screen.getByTestId("kanban-column-done");
-    expect(doneCol.textContent).toContain("2");
     expect(doneCol.textContent).toContain("Fix login bug");
-    expect(doneCol.textContent).toContain("Failed run");
-    expect(doneCol.textContent).toContain("Connection timed out");
+    expect(doneCol.textContent).not.toContain("Failed run");
+
+    const attentionCol = screen.getByTestId("kanban-column-attention");
+    expect(attentionCol.textContent).toContain("Failed run");
+    expect(attentionCol.textContent).toContain("Connection timed out");
+  });
+
+  it("shows PR open tasks in their own column and a Review action only for approvals", () => {
+    const onReview = vi.fn();
+    const tasks: WorkBoardTask[] = [
+      { id: "pr-1", title: "Ship parser", status: "pr-open" },
+      { id: "ap-1", title: "Deploy", status: "needs-approval" },
+    ];
+    render(<WorkBoardView tasks={tasks} onOpen={vi.fn()} onReview={onReview} />);
+    expect(screen.getByTestId("kanban-column-pr_open").textContent).toContain("Ship parser");
+    expect(screen.getByTestId("kanban-column-done").textContent).not.toContain("Ship parser");
+    expect(screen.getAllByRole("button", { name: /^Review/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Review Deploy" }));
+    expect(onReview).toHaveBeenCalledWith("ap-1");
   });
 
   it("calls onOpen with the task id when a card is clicked", () => {
@@ -161,10 +180,10 @@ describe("deriveKanbanColumn", () => {
     expect(deriveKanbanColumn("needs-provider")).toBe("needs_approval");
 
     expect(deriveKanbanColumn("completed")).toBe("done");
-    expect(deriveKanbanColumn("error")).toBe("done");
-    expect(deriveKanbanColumn("aborted")).toBe("done");
-    expect(deriveKanbanColumn("cancelled")).toBe("done");
-    expect(deriveKanbanColumn("unknown")).toBe("done");
+    expect(deriveKanbanColumn("pr-open")).toBe("pr_open");
+    for (const status of ["error", "aborted", "cancelled", "unknown", "rejected", "expired"]) {
+      expect(deriveKanbanColumn(status)).toBe("attention");
+    }
   });
 });
 

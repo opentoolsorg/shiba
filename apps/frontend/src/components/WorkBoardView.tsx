@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Ban,
   CheckCircle2,
+  GitPullRequest,
   Circle,
   Clock,
   LoaderCircle,
@@ -11,6 +12,7 @@ import {
 import type { TaskHistoryAttempt, TaskHistoryItem, TaskHistoryStatus } from "./TaskHistory";
 import type { RunStatus } from "@shiba/shared";
 import { formatTimeAgo, statusLabel } from "../ui-helpers";
+import { viewButtonClass } from "./ui/ViewChrome";
 
 export type BoardTaskStatus = TaskHistoryStatus | RunStatus | string;
 
@@ -29,10 +31,12 @@ export type WorkBoardItem = WorkBoardTask | TaskHistoryItem;
 export interface WorkBoardViewProps {
   tasks: (WorkBoardTask | TaskHistoryItem)[];
   onOpen: (id: string) => void;
+  /** Opens the approval review for a needs-approval card. */
+  onReview?: (id: string) => void;
   className?: string;
 }
 
-export type KanbanColumnId = "todo" | "in_progress" | "needs_approval" | "done";
+export type KanbanColumnId = "todo" | "in_progress" | "needs_approval" | "attention" | "pr_open" | "done";
 
 export interface KanbanColumnDef {
   id: KanbanColumnId;
@@ -59,6 +63,18 @@ export const KANBAN_COLUMNS: readonly KanbanColumnDef[] = [
     title: "Needs approval",
     emptyText: "Nothing needs approval",
     dotClass: "bg-amber-500 dark:bg-amber-400",
+  },
+  {
+    id: "attention",
+    title: "Needs attention",
+    emptyText: "Nothing needs attention",
+    dotClass: "bg-rose-500 dark:bg-rose-400",
+  },
+  {
+    id: "pr_open",
+    title: "PR open",
+    emptyText: "No open pull requests",
+    dotClass: "bg-violet-500 dark:bg-violet-400",
   },
   {
     id: "done",
@@ -124,14 +140,20 @@ export function deriveKanbanColumn(status: string): KanbanColumnId {
     case "in-progress":
       return "in_progress";
 
-    case "completed":
-    case "done":
+    case "pr-open":
+    case "pr_open":
+      return "pr_open";
+
     case "error":
     case "aborted":
     case "cancelled":
     case "rejected":
     case "expired":
     case "unknown":
+      return "attention";
+
+    case "completed":
+    case "done":
       return "done";
 
     case "submitting":
@@ -153,6 +175,15 @@ function getTaskBadge(status: string) {
         className:
           "text-emerald-700 bg-emerald-50 border-emerald-200/80 dark:text-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-800",
         icon: CheckCircle2,
+        spin: false,
+      };
+    case "pr-open":
+    case "pr_open":
+      return {
+        label: "PR open",
+        className:
+          "text-violet-700 bg-violet-50 border-violet-200/80 dark:text-violet-300 dark:bg-violet-950/40 dark:border-violet-800",
+        icon: GitPullRequest,
         spin: false,
       };
     case "running":
@@ -223,12 +254,13 @@ function getTaskBadge(status: string) {
 
 /**
  * Kanban Board view for tasks:
- * 4 columns: Todo, In progress, Needs approval, Done.
+ * Columns: Todo, In progress, Needs approval, Needs attention, PR open, Done.
  * Rounded-xl columns with header + count and muted empty-column text.
  */
 export function WorkBoardView({
   tasks,
   onOpen,
+  onReview,
   className = "",
 }: WorkBoardViewProps): JSX.Element {
   const normalizedTasks = tasks.map(normalizeBoardTask);
@@ -237,6 +269,8 @@ export function WorkBoardView({
     todo: [],
     in_progress: [],
     needs_approval: [],
+    attention: [],
+    pr_open: [],
     done: [],
   };
 
@@ -251,7 +285,7 @@ export function WorkBoardView({
       className={`w-full flex-1 flex flex-col min-h-0 overflow-y-auto ${className}`.trim()}
     >
       <div className="p-4 w-full flex-1 min-h-0">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 h-full items-start">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5 h-full items-start">
           {KANBAN_COLUMNS.map((col) => {
             const colTasks = columnMap[col.id];
             return (
@@ -289,8 +323,8 @@ export function WorkBoardView({
                       const badge = getTaskBadge(task.status);
                       const BadgeIcon = badge.icon;
                       return (
+                        <div key={task.id} className="flex flex-col gap-1.5">
                         <div
-                          key={task.id}
                           role="button"
                           tabIndex={0}
                           data-testid={`board-card-${task.id}`}
@@ -336,6 +370,17 @@ export function WorkBoardView({
                             </div>
                           </div>
                         </div>
+                        {col.id === "needs_approval" && onReview ? (
+                          <button
+                            type="button"
+                            onClick={() => onReview(task.id)}
+                            aria-label={`Review ${task.title}`}
+                            className={`${viewButtonClass} w-fit`}
+                          >
+                            Review
+                          </button>
+                        ) : null}
+                        </div>
                       );
                     })}
                   </div>
@@ -349,4 +394,3 @@ export function WorkBoardView({
   );
 }
 
-export default WorkBoardView;

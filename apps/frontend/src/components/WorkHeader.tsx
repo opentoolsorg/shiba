@@ -10,6 +10,8 @@ export interface WorkHeaderProps {
   sidebarCollapsed: boolean;
   onToggleSidebar(): void;
   onSearch(): void;
+  /** Whether the task filter input (id `work-search`) is currently shown. */
+  searchOpen?: boolean;
   onNewTask(): void;
   activeView?: WorkHeaderViewMode;
   onViewChange?: (view: WorkHeaderViewMode) => void;
@@ -28,6 +30,7 @@ export function WorkHeader({
   sidebarCollapsed = false,
   onToggleSidebar,
   onSearch,
+  searchOpen = false,
   onNewTask,
   activeView,
   onViewChange,
@@ -35,7 +38,7 @@ export function WorkHeader({
 }: WorkHeaderProps): JSX.Element {
   return (
     <header
-      className={`h-12 min-h-[48px] w-full px-4 flex items-center justify-between select-none shrink-0 ${className}`.trim()}
+      className={`min-h-[48px] w-full px-4 py-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 select-none shrink-0 ${className}`.trim()}
     >
       {/* Left: sidebar toggle + breadcrumbs */}
       <div className="flex items-center gap-2.5 min-w-0">
@@ -49,7 +52,7 @@ export function WorkHeader({
             onClick={onToggleSidebar}
             aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-expanded={!sidebarCollapsed}
-            className="size-7 rounded-md flex items-center justify-center text-[var(--icon-muted,#71717a)] hover:text-[var(--fg,#0a0a0a)] hover:bg-[var(--secondary,rgba(0,0,0,0.05))] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+            className="hidden size-7 rounded-md lg:flex items-center justify-center text-[var(--icon-muted,#71717a)] hover:text-[var(--fg,#0a0a0a)] hover:bg-[var(--secondary,rgba(0,0,0,0.05))] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
           >
             <PanelLeft className="size-4" strokeWidth={1.75} aria-hidden="true" />
           </button>
@@ -86,8 +89,6 @@ export function WorkHeader({
           {countLabel ? (
             <span
               className="text-[12px] text-[var(--muted-foreground-3,#a5a69b)] select-none shrink-0 font-normal ml-1"
-              role="status"
-              aria-label={countLabel}
             >
               {countLabel}
             </span>
@@ -99,7 +100,7 @@ export function WorkHeader({
       {activeView && onViewChange ? (
         <fieldset
           aria-label="Work views"
-          className={`${sidebarCollapsed ? "flex" : "flex lg:hidden"} items-center gap-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 p-0.5 border border-zinc-200/60 dark:border-zinc-700/60`}
+          className={`${sidebarCollapsed ? "flex" : "flex lg:hidden"} order-last w-full sm:order-none sm:w-auto items-center gap-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 p-0.5 border border-zinc-200/60 dark:border-zinc-700/60`}
         >
           {(["list", "board", "timeline", "organization"] as const).map((mode) => {
             const label = mode.charAt(0).toUpperCase() + mode.slice(1);
@@ -110,7 +111,7 @@ export function WorkHeader({
                 type="button"
                 aria-pressed={isActive}
                 onClick={() => onViewChange(mode)}
-                className={`px-2 py-0.5 text-xs font-medium rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
+                className={`min-h-11 flex-1 sm:flex-none lg:min-h-0 px-2 py-0.5 text-xs font-medium rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
                   isActive
                     ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-2xs"
                     : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200"
@@ -125,12 +126,14 @@ export function WorkHeader({
 
       {/* Right: search + new task button */}
       <div className="flex items-center gap-2 shrink-0">
-        <Tooltip content="Search" shortcut="⌘K" side="bottom">
+        <Tooltip content="Filter tasks" side="bottom">
           <button
             type="button"
             onClick={onSearch}
-            aria-label="Search"
-            className="size-7 rounded-md flex items-center justify-center text-[var(--icon-muted,#71717a)] hover:text-[var(--fg,#0a0a0a)] hover:bg-[var(--secondary,rgba(0,0,0,0.05))] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+            aria-label="Filter tasks"
+            aria-expanded={searchOpen}
+            aria-controls="work-search"
+            className="size-11 lg:size-7 rounded-md flex items-center justify-center text-[var(--icon-muted,#71717a)] hover:text-[var(--fg,#0a0a0a)] hover:bg-[var(--secondary,rgba(0,0,0,0.05))] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
           >
             <Search className="size-4" strokeWidth={1.75} aria-hidden="true" />
           </button>
@@ -140,7 +143,7 @@ export function WorkHeader({
           type="button"
           onClick={onNewTask}
           aria-label="New task"
-          className="h-8 px-2.5 rounded-lg bg-[#e4e4e7] hover:bg-[#d4d4d8] dark:bg-zinc-800 dark:hover:bg-zinc-700 text-[var(--fg,#0a0a0a)] dark:text-zinc-100 text-[13px] font-medium flex items-center gap-1.5 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+          className="h-11 lg:h-8 px-2.5 rounded-lg bg-[#e4e4e7] hover:bg-[#d4d4d8] dark:bg-zinc-800 dark:hover:bg-zinc-700 text-[var(--fg,#0a0a0a)] dark:text-zinc-100 text-[13px] font-medium flex items-center gap-1.5 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
         >
           <Plus className="size-3.5" strokeWidth={2} aria-hidden="true" />
           <span>New task</span>

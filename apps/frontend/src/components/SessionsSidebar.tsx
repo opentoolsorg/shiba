@@ -5,9 +5,9 @@
  * Segmented control: Personal (selected: white pill) | Workspace.
  * Nav rows (34px tall, 14px, 16px icon, gap 12): List (active), Board, Timeline, Organization.
  * Collapsible groups (12px muted label + chevron):
- *   - Needs you → "Nothing needs you" (needs-approval / pending sessions)
- *   - Assigned to me → "Nothing assigned to you" (live / active sessions)
- *   - Everything → "No open tasks" (all sessions)
+ *   - Waiting on you → "Nothing waiting on you" (waiting-approval / needs-provider)
+ *   - Running → "Nothing running" (running / live / ready)
+ *   - Recent → "No recent tasks" (everything else)
  */
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
 import {
@@ -23,6 +23,7 @@ import {
 import type { AgentPrincipal } from "../types";
 import { formatTimeAgo, statusLabel } from "../ui-helpers";
 import { Tooltip } from "./Tooltip";
+import type { WorkHeaderViewMode } from "./WorkHeader";
 
 export interface SessionItem {
   id: string; // runId, or "live" for the active chat session
@@ -54,8 +55,8 @@ export interface SessionsSidebarProps {
   title?: string;
   scope?: "personal" | "workspace";
   onScopeChange?: (scope: "personal" | "workspace") => void;
-  activeNav?: string;
-  onNavChange?: (nav: string) => void;
+  activeNav?: WorkHeaderViewMode;
+  onNavChange?: (nav: WorkHeaderViewMode) => void;
   onSearchClick?: () => void;
   className?: string;
 }
@@ -170,21 +171,21 @@ export function SessionsSidebar({
 }: SessionsSidebarProps): JSX.Element {
   const title = customTitle ?? (variant === "sessions" ? "Sessions" : "Work");
   const [internalScope, setInternalScope] = useState<"personal" | "workspace">("personal");
-  const [internalNav, setInternalNav] = useState<string>("list");
+  const [internalNav, setInternalNav] = useState<WorkHeaderViewMode>("list");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if ((isSearchOpen || variant === "sessions") && searchInputRef.current) {
+    if (isSearchOpen && searchInputRef.current) {
       searchInputRef.current.focus();
     }
-  }, [isSearchOpen, variant]);
+  }, [isSearchOpen]);
 
   const [openGroups, setOpenGroups] = useState({
-    needsYou: true,
-    assignedToMe: true,
-    everything: true,
+    waiting: true,
+    running: true,
+    recent: true,
     agents: true,
   });
 
@@ -196,7 +197,7 @@ export function SessionsSidebar({
     onScopeChange?.(nextScope);
   };
 
-  const handleNavChange = (nextNav: string) => {
+  const handleNavChange = (nextNav: WorkHeaderViewMode) => {
     setInternalNav(nextNav);
     onNavChange?.(nextNav);
   };
@@ -225,16 +226,42 @@ export function SessionsSidebar({
     );
   }, [sessions, query]);
 
-  // Map groups onto Shiba session states
-  const needsYouSessions = filtered.filter(
-    (s) => s.status === "waiting-approval" || s.status === "pending",
-  );
-  const assignedToMeSessions = filtered.filter(
-    (s) =>
-      (s.live || s.status === "live" || s.status === "running") &&
-      s.status !== "waiting-approval",
-  );
-  const everythingSessions = filtered;
+  // Map groups onto Shiba session states; the synthetic "default" session is never listed.
+  const groupable = filtered.filter((s) => s.id !== "default");
+  const isWaiting = (s: SessionItem) => s.status === "waiting-approval" || s.status === "needs-provider";
+  const isRunning = (s: SessionItem) => !isWaiting(s) && (s.live || s.status === "live" || s.status === "running" || s.status === "ready");
+  const groups = [
+    { key: "waiting", label: "Waiting on you", empty: "Nothing waiting on you", items: groupable.filter(isWaiting) },
+    { key: "running", label: "Running", empty: "Nothing running", items: groupable.filter(isRunning) },
+    { key: "recent", label: "Recent", empty: query ? "No sessions match your search" : "No recent tasks", items: groupable.filter((s) => !isWaiting(s) && !isRunning(s)) },
+  ] as const;
+
+  const agentsSection = agents.length > 0 ? (
+    <section aria-label="Agents" className="flex flex-col">
+      <button
+        type="button"
+        onClick={() => toggleGroup("agents")}
+        aria-expanded={openGroups.agents}
+        className="flex items-center gap-1.5 text-[12px] font-medium text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 py-0.5 select-none transition-colors w-fit focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded"
+      >
+        <span>Agents</span>
+        <ChevronDown
+          className={`size-3 text-[#71717a] transition-transform duration-150 ${openGroups.agents ? "" : "-rotate-90"}`}
+          strokeWidth={2}
+          aria-hidden="true"
+        />
+      </button>
+      {openGroups.agents ? (
+        <ul className="flex flex-col gap-0.5 pt-1">
+          {agents.map((agent) => (
+            <li key={agent.principal}>
+              <AgentRow agent={agent} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  ) : null;
 
   return (
     <aside
@@ -247,11 +274,11 @@ export function SessionsSidebar({
           {title}
         </h2>
         <div className="flex items-center gap-1">
-          <Tooltip content="Search" side="bottom">
+          <Tooltip content="Search sessions" side="bottom">
             <button
               type="button"
               onClick={handleSearchToggle}
-              aria-label="Search"
+              aria-label="Search sessions"
               aria-expanded={isSearchOpen}
               className="size-7 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
             >
@@ -406,152 +433,42 @@ export function SessionsSidebar({
               ))}
             </ul>
           )}
+          {agentsSection ? <div className="px-1 pt-3">{agentsSection}</div> : null}
         </div>
       ) : (
         <div className="mt-6 flex-1 overflow-y-auto px-4 pb-4 flex flex-col gap-4">
-        {/* Group: Needs you */}
-        <section aria-label="Needs you" className="flex flex-col">
-          <button
-            type="button"
-            onClick={() => toggleGroup("needsYou")}
-            aria-expanded={openGroups.needsYou}
-            className="flex items-center gap-1.5 text-[12px] font-medium text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 py-0.5 select-none transition-colors w-fit focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded"
-          >
-            <span>Needs you</span>
-            <ChevronDown
-              className={`size-3 text-[#71717a] transition-transform duration-150 ${
-                openGroups.needsYou ? "" : "-rotate-90"
-              }`}
-              strokeWidth={2}
-              aria-hidden="true"
-            />
-          </button>
-          {openGroups.needsYou ? (
-            needsYouSessions.length === 0 ? (
-              <p className="text-[12px] text-[#71717a] dark:text-zinc-500 py-1 select-none">
-                Nothing needs you
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-0.5 pt-1">
-                {needsYouSessions.map((session) => (
-                  <li key={session.id}>
-                    <SessionRow
-                      session={session}
-                      selected={session.id === selectedId}
-                      onSelect={onSelect}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )
-          ) : null}
-        </section>
-
-        {/* Group: Assigned to me */}
-        <section aria-label="Assigned to me" className="flex flex-col">
-          <button
-            type="button"
-            onClick={() => toggleGroup("assignedToMe")}
-            aria-expanded={openGroups.assignedToMe}
-            className="flex items-center gap-1.5 text-[12px] font-medium text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 py-0.5 select-none transition-colors w-fit focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded"
-          >
-            <span>Assigned to me</span>
-            <ChevronDown
-              className={`size-3 text-[#71717a] transition-transform duration-150 ${
-                openGroups.assignedToMe ? "" : "-rotate-90"
-              }`}
-              strokeWidth={2}
-              aria-hidden="true"
-            />
-          </button>
-          {openGroups.assignedToMe ? (
-            assignedToMeSessions.length === 0 ? (
-              <p className="text-[12px] text-[#71717a] dark:text-zinc-500 py-1 select-none">
-                Nothing assigned to you
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-0.5 pt-1">
-                {assignedToMeSessions.map((session) => (
-                  <li key={session.id}>
-                    <SessionRow
-                      session={session}
-                      selected={session.id === selectedId}
-                      onSelect={onSelect}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )
-          ) : null}
-        </section>
-
-        {/* Group: Everything */}
-        <section aria-label="Everything" className="flex flex-col">
-          <button
-            type="button"
-            onClick={() => toggleGroup("everything")}
-            aria-expanded={openGroups.everything}
-            className="flex items-center gap-1.5 text-[12px] font-medium text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 py-0.5 select-none transition-colors w-fit focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded"
-          >
-            <span>Everything</span>
-            <ChevronDown
-              className={`size-3 text-[#71717a] transition-transform duration-150 ${
-                openGroups.everything ? "" : "-rotate-90"
-              }`}
-              strokeWidth={2}
-              aria-hidden="true"
-            />
-          </button>
-          {openGroups.everything ? (
-            everythingSessions.length === 0 ? (
-              <p className="text-[12px] text-[#71717a] dark:text-zinc-500 py-1 select-none">
-                {query ? "No sessions match your search" : "No open tasks"}
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-0.5 pt-1">
-                {everythingSessions.map((session) => (
-                  <li key={session.id}>
-                    <SessionRow
-                      session={session}
-                      selected={session.id === selectedId}
-                      onSelect={onSelect}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )
-          ) : null}
-        </section>
-
-        {/* Group: Agents (when registered MCP agents exist) */}
-        {agents.length > 0 ? (
-          <section aria-label="Agents" className="flex flex-col">
+        {groups.map((group) => (
+          <section key={group.key} aria-label={group.label} className="flex flex-col">
             <button
               type="button"
-              onClick={() => toggleGroup("agents")}
-              aria-expanded={openGroups.agents}
+              onClick={() => toggleGroup(group.key)}
+              aria-expanded={openGroups[group.key]}
               className="flex items-center gap-1.5 text-[12px] font-medium text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 py-0.5 select-none transition-colors w-fit focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded"
             >
-              <span>Agents</span>
+              <span>{group.label}</span>
               <ChevronDown
-                className={`size-3 text-[#71717a] transition-transform duration-150 ${
-                  openGroups.agents ? "" : "-rotate-90"
-                }`}
+                className={`size-3 text-[#71717a] transition-transform duration-150 ${openGroups[group.key] ? "" : "-rotate-90"}`}
                 strokeWidth={2}
                 aria-hidden="true"
               />
             </button>
-            {openGroups.agents ? (
-              <ul className="flex flex-col gap-0.5 pt-1">
-                {agents.map((agent) => (
-                  <li key={agent.principal}>
-                    <AgentRow agent={agent} />
-                  </li>
-                ))}
-              </ul>
+            {openGroups[group.key] ? (
+              group.items.length === 0 ? (
+                <p className="text-[12px] text-[#71717a] dark:text-zinc-500 py-1 select-none">{group.empty}</p>
+              ) : (
+                <ul className="flex flex-col gap-0.5 pt-1">
+                  {group.items.map((session) => (
+                    <li key={session.id}>
+                      <SessionRow session={session} selected={session.id === selectedId} onSelect={onSelect} />
+                    </li>
+                  ))}
+                </ul>
+              )
             ) : null}
           </section>
-        ) : null}
+        ))}
+
+        {agentsSection}
       </div>
       )}
 
@@ -570,7 +487,7 @@ export function SessionsSidebar({
             <span />
           )}
           {connectionTone === "error" ? (
-            <span className="flex items-center gap-1.5 text-[var(--destructive)]">
+            <span className="flex items-center gap-1.5 text-[var(--destructive-fg)]">
               <span className="size-1.5 rounded-full bg-[var(--destructive)]" />
               {connectionLabel}
             </span>
