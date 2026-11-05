@@ -33,13 +33,13 @@ it("shows the actual task selection and scope instead of an organization default
   expect(route.textContent).toContain("ChatGPT plan; requires an attributed human initiator");
 });
 
-it("blocks a local artifact task with an online computer without switching to cloud", () => {
-  const input = props({ repoUrl: "", executionTargetKind: "artifact-workspace", runTarget: "local", localRunAvailable: true, targetMachineId: "paired", onRunTargetChange: vi.fn() });
+it("queues explicit local artifacts with an online computer without switching to cloud", () => {
+  const input = props({ repoUrl: "", executionTargetKind: "artifact-workspace", runTarget: "local", artifactDeliverables: "reports/brief.md", localRunAvailable: true, targetMachineId: "paired", onRunTargetChange: vi.fn() });
   render(<TaskComposer {...input} />);
-  expect(screen.getByText(/Repository-free artifacts require Cloud/)).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.getByText(/Only approved paths are exported/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(false);
   fireEvent.submit(screen.getByRole("form", { name: "Task composer" }));
-  expect(input.onSubmit).not.toHaveBeenCalled();
+  expect(input.onSubmit).toHaveBeenCalledOnce();
   expect(input.onRunTargetChange).not.toHaveBeenCalled();
 });
 
