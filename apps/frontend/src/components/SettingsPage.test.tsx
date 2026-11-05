@@ -108,3 +108,11 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeTruthy();
   });
 });
+
+describe("SettingsPage private data gate", () => {
+  it("shows only the notice for personal sections when private data is blocked", () => {
+    render(<SettingsPage section="account" personalDataBlocked />);
+    expect(screen.getByRole("region", { name: "Personal workspace setting" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Switch to personal workspace" })).toBeNull();
+  });
+});

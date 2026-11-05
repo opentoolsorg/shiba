@@ -3701,6 +3701,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               withPanel={false}
               showSectionSwitcher={sessionsCollapsed}
               onOpenPersonalWorkspace={teamWorkspaceId ? () => teamDirectory.selectWorkspace("") : undefined}
+              personalDataBlocked={!privateDataEnabled}
               section={settingsSection}
               onSectionChange={setSettingsSection}
               onBack={closeSettings}

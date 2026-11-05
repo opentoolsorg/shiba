@@ -218,6 +218,8 @@ export interface SettingsPageProps extends Partial<TeamWorkspaceViewProps> {
   showSectionSwitcher?: boolean;
   /** In a team workspace only Team settings apply; other sections show a notice with this action. */
   onOpenPersonalWorkspace?: () => void;
+  /** When private data is not available, only Team settings render. */
+  personalDataBlocked?: boolean;
   className?: string;
 }
 
@@ -262,6 +264,7 @@ export function SettingsPage({
   withPanel = false,
   showSectionSwitcher = false,
   onOpenPersonalWorkspace,
+  personalDataBlocked = false,
   className = "",
 }: SettingsPageProps): JSX.Element {
   const [internalSection, setInternalSection] = useState(initialSection);
@@ -330,17 +333,17 @@ export function SettingsPage({
 
       {/* Body content based on section */}
       <div className="flex-1 overflow-y-auto">
-        {onOpenPersonalWorkspace && activeSection !== "team" ? (
+        {(onOpenPersonalWorkspace || personalDataBlocked) && activeSection !== "team" ? (
           <section aria-label="Personal workspace setting" className="m-6 max-w-xl text-sm text-[#0a0a0a] dark:text-zinc-100">
             <h2 className="text-base font-medium">Open this setting in your personal workspace</h2>
             <p className="mt-2 text-[#71717a] dark:text-zinc-400">{currentLabel} applies to your account or this deployment, not to the selected team.</p>
-            <button
+            {onOpenPersonalWorkspace ? <button
               type="button"
               onClick={onOpenPersonalWorkspace}
               className="mt-4 min-h-11 rounded-lg border border-[#e4e4e7] px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] dark:border-zinc-800"
             >
               Switch to personal workspace
-            </button>
+            </button> : null}
           </section>
         ) : activeSection === "team" ? (
           <TeamWorkspaceView
