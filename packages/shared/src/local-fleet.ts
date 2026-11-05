@@ -3,6 +3,7 @@
  * constants only — Worker-side validation is Effect Schema
  * (apps/backend/src/local-fleet-schema.ts), the daemon mirrors by hand.
  */
+import type { PersonalComputerBinding, PersonalPairingScope } from "./personal-execution.js";
 
 export type ComputerStatus = "idle" | "busy" | "offline";
 
@@ -24,6 +25,8 @@ export interface ConnectedComputer {
   activeRunId?: string;
   /** Explicit local opt-in and installed executable are configured. */
   reasonNetworkCompanion?: boolean;
+  /** Owner-scoped pairing evidence. Never inherited by legacy operator machines. */
+  personalExecution?: PersonalComputerBinding;
 }
 
 export interface HeartbeatRequest {
@@ -47,6 +50,7 @@ export interface PairRequest {
 export interface PairResponse {
   adapterToken: string;
   machineId: string;
+  personalExecution?: { version: 1; scope: PersonalPairingScope };
 }
 
 export interface PairingTokenResponse {

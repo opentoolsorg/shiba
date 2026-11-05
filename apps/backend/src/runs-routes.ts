@@ -1,3 +1,4 @@
+import type { PersonalExecutionSnapshot } from "@shiba/shared";
 /**
  * `/api/runs` — the dashboard's run registry, proxied to the caller's
  * CodingOrchestrator DO (or a session DO when ?session= names one).
@@ -99,6 +100,7 @@ function isTeamScopedRecord(value: unknown): boolean {
 }
 
 const collaborationExecutorPins = new WeakMap<Request, string>();
+const personalExecutionPins = new WeakMap<Request, PersonalExecutionSnapshot>();
 const collaborationProfilePins = new WeakMap<Request, number>();
 const collaborationHandoffPins = new WeakMap<Request, string>();
 
@@ -161,9 +163,9 @@ export async function handleRuns(request: Request, env: Env): Promise<Response |
 export async function queueCollaborationRun(
   request: Request,
   env: Env,
-  input: { task: string; repoUrl?: string; executionTarget?: ExecutionTarget; customAgentId: string; profileVersion: number; commandId: string; executorAgentName?: string; collaborationHandoffId?: string; runtime?: "sandbox" | "local"; targetMachineId?: string },
+  input: { task: string; repoUrl?: string; executionTarget?: ExecutionTarget; customAgentId: string; profileVersion: number; commandId: string; executorAgentName?: string; collaborationHandoffId?: string; runtime?: "sandbox" | "local"; targetMachineId?: string; personalExecution?: PersonalExecutionSnapshot },
 ): Promise<Response | null> {
-  if (env.BETTER_AUTH_SECRET && await isRestrictedTeamMember(request, env)) {
+  if (env.BETTER_AUTH_SECRET && await isRestrictedTeamMember(request, env) && !input.personalExecution) {
     return Response.json({ error: "Employee execution requires a deployment operator. Explicit personal-provider execution grants for invited team members are not available yet." },
       { status: 403, headers: { "Cache-Control": "no-store" } });
   }
@@ -175,6 +177,7 @@ export async function queueCollaborationRun(
     body: JSON.stringify({ task: input.task, ...(input.repoUrl ? { repoUrl: input.repoUrl } : {}), ...(input.executionTarget ? { executionTarget: input.executionTarget } : {}), customAgentId: input.customAgentId, commandId: input.commandId, ...(input.runtime ? { runtime: input.runtime } : {}), ...(input.targetMachineId ? { targetMachineId: input.targetMachineId } : {}) }),
   });
   if (input.executorAgentName) collaborationExecutorPins.set(forwarded, input.executorAgentName);
+  if (input.personalExecution) personalExecutionPins.set(forwarded, structuredClone(input.personalExecution));
   collaborationProfilePins.set(forwarded, input.profileVersion);
   if (input.collaborationHandoffId) collaborationHandoffPins.set(forwarded, input.collaborationHandoffId);
   return handleRuns(forwarded, env);
@@ -353,6 +356,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
     }
     // Dashboard run ownership comes from the verified user/session target,
     // never a client-provided key naming another or the shared DO's queue.
+    if (intakeBody.personalExecution !== undefined || intakeBody.personalExecutionClaim !== undefined) return Response.json({ error: "Personal execution snapshots are server-owned." }, { status: 400 });
     const safeIntakeBody = { ...intakeBody };
     delete safeIntakeBody.customAgentVersion;
     delete safeIntakeBody.collaborationHandoffId;
@@ -362,6 +366,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
       body: JSON.stringify({
         ...safeIntakeBody,
         orgId: orgAuth.orgId,
+        ...(personalExecutionPins.has(request) ? { personalExecution: personalExecutionPins.get(request) } : {}),
         ...(intakeKind === "run"
           ? {
               threadKey: (() => {

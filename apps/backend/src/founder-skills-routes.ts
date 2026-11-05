@@ -12,6 +12,7 @@ import { getSkill } from "./skills-store.js";
 import { listSkillInstalls } from "./skill-library-store.js";
 import { installSkillDefinition } from "./skill-library/install.js";
 import { founderSkillSetup, FOUNDER_SKILL_LIBRARY_VERSION } from "./founder-skill-setup.js";
+import { handleFounderReviewSchedule } from "./founder-review-routes.js";
 
 const automationsPath = /^\/api\/founder-skills(?:\/([^/]+)(?:\/(install|deploy|setup))?)?\/?$/;
 
@@ -19,6 +20,8 @@ export async function handleFounderSkills(request: Request, env: Env): Promise<R
   if (!new URL(request.url).pathname.startsWith("/api/founder-skills")) return null;
   const auth = await resolveOrgForApiRequest(request, env);
   if (auth instanceof Response) return auth;
+  const reviewSchedule = await handleFounderReviewSchedule(request, env, auth);
+  if (reviewSchedule) return reviewSchedule;
   return withCurrentSkillAuthority(request, env, auth, () => handleFounderRoutes(request, env, auth));
 }
 
@@ -100,11 +103,13 @@ async function handleFounderRoutes(request: Request, env: Env, auth: ResolvedOrg
   if (action === "deploy" && request.method === "POST") {
     return Response.json({
       ok: false,
-      error: "integration_schedule_configuration_required",
-      message: "Install the draft, then configure reviewed employee integration grants and action approvals before scheduling connector work.",
+      error: "scheduled_connector_execution_unavailable",
+      message: "Scheduled connector execution requires an explicit account, funding and execution contract. You can separately configure private storage-only review drafts.",
       setupPath: `/api/founder-skills/${encodeURIComponent(skillId)}/setup`,
       setupState: "manual_review_required",
-    }, { status: 409 });
+      reviewDraftPath: `/api/founder-skills/${encodeURIComponent(skillId)}/review-schedule`,
+      executionUnavailableReason: "automation_provider_billing_and_connected_app_contract_unavailable",
+    }, { status: 501, headers: { "cache-control": "no-store" } });
   }
 
   return methodNotAllowed();

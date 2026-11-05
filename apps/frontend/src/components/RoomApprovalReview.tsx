@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState, type JSX } from "react";
-import { APPROVAL_TTL_MS, type PendingApproval } from "@shiba/shared";
+import { APPROVAL_TTL_MS, personalExecutionSnapshotSchema, type PendingApproval } from "@shiba/shared";
 import { teamWorkspaceHeaders, TeamWorkspaceRequestError } from "../team-workspaces-client";
 
 export interface RoomApprovalReviewProps {
@@ -18,6 +18,9 @@ interface RoomApprovalCard {
 }
 const BUTTON =
   "min-h-11 border border-[var(--line)] bg-[var(--card)] px-4 text-xs text-[var(--ink)] hover:bg-[var(--panel-2)] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
+function approvalExpiry(approval: Omit<PendingApproval, "envSealed">): number {
+  return Math.min(approval.createdAt + APPROVAL_TTL_MS, approval.personalExecution?.expiresAt ?? Infinity);
+}
 
 /** Room membership permits viewing status, never deciding another person's approval. */
 export function RoomApprovalReview(props: RoomApprovalReviewProps): JSX.Element {
@@ -102,9 +105,20 @@ function ScopedRoomApproval({
         throw new Error(
           "This approval cannot be verified for your current account. Refresh the room status.",
         );
+      if (next.approval.personalExecution !== undefined) {
+        const parsed = personalExecutionSnapshotSchema.safeParse(next.approval.personalExecution);
+        const personal = parsed.success ? parsed.data : null;
+        if (!personal || personal.actorId !== next.requesterUserId || personal.workspaceId !== workspaceId ||
+            personal.repoUrl !== next.approval.repoUrl || personal.machineId !== next.approval.targetMachineId ||
+            next.approval.runtime !== "local" || next.approval.publishPullRequest !== false || next.approval.runSetup === true ||
+            personal.expiresAt <= Date.now() || (next.approval.route && (next.approval.route.harness !== personal.harness || next.approval.route.modelId !== personal.codingModel))) {
+          throw new Error("The frozen personal account route cannot be verified. Request a new reviewed grant and task.");
+        }
+      }
       if (
         cardRef.current?.inputHash !== next.inputHash ||
-        cardRef.current.approval.approvalId !== next.approval.approvalId
+        cardRef.current.approval.approvalId !== next.approval.approvalId ||
+        JSON.stringify(cardRef.current.approval.personalExecution) !== JSON.stringify(next.approval.personalExecution)
       )
         setReviewed(false);
       cardRef.current = next;
@@ -146,7 +160,7 @@ function ScopedRoomApproval({
   });
   useEffect(() => {
     if (!card) return;
-    const expiresIn = card.approval.createdAt + APPROVAL_TTL_MS - Date.now();
+    const expiresIn = approvalExpiry(card.approval) - Date.now();
     const timer = setTimeout(expire, Math.max(0, expiresIn));
     return () => clearTimeout(timer);
   }, [card]);
@@ -160,7 +174,7 @@ function ScopedRoomApproval({
       card.requesterUserId !== actorId?.trim().toLowerCase()
     )
       return;
-    if (card.approval.createdAt + APPROVAL_TTL_MS <= Date.now()) {
+    if (approvalExpiry(card.approval) <= Date.now()) {
       clear();
       setError("This approval expired. Queue a new request.");
       return;
@@ -210,6 +224,7 @@ function ScopedRoomApproval({
 
   const approval = card?.approval;
   const target = approval?.executionTarget;
+  const personal = approval?.personalExecution;
   return (
     <section
       aria-label="Review shared run approval"
@@ -295,24 +310,31 @@ function ScopedRoomApproval({
               <dd className="mt-1 break-all">
                 {approval.runtime ?? "sandbox (legacy default)"}
                 {approval.targetMachineId ? ` · machine ${approval.targetMachineId}` : ""}
-                {approval.sandboxProvider ? ` · ${approval.sandboxProvider}` : ""}
+                {!personal && approval.sandboxProvider ? ` · ${approval.sandboxProvider}` : ""}
               </dd>
             </div>
             <div>
               <dt className="font-semibold">Provider and coding tool</dt>
               <dd className="mt-1 break-all">
-                {approval.route?.harness ?? approval.harness ?? "Not specified in frozen record"} ·{" "}
-                {approval.route?.modelId ?? "Model not specified"} · connection{" "}
-                {approval.route?.connectionId ?? "deployment default"}
-                {approval.authAccount ? ` · account ${approval.authAccount}` : ""}
+                {personal ? `${personal.harness} · ${personal.codingModel} · your native subscription account`
+                  : <>{approval.route?.harness ?? approval.harness ?? "Not specified in frozen record"} ·{" "}
+                    {approval.route?.modelId ?? "Model not specified"} · connection{" "}{approval.route?.connectionId ?? "deployment default"}
+                    {approval.authAccount ? ` · account ${approval.authAccount}` : ""}</>}
               </dd>
             </div>
             <div>
               <dt className="font-semibold">Expires</dt>
               <dd className="mt-1">
-                {new Date(approval.createdAt + APPROVAL_TTL_MS).toLocaleString()}
+                {new Date(approvalExpiry(approval)).toLocaleString()}
               </dd>
             </div>
+            {personal && <>
+              <div><dt className="font-semibold">Frozen personal account</dt><dd className="mt-1 break-all">Fingerprint {personal.accountFingerprint.slice(0, 12)} · billing {personal.billingMode}. Locally observed login; live entitlement is not verified.</dd></div>
+              <div><dt className="font-semibold">Frozen personal machine</dt><dd className="mt-1 break-all">{personal.machineId} · revision {personal.machineRevision}</dd></div>
+              <div><dt className="font-semibold">Frozen personal grant</dt><dd className="mt-1 break-all">{personal.grantId} · v{personal.grantVersion} · expires {new Date(personal.expiresAt).toLocaleString()}</dd></div>
+              <div><dt className="font-semibold">Personal execution scope</dt><dd className="mt-1 break-words">Public repository {personal.repoUrl} · exact model {personal.codingModel}. Local repository task only. No deployment account, cloud model, specialist, publication or app fallback.</dd></div>
+              <div className="sm:col-span-2"><dt className="font-semibold">Local host access</dt><dd className="mt-1 break-words">The CLI runs as your operating system user and can access host files. A fresh configuration home is not an OS sandbox. This deployment still hosts Worker and storage costs.</dd></div>
+            </>}
             <div className="sm:col-span-2">
               <dt className="font-semibold">Exact task and selected context</dt>
               <dd className="mt-2 whitespace-pre-wrap break-words leading-relaxed">
@@ -371,7 +393,7 @@ function ScopedRoomApproval({
               disabled={busy}
               onChange={(event) => setReviewed(event.target.checked)}
             />
-            <span>I reviewed this exact task, target, provider, runtime and selected context.</span>
+            <span>I reviewed this exact task, target, provider, runtime and selected context.{personal ? " I also reviewed my frozen native account, grant, machine, model, billing mode, expiry and local host access." : ""}</span>
           </label>
           <div className="mt-3 flex flex-wrap gap-2">
             <button

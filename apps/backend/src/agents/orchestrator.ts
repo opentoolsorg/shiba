@@ -1,3 +1,6 @@
+import { personalExecutionSnapshotSchema, personalExecutionClaimSchema, personalExecutionContextDigest, APPROVAL_TTL_MS as PERSONAL_APPROVAL_TTL_MS, type PersonalExecutionSnapshot } from "@shiba/shared";
+import { revalidatePersonalExecutionSnapshot } from "../personal-execution-store.js";
+import { personalClaimPrincipal } from "../personal-execution-claim.js";
 /**
  * Planning and delegation agent. It never edits repositories itself:
  * the only repository-touching capability is delegate_coding_task, which
@@ -261,6 +264,8 @@ import { resolveRoleModel } from "./roles.js";
 export const SESSION_DELETED_CLOSE_CODE = 4410;
 
 export interface OrchestratorState {
+  /** Server-only isolated host. Parent inference and unrelated work are forbidden. */
+  personalExecutionOnly?: true;
   runs: DelegatedRun[];
   /** Private internal chat drafts and successful selected-source read receipts. Bodies remain in R2. */
   employeeDrafts?: EmployeeDraft[];
@@ -426,6 +431,7 @@ export const delegateInputSchema = z.object({
 });
 
 type DelegateInput = z.infer<typeof delegateInputSchema> & {
+  personalExecution?: PersonalExecutionSnapshot;
   draftTaskId?: string;
   draftTaskVersion?: number;
   executionTarget?: ExecutionTarget;
@@ -1229,10 +1235,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   override getModel(): string {
+    if (this.state?.personalExecutionOnly) throw new Error("Personal local tasks do not authorize deployment model inference.");
     return this.env.ORCHESTRATOR_MODEL || DEFAULT_ORCHESTRATOR_MODEL;
   }
 
   override getSystemPrompt(): string {
+    if (this.state?.personalExecutionOnly) return "Personal local tasks use only the approved native client on its owner computer.";
     if (isChatOnlyTurn(this.messages)) {
       return [
         "You are Shiba, a helpful conversational assistant.",
@@ -1334,6 +1342,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   override getTools(): ToolSet {
+    if (this.state?.personalExecutionOnly) return {};
     if (isChatOnlyTurn(this.messages)) {
       // The mode marker only narrows authority. Work turns still use the
       // unchanged approval-gated delegate and audited run_code tools below.
@@ -1698,6 +1707,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     input: DelegateInput & { sandboxProvider?: string },
     verifiedOrgId?: string,
   ): Promise<{ harness: string; codingModel: string; route: ApprovedRoute }> {
+    if (input.personalExecution) {
+      const personal = input.personalExecution;
+      if (personal.actorId !== initiatorUserIdFromOrchestratorName(this.name) ||
+        verifiedOrgId !== `team:${personal.workspaceId}` || !await revalidatePersonalExecutionSnapshot(this.env, personal)) {
+        throw new Error("Personal execution authority changed. Review the current account and grant.");
+      }
+      return { harness: personal.harness, codingModel: personal.codingModel,
+        route: { purpose: "coding", connectionId: null, modelId: personal.codingModel, harness: personal.harness, policyVersion: 0 } };
+    }
+    if (this.state?.personalExecutionOnly) throw new Error("This isolated host accepts only its personal execution grant.");
     const snapshot = await readModelConfig(this.env);
     const { harness, codingModel } = this.resolveHarnessAndModel(input, snapshot.policy.rolePins, snapshot);
     const route = resolveCodingRoute(
@@ -1927,6 +1946,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           : {}),
         ...(reserved.authAccount !== undefined ? { authAccount: reserved.authAccount } : {}),
         ...(reserved.runtime !== undefined ? { runtime: reserved.runtime } : {}),
+        ...(reserved.personalExecution ? { personalExecution: structuredClone(reserved.personalExecution) } : {}),
         ...(pointer?.role !== undefined ? { role: pointer.role } : chained ? { role: "reviewer" as const } : {}),
       };
       failureRun = reserved;
@@ -1986,6 +2006,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       // now. Either way the route is revalidated just before dispatch — a
       // revoked connection fails the run honestly, never a substitution.
       const frozen = reserved.route;
+      if ((this.state?.personalExecutionOnly && !reserved.personalExecution) ||
+        (reserved.personalExecution && (!frozen || !(yield* tryRunPromise(() => revalidatePersonalExecutionSnapshot(this.env, reserved.personalExecution!)))))) {
+        return yield* Effect.fail(toTaggedError("invalid_request", "Personal execution authority changed. Request a new human approval."));
+      }
       // Fail closed: a stored route that no longer validates must not fall back to the defaults.
       if (frozen !== undefined && !isApprovedRoute(frozen)) {
         return yield* Effect.fail(toTaggedError("internal_error", "The approved route no longer validates; re-queue the run."));
@@ -2034,6 +2058,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             ? { runRoom: { ownerId, sessionId: session?.sessionId ?? "default", runId } }
             : {};
         })()),
+        ...(reserved.personalExecution ? { personalExecution: structuredClone(reserved.personalExecution) } : {}),
         ...(reserved.orgId ? { orgId: reserved.orgId } : pointer?.orgId ? { orgId: pointer.orgId } : {}),
         ...(reserved.sandboxProvider !== undefined ? { sandboxProvider: reserved.sandboxProvider } : {}),
         ...(reserved.customAgentId !== undefined ? { customAgentId: reserved.customAgentId } : {}),
@@ -2171,7 +2196,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         { runId, ...(pointer?.threadKey ? { threadKey: pointer.threadKey } : {}) },
       );
       const intakeTsKey = this.env.TYPESAFE_API_KEY?.trim() ?? "";
-      if (!recovery && intakeTsKey && reserved.executionTarget?.kind !== "artifact-workspace") {
+      if (!reserved.personalExecution && !recovery && intakeTsKey && reserved.executionTarget?.kind !== "artifact-workspace") {
         yield* Effect.forkChild(
           tryRunPromise((signal) =>
             evaluateSessionTriage(intakeTsKey, fullInput.task, fullInput.repoUrl,
@@ -2233,8 +2258,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             });
             // Just before dispatch: the connection may have been disabled or
             // deleted since approval. Fail honestly — never substitute.
-            const snapshot = yield* tryRunPromise(() => readModelConfig(this.env));
-            const routeProblem = revalidateCodingRoute(snapshot, route);
+            const routeProblem = reserved.personalExecution
+              ? (yield* tryRunPromise(() => revalidatePersonalExecutionSnapshot(this.env, reserved.personalExecution!))) ? null : "Personal execution grant changed."
+              : revalidateCodingRoute(yield* tryRunPromise(() => readModelConfig(this.env)), route);
             if (routeProblem !== null) {
               return yield* Effect.fail(toTaggedError(
                 "internal_error", `Approved route is no longer available: ${routeProblem}`,
@@ -2274,6 +2300,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
               const dispatchInputHash = startEvidence?.inputHash;
               if (!dispatchInputHash) {
                 throw new Error("Approved run is missing dispatch input hash.");
+              }
+              if (reserved.personalExecution && !recovery) {
+                const approvedAt = running.approval?.decidedAt;
+                if (!approvedAt || !pointer || !reserved.collaborationHandoffId) throw new Error("Personal execution has no retained human approval.");
+                fullInput.personalExecutionClaim = {
+                  snapshot: structuredClone(reserved.personalExecution), approvalId: callId, inputHash: dispatchInputHash,
+                  executionOwner: this.name, handoffId: reserved.collaborationHandoffId, generation,
+                  contextDigest: personalExecutionContextDigest({ ...reserved, handoffId: reserved.collaborationHandoffId }),
+                  approvedUntil: Math.min(pointer.createdAt + PERSONAL_APPROVAL_TTL_MS, approvedAt + RUN_DEADLINE_MS, reserved.personalExecution.expiresAt),
+                };
               }
               const sealedInput: CodingTaskInput = recovery?.input ?? {
                 ...fullInput,
@@ -2396,7 +2432,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                 // finish means the run went terminal mid-flight — do not
                 // grade stale output onto a cancelled/reclaimed record.
                 const tsKey = this.env.TYPESAFE_API_KEY?.trim() ?? "";
-                if (finished !== null && tsKey) {
+                if (!reserved.personalExecution && finished !== null && tsKey) {
                   const grading = yield* Effect.forkDetach(
                     tryRunPromise((signal) => evaluateResultQuality(tsKey, output.slice(0, 2000),
                       (url, init) => fetch(url, { ...init, signal }),
@@ -2650,6 +2686,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     authAccount?: unknown;
     runtime?: unknown;
     targetMachineId?: unknown;
+    personalExecution?: unknown;
     testCommand?: unknown;
     expectedDeliverables?: unknown;
     skillPins?: unknown;
@@ -2672,6 +2709,22 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return Response.json({ error: "Room execution accepts only its explicitly selected shared context, never private onboarding or project context." }, { status: 403 });
     if (trustedSlackOrigin && (input.threadKey !== trustedSlackOrigin || parseSlackCanvasOrigin(trustedSlackOrigin)?.orchestratorName !== this.name)) {
       return Response.json({ error: "Slack origin does not match this conversation." }, { status: 403 });
+    }
+    const personalParsed = input.personalExecution === undefined ? null : personalExecutionSnapshotSchema.safeParse(input.personalExecution);
+    if (personalParsed && !personalParsed.success) return Response.json({ error: "Invalid personal execution snapshot." }, { status: 400 });
+    const personalExecution = personalParsed?.success ? personalParsed.data : undefined;
+    if (this.state?.personalExecutionOnly && !personalExecution) return Response.json({ error: "This host requires its personal execution grant." }, { status: 403 });
+    if (personalExecution && (input.intake !== LOCAL_INTAKE_DASHBOARD || input.threadKey !== this.name ||
+      input.orgId !== `team:${personalExecution.workspaceId}` || personalExecution.actorId !== initiatorUserIdFromOrchestratorName(this.name) ||
+      (input.kind !== undefined && input.kind !== "run") || input.reasoningEffort !== undefined || childFields !== undefined ||
+      !input.collaborationHandoffId || input.runtime !== "local" || input.targetMachineId !== personalExecution.machineId ||
+      input.publishPullRequest === true || input.reviewAfterPublish === true || input.runSetup === true || input.environment !== undefined ||
+      input.authAccount !== undefined || input.connectionId !== undefined || input.testCommand !== undefined ||
+      !await revalidatePersonalExecutionSnapshot(this.env, personalExecution))) {
+      return Response.json({ error: "Personal execution requires current explicit account consent and an isolated room approval." }, { status: 403 });
+    }
+    if (personalExecution && !this.state?.personalExecutionOnly && (this.approvals.length || this.store.list().length || this.messages?.length)) {
+      return Response.json({ error: "Personal execution requires a fresh isolated host." }, { status: 409 });
     }
     let goalBinding: Awaited<ReturnType<typeof resolveOnboardingTaskBinding>>;
     try {
@@ -2801,6 +2854,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const frozen = this.approvals.find((approval) => approval.approvalId === approvalId);
       if (collaborationHandoffId && (!frozen || frozen.collaborationHandoffId !== collaborationHandoffId ||
           (intakeOrgId.startsWith("team:") && frozen.orgId !== intakeOrgId) ||
+          JSON.stringify(frozen.personalExecution) !== JSON.stringify(personalExecution) ||
           frozen.customAgentId !== input.customAgentId ||
           (input.expectedCustomAgentVersion !== undefined && frozen.customAgentVersion !== input.expectedCustomAgentVersion))) {
         return Response.json({ error: "The retained room approval no longer matches this handoff. Request a new handoff." }, { status: 409 });
@@ -2977,6 +3031,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     // The approver must see a real agent name on the card — validate here
     // so a bad harness fails before the card, never inside a container.
+    if (personalExecution) { harnessOverride = personalExecution.harness; codingModelOverride = personalExecution.codingModel; }
     const harness = harnessOverride;
     if (harness !== undefined) {
       try {
@@ -3034,6 +3089,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         task,
         baseBranch,
         publishPullRequest,
+        ...(personalExecution ? { personalExecution } : {}),
         harness: harnessOverride ? (harnessOverride as DelegateInput["harness"]) : undefined,
         codingModel: codingModelOverride,
         connectionId: connectionIdOverride,
@@ -3051,6 +3107,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       );
     }
     try {
+      if (!personalExecution) {
       const snapshot = await readModelConfig(this.env);
       await assertRunPreflight(
         this.env,
@@ -3068,6 +3125,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         },
         snapshot,
       );
+      }
     } catch (error) {
       return Response.json(
         { error: error instanceof Error ? error.message : "Run preflight failed." },
@@ -3204,6 +3262,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           // T51: the approved runtime rides the hashed frozen input.
           ...( { runtime: effectiveRuntime === "local" ? ("local" as const) : ("sandbox" as const) } ),
           ...(effectiveRuntime === "local" && targetMachineId !== undefined ? { targetMachineId } : {}),
+          ...(personalExecution ? { personalExecution } : {}),
           ...(testCommand !== undefined ? { testCommand } : {}),
           ...(expectedDeliverables !== undefined ? { expectedDeliverables } : {}),
           ...(skillPins !== undefined && skillPins.length > 0 ? { skillPins } : {}),
@@ -3232,6 +3291,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       this.setState({
         ...this.state,
         pendingApprovals,
+        ...(personalExecution ? { personalExecutionOnly: true as const } : {}),
         ...this.withSlackCanvasOrigin(approvalId, trustedSlackOrigin, canvasRoom),
         tasks: [...(this.state?.tasks ?? []), taskRecord].slice(-300),
         ...(queueCommandId !== undefined
@@ -3698,6 +3758,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     };
     if (teamHumanDecision && !await teamDecisionCurrent())
       return Response.json({ error: "Team approval ownership or room access changed." }, { status: 403 });
+    if (approved && storedApproval?.personalExecution && !await revalidatePersonalExecutionSnapshot(this.env, storedApproval.personalExecution))
+      return Response.json({ error: "Personal execution consent, account or computer changed. Request a new approval." }, { status: 409 });
     const forbidden = approvalResolveForbidden(this.env, {
       threadKey,
       approved,
@@ -3774,6 +3836,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (committed?.threadKey === threadKey) return Response.json({ result: committed.outcome });
     if (teamHumanDecision && !await teamDecisionCurrent())
       return Response.json({ error: "Team approval ownership or room access changed." }, { status: 403 });
+    if (approved && storedApproval?.personalExecution && !await revalidatePersonalExecutionSnapshot(this.env, storedApproval.personalExecution))
+      return Response.json({ error: "Personal execution consent, account or computer changed. Request a new approval." }, { status: 409 });
     // The final authority lookup also yielded; preserve a decision committed while it ran.
     const committedAfterAuthority = this.commandReceipt(commandId);
     if (committedAfterAuthority?.threadKey === threadKey) return Response.json({ result: committedAfterAuthority.outcome });
@@ -4099,6 +4163,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ...(record.authAccount ? { authAccount: record.authAccount } : {}),
       ...(record.runtime !== undefined ? { runtime: record.runtime } : {}),
       ...(record.targetMachineId !== undefined ? { targetMachineId: record.targetMachineId } : {}),
+      ...(record.personalExecution !== undefined ? { personalExecution: structuredClone(record.personalExecution) } : {}),
       ...(record.testCommand !== undefined ? { testCommand: record.testCommand } : {}),
       ...(record.expectedDeliverables !== undefined ? { expectedDeliverables: record.expectedDeliverables } : {}),
       ...(record.skillPins !== undefined ? { skillPins: record.skillPins.map((pin) => ({ ...pin })) } : {}),
@@ -4134,6 +4199,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(record.authAccount ? { authAccount: record.authAccount } : {}),
         ...(record.runtime !== undefined ? { runtime: record.runtime } : {}),
         ...(record.targetMachineId !== undefined ? { targetMachineId: record.targetMachineId } : {}),
+      ...(record.personalExecution !== undefined ? { personalExecution: structuredClone(record.personalExecution) } : {}),
         ...(record.testCommand !== undefined ? { testCommand: record.testCommand } : {}),
       ...(record.expectedDeliverables !== undefined ? { expectedDeliverables: record.expectedDeliverables } : {}),
         ...(record.forkedFrom !== undefined ? { forkedFrom: record.forkedFrom } : {}),
@@ -5089,7 +5155,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    */
   private dispatchSessionDistill(run: DelegatedRun): void {
     const memoryScope = memoryScopeForConversation(this.name);
-    if (!memoryScope || run.collaborationHandoffId) return;
+    if (!memoryScope || run.collaborationHandoffId || run.personalExecution) return;
     const pending = (async () => {
       try {
         await distillSession(this.env, run, { agent: memoryScope });
@@ -6617,6 +6683,43 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // queued. External callers never reach this DO without an Access or
     // signature-authenticated identity on the Worker first.
     const agentPrincipal = request.headers.get(AGENT_PRINCIPAL_HEADER)?.trim() || null;
+    if (url.pathname === "/internal/personal-execution/claim-authority") {
+      if (request.method !== "POST" || url.hostname !== "internal" || !verification.signed || !this.state?.personalExecutionOnly)
+        return Response.json({ authorized: false }, { status: 403 });
+      const parsed = personalExecutionClaimSchema.safeParse(await request.json().catch(() => null));
+      if (!parsed.success || agentPrincipal !== personalClaimPrincipal(parsed.data)) return Response.json({ authorized: false }, { status: 403 });
+      const proof = parsed.data;
+      const current = () => {
+        if (this.sessionDeleted || this.statePersistenceFailed || this.env.SHIBA_PERSONAL_LOCAL_EXECUTION !== "1" || this.env.SHIBA_LOCAL_RUNTIME !== "1") return null;
+        const run = this.store.get(`agent-tool:${proof.approvalId}`);
+        const approval = this.approvals.find((item) => item.approvalId === proof.approvalId && item.threadKey === this.name);
+        return run && approval?.status === "approved" && (!approval.kind || approval.kind === "run") &&
+          proof.executionOwner === this.name && run.generation === proof.generation &&
+          (run.status === "pending" || run.status === "running") && run.approval?.inputHash === proof.inputHash &&
+          this.frozenRunApprovalHash(proof.approvalId) === proof.inputHash &&
+          proof.handoffId === run.collaborationHandoffId &&
+          JSON.stringify(run.personalExecution) === JSON.stringify(proof.snapshot) &&
+          JSON.stringify(approval.personalExecution) === JSON.stringify(proof.snapshot) &&
+          proof.contextDigest === personalExecutionContextDigest({ ...run, handoffId: proof.handoffId }) &&
+          typeof run.approval.decidedBy === "string" && !/^(?:agent|automation|system|mcp|child|subagent)(?::|$)/.test(run.approval.decidedBy) &&
+          proof.approvedUntil > Date.now() && proof.approvedUntil <= approval.createdAt + PERSONAL_APPROVAL_TTL_MS &&
+          proof.approvedUntil <= run.approval.decidedAt + RUN_DEADLINE_MS && proof.approvedUntil <= proof.snapshot.expiresAt ? run : null;
+      };
+      const run = current();
+      if (!run?.customAgentId || !run.customAgentVersion || !await revalidatePersonalExecutionSnapshot(this.env, proof.snapshot) ||
+        !await resolveTeamHandoffRunScope(this.env, { handoffId: proof.handoffId, actorId: proof.snapshot.actorId,
+          executorAgentName: this.name, employeeId: run.customAgentId, employeeVersion: run.customAgentVersion,
+          task: run.task, approvalId: proof.approvalId, expectedWorkspaceId: proof.snapshot.workspaceId }) || !current()) {
+        return Response.json({ authorized: false }, { status: 403 });
+      }
+      return Response.json({ authorized: true, inputHash: proof.inputHash }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (this.state?.personalExecutionOnly) {
+      const allowed = (request.method === "GET" && /^\/api\/(?:runs(?:\/[^/]+)?|approvals|tasks)$/.test(url.pathname)) ||
+        (request.method === "POST" && (url.pathname === "/api/runs" || url.pathname === "/api/approvals" ||
+          /^\/api\/tasks\/[^/]+\/cancel$/.test(url.pathname) || url.pathname === "/internal/collaboration-handoff-cancel"));
+      if (!allowed) return Response.json({ error: "Personal execution does not authorize this operation." }, { status: 403 });
+    }
     // Cron backstop for the poll-driven stale-draft sweep — in a quiet
     // system no approvals fetch or DO restart ever calls it, so a human
     // who stops polling would leave `sending`-locked drafts held forever.

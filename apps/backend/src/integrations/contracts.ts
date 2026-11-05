@@ -8,6 +8,8 @@ import type {
 } from "@shiba/shared";
 
 export interface IntegrationCatalogQuery {
+  /** Server-derived workspace sharing scope; absent retains the personal alias. */
+  workspaceId?: string;
   cursor?: string;
   limit: number;
   query?: string;
@@ -22,12 +24,14 @@ export interface IntegrationCatalogPage {
 }
 
 export interface IntegrationConnectContext {
+  workspaceId?: string;
   callbackOrigin: string;
   providerKey: string;
   userId: string;
 }
 
 export interface IntegrationExecuteContext {
+  workspaceId?: string;
   userId: string;
   toolSlug: string;
   arguments: Record<string, unknown>;
@@ -53,6 +57,7 @@ export interface IntegrationAction {
 }
 
 export interface IntegrationActionQuery {
+  workspaceId?: string;
   userId: string;
   toolkitSlug: string;
   query?: string;
@@ -65,7 +70,7 @@ export interface IntegrationProvider {
   readonly id: IntegrationsProviderId;
   health(): Promise<IntegrationProviderHealth>;
   listCatalog(query: IntegrationCatalogQuery): Promise<IntegrationCatalogPage>;
-  listConnections(args: { userId: string; includeUnavailable?: boolean }): Promise<IntegrationProviderConnection[]>;
+  listConnections(args: { userId: string; includeUnavailable?: boolean; workspaceId?: string }): Promise<IntegrationProviderConnection[]>;
   beginConnect(context: IntegrationConnectContext): Promise<IntegrationProviderBeginConnectResponse>;
   disconnect(context: IntegrationConnectContext): Promise<void>;
   executeTool?(context: IntegrationExecuteContext): Promise<IntegrationProviderExecuteResponse>;

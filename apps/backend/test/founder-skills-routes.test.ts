@@ -26,14 +26,14 @@ function fixture() {
 beforeEach(() => { auth.orgId = "self-hosted"; auth.owner = "owner@example.test"; });
 
 describe("founder skill drafts", () => {
-  it("preserves draft installation while refusing schedules without reviewed integration configuration", async () => {
+  it("preserves draft installation and distinguishes unavailable execution from supported private review scheduling", async () => {
     const { env } = fixture();
     const installed = await handleFounderSkills(request(`/${id}/install`, "POST"), env);
     expect(installed?.status).toBe(201);
     expect(await installed?.json()).toMatchObject({ skill: { status: "draft", libraryId: id } });
     const deployed = await handleFounderSkills(request(`/${id}/deploy`, "POST"), env);
-    expect(deployed?.status).toBe(409);
-    expect(await deployed?.json()).toMatchObject({ error: "integration_schedule_configuration_required", setupPath: `/api/founder-skills/${id}/setup`, setupState: "manual_review_required" });
+    expect(deployed?.status).toBe(501);
+    expect(await deployed?.json()).toMatchObject({ error: "scheduled_connector_execution_unavailable", setupPath: `/api/founder-skills/${id}/setup`, setupState: "manual_review_required", reviewDraftPath: `/api/founder-skills/${id}/review-schedule` });
   });
 
   it("converges concurrent install retries on one tracked draft and separates owners and orgs", async () => {

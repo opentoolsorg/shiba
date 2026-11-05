@@ -15,6 +15,8 @@ import {
   LOCAL_PAIRING_TTL_MS,
   LOCAL_RUNTIME_FLAG,
   type PairingTokenResponse,
+  personalPairingScopeSchema,
+  type PersonalPairingScope,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
 import {
@@ -26,6 +28,8 @@ import { randomHex } from "./mailbox-store.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
+import { isPersonalOwnerCurrent } from "./personal-execution-store.js";
+import { isTeamDeploymentOperator } from "./team-member-auth.js";
 
 /** PAIRING_SECRET, else the deployment's daemon bearer — single-tenant acceptable. */
 export function pairingSecret(env: Env): string | undefined {
@@ -63,9 +67,10 @@ export async function signPairingToken(
   secret: string,
   nonce: string,
   expiresAt: number,
+  personalScope?: PersonalPairingScope,
 ): Promise<string> {
   const payload = toBase64Url(
-    new TextEncoder().encode(JSON.stringify({ n: nonce, exp: expiresAt })),
+    new TextEncoder().encode(JSON.stringify({ n: nonce, exp: expiresAt, ...(personalScope ? { v: 2, scope: personalScope } : {}) })),
   );
   const signature = await crypto.subtle.sign(
     "HMAC",
@@ -80,7 +85,7 @@ export async function verifyPairingToken(
   secret: string,
   token: string,
   now: number,
-): Promise<{ nonce: string; expiresAt: number } | null> {
+): Promise<{ nonce: string; expiresAt: number; personalScope?: PersonalPairingScope } | null> {
   const [payload, signature, extra] = token.split(".");
   if (payload === undefined || signature === undefined || extra !== undefined) return null;
   const sigBytes = fromBase64Url(signature);
@@ -94,12 +99,19 @@ export async function verifyPairingToken(
   );
   if (!valid) return null;
   try {
-    const { n, exp } = JSON.parse(new TextDecoder().decode(payloadBytes)) as {
+    const { n, exp, v, scope } = JSON.parse(new TextDecoder().decode(payloadBytes)) as {
       n?: unknown;
       exp?: unknown;
+      v?: unknown;
+      scope?: unknown;
     };
-    if (typeof n !== "string" || typeof exp !== "number" || now > exp) return null;
-    return { nonce: n, expiresAt: exp };
+    if (typeof n !== "string" || !n || n.length > 128 || typeof exp !== "number" || !Number.isSafeInteger(exp) || now >= exp) return null;
+    if (v === 2) {
+      if (secret.trim().length < 32 || !/^[a-f0-9]{32}$/.test(n)) return null;
+      const parsed = personalPairingScopeSchema.safeParse(scope);
+      return parsed.success ? { nonce: n, expiresAt: exp, personalScope: parsed.data } : null;
+    }
+    return v === undefined && scope === undefined ? { nonce: n, expiresAt: exp } : null;
   } catch {
     return null;
   }
@@ -108,10 +120,14 @@ export async function verifyPairingToken(
 export async function mintDaemonPairing(
   env: Env,
   origin: string,
+  personalScope?: PersonalPairingScope,
 ): Promise<
   | { ok: true; token: string; expiresAt: number; command: string }
   | { ok: false; status: number; message: string }
 > {
+  if (personalScope && (personalScope.origin !== origin || !await isPersonalOwnerCurrent(env, personalScope))) {
+    return { ok: false, status: 403, message: "Verified personal workspace ownership is required." };
+  }
   if (env[LOCAL_RUNTIME_FLAG] !== "1" || env.LocalDispatch === undefined) {
     return {
       ok: false,
@@ -120,6 +136,7 @@ export async function mintDaemonPairing(
     };
   }
   const secret = pairingSecret(env);
+  if (personalScope && (secret?.length ?? 0) < 32) return { ok: false, status: 503, message: "Personal pairing requires a signing key of at least 32 characters." };
   if (secret === undefined) {
     return {
       ok: false,
@@ -133,11 +150,11 @@ export async function mintDaemonPairing(
     new Request("https://local-dispatch/pairing-nonce", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ nonce, expiresAt }),
+      body: JSON.stringify({ nonce, expiresAt, ...(personalScope ? { personalScope } : {}) }),
     }),
   );
   if (!stored.ok) return { ok: false, status: 500, message: "Could not mint a pairing token." };
-  const token = await signPairingToken(secret, nonce, expiresAt);
+  const token = await signPairingToken(secret, nonce, expiresAt, personalScope);
   return {
     ok: true,
     token,
@@ -154,6 +171,7 @@ export async function handleComputers(request: Request, env: Env): Promise<Respo
   if (!(await isAuthorizedRequest(request, env))) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
   }
+  if (!await isTeamDeploymentOperator(request, env)) return Response.json({ error: "Deployment operator required." }, { status: 403 });
   if (env[LOCAL_RUNTIME_FLAG] !== "1" || env.LocalDispatch === undefined) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }

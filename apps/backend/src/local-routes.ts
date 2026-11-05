@@ -18,11 +18,11 @@
  * The Worker-side dispatch/cancel go through the DO stub directly — no
  * HTTP surface exists for minting work, only for claiming it.
  */
-import { LOCAL_ADAPTER_TOKEN_ENV, LOCAL_RUNTIME_FLAG } from "@shiba/shared";
+import { LOCAL_ADAPTER_TOKEN_ENV, LOCAL_RUNTIME_FLAG, PERSONAL_CONTROL_BODY_LIMIT, PERSONAL_EVENTS_BODY_LIMIT, PERSONAL_RESULT_BODY_LIMIT } from "@shiba/shared";
 import { sha256Hex } from "./agent-tokens.js";
 import { pairingSecret, verifyPairingToken } from "./computers-routes.js";
 import type { Env } from "./env.js";
-import { LOCAL_MACHINE_HEADER, localDispatchStub } from "./local-dispatch.js";
+import { LOCAL_MACHINE_HEADER, LOCAL_ADAPTER_CALLER_HEADER, localDispatchStub } from "./local-dispatch.js";
 import { decodeOrNull, HeartbeatRequestSchema, PairRequestSchema } from "./local-fleet-schema.js";
 import { timingSafeEqualString } from "./security.js";
 import { handleReasonNetworkCompanion } from "./reason-network/companion-routes.js";
@@ -40,16 +40,37 @@ const DAEMON_VERBS = new Set([
   "events",
   "approval",
   "control",
+  "personal-account",
 ]);
 
-const forwardJson = (stub: DurableObjectStub, path: string, body: unknown) =>
+const forwardJson = (stub: DurableObjectStub, path: string, body: unknown, headers: Record<string, string> = {}) =>
   stub.fetch(
     new Request(`https://local-dispatch/${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify(body),
     }),
   );
+
+/** Personal machine tokens are an invited-user boundary, unlike the legacy operator bearer. */
+async function boundedPersonalPost(request: Request, limit: number): Promise<Request | Response> {
+  const denied = () => Response.json({ error: "personal_request_too_large", limit }, { status: 413 });
+  const length = request.headers.get("Content-Length");
+  if (length !== null && (!/^\d+$/.test(length) || Number(length) > limit)) return denied();
+  if (!request.body) return request;
+  const reader = request.body.getReader(), buffer = new Uint8Array(limit);
+  let used = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      if (used + chunk.value.length > limit) return denied();
+      buffer.set(chunk.value, used); used += chunk.value.length;
+    }
+    const headers = new Headers(request.headers); headers.delete("Content-Length");
+    return new Request(request.url, { method: request.method, headers, body: buffer.subarray(0, used) });
+  } finally { await reader.cancel().catch(() => {}); }
+}
 
 export async function handleLocalAdapter(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -72,17 +93,27 @@ export async function handleLocalAdapter(request: Request, env: Env): Promise<Re
     const verified = await verifyPairingToken(secret, pair.pairingToken, Date.now());
     if (verified === null)
       return Response.json({ error: "Pairing token is invalid or expired." }, { status: 401 });
-    return forwardJson(stub, "pair", { nonce: verified.nonce, pair });
+    if (verified.personalScope && verified.personalScope.origin !== url.origin) return Response.json({ error: "Pairing token belongs to another deployment origin." }, { status: 401 });
+    return forwardJson(stub, "pair", { nonce: verified.nonce, pair, ...(verified.personalScope ? { personalScope: verified.personalScope } : {}) });
   }
 
   const presented = request.headers.get("authorization") ?? "";
   let machineId: string | undefined;
+  let personalMachine = false;
   if (expected === undefined || !timingSafeEqualString(presented, `Bearer ${expected}`)) {
     const bearer = presented.startsWith("Bearer ") ? presented.slice("Bearer ".length).trim() : "";
     if (bearer === "") return Response.json({ error: "Unauthorized." }, { status: 401 });
     const authorized = await forwardJson(stub, "authorize", { tokenHash: await sha256Hex(bearer) });
     if (!authorized.ok) return Response.json({ error: "Unauthorized." }, { status: 401 });
-    machineId = ((await authorized.json()) as { machineId: string }).machineId;
+    const identity = (await authorized.json()) as { machineId: string; personalExecution?: boolean };
+    machineId = identity.machineId;
+    personalMachine = identity.personalExecution === true;
+  }
+  if (personalMachine && !DAEMON_VERBS.has(sub)) return Response.json({ error: "Not found." }, { status: 404 });
+  if (personalMachine && request.method === "POST") {
+    const bounded = await boundedPersonalPost(request, sub === "result" ? PERSONAL_RESULT_BODY_LIMIT : sub === "events" ? PERSONAL_EVENTS_BODY_LIMIT : PERSONAL_CONTROL_BODY_LIMIT);
+    if (bounded instanceof Response) return bounded;
+    request = bounded;
   }
   if (sub.startsWith("reason-network/v1/")) return handleReasonNetworkCompanion(request, env, machineId);
   if (!DAEMON_VERBS.has(sub)) {
@@ -96,10 +127,12 @@ export async function handleLocalAdapter(request: Request, env: Env): Promise<Re
     if (machineId !== undefined && heartbeat.machineId !== machineId) {
       return Response.json({ error: "Token was not issued to this machine." }, { status: 403 });
     }
-    return forwardJson(stub, "heartbeat", heartbeat);
+    return forwardJson(stub, "heartbeat", heartbeat, { [LOCAL_ADAPTER_CALLER_HEADER]: "1", ...(machineId ? { [LOCAL_MACHINE_HEADER]: machineId } : {}) });
   }
   const forwarded = new Request(new URL(`https://local-dispatch/${sub}${url.search}`), request);
   forwarded.headers.delete(LOCAL_MACHINE_HEADER);
+  forwarded.headers.delete(LOCAL_ADAPTER_CALLER_HEADER);
+  forwarded.headers.set(LOCAL_ADAPTER_CALLER_HEADER, "1");
   if (machineId !== undefined) forwarded.headers.set(LOCAL_MACHINE_HEADER, machineId);
   return stub.fetch(forwarded);
 }

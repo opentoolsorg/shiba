@@ -132,6 +132,18 @@ describe("SkillsView recovery and draft races", () => {
 });
 
 describe("team-scoped skill review", () => {
+  it("opens founder review drafts deliberately within the same team scope", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => String(input) === "/api/founder-skills" ? json({ skills: [{
+      id: "founder-stripe-revenue-pulse", name: "Founder revenue", description: "Review draft", author: "Shiba",
+      schedule: { label: "Daily", cron: "0 9 * * *", timezone: "UTC" }, integrationCatalogIds: ["stripe"], requiresSensitiveApproval: false,
+    }] }) : json({ skills: [] }));
+    vi.stubGlobal("fetch", fetcher); render(<SkillsView workspaceRole="owner" workspaceId={workspaceA} actorId="owner@example.com" />);
+    expect(fetcher.mock.calls.some(([url]) => String(url) === "/api/founder-skills")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Founder review drafts" }));
+    expect(await screen.findByRole("button", { name: "Schedule review drafts: Founder revenue" })).toBeTruthy();
+    for (const [, init] of fetcher.mock.calls) expect(new Headers(init?.headers).get("X-Shiba-Workspace")).toBe(workspaceA);
+    expect(screen.queryByRole("button", { name: /Review employee setup:/ })).toBeNull();
+  });
   const workspaceA = `ws_${"a".repeat(24)}`, workspaceB = `ws_${"b".repeat(24)}`;
   it("installs a curated template as a scoped draft without activation", async () => {
     let installed = false;

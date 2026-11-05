@@ -1,3 +1,4 @@
+import type { PersonalExecutionSnapshot } from "./personal-execution.js";
 import { onboardingRunFields, type OnboardingRunFields } from "./onboarding.js";
 /**
  * Pure run-lifecycle decider (PLAN.md §18.1, T40). Transition legality is a
@@ -69,6 +70,7 @@ export interface QueuedRunInput extends OnboardingRunFields {
   runtime?: RuntimeSelection;
   /** T51: the machine a local run is pinned to — part of the approval-hashed input. */
   targetMachineId?: string;
+  personalExecution?: PersonalExecutionSnapshot;
   /** The test command — part of the approval-hashed input. */
   testCommand?: string[];
   /** Exact workspace outputs required by this approval. */
@@ -169,6 +171,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.authAccount !== undefined ? { authAccount: run.authAccount } : {}),
       ...(run.runtime !== undefined ? { runtime: run.runtime } : {}),
       ...(run.targetMachineId !== undefined ? { targetMachineId: run.targetMachineId } : {}),
+      ...(run.personalExecution !== undefined ? { personalExecution: structuredClone(run.personalExecution) } : {}),
       ...(run.testCommand !== undefined ? { testCommand: run.testCommand } : {}),
       ...(run.expectedDeliverables !== undefined ? { expectedDeliverables: [...run.expectedDeliverables] } : {}),
       ...(run.forkedFrom !== undefined ? { forkedFrom: run.forkedFrom } : {}),
@@ -249,6 +252,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.authAccount !== undefined ? { authAccount: command.input.authAccount } : {}),
           ...(command.input.runtime !== undefined ? { runtime: command.input.runtime } : {}),
           ...(command.input.targetMachineId !== undefined ? { targetMachineId: command.input.targetMachineId } : {}),
+      ...(command.input.personalExecution !== undefined ? { personalExecution: structuredClone(command.input.personalExecution) } : {}),
           ...(command.input.testCommand !== undefined ? { testCommand: command.input.testCommand } : {}),
           ...(command.input.expectedDeliverables !== undefined ? { expectedDeliverables: [...command.input.expectedDeliverables] } : {}),
           ...(command.input.forkedFrom !== undefined ? { forkedFrom: command.input.forkedFrom } : {}),
@@ -314,6 +318,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.authAccount === command.input.authAccount &&
           run.runtime === command.input.runtime &&
           run.targetMachineId === command.input.targetMachineId &&
+          JSON.stringify(run.personalExecution) === JSON.stringify(command.input.personalExecution) &&
           JSON.stringify(run.testCommand ?? []) === JSON.stringify(command.input.testCommand ?? []) &&
           JSON.stringify(run.expectedDeliverables) === JSON.stringify(command.input.expectedDeliverables) &&
           JSON.stringify(run.forkedFrom ?? null) === JSON.stringify(command.input.forkedFrom ?? null) &&

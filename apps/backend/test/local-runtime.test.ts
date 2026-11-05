@@ -20,6 +20,7 @@ import {
   resolveLocalRelease,
   type LocalRunEnvelope,
   type LocalRunResult,
+  type PersonalExecutionSnapshot,
 } from "@shiba/shared";
 import worker from "../src/index.js";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
@@ -742,6 +743,32 @@ const NOOP_OPS = {} as never;
 const NOOP_EMIT = async () => {};
 
 describe("LocalRuntimeAdapter", () => {
+  it("dispatches only the personal native account envelope without reading deployment harness config or keys", async () => {
+    const snapshot: PersonalExecutionSnapshot = { version: 1, grantId: `plex_${"a".repeat(32)}`, grantVersion: 1,
+      ownerAccountId: "native-owner", actorId: "owner@example.test", workspaceId: `ws_${"a".repeat(24)}`, membershipVersion: 1,
+      machineId: "personal-machine", machineRevision: 1, harness: "claude-code", billingMode: "native-subscription",
+      accountFingerprint: "a".repeat(64), authVersion: "b".repeat(64), codingModel: "anthropic/claude-sonnet-4-6",
+      repoUrl: "https://github.com/o/r", expiresAt: Date.now() + 60_000, allowedPhases: ["local_repository_task"] };
+    const proof = { snapshot, approvalId: "personal-approval", inputHash: "c".repeat(64), contextDigest: "d".repeat(64),
+      executionOwner: "web:owner@example.test:11111111-1111-4111-8111-111111111111", handoffId: "personal-handoff", generation: 1, approvedUntil: Date.now() + 30_000 };
+    const forbiddenBuilder = vi.fn(() => { throw new Error("Deployment harness config is forbidden."); });
+    const harness = Object.assign(Object.create(resolveHarness("claude-code")), { configFile: forbiddenBuilder, env: forbiddenBuilder,
+      setupCommands: forbiddenBuilder, buildArgv: forbiddenBuilder, verify: vi.fn(async () => ({ ok: true as const })) });
+    const dispatch = vi.fn(async (_envelope: LocalRunEnvelope, _target?: string, _actor?: string) => {});
+    const { client } = makeClient({ dispatch, status: async () => ({ status: "settled", result: RESULT }) });
+    const adapter = new LocalRuntimeAdapter(harness, { client, pollIntervalMs: 0 });
+    const input = { ...TASK_INPUT, codingModel: snapshot.codingModel, harness: snapshot.harness, runtime: "local" as const,
+      initiatorUserId: snapshot.actorId, targetMachineId: snapshot.machineId, personalExecution: snapshot, personalExecutionClaim: proof };
+    expect((await adapter.runCodingTask(NOOP_OPS, input, NOOP_EMIT)).status).toBe("completed");
+    expect(forbiddenBuilder).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(dispatch.mock.calls[0]).toMatchObject([{ task: TASK_INPUT.task, personalExecution: proof, argv: [], env: {}, configFiles: [], setupCommands: [], setupAllowlist: [],
+      deadlineAt: proof.approvedUntil, session: { provider: "claude", model: "claude-sonnet-4-6", permissionMode: "approval-required" } }, snapshot.machineId, snapshot.actorId]);
+    expect((await adapter.runCodingTask(NOOP_OPS, { ...input, targetMachineId: "wrong" }, NOOP_EMIT)).status).toBe("error");
+    expect((await adapter.runCodingTask(NOOP_OPS, { ...input, codingModel: "anthropic/wrong" }, NOOP_EMIT)).status).toBe("error");
+    expect((await adapter.runCodingTask(NOOP_OPS, { ...input, personalExecutionClaim: undefined }, NOOP_EMIT)).status).toBe("error");
+    expect(dispatch).toHaveBeenCalledOnce();
+  });
   it("passes the daemon's frozen base revision through to the publication result", async () => {
     const baseRevision = "b".repeat(40);
     const { client } = makeClient({ status: async () => ({ status: "settled", claimedAt: Date.now() - 10,

@@ -1,3 +1,4 @@
+import type { PersonalExecutionSnapshot } from "@shiba/shared";
 import { onboardingRunFields, type OnboardingRunFields } from "@shiba/shared";
 /**
  * Durable run registry helpers. The orchestrator keeps these records in
@@ -81,6 +82,7 @@ export function createRun(args: OnboardingRunFields & {
   /** T51: the approved runtime — "local" dispatches to the operator daemon. */
   runtime?: RuntimeSelection;
   targetMachineId?: string;
+  personalExecution?: PersonalExecutionSnapshot;
   testCommand?: string[];
   /** Exact workspace outputs required by this approval. */
   expectedDeliverables?: string[];
@@ -132,6 +134,7 @@ export function createRun(args: OnboardingRunFields & {
       ...(args.authAccount !== undefined ? { authAccount: args.authAccount } : {}),
       ...(args.runtime !== undefined ? { runtime: args.runtime } : {}),
       ...(args.targetMachineId !== undefined ? { targetMachineId: args.targetMachineId } : {}),
+      ...(args.personalExecution !== undefined ? { personalExecution: structuredClone(args.personalExecution) } : {}),
       ...(args.testCommand !== undefined ? { testCommand: args.testCommand } : {}),
       ...(args.expectedDeliverables !== undefined ? { expectedDeliverables: [...args.expectedDeliverables] } : {}),
       ...(args.forkedFrom !== undefined ? { forkedFrom: args.forkedFrom } : {}),
@@ -204,6 +207,7 @@ function commandForStatus(
           ...(run.authAccount !== undefined ? { authAccount: run.authAccount } : {}),
           ...(run.runtime !== undefined ? { runtime: run.runtime } : {}),
           ...(run.targetMachineId !== undefined ? { targetMachineId: run.targetMachineId } : {}),
+      ...(run.personalExecution !== undefined ? { personalExecution: structuredClone(run.personalExecution) } : {}),
           ...(run.testCommand !== undefined ? { testCommand: [...run.testCommand] } : {}),
           ...(run.expectedDeliverables !== undefined ? { expectedDeliverables: [...run.expectedDeliverables] } : {}),
           ...(run.forkedFrom !== undefined ? { forkedFrom: { ...run.forkedFrom } } : {}),

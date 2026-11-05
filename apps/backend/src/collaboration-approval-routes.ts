@@ -9,6 +9,7 @@ import { signInternalRequest } from "./edge-identity.js";
 import type { Env } from "./env.js";
 import { isAuthorizedRequest, requireApplicationJson, requireSameOriginBrowserMutation, resolveUserId } from "./request-auth.js";
 import { resolveTeamCollaborationScope } from "./team-collaboration-scope.js";
+import { resolvePersonalExecutionOwner, resolvePersonalExecutionGrant } from "./personal-execution-store.js";
 
 const ROUTE = /^\/api\/collaboration\/rooms\/(room_[a-f0-9]{24})\/handoffs\/([A-Za-z0-9_-]{1,100})\/approval$/;
 const INPUT_HASH = /^[a-f0-9]{64}$/;
@@ -54,6 +55,14 @@ function boundApproval(approval: PendingApproval | undefined, scope: Collaborati
 }
 
 async function current(request: Request, env: Env, scope: CollaborationScope, owner: string, original: CollaborationHandoffRow, approval: PendingApproval): Promise<boolean> {
+  if (approval.personalExecution) {
+    const native = await resolvePersonalExecutionOwner(request, env);
+    const snapshot = approval.personalExecution;
+    if (!native || native.ownerAccountId !== snapshot.ownerAccountId || native.actorId !== scope.userId ||
+      native.workspaceId !== scope.workspaceId || native.membershipVersion !== snapshot.membershipVersion) return false;
+    const granted = await resolvePersonalExecutionGrant(env, native, snapshot.grantId);
+    if (!granted || JSON.stringify(granted) !== JSON.stringify(snapshot)) return false;
+  }
   const fresh = await resolveTeamCollaborationScope(request, env);
   if (!fresh || fresh.userId !== scope.userId || fresh.tenantId !== scope.tenantId || fresh.workspaceId !== scope.workspaceId ||
     (await resolveUserId(request, env)) !== owner || !await canReadCollaborationRoom(env, { ...scope, roomId: original.roomId }, scope.userId)) return false;

@@ -8,7 +8,7 @@
  * supported yet — no fake toggles.
  */
 import { useEffect, useMemo, useState, type JSX, type ReactNode } from "react";
-import type { AcpProvidersSnapshot, McpCapabilityDirectoryEntry, McpCapabilityInvocationReceipt } from "@shiba/shared";
+import type { AcpProvidersSnapshot, McpCapabilityDirectoryEntry, McpCapabilityInvocationReceipt, TeamWorkspaceRole } from "@shiba/shared";
 import { type SetupStatus, useMailboxes, useSetupStatus } from "../live-status";
 import { useSavedSkills } from "../saved";
 import type { AppNavView } from "./AppNavRail";
@@ -127,15 +127,34 @@ function linearChip(linear: SetupStatus["linear"] | undefined, loading: boolean)
   return <ToneChip tone="neutral" label="Not set up" />;
 }
 
-export function IntegrationsView({
-  onNavigate,
-  initialTab,
-  actorId,
-}: {
+interface IntegrationsViewProps {
   onNavigate?: (view: AppNavView) => void;
   initialTab?: "skills" | "mcp" | "connectors";
   actorId?: string | null;
-}): JSX.Element {
+  workspaceId?: string;
+  workspaceName?: string;
+  workspaceRole?: TeamWorkspaceRole;
+  allowPersonalScope?: boolean;
+  onPersonalScope?: () => void;
+  onChooseWorkspace?: () => void;
+}
+const UNREAD_PRIVATE_BINDINGS: IntegrationBindingInputs = { setupLoading: true, mailboxCount: undefined, mailboxLoading: true,
+  gmailConnected: null, gmailLoading: true, externalMcpServerCount: undefined, externalMcpCatalogConnections: undefined, externalMcpLoading: true };
+
+export function IntegrationsView(props: IntegrationsViewProps): JSX.Element {
+  if (!props.workspaceId && props.allowPersonalScope === false) return <section aria-label="Workspace app setup unavailable" className="p-4 text-[var(--ink)]"><h2 className="text-xl">Select a workspace for app setup</h2><p className="mt-2 text-sm">Personal integration setup is unavailable for this session. Choose an active team workspace to view explicitly shared accounts.</p>{props.onChooseWorkspace && <button type="button" className="mt-4 min-h-11 border border-[var(--line)] px-3 text-xs" onClick={props.onChooseWorkspace}>Choose a workspace</button>}</section>;
+  if (props.workspaceId) return <WorkspaceConnectorsPanel key={`${props.actorId}:${props.workspaceId}:${props.workspaceRole}`} bindingInputs={UNREAD_PRIVATE_BINDINGS}
+    actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
+    allowPersonalScope={props.allowPersonalScope} onPersonalScope={props.onPersonalScope} />;
+  return <PersonalIntegrationsView {...props} />;
+}
+
+function PersonalIntegrationsView({
+  onNavigate,
+  initialTab,
+  actorId,
+  onChooseWorkspace,
+}: IntegrationsViewProps): JSX.Element {
   const setup = useSetupStatus();
   const mailboxes = useMailboxes();
   const savedSkills = useSavedSkills();
@@ -720,7 +739,7 @@ export function IntegrationsView({
               <LoadErrorState message={failed.message} onRetry={reloadAll} />
             </div>
           ) : null}
-          <WorkspaceConnectorsPanel bindingInputs={bindingInputs} actorId={actorId} onManagePermissions={() => onNavigate?.("employee-tools")} onChanged={() => setCatalogRefresh((value) => value + 1)} />
+          <WorkspaceConnectorsPanel bindingInputs={bindingInputs} actorId={actorId} onManagePermissions={() => onNavigate?.("employee-tools")} onChooseWorkspace={onChooseWorkspace} onChanged={() => setCatalogRefresh((value) => value + 1)} />
         </>
       )}
     </div>

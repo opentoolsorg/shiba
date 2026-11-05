@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CollaborationView } from "./CollaborationView";
+import { personalFixture, PERSONAL_WORKSPACE } from "../personal-execution-fixtures";
 
 beforeEach(() => vi.stubGlobal("WebSocket", undefined));
 
@@ -35,6 +36,61 @@ const roomDetail = {
   ],
   handoffs: [],
 };
+
+describe("CollaborationView explicit own-account request", () => {
+  it("submits only a current grant selector and never a deployment or client snapshot override", async () => {
+    const { computer, grant } = personalFixture();
+    let submitted: Record<string, unknown> | null = null;
+    const detail = { ...roomDetail, members: [...roomDetail.members, { actorId: "agent:writer-profile", userId: "member@example.test", actorKind: "agent", role: "agent", displayName: "Writer" }] };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/personal-execution/computers") return Response.json({ computers: [computer] });
+      if (path === "/api/personal-execution/grants") return Response.json({ grants: [grant] });
+      if (path === "/api/collaboration/rooms/room-1/handoffs" && init?.method === "POST") { submitted = JSON.parse(String(init.body)); return Response.json({ handoff: { handoffId: "fixture", taskId: "own-task", status: "active" } }, { status: 201 }); }
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [detail.room] });
+      if (path === "/api/collaboration/rooms/room-1") return Response.json(detail);
+      if (path.startsWith(`/api/workspaces/${PERSONAL_WORKSPACE}`)) return Response.json({ workspace: { members: [] } });
+      return Response.json({ agents: [], computers: [] });
+    }));
+    render(<CollaborationView workspaceId={PERSONAL_WORKSPACE} />);
+    await screen.findByRole("heading", { name: "Shared room" }); fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    fireEvent.change(screen.getByLabelText("Task ID"), { target: { value: "own-task" } });
+    fireEvent.change(screen.getByLabelText("Employee task request"), { target: { value: "Review this public repository." } });
+    fireEvent.change(screen.getByLabelText("Handoff recipient"), { target: { value: "agent:writer-profile" } });
+    fireEvent.change(screen.getByLabelText("Account for this room task"), { target: { value: "personal" } });
+    expect(screen.getByRole("button", { name: "Request / create handoff" })).toHaveProperty("disabled", true);
+    await screen.findByLabelText("Personal account grant for this room task");
+    fireEvent.change(screen.getByLabelText("Personal account grant for this room task"), { target: { value: grant.snapshot.grantId } });
+    fireEvent.click(screen.getByRole("button", { name: "Request / create handoff" }));
+    await waitFor(() => expect(submitted).not.toBeNull());
+    expect(submitted).toMatchObject({ personalExecution: { grantId: grant.snapshot.grantId, expectedVersion: 1 }, task: "Review this public repository." });
+    for (const field of ["runtime", "targetMachineId", "executionTarget", "repoUrl", "harness", "codingModel", "snapshot", "proof"]) expect(submitted).not.toHaveProperty(field);
+  });
+
+  it("keeps personal mode blocked after grant revocation instead of reverting to cloud execution", async () => {
+    const { computer, grant } = personalFixture(); let revoked = false;
+    const writes = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/personal-execution/computers") return Response.json({ computers: [computer] });
+      if (path === "/api/personal-execution/grants") return Response.json({ grants: [{ ...grant, ...(revoked ? { status: "revoked", version: 2 } : {}) }] });
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [roomDetail.room] });
+      if (path === "/api/collaboration/rooms/room-1") return Response.json(roomDetail);
+      if (init?.method === "POST") writes();
+      return Response.json({ agents: [], computers: [] });
+    }));
+    render(<CollaborationView workspaceId={PERSONAL_WORKSPACE} />);
+    await screen.findByRole("heading", { name: "Shared room" }); fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    fireEvent.change(screen.getByLabelText("Account for this room task"), { target: { value: "personal" } });
+    await screen.findByLabelText("Personal account grant for this room task");
+    fireEvent.change(screen.getByLabelText("Personal account grant for this room task"), { target: { value: grant.snapshot.grantId } });
+    revoked = true; fireEvent.click(screen.getByRole("button", { name: "Reload personal setup" }));
+    await waitFor(() => expect(screen.getByLabelText("Personal account grant for this room task")).toHaveProperty("value", ""));
+    expect(screen.getByLabelText("Account for this room task")).toHaveProperty("value", "personal");
+    expect(screen.queryByLabelText("Employee execution target")).toBeNull();
+    expect(screen.getByRole("button", { name: "Request / create handoff" })).toHaveProperty("disabled", true); expect(writes).not.toHaveBeenCalled();
+  });
+});
 
 function jsonResponse(body: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };

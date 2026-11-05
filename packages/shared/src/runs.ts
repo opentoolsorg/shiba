@@ -1,3 +1,4 @@
+import type { PersonalExecutionSnapshot } from "./personal-execution.js";
 import type { OnboardingRunFields } from "./onboarding.js";
 /**
  * Durable run registry wire types — shared between the orchestrator's DO
@@ -129,6 +130,7 @@ export interface DelegatedRun extends OnboardingRunFields {
   runtime?: RuntimeSelection;
   /** T51: the only machine whose daemon may claim this local run; approval-hashed. */
   targetMachineId?: string;
+  personalExecution?: PersonalExecutionSnapshot;
   /** The test command this approval-gated run executes, as argv. */
   testCommand?: string[];
   /** Exact workspace outputs required by this approval. */

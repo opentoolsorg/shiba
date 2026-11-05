@@ -10,6 +10,8 @@ import {
 } from "react";
 import type { TeamWorkspaceDetail, TeamWorkspaceMembership } from "@shiba/shared";
 import { useCollaborationRoomRealtime } from "../collaboration-room-realtime";
+import { PersonalExecutionSetup } from "./PersonalExecutionSetup";
+import type { PersonalExecutionGrant } from "../personal-execution-client";
 
 interface Room {
   roomId: string;
@@ -261,6 +263,9 @@ function ScopedCollaborationView({
   const [workspaceRoster, setWorkspaceRoster] = useState<TeamWorkspaceMembership[] | null>(null);
   const [workspaceRosterUnavailable, setWorkspaceRosterUnavailable] = useState(false);
   const [executionTarget, setExecutionTarget] = useState("sandbox");
+  const [personalExecutionMode, setPersonalExecutionMode] = useState(false);
+  const [personalGrant, setPersonalGrant] = useState<PersonalExecutionGrant | null>(null);
+  const personalGrantIntent = useRef("");
   const [selectedProfileId, setSelectedProfileId] = useState(initialEmployeeId ?? "");
   const [detailTab, setDetailTab] = useState<DetailTab>("members");
   const consumedHandoffIntent = useRef<string | null>(null);
@@ -286,6 +291,9 @@ function ScopedCollaborationView({
     setDeliverablePath("reports/employee-summary.md");
     setParentHandoffId("");
     setRecipientActorId("");
+    setPersonalExecutionMode(false);
+    setPersonalGrant(null);
+    personalGrantIntent.current = "";
     setHandoffRequestId("");
     setMemoryTitle("");
     setMemoryContent("");
@@ -678,6 +686,10 @@ function ScopedCollaborationView({
   const createHandoff = (event: FormEvent) => {
     event.preventDefault();
     if (!activeRoomId || !taskId.trim() || !recipientActorId) return;
+    if (personalExecutionMode && (!personalGrant || personalGrant.snapshot.expiresAt <= Date.now())) {
+      setError("Choose a current personal account grant before requesting this task. No deployment account will be substituted.");
+      return;
+    }
     const selectedNotes = selectedMemoryIds.map((id) =>
       (detail?.memory ?? []).find((note) => note.id === id && note.revokedAt === null),
     );
@@ -715,7 +727,10 @@ function ScopedCollaborationView({
                 })),
               }
             : {}),
-          ...(workDestination === "artifact-workspace"
+          ...(personalExecutionMode && personalGrant
+            ? { personalExecution: { grantId: personalGrant.snapshot.grantId, expectedVersion: personalGrant.version } }
+            : {}),
+          ...(!personalExecutionMode && workDestination === "artifact-workspace"
             ? {
                 executionTarget: {
                   kind: "artifact-workspace",
@@ -723,10 +738,10 @@ function ScopedCollaborationView({
                 },
               }
             : {}),
-          ...(executionTarget === "sandbox"
+          ...(!personalExecutionMode && executionTarget === "sandbox"
             ? { runtime: "sandbox" }
-            : { runtime: "local", targetMachineId: executionTarget.slice("local:".length) }),
-          ...(workDestination === "repository" && repoUrl.trim()
+            : !personalExecutionMode ? { runtime: "local", targetMachineId: executionTarget.slice("local:".length) } : {}),
+          ...(!personalExecutionMode && workDestination === "repository" && repoUrl.trim()
             ? { repoUrl: repoUrl.trim() }
             : {}),
           ...(parentHandoffId ? { parentHandoffId } : {}),
@@ -1481,6 +1496,25 @@ function ScopedCollaborationView({
                       className="p-3"
                     >
                       <h3 className="mb-2 text-xs font-semibold">Handoffs</h3>
+                      {workspaceId && <div className="mb-3">
+                        <label className="block text-xs">Account for this room task<select
+                          aria-label="Account for this room task" value={personalExecutionMode ? "personal" : "deployment"}
+                          onChange={(event) => {
+                            setPersonalExecutionMode(event.target.value === "personal"); setPersonalGrant(null); personalGrantIntent.current = ""; setHandoffRequestId("");
+                            if (event.target.value === "personal") { setWorkDestination("repository"); setParentHandoffId(""); }
+                          }} className="mt-1 min-h-11 w-full min-w-0 border border-[var(--input-line)] bg-[var(--paper)] p-2 text-xs">
+                          <option value="deployment">Existing deployment execution</option><option value="personal">My own Claude or Codex account</option>
+                        </select></label>
+                        {personalExecutionMode && detailTab === "work" && <div className="mt-2"><PersonalExecutionSetup key={`${workspaceId}:${activeRoomId}:${detail.currentUserId}`}
+                          workspaceId={workspaceId} actorId={detail.currentUserId} selected={personalGrant}
+                          onSelectionChange={(grant) => {
+                            setPersonalGrant(grant);
+                            if (grant) {
+                              const intent = `${grant.snapshot.grantId}:${grant.version}`;
+                              if (personalGrantIntent.current !== intent) { personalGrantIntent.current = intent; setHandoffRequestId(""); }
+                            }
+                          }} /></div>}
+                      </div>}
                       <form onSubmit={createHandoff} className="flex flex-col gap-2">
                         <input
                           aria-label="Task ID"
@@ -1513,6 +1547,7 @@ function ScopedCollaborationView({
                         <select
                           aria-label="Employee work destination"
                           value={workDestination}
+                          disabled={personalExecutionMode}
                           onChange={(event) => {
                             const next = event.target.value as "repository" | "artifact-workspace";
                             setWorkDestination(next);
@@ -1526,7 +1561,9 @@ function ScopedCollaborationView({
                             Artifact workspace (no repository)
                           </option>
                         </select>
-                        {workDestination === "artifact-workspace" ? (
+                        {personalExecutionMode ? <p className="break-words text-xs text-[var(--ink-2)]">{personalGrant
+                          ? `Pinned personal task: ${personalGrant.snapshot.repoUrl} · ${personalGrant.snapshot.codingModel}. The server resolves the selected account and machine from grant v${personalGrant.version}.`
+                          : "Select a current personal grant above. Public repository tasks only; cloud and deployment-machine execution stay unavailable in this mode."}</p> : workDestination === "artifact-workspace" ? (
                           <>
                             <textarea
                               aria-label="Expected deliverable paths"
@@ -1584,6 +1621,7 @@ function ScopedCollaborationView({
                         <select
                           aria-label="Parent handoff"
                           value={parentHandoffId}
+                          disabled={personalExecutionMode}
                           onChange={(event) => {
                             setParentHandoffId(event.target.value);
                             setHandoffRequestId("");
@@ -1616,7 +1654,7 @@ function ScopedCollaborationView({
                         </select>
                         <button
                           type="submit"
-                          disabled={busy || !taskId.trim() || !recipientActorId || !task.trim()}
+                          disabled={busy || !taskId.trim() || !recipientActorId || !task.trim() || (personalExecutionMode && !personalGrant)}
                           className="min-h-11 rounded-none border border-[var(--line)] px-2 py-2 text-xs disabled:opacity-50"
                         >
                           Request / create handoff

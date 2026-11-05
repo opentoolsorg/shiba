@@ -3,6 +3,7 @@ import type { IntegrationProviderCatalogItem } from "@shiba/shared";
 import { ToneChip } from "./ToneChip";
 import { RoleCapabilityFilter } from "./RoleCapabilityFilter";
 import { integrationRecommendedForRole, type CapabilityRoleFilter } from "../role-capability-recommendations";
+import { teamWorkspaceHeaders } from "../team-workspaces-client";
 
 function safeLogoUrl(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -15,14 +16,16 @@ function safeLogoUrl(value: string | null | undefined): string | null {
   }
 }
 
-type BrowseProps = { open: boolean; actorId?: string | null; onClose: () => void; onConnect?: (item: IntegrationProviderCatalogItem) => void; connectingKey?: string | null; linkedConnectorKeys?: ReadonlySet<string>; onLinkExisting?: (item: IntegrationProviderCatalogItem) => void; linkingKey?: string | null; linkActionLabel?: string; roleFilter?: CapabilityRoleFilter };
+type BrowseProps = { open: boolean; actorId?: string | null; workspaceId?: string; onClose: () => void; onAccessLost?: () => void; onConnect?: (item: IntegrationProviderCatalogItem) => void; connectingKey?: string | null; linkedConnectorKeys?: ReadonlySet<string>; onLinkExisting?: (item: IntegrationProviderCatalogItem) => void; linkingKey?: string | null; linkActionLabel?: string; roleFilter?: CapabilityRoleFilter };
 export function IntegrationsBrowseCatalogDialog(props: BrowseProps): JSX.Element | null {
-  const actor = useRef(props.actorId); actor.current = props.actorId;
-  return <ScopedBrowseCatalog key={props.actorId ?? "legacy"} {...props} isCurrent={() => actor.current === props.actorId} />;
+  const scope = `${props.actorId ?? "legacy"}\0${props.workspaceId ?? "personal"}`;
+  const actor = useRef(scope); actor.current = scope;
+  return <ScopedBrowseCatalog key={scope} {...props} isCurrent={() => actor.current === scope} />;
 }
 function ScopedBrowseCatalog({
   open,
   onClose,
+  onAccessLost,
   onConnect,
   connectingKey,
   linkedConnectorKeys,
@@ -30,7 +33,7 @@ function ScopedBrowseCatalog({
   linkingKey,
   linkActionLabel = "Add to view",
   roleFilter = "all",
-  actorId, isCurrent,
+  actorId, workspaceId, isCurrent,
 }: BrowseProps & { isCurrent: () => boolean }): JSX.Element | null {
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<IntegrationProviderCatalogItem[]>([]);
@@ -40,11 +43,30 @@ function ScopedBrowseCatalog({
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<CapabilityRoleFilter>(roleFilter);
   const controller = useRef<AbortController | null>(null), epoch = useRef(0), mounted = useRef(true), visible = useRef(open);
+  const dialog = useRef<HTMLDivElement>(null), close = useRef(onClose), accessLost = useRef(onAccessLost); close.current = onClose; accessLost.current = onAccessLost;
   visible.current = open;
   const scopeCheck = useRef(isCurrent); scopeCheck.current = isCurrent;
   const active = useCallback(() => mounted.current && scopeCheck.current() && visible.current, []);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; epoch.current++; controller.current?.abort(); }; }, []);
   useEffect(() => { if (open) setRole(roleFilter); }, [open, roleFilter]);
+  useEffect(() => {
+    if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
+    dialog.current?.querySelector<HTMLElement>('input[type="search"]')?.focus();
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.stopPropagation(); close.current(); return; }
+      if (event.key !== "Tab" || !dialog.current) return;
+      const root = dialog.current;
+      const items = Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter((item) => !item.hidden);
+      const first = items[0], last = items[items.length - 1];
+      if (!first || !last) return;
+      if (!root.contains(document.activeElement)) { event.preventDefault(); first.focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener("keydown", key, true);
+    return () => { window.removeEventListener("keydown", key, true); if (opener?.isConnected && opener !== document.body) opener.focus(); };
+  }, [open]);
   const visibleItems = useMemo(() => {
     const query = search.trim().toLowerCase();
     return items.filter((item) => integrationRecommendedForRole(role, undefined, item) &&
@@ -63,19 +85,26 @@ function ScopedBrowseCatalog({
         params.set("limit", "20");
         if (opts.query.trim()) params.set("query", opts.query.trim());
         if (!opts.reset && opts.nextCursor) params.set("cursor", opts.nextCursor);
-        const response = await fetch(`/api/integrations/provider/catalog?${params.toString()}`, {
+        const response = await fetch(`${workspaceId ? "/api/workspace-integrations/catalog" : "/api/integrations/provider/catalog"}?${params.toString()}`, {
           credentials: "same-origin",
           cache: "no-store",
+          redirect: "error",
           signal: abort.signal,
+          headers: teamWorkspaceHeaders(workspaceId),
         });
-        if (!response.ok) throw new Error(`Catalog unavailable (${response.status}).`);
+        if (!response.ok) {
+          if (workspaceId && [401, 403, 404].includes(response.status) && active() && generation === epoch.current && !abort.signal.aborted) accessLost.current?.();
+          throw new Error(`Catalog unavailable (${response.status}).`);
+        }
         const body = (await response.json()) as {
           items?: IntegrationProviderCatalogItem[];
           nextCursor?: string | null;
           hasMore?: boolean;
+          workspaceId?: string;
         };
         if (!active() || generation !== epoch.current || abort.signal.aborted) return;
         if (!Array.isArray(body.items)) throw new Error("Invalid provider catalog response.");
+        if (workspaceId && body.workspaceId !== workspaceId) throw new Error("The catalog belongs to another workspace. Refresh before connecting.");
         const pageItems = Array.isArray(body.items) ? body.items : [];
         setItems((prev) => [...new Map((opts.reset ? pageItems : [...prev, ...pageItems]).map((item) => [item.providerKey, item])).values()]);
         setCursor(body.nextCursor ?? null);
@@ -86,7 +115,7 @@ function ScopedBrowseCatalog({
         if (active() && generation === epoch.current && !abort.signal.aborted) setLoading(false);
       }
     },
-    [active, actorId],
+    [active, actorId, workspaceId],
   );
 
   useEffect(() => {
@@ -104,6 +133,7 @@ function ScopedBrowseCatalog({
 
   return (
     <div
+      ref={dialog}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       role="dialog"
       aria-modal="true"

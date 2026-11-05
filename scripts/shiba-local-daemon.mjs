@@ -43,7 +43,7 @@ import path from "node:path";
 import process from "node:process";
 import { copyOperatorAuth, isSafePersonalApprovalReview, stagePersonalAuth, readPersonalAuthMaterial } from "./link-operator-auth.mjs";
 import { inspectStagedPersonalAccount, personalChildEnvironment, probePersonalAccount, validatePersonalSelection } from "./personal-cli-auth.mjs";
-import { assertPersonalConfigurationSafe, assertPersonalEnvelope, personalGitArgs, personalRunPaths, personalSessionOptions, validatePersonalBinding } from "./personal-execution-guard.mjs";
+import { assertPersonalConfigurationSafe, assertPersonalEnvelope, personalGitArgs, personalResultForTransfer, personalRunPaths, personalSessionOptions, personalTransferFailure, validatePersonalBinding } from "./personal-execution-guard.mjs";
 import { collectLocalRepositorySnapshot } from "./local-repository-snapshot.mjs";
 import { connectReasonNetworkStdio, createReasonNetworkCompanion } from "./reason-network-companion.mjs";
 
@@ -227,14 +227,20 @@ function ownChild(child, detached, execution) {
 }
 
 async function post(sub, body) {
+  const encoded = JSON.stringify(body);
+  if (personalBinding && Buffer.byteLength(encoded, "utf8") > (sub === "result" ? 8 * 1024 * 1024 : sub === "events" ? 1024 * 1024 : 16 * 1024)) {
+    stopActiveExecution?.("Personal request exceeds its transfer limit.");
+    throw Object.assign(new Error("Personal request exceeds its transfer limit."), { status: 413 });
+  }
   const res = await fetch(`${workerUrl}/api/local/${sub}`, {
     method: "POST",
     redirect: "manual",
     headers: { ...AUTH, "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body: encoded,
     signal: AbortSignal.timeout(10_000),
   });
   const text = await res.text();
+  if (personalBinding && sub === "events" && res.status === 413) stopActiveExecution?.("Personal event transfer was refused by the server.");
   return parseLocalApiResponse(sub, res, text);
 }
 
@@ -1135,11 +1141,19 @@ const RESULT_ATTEMPTS = 4;
 
 /** A finished run is expensive to lose: retry transient failures ~1s, 2s, 4s with jitter. */
 async function postResult(body) {
+  if (personalBinding) body.result = personalResultForTransfer(body.sandboxId, body.claimToken, body.result);
+  let transferFailureSent = false;
   for (let attempt = 1; ; attempt++) {
     try {
-      return await post("result", body);
+      await post("result", body);
+      return body.result;
     } catch (error) {
       if (error.status === 401) await revoked();
+      if (personalBinding && error.status === 413 && !transferFailureSent) {
+        transferFailureSent = true;
+        body.result = personalTransferFailure();
+        continue;
+      }
       const transient = error.status === undefined || error.status >= 500 || error.status === 429;
       if (!transient || attempt >= RESULT_ATTEMPTS || stopping) throw error;
       console.error(
@@ -1279,7 +1293,7 @@ async function main() {
     }
     if (stopping) return new Promise(() => {});
     try {
-      await postResult({ sandboxId: envelope.sandboxId, claimToken: claim.claimToken, result });
+      result = await postResult({ sandboxId: envelope.sandboxId, claimToken: claim.claimToken, result });
       console.log(
         `shiba-local: settled ${envelope.sandboxId} — ${result.status} (exit ${result.exitCode})`,
       );
@@ -1292,6 +1306,7 @@ async function main() {
         posted: true,
       });
     } catch (error) {
+      if (personalBinding && error.status === 413) result = personalTransferFailure();
       console.error(`shiba-local: result post failed for ${envelope.sandboxId}: ${error.message}`);
       report({
         state: "settled",
