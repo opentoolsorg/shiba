@@ -1,3 +1,4 @@
+import { defaultReadToken, scopedGoogleReadToken, verifiedGoogleReadToken } from "./founder-auto-read-keys.js";
 import { founderAutomaticReadReportHash, type FounderAutomaticReadReport } from "@shiba/shared";
 import { hash, boundedBody, type ReadRequest, type GatewayReadReceipt } from "@shiba/openconnector-read-gateway";
 import type { Env } from "./env.js";
@@ -19,7 +20,7 @@ async function unknown(env:Env,grant:AutomaticGrantRow,occurrence:AutomaticOccur
 }
 export async function tickFounderAutomaticReads(env:Env):Promise<{created:number;completed:number;blocked:number;unavailable:string|null}>{
   const availability=automaticAvailability(env);if(availability)return{created:0,completed:0,blocked:0,unavailable:availability};
-  await ensureAutomaticReadSchema(env);let live:Awaited<ReturnType<typeof automaticRuntime>>;try{live=await automaticRuntime(env);}catch{return{created:0,completed:0,blocked:0,unavailable:"automatic_read_runtime_unattested"};}
+  await ensureAutomaticReadSchema(env);
   const rows=await env.AGENT_AUDIT.prepare("SELECT * FROM founder_automatic_read_grants WHERE state='enabled' ORDER BY checked_at,id LIMIT 2").all<AutomaticGrantRow>();let created=0,completed=0,blocked=0;
   for(const grant of rows.results){const contract=automaticContract(grant),pins=automaticPins(grant),now=Date.now(),source=await automaticGrantGuard(env,grant);
     const active=await env.AGENT_AUDIT.prepare("SELECT * FROM founder_automatic_read_occurrences WHERE grant_id=? AND grant_version=? AND state IN ('claimed','running','unknown') ORDER BY created_at DESC LIMIT 1").bind(grant.id,grant.version).first<AutomaticOccurrenceRow>();
@@ -31,6 +32,10 @@ export async function tickFounderAutomaticReads(env:Env):Promise<{created:number
       }else if(active.state==="unknown"||(active.lease_expires_at??0)<=Date.now()){await unknown(env,grant,active,"automatic_read_recovery_unknown");blocked++;}
       continue;
     }
+    const google=pins.sources.find(item=>item.operationId==="googleads.campaign_daily_metrics");
+    let live:Awaited<ReturnType<typeof automaticRuntime>>;
+    try{const token=google?await verifiedGoogleReadToken(env,grant.workspace_id,google.binding.connectionId,google.runtimeKeyFingerprint):defaultReadToken(env);live=await automaticRuntime(env,token);}
+    catch{await env.AGENT_AUDIT.prepare("UPDATE founder_automatic_read_grants SET state='blocked',blocked_reason='automatic_read_runtime_unattested',checked_at=? WHERE id=? AND version=? AND state='enabled'").bind(Date.now(),grant.id,grant.version).run();blocked++;continue;}
     const current=await env.AGENT_AUDIT.prepare(`SELECT 1 AS current WHERE ${source.sql}`).bind(...source.values).first();
     if(!current||JSON.stringify(contract.runtime)!==JSON.stringify(live.runtime)){await env.AGENT_AUDIT.prepare("UPDATE founder_automatic_read_grants SET state='blocked',blocked_reason='automatic_read_authority_changed',checked_at=? WHERE id=? AND version=? AND state='enabled'").bind(Date.now(),grant.id,grant.version).run();blocked++;continue;}
     if(grant.used_occurrences>=contract.maxOccurrences||grant.reserved_calls+contract.operations.length>contract.maxCalls||grant.reserved_bytes+contract.maxBytesPerOccurrence>contract.maxCapturedBytes){await env.AGENT_AUDIT.prepare("UPDATE founder_automatic_read_grants SET state='exhausted',checked_at=? WHERE id=? AND version=? AND state='enabled'").bind(Date.now(),grant.id,grant.version).run();continue;}
@@ -53,10 +58,12 @@ export async function tickFounderAutomaticReads(env:Env):Promise<{created:number
       for(const data of stepData){if(Date.now()>=leaseExpiry)throw new Error("automatic_read_deadline_unknown");
         const selected=pins.sources[data.ordinal]!,policy=contract.operations[data.ordinal]!,capExpiry=Math.min(Date.now()+15000,leaseExpiry);
         const request:Omit<ReadRequest,"capabilities">={format:"shiba.scheduled-read.v1",versionId:contract.runtime.versionId,manifestDigest:contract.runtime.manifestDigest,grantId:grant.id,grantVersion:grant.version,occurrenceId,stepId:data.id,stepDigest:data.digest,principal:{kind:"schedule",id:`schedule:${grant.id}`},workspaceId:grant.workspace_id,alias:await openConnectorWorkspaceConnectionName(grant.workspace_id),connectionId:selected.binding.connectionId,providerConnectionId:selected.binding.providerConnectionId,authorizationFingerprint:selected.binding.fingerprint,operationId:selected.operationId,arguments:selected.arguments,...(selected.sourceFingerprint?{sourceFingerprint:selected.sourceFingerprint}:{}),expiresAt:capExpiry,maxBytes:policy.maxBytes,maxDurationMs:contract.maxStepMs};
+        const readToken=selected.operationId==="googleads.campaign_daily_metrics"?await verifiedGoogleReadToken(env,grant.workspace_id,selected.binding.connectionId,selected.runtimeKeyFingerprint):defaultReadToken(env);
         const signed=await mintAutomaticReadCapabilities(env,request,data.nonce),finalSource=await automaticGrantGuard(env,grant);
         const submitted=await env.AGENT_AUDIT.prepare(`UPDATE founder_automatic_read_steps SET state='submitted',request_json=?,request_digest=?,expires_at=?,updated_at=? WHERE id=? AND nonce=? AND state='pending' AND ${finalSource.sql} AND ?>${FOUNDER_SQL_NOW} AND EXISTS(SELECT 1 FROM founder_automatic_read_occurrences WHERE id=? AND lease_id=? AND state='running' AND lease_expires_at>${FOUNDER_SQL_NOW})`).bind(JSON.stringify(request),signed.requestDigest,capExpiry,Date.now(),data.id,data.nonce,...finalSource.values,capExpiry,occurrenceId,leaseId).run();
         if(submitted.meta.changes!==1)throw new Error("automatic_read_authority_changed");
-        try{const response=await env.OPEN_CONNECTOR_READ_GATEWAY!.fetch("https://read-gate.internal/v1/shiba/read-gate/execute",{method:"POST",redirect:"manual",headers:{authorization:`Bearer ${env.OPEN_CONNECTOR_READ_RUNTIME_TOKEN}`,"content-type":"application/json"},body:JSON.stringify({...request,capabilities:signed.capabilities}),signal:AbortSignal.timeout(Math.max(1,Math.min(15000,leaseExpiry-Date.now())))});await boundedBody(response.body,80000);}catch{/* The durable parent receipt is authoritative; never resend this request. */}
+        if(selected.operationId==="googleads.campaign_daily_metrics" && scopedGoogleReadToken(env,grant.workspace_id,selected.binding.connectionId)!==readToken)throw new Error("automatic_read_runtime_changed");
+        try{const response=await env.OPEN_CONNECTOR_READ_GATEWAY!.fetch("https://read-gate.internal/v1/shiba/read-gate/execute",{method:"POST",redirect:"manual",headers:{authorization:`Bearer ${readToken}`,"content-type":"application/json"},body:JSON.stringify({...request,capabilities:signed.capabilities}),signal:AbortSignal.timeout(Math.max(1,Math.min(15000,leaseExpiry-Date.now())))});await boundedBody(response.body,80000);}catch{/* The durable parent receipt is authoritative; never resend this request. */}
         const receipt=await env.AGENT_AUDIT.prepare("SELECT * FROM founder_automatic_read_steps WHERE id=? AND request_digest=?").bind(data.id,signed.requestDigest).first<AutomaticStepRow>();
         if(!receipt||!["completed","failed"].includes(receipt.state))throw new Error("automatic_read_outcome_unknown");
       }
@@ -103,10 +110,13 @@ export interface AutomaticReportAuthority {
   readGrant:AutomaticGrantRow;pins:AutomaticPins;occurrence:AutomaticOccurrenceRow;recipeHashFromCode:string;
   report:FounderAutomaticReadReport;
 }
+const privateGoogleTokens=new WeakMap<AutomaticReportAuthority,string>();
 /** Sync, trusted-server snapshot only. Combine with a separate standing Slack grant immediately before send. */
 export function automaticReadReportAuthorityGuard(env:Env,authority:AutomaticReportAuthority){
   const grant=authority.readGrant,contract=automaticContract(grant),o=authority.occurrence,pins=authority.pins;
   if(automaticAvailability(env)||authority.principal.kind!=="schedule"||authority.principal.id!==`schedule:${grant.id}`||authority.recipeHashFromCode!==pins.recipeSha256||contract.runtime.versionId!==env.OPEN_CONNECTOR_READ_VERSION_ID||contract.runtime.manifestDigest!==env.OPEN_CONNECTOR_READ_MANIFEST_SHA256||authority.report.reportHash!==o.report_hash||authority.report.markdown!==o.markdown||authority.report.json!==o.json)return{sql:"0=1",values:[]as unknown[]};
+  const google=pins.sources.find(item=>item.operationId==="googleads.campaign_daily_metrics");
+  if(google){try{if(!google.runtimeKeyFingerprint||privateGoogleTokens.get(authority)!==scopedGoogleReadToken(env,grant.workspace_id,google.binding.connectionId))return{sql:"0=1",values:[]as unknown[]};}catch{return{sql:"0=1",values:[]as unknown[]};}}
   const source=automaticPinsGuard(pins);
   return{sql:`${source.sql} AND EXISTS(SELECT 1 FROM founder_automatic_read_grants WHERE id=? AND version=? AND digest=? AND contract_json=? AND pins_json=? AND state IN ('enabled','exhausted') AND json_extract(contract_json,'$.expiresAt')>${FOUNDER_SQL_NOW})
     AND EXISTS(SELECT 1 FROM founder_automatic_read_occurrences o WHERE o.id=? AND o.grant_id=? AND o.grant_version=? AND o.grant_digest=? AND o.state IN ('completed','partial','failed') AND o.expires_at>${FOUNDER_SQL_NOW} AND o.expires_at=? AND o.report_hash=? AND o.markdown=? AND o.json=? AND o.report_sources_json=?
@@ -123,6 +133,8 @@ export async function loadAutomaticReadReportAuthority(env:Env,input:{kind:"sche
   const pins=automaticPins(grant),report=await readAutomaticReadReport(env,pins.member,grant.library_id,occurrence.id),recipe=await founderConnectorRecipeHash(grant.library_id);
   if(!recipe)throw new WorkspaceIntegrationError("automatic_read_report_authority_changed",403);
   const authority:AutomaticReportAuthority={principal:{kind:"schedule",id:`schedule:${grant.id}`},humanAuthorizer:pins.member,readGrant:grant,pins,occurrence,recipeHashFromCode:recipe,report};
+  const google=pins.sources.find(item=>item.operationId==="googleads.campaign_daily_metrics");
+  if(google)privateGoogleTokens.set(authority,await verifiedGoogleReadToken(env,grant.workspace_id,google.binding.connectionId,google.runtimeKeyFingerprint));
   const guard=automaticReadReportAuthorityGuard(env,authority);
   if(!await env.AGENT_AUDIT.prepare(`SELECT 1 AS current WHERE ${guard.sql}`).bind(...guard.values).first())throw new WorkspaceIntegrationError("automatic_read_report_authority_changed",403);
   return authority;

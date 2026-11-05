@@ -147,5 +147,9 @@ INTEGRATIONS_PROVIDER=openconnector
 # OPEN_CONNECTOR_RUNTIME_TOKEN=
 # Separate scoped Worker-only key for the default-off audited read gateway.
 # OPEN_CONNECTOR_READ_RUNTIME_TOKEN=
+# Exact workspace/connection/operation runtime keys; JSON array, Worker-only.
+# OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS=
 # Optional native restricted Stripe reads encryption key (64 hex, Worker-only).
 # FOUNDER_STRIPE_CREDENTIAL_KEY=
+# Optional native Meta reads encryption key (64 hex, Worker-only).
+# FOUNDER_META_CREDENTIAL_KEY=

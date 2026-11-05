@@ -26,6 +26,7 @@ import { WorkspaceConnectorsPanel } from "./WorkspaceConnectorsPanel";
 import { SlackInstallationsPanel } from "./SlackInstallationsPanel";
 import { SlackCoworkerPanel } from "./SlackCoworkerPanel";
 import { FounderStripeReads } from "./FounderStripeReads";
+import { FounderMetaReads } from "./FounderMetaReads";
 
 function IntegrationRow({
   name,
@@ -155,6 +156,7 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
   const [showSlack, setShowSlack] = useState(false);
   const [showCoworker, setShowCoworker] = useState(false);
   const [showStripe, setShowStripe] = useState(false);
+  const [showMeta, setShowMeta] = useState(false);
   return <div className="min-w-0 space-y-4"><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
     actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
     allowPersonalScope={props.allowPersonalScope} onPersonalScope={props.onPersonalScope} />
@@ -171,6 +173,10 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
     {props.actorId && <section className="p-4">
       <button type="button" aria-expanded={showStripe} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowStripe((shown) => !shown)}>{showStripe ? "Close Stripe read setup" : "Review private Stripe reads"}</button>
       {showStripe && <FounderStripeReads workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowStripe(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showMeta} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowMeta((shown) => !shown)}>{showMeta ? "Close Meta read setup" : "Review private Meta Ads reads"}</button>
+      {showMeta && <FounderMetaReads workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowMeta(false)} />}
     </section>}</div>;
 }
 

@@ -71,6 +71,8 @@ import { handleFounderAutomaticReadPermit } from "./founder-auto-read-permits.js
 import { handleFounderAutomaticSlack } from "./founder-automatic-slack-routes.js";
 import { handleFounderStripeReads } from "./founder-stripe-routes.js";
 import { tickFounderStripeReads } from "./founder-stripe-runtime.js";
+import { handleFounderMetaReads } from "./founder-meta-routes.js";
+import { tickFounderMetaReads } from "./founder-meta-runtime.js";
 import { tickFounderAutomaticSlack } from "./founder-automatic-slack-tick.js";
 import { handleRunOutputArchives } from "./run-output-archive-routes.js";
 import { handleSlackInstallations } from "./slack-installations-routes.js";
@@ -191,6 +193,8 @@ export default {
     ctx.waitUntil((async () => {
       try { await tickFounderStripeReads(env); }
       catch (error) { console.error("Founder Stripe read scheduling failed", redactSecrets(String(error))); }
+      try { await tickFounderMetaReads(env); }
+      catch (error) { console.error("Founder Meta read scheduling failed", redactSecrets(String(error))); }
       try { await tickFounderAutomaticReads(env); }
       catch (error) { console.error("Founder automatic read scheduling failed", redactSecrets(String(error))); }
       try { await tickFounderAutomaticSlack(env); }
@@ -397,6 +401,8 @@ export default {
       if (founderAutomaticResponse) return founderAutomaticResponse;
       const founderStripeResponse = await handleFounderStripeReads(request, env);
       if (founderStripeResponse) return founderStripeResponse;
+      const founderMetaResponse = await handleFounderMetaReads(request, env);
+      if (founderMetaResponse) return founderMetaResponse;
       const founderAutomaticSlackResponse = await handleFounderAutomaticSlack(request, env);
       if (founderAutomaticSlackResponse) return founderAutomaticSlackResponse;
       const founderEvidenceResponse = await handleFounderEvidenceReports(request, env);

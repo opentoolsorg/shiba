@@ -33,9 +33,14 @@ export interface Env {
   FOUNDER_STRIPE_READS_ENABLED?: string;
   /** Worker-only purpose-separated encryption key; never a Stripe account key. */
   FOUNDER_STRIPE_CREDENTIAL_KEY?: string;
+  /** Separate default-off Meta account reads; private Worker encryption only. */
+  FOUNDER_META_READS_ENABLED?: string;
+  FOUNDER_META_CREDENTIAL_KEY?: string;
   OPEN_CONNECTOR_READ_GATEWAY?: Fetcher;
   /** Separate least-privilege read-lane runtime key; never the manual runtime key. */
   OPEN_CONNECTOR_READ_RUNTIME_TOKEN?: string;
+  /** Reviewed one-operation keys selected by exact workspace and connection. */
+  OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS?: string;
   OPEN_CONNECTOR_READ_VERSION_ID?: string;
   OPEN_CONNECTOR_READ_MANIFEST_SHA256?: string;
   /** Bound to the Automations Durable Object class in wrangler.jsonc. */
