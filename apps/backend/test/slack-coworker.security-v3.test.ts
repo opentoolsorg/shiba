@@ -124,7 +124,7 @@ describe("native-reviewed Slack execution bridge",()=>{
     const response=await handleSlackCoworker(f.request('submit',f.decision),f.env);
     expect(response?.status).toBe(201);const text=await response!.text();expect(text).not.toContain('privateTask');
     expect(JSON.parse(text)).toMatchObject({ok:true,workspaceId:f.member.workspaceId,actorId:f.member.userId,receipt:{draftId:f.selection.id,state:'queued',approvalRequired:true}});
-    expect(execution.selection).toEqual(f.selection);expect(execution.decision).toEqual(f.decision);
+    expect(execution.selection).toEqual(f.selection);expect(execution.decision).toEqual({...f.decision,privateStatusConsent:false});
     expect(queue.input).toMatchObject({task:'Execute only on my paired local computer',personalExecution:f.selection.personalExecution,budget:0,grantedCapabilities:['room.read','message.send']});
     expect(queue.input).not.toHaveProperty('approved');expect((await handleSlackCoworker(f.request('submit',f.decision),f.env))?.status).toBe(409);expect(queue.calls).toBe(1);
   });

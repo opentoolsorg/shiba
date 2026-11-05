@@ -39,7 +39,7 @@ vi.mock("./PersonalExecutionSetup", () => ({
   ),
 }));
 afterEach(cleanup);
-it("reviews exact source and audience before one pending approval submission", async () => {
+it.each([true, false])("reviews source and audience with private status available=%s", async (privateAvailable) => {
   const draft = {
     id: draftId,
     text: "Untrusted request",
@@ -67,6 +67,7 @@ it("reviews exact source and audience before one pending approval submission", a
     createdAt: Date.now(),
     expiresAt: Date.now() + 60000,
     consent: "share-my-slack-task-and-results-with-reviewed-room-audience",
+    privateStatus: privateAvailable ? { kind:"private-slack-status-v1", installationId:"install", installationDigest:hash, appId:"A1", teamId:"T1", channelId:"C1", threadTs:"1.1", slackUserId:"U1", expiresAt:Date.now()+30000, maxNotices:6 } : null,
   };
   const receipt = {
     previewId,
@@ -141,10 +142,12 @@ it("reviews exact source and audience before one pending approval submission", a
   await screen.findByText("Review the exact submission");
   expect(screen.getByText(/Room Private room/)).toBeTruthy();
   expect(screen.getByText(/native-subscription/)).toBeTruthy();
+  if(privateAvailable){expect(screen.getByText(/Private Slack status target: user U1/).textContent).toContain("team T1 · channel C1 · thread 1.1");const privateConsent=screen.getByLabelText("Send private Slack status only to this verified user") as HTMLInputElement;expect(privateConsent.checked).toBe(false);fireEvent.click(privateConsent);}else{expect(screen.getByText(/Private Slack status is unavailable/)).toBeTruthy();expect(screen.queryByLabelText("Send private Slack status only to this verified user")).toBeNull();}
   fireEvent.click(screen.getByLabelText(/I consent to sharing/));
   fireEvent.click(screen.getByText("Request native approval"));
   await screen.findByText(/Submitted to the native approval flow/);
   expect(posted).toBe(1);
+  const submitCall=fetcher.mock.calls.find(([url])=>String(url).endsWith("/drafts/submit"));expect(JSON.parse(String(submitCall?.[1]?.body))).toMatchObject({privateStatusConsent:privateAvailable});
   fireEvent.click(screen.getByText("Open room handoff"));
   expect(open).toHaveBeenCalledWith(roomId, receipt.handoffId);
 });

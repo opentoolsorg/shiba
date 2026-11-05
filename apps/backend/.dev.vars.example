@@ -76,6 +76,8 @@
 # SLACK_BOT_TOKEN=
 # Optional managed-installation encryption keyring; remains Worker-only.
 # SLACK_INSTALLATION_KEYRING=
+# Private coworker notices also require each native user's explicit target consent.
+# SLACK_COWORKER_PRIVATE_STATUS_ENABLED=false
 # JSON map {channelId: "https://github.com/owner/repo"} for bare @mentions.
 # SLACK_CHANNEL_REPOS=
 

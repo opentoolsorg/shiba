@@ -308,6 +308,8 @@ export interface Env {
   SLACK_BOT_TOKEN?: string;
   /** Managed installations are opt-in; credentials stay in encrypted Worker storage. */
   SLACK_INSTALLATIONS_ENABLED?: string;
+  /** Explicit operator opt-in for separately consented private coworker notices. */
+  SLACK_COWORKER_PRIVATE_STATUS_ENABLED?: string;
   SLACK_OAUTH_APP_ID?: string;
   SLACK_OAUTH_CLIENT_ID?: string;
   SLACK_OAUTH_REDIRECT_URI?: string;

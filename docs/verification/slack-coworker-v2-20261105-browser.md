@@ -8,3 +8,7 @@ On 2026-11-05, Chromium exercised the actual `SlackCoworkerPanel` and `PersonalE
 - [390px queued receipt](slack-coworker-v2-20261105-queued-390.png): synthetic queued receipt and open-handoff control. Clicking it invoked the fixture navigation callback.
 
 The browser reported no uncaught page errors. These observations verify rendering and the mocked client interaction only; they do not verify live Slack, personal account entitlement, backend authorization, or actual execution.
+
+## Private status consent (offline fixture)
+
+A second local Chromium pass used synthetic private-status target metadata and blocked all external hosts. The [390px consent screenshot](slack-coworker-v2-20261105-private-consent-390.png) shows the fixture Slack user, team, channel, thread, expiry and six-notice cap alongside a separate unchecked opt-in. The document and scroll widths were both 390px, with no uncaught page errors. This is mocked component evidence; no Slack status was sent and it does not verify live delivery.

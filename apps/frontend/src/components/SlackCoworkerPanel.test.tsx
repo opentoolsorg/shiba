@@ -36,4 +36,16 @@ describe('Slack coworker native scope',()=>{
   await screen.findByText(/Submission unknown/);fireEvent.click(screen.getByRole('button',{name:'Open room handoff'}));expect(onOpen).toHaveBeenCalledWith(roomId,handoffId);expect(fetcher.mock.calls.every(([url])=>!String(url).endsWith('/drafts/submit'))).toBe(true);
  });
 
+ it('stops an active private status and refreshes the receipt',async()=>{
+  const ws='ws_'+ 'a'.repeat(24),actor='a@example.test',roomId='room_'+ 'd'.repeat(24),previewId='scp_'+ 'c'.repeat(32);let revoked=false;
+  const row=()=>({previewId,draftId:draft.id,roomId,handoffId:'scx_'+ 'a'.repeat(32),state:'queued',approvalRequired:true,privateStatusState:revoked?'revoked':'active'});
+  const fetcher=vi.fn(async(url:RequestInfo|URL,init?:RequestInit)=>{const path=String(url);if(path.endsWith('/drafts/status/revoke')){revoked=true;return Response.json({ok:true,workspaceId:ws,actorId:actor});}if(path.includes('/drafts/submission?'))return Response.json({ok:true,workspaceId:ws,actorId:actor,preview:null,receipt:row(),sourceAvailable:false});return Response.json(path.endsWith('/drafts/submissions')?{ok:true,workspaceId:ws,actorId:actor,submissions:[row()]}:path.endsWith('/drafts')?{drafts:[]}:state);});
+  render(<SlackCoworkerPanel workspaceId={ws} actorId={actor} onAdoptTask={()=>{}} client={new SlackCoworkerClient(ws,actor,fetcher)}/>);await screen.findByText('Private Slack status: active');fireEvent.click(screen.getByText('Stop private Slack status'));await screen.findByText('Private Slack status: revoked');expect(fetcher.mock.calls.filter(([url])=>String(url).endsWith('/drafts/status/revoke'))).toHaveLength(1);
+ });
+ it('does not retry an uncertain stop without a verified refresh',async()=>{
+  const ws='ws_'+ 'a'.repeat(24),actor='a@example.test',roomId='room_'+ 'd'.repeat(24),previewId='scp_'+ 'c'.repeat(32);const row={previewId,draftId:draft.id,roomId,handoffId:'scx_'+ 'a'.repeat(32),state:'queued',approvalRequired:true,privateStatusState:'active'};
+  const fetcher=vi.fn(async(url:RequestInfo|URL)=>{const path=String(url);if(path.endsWith('/drafts/status/revoke'))throw new Error('lost');return Response.json(path.endsWith('/drafts/submissions')?{ok:true,workspaceId:ws,actorId:actor,submissions:[row]}:path.endsWith('/drafts')?{drafts:[]}:state);});
+  render(<SlackCoworkerPanel workspaceId={ws} actorId={actor} onAdoptTask={()=>{}} client={new SlackCoworkerClient(ws,actor,fetcher)}/>);fireEvent.click(await screen.findByText('Stop private Slack status'));await screen.findByText(/nothing is retried automatically/);expect((screen.getByText('Stop private Slack status') as HTMLButtonElement).disabled).toBe(true);fireEvent.click(screen.getByText('Refresh private status'));await screen.findByText(/nothing is retried automatically/);expect((screen.getByText('Stop private Slack status') as HTMLButtonElement).disabled).toBe(true);expect(fetcher.mock.calls.filter(([url])=>String(url).endsWith('/drafts/status/revoke'))).toHaveLength(1);
+ });
+
 });

@@ -1,4 +1,8 @@
-import type { PersonalExecutionSnapshot, PersonalPairingScope } from "@shiba/shared";
+import type {
+  PersonalExecutionSnapshot,
+  PersonalPairingScope,
+  SlackCoworkerPrivateStatusTarget,
+} from "@shiba/shared";
 import type { Env } from "./env.js";
 import type { WorkspaceNativeMember } from "./workspace-native-authority.js";
 import { SlackInstallationError } from "./slack-installations-crypto.js";
@@ -36,6 +40,7 @@ export interface SlackCoworkerSubmit {
   digest: string;
   reviewed: true;
   audienceConsent: "share-my-slack-task-and-results-with-reviewed-room-audience";
+  privateStatusConsent?: boolean;
 }
 export interface SlackCoworkerPreview {
   previewId: string;
@@ -50,6 +55,7 @@ export interface SlackCoworkerPreview {
   employeeName: string;
   employeeVersion: number;
   personalExecution: PersonalExecutionSnapshot;
+  privateStatus?: SlackCoworkerPrivateStatusTarget | null;
   roomAudience: Array<{ actorId: string; userId: string; kind: "human" | "agent"; role: string }>;
   createdAt: number;
   expiresAt: number;
@@ -315,6 +321,9 @@ export async function prepareSlackCoworkerSubmission(
     employeeName: profile.config.name,
     employeeVersion: profile.version,
     personalExecution: grant,
+    privateStatus: await (
+      await import("./slack-coworker-private-status.js")
+    ).describeSlackCoworkerPrivateStatus(env, member, input.id, grant.expiresAt),
     roomAudience: readers,
     createdAt: now,
     expiresAt,
@@ -438,6 +447,8 @@ export async function claimSlackCoworkerSubmission(
   const sg = sessionGuard(member, session),
     g = slackCoworkerDraftGuard(member),
     p = parsed(row);
+  if (input.privateStatusConsent && !p.privateStatus)
+    fail("slack_coworker_private_status_unavailable", 409);
   const result =
     await env.AGENT_AUDIT.prepare(`UPDATE slack_coworker_execution_v2 SET state='dispatching' WHERE id=? AND digest=? AND state='preview' AND expires_at>${nowSql} AND ${sg.sql}
  AND EXISTS(SELECT 1 FROM slack_coworker_drafts d WHERE d.id=? AND d.text=? AND ${g.sql}) AND ${audienceSql}=?
@@ -456,6 +467,13 @@ export async function claimSlackCoworkerSubmission(
       )
       .run();
   if (result.meta.changes !== 1) fail("slack_coworker_execution_already_submitted", 409);
+  if (input.privateStatusConsent)
+    await (await import("./slack-coworker-private-status.js")).activateSlackCoworkerPrivateStatus(
+      env,
+      member,
+      p,
+      true,
+    );
   const body = bodyFor(row),
     headers = new Headers(request.headers);
   headers.set(HEADER, `${row.id}.${await proofValue(secret, row, body)}`);
@@ -686,6 +704,9 @@ export async function readSlackCoworkerSubmission(
     .bind(draftId, member.workspaceId, member.accountId)
     .first<Row>();
   if (!row) return { preview: null, receipt: null, sourceAvailable: false };
+  const privateStatusState = await (
+    await import("./slack-coworker-private-status.js")
+  ).readSlackCoworkerPrivateStatus(env, member, row.id);
   const available = await current(env, row, session),
     p = parsed(row),
     pending = row.state === "preview";
@@ -720,6 +741,7 @@ export async function readSlackCoworkerSubmission(
           handoffId: row.handoff_id,
           state: row.state as "dispatching" | "queuing" | "queued" | "blocked" | "unknown",
           approvalRequired: true as const,
+          ...(privateStatusState ? { privateStatusState } : {}),
         },
     sourceAvailable: available,
   };
