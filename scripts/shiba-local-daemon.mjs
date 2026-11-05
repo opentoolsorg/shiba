@@ -820,6 +820,11 @@ async function execute(envelope, claimToken) {
     milestone("config.written", `${envelope.configFiles.length} files`);
     if (stopReason) return errorResult(stopReason);
 
+    if (artifact) {
+      const current = await post("control", { sandboxId: envelope.sandboxId, claimToken });
+      if (current.interrupt || stopped()) return errorResult("Local artifact execution was cancelled before launch.");
+    }
+
     // 4. the harness process. A session envelope drives Codex or Claude
     // through the session layer; older envelopes still exec argv.
     milestone("harness.started", envelope.harness);
@@ -855,7 +860,7 @@ async function execute(envelope, claimToken) {
         ...(personalBinding ? personalSessionOptions(envelope.harness) : {}),
         ...(personalBinding ? { exactApprovalReview: true,
           validateApprovalReview: detail => isSafePersonalApprovalReview(detail, process.env.HOME, envelope.harness) } : {}),
-        checkpoints: true,
+        checkpoints: !artifact,
         emitStdout: false,
         detached: process.platform !== "win32",
         // Session close, abort and deadlines share one bounded group cleanup.
