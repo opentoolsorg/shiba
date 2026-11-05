@@ -201,7 +201,17 @@ test("actual native shared UI retains goal, thread, approved output and review a
       .getByPlaceholder("Standing instructions prepended to every run")
       .fill("Use only supplied fixture facts. Produce the required report for human review.");
     await page.getByLabel("Required deliverables").fill("reports/native-fixture.md");
+    // Saving is asynchronous. Confirm the Worker accepted this exact UI write
+    // before polling its read model; otherwise a cold save races expect.poll.
+    const createdEmployee = page.waitForResponse((response) =>
+      response.url() === `${fixture.origin}/api/custom-agents` &&
+      response.request().method() === "POST",
+    );
     await page.getByRole("button", { name: "Create bot", exact: true }).click();
+    const creation = await createdEmployee;
+    expect(creation.status()).toBe(201);
+    const savedEmployee = await creation.json() as {agent:{id:string;version:number;config:{name:string}}};
+    expect(savedEmployee.agent).toMatchObject({config:{name:"Native Fixture Researcher"}});
     let employee: { id: string; version: number } | undefined;
     await expect
       .poll(async () => {
@@ -211,7 +221,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
             "/api/custom-agents",
           )
         ).agents.find((agent) => agent.config.name === "Native Fixture Researcher");
-        return employee?.id;
+        return employee?.id === savedEmployee.agent.id ? employee.id : undefined;
       })
       .toBeTruthy();
     if (!employee) throw new Error("Fixture employee was not persisted");
@@ -456,6 +466,11 @@ test("actual native shared UI retains goal, thread, approved output and review a
     ).toBe(0);
     await page.screenshot({ path: path.join(evidence, "restarted-retained-output.png") });
   } catch (error) {
+    if (app) {
+      const evidence = fileURLToPath(new URL("../../../.verify/native-onboarding/", import.meta.url));
+      await mkdir(evidence, { recursive: true });
+      await app.firstWindow().then(page=>page.screenshot({path:path.join(evidence,"failure.png")})).catch(()=>{});
+    }
     console.error(nativeLogs.join("\n"));
     console.error(fixture.logs.slice(-20).join("\n"));
     throw error;
