@@ -47,6 +47,7 @@ import { isPersonalOwnerCurrent, personalComputerMatches, personalGrantFence, is
 import { validatePersonalExecutionClaim } from "./personal-execution-claim.js";
 
 const RECORD_PREFIX = "run:";
+const ARTIFACT_DISPATCH_PREFIX = "artifact-dispatched:";
 const MAX_LOCAL_EVENT_BATCH = 64;
 const MAX_SESSION_EVENTS = 200;
 const COMPUTER_PREFIX = "computer:";
@@ -151,6 +152,9 @@ export class LocalDispatch extends DurableObject<Env> {
         (record.status === "settled" || record.status === "cancelled") &&
         now - (record.settledAt ?? record.envelope.createdAt) > 7 * 24 * 60 * 60 * 1000
       ) {
+        if (record.envelope.executionTarget?.kind === "artifact-workspace") {
+          await this.ctx.storage.put(`${ARTIFACT_DISPATCH_PREFIX}${record.envelope.sandboxId}`, true);
+        }
         await this.deleteRecord(record.envelope.sandboxId);
       }
     }
@@ -371,6 +375,11 @@ export class LocalDispatch extends DurableObject<Env> {
         return Response.json({ error: "Invalid run envelope." }, { status: 400 });
       }
       const existing = await this.getRecord(parsed.data.sandboxId);
+      const artifact = parsed.data.executionTarget?.kind === "artifact-workspace";
+      if ((existing && (artifact || existing.envelope.executionTarget?.kind === "artifact-workspace")) ||
+        await this.ctx.storage.get(`${ARTIFACT_DISPATCH_PREFIX}${parsed.data.sandboxId}`)) {
+        return Response.json({ error: "Local artifact execution was already dispatched; create a new approval instead of retrying." }, { status: 409 });
+      }
       if (existing && parsed.data.personalExecution) return Response.json({ error: "Personal execution was already dispatched." }, { status: 409 });
       if (existing !== null && existing.status !== "settled" && existing.status !== "cancelled") {
         return Response.json(
@@ -409,6 +418,7 @@ export class LocalDispatch extends DurableObject<Env> {
         typeof body.dashboardOwnerId === "string" && body.dashboardOwnerId.trim() !== ""
           ? body.dashboardOwnerId.trim().slice(0, 200)
           : undefined;
+      if (artifact && (!target || !dashboardOwnerId)) return Response.json({ error: "Local artifacts require a paired computer and owner." }, { status: 403 });
       const record: LocalDispatchRecord = {
         envelope: parsed.data,
         status: "pending",
@@ -426,6 +436,22 @@ export class LocalDispatch extends DurableObject<Env> {
           return true;
         });
         return inserted ? Response.json({ ok: true }) : Response.json({ error: "Personal dispatch changed or already exists." }, { status: 409 });
+      }
+      if (artifact) {
+        if (!this.ctx.storage.transaction) return Response.json({ error: "Artifact dispatch storage unavailable." }, { status: 503 });
+        const inserted = await this.ctx.storage.transaction(async (tx) => {
+          const fence = `${ARTIFACT_DISPATCH_PREFIX}${parsed.data.sandboxId}`;
+          if (await tx.get(fence) || await tx.get(`${RECORD_PREFIX}${parsed.data.sandboxId}`)) return false;
+          const computer = await tx.get<ComputerRecord>(`${COMPUTER_PREFIX}${target}`);
+          if (!computer?.tokenHash?.trim() || computer.personalExecution || !Number.isFinite(computer.lastHeartbeat) ||
+            Math.abs(Date.now() - computer.lastHeartbeat) > LOCAL_HEARTBEAT_STALE_MS ||
+            !computer.harnesses.includes(LOCAL_DAEMON_HARNESSES[parsed.data.harness] ?? "")) return false;
+          // Keep a small replay fence after the bounded run audit record is pruned.
+          await tx.put(fence, true);
+          await tx.put(`${RECORD_PREFIX}${parsed.data.sandboxId}`, record);
+          return true;
+        });
+        return inserted ? Response.json({ ok: true }) : Response.json({ error: "Artifact execution was already dispatched." }, { status: 409 });
       }
       await this.putRecord(record);
       return Response.json({ ok: true });
