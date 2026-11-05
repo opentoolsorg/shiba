@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type Mouse
 import { Archive, Check, Eye, Loader2, Pencil, Plus, RotateCcw, Search, Sparkles, ToggleLeft, ToggleRight, Trash2, Users, UserRound, X } from "lucide-react";
 import type { ExtensionSkillRecord, ExtensionSkillScope, ExtensionSkillView } from "@shiba/shared";
 import {
+  ExtensionSkillRequestError,
   archiveExtensionSkill,
   createExtensionSkill,
   deleteExtensionSkill,
@@ -32,8 +33,8 @@ interface DialogState {
 const CONTROL = "min-h-11 inline-flex items-center justify-center gap-2 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-50";
 const FIELD = "min-h-11 w-full border border-[var(--border-1)] bg-[var(--input)] px-3 py-2 text-sm text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] focus:outline focus:outline-2 focus:outline-[var(--ring)]";
 
-export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onOpenRunSkills?: () => void; embedded?: boolean } = {}): JSX.Element {
-  const [view, setView] = useState<ExtensionSkillView>("personal");
+export function ExtensionSkillsView({ onOpenRunSkills, embedded = false, workspaceId, canManage = true }: { onOpenRunSkills?: () => void; embedded?: boolean; workspaceId?: string; canManage?: boolean } = {}): JSX.Element {
+  const [view, setView] = useState<ExtensionSkillView>(workspaceId ? "workspace" : "personal");
   const [skills, setSkills] = useState<ExtensionSkillRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -43,22 +44,27 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const loadGeneration = useRef(0);
+  const controller = useRef(new AbortController());
+  const requestScope = () => ({ workspaceId, signal: controller.current.signal });
+  useEffect(() => { const abort = new AbortController(); controller.current = abort; return () => { abort.abort(); }; }, []);
 
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
     setLoading(true);
     setLoadError(null);
     try {
-      const rows = await fetchExtensionSkills(view);
+      const rows = await fetchExtensionSkills(view, { workspaceId, signal: controller.current.signal });
       if (generation === loadGeneration.current) setSkills(rows);
     } catch (cause) {
       if (generation === loadGeneration.current) {
+        setSkills([]);
+        setDialog(null);
         setLoadError(cause instanceof Error ? cause.message : "Skills could not be loaded.");
       }
     } finally {
       if (generation === loadGeneration.current) setLoading(false);
     }
-  }, [view]);
+  }, [view, workspaceId]);
 
   useEffect(() => {
     void load();
@@ -72,6 +78,10 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
       .join(" ").toLocaleLowerCase().includes(needle));
   }, [skills, query]);
 
+  const clearRevoked = (cause: unknown) => {
+    if (workspaceId && cause instanceof ExtensionSkillRequestError && [401, 403, 404].includes(cause.status)) { setSkills([]); setDialog(null); }
+  };
+
   const save = async (values: FormValues) => {
     if (!dialog) return;
     setMutationError(null);
@@ -81,15 +91,16 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
           name: values.name || "New Skill",
           description: values.description,
           instructions: values.instructions,
-          enabled: values.enabled,
+          enabled: workspaceId ? false : values.enabled,
           scope: view === "workspace" ? "workspace" : "personal",
-        });
+        }, requestScope());
       } else if (dialog.skill) {
-        await updateExtensionSkill(dialog.skill._id, values);
+        await updateExtensionSkill(dialog.skill._id, { ...values, ...(workspaceId ? { expectedVersion: dialog.skill.version } : {}) }, requestScope());
       }
       await load();
-      setNotice(dialog.mode === "create" ? "Skill created." : "Skill saved.");
+      setNotice(dialog.mode === "create" ? workspaceId ? "Team skill created disabled. Review its instructions, then enable it separately." : "Skill created." : "Skill saved.");
     } catch (cause) {
+      clearRevoked(cause);
       setMutationError(cause instanceof Error ? cause.message : "Skill could not be saved.");
       throw cause;
     }
@@ -98,10 +109,11 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
   const remove = async (skill: ExtensionSkillRecord) => {
     setMutationError(null);
     try {
-      await deleteExtensionSkill(skill._id);
+      await deleteExtensionSkill(skill._id, requestScope());
       await load();
       setNotice("Skill deleted.");
     } catch (cause) {
+      clearRevoked(cause);
       setMutationError(cause instanceof Error ? cause.message : "Skill could not be deleted.");
       throw cause;
     }
@@ -116,6 +128,7 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
       setDialog(null);
       setNotice(message);
     } catch (cause) {
+      clearRevoked(cause);
       setMutationError(cause instanceof Error ? cause.message : "Skill could not be updated.");
     } finally {
       setBusyId(null);
@@ -130,17 +143,19 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
     setNotice(null);
     setSkills((current) => current.map((item) => item._id === skill._id ? { ...item, enabled } : item));
     try {
-      await updateExtensionSkill(skill._id, { enabled });
+      await updateExtensionSkill(skill._id, { enabled, ...(workspaceId ? { expectedVersion: skill.version } : {}) }, requestScope());
+      await load();
       setNotice(enabled ? `Enabled “${skill.name}”.` : `Disabled “${skill.name}”.`);
     } catch (cause) {
       setSkills((current) => current.map((item) => item._id === skill._id ? { ...item, enabled: skill.enabled } : item));
+      clearRevoked(cause);
       setMutationError(cause instanceof Error ? cause.message : "Skill state could not be saved.");
     } finally {
       setBusyId(null);
     }
   };
 
-  const canCreate = view !== "archived";
+  const canCreate = view !== "archived" && canManage;
 
   return (
     <section aria-labelledby="extension-skills-title" className="flex min-h-0 flex-1 flex-col bg-[var(--bg)] text-[var(--fg)]">
@@ -228,12 +243,13 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
           key={`${dialog.mode}:${dialog.skill?._id ?? "new"}`}
           state={dialog}
           error={mutationError}
+          disabledDraft={Boolean(workspaceId)}
           onClose={() => setDialog(null)}
           onSave={save}
           onDelete={remove}
-          onMove={(skill, to) => perform(skill, () => moveExtensionSkill(skill._id, to), to === "workspace" ? "Shared with your workspace." : "Moved to Personal.")}
-          onArchive={(skill) => perform(skill, () => archiveExtensionSkill(skill._id), "Skill archived.")}
-          onRestore={(skill) => perform(skill, () => restoreExtensionSkill(skill._id), "Skill restored.")}
+          onMove={(skill, to) => perform(skill, () => moveExtensionSkill(skill._id, to, requestScope()), to === "workspace" ? "Shared with your workspace." : "Moved to Personal.")}
+          onArchive={(skill) => perform(skill, () => archiveExtensionSkill(skill._id, requestScope()), "Skill archived.")}
+          onRestore={(skill) => perform(skill, () => restoreExtensionSkill(skill._id, requestScope()), "Skill restored.")}
         />
       ) : null}
     </section>
@@ -276,9 +292,10 @@ function SkillCard({ skill, busy, onEdit, onToggle }: {
   );
 }
 
-function SkillDialog({ state, error, onClose, onSave, onDelete, onMove, onArchive, onRestore }: {
+function SkillDialog({ state, error, onClose, onSave, onDelete, onMove, onArchive, onRestore, disabledDraft = false }: {
   state: DialogState;
   error: string | null;
+  disabledDraft?: boolean;
   onClose: () => void;
   onSave: (values: FormValues) => Promise<void>;
   onDelete: (skill: ExtensionSkillRecord) => Promise<void>;
@@ -291,13 +308,15 @@ function SkillDialog({ state, error, onClose, onSave, onDelete, onMove, onArchiv
     name: skill?.name ?? "",
     description: skill?.description ?? "",
     instructions: skill?.instructions ?? "",
-    enabled: skill?.enabled !== false,
+    enabled: skill ? skill.enabled !== false : !disabledDraft,
   }));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saved, setSaved] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeRef = useRef(onClose); closeRef.current = onClose;
   const archived = skill?.archivedAt !== undefined;
   const scope = archived ? skill?.archivedFromScope ?? skill?.scope ?? "personal" : skill?.scope ?? "personal";
   const canEdit = !skill || skill.permissions?.canEdit !== false;
@@ -307,12 +326,28 @@ function SkillDialog({ state, error, onClose, onSave, onDelete, onMove, onArchiv
   const canDelete = skill?.permissions?.canDelete ?? true;
 
   useEffect(() => {
-    nameRef.current?.focus();
-    nameRef.current?.select();
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+    const opener = document.activeElement as HTMLElement | null;
+    if (nameRef.current?.disabled) dialogRef.current?.querySelector<HTMLElement>("button:not([disabled])")?.focus();
+    else { nameRef.current?.focus(); nameRef.current?.select(); }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.stopPropagation(); closeRef.current(); return; }
+      if (event.key !== "Tab") return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const items = Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+        .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+      const first = items[0], last = items[items.length - 1];
+      if (!first || !last) { event.preventDefault(); root.focus(); return; }
+      if (!root.contains(document.activeElement)) { event.preventDefault(); first.focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      if (opener?.isConnected && opener !== document.body && opener !== document.documentElement) opener.focus();
+    };
+  }, []);
 
   const update = <K extends keyof FormValues>(key: K, value: FormValues[K]) => setValues((current) => ({ ...current, [key]: value }));
   const submit = async () => {
@@ -343,7 +378,7 @@ function SkillDialog({ state, error, onClose, onSave, onDelete, onMove, onArchiv
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[var(--overlay)] p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section role="dialog" aria-modal="true" aria-labelledby="extension-skill-dialog-title" className="flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col border border-[var(--border-2)] bg-[var(--card)] shadow-[var(--sh-sheet)]">
+      <section ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="extension-skill-dialog-title" className="flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col border border-[var(--border-2)] bg-[var(--card)] shadow-[var(--sh-sheet)]">
         <header className="flex shrink-0 items-center justify-between border-b border-[var(--border-1)] px-5 py-4">
           <h3 id="extension-skill-dialog-title" className="text-sm font-semibold">{!canEdit ? "View Skill" : state.mode === "edit" ? "Edit Skill" : "New Skill"}</h3>
           <button type="button" aria-label="Close" className="min-h-11 min-w-11 inline-flex items-center justify-center text-[var(--muted-foreground-2)] hover:bg-[var(--secondary)]" onClick={onClose}><X size={16} /></button>
@@ -380,7 +415,7 @@ function SkillDialog({ state, error, onClose, onSave, onDelete, onMove, onArchiv
 
         <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-[var(--border-1)] px-5 py-3">
           <div className="flex flex-wrap items-center gap-3">
-            {canEdit ? <button type="button" role="switch" aria-checked={values.enabled} onClick={() => update("enabled", !values.enabled)} className="min-h-11 inline-flex items-center gap-2 px-2 text-xs text-[var(--muted-foreground-2)] hover:text-[var(--fg)]">
+            {canEdit ? <button type="button" role="switch" aria-checked={values.enabled} disabled={disabledDraft && !skill} onClick={() => update("enabled", !values.enabled)} className="min-h-11 inline-flex items-center gap-2 px-2 text-xs text-[var(--muted-foreground-2)] hover:text-[var(--fg)] disabled:opacity-50">
               {values.enabled ? <ToggleRight size={18} className="text-[var(--primary)]" /> : <ToggleLeft size={18} />}{values.enabled ? "Enabled" : "Disabled"}
             </button> : <span className="min-h-11 inline-flex items-center gap-2 px-2 text-xs text-[var(--muted-foreground-2)]">{values.enabled ? "Enabled" : "Disabled"}</span>}
             {skill && canDelete ? <button type="button" onClick={() => void deleteSkill()} disabled={deleting} className="min-h-11 inline-flex items-center gap-1.5 px-2 text-xs text-[var(--muted-foreground-2)] hover:text-[var(--destructive)] disabled:opacity-50">{deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}Delete</button> : null}

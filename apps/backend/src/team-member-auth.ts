@@ -29,6 +29,8 @@ const ownApi = [
 const workspaceApi = [
   /^\/api\/collaboration(?:\/|$)/,
   /^\/api\/(?:custom-agents|employee-bundles|skills)(?:\/|$)/,
+  /^\/api\/v1\/extensions\/skills(?:\/|$)/,
+  /^\/api\/onboarding\/progress\/?$/,
 ];
 
 /**

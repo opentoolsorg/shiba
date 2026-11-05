@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ExtensionSkillRecord } from "@shiba/shared";
 import { ExtensionSkillsView } from "./ExtensionSkillsView";
 
@@ -23,6 +23,23 @@ const makeSkill = (overrides: Partial<ExtensionSkillRecord> = {}): ExtensionSkil
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("ExtensionSkillsView", () => {
+  it("contains forward and reverse keyboard focus, then restores the opening control", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    render(<ExtensionSkillsView />);
+    await screen.findByText("No skills yet");
+    const opener = screen.getAllByRole("button", { name: "New Skill" })[0]!;
+    opener.focus(); fireEvent.click(opener);
+    const dialog = await screen.findByRole("dialog");
+    const close = within(dialog).getByRole("button", { name: "Close" });
+    const create = within(dialog).getByRole("button", { name: "Create" });
+    close.focus(); fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(create);
+    fireEvent.keyDown(create, { key: "Tab" }); expect(document.activeElement).toBe(close);
+    opener.focus(); fireEvent.keyDown(opener, { key: "Tab" }); expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(close, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(opener);
+  });
   it("explains employee availability without implying skills grant apps or approvals", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
     render(<ExtensionSkillsView />);

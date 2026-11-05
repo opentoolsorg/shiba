@@ -110,18 +110,24 @@ export function createScopedExtensionSkillAgentTools(
 
 /** MCP variants use the verified principal and org embedded by the Worker. */
 export function registerExtensionSkillMcpTools(registry: ToolRegistry, env: Env): void {
+  const readOrg = (principal: TokenRecord) => {
+    const orgId = orgIdForRecord(principal);
+    if (orgId.startsWith("team:")) throw new Error("Team skills require an authenticated workspace membership.");
+    return orgId;
+  };
   registry.registerTool(
     "list_skills",
     "integrations:read",
     async (args, context) => {
+      const orgId = readOrg(context.principal);
       const query = typeof args.query === "string" ? args.query : undefined;
       const scope = scopeSchema.safeParse(args.scope);
       const directory = await listExtensionSkillDirectory(
         env,
-        orgIdForRecord(context.principal),
+        orgId,
         context.principal.principal,
         {
-          workspaceId: orgIdForRecord(context.principal),
+          workspaceId: orgId,
           ...(scope.success && scope.data ? { scope: scope.data } : {}),
         },
       );
@@ -140,7 +146,7 @@ export function registerExtensionSkillMcpTools(registry: ToolRegistry, env: Env)
     async (args, context) => {
       const parsed = instructionsSchema.safeParse(args);
       if (!parsed.success) throw new Error("Invalid skill id.");
-      const orgId = orgIdForRecord(context.principal);
+      const orgId = readOrg(context.principal);
       return jsonResult(await getExtensionSkillInstructions(env, orgId, context.principal.principal, parsed.data.skillId, {
         workspaceId: orgId, expectedVersion: parsed.data.expectedVersion,
       }));

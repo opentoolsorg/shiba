@@ -1,0 +1,610 @@
+{
+  "schemaVersion": 1,
+  "kind": "local-Chromium-component-fixture",
+  "status": "passed",
+  "capturedAt": "2026-11-05T02:17:33.769Z",
+  "gitBaseCommit": "6888adbbedccbf8935c43dcc3815d51ea74acede",
+  "gitBranch": "feat/prince-multi-agent-control-plane",
+  "workingTreeSourceVerification": true,
+  "sourceSha256": {
+    "apps/frontend/src/components/TeamOnboardingDraft.tsx": "9aad59e398e10f0a96c969c6eba538a5eac50001561e5d89fb85d3796a29a454",
+    "apps/frontend/src/components/SkillsView.tsx": "d8a34c50df3a2e7121ae6876fb54273f4a783eb7983c2ce9b8c8b5a0dc28154d",
+    "apps/frontend/src/components/ExtensionSkillsView.tsx": "24bf4f0954d7af82202c27e6930b20dd4f96cb9f3a206f2739f1ec629edef35e",
+    "apps/frontend/src/onboarding-progress-client.ts": "9dcd156e720870523c221ebb881c16c428dbf9eb79264aea4be6dbf5994c78e7",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "sourceHashesUnchangedDuringBothFinalRuns": true,
+  "runtime": {
+    "browser": "Chromium 154.0.8037.57",
+    "automation": "repository-pinned playwright-core@1.64.0",
+    "origin": "http://127.0.0.1:5198",
+    "httpBinding": "loopback-only",
+    "desktopViewport": {
+      "width": 1280,
+      "height": 950
+    },
+    "mobileViewport": {
+      "width": 390,
+      "height": 844
+    },
+    "externalNetworkAllowed": false,
+    "tlsVerificationClaim": "No external or HTTPS request was made; live TLS was not tested.",
+    "fontBoundary": "Actual product CSS with locally available system fonts; no external font requests."
+  },
+  "boundary": "Actual frontend components and CSS with deterministic intercepted API responses. No Worker, auth account, provider, model, container, Slack, or external integration execution.",
+  "excludedAcceptance": [
+    "No deployed Cloudflare Worker, Durable Object, R2 or container behavior was tested.",
+    "No actual authenticated account, user session, membership policy, provider, model, billing or connector was exercised.",
+    "HTTP API responses and revocation were deterministic fixtures intercepted in Chromium. Backend ACL tests remain separate.",
+    "Room and employee configuration navigation are observed component callbacks rendered by the harness, not full application screens.",
+    "Member permissions are frontend prop fixtures, not proof of server authorization.",
+    "No run, approval decision, provider setup, external message, purchase or production action was requested.",
+    "No source transport or live multiplayer losslessness claim is made."
+  ],
+  "assertionSummary": {
+    "passed": 27,
+    "failed": 0,
+    "mainJourney": 24,
+    "delayedScopeAndKeyboard": 3
+  },
+  "assertions": [
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "role selection is optional and empty draft saves"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "role and explicit employee/version choices saved with workspace scope"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "reload and browser resume restore saved role and draft"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "keyboard close, configuration and room handoff callbacks work without starting work"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "workspace switch clears other workspace draft and employee selection"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "onboarding-desktop fits viewport",
+      "viewport": 1280,
+      "document": 1280,
+      "body": 1280
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "onboarding-390 fits viewport",
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "onboarding revocation clears cached draft and employees"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "team skill save creates inactive draft only"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "review and activation require separate explicit clicks"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "version editing resets activation and history displays both versions"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "template installation creates a reviewed-later draft"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "team-skills-390 fits viewport",
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "skills revocation hides retained instructions and version history"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "instruction-dialog-390 fits viewport",
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "team instruction create is disabled by default"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "instruction enable is separate explicit action with expected version"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "instruction dialog supports keyboard Escape"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "instruction-skills-390 fits viewport",
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "skills navigation does not replay another workspace instructions"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "member UI cannot create or activate team skills"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "all API calls use explicit workspace headers with no provider, execution or approval calls",
+      "requests": 37
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "no JavaScript page exceptions or external requests"
+    },
+    {
+      "status": "passed",
+      "category": "main-journey",
+      "name": "component sources remained frozen during browser verification"
+    },
+    {
+      "status": "passed",
+      "category": "delayed-scope-and-keyboard",
+      "name": "late A configuration save cannot update B or trigger employee handoff"
+    },
+    {
+      "status": "passed",
+      "category": "delayed-scope-and-keyboard",
+      "name": "Shift+Tab and Tab wrap within the instruction dialog"
+    },
+    {
+      "status": "passed",
+      "category": "delayed-scope-and-keyboard",
+      "name": "Escape closes instruction dialog and restores its opener"
+    }
+  ],
+  "apiObservation": {
+    "requests": 44,
+    "mainRequests": 37,
+    "supplementaryRequests": 7,
+    "allRequestsHaveExplicitWorkspaceHeader": true,
+    "noProviderApprovalOrExecutionEndpointsRequested": true,
+    "requestTrace": [
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/custom-agents",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "POST",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "POST",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/custom-agents",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/custom-agents",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "POST",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/custom-agents",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/custom-agents",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "B"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/custom-agents",
+        "search": "",
+        "workspaceFixture": "B"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/custom-agents",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/skills",
+        "search": "?limit=25",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "POST",
+        "path": "/api/skills",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "POST",
+        "path": "/api/skills/fixture-skill-1/review",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "POST",
+        "path": "/api/skills/fixture-skill-1/activate",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "PATCH",
+        "path": "/api/skills/fixture-skill-1",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/skills/fixture-skill-1/versions",
+        "search": "?limit=20",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/skills/library",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "POST",
+        "path": "/api/skills/library/fixture-template/install",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/skills",
+        "search": "?limit=25",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/skills/library",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/skills",
+        "search": "?limit=25",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/v1/extensions/skills",
+        "search": "?view=workspace",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "POST",
+        "path": "/api/v1/extensions/skills",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/v1/extensions/skills",
+        "search": "?view=workspace",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "PATCH",
+        "path": "/api/v1/extensions/skills/fixture-extension-3",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/v1/extensions/skills",
+        "search": "?view=workspace",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/skills",
+        "search": "?limit=25",
+        "workspaceFixture": "B"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/v1/extensions/skills",
+        "search": "?view=workspace",
+        "workspaceFixture": "B"
+      },
+      {
+        "journey": "supplementary",
+        "method": "GET",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "supplementary",
+        "method": "GET",
+        "path": "/api/custom-agents",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "supplementary",
+        "method": "GET",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "B"
+      },
+      {
+        "journey": "supplementary",
+        "method": "GET",
+        "path": "/api/custom-agents",
+        "search": "",
+        "workspaceFixture": "B"
+      },
+      {
+        "journey": "supplementary",
+        "method": "POST",
+        "path": "/api/onboarding/progress",
+        "search": "",
+        "workspaceFixture": "A"
+      },
+      {
+        "journey": "supplementary",
+        "method": "GET",
+        "path": "/api/skills",
+        "search": "?limit=25",
+        "workspaceFixture": "B"
+      },
+      {
+        "journey": "supplementary",
+        "method": "GET",
+        "path": "/api/v1/extensions/skills",
+        "search": "?view=workspace",
+        "workspaceFixture": "B"
+      }
+    ],
+    "expectedErrorResponses": [
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/onboarding/progress",
+        "status": 404,
+        "purpose": "Injected fixture membership revocation"
+      },
+      {
+        "journey": "main",
+        "method": "GET",
+        "path": "/api/skills",
+        "status": 404,
+        "purpose": "Injected fixture membership revocation"
+      }
+    ],
+    "unexpectedErrorResponses": [],
+    "intentionalAbort": "Supplementary test holds an A configuration-save response, switches to B, then releases A. The old client aborts and no B update or configuration callback occurs.",
+    "pageExceptions": [],
+    "consoleErrors": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "consoleErrorAttribution": "Both Chromium resource errors correspond exactly to the two injected HTTP 404 revocation responses.",
+    "externalRequests": []
+  },
+  "resolvedKeyboardFinding": {
+    "before": {
+      "status": "reproduced",
+      "sourceSha256": "7fa78e205961b93f586b5d047701e52f5d9379abb7cc881910e2c7744bd3880b",
+      "observations": [
+        {
+          "severity": "accessibility",
+          "finding": "Shift+Tab from the first modal control escapes the aria-modal dialog.",
+          "observed": {
+            "inside": false,
+            "element": "BUTTON",
+            "label": "New Skill"
+          }
+        },
+        {
+          "severity": "accessibility",
+          "finding": "Tab from the last modal control escapes the aria-modal dialog.",
+          "observed": {
+            "inside": false,
+            "element": "BODY",
+            "label": "Isolated component fixtureWorkspace AWorkspace BOnboarding fixtureSkills fixtureFixture permission: "
+          }
+        }
+      ]
+    },
+    "after": {
+      "status": "passed",
+      "sourceSha256": "24bf4f0954d7af82202c27e6930b20dd4f96cb9f3a206f2739f1ec629edef35e",
+      "assertions": [
+        "Shift+Tab at the first dialog control wraps to the last.",
+        "Tab at the last dialog control wraps to the first.",
+        "Escape closes the dialog and restores focus to its opener."
+      ]
+    }
+  },
+  "screenshots": [
+    {
+      "file": "team-skills-browser-20261105-onboarding-desktop.png",
+      "sha256": "6f4d9ba202cffef37e462aa033c9cbee297d891e76a45700dd787fe4dd44df93"
+    },
+    {
+      "file": "team-skills-browser-20261105-onboarding-390.png",
+      "sha256": "acc2d8118723d9d50d159efb56d346364c6d76f8966d8434397de2b40d099ab8"
+    },
+    {
+      "file": "team-skills-browser-20261105-skills-390.png",
+      "sha256": "7108be2c87098964ec2201e9ae9e22d3e2b09a1705b88b8c3d5594be28256c2c"
+    },
+    {
+      "file": "team-skills-browser-20261105-dialog-390.png",
+      "sha256": "f10afbb43d088e07861dd20700a66650f24cf69bcda255f4a1ccf31e8cf35e51"
+    }
+  ],
+  "harness": {
+    "location": "/tmp/shiba-team-setup-qa-20261105",
+    "filesSha256": {
+      "client.tsx": "af4d3c1387d31d28b8cd14deb4b8260087313d953b794cab740d15dac8323418",
+      "vite.config.mjs": "dd9278d1d8bcc5d82ff5a4589f2d8968e5dfdc5d819e78aa58ff7f95e189a190",
+      "acceptance.cjs": "c6bfc751f3bcee35c1b6f8159a1a84e31dc13bc706df7f3fc98cabbd7f8eedbd",
+      "extra.cjs": "22b96f89ebc24367c84fa76cdd8f126b72cef76f9eb95b0fe3f9ef7fa33f035e"
+    },
+    "productSourceChangesByTester": false,
+    "cleanup": "Complete. Both final browser contexts were closed; exact owned Vite server and launcher PIDs were terminated. Port5198 has no listener. Disposable fixture files remain in /tmp for reproduction."
+  },
+  "fullPlanAccepted": false
+}

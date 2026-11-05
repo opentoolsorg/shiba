@@ -5,7 +5,9 @@ import type { Env } from "./env.js";
 import { readProviderSnapshot } from "./acp-providers.js";
 import { betterAuthFor, ensureBetterAuthSchema, isBetterAuthConfigured } from "./better-auth.js";
 import { getCustomAgentById, getCustomAgentVersion } from "./custom-agents-store.js";
-import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
+import { DASHBOARD_ORG_ID, resolveOrgForApiRequest } from "./org-request-auth.js";
+import { withCurrentSkillAuthority } from "./team-skill-authority.js";
+import { teamMembershipWriteGuard } from "./team-skill-grant.js";
 import { ownerMemoryStub } from "./memory-do.js";
 import {
   buildSessionAgentName,
@@ -295,13 +297,14 @@ async function readEvidence(env: Env, identity: OnboardingIdentity, deps: Onboar
   };
 }
 
-async function updateAction(db: D1Database, userId: string, expectedRevision: number, action: "step" | "dismiss" | "resume", currentStep: OnboardingStep | undefined, now: number): Promise<boolean> {
+type TeamDraftGuard = { sql: string; values: unknown[] };
+async function updateAction(db: D1Database, userId: string, expectedRevision: number, action: "step" | "dismiss" | "resume", currentStep: OnboardingStep | undefined, now: number, guard: TeamDraftGuard = { sql: "", values: [] }): Promise<boolean> {
   const current = await readStored(db, userId);
   if (!current || current.revision !== expectedRevision) return false;
   const step = action !== "resume" && currentStep ? currentStep : (isStep(current.current_step) ? current.current_step : "channels");
   const dismissedAt = action === "dismiss" ? now : null;
   const result = await db.prepare(`UPDATE user_onboarding_progress SET current_step=?,dismissed_at=?,revision=revision+1,updated_at=?
-    WHERE user_id=? AND revision=?`).bind(step, dismissedAt, now, userId, expectedRevision).run();
+    WHERE user_id=? AND revision=?${guard.sql}`).bind(step, dismissedAt, now, userId, expectedRevision, ...guard.values).run();
   if (typeof result.meta?.changes === "number") return result.meta.changes === 1;
   return (await readStored(db, userId))?.revision === expectedRevision + 1;
 }
@@ -348,7 +351,7 @@ export async function resolvePreparedOnboardingDraft(env: Env, trustedOwnerEmail
   } catch { return null; }
 }
 
-async function updateDraft(env: Env, identity: OnboardingIdentity, action: ProgressAction, now: number, deps: OnboardingProgressDeps): Promise<"saved" | "conflict" | "invalid"> {
+async function updateDraft(env: Env, identity: OnboardingIdentity, action: ProgressAction, now: number, deps: OnboardingProgressDeps, teamOrgId?: string, guard: TeamDraftGuard = { sql: "", values: [] }): Promise<"saved" | "conflict" | "invalid"> {
   const db = env.AGENT_AUDIT;
   if (!db) throw new Error("Progress storage unavailable.");
   const userId = identity.userId;
@@ -366,7 +369,14 @@ async function updateDraft(env: Env, identity: OnboardingIdentity, action: Progr
       (step === "acceptance" && !draft.acceptance) || (step === "role" && !draft.roleAnswer) ||
       (step === "help" && !draft.helpAnswer) || (step === "employee" && !draft.employeeId && !draft.employeeTemplateId)) return "invalid";
   }
-  if (draft.employeeId && (draft.employeeVersion === null || !await getCustomAgentVersion({ AGENT_AUDIT: db }, DASHBOARD_ORG_ID, draft.employeeId, draft.employeeVersion))) return "invalid";
+  if (teamOrgId && draft.sourceIds.length) return "invalid";
+  if (draft.employeeId) {
+    if (draft.employeeVersion === null) return "invalid";
+    if (teamOrgId) {
+      const employee = await getCustomAgentById({ AGENT_AUDIT: db }, teamOrgId, draft.employeeId);
+      if (!employee || employee.archivedAt !== undefined || employee.version !== draft.employeeVersion) return "invalid";
+    } else if (!await getCustomAgentVersion({ AGENT_AUDIT: db }, DASHBOARD_ORG_ID, draft.employeeId, draft.employeeVersion)) return "invalid";
+  }
   const contentKeys = ["goal", "audience", "acceptance", "roleAnswer", "helpAnswer", "contextAnswer", "employeeAnswer", "connectionAnswer", "employeeId", "employeeVersion", "employeeTemplateId", "employeeTemplateVersion", "sourceIds"] as const;
   let changed = previous !== null && contentKeys.some((key) => JSON.stringify(previous[key]) !== JSON.stringify(draft[key]));
   if (changed) {
@@ -398,8 +408,8 @@ async function updateDraft(env: Env, identity: OnboardingIdentity, action: Progr
   const result = await db.prepare(`UPDATE user_onboarding_progress SET draft_task_id=?,draft_task_json=?,
     accepted_artifact_at=CASE WHEN ? THEN NULL ELSE accepted_artifact_at END,
     activated_at=CASE WHEN ? THEN NULL ELSE activated_at END,
-    dismissed_at=NULL,revision=revision+1,updated_at=? WHERE user_id=? AND revision=?`).bind(
-    row.draft_task_id ?? `draft_${crypto.randomUUID()}`, json, changed ? 1 : 0, changed ? 1 : 0, now, userId, action.expectedRevision,
+    dismissed_at=NULL,revision=revision+1,updated_at=? WHERE user_id=? AND revision=?${guard.sql}`).bind(
+    row.draft_task_id ?? `draft_${crypto.randomUUID()}`, json, changed ? 1 : 0, changed ? 1 : 0, now, userId, action.expectedRevision, ...guard.values,
   ).run();
   return result.meta?.changes === 1 ? "saved" : "conflict";
 }
@@ -455,25 +465,47 @@ export async function handleOnboardingProgress(request: Request, env: Env, deps:
   if (!identity?.userId.trim() || !identity.ownerEmail.trim()) return Response.json({ error: "Authentication required." }, { status: 401, headers: { "Cache-Control": "no-store" } });
   const action = request.method === "POST" ? await parseAction(request) : null;
   if (request.method === "POST" && !action) return Response.json({ error: "Invalid onboarding progress update." }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  // Team drafts belong to this account in this workspace. They never inherit
+  // private source snapshots, provider evidence or executable prepared drafts.
+  const teamAuth = request.headers.has("X-Shiba-Workspace")
+    ? await resolveOrgForApiRequest(request, env, { allowMemberWrite: true }) : null;
+  if (teamAuth instanceof Response) return teamAuth;
+  const teamOrgId = teamAuth?.workspace ? teamAuth.orgId : undefined;
+  if (teamAuth && !teamOrgId) return Response.json({ error: "Workspace session required." }, { status: 403 });
+  if (teamOrgId && action?.action === "prepare-task") return Response.json({ error: "Choose a team room and review its shared context before requesting normal run approval.", code: "team_draft_requires_room_approval" }, { status: 422, headers: { "Cache-Control": "no-store" } });
+  const storedIdentity = teamOrgId ? { ...identity, userId: JSON.stringify([teamOrgId, identity.userId]) } : identity;
+  const guard = teamAuth?.workspace ? teamMembershipWriteGuard(teamAuth.orgId, teamAuth.workspace.userId, teamAuth.workspace, true) : { sql: "", values: [] };
+  return withCurrentSkillAuthority(request, env, teamAuth, async () => {
   try {
     if (!env.AGENT_AUDIT) throw new Error("Progress storage unavailable.");
     const db = env.AGENT_AUDIT;
     const now = (deps.now ?? Date.now)();
     await ensureSchema(db);
     await db.prepare(`INSERT INTO user_onboarding_progress (user_id,current_step,revision,created_at,updated_at)
-      VALUES (?,'channels',0,?,?) ON CONFLICT(user_id) DO NOTHING`).bind(identity.userId, now, now).run();
+      SELECT ?,'channels',0,?,? WHERE 1=1${guard.sql} ON CONFLICT(user_id) DO NOTHING`).bind(storedIdentity.userId, now, now, ...guard.values).run();
     const update = action && (action.action === "save-draft" || action.action === "prepare-task")
-      ? await updateDraft(env, identity, action, now, deps)
-      : action ? await updateAction(db, identity.userId, action.expectedRevision, action.action as "step" | "dismiss" | "resume", action.currentStep, now) ? "saved" : "conflict" : "saved";
+      ? await updateDraft(env, storedIdentity, action, now, deps, teamOrgId, guard)
+      : action ? await updateAction(db, storedIdentity.userId, action.expectedRevision, action.action as "step" | "dismiss" | "resume", action.currentStep, now, guard) ? "saved" : "conflict" : "saved";
     if (update === "invalid") return Response.json({ error: "Invalid draft task answers, references or completion state." }, { status: 400, headers: { "Cache-Control": "no-store" } });
     if (update === "conflict") {
-      const current = await readStored(db, identity.userId);
+      if (teamOrgId) {
+        const currentAuth = await resolveOrgForApiRequest(request, env, { allowMemberWrite: true });
+        if (currentAuth instanceof Response) return currentAuth;
+        if (currentAuth.orgId !== teamOrgId) return Response.json({ error: "Workspace access is unavailable." }, { status: 404 });
+      }
+      const current = await readStored(db, storedIdentity.userId);
       if (!current) throw new Error("Progress row unavailable.");
       return progressResponse(toProgress(current), 409);
     }
     // Save user action first; provider/run outages are represented as unknown evidence.
-    const snapshot = await readStored(db, identity.userId);
+    const snapshot = await readStored(db, storedIdentity.userId);
     if (!snapshot) throw new Error("Progress row unavailable.");
+    if (teamOrgId) {
+      const currentAuth = await resolveOrgForApiRequest(request, env, { allowMemberWrite: true });
+      if (currentAuth instanceof Response) return currentAuth;
+      if (currentAuth.orgId !== teamOrgId) return Response.json({ error: "Workspace access is unavailable." }, { status: 404 });
+      return progressResponse(toProgress(snapshot));
+    }
     const evidence = await readEvidence(env, identity, deps, toProgress(snapshot));
     try { await persistEvidence(db, identity.userId, evidence, now, snapshot.revision); }
     catch {
@@ -489,4 +521,5 @@ export async function handleOnboardingProgress(request: Request, env: Env, deps:
   } catch {
     return Response.json({ error: "Onboarding progress is temporarily unavailable." }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
+  }, { allowMemberWrite: true });
 }
