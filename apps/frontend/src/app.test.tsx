@@ -32,12 +32,16 @@ vi.mock("./auth-client", () => ({ authClient: { signOut: vi.fn() } }));
 vi.mock("./components/FirstRunWizard", () => ({ FirstRunWizard: () => null, ONBOARDING_STORAGE_KEY: "onboarding" }));
 vi.mock("./components/ThemeProvider", () => ({ useTheme: () => ({ resolvedTheme: "light", setTheme: vi.fn() }) }));
 vi.mock("./components/InboxTab", () => ({ InboxTab: () => <div data-testid="private-mailbox">PRIVATE-MAILBOX-CONTENT</div> }));
-vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChange, onSubmit, onExecutionTargetKindChange, onArtifactDeliverablesChange, isSubmitting }: {
+vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChange, onSubmit, onExecutionTargetKindChange, onArtifactDeliverablesChange, onRunTargetChange, runTarget, isSubmitting }: {
+  runTarget?: "sandbox" | "local"; onRunTargetChange?: (value: "sandbox" | "local") => void;
   task: string; onTaskChange: (value: string) => void; onSubmit: (event: FormEvent) => void;
   onExecutionTargetKindChange?: (kind: "repository" | "artifact-workspace") => void; onArtifactDeliverablesChange?: (value: string) => void; isSubmitting?: boolean;
 }) => <form data-testid="task-composer" onSubmit={onSubmit}>
   <textarea aria-label="Task draft" value={task} onChange={(event) => onTaskChange(event.target.value)} />
   <button type="button" onClick={() => { onExecutionTargetKindChange?.("artifact-workspace"); onArtifactDeliverablesChange?.(""); }}>Use automatic workspace</button>
+  <button type="button" onClick={() => onRunTargetChange?.("local")}>Use paired local</button>
+  <button type="button" onClick={() => { onExecutionTargetKindChange?.("artifact-workspace"); onArtifactDeliverablesChange?.("reports/brief.md"); }}>Use explicit artifact</button>
+  <output aria-label="Fixture runtime">{runTarget}</output>
   <button type="submit" disabled={isSubmitting}>Queue fixture task</button>
 </form> }));
 vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value }: { value: string }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} readOnly /></div> }));
@@ -128,6 +132,40 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
+  it("keeps local selected across artifact switches, rejects blank outputs, and queues explicit paths with a device", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem("shiba:conversation-mode:default", "work");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    const attempts: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url).startsWith("/api/computers")) return Response.json({ computers: [{ machineId: "paired-fixture", hostname: "Fixture computer", platform: "linux", daemonVersion: "1.0", status: "idle", harnesses: ["opencode"], lastHeartbeat: Date.now() }] });
+      if (String(url).startsWith("/api/runs") && options?.method === "POST") {
+        attempts.push(JSON.parse(String(options.body)));
+        return Response.json({ approvalId: "fixture-approval" });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Use paired local" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use automatic workspace" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Task draft" }), { target: { value: "Write a local brief" } });
+    expect(screen.getByLabelText("Fixture runtime").textContent).toBe("local");
+    fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
+    await screen.findByText("Use 1–8 safe relative .md, .txt, .json, or .csv output paths.");
+    expect(attempts).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Use explicit artifact" }));
+    fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
+    await screen.findByText("Queued — approve the run card to execute on this computer.");
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({ runtime: "local", targetMachineId: "paired-fixture", publishPullRequest: false,
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["reports/brief.md"] } });
+    expect(attempts[0]).not.toHaveProperty("repoUrl");
+    expect(attempts[0]).not.toHaveProperty("baseBranch");
+    expect(attempts[0]?.executionTarget).not.toHaveProperty("workspaceId");
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("retries an unacknowledged automatic workspace with one frozen target and command receipt", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     localStorage.setItem("shiba:conversation-mode:default", "work");
