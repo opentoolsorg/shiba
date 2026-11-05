@@ -38,6 +38,8 @@ export interface Env {
   FOUNDER_META_CREDENTIAL_KEY?: string;
   /** Default-off native-owner HubSpot fixed capture and private encryption. */
   FOUNDER_HUBSPOT_READS_ENABLED?: string;
+  /** Separate standing consent for bounded private future comparisons. */
+  FOUNDER_RECONCILIATION_SCHEDULES_ENABLED?: string;
   FOUNDER_HUBSPOT_CREDENTIAL_KEY?: string;
   OPEN_CONNECTOR_READ_GATEWAY?: Fetcher;
   /** Separate least-privilege read-lane runtime key; never the manual runtime key. */

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import type { FounderReconciliationDraft, FounderReconciliationReport, FounderStripeGrant, FounderStripeReceipt, FounderHubSpotGrant, FounderHubSpotReceipt } from "@shiba/shared";
 import { FounderReconciliationClient, type ReconciliationMetadata } from "../founder-reconciliation-client";
+import { FounderReconciliationSchedules } from "./FounderReconciliationSchedules";
 const BUTTON = "min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 py-2 text-xs disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
 const FIELD = "mt-1 min-h-11 min-w-0 w-full border border-[var(--input-line)] bg-[var(--paper)] px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
 type Props = { workspaceId: string; actorId: string; onClose: () => void };
 type Directory = Awaited<ReturnType<FounderReconciliationClient["sources"]>>;
 export function FounderReconciliation(props: Props): JSX.Element { return <ReconciliationContent key={`${props.workspaceId}:${props.actorId}`} {...props} />; }
 function ReconciliationContent({ workspaceId, actorId, onClose }: Props): JSX.Element {
+  const [showFuture, setShowFuture] = useState(false);
   const [client] = useState(() => new FounderReconciliationClient(workspaceId, actorId));
   const [directory, setDirectory] = useState<Directory | null>(null), [drafts, setDrafts] = useState<ReconciliationMetadata[] | null>(null), [draft, setDraft] = useState<FounderReconciliationDraft | null>(null), [report, setReport] = useState<FounderReconciliationReport | null>(null);
   const [hubspotGrant, setHubspotGrant] = useState<FounderHubSpotGrant | null>(null), [hubspotReceipts, setHubspotReceipts] = useState<FounderHubSpotReceipt[]>([]);
@@ -14,7 +16,7 @@ function ReconciliationContent({ workspaceId, actorId, onClose }: Props): JSX.El
   const [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null), pending = useRef<AbortSignal | null>(null), contentEpoch = useRef(0);
   const active = (s: AbortSignal) => controller.current?.signal === s && !s.aborted;
-  const clear = () => { contentEpoch.current++; setReport(null); setReview(""); };
+  const clear = () => { contentEpoch.current++; setReport(null); setReview(""); setShowFuture(false); };
   const perform = async (fn: (s: AbortSignal) => Promise<void>) => { const s = controller.current?.signal; if (!s || !active(s) || pending.current) return; pending.current = s; setBusy(true); setError(null); setNotice(null);
     try { await fn(s); } catch (e) { if (active(s)) { clear(); setDraft(null); setUncertain(true); setError(e instanceof Error ? e.message : "Private reconciliation state is unavailable."); } }
     finally { if (pending.current === s) { pending.current = null; if (active(s)) setBusy(false); } }
@@ -66,6 +68,7 @@ function ReconciliationContent({ workspaceId, actorId, onClose }: Props): JSX.El
       {draft.state === "draft" && <><label className="mt-2 flex min-h-11 gap-2"><input type="checkbox" checked={review === reviewKey} disabled={busy} onChange={(e) => setReview(e.target.checked ? reviewKey : "")} />I reviewed the exact captured sources, IDs, selected CRM properties, amount unit and basis, time windows, expiry and uncertainty.</label><button type="button" className={BUTTON} disabled={busy || uncertain || review !== reviewKey || draft.expiresAt <= Date.now()} onClick={compose}>Compose private comparison</button></>}
       {draft.state !== "revoked" && <button type="button" className={`${BUTTON} mt-3`} disabled={busy || uncertain} onClick={() => revoke(draft)}>Revoke comparison</button>}
     </article>}
+    {draft?.state === "completed" && report && <section className="mt-3"><button type="button" className={BUTTON} onClick={() => setShowFuture((shown) => !shown)}>{showFuture ? "Close standing comparison setup" : "Configure future private comparisons"}</button>{showFuture && <FounderReconciliationSchedules workspaceId={workspaceId} actorId={actorId} sampleId={draft.id} onClose={() => setShowFuture(false)} />}</section>}
     {draft && report && <div className="mt-3 border-t border-[var(--line)] pt-3"><p>Private bounded comparison · dataset completeness unknown · business success unverified. Unmatched means not found in the captured page; an uncaptured deal was not returned by the source.</p><p className="mt-2">Rows distinguish equal matches, differences, duplicate IDs, missing or invalid IDs, uncaptured deals, unmatched invoices and non-comparable amounts. Provider invoice status and creation time are shown where supplied; a numerical match does not prove payment or business success.</p><p className="mt-2 break-all">Report hash {draft.reportHash}</p><pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words">{JSON.stringify(report, null, 2)}</pre></div>}
   </section>;
 }
