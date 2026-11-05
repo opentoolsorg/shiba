@@ -226,6 +226,11 @@ async function queueAndApprove(instance: CodingOrchestrator, body: Record<string
   );
   expect(queued.status).toBe(200);
   const { approvalId } = (await queued.json()) as { approvalId: string };
+  if (body.runtime === "local") {
+    expect(instance.state.runs).toHaveLength(0);
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.destroy).not.toHaveBeenCalled();
+  }
   const approved = await instance.onRequest(
     new Request("https://internal/api/approvals", {
       method: "POST",

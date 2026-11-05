@@ -864,6 +864,13 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
       JSON.stringify(input.expectedDeliverables) !== JSON.stringify(artifact.expectedDeliverables)))) {
       return failureResult("Local artifact work requires a no-repository target, matching nonempty approved deliverables and no personal repository grant or publication.", 0, "", signals);
     }
+    if (artifact && input.orgId?.startsWith("team:")) {
+      return failureResult("Local artifacts are limited to the self-hosted operator lane until owner-bound repo-free team grants are available.", 0, "", signals);
+    }
+    if (artifact && (!input.targetMachineId?.trim() || !input.initiatorUserId?.trim() ||
+      !expectedDeliverablesSchema.safeParse(artifact.expectedDeliverables).success)) {
+      return failureResult("Local artifacts require an explicit paired computer, owner and safe approved deliverable paths.", 0, "", signals);
+    }
     input = input.personalExecution ? input : artifact ? {
       ...input,
       task: `${input.task}${onboardingSourceInstructions(input.onboardingSourceSnapshot)}\n\nWrite only these approved complete UTF-8 deliverables relative to your current working directory: ${artifact.expectedDeliverables.join(", ")}. Each file is limited to 16384 bytes, 65536 bytes total. Only these files will be privately exported; other files are not recoverable artifacts.`,
@@ -958,7 +965,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
     try {
       await this.client.dispatch(envelope, input.targetMachineId, input.initiatorUserId);
     } catch (error) {
-      return failureResult(`Local dispatch failed: ${shortError(error)}`, 0, "", signals);
+      return failureResult(`Local dispatch failed: ${shortError(error)}${artifact ? " Outcome unknown; do not retry automatically." : ""}`, 0, "", signals, undefined, artifact ? "outcome_unknown" : undefined);
     }
     milestone("local.dispatched", input.sandboxId);
 
@@ -979,13 +986,15 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
           0,
           "",
           signals,
+          undefined,
+          artifact ? "outcome_unknown" : undefined,
         );
       }
       let status: Awaited<ReturnType<LocalDispatchClient["status"]>>;
       try {
         status = await this.client.status(input.sandboxId);
       } catch (error) {
-        return failureResult(`Local dispatch status failed: ${shortError(error)}`, 0, "", signals);
+        return failureResult(`Local dispatch status failed: ${shortError(error)}${artifact ? " Outcome unknown; do not retry automatically." : ""}`, 0, "", signals, undefined, artifact ? "outcome_unknown" : undefined);
       }
       if (!seenClaimed && (status.status === "claimed" || status.claimedAt !== undefined)) {
         seenClaimed = true;
@@ -1002,6 +1011,9 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
         await emit({ phase: "code", message: event.text, fraction: 0.5 });
       }
       if (status.status === "cancelled") {
+        if (artifact && seenClaimed) {
+          return failureResult("Local artifact run was cancelled after a daemon claim. Outcome unknown; do not retry automatically.", 0, "", signals, undefined, "outcome_unknown");
+        }
         return failureResult("Local run was cancelled before a daemon settled it.", 0, "", signals);
       }
       if (status.status === "settled" && status.result !== undefined) {
@@ -1031,6 +1043,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
         try {
           if (artifact && (result.diff !== "" || result.baseRevision !== undefined ||
             result.changedFiles.length !== artifact.expectedDeliverables.length ||
+            new Set(result.changedFiles).size !== result.changedFiles.length ||
             result.changedFiles.some((file) => !artifact.expectedDeliverables.includes(file)) ||
             result.files.length !== artifact.expectedDeliverables.length ||
             result.files.some((file) => !artifact.expectedDeliverables.includes(file.path)))) {
