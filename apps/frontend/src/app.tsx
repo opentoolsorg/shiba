@@ -43,7 +43,8 @@ import {
   useModelConfig,
 } from "./live-status";
 import { DashboardView } from "./components/DashboardView";
-import { WorkView } from "./components/WorkView";
+import { WorkView, type WorkViewMode } from "./components/WorkView";
+import type { OrganizationEmployee } from "./components/WorkOrganizationView";
 import { TasksHomeView } from "./components/TasksHomeView";
 import { OnboardingModal, detectSetupSteps } from "./components/OnboardingModal";
 import { FirstRunWizard, type FirstRunProgressSnapshot, type FirstRunStepId } from "./components/FirstRunWizard";
@@ -575,6 +576,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       ? localStorage.getItem("shiba:sidebar-collapsed") === "true"
       : false,
   );
+  const [workViewMode, setWorkViewMode] = useState<WorkViewMode>("list");
 
   const toggleSessionsCollapsed = useCallback(() => {
     setSessionsCollapsed((current) => {
@@ -729,6 +731,18 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         emoji: agent.config.emoji,
         roleTemplateId: agent.config.roleTemplateId,
         expectedDeliverables: agent.config.expectedDeliverables,
+      })),
+    [customAgentRecords],
+  );
+  const workEmployees: OrganizationEmployee[] = useMemo(
+    () =>
+      customAgentRecords.map((record) => ({
+        id: record.id,
+        name: record.config.name,
+        role: record.config.roleTemplateId ?? "Employee",
+        emoji: record.config.emoji,
+        slug: record.slug,
+        config: record.config,
       })),
     [customAgentRecords],
   );
@@ -2738,41 +2752,92 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : teamWorkspaceId && !["team", "work", "threads", "collaboration", "custom-agents", "skills", "providers"].includes(mainView) ? (
             <section className="m-4 min-w-0 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal workspace feature"><h1 className="text-xl font-medium">Open this feature in your personal workspace</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">This view uses personal or deployment settings. Team messages, context and results stay in the selected team’s shared chat and Work views.</p><button type="button" className="mt-4 min-h-11 border border-[var(--border-1)] px-4" onClick={() => teamDirectory.selectWorkspace("")}>Switch to personal workspace</button><button type="button" className="ml-3 min-h-11 border border-[var(--border-1)] px-4" onClick={() => openView("threads")}>Open team chat</button></section>
           ) : mainView === "inbox" ? null : mainView === "work" ? (
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-            {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
-            <WorkView
-              workspaceId={teamWorkspaceId || undefined}
-              workspaceName={teamWorkspace?.name}
-              currentActorId={orchestratorName ? `human:${orchestratorName.trim().toLowerCase()}` : undefined}
-              sharedTasks={sharedWork.tasks}
-              sharedTasksLoading={sharedWork.loading}
-              sharedTasksError={sharedWork.error ?? undefined}
-              onOpenTeam={() => openView("team")}
-              onOpenSharedTask={(item) => { setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
-              runs={retainedRuns}
-              sessions={sessions}
-              storedApprovals={visibleStoredApprovals}
-              pendingApprovals={pendingApprovals}
-              onSelectTask={(id, kind) => {
-                if (kind === "approval") { setMainView("approvals"); return; }
-                void handleSelectSession(id);
-                setMainView("threads");
-              }}
-              onNewTask={handleNewTask}
-              onQuickAddTask={async (taskText) => {
-                const id = await handleNewTask();
-                if (!id) return false;
-                if (!orchestratorName) return false;
-                const scope = composerDraftScope(orchestratorName, id);
-                quickDraft.current = { scope, text: taskText };
-                writeDraft(scope, taskText);
-                setTask(taskText);
-                return true;
-              }}
-              onReviewApproval={() => {
-                setMainView("approvals");
-              }}
-            />
+            <div className="flex min-h-0 flex-1 p-2 gap-2 bg-[var(--bg)] overflow-hidden">
+              {!sessionsCollapsed ? (
+                <div className="hidden lg:flex shrink-0 h-full">
+                  <SessionsSidebar
+                    title="Work"
+                    scope={teamWorkspaceId ? "workspace" : "personal"}
+                    onScopeChange={(scope) => {
+                      if (scope === "personal") {
+                        flushDraft();
+                        teamDirectory.selectWorkspace("");
+                      } else {
+                        const verifiedWorkspace = teamDirectory.workspaces[0];
+                        if (verifiedWorkspace) {
+                          flushDraft();
+                          teamDirectory.selectWorkspace(verifiedWorkspace.workspaceId);
+                        } else {
+                          openView("team");
+                        }
+                      }
+                    }}
+                    activeNav={workViewMode}
+                    onNavChange={(nav) => setWorkViewMode(nav as WorkViewMode)}
+                    onSearchClick={() => setCommandMenuOpen(true)}
+                    sessions={sessions}
+                    agents={agentPrincipals}
+                    selectedId={selectedRunId ?? selectedSessionId}
+                    onSelect={handleSelectSession}
+                    onNewTask={handleNewTask}
+                    connectionLabel={connectionState}
+                    connectionTone={
+                      identityError || agent.connectionError
+                        ? "error"
+                        : launchBlocked || !agent.identified
+                          ? "pending"
+                          : "ok"
+                    }
+                    setupDone={setupDone}
+                    setupTotal={SETUP_TOTAL_STEPS}
+                    onOpenSetup={openFirstRun}
+                    onToggleCollapse={toggleSessionsCollapsed}
+                  />
+                </div>
+              ) : null}
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
+                <WorkView
+                  view={workViewMode}
+                  onViewChange={setWorkViewMode}
+                  sidebarCollapsed={sessionsCollapsed}
+                  onToggleSidebar={toggleSessionsCollapsed}
+                  employees={workEmployees}
+                  // Browsing the org chart must not rewrite the composer's bot or model settings.
+                  onOpenEmployee={() => openView("custom-agents")}
+                  workspaceId={teamWorkspaceId || undefined}
+                  workspaceName={teamWorkspace?.name}
+                  currentActorId={orchestratorName ? `human:${orchestratorName.trim().toLowerCase()}` : undefined}
+                  sharedTasks={sharedWork.tasks}
+                  sharedTasksLoading={sharedWork.loading}
+                  sharedTasksError={sharedWork.error ?? undefined}
+                  onOpenTeam={() => openView("team")}
+                  onOpenSharedTask={(item) => { setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
+                  runs={retainedRuns}
+                  sessions={sessions}
+                  storedApprovals={visibleStoredApprovals}
+                  pendingApprovals={pendingApprovals}
+                  onSelectTask={(id, kind) => {
+                    if (kind === "approval") { setMainView("approvals"); return; }
+                    void handleSelectSession(id);
+                    setMainView("threads");
+                  }}
+                  onNewTask={handleNewTask}
+                  onQuickAddTask={async (taskText) => {
+                    const id = await handleNewTask();
+                    if (!id) return false;
+                    if (!orchestratorName) return false;
+                    const scope = composerDraftScope(orchestratorName, id);
+                    quickDraft.current = { scope, text: taskText };
+                    writeDraft(scope, taskText);
+                    setTask(taskText);
+                    return true;
+                  }}
+                  onReviewApproval={() => {
+                    setMainView("approvals");
+                  }}
+                />
+              </div>
             </div>
           ) : mainView === "tasks" ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">

@@ -173,7 +173,7 @@ describe("WorkView", () => {
   it("filters tasks when search input is used", () => {
     render(<WorkView runs={mockRuns} storedApprovals={mockApprovals} />);
 
-    const searchButton = screen.getByRole("button", { name: "Search tasks" });
+    const searchButton = screen.getByRole("button", { name: "Search" });
     searchButton.focus();
     fireEvent.click(searchButton);
     const searchInput = screen.getByRole("searchbox", { name: "Filter tasks" });
@@ -190,7 +190,7 @@ describe("WorkView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close search" }));
     expect(screen.queryByRole("searchbox")).toBeNull();
     expect(screen.getByText("Bump Node to 22")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Search tasks" }));
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
     expect(document.activeElement).toBe(screen.getByRole("searchbox", { name: "Filter tasks" }));
   });
 
@@ -292,6 +292,71 @@ describe("WorkView", () => {
       expect(within(screen.getByRole("region", { name: `${name} - 1` })).getByText(title)).toBeTruthy();
     }
     expect(screen.queryByRole("region", { name: "Completed - 1" })).toBeNull();
+  });
+
+  it("renders centered empty state when there are zero tasks", () => {
+    render(<WorkView runs={[]} storedApprovals={[]} sessions={[]} />);
+    expect(screen.getByText("No tasks yet")).toBeTruthy();
+    expect(screen.getByText("Add a task above. It lands in Todo.")).toBeTruthy();
+  });
+
+  it("supports controlled view and invokes onViewChange", () => {
+    const onViewChange = vi.fn();
+    const { rerender } = render(<WorkView view="list" onViewChange={onViewChange} runs={mockRuns} />);
+    expect(screen.getByRole("region", { name: "List view" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Board" }));
+    expect(onViewChange).toHaveBeenCalledWith("board");
+
+    rerender(<WorkView view="organization" onViewChange={onViewChange} runs={mockRuns} />);
+    expect(screen.getByRole("region", { name: "Organization view" })).toBeTruthy();
+  });
+
+  it("renders employees in organization view and handles onOpenEmployee", () => {
+    const onOpenEmployee = vi.fn();
+    const mockEmployees = [
+      { id: "emp-1", name: "Coder Agent", role: "Software Engineer", department: "Engineering" },
+    ];
+    render(
+      <WorkView
+        view="organization"
+        employees={mockEmployees}
+        onOpenEmployee={onOpenEmployee}
+      />
+    );
+    expect(screen.getByText("Coder Agent")).toBeTruthy();
+    expect(screen.getByText("Software Engineer")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("employee-card-emp-1"));
+    expect(onOpenEmployee).toHaveBeenCalledWith("emp-1");
+  });
+
+  it("handles sidebarCollapsed, onToggleSidebar, and onNewTask", () => {
+    const onToggleSidebar = vi.fn();
+    const onNewTask = vi.fn();
+    const { rerender } = render(
+      <WorkView
+        sidebarCollapsed={false}
+        onToggleSidebar={onToggleSidebar}
+        onNewTask={onNewTask}
+      />
+    );
+
+    const collapseBtn = screen.getByRole("button", { name: "Collapse sidebar" });
+    fireEvent.click(collapseBtn);
+    expect(onToggleSidebar).toHaveBeenCalledOnce();
+
+    const newTaskBtn = screen.getByRole("button", { name: "New task" });
+    fireEvent.click(newTaskBtn);
+    expect(onNewTask).toHaveBeenCalledOnce();
+
+    rerender(
+      <WorkView
+        sidebarCollapsed={true}
+        onToggleSidebar={onToggleSidebar}
+        onNewTask={onNewTask}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeTruthy();
   });
 
   it("clears cached shared work on a membership or source refresh error", () => {

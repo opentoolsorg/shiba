@@ -49,7 +49,7 @@ describe("workspaceLabel", () => {
   });
 });
 
-describe("AppNavRail", () => {
+describe("AppNavRail non-work views (expanded desktop sidebar & compact rail)", () => {
   it("renders Shiba wordmark and navigates to work on click", () => {
     const { onNavigate } = renderRail();
     const wordmark = screen.getByRole("link", { name: "Shiba Home" });
@@ -178,7 +178,7 @@ describe("AppNavRail", () => {
 
   it("shows only the accessible compact rail when collapsed, with a way to reopen on every view", () => {
     const onToggleCollapse = vi.fn();
-    const { onNavigate } = renderRail({ activeView: "work", collapsed: true, onToggleCollapse });
+    const { onNavigate } = renderRail({ activeView: "tasks", collapsed: true, onToggleCollapse });
     const aside = screen.getByRole("complementary", { name: "Primary Left Rail" });
     const compact = screen.getByRole("navigation", { name: "App Icon Rail" });
     expect(aside.getAttribute("aria-hidden")).toBeNull();
@@ -198,7 +198,7 @@ describe("AppNavRail", () => {
   it("alternates navigation modes without duplicate controls and transfers keyboard focus to the current toggle", () => {
     function Navigation() {
       const [collapsed, setCollapsed] = useState(false);
-      return <AppNavRail activeView="work" onNavigate={vi.fn()} collapsed={collapsed} onToggleCollapse={() => setCollapsed((value) => !value)} />;
+      return <AppNavRail activeView="tasks" onNavigate={vi.fn()} collapsed={collapsed} onToggleCollapse={() => setCollapsed((value) => !value)} />;
     }
     render(<Navigation />);
     for (let cycle = 0; cycle < 3; cycle++) {
@@ -233,7 +233,7 @@ describe("AppNavRail", () => {
   });
 
   it("retains sidebar focus for an external shortcut toggle without stealing focus from the main view", () => {
-    const props = { activeView: "work" as const, onNavigate: vi.fn(), onToggleCollapse: vi.fn() };
+    const props = { activeView: "tasks" as const, onNavigate: vi.fn(), onToggleCollapse: vi.fn() };
     const { rerender } = render(<><AppNavRail {...props} collapsed={false} /><input aria-label="Main task" /></>);
     screen.getByRole("button", { name: "New thread" }).focus();
     rerender(<><AppNavRail {...props} collapsed /><input aria-label="Main task" /></>);
@@ -286,5 +286,108 @@ describe("AppNavRail", () => {
     fireEvent.click(more);
     fireEvent.click(screen.getByRole("menuitem", { name: "Tool policy" }));
     expect(onNavigate).toHaveBeenCalledExactlyOnceWith("employee-tools");
+  });
+});
+
+describe("AppNavRail Desktop Overlay 52px Icon Rail (activeView === 'work')", () => {
+  it("renders ~52px transparent desktop icon rail on work view with round logo mark top", () => {
+    const { onNavigate } = renderRail({ activeView: "work" });
+    const aside = screen.getByRole("complementary", { name: "Primary Left Rail" });
+    expect(aside.className).toContain("w-[52px]");
+    expect(aside.className).toContain("bg-transparent");
+    expect(aside.className).toContain("hidden");
+    expect(aside.className).toContain("lg:flex");
+
+    const logo = screen.getByRole("link", { name: "Shiba Home" });
+    expect(logo).toBeTruthy();
+    expect(within(logo).getByRole("img", { name: "Shiba" }).getAttribute("src")).toBe("/assets/mascot/pet-logo.png");
+    fireEvent.click(logo);
+    expect(onNavigate).toHaveBeenCalledWith("work");
+  });
+
+  it("stacks primary buttons: Work, Agents, Chat, and More with active pill on Work", () => {
+    const { onNavigate } = renderRail({ activeView: "work" });
+    const workBtn = screen.getByRole("button", { name: "Work" });
+    const agentsBtn = screen.getByRole("button", { name: "Agents" });
+    const chatBtn = screen.getByRole("button", { name: "Chat" });
+    const moreBtn = screen.getByRole("button", { name: "More" });
+
+    expect(workBtn.getAttribute("aria-current")).toBe("page");
+    expect(workBtn.className).toContain("bg-[#e4e4e7]");
+    expect(agentsBtn.getAttribute("aria-current")).toBeNull();
+    expect(chatBtn.getAttribute("aria-current")).toBeNull();
+
+    fireEvent.click(agentsBtn);
+    expect(onNavigate).toHaveBeenCalledWith("custom-agents");
+
+    fireEvent.click(chatBtn);
+    expect(onNavigate).toHaveBeenCalledWith("threads");
+
+    fireEvent.click(workBtn);
+    expect(onNavigate).toHaveBeenCalledWith("work");
+
+    expect(moreBtn).toBeTruthy();
+  });
+
+  it("opens More popover on work rail listing remaining nav items and includes workspace switcher", () => {
+    const onNavigate = vi.fn();
+    render(
+      <AppNavRail
+        activeView="work"
+        onNavigate={onNavigate}
+        workspaceSwitcher={<div data-testid="test-ws-switcher">Switcher</div>}
+      />,
+    );
+
+    const moreBtn = screen.getByRole("button", { name: "More" });
+    fireEvent.click(moreBtn);
+
+    expect(screen.getByTestId("test-ws-switcher")).toBeTruthy();
+    const tasksMenuItem = screen.getByRole("menuitem", { name: "Tasks" });
+    expect(tasksMenuItem).toBeTruthy();
+    fireEvent.click(tasksMenuItem);
+    expect(onNavigate).toHaveBeenCalledWith("tasks");
+  });
+
+  it("renders bottom utilities and workspace profile popover on work view", () => {
+    const onToggleTheme = vi.fn();
+    const onOpenShortcuts = vi.fn();
+    const onNavigate = vi.fn();
+    const onToggleCollapse = vi.fn();
+
+    render(
+      <AppNavRail
+        activeView="work"
+        onNavigate={onNavigate}
+        theme="light"
+        onToggleTheme={onToggleTheme}
+        onOpenShortcuts={onOpenShortcuts}
+        onToggleCollapse={onToggleCollapse}
+        collapsed={false}
+      />,
+    );
+
+    const collapseBtn = screen.getByRole("button", { name: "Collapse sidebar" });
+    expect(collapseBtn).toBeTruthy();
+    fireEvent.click(collapseBtn);
+    expect(onToggleCollapse).toHaveBeenCalledOnce();
+
+    const themeBtn = screen.getByRole("button", { name: "Switch to dark theme" });
+    fireEvent.click(themeBtn);
+    expect(onToggleTheme).toHaveBeenCalledOnce();
+
+    const helpBtn = screen.getByRole("button", { name: "Help & shortcuts" });
+    fireEvent.click(helpBtn);
+    expect(onOpenShortcuts).toHaveBeenCalledOnce();
+
+    const settingsBtn = screen.getByRole("button", { name: "Settings" });
+    fireEvent.click(settingsBtn);
+    expect(onNavigate).toHaveBeenCalledWith("settings");
+
+    const profileBtn = screen.getByRole("button", { name: "Workspace profile" });
+    fireEvent.click(profileBtn);
+    const remoteItem = screen.getByRole("menuitem", { name: "Remote access" });
+    fireEvent.click(remoteItem);
+    expect(onNavigate).toHaveBeenCalledWith("remote");
   });
 });

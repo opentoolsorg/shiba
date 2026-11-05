@@ -1,7 +1,8 @@
 /**
- * AppNavRail — OpenBot-inspired workspace shell navigation:
- * Compact icon rail or expanded sidebar (workspace, agents/workflows and threads).
- * Phones use a separate full navigation sheet.
+ * AppNavRail — OpenBot/Overlay workspace shell navigation:
+ * On desktop when activeView === "work": Overlay ~52px transparent icon rail.
+ * On desktop when activeView !== "work": expanded sidebar with threads list when not collapsed, compact rail when collapsed.
+ * On mobile (variant === "sheet"): full navigation drawer.
  */
 import { useState, useMemo, useRef, useEffect, useId, type JSX } from "react";
 import {
@@ -27,6 +28,7 @@ import {
   LogOut,
   MessagesSquare,
   Monitor,
+  Moon,
   MoreHorizontal,
   PanelLeft,
   Search,
@@ -35,6 +37,7 @@ import {
   SquareCheckBig,
   SquarePen,
   Store,
+  Sun,
   Terminal,
   Users,
   Waypoints,
@@ -234,6 +237,28 @@ const CURATED_WORKFLOWS = [
   },
 ];
 
+const OVERLAY_MORE_ITEMS: { id: AppNavView; label: string; icon: LucideIcon }[] = [
+  { id: "tasks", label: "Tasks", icon: List },
+  { id: "diff", label: "Pull requests", icon: GitCompareArrows },
+  { id: "automations", label: "Automations", icon: Zap },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "activity", label: "Activity", icon: Activity },
+  { id: "analytics", label: "Analytics", icon: BarChart3 },
+  { id: "approvals", label: "Approvals", icon: ShieldCheck },
+  { id: "swarm", label: "Swarm", icon: SquareCheckBig },
+  { id: "collaboration", label: "Collaboration", icon: MessagesSquare },
+  { id: "team", label: "Team", icon: Users },
+  { id: "providers", label: "Providers", icon: Terminal },
+  { id: "skills", label: "Skills", icon: BookMarked },
+  { id: "spaces", label: "Spaces", icon: Store },
+  { id: "employee-tools", label: "Tool policy", icon: ShieldCheck },
+  { id: "agents", label: "MCP", icon: Cpu },
+  { id: "inbox", label: "Mailbox", icon: Inbox },
+  { id: "memory", label: "Memory", icon: Brain },
+  { id: "integrations", label: "Integrations", icon: Blocks },
+  { id: "remote", label: "Remote Access", icon: Monitor },
+];
+
 export function AppNavRail({
   activeView,
   onNavigate,
@@ -363,7 +388,318 @@ export function AppNavRail({
 
   const isMoreViewActive = moreViews.includes(activeView);
 
-  // Desktop Left Rail elements
+  // 1. Desktop Overlay ~52px Icon Rail Variant (when activeView === "work")
+  if (variant === "rail" && activeView === "work") {
+    const railBtnBase = "size-[38px] rounded-lg flex items-center justify-center transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] relative";
+    const railBtnActive = "bg-[#e4e4e7] text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100 font-medium shadow-none";
+    const railBtnInactive = "text-[#71717a] dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-black/5 dark:hover:bg-white/5";
+
+    return (
+      <aside
+        ref={navigationRef}
+        id={navigationId}
+        className="hidden lg:flex w-[52px] shrink-0 flex-col items-center justify-between py-2 select-none h-full bg-transparent z-40"
+        aria-label="Primary Left Rail"
+        onFocusCapture={() => { restoreToggleFocus.current = true; }}
+        onBlurCapture={(event) => {
+          if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) {
+            restoreToggleFocus.current = false;
+          }
+        }}
+      >
+        <nav
+          aria-label="App Icon Rail"
+          className="w-full h-full flex flex-col items-center justify-between"
+        >
+          {/* Top: Round logo mark + Primary items (Work, Agents, Chat, More) */}
+          <div className="flex flex-col items-center gap-3 w-full">
+            <Tooltip content="Shiba Home" side="right">
+              <a
+                href="/"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onNavigate("work");
+                }}
+                aria-label="Shiba Home"
+                className="size-9 rounded-full flex items-center justify-center hover:opacity-80 transition-opacity focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+              >
+                <ShibaMark className="size-7 rounded-full object-contain" />
+              </a>
+            </Tooltip>
+
+            <div className="flex flex-col items-center gap-1.5 w-full" role="toolbar" aria-label="Primary navigation rail">
+              {/* Work */}
+              <Tooltip content="Work" side="right">
+                <button
+                  type="button"
+                  onClick={() => onNavigate("work")}
+                  aria-label="Work"
+                  aria-current="page"
+                  className={`${railBtnBase} ${railBtnActive}`}
+                >
+                  <ListChecks className="size-5" strokeWidth={1.8} aria-hidden="true" />
+                </button>
+              </Tooltip>
+
+              {/* Agents */}
+              <Tooltip content="Agents" side="right">
+                <button
+                  type="button"
+                  onClick={() => onNavigate("custom-agents")}
+                  aria-label="Agents"
+                  className={`${railBtnBase} ${railBtnInactive}`}
+                >
+                  <Bot className="size-5" strokeWidth={1.8} aria-hidden="true" />
+                </button>
+              </Tooltip>
+
+              {/* Chat */}
+              <Tooltip content="Chat" side="right">
+                <button
+                  type="button"
+                  onClick={() => onNavigate("threads")}
+                  aria-label="Chat"
+                  className={`${railBtnBase} ${railBtnInactive}`}
+                >
+                  <MessagesSquare className="size-5" strokeWidth={1.8} aria-hidden="true" />
+                </button>
+              </Tooltip>
+
+              {/* More (...) */}
+              <div ref={moreRef} className="relative">
+                <Tooltip content="More" side="right">
+                  <button
+                    type="button"
+                    onClick={() => setMoreMenuOpen((prev) => !prev)}
+                    aria-label="More"
+                    aria-expanded={moreMenuOpen}
+                    aria-haspopup="true"
+                    className={`${railBtnBase} ${railBtnInactive}`}
+                  >
+                    <MoreHorizontal className="size-5" strokeWidth={1.8} aria-hidden="true" />
+                    {pendingApprovalCount > 0 ? (
+                      <span
+                        className="absolute top-1.5 right-1.5 size-2 rounded-full bg-[var(--warning-fg)] ring-2 ring-[var(--bg,#fafafa)]"
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                  </button>
+                </Tooltip>
+
+                {moreMenuOpen ? (
+                  <div
+                    role="menu"
+                    className="absolute left-full top-0 ml-2 w-56 py-1 bg-[var(--popover)] border border-[var(--border-1)] rounded-[var(--radius-overlay)] shadow-overlay z-50 text-[13px] max-h-[75vh] overflow-y-auto animate-enter"
+                  >
+                    {workspaceSwitcher ? (
+                      <div className="px-2 py-1.5 border-b border-[var(--border-1)] mb-1">
+                        {workspaceSwitcher}
+                      </div>
+                    ) : null}
+
+                    {OVERLAY_MORE_ITEMS.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            onNavigate(item.id);
+                            setMoreMenuOpen(false);
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)]"
+                        >
+                          <Icon className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
+                          <span className="flex-1 truncate">{item.label}</span>
+                          {item.id === "approvals" && pendingApprovalCount > 0 ? (
+                            <span className="min-w-4 h-4 px-1 bg-[var(--warning-subtle)] text-[var(--warning-fg)] text-[10px] font-bold flex items-center justify-center rounded">
+                              {pendingApprovalCount}
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Stack: sidebar-toggle, theme, help, settings, user avatar square */}
+          <div className="flex flex-col items-center gap-1.5 mt-auto w-full">
+            {onToggleCollapse ? (
+              <Tooltip content={collapsed ? "Expand sidebar" : "Collapse sidebar"} shortcut="⌘B" side="right">
+                <button
+                  type="button"
+                  data-sidebar-toggle
+                  onClick={toggleSidebar}
+                  aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                  aria-expanded={!collapsed}
+                  aria-controls={navigationId}
+                  className={`${railBtnBase} ${railBtnInactive}`}
+                >
+                  <PanelLeft className="size-5" strokeWidth={1.8} aria-hidden="true" />
+                </button>
+              </Tooltip>
+            ) : null}
+
+            {onToggleTheme ? (
+              <Tooltip content={theme === "dark" ? "Light theme" : "Dark theme"} side="right">
+                <button
+                  type="button"
+                  onClick={onToggleTheme}
+                  aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+                  className={`${railBtnBase} ${railBtnInactive}`}
+                >
+                  {theme === "dark" ? (
+                    <Sun className="size-5" strokeWidth={1.8} aria-hidden="true" />
+                  ) : (
+                    <Moon className="size-5" strokeWidth={1.8} aria-hidden="true" />
+                  )}
+                </button>
+              </Tooltip>
+            ) : null}
+
+            {onOpenShortcuts ? (
+              <Tooltip content="Help & Shortcuts" shortcut="?" side="right">
+                <button
+                  type="button"
+                  onClick={onOpenShortcuts}
+                  aria-label="Help & shortcuts"
+                  className={`${railBtnBase} ${railBtnInactive}`}
+                >
+                  <HelpCircle className="size-5" strokeWidth={1.8} aria-hidden="true" />
+                </button>
+              </Tooltip>
+            ) : null}
+
+            <Tooltip content="Settings" side="right">
+              <button
+                type="button"
+                onClick={() => onNavigate("settings")}
+                aria-label="Settings"
+                className={`${railBtnBase} ${railBtnInactive}`}
+              >
+                <Settings className="size-5" strokeWidth={1.8} aria-hidden="true" />
+                {pendingApprovalCount > 0 ? (
+                  <span
+                    className="absolute top-1.5 right-1.5 size-2 rounded-full bg-[var(--warning-fg)] ring-2 ring-[var(--bg,#fafafa)]"
+                    aria-hidden="true"
+                  />
+                ) : null}
+              </button>
+            </Tooltip>
+
+            <div ref={accountRef} className="relative">
+              <Tooltip content={identity.name || "Workspace profile"} side="right">
+                <button
+                  type="button"
+                  onClick={() => setAccountMenuOpen((prev) => !prev)}
+                  aria-expanded={accountMenuOpen}
+                  aria-haspopup="true"
+                  aria-label={accountEmail ? `${accountEmail} · workspace` : "Workspace profile"}
+                  className="size-[38px] rounded-lg border border-[var(--border-1)] bg-[var(--card)] flex items-center justify-center overflow-hidden hover:opacity-90 transition-opacity focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+                >
+                  <ShibaMark className="size-6 object-contain" />
+                </button>
+              </Tooltip>
+
+              {accountMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute left-full bottom-0 ml-2 w-56 py-1 bg-[var(--popover)] border border-[var(--border-1)] rounded-[var(--radius-overlay)] shadow-overlay z-50 text-[13px] animate-enter"
+                >
+                  <div className="px-3 py-2 border-b border-[var(--border-1)]">
+                    <span className="block font-medium text-[var(--fg)] text-xs truncate">
+                      {identity.name}
+                    </span>
+                    <span className="block text-[10px] text-[var(--muted-foreground-3)] truncate mt-0.5">
+                      {identity.detail}
+                    </span>
+                  </div>
+
+                  {workspaceSwitcher ? (
+                    <div className="px-2 py-1.5 border-b border-[var(--border-1)]">
+                      {workspaceSwitcher}
+                    </div>
+                  ) : null}
+
+                  {activeSandboxCount > 0 ? (
+                    <div className="px-3 py-1.5 text-[11px] text-[var(--muted-foreground-2)] border-b border-[var(--border-1)] flex items-center justify-between">
+                      <span>Active sandboxes</span>
+                      <span className="font-mono font-medium">{activeSandboxCount}</span>
+                    </div>
+                  ) : null}
+
+                  {setupDone !== null && onOpenSetup ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        onOpenSetup();
+                        setAccountMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)] transition-colors"
+                    >
+                      <span>Setup</span>
+                      <span className="text-[11px] text-[var(--primary)] font-mono">
+                        {setupDone}/{setupTotal}
+                      </span>
+                    </button>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    role="menuitem"
+                    aria-label="Remote access"
+                    onClick={() => {
+                      onNavigate("remote");
+                      setAccountMenuOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)] transition-colors"
+                  >
+                    <span>Remote access</span>
+                    <span className="text-[10px] font-mono text-[var(--muted-foreground-3)]">fleet</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onNavigate("settings");
+                      setAccountMenuOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)] transition-colors"
+                  >
+                    <span>Settings</span>
+                    <Settings className="size-3.5 text-[var(--muted-foreground-3)]" />
+                  </button>
+
+                  {onSignOut ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        onSignOut();
+                        setAccountMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-[var(--destructive)] hover:bg-[var(--destructive-soft)] transition-colors border-t border-[var(--border-1)] mt-1"
+                    >
+                      <LogOut className="size-3.5" />
+                      <span>Sign out</span>
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </nav>
+      </aside>
+    );
+  }
+
+  // 2. Desktop compact rail element (when collapsed on non-work views)
   const leftIconRail = (
     <nav
       aria-label="App Icon Rail"
@@ -470,7 +806,6 @@ export function AppNavRail({
 
       {/* Bottom: Bot avatars stack + Utilities */}
       <div className="flex flex-col items-center gap-2 mt-auto pt-3 w-full px-1.5">
-        {/* Bot / Agent Avatars Stack */}
         <div role="group" className="flex flex-col items-center gap-1.5 pb-2 border-b border-[var(--border-1)] w-full" aria-label="Available bots">
           <Tooltip content="Shiba (Lead) · Ready" side="right">
             <button
@@ -507,7 +842,6 @@ export function AppNavRail({
           ))}
         </div>
 
-        {/* Store / Spaces */}
         <Tooltip content="Spaces & Store" side="right">
           <button
             type="button"
@@ -524,7 +858,6 @@ export function AppNavRail({
           </button>
         </Tooltip>
 
-        {/* Shortcuts / Help */}
         {onOpenShortcuts ? (
           <Tooltip content="Shortcuts & Help" side="right">
             <button
@@ -538,7 +871,6 @@ export function AppNavRail({
           </Tooltip>
         ) : null}
 
-        {/* Settings */}
         <Tooltip content="Settings" side="right">
           <button
             type="button"
@@ -578,752 +910,801 @@ export function AppNavRail({
         }
       }}
     >
-      {/* The compact rail replaces the expanded desktop navigation. */}
+      {/* The compact rail replaces the expanded desktop navigation when collapsed */}
       {variant === "rail" && collapsed ? leftIconRail : null}
 
-      {/* 2. Workspace Sidebar */}
+      {/* Workspace Sidebar: expanded when variant === "sheet" or !collapsed */}
       {variant === "sheet" || !collapsed ? (
-      <div
-        className={
-          variant === "sheet"
-            ? "flex-1 flex flex-col min-h-0 overflow-hidden"
-            : "h-full flex flex-col bg-[var(--chrome)] text-[var(--fg)] z-30 select-none overflow-hidden w-[248px] shrink-0 border-r border-[var(--border-1)] py-3 px-3"
-        }
-      >
-        {/* TOPBAR: Team Selector Dropdown + Search + Collapse Button */}
-        <div className="flex shrink-0 items-center justify-between px-1 pb-3 mb-1">
-          <div ref={teamRef} className="relative flex items-center min-w-0">
-          <a
-            href="/"
-            onClick={(e) => {
-              e.preventDefault();
-              onNavigate("work");
-            }}
-            className="flex items-center gap-2 group focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 rounded-md min-w-0"
-            aria-label="Shiba Home"
-          >
-            <ShibaMark className="size-7" />
-            <span className="font-display text-[24px] text-[var(--fg)] tracking-tight leading-none select-none">
-              Shiba
-            </span>
-          </a>
-            <button
-              type="button"
-              onClick={() => setTeamMenuOpen((prev) => !prev)}
-              aria-label="Team workspace menu"
-              aria-expanded={teamMenuOpen}
-              aria-haspopup="true"
-              className="ml-1 p-1 rounded hover:bg-[var(--secondary)] text-[var(--muted-foreground-3)] hover:text-[var(--fg)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
-            >
-              <ChevronDown className="size-3.5" />
-            </button>
-
-            {teamMenuOpen ? (
-              <div
-                role="menu"
-                className="absolute left-0 top-full mt-1 w-52 py-1 bg-[var(--popover)] border border-[var(--border-1)] rounded-[var(--radius-overlay)] shadow-overlay z-50 text-[13px] animate-enter"
+        <div
+          className={
+            variant === "sheet"
+              ? "flex-1 flex flex-col min-h-0 overflow-hidden"
+              : "h-full flex flex-col bg-[var(--chrome)] text-[var(--fg)] z-30 select-none overflow-hidden w-[248px] shrink-0 border-r border-[var(--border-1)] py-3 px-3"
+          }
+        >
+          {/* TOPBAR: Team Selector Dropdown + Search + Collapse Button */}
+          <div className="flex shrink-0 items-center justify-between px-1 pb-3 mb-1">
+            <div ref={teamRef} className="relative flex items-center min-w-0">
+              <a
+                href="/"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onNavigate("work");
+                  if (variant === "sheet") onClose?.();
+                }}
+                className="flex items-center gap-2 group focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 rounded-md min-w-0"
+                aria-label="Shiba Home"
               >
-                <div className="px-3 py-1.5 border-b border-[var(--border-1)]">
-                  <p className="font-medium text-xs text-[var(--fg)] truncate">{identity.name}</p>
-                  <p className="text-[10px] text-[var(--muted-foreground-3)] truncate">{identity.detail}</p>
-                </div>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    onNavigate("custom-agents");
-                    setTeamMenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)]"
-                >
-                  <Bot className="size-4 text-[var(--icon-muted)]" />
-                  <span>Manage agents</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    onNavigate("settings");
-                    setTeamMenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)]"
-                >
-                  <Settings className="size-4 text-[var(--icon-muted)]" />
-                  <span>Workspace settings</span>
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="flex items-center gap-1 ml-auto">
-            {onOpenSearch ? (
-              <Tooltip content="Search" shortcut="⌘K" side="bottom">
-                <button
-                  type="button"
-                  onClick={onOpenSearch}
-                  aria-label="Search"
-                  className="size-8 min-h-[44px] min-w-[44px] rounded-lg flex items-center justify-center text-[var(--icon-muted)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
-                >
-                  <Search className="size-4" strokeWidth={1.8} aria-hidden="true" />
-                </button>
-              </Tooltip>
-            ) : null}
-
-            {variant === "sheet" && onClose ? (
+                <ShibaMark className="size-7" />
+                <span className="font-display text-[24px] text-[var(--fg)] tracking-tight leading-none select-none">
+                  Shiba
+                </span>
+              </a>
               <button
                 type="button"
-                onClick={onClose}
-                aria-label="Close sidebar"
-                className="size-8 min-h-[44px] min-w-[44px] rounded-lg flex items-center justify-center text-[var(--icon-muted)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
+                onClick={() => setTeamMenuOpen((prev) => !prev)}
+                aria-label="Team workspace menu"
+                aria-expanded={teamMenuOpen}
+                aria-haspopup="true"
+                className="ml-1 p-1 rounded hover:bg-[var(--secondary)] text-[var(--muted-foreground-3)] hover:text-[var(--fg)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
               >
-                <X className="size-4" strokeWidth={1.8} aria-hidden="true" />
+                <ChevronDown className="size-3.5" />
               </button>
-            ) : onToggleCollapse ? (
-              <Tooltip content="Collapse sidebar" shortcut="⌘B" side="bottom">
+
+              {teamMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute left-0 top-full mt-1 w-52 py-1 bg-[var(--popover)] border border-[var(--border-1)] rounded-[var(--radius-overlay)] shadow-overlay z-50 text-[13px] animate-enter"
+                >
+                  <div className="px-3 py-1.5 border-b border-[var(--border-1)]">
+                    <p className="font-medium text-xs text-[var(--fg)] truncate">{identity.name}</p>
+                    <p className="text-[10px] text-[var(--muted-foreground-3)] truncate">{identity.detail}</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onNavigate("custom-agents");
+                      setTeamMenuOpen(false);
+                      if (variant === "sheet") onClose?.();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)]"
+                  >
+                    <Bot className="size-4 text-[var(--icon-muted)]" />
+                    <span>Manage agents</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onNavigate("settings");
+                      setTeamMenuOpen(false);
+                      if (variant === "sheet") onClose?.();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)]"
+                  >
+                    <Settings className="size-4 text-[var(--icon-muted)]" />
+                    <span>Workspace settings</span>
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex items-center gap-1 ml-auto">
+              {onOpenSearch ? (
+                <Tooltip content="Search" shortcut="⌘K" side="bottom">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onOpenSearch();
+                      if (variant === "sheet") onClose?.();
+                    }}
+                    aria-label="Search"
+                    className="size-8 min-h-[44px] min-w-[44px] rounded-lg flex items-center justify-center text-[var(--icon-muted)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
+                  >
+                    <Search className="size-4" strokeWidth={1.8} aria-hidden="true" />
+                  </button>
+                </Tooltip>
+              ) : null}
+
+              {variant === "sheet" && onClose ? (
                 <button
                   type="button"
-                  data-sidebar-toggle
-                  onClick={toggleSidebar}
-                  aria-label="Collapse sidebar"
-                  aria-expanded={true}
-                  aria-controls={navigationId}
+                  onClick={onClose}
+                  aria-label="Close sidebar"
                   className="size-8 min-h-[44px] min-w-[44px] rounded-lg flex items-center justify-center text-[var(--icon-muted)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
                 >
-                  <PanelLeft className="size-4" strokeWidth={1.8} aria-hidden="true" />
+                  <X className="size-4" strokeWidth={1.8} aria-hidden="true" />
                 </button>
-              </Tooltip>
-            ) : null}
+              ) : onToggleCollapse ? (
+                <Tooltip content="Collapse sidebar" shortcut="⌘B" side="bottom">
+                  <button
+                    type="button"
+                    data-sidebar-toggle
+                    onClick={toggleSidebar}
+                    aria-label="Collapse sidebar"
+                    aria-expanded={true}
+                    aria-controls={navigationId}
+                    className="size-8 min-h-[44px] min-w-[44px] rounded-lg flex items-center justify-center text-[var(--icon-muted)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
+                  >
+                    <PanelLeft className="size-4" strokeWidth={1.8} aria-hidden="true" />
+                  </button>
+                </Tooltip>
+              ) : null}
+            </div>
           </div>
-        </div>
 
-        {/* View Switcher: Agents | Workflows (OpenBot SidebarViewSwitch) */}
-        {workspaceSwitcher}
-        <div className="grid grid-cols-2 p-0.5 rounded-lg bg-[var(--secondary)] mb-2.5 text-xs font-medium shrink-0">
-          <button
-            type="button"
-            aria-pressed={sidebarView === "agents"}
-            aria-label="Switch to agents"
-            onClick={() => setSidebarView("agents")}
-            className={`py-1.5 rounded-md flex items-center justify-center gap-1.5 transition-all focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
-              sidebarView === "agents"
-                ? "bg-[var(--card)] text-[var(--fg)] shadow-sm font-medium"
-                : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
-            }`}
-          >
-            <Bot className="size-3.5" aria-hidden="true" />
-            <span>Agents</span>
-          </button>
-          <button
-            type="button"
-            aria-pressed={sidebarView === "workflows"}
-            aria-label="Switch to workflows"
-            onClick={() => setSidebarView("workflows")}
-            className={`py-1.5 rounded-md flex items-center justify-center gap-1.5 transition-all focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
-              sidebarView === "workflows"
-                ? "bg-[var(--card)] text-[var(--fg)] shadow-sm font-medium"
-                : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
-            }`}
-          >
-            <Workflow className="size-3.5" aria-hidden="true" />
-            <span>Workflows</span>
-          </button>
-        </div>
-
-        {/* SCROLLING REGION FOR SIDEBAR NAVIGATION */}
-        <div role="region" aria-label="Sidebar navigation" className="min-h-0 flex-1 overflow-y-auto">
-          {/* Header Action: New thread */}
-          <p className="px-3 pb-2 text-xs text-[var(--muted-foreground-2)]">Workspace</p>
-          <button
-            type="button"
-            onClick={() => {
-              if (onNewTask) onNewTask();
-              else onNavigate("tasks");
-              if (variant === "sheet") onClose?.();
-            }}
-            className="mb-3 flex min-h-11 w-full items-center gap-2 rounded-lg border border-[var(--border-1)] bg-[var(--secondary)] px-3 text-sm text-[var(--fg)] hover:bg-[var(--secondary-hover)] focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
-          >
-            <SquarePen aria-hidden="true" className="size-4" />
-            New thread
-          </button>
-
-          {sidebarView === "workflows" ? (
-            /* WORKFLOWS VIEW */
-            <section aria-label="Workflows & Automations" className="flex flex-col gap-1 mb-4">
-              <div className="flex items-center justify-between px-2.5 pb-1.5 pt-1">
-                <span className="text-[11px] font-mono uppercase tracking-[0.1em] text-[var(--muted-foreground-2)]">
-                  Routines
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onNavigate("automations")}
-                  className="text-[11px] text-[var(--primary)] hover:underline"
-                >
-                  Manage
-                </button>
-              </div>
-              <div className="flex flex-col gap-1">
-                {CURATED_WORKFLOWS.map((wf) => {
-                  const Icon = wf.icon;
-                  return (
-                    <div
-                      key={wf.id}
-                      className="group flex items-center justify-between p-2 rounded-lg hover:bg-[var(--secondary)] transition-colors border border-transparent hover:border-[var(--border-1)]"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="p-1.5 rounded-md bg-[var(--card)] border border-[var(--border-1)] text-[var(--icon-muted)] group-hover:text-[var(--fg)] shrink-0">
-                          <Icon className="size-3.5" aria-hidden="true" />
-                        </span>
-                        <div className="min-w-0 flex-1 leading-tight">
-                          <p className="text-[13px] font-medium text-[var(--fg)] truncate">{wf.title}</p>
-                          <p className="text-[10px] text-[var(--muted-foreground-3)] truncate mt-0.5">{wf.schedule}</p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onNavigate("automations")}
-                        aria-label={`Run ${wf.title}`}
-                        className="opacity-0 group-hover:opacity-100 px-2 py-0.5 text-[10px] font-medium rounded border border-[var(--border-1)] bg-[var(--card)] text-[var(--fg)] hover:bg-[var(--secondary-hover)] transition-all shrink-0"
-                      >
-                        Run
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          ) : null}
-
-          {/* MAIN NAV ITEMS: Work, Tasks, Threads, Pull requests, Automations, Resources, More */}
-          <nav aria-label="Main" className="flex flex-col gap-0.5 mb-3 px-0.5">
+          {/* View Switcher: Agents | Workflows */}
+          {workspaceSwitcher}
+          <div className="grid grid-cols-2 p-0.5 rounded-lg bg-[var(--secondary)] mb-2.5 text-xs font-medium shrink-0">
             <button
               type="button"
-              onClick={() => onNavigate("work")}
-              aria-current={activeView === "work" ? "page" : undefined}
-              className={
-                "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
-                (activeView === "work"
-                  ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
-                  : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
-              }
-            >
-              <LayoutGrid className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-              <span className="flex-1 text-left truncate leading-none">Work</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onNavigate("custom-agents")}
-              aria-current={activeView === "custom-agents" ? "page" : undefined}
-              className={`flex min-h-11 items-center gap-2.5 rounded-lg px-2.5 text-sm focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
-                activeView === "custom-agents" ? "bg-[var(--secondary)] text-[var(--fg)] font-medium" : "text-[var(--muted-foreground-2)] hover:bg-[var(--section)]"
+              aria-pressed={sidebarView === "agents"}
+              aria-label="Switch to agents"
+              onClick={() => setSidebarView("agents")}
+              className={`py-1.5 rounded-md flex items-center justify-center gap-1.5 transition-all focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
+                sidebarView === "agents"
+                  ? "bg-[var(--card)] text-[var(--fg)] shadow-sm font-medium"
+                  : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
               }`}
             >
-              <Bot aria-hidden="true" className="size-4 text-[var(--icon-muted)]" />
+              <Bot className="size-3.5" aria-hidden="true" />
               <span>Agents</span>
             </button>
-
             <button
               type="button"
-              onClick={() => onNavigate("tasks")}
-              aria-current={activeView === "tasks" ? "page" : undefined}
-              className={
-                "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
-                (activeView === "tasks"
-                  ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
-                  : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
-              }
+              aria-pressed={sidebarView === "workflows"}
+              aria-label="Switch to workflows"
+              onClick={() => setSidebarView("workflows")}
+              className={`py-1.5 rounded-md flex items-center justify-center gap-1.5 transition-all focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
+                sidebarView === "workflows"
+                  ? "bg-[var(--card)] text-[var(--fg)] shadow-sm font-medium"
+                  : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
+              }`}
             >
-              <List className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-              <span className="flex-1 text-left truncate leading-none">Tasks</span>
+              <Workflow className="size-3.5" aria-hidden="true" />
+              <span>Workflows</span>
             </button>
+          </div>
 
+          {/* SCROLLING REGION FOR SIDEBAR NAVIGATION */}
+          <div role="region" aria-label="Sidebar navigation" className="min-h-0 flex-1 overflow-y-auto">
+            {/* Header Action: New thread */}
+            <p className="px-3 pb-2 text-xs text-[var(--muted-foreground-2)]">Workspace</p>
             <button
               type="button"
-              onClick={() => onNavigate("threads")}
-              aria-current={activeView === "threads" ? "page" : undefined}
-              className={
-                "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
-                (activeView === "threads"
-                  ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
-                  : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
-              }
+              onClick={() => {
+                if (onNewTask) onNewTask();
+                else onNavigate("tasks");
+                if (variant === "sheet") onClose?.();
+              }}
+              className="mb-3 flex min-h-11 w-full items-center gap-2 rounded-lg border border-[var(--border-1)] bg-[var(--secondary)] px-3 text-sm text-[var(--fg)] hover:bg-[var(--secondary-hover)] focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
             >
-              <MessagesSquare className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-              <span className="flex-1 text-left truncate leading-none">Threads</span>
+              <SquarePen aria-hidden="true" className="size-4" />
+              New thread
             </button>
 
-            <button
-              type="button"
-              onClick={() => onNavigate("diff")}
-              aria-current={activeView === "diff" ? "page" : undefined}
-              className={
-                "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
-                (activeView === "diff"
-                  ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
-                  : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
-              }
-            >
-              <GitCompareArrows className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-              <span className="flex-1 text-left truncate leading-none">Pull requests</span>
-            </button>
+            {sidebarView === "workflows" ? (
+              <section aria-label="Workflows & Automations" className="flex flex-col gap-1 mb-4">
+                <div className="flex items-center justify-between px-2.5 pb-1.5 pt-1">
+                  <span className="text-[11px] font-mono uppercase tracking-[0.1em] text-[var(--muted-foreground-2)]">
+                    Routines
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onNavigate("automations");
+                      if (variant === "sheet") onClose?.();
+                    }}
+                    className="text-[11px] text-[var(--primary)] hover:underline"
+                  >
+                    Manage
+                  </button>
+                </div>
+                <div className="flex flex-col gap-1">
+                  {CURATED_WORKFLOWS.map((wf) => {
+                    const Icon = wf.icon;
+                    return (
+                      <div
+                        key={wf.id}
+                        className="group flex items-center justify-between p-2 rounded-lg hover:bg-[var(--secondary)] transition-colors border border-transparent hover:border-[var(--border-1)]"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="p-1.5 rounded-md bg-[var(--card)] border border-[var(--border-1)] text-[var(--icon-muted)] group-hover:text-[var(--fg)] shrink-0">
+                            <Icon className="size-3.5" aria-hidden="true" />
+                          </span>
+                          <div className="min-w-0 flex-1 leading-tight">
+                            <p className="text-[13px] font-medium text-[var(--fg)] truncate">{wf.title}</p>
+                            <p className="text-[10px] text-[var(--muted-foreground-3)] truncate mt-0.5">{wf.schedule}</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onNavigate("automations");
+                            if (variant === "sheet") onClose?.();
+                          }}
+                          aria-label={`Run ${wf.title}`}
+                          className="opacity-0 group-hover:opacity-100 px-2 py-0.5 text-[10px] font-medium rounded border border-[var(--border-1)] bg-[var(--card)] text-[var(--fg)] hover:bg-[var(--secondary-hover)] transition-all shrink-0"
+                        >
+                          Run
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null}
 
-            <button
-              type="button"
-              onClick={() => onNavigate("automations")}
-              aria-current={activeView === "automations" ? "page" : undefined}
-              className={
-                "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
-                (activeView === "automations"
-                  ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
-                  : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
-              }
-            >
-              <Zap className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-              <span className="flex-1 text-left truncate leading-none">Automations</span>
-            </button>
-
-            <p className="px-2.5 pb-1 pt-3 text-[11px] font-medium text-[var(--muted-foreground-3)]">Resources</p>
-            {(["integrations", "skills", "agents"] as const).map((id) => {
-              const item = APP_NAV_ITEMS.find((entry) => entry.id === id);
-              if (!item) return null;
-              const Icon = ICONS[id];
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => {
-                    onNavigate(id);
-                    if (variant === "sheet") onClose?.();
-                  }}
-                  aria-current={activeView === id ? "page" : undefined}
-                  title={item.description}
-                  className={`flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
-                    activeView === id
-                      ? "bg-[var(--secondary)] text-[var(--fg)] font-medium"
-                      : "text-[var(--muted-foreground-2)] hover:bg-[var(--section)] hover:text-[var(--fg)]"
-                  }`}
-                >
-                  <Icon aria-hidden="true" className="size-4 shrink-0 text-[var(--icon-muted)]" />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-
-            {/* More popover */}
-            <div ref={moreRef} className="relative">
+            {/* MAIN NAV ITEMS */}
+            <nav aria-label="Main" className="flex flex-col gap-0.5 mb-3 px-0.5">
               <button
                 type="button"
-                onClick={() => setMoreMenuOpen((prev) => !prev)}
-                aria-expanded={moreMenuOpen}
-                aria-haspopup="true"
+                onClick={() => {
+                  onNavigate("work");
+                  if (variant === "sheet") onClose?.();
+                }}
+                aria-current={activeView === "work" ? "page" : undefined}
                 className={
                   "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
-                  (isMoreViewActive
+                  (activeView === "work"
                     ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
                     : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
                 }
               >
-                <MoreHorizontal className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-                <span className="flex-1 text-left truncate leading-none">
-                  {isMoreViewActive
-                    ? APP_NAV_ITEMS.find((item) => item.id === activeView)?.label ?? "More"
-                    : "More"}
-                </span>
+                <LayoutGrid className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
+                <span className="flex-1 text-left truncate leading-none">Work</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate("custom-agents");
+                  if (variant === "sheet") onClose?.();
+                }}
+                aria-current={activeView === "custom-agents" ? "page" : undefined}
+                className={`flex min-h-11 items-center gap-2.5 rounded-lg px-2.5 text-sm focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
+                  activeView === "custom-agents" ? "bg-[var(--secondary)] text-[var(--fg)] font-medium" : "text-[var(--muted-foreground-2)] hover:bg-[var(--section)]"
+                }`}
+              >
+                <Bot aria-hidden="true" className="size-4 text-[var(--icon-muted)]" />
+                <span>Agents</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate("tasks");
+                  if (variant === "sheet") onClose?.();
+                }}
+                aria-current={activeView === "tasks" ? "page" : undefined}
+                className={
+                  "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
+                  (activeView === "tasks"
+                    ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
+                    : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
+                }
+              >
+                <List className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
+                <span className="flex-1 text-left truncate leading-none">Tasks</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate("threads");
+                  if (variant === "sheet") onClose?.();
+                }}
+                aria-current={activeView === "threads" ? "page" : undefined}
+                className={
+                  "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
+                  (activeView === "threads"
+                    ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
+                    : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
+                }
+              >
+                <MessagesSquare className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
+                <span className="flex-1 text-left truncate leading-none">Threads</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate("diff");
+                  if (variant === "sheet") onClose?.();
+                }}
+                aria-current={activeView === "diff" ? "page" : undefined}
+                className={
+                  "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
+                  (activeView === "diff"
+                    ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
+                    : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
+                }
+              >
+                <GitCompareArrows className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
+                <span className="flex-1 text-left truncate leading-none">Pull requests</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate("automations");
+                  if (variant === "sheet") onClose?.();
+                }}
+                aria-current={activeView === "automations" ? "page" : undefined}
+                className={
+                  "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
+                  (activeView === "automations"
+                    ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
+                    : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
+                }
+              >
+                <Zap className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
+                <span className="flex-1 text-left truncate leading-none">Automations</span>
+              </button>
+
+              <p className="px-2.5 pb-1 pt-3 text-[11px] font-medium text-[var(--muted-foreground-3)]">Resources</p>
+              {(["integrations", "skills", "agents"] as const).map((id) => {
+                const item = APP_NAV_ITEMS.find((entry) => entry.id === id);
+                if (!item) return null;
+                const Icon = ICONS[id];
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => {
+                      onNavigate(id);
+                      if (variant === "sheet") onClose?.();
+                    }}
+                    aria-current={activeView === id ? "page" : undefined}
+                    title={item.description}
+                    className={`flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
+                      activeView === id
+                        ? "bg-[var(--secondary)] text-[var(--fg)] font-medium"
+                        : "text-[var(--muted-foreground-2)] hover:bg-[var(--section)] hover:text-[var(--fg)]"
+                    }`}
+                  >
+                    <Icon aria-hidden="true" className="size-4 shrink-0 text-[var(--icon-muted)]" />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+
+              {/* More popover */}
+              <div ref={moreRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMoreMenuOpen((prev) => !prev)}
+                  aria-expanded={moreMenuOpen}
+                  aria-haspopup="true"
+                  className={
+                    "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
+                    (isMoreViewActive
+                      ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
+                      : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
+                  }
+                >
+                  <MoreHorizontal className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
+                  <span className="flex-1 text-left truncate leading-none">
+                    {isMoreViewActive
+                      ? APP_NAV_ITEMS.find((item) => item.id === activeView)?.label ?? "More"
+                      : "More"}
+                  </span>
+                  {pendingApprovalCount > 0 ? (
+                    <span className="min-w-4 h-4 px-1 bg-[var(--warning-subtle)] text-[var(--warning-fg)] border border-[color-mix(in_oklch,var(--warning)_40%,transparent)] text-[10px] font-bold flex items-center justify-center rounded">
+                      {pendingApprovalCount}
+                    </span>
+                  ) : null}
+                  <ChevronDown className="size-3.5 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
+                </button>
+
+                {moreMenuOpen ? (
+                  <div
+                    role="menu"
+                    className="absolute left-0 top-full mt-1 w-52 py-1 bg-[var(--popover)] border border-[var(--border-1)] rounded-[var(--radius-overlay)] shadow-overlay z-50 max-h-80 overflow-y-auto animate-enter text-[13px]"
+                  >
+                    {moreViews.map((id) => {
+                      const item = APP_NAV_ITEMS.find((entry) => entry.id === id);
+                      if (!item) return null;
+                      const Icon = ICONS[id];
+                      const active = activeView === id;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            onNavigate(id);
+                            setMoreMenuOpen(false);
+                            if (variant === "sheet") onClose?.();
+                          }}
+                          className={
+                            "w-full flex items-center gap-2.5 px-3 py-2 min-h-[44px] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] " +
+                            (active
+                              ? "bg-[var(--secondary)] text-[var(--fg)] font-medium"
+                              : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)]")
+                          }
+                        >
+                          <Icon className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
+                          <span className="flex-1 text-left truncate">{item.label}</span>
+                          {id === "approvals" && pendingApprovalCount > 0 ? (
+                            <span className="min-w-4 h-4 px-1 bg-[var(--warning-subtle)] text-[var(--warning-fg)] border border-[color-mix(in_oklch,var(--warning)_40%,transparent)] text-[10px] font-bold flex items-center justify-center rounded">
+                              {pendingApprovalCount}
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            </nav>
+
+            {/* AGENTS LIST SECTION */}
+            {onNewAgentThread ? (
+              <AgentSidebar
+                agents={customAgentRecords}
+                threads={agentThreads}
+                selectedId={selectedSessionId}
+                onOpenThread={(id) => {
+                  onSelectSession?.(id);
+                  if (variant === "sheet") onClose?.();
+                }}
+                onNewThread={(agent) => {
+                  onNewAgentThread(agent);
+                  if (variant === "sheet") onClose?.();
+                }}
+                onManage={() => {
+                  onNavigate("custom-agents");
+                  if (variant === "sheet") onClose?.();
+                }}
+              />
+            ) : null}
+
+            {/* COLLAPSIBLE GROUP: Needs approval */}
+            <div className="flex flex-col gap-1 mb-2">
+              <button
+                type="button"
+                onClick={() => setNeedsApprovalOpen((prev) => !prev)}
+                aria-expanded={needsApprovalOpen}
+                className="w-full flex items-center justify-between px-2 py-1.5 min-h-11 text-[12px] font-medium text-[var(--muted-foreground-2)] hover:text-[var(--fg)] rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
+              >
+                <div className="flex items-center gap-1.5">
+                  {needsApprovalOpen ? (
+                    <ChevronDown className="size-3.5 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
+                  ) : (
+                    <ChevronRight className="size-3.5 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
+                  )}
+                  <span>Needs approval</span>
+                </div>
                 {pendingApprovalCount > 0 ? (
-                  <span className="min-w-4 h-4 px-1 bg-[var(--warning-subtle)] text-[var(--warning-fg)] border border-[color-mix(in_oklch,var(--warning)_40%,transparent)] text-[10px] font-bold flex items-center justify-center rounded">
+                  <span className="min-w-4 h-4 px-1 bg-[var(--warning-subtle)] text-[var(--warning-fg)] text-[10px] font-bold flex items-center justify-center rounded font-mono">
                     {pendingApprovalCount}
                   </span>
                 ) : null}
-                <ChevronDown className="size-3.5 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
               </button>
 
-              {moreMenuOpen ? (
-                <div
-                  role="menu"
-                  className="absolute left-0 top-full mt-1 w-52 py-1 bg-[var(--popover)] border border-[var(--border-1)] rounded-[var(--radius-overlay)] shadow-overlay z-50 max-h-80 overflow-y-auto animate-enter text-[13px]"
-                >
-                  {moreViews.map((id) => {
-                    const item = APP_NAV_ITEMS.find((entry) => entry.id === id);
-                    if (!item) return null;
-                    const Icon = ICONS[id];
-                    const active = activeView === id;
-                    return (
+              {needsApprovalOpen ? (
+                approvalSessions.length === 0 ? (
+                  <div className="text-[13px] text-[var(--muted-foreground-2)] px-3 py-1">
+                    Nothing waiting
+                  </div>
+                ) : (
+                  <div className="flex flex-col space-y-0.5 px-0.5">
+                    {approvalSessions.map((s) => (
                       <button
-                        key={id}
+                        key={s.id}
                         type="button"
-                        role="menuitem"
                         onClick={() => {
-                          onNavigate(id);
-                          setMoreMenuOpen(false);
+                          onSelectSession?.(s.id);
+                          if (variant === "sheet") onClose?.();
                         }}
-                        className={
-                          "w-full flex items-center gap-2.5 px-3 py-2 min-h-[44px] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] " +
-                          (active
-                            ? "bg-[var(--secondary)] text-[var(--fg)] font-medium"
-                            : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)]")
-                        }
+                        className="w-full text-left rounded-md px-2 py-1.5 min-h-11 flex items-center gap-2 hover:bg-[var(--section)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
                       >
-                        <Icon className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-                        <span className="flex-1 text-left truncate">{item.label}</span>
-                        {id === "approvals" && pendingApprovalCount > 0 ? (
-                          <span className="min-w-4 h-4 px-1 bg-[var(--warning-subtle)] text-[var(--warning-fg)] border border-[color-mix(in_oklch,var(--warning)_40%,transparent)] text-[10px] font-bold flex items-center justify-center rounded">
-                            {pendingApprovalCount}
-                          </span>
-                        ) : null}
+                        <span className="size-2 rounded-full shrink-0 bg-[var(--warning)]" aria-hidden="true" />
+                        <span className="text-[13px] truncate flex-1 leading-tight">{s.title || "Pending approval"}</span>
                       </button>
-                    );
-                  })}
-                </div>
+                    ))}
+                  </div>
+                )
               ) : null}
             </div>
-          </nav>
 
-          {/* AGENTS LIST SECTION */}
-          {onNewAgentThread ? (
-            <AgentSidebar
-              agents={customAgentRecords}
-              threads={agentThreads}
-              selectedId={selectedSessionId}
-              onOpenThread={(id) => onSelectSession?.(id)}
-              onNewThread={onNewAgentThread}
-              onManage={() => onNavigate("custom-agents")}
-            />
-          ) : null}
-
-          {/* COLLAPSIBLE GROUP: Needs approval */}
-          <div className="flex flex-col gap-1 mb-2">
-            <button
-              type="button"
-              onClick={() => setNeedsApprovalOpen((prev) => !prev)}
-              aria-expanded={needsApprovalOpen}
-              className="w-full flex items-center justify-between px-2 py-1.5 min-h-11 text-[12px] font-medium text-[var(--muted-foreground-2)] hover:text-[var(--fg)] rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
-            >
-              <div className="flex items-center gap-1.5">
-                {needsApprovalOpen ? (
-                  <ChevronDown className="size-3.5 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-                ) : (
-                  <ChevronRight className="size-3.5 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-                )}
-                <span>Needs approval</span>
+            {/* COLLAPSIBLE GROUP: Everything (Threads List) */}
+            <div className="flex flex-col pt-1 pb-1">
+              <div className="flex items-center justify-between px-2 py-1.5">
+                <button
+                  type="button"
+                  onClick={() => setEverythingOpen((prev) => !prev)}
+                  aria-expanded={everythingOpen}
+                  className="flex min-h-11 items-center gap-1.5 text-[12px] font-medium text-[var(--muted-foreground-2)] hover:text-[var(--fg)] rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
+                >
+                  {everythingOpen ? (
+                    <ChevronDown className="size-3.5 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
+                  ) : (
+                    <ChevronRight className="size-3.5 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
+                  )}
+                  <span>Everything</span>
+                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchOpen((prev) => !prev);
+                      setEverythingOpen(true);
+                    }}
+                    aria-label="Search threads"
+                    aria-expanded={searchOpen && everythingOpen}
+                    aria-controls={`thread-search-${variant}`}
+                    className="size-6 min-h-11 min-w-11 rounded flex items-center justify-center text-[var(--icon-muted)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
+                  >
+                    <Search className="size-3.5" strokeWidth={1.8} aria-hidden="true" />
+                  </button>
+                </div>
               </div>
-              {pendingApprovalCount > 0 ? (
-                <span className="min-w-4 h-4 px-1 bg-[var(--warning-subtle)] text-[var(--warning-fg)] text-[10px] font-bold flex items-center justify-center rounded font-mono">
-                  {pendingApprovalCount}
-                </span>
-              ) : null}
-            </button>
 
-            {needsApprovalOpen ? (
-              approvalSessions.length === 0 ? (
-                <div className="text-[13px] text-[var(--muted-foreground-2)] px-3 py-1">
-                  Nothing waiting
-                </div>
-              ) : (
-                <div className="flex flex-col space-y-0.5 px-0.5">
-                  {approvalSessions.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => onSelectSession?.(s.id)}
-                      className="w-full text-left rounded-md px-2 py-1.5 min-h-11 flex items-center gap-2 hover:bg-[var(--section)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
-                    >
-                      <span className="size-2 rounded-full shrink-0 bg-[var(--warning)]" aria-hidden="true" />
-                      <span className="text-[13px] truncate flex-1 leading-tight">{s.title || "Pending approval"}</span>
-                    </button>
-                  ))}
-                </div>
-              )
-            ) : null}
+              {everythingOpen ? (
+                <>
+                  {searchOpen ? (
+                    <div className="px-0.5 pb-2">
+                      <div className="relative">
+                        <input
+                          ref={filterRef}
+                          id={`thread-search-${variant}`}
+                          type="search"
+                          value={threadQuery}
+                          onChange={(e) => setThreadQuery(e.target.value)}
+                          placeholder="Filter threads"
+                          aria-label="Filter threads"
+                          className="w-full h-8 bg-[var(--input)] border border-[var(--border-1)] rounded-md pl-2 pr-6 text-[12px] text-[var(--fg)] placeholder:text-[var(--muted-foreground-3)] focus-visible:outline-2 focus-visible:outline-[var(--ring)] transition-colors"
+                        />
+                        {threadQuery ? (
+                          <button
+                            type="button"
+                            onClick={() => setThreadQuery("")}
+                            aria-label="Clear filter"
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground-3)] hover:text-[var(--fg)] text-xs"
+                          >
+                            ✕
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div
+                    className="px-0.5 space-y-0.5"
+                    role="listbox"
+                    aria-label="Threads"
+                    aria-busy={threadsLoading || undefined}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key === "ArrowDown" ||
+                        event.key === "ArrowUp" ||
+                        event.key === "Home" ||
+                        event.key === "End"
+                      ) {
+                        event.preventDefault();
+                        moveThread(event.key);
+                      }
+                    }}
+                  >
+                    {threadsLoading ? (
+                      <div className="px-2 py-2" role="status" aria-label="Loading threads">
+                        <SkeletonLines rows={4} />
+                      </div>
+                    ) : filteredSessions.length === 0 ? (
+                      <div className="py-6 px-2 text-center">
+                        <p className="text-[var(--muted-foreground-2)] text-[12px]">
+                          {sessions.length === 0
+                            ? "No threads yet. Use New thread to start one."
+                            : `No threads match “${threadQuery.trim()}”.`}
+                        </p>
+                      </div>
+                    ) : (
+                      filteredSessions.map((s) => {
+                        const isSelected = s.id === selectedSessionId;
+                        const title = s.title || "Untitled thread";
+                        const when = s.updatedAt > 0 ? formatTimeAgo(s.updatedAt) : null;
+                        const meta = [statusLabel(s.status), s.repoName, when].filter(Boolean).join(" · ");
+                        return (
+                          <button
+                            key={s.id}
+                            id={`thread-${s.id}`}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => {
+                              if (onSelectSession) onSelectSession(s.id);
+                              if (variant === "sheet") onClose?.();
+                            }}
+                            className={
+                              "w-full text-left rounded-md px-2 py-1.5 min-h-11 flex items-start gap-2.5 transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
+                              (isSelected
+                                ? "bg-[var(--secondary)] text-[var(--fg)]"
+                                : "text-[var(--muted-foreground-2)] hover:bg-[var(--section)] hover:text-[var(--fg)]")
+                            }
+                          >
+                            <span
+                              className={
+                                "size-2 rounded-full shrink-0 mt-1.5 " +
+                                navStatusDotClass(s.status, s.live)
+                              }
+                              aria-hidden="true"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-[13px] font-normal truncate leading-tight">
+                                {title}
+                              </span>
+                              <span className="block text-[10px] font-mono text-[var(--muted-foreground-3)] truncate mt-0.5">
+                                {meta}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </>
+              ) : null}
+            </div>
           </div>
 
-          {/* COLLAPSIBLE GROUP: Everything (Threads List) */}
-          <div className="flex flex-col pt-1 pb-1">
-            <div className="flex items-center justify-between px-2 py-1.5">
-              <button
-                type="button"
-                onClick={() => setEverythingOpen((prev) => !prev)}
-                aria-expanded={everythingOpen}
-                className="flex min-h-11 items-center gap-1.5 text-[12px] font-medium text-[var(--muted-foreground-2)] hover:text-[var(--fg)] rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
-              >
-                {everythingOpen ? (
-                  <ChevronDown className="size-3.5 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-                ) : (
-                  <ChevronRight className="size-3.5 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-                )}
-                <span>Everything</span>
-              </button>
-              <div className="flex items-center gap-1">
+          {/* BOTTOM MACHINE / RUNTIME STATUS CARD */}
+          <div className="shrink-0 pt-2 px-1 text-xs text-[var(--muted-foreground-2)] border-t border-[var(--border-1)] flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-[11px] font-mono text-[var(--muted-foreground-2)]">
+                <span className="size-2 rounded-full bg-[var(--success)] shrink-0" aria-hidden="true" />
+                <span>Cloudflare Worker</span>
+              </span>
+              <span className="text-[10px] font-mono text-[var(--muted-foreground-3)]">Online</span>
+            </div>
+            <div className="flex items-center justify-between text-[11px]">
+              <p className="py-0.5">{activeSandboxCount} active sandboxes</p>
+              {setupDone !== null && onOpenSetup ? (
                 <button
                   type="button"
                   onClick={() => {
-                    setSearchOpen((prev) => !prev);
-                    setEverythingOpen(true);
+                    onOpenSetup();
+                    if (variant === "sheet") onClose?.();
                   }}
-                  aria-label="Search threads"
-                  aria-expanded={searchOpen && everythingOpen}
-                  aria-controls={`thread-search-${variant}`}
-                  className="size-6 min-h-11 min-w-11 rounded flex items-center justify-center text-[var(--icon-muted)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
+                  className="rounded px-1 text-[var(--primary)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
                 >
-                  <Search className="size-3.5" strokeWidth={1.8} aria-hidden="true" />
+                  Setup {setupDone}/{setupTotal}
                 </button>
-              </div>
+              ) : null}
             </div>
-
-            {everythingOpen ? (
-              <>
-                {searchOpen ? (
-                  <div className="px-0.5 pb-2">
-                    <div className="relative">
-                      <input
-                        ref={filterRef}
-                        id={`thread-search-${variant}`}
-                        type="search"
-                        value={threadQuery}
-                        onChange={(e) => setThreadQuery(e.target.value)}
-                        placeholder="Filter threads"
-                        aria-label="Filter threads"
-                        className="w-full h-8 bg-[var(--input)] border border-[var(--border-1)] rounded-md pl-2 pr-6 text-[12px] text-[var(--fg)] placeholder:text-[var(--muted-foreground-3)] focus-visible:outline-2 focus-visible:outline-[var(--ring)] transition-colors"
-                      />
-                      {threadQuery ? (
-                        <button
-                          type="button"
-                          onClick={() => setThreadQuery("")}
-                          aria-label="Clear filter"
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground-3)] hover:text-[var(--fg)] text-xs"
-                        >
-                          ✕
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div
-                  className="px-0.5 space-y-0.5"
-                  role="listbox"
-                  aria-label="Threads"
-                  aria-busy={threadsLoading || undefined}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === "ArrowDown" ||
-                      event.key === "ArrowUp" ||
-                      event.key === "Home" ||
-                      event.key === "End"
-                    ) {
-                      event.preventDefault();
-                      moveThread(event.key);
-                    }
-                  }}
-                >
-                  {threadsLoading ? (
-                    <div className="px-2 py-2" role="status" aria-label="Loading threads">
-                      <SkeletonLines rows={4} />
-                    </div>
-                  ) : filteredSessions.length === 0 ? (
-                    <div className="py-6 px-2 text-center">
-                      <p className="text-[var(--muted-foreground-2)] text-[12px]">
-                        {sessions.length === 0
-                          ? "No threads yet. Use New thread to start one."
-                          : `No threads match “${threadQuery.trim()}”.`}
-                      </p>
-                    </div>
-                  ) : (
-                    filteredSessions.map((s) => {
-                      const isSelected = s.id === selectedSessionId;
-                      const title = s.title || "Untitled thread";
-                      const when = s.updatedAt > 0 ? formatTimeAgo(s.updatedAt) : null;
-                      const meta = [statusLabel(s.status), s.repoName, when].filter(Boolean).join(" · ");
-                      return (
-                        <button
-                          key={s.id}
-                          id={`thread-${s.id}`}
-                          type="button"
-                          role="option"
-                          aria-selected={isSelected}
-                          onClick={() => {
-                            if (onSelectSession) onSelectSession(s.id);
-                          }}
-                          className={
-                            "w-full text-left rounded-md px-2 py-1.5 min-h-11 flex items-start gap-2.5 transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
-                            (isSelected
-                              ? "bg-[var(--secondary)] text-[var(--fg)]"
-                              : "text-[var(--muted-foreground-2)] hover:bg-[var(--section)] hover:text-[var(--fg)]")
-                          }
-                        >
-                          <span
-                            className={
-                              "size-2 rounded-full shrink-0 mt-1.5 " +
-                              navStatusDotClass(s.status, s.live)
-                            }
-                            aria-hidden="true"
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-[13px] font-normal truncate leading-tight">
-                              {title}
-                            </span>
-                            <span className="block text-[10px] font-mono text-[var(--muted-foreground-3)] truncate mt-0.5">
-                              {meta}
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </>
-            ) : null}
           </div>
-        </div>
 
-        {/* BOTTOM MACHINE / RUNTIME STATUS CARD */}
-        <div className="shrink-0 pt-2 px-1 text-xs text-[var(--muted-foreground-2)] border-t border-[var(--border-1)] flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <span className="flex items-center gap-1.5 text-[11px] font-mono text-[var(--muted-foreground-2)]">
-              <span className="size-2 rounded-full bg-[var(--success)] shrink-0" aria-hidden="true" />
-              <span>Cloudflare Worker</span>
-            </span>
-            <span className="text-[10px] font-mono text-[var(--muted-foreground-3)]">Online</span>
-          </div>
-          <div className="flex items-center justify-between text-[11px]">
-            <p className="py-0.5">{activeSandboxCount} active sandboxes</p>
-            {setupDone !== null && onOpenSetup ? (
+          {/* FOOTER USER / WORKSPACE CARD */}
+          <div className="pt-2 mt-1 shrink-0 border-t border-[var(--border-1)] flex flex-col gap-1">
+            <p className="px-2 pb-1 text-[10px] font-mono text-[var(--muted-foreground-3)] flex items-center gap-1.5 min-w-0">
+              <span
+                className={
+                  "size-1.5 rounded-full shrink-0 " +
+                  (connectionTone === "ok"
+                    ? "bg-[var(--success)]"
+                    : connectionTone === "pending"
+                      ? "bg-[var(--warning-fg)]"
+                      : "bg-[var(--destructive)]")
+                }
+                aria-hidden="true"
+              />
+              <span className="truncate">{connectionLabel}</span>
+            </p>
+            <div ref={accountRef} className="relative">
               <button
                 type="button"
-                onClick={onOpenSetup}
-                className="rounded px-1 text-[var(--primary)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+                onClick={() => setAccountMenuOpen((prev) => !prev)}
+                aria-expanded={accountMenuOpen}
+                aria-haspopup="true"
+                aria-label={accountEmail ? `${accountEmail} · workspace` : "Workspace profile"}
+                className="w-full flex items-center gap-2.5 px-2 py-2 min-h-[44px] rounded-lg hover:bg-[var(--secondary)] transition-colors text-left group focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
               >
-                Setup {setupDone}/{setupTotal}
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        {/* FOOTER USER / WORKSPACE CARD */}
-        <div className="pt-2 mt-1 shrink-0 border-t border-[var(--border-1)] flex flex-col gap-1">
-          <p className="px-2 pb-1 text-[10px] font-mono text-[var(--muted-foreground-3)] flex items-center gap-1.5 min-w-0">
-            <span
-              className={
-                "size-1.5 rounded-full shrink-0 " +
-                (connectionTone === "ok"
-                  ? "bg-[var(--success)]"
-                  : connectionTone === "pending"
-                    ? "bg-[var(--warning-fg)]"
-                    : "bg-[var(--destructive)]")
-              }
-              aria-hidden="true"
-            />
-            <span className="truncate">{connectionLabel}</span>
-          </p>
-          <div ref={accountRef} className="relative">
-            <button
-              type="button"
-              onClick={() => setAccountMenuOpen((prev) => !prev)}
-              aria-expanded={accountMenuOpen}
-              aria-haspopup="true"
-              aria-label={accountEmail ? `${accountEmail} · workspace` : "Workspace profile"}
-              className="w-full flex items-center gap-2.5 px-2 py-2 min-h-[44px] rounded-lg hover:bg-[var(--secondary)] transition-colors text-left group focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
-            >
-              <ShibaMark className="size-6" />
-              <div className="min-w-0 flex-1 leading-tight">
-                <span className="block text-[12px] font-medium text-[var(--fg)] truncate">
-                  {identity.name}
-                </span>
-                <span className="block text-[10px] text-[var(--muted-foreground-3)] truncate mt-0.5">
-                  {identity.detail}
-                </span>
-              </div>
-              <ChevronUp className="size-3.5 text-[var(--muted-foreground-3)] shrink-0 group-hover:text-[var(--muted-foreground-1)] transition-colors" strokeWidth={1.8} aria-hidden="true" />
-            </button>
-
-            {accountMenuOpen ? (
-              <div
-                role="menu"
-                className="absolute left-0 bottom-full mb-1 w-full py-1 bg-[var(--popover)] border border-[var(--border-1)] rounded-[var(--radius-overlay)] shadow-overlay z-50 text-[13px] animate-enter"
-              >
-                <div className="px-3 py-1.5 border-b border-[var(--border-1)]">
-                  <span className="block font-medium text-[var(--fg)] text-xs truncate">
+                <ShibaMark className="size-6" />
+                <div className="min-w-0 flex-1 leading-tight">
+                  <span className="block text-[12px] font-medium text-[var(--fg)] truncate">
                     {identity.name}
                   </span>
                   <span className="block text-[10px] text-[var(--muted-foreground-3)] truncate mt-0.5">
                     {identity.detail}
                   </span>
                 </div>
-                {onToggleTheme ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      onToggleTheme();
-                      setAccountMenuOpen(false);
-                    }}
-                    className="w-full flex items-center justify-between px-3 py-2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)] transition-colors"
-                  >
-                    <span>Theme</span>
-                    <span className="text-[11px] font-mono text-[var(--muted-foreground-3)] capitalize">
-                      {theme ?? "system"}
+                <ChevronUp className="size-3.5 text-[var(--muted-foreground-3)] shrink-0 group-hover:text-[var(--muted-foreground-1)] transition-colors" strokeWidth={1.8} aria-hidden="true" />
+              </button>
+
+              {accountMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute left-0 bottom-full mb-1 w-full py-1 bg-[var(--popover)] border border-[var(--border-1)] rounded-[var(--radius-overlay)] shadow-overlay z-50 text-[13px] animate-enter"
+                >
+                  <div className="px-3 py-1.5 border-b border-[var(--border-1)]">
+                    <span className="block font-medium text-[var(--fg)] text-xs truncate">
+                      {identity.name}
                     </span>
-                  </button>
-                ) : null}
-                {onOpenShortcuts ? (
+                    <span className="block text-[10px] text-[var(--muted-foreground-3)] truncate mt-0.5">
+                      {identity.detail}
+                    </span>
+                  </div>
+                  {onToggleTheme ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        onToggleTheme();
+                        setAccountMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)] transition-colors"
+                    >
+                      <span>Theme</span>
+                      <span className="text-[11px] font-mono text-[var(--muted-foreground-3)] capitalize">
+                        {theme ?? "system"}
+                      </span>
+                    </button>
+                  ) : null}
+                  {onOpenShortcuts ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        onOpenShortcuts();
+                        setAccountMenuOpen(false);
+                        if (variant === "sheet") onClose?.();
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)] transition-colors"
+                    >
+                      <span>Shortcuts</span>
+                      <span className="text-[10px] font-mono text-[var(--muted-foreground-3)]">?</span>
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     role="menuitem"
+                    aria-label="Remote access"
                     onClick={() => {
-                      onOpenShortcuts();
+                      onNavigate("remote");
                       setAccountMenuOpen(false);
+                      if (variant === "sheet") onClose?.();
                     }}
                     className="w-full flex items-center justify-between px-3 py-2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)] transition-colors"
                   >
-                    <span>Shortcuts</span>
-                    <span className="text-[10px] font-mono text-[var(--muted-foreground-3)]">?</span>
+                    <span>Remote access</span>
+                    <span className="text-[10px] font-mono text-[var(--muted-foreground-3)]">fleet</span>
                   </button>
-                ) : null}
-                <button
-                  type="button"
-                  role="menuitem"
-                  aria-label="Remote access"
-                  onClick={() => {
-                    onNavigate("remote");
-                    setAccountMenuOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)] transition-colors"
-                >
-                  <span>Remote access</span>
-                  <span className="text-[10px] font-mono text-[var(--muted-foreground-3)]">fleet</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    onNavigate("settings");
-                    setAccountMenuOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)] transition-colors"
-                >
-                  <span>Settings</span>
-                  <Settings className="size-3.5 text-[var(--muted-foreground-3)]" />
-                </button>
-                {onSignOut ? (
                   <button
                     type="button"
                     role="menuitem"
                     onClick={() => {
-                      onSignOut();
+                      onNavigate("settings");
                       setAccountMenuOpen(false);
+                      if (variant === "sheet") onClose?.();
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-[var(--destructive)] hover:bg-[var(--destructive-soft)] transition-colors border-t border-[var(--border-1)] mt-1"
+                    className="w-full flex items-center justify-between px-3 py-2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--popover-hover)] transition-colors"
                   >
-                    <LogOut className="size-3.5" />
-                    <span>Sign out</span>
+                    <span>Settings</span>
+                    <Settings className="size-3.5 text-[var(--muted-foreground-3)]" />
                   </button>
-                ) : null}
-              </div>
-            ) : null}
+                  {onSignOut ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        onSignOut();
+                        setAccountMenuOpen(false);
+                        if (variant === "sheet") onClose?.();
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-[var(--destructive)] hover:bg-[var(--destructive-soft)] transition-colors border-t border-[var(--border-1)] mt-1"
+                    >
+                      <LogOut className="size-3.5" />
+                      <span>Sign out</span>
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
-      </div>
       ) : null}
     </aside>
   );
 }
-
