@@ -64,13 +64,21 @@ function hash(bytes) {
 function sameStat(a, b) {
   return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs && a.mode === b.mode;
 }
+function openDirectory(name) {
+  // Some filesystems follow symlinks when O_DIRECTORY is combined with O_NOFOLLOW.
+  const fd = fs.openSync(name, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  try {
+    if (!fs.fstatSync(fd).isDirectory()) unavailable();
+    return fd;
+  } catch (error) { fs.closeSync(fd); throw error; }
+}
 function capture(name) {
   const parts = validName(name);
   const held = [];
   let parent = rootFd;
   try {
     for (const part of parts.slice(0, -1)) {
-      const fd = fs.openSync("/proc/self/fd/" + parent + "/" + part, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+      const fd = openDirectory("/proc/self/fd/" + parent + "/" + part);
       held.push(fd); parent = fd;
     }
     const fd = fs.openSync("/proc/self/fd/" + parent + "/" + parts[parts.length - 1], fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
@@ -139,8 +147,8 @@ function patch(name, before, after, oldBytes, newBytes) {
 try {
   if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(baseline || "")) unavailable();
   root = process.cwd();
-  rootFd = fs.openSync(root, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW); descriptors.push(rootFd);
-  gitFd = fs.openSync("/proc/self/fd/" + rootFd + "/.git", fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW); descriptors.push(gitFd);
+  rootFd = openDirectory(root); descriptors.push(rootFd);
+  gitFd = openDirectory("/proc/self/fd/" + rootFd + "/.git"); descriptors.push(gitFd);
   const entries = new Map();
   for (const record of names(git(["ls-tree", "-r", "-z", baseline, "--"], MAX_MANIFEST))) {
     const tab = record.indexOf("\t"), meta = record.slice(0, tab).split(" "), name = record.slice(tab + 1);

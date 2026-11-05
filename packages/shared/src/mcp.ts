@@ -15,7 +15,7 @@ export const HARNESS_IDS = [
   "opencode",
   "claude-code",
   "claude-subscription",
-  "claude-login",
+  "claude-login", // Reserved wire id; native cloud execution is unavailable.
   "codex",
   "codex-subscription",
   "grok",

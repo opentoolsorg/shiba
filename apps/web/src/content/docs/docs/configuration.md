@@ -17,7 +17,7 @@ Non-secret defaults are in `apps/backend/wrangler.jsonc` and `alchemy.run.ts`. F
 | `PI_MODEL` | `anthropic/claude-sonnet-4-6` | Pi default model |
 | `AGENT_HARNESS` | `opencode` | Deployment fallback; a task can select a harness explicitly |
 | `SLACK_AGENT_HARNESS` | `AGENT_HARNESS`, then `claude-code` | Harness for Slack-originated runs (mentions, DMs, /shiba) |
-| `SHIBA_CLAUDE_SUBSCRIPTION` | `0` in wrangler defaults | Set `1` to enable the deprecated `claude-subscription` harness — may violate Anthropic terms; prefer `claude-login` ([model auth](/docs/model-auth/)) |
+| `SHIBA_CLAUDE_SUBSCRIPTION` | `0` in wrangler defaults | Set `1` to enable the deprecated `claude-subscription` harness — may violate Anthropic terms; prefer API Claude Code or explicitly paired local Claude Code ([model auth](/docs/model-auth/)) |
 | `MODEL_CREDENTIAL_KEY` | unset | 64 hex chars — enables per-user encrypted ChatGPT `auth.json` storage (Settings → Models) |
 | `SHIBA_SINGLE_USER` | unset | Set `1` to allow legacy `CODEX_SUBSCRIPTION_AUTH_JSON` Worker-secret fallback for codex-subscription |
 | `CLAUDE_SUBSCRIPTION_MODEL` | `anthropic-subscription/claude-sonnet-4-6` | `claude-subscription` default model |
@@ -49,7 +49,7 @@ OpenCode, Claude Code, Codex, and Pi provider traffic uses the account-owned AI 
 
 ### Claude subscription (deprecated opt-in)
 
-`SHIBA_CLAUDE_SUBSCRIPTION` ships **`0` by default**. Setting it to `1` registers `claude-subscription`, which stores a `claude setup-token` at the Worker egress boundary — Anthropic does not permit third-party apps to collect or relay Claude.ai subscription tokens ([legal guidance](https://code.claude.com/docs/en/legal-and-compliance)). Prefer **`claude-login`**: the operator runs the official `claude` binary and `/login` inside their own sandbox; credentials stay on a per-user volume only they mount. See [Model authentication](/docs/model-auth/).
+`SHIBA_CLAUDE_SUBSCRIPTION` ships **`0` by default**. Setting it to `1` registers `claude-subscription`, which stores a `claude setup-token` at the Worker egress boundary — Anthropic does not permit third-party apps to collect or relay Claude.ai subscription tokens ([legal guidance](https://code.claude.com/docs/en/legal-and-compliance)). Use **API Claude Code or explicitly paired local Claude Code** instead. Native cloud `claude-login` is unavailable: there is no provisioned per-user credential volume, and native credentials must not enter the sandbox. See [Model authentication](/docs/model-auth/).
 
 ### ChatGPT subscription (per user, OSS self-host)
 

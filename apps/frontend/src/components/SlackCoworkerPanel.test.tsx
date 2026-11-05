@@ -19,6 +19,7 @@ describe('Slack coworker native scope',()=>{
   const next=async(url:RequestInfo|URL)=>Response.json(String(url).endsWith('/drafts')?{drafts:[]}:state);
   const view=render(<SlackCoworkerPanel workspaceId={ws} actorId={oldActor} onAdoptTask={onAdopt} client={new SlackCoworkerClient(ws,oldActor,fetcher)}/>);
   await screen.findByText('My Slack task');
+  expect(screen.getByText(/Installing the Slack app is not execution approval/).textContent).toContain('intended channel and thread');
   fireEvent.change(screen.getByLabelText('Managed installation ID'),{target:{value:'I1'}});fireEvent.click(screen.getByRole('button',{name:'Begin identity link'}));
   await screen.findByText(/\/shiba-link/);
   fireEvent.click(screen.getByRole('button',{name:'Review in task composer'}));

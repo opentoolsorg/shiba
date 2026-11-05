@@ -24,6 +24,7 @@ describe("private receipt comparison", () => {
     });
     vi.stubGlobal("fetch", send);
     render(<FounderReconciliation workspaceId={RECON_WORKSPACE} actorId={RECON_ACTOR} onClose={() => {}} />);
+    expect(screen.getByText(/Invoice reconciliation is not MRR or churn/).textContent).toContain("defined customer or revenue cohort and period");
     fireEvent.change(await screen.findByLabelText("HubSpot portal grant"), { target: { value: h.id } });
     await screen.findByText(/Configured HubSpot fields/);
     fireEvent.change(screen.getByLabelText("Completed HubSpot occurrence"), { target: { value: d.sources.hubspot.occurrenceId } });

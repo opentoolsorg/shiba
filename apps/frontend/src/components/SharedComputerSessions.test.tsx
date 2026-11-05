@@ -74,6 +74,8 @@ describe("explicit offline shared computer UI", () => {
   it("selects no session, operator, viewers, controllers, funding or capture automatically", async () => {
     const f = fixture();
     render(<SharedComputerSessions {...f.props} />);
+    expect(screen.getByText(/Your Shiba sign-in authorizes only/).textContent).toContain("Do not enter account credentials");
+    expect(screen.getByText(/A separate temporary desktop/).textContent).toContain("No internet");
     await screen.findByLabelText("Shared-computer session");
     expect(screen.getByLabelText("Shared-computer session")).toHaveProperty("value", "");
     fireEvent.click(screen.getByText("Prepare a separate offline desktop"));

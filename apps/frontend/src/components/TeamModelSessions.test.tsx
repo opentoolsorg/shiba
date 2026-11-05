@@ -52,6 +52,8 @@ describe("explicit bounded team text sessions", () => {
     const state = { ...teamModelFixture().state, actorId: TEAM_MODEL_OPERATOR, canFund: true, grants: [] };
     const f = fixture(state); render(<TeamModelSessions {...props()} actorId={TEAM_MODEL_OPERATOR} />);
     fireEvent.click(await screen.findByText("Operator funding setup"));
+    expect(screen.getByText(/Preparing this review does not enable funding/).textContent).toContain("separate approval");
+    expect(screen.getByText(/Preparing this review does not enable funding/).textContent).toContain("does not authorize desktop sessions, external purchases or other provider charges");
     expect(screen.getByLabelText("Funded employee")).toHaveProperty("value", ""); expect(screen.getByLabelText("Funded member")).toHaveProperty("value", ""); expect(screen.getByLabelText("Exact Workers AI model")).toHaveProperty("value", "");
     expect(screen.getByLabelText("Maximum quoted inference budget (USD)")).toHaveProperty("value", "");
     const prepare = screen.getByRole("button", { name: "Prepare exact funding review" }); expect(prepare).toHaveProperty("disabled", true);

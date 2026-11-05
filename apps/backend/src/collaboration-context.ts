@@ -1,3 +1,4 @@
+import { isSlackCoworkerExecutionCurrent } from "./slack-coworker-store.js";
 import type { Env } from "./env.js";
 import {
   CollaborationStoreError, type CollaborationScope, type CollaborationMessageRow, ensureCollaborationSchema,
@@ -238,6 +239,7 @@ export async function readCollaborationHumanAssignment(
 ): Promise<CollaborationHumanAssignment | null> {
   try {
     await access(env, scope, roomId);
+    if (!await isSlackCoworkerExecutionCurrent(env, handoffId, scope, roomId)) return null;
     const handoff = await getCollaborationHandoff(env, scope, handoffId);
     if (!handoff || handoff.roomId !== roomId || handoff.status !== "active" ||
       handoff.recipientActorId.startsWith("agent:") || handoff.approvalId || handoff.runId ||
@@ -302,6 +304,7 @@ export async function isCollaborationContextQueueable(
 ): Promise<boolean> {
   try {
     await access(env, scope, roomId);
+    if (!await isSlackCoworkerExecutionCurrent(env, handoffId, scope, roomId)) return false;
     const handoff = await getCollaborationHandoff(env, scope, handoffId);
     if (!handoff || handoff.status !== "active" || handoff.roomId !== roomId || handoff.senderUserId !== scope.userId) return false;
     const saved = await row(env, handoffId);
@@ -326,6 +329,7 @@ async function currentAtDepth(env: Env, handoffId: string, task: string | undefi
     }>();
     if (!handoff || handoff.status !== "active") return false;
     const scope = { tenantId: handoff.tenant_id, workspaceId: handoff.workspace_id, userId: handoff.sender_user_id };
+    if (!await isSlackCoworkerExecutionCurrent(env, handoffId, scope, handoff.room_id)) return false;
     if (!await isCollaborationSlackRoomAudienceAuthorized(env, scope, handoff.room_id)) return false;
     if (handoff.recipient_actor_id.startsWith("agent:") && (!handoff.approval_id || !handoff.profile_version ||
         !await isCollaborationHandoffDispatchable(env, { handoffId, approvalId: handoff.approval_id,

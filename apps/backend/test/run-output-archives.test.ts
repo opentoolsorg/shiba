@@ -111,6 +111,38 @@ describe("bounded private output archive, real SQLite with a native binding fixt
     const second = await f.publisher(); await second.accept(f.frame(1, "one\n")); await second.accept(f.frame(2, "two\n"));
     expect((await f.read()).events.map((item) => item.event.data)).toEqual(["one\n", "two\n"]);
   });
+  it.each([
+    "UPDATE room_output_archive_events SET body='{}' WHERE ordinal=1",
+    "UPDATE room_output_archive_events SET event_id='changed' WHERE ordinal=1",
+    "UPDATE room_output_archive_events SET room_sequence=99 WHERE ordinal=1",
+    "UPDATE room_output_archive_events SET source_sequence=99 WHERE ordinal=1",
+    "UPDATE room_output_archive_events SET created_at=0 WHERE ordinal=1",
+    "UPDATE room_output_archive_events SET chain_digest='changed' WHERE ordinal=1",
+    "DELETE FROM room_output_archive_events WHERE ordinal=1",
+    "DELETE FROM room_output_archive_events WHERE ordinal=2",
+    "UPDATE room_output_archives SET chain_digest='changed'",
+  ])("withholds corrupted retained output after replacement: %s", async (corrupt) => {
+    const f = await fixture(), p = await f.publisher();
+    await p.accept(f.frame(1, "protected prefix\n")); await p.accept(f.frame(2, "protected tail\n"));
+    f.db.exec(corrupt); f.source.currentEpoch = null; f.restart();
+    await expect(f.read()).rejects.toThrow(/archive/i);
+    const response = await f.call(`/${f.auth.reservation.id}`);
+    expect(response.status).toBe(404); expect(await response.text()).not.toContain("protected");
+    expect(f.db.prepare("SELECT acknowledged_through FROM room_output_archives").get()).toEqual({ acknowledged_through: 2 });
+    expect(f.start).not.toHaveBeenCalled();
+  });
+  it("verifies multiple retained pages and the empty final cursor after replacement", async () => {
+    const f = await fixture(), p = await f.publisher();
+    for (let i = 1; i <= 35; i++) await p.accept(f.frame(i, `line ${i}\n`));
+    f.source.currentEpoch = null; f.restart();
+    const first = await f.read(), second = await f.read(first.nextCursor), final = await f.read(second.nextCursor);
+    expect(first.events).toHaveLength(32); expect(second.events).toHaveLength(3);
+    expect(second.previousChainDigest).toBe(first.events.at(-1)!.chainDigest);
+    expect(final).toMatchObject({ events: [], hasMore: false, nextCursor: 35, acknowledgedThrough: 35, incompleteTail: true });
+    f.db.exec("UPDATE room_output_archives SET chain_digest='changed'");
+    await expect(f.read(35)).rejects.toThrow(/checkpoint/);
+    expect(f.start).not.toHaveBeenCalled();
+  });
   it("rejects guessed epoch seals and dropping archive authority after admission", async () => {
     const f = await fixture(), p = await f.publisher(); await p.accept(f.frame(1, "one\n"));
     const proof = await bindArchiveSource(f.env, f.auth);

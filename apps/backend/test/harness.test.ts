@@ -586,12 +586,11 @@ describe("connection compatibility stays honest", () => {
 });
 
 describe("agent cli catalog", () => {
-  it("lists every registered harness with its pinned version", () => {
+  it("lists runnable deployment harnesses with their pinned versions", () => {
     const catalog = agentCliCatalog({});
     expect(catalog.map((a) => a.id)).toEqual([
       "opencode",
       "claude-code",
-      "claude-login",
       "codex",
       "grok",
       "pi",

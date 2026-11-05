@@ -6,6 +6,8 @@ import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { resolveWorkspaceNativeMember } from "./workspace-native-authority.js";
 import { rejectCrossOriginMutation, rejectNonJsonMutation } from "./dashboard-mutation.js";
 import { beginSlackCoworkerBinding, confirmSlackCoworkerBinding, readSlackCoworkerState, revokeSlackCoworkerBinding, grantSlackCoworkerIntake, readSlackCoworkerDrafts, adoptSlackCoworkerDraft, revokeSlackCoworkerIntake } from "./slack-coworker-store.js";
+import { handleCollaboration } from "./collaboration-routes.js";
+import { claimSlackCoworkerExecution, finishSlackCoworkerExecution } from "./slack-coworker-store.js";
 const base="/api/slack/coworker";
 const id=z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const json=(value:unknown,status=200)=>Response.json(value,{status,headers:{"cache-control":"no-store","referrer-policy":"no-referrer"}});
@@ -36,6 +38,28 @@ export async function handleSlackCoworker(request:Request,env:SlackInstallationE
     const body=await readBody(request);
     if(url.pathname===base+"/intake/grant"){const value=z.object({bindingId:id,channelId:id,threadTs:z.string().regex(/^\d{1,16}\.\d{1,9}$/),reviewed:z.literal(true)}).strict().parse(body);await verify();return json(await grantSlackCoworkerIntake(env,member,value.bindingId,value.channelId,value.threadTs));}
     if(url.pathname===base+"/intake/revoke"){const value=z.object({id,reviewed:z.literal(true)}).strict().parse(body);await verify();await revokeSlackCoworkerIntake(env,member,value.id);return json({ok:true});}
+    if(url.pathname===base+"/drafts/submit") {
+      const value=z.object({id:z.string().regex(/^sd_[a-f0-9]{32}$/),roomId:z.string().regex(/^room_[a-f0-9]{24}$/),
+        recipientActorId:z.string().regex(/^agent:[A-Za-z0-9_-]{1,100}$/),
+        personalExecution:z.object({grantId:z.string().regex(/^plex_[a-f0-9]{32}$/),expectedVersion:z.number().int().positive()}).strict(),
+        reviewed:z.literal(true)}).strict().parse(body);
+      await verify();
+      const claimed=await claimSlackCoworkerExecution(env,member,value);
+      try {
+        await verify();
+        const target=new URL(`/api/collaboration/rooms/${value.roomId}/handoffs`,request.url);
+        const response=await handleCollaboration(new Request(target,{method:"POST",headers:request.headers,signal:request.signal,
+          body:JSON.stringify({handoffId:claimed.handoffId,taskId:claimed.handoffId,task:claimed.task,
+            recipientActorId:value.recipientActorId,personalExecution:value.personalExecution,budget:0,grantedCapabilities:["room.read","message.send"]})}),env);
+        const state=response?.status===201?"queued":!response||response.status>=500||response.status===202?"unknown":"blocked";
+        await finishSlackCoworkerExecution(env,claimed.handoffId,state);
+        // The queue's response can contain private task text; return only the receipt.
+        return json({handoffId:claimed.handoffId,state,approvalRequired:true},response?.status??503);
+      } catch {
+        await finishSlackCoworkerExecution(env,claimed.handoffId,"unknown");
+        return json({handoffId:claimed.handoffId,state:"unknown",approvalRequired:true},503);
+      }
+    }
     if(url.pathname===base+"/drafts/adopt"){const value=z.object({id,reviewed:z.literal(true)}).strict().parse(body);await verify();return json(await adoptSlackCoworkerDraft(env,member,value.id));}
     if(url.pathname===base+"/revoke") {const value=z.object({id,reviewed:z.literal(true)}).strict().parse(body);await verify();await revokeSlackCoworkerBinding(env,member,value.id);return json({ok:true});}
     const value=z.object({installationId:id,challengeId:id.optional(),slackUserId:id.optional(),reviewed:z.literal(true)}).strict().parse(body);

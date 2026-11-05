@@ -348,6 +348,12 @@ function ComputerScope(scope: SharedComputerScope) {
             coding agents or active CLI control. Workspace roles do not authorize deployment
             billing.
           </p>
+          <p className="mt-2 max-w-3xl text-xs text-[var(--ink-2)]">
+            Your Shiba sign-in authorizes only the selected session permissions, not a login to
+            websites inside the desktop. Viewers can see displayed content; only an authorized
+            controller with the current lease can send input. Do not enter account credentials
+            or secrets into this shared desktop.
+          </p>
         </div>
         <button
           type="button"

@@ -31,6 +31,42 @@ specialists, cloud/provider fallback, connected-app configuration, setup scripts
 test commands, alternate binaries or resumed sessions are accepted. The server
 independently verifies frozen task/context hashes and consumes approvals.
 
+## Execution route limits
+
+The operator local runtime now has a bounded repository-free execution primitive.
+The explicit artifact target and exact requested deliverables travel in the
+validated mailbox envelope; an empty repository URL without that target is
+rejected. The daemon creates a fresh work directory without Git clone/init,
+then captures **only** the approved files using the existing complete-text
+capture: at most eight non-hidden md/txt/json/csv files, 16 KiB each and 64 KiB
+total. Missing, partial, binary, oversized, symlinked or hard-linked outputs fail
+closed. The Worker rechecks the file set and content before existing private
+artifact persistence. Unrequested files, repository diffs and base revisions
+are not accepted as local artifact output. No automatic account/runtime fallback
+or repository publication is allowed.
+
+This is not broad local directory export or OS sandboxing. Fresh HOME/work
+paths do not isolate a malicious same-user program. Personal native-account
+grants remain repository-only and cannot use this operator primitive. Existing
+cancellation, deadline, claim/retry and process-termination handling is reused;
+process continuation and unacknowledged local output are not guaranteed after a
+crash. Authenticated dashboard intake and route-picker enablement must be
+integrated separately before advertising local artifact tasks in the product.
+The sandbox route still supports broader ephemeral output discovery/archive;
+local exports intentionally require nonempty explicit paths.
+
+Native **cloud** Claude login is also unavailable. A generated per-user pathname
+is not a mounted, authorized volume. The reserved harness reports no supported
+runtime, returns no volume and refuses direct configuration/launch or successful
+verification. Persisting native login credentials inside a cloud container would
+violate the repository's credentials-never-container invariant, even if Shiba did
+not read those files. Adding volume support alone would not resolve that conflict;
+an invariant-preserving authentication design and explicit product/security
+review are required. Do not relay native bearer/refresh tokens or run cloud
+`claude auth login` as a workaround. API Claude Code and paired local Claude Code
+remain distinct, explicitly selected routes; no real login or inference was used
+to verify these guards.
+
 Each run receives a fresh HOME containing only the selected provider's login.
 Provider API keys, alternate endpoints, Git credentials/helpers, SSH, proxy and
 daemon tokens are omitted from child environments. Public clone failures have no

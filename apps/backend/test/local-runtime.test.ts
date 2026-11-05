@@ -117,6 +117,18 @@ describe("buildLocalRunEnvelope", () => {
     expect(envelope.createdAt).toBe(1_700_000);
   });
 
+  it("requires an explicit matching artifact target for an empty repository URL", () => {
+    const executionTarget = { kind: "artifact-workspace" as const, expectedDeliverables: ["brief.md"] };
+    const input = { ...base.input, repoUrl: "", expectedDeliverables: ["brief.md"], executionTarget };
+    expect(buildLocalRunEnvelope({ ...base, input })).toMatchObject({ repoUrl: "", executionTarget });
+    expect(() => buildLocalRunEnvelope({ ...base, input: { ...base.input, repoUrl: "" } })).toThrow();
+    expect(() => buildLocalRunEnvelope({ ...base, input: { ...input, expectedDeliverables: ["other.md"] } })).toThrow();
+    expect(() => buildLocalRunEnvelope({ ...base, input: { ...input, repoUrl: "https://github.com/o/r" } })).toThrow();
+    expect(() => buildLocalRunEnvelope({ ...base, input: { ...input,
+      expectedDeliverables: [], executionTarget: { ...executionTarget, workspaceId: "empty", expectedDeliverables: [] },
+    } })).toThrow();
+  });
+
   it("refuses malformed envelopes at the schema boundary", () => {
     expect(() =>
       buildLocalRunEnvelope({ ...base, input: { ...base.input, task: "" } }),
@@ -743,6 +755,68 @@ const NOOP_OPS = {} as never;
 const NOOP_EMIT = async () => {};
 
 describe("LocalRuntimeAdapter", () => {
+  it("dispatches approved bounded repository-free artifacts without a dummy repository", async () => {
+    const executionTarget = { kind: "artifact-workspace" as const, workspaceId: "artifact-fixture", expectedDeliverables: ["out/brief.md"] };
+    const { client, state } = makeClient({ status: async () => ({ status: "settled", result: {
+      ...RESULT, baseRevision: undefined, changedFiles: ["out/brief.md"], diff: "", files: [{ path: "out/brief.md", content: "# Complete brief\n", encoding: "utf8" }],
+    } }) as never });
+    const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, repoUrl: "", executionTarget,
+      expectedDeliverables: executionTarget.expectedDeliverables } as never, NOOP_EMIT, {});
+    expect(result.status).toBe("completed");
+    expect(state.dispatched[0]).toMatchObject({ repoUrl: "", executionTarget, expectedDeliverables: ["out/brief.md"] });
+    expect(state.dispatched[0]?.task).toContain("current working directory");
+    expect(result.files).toEqual([{ path: "out/brief.md", content: "# Complete brief\n", encoding: "utf8" }]);
+  });
+
+  it("rejects unapproved artifact bytes from a daemon response", async () => {
+    const executionTarget = { kind: "artifact-workspace" as const, expectedDeliverables: ["brief.md"] };
+    const { client } = makeClient({ status: async () => ({ status: "settled", result: {
+      ...RESULT, baseRevision: undefined, changedFiles: ["brief.md"], diff: "", files: [
+        { path: "brief.md", content: "Complete", encoding: "utf8" },
+        { path: "private.md", content: "not approved", encoding: "utf8" },
+      ],
+    } }) as never });
+    const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, repoUrl: "", executionTarget,
+      expectedDeliverables: ["brief.md"] } as never, NOOP_EMIT, {});
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("unapproved files");
+    expect(result.files).toEqual([]);
+  });
+
+  it.each([
+    { expectedDeliverables: [] },
+    { expectedDeliverables: ["other.md"] },
+    { expectedDeliverables: ["brief.md"], publishPullRequest: true },
+  ])("rejects incomplete or conflicting artifact authority: %j", async (fields) => {
+    const { client, state } = makeClient();
+    const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, repoUrl: "", ...fields,
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["brief.md"] } } as never, NOOP_EMIT, {});
+    expect(result.status).toBe("error");
+    expect(state.dispatched).toEqual([]);
+  });
+
+  it.each([
+    { kind: "artifact-workspace", expectedDeliverables: ["brief.md"] },
+    { kind: "connected-app", connectionId: "private-app", action: "read" },
+  ])("refuses a $kind target before config, credentials, dispatch or polling", async (executionTarget) => {
+    const forbidden = vi.fn(() => { throw new Error("Must not access provider configuration."); });
+    const harness = Object.assign(Object.create(resolveHarness("claude-code")), {
+      configFile: forbidden, env: forbidden, setupCommands: forbidden, buildArgv: forbidden,
+    });
+    const status = vi.fn();
+    const { client, state } = makeClient({ status });
+    const adapter = new LocalRuntimeAdapter(harness, { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, executionTarget } as never, NOOP_EMIT, {});
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("matching nonempty approved deliverables");
+    expect(forbidden).not.toHaveBeenCalled();
+    expect(state.dispatched).toEqual([]);
+    expect(status).not.toHaveBeenCalled();
+  });
+
   it("dispatches only the personal native account envelope without reading deployment harness config or keys", async () => {
     const snapshot: PersonalExecutionSnapshot = { version: 1, grantId: `plex_${"a".repeat(32)}`, grantVersion: 1,
       ownerAccountId: "native-owner", actorId: "owner@example.test", workspaceId: `ws_${"a".repeat(24)}`, membershipVersion: 1,

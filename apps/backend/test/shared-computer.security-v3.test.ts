@@ -4,7 +4,8 @@ import { DatabaseSync } from "node:sqlite";
 import type { SharedComputerSession } from "@shiba/shared";
 import { ComputerSession } from "../src/computer-session.js";
 import { handleSharedComputers } from "../src/shared-computer-routes.js";
-import { type SharedComputerEnv } from "../src/shared-computer-store.js";
+import { readComputerRow, type SharedComputerEnv } from "../src/shared-computer-store.js";
+import { signComputerOperation } from "../src/shared-computer-auth.js";
 import { createTeamWorkspace, createTeamWorkspaceInvitation, acceptTeamWorkspaceInvitation, getTeamWorkspaceMembership } from "../src/team-workspaces-store.js";
 import { createCollaborationRoom, addCollaborationMember, humanActorId } from "../src/collaboration-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
@@ -90,5 +91,58 @@ describe("independent computer security v3", () => {
     expect(result.response.status).toBeGreaterThanOrEqual(400);
     expect(result.response.headers.get("content-type")).not.toBe("image/jpeg");
     expect(f.starts).toHaveLength(1);
+  });
+});
+
+
+describe("offline policy cannot be upgraded into online or agent authority", { timeout: 20_000 }, () => {
+  it.each([
+    ["internet", true],
+    ["allowedDomains", ["example.test"]],
+    ["credentials", { account: "fixture-only" }],
+    ["purpose", "online-agent-desktop"],
+    ["agentId", "agent:fixture"],
+    ["controlMode", "agent"],
+    ["sources", ["fixture-source"]],
+  ])("rejects prepare extension %s before writing or allocating", async (field, value) => {
+    const f = await fixture();
+    const result = await f.call("/sessions/prepare", { ...f.input, [field as string]: value });
+    expect(result.response.status).toBe(400);
+    expect(result.body).toEqual({ error: "shared_computer_body_invalid" });
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='shared_computer_sessions'").get()).toEqual({ count: 0 });
+    expect(f.instances.size).toBe(0); expect(f.starts).toHaveLength(0); expect(f.calls).toHaveLength(0);
+  });
+  it("refuses online escalation at every reviewed control gate without consuming valid authority", async () => {
+    const f = await fixture(), draft = await f.prepare();
+    auth.user = OPERATOR;
+    expect((await f.call(`/sessions/${draft.id}/fund`, { ...f.review(draft), billingConsent: true, internet: true })).response.status).toBe(400);
+    expect(f.sqlite.prepare("SELECT state,consumed FROM shared_computer_sessions WHERE id=?").get(draft.id)).toEqual({ state: "draft", consumed: 0 });
+    const funded = await f.fund(draft); auth.user = OWNER;
+    expect((await f.call(`/sessions/${funded.id}/start`, { ...f.review(funded), sharedDisplayConsent: true, allowedDomains: ["example.test"] })).response.status).toBe(400);
+    expect(f.starts).toHaveLength(0);
+    expect(f.sqlite.prepare("SELECT state,consumed FROM shared_computer_sessions WHERE id=?").get(draft.id)).toEqual({ state: "funded", consumed: 0 });
+    const running = await f.start(funded);
+    expect((await f.call(`/sessions/${running.id}/lease`, { expectedVersion: running.version, digest: running.digest, leaseMs: 60_000, controlMode: "agent" })).response.status).toBe(400);
+    const leased = await f.lease(running), input = f.action(leased);
+    expect((await f.call(`/sessions/${leased.id}/input`, { ...input, agentId: "agent:fixture" })).response.status).toBe(400);
+    expect((await f.call(`/sessions/${leased.id}/input`, { ...input, action: { type: "navigate", url: "https://example.test" } })).response.status).toBe(400);
+    expect((await f.call(`/sessions/${leased.id}/capture`, { expectedVersion: leased.version, audience: "agent:fixture" })).response.status).toBe(400);
+    expect(f.sqlite.prepare("SELECT sequence,input_count,frame_count FROM shared_computer_sessions WHERE id=?").get(leased.id)).toEqual({ sequence: 0, input_count: 0, frame_count: 0 });
+    expect(f.calls.filter(argv => ["xdotool", "scrot"].includes(argv[0]!))).toHaveLength(0);
+    expect((await f.call(`/sessions/${leased.id}/input`, input)).response.status).toBe(200);
+    expect(f.starts).toEqual([{ image: IMAGE, instance: "standard-1", enableInternet: false, env: { SHIBA_COMPUTER_EXPIRES_AT: String(funded.contract.expiresAt) }, labels: { purpose: "offline-desktop", session: running.id } }]);
+  });
+  it("does not reinterpret a signed human display capsule as agent or online authority", async () => {
+    const f = await fixture(), running = await f.start(), runtime = f.instances.get(running.id)!;
+    const row = await readComputerRow(f.env, f.workspace.workspaceId, running.id);
+    const capsule = await signComputerOperation(f.env, row, { accountId: auth.ids[OWNER]!, userId: OWNER }, { operation: "capture" });
+    for (const body of [
+      { ...capsule.body, scope: "shiba.online-computer-operation.v1" },
+      { ...capsule.body, details: { operation: "capture", audience: "agent:fixture" } },
+      { ...capsule.body, internet: true },
+    ]) await expect(runtime.captureFrame({ ...capsule, body } as never)).rejects.toThrow("shared_computer_operation_invalid");
+    expect(f.calls.filter(argv => argv[0] === "scrot")).toHaveLength(0);
+    await runtime.captureFrame(capsule);
+    expect(f.calls.filter(argv => argv[0] === "scrot")).toHaveLength(1);
   });
 });

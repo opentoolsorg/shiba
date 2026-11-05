@@ -1,9 +1,13 @@
 # PR 188 current completion index
 
-This is the current scope index; older dated reports retain their historical
-results. The last completed full application-code CI checkpoint is `6cf87f0`.
-The later reviewed team-task transfer has focused validation and source review;
-its final integrated gate is recorded on the PR after the checkpoint is pushed.
+For the latest six requested areas, see the [six-feature acceptance
+checkpoint](pr188-six-features-20261105.md): **not all features are complete**.
+The published head rechecked on November 5 is
+`d424d0385ae632fda3f802356f845301bf1774b9`, with passing CI and Desktop workflows.
+The new hardening increment is not covered by that baseline CI; consult the PR
+for checks on its exact published head.
+The broader scope index below and older dated reports retain their historical
+results; they do not establish acceptance of the latest increment.
 Preview work is paused. No production deployment, merge, real provider request,
 Slack send, paid inference or credential creation is included in this evidence.
 The earlier unfinished work remains preserved in a [historical source

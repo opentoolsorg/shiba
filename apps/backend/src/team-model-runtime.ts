@@ -4,9 +4,9 @@ import type { WorkspaceNativeMember } from "./workspace-native-authority.js";
 import { membershipSql, updateGuarded } from "./workspace-integrations-store.js";
 import {
   TeamModelError, TEAM_MODEL_CALL_TIMEOUT_MS, TEAM_MODEL_ACTOR_LIMIT_MICRO_USD, TEAM_MODEL_WORKSPACE_LIMIT_MICRO_USD, fundingBinding, fundingContract, readTeamModelFunding, readTeamModelTurn,
-  requireTeamModelPolicy, sourceGuard, teamModelTurnHash, type TeamModelFundingRow, type TeamModelInput, type TeamModelSourceSnapshot, type TeamModelTurnRow,
+  requireTeamModelPolicy, sourceGuard, teamModelTurnHash, type TeamModelFundingRow, type TeamModelSourceSnapshot, type TeamModelTurnRow,
 } from "./team-model-store.js";
-import { redactSecrets } from "./security.js";
+import { requireTeamModelTextInput, teamModelTextOutput } from "./team-model-adapters.js";
 import { requireTeamModelMoney, teamModelLedgerDebitSql, teamModelUsageReceipt, type TeamModelUsageReceipt } from "./team-model-money.js";
 
 const DB_NOW = "CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)";
@@ -26,26 +26,6 @@ async function runningCurrent(env: Env, member: WorkspaceNativeMember, grant: Te
       money.quote.dispatchUntil, turn.id, grant.id, turn.input_hash, money.quote.digest, money.maximumDebitPerCallMicroUsd).first();
   if (!current) throw new TeamModelError("team_model_dispatch_authority_changed", 403);
 }
-function outputText(value: unknown, model: string): string {
-  if (model === TEAM_MODEL_LLAMA_MODEL) {
-    if (!value || typeof value !== "object" || !("response" in value) || typeof value.response !== "string" || ("tool_calls" in value && value.tool_calls !== undefined)) throw new TeamModelError("team_model_output_unconfirmed");
-    return boundedText(value.response);
-  }
-  if (!value || typeof value !== "object" || !("choices" in value) || !Array.isArray(value.choices) || value.choices.length !== 1) throw new TeamModelError("team_model_output_unconfirmed");
-  const choice: unknown = value.choices[0];
-  if (!choice || typeof choice !== "object" || !("message" in choice) || !choice.message || typeof choice.message !== "object" || !("content" in choice.message) || typeof choice.message.content !== "string") throw new TeamModelError("team_model_output_unconfirmed");
-  return boundedText(choice.message.content);
-}
-function boundedText(value: string): string {
-  const text = redactSecrets(value);
-  const bytes = new TextEncoder().encode(text);
-  if (bytes.byteLength <= 8192) return text;
-  const suffix = "\n[truncated]";
-  // Streaming decode retains an incomplete trailing code point instead of
-  // replacing it with a larger UTF-8 replacement character before the suffix.
-  return new TextDecoder("utf-8", { ignoreBOM: true, fatal: false }).decode(bytes.subarray(0, 8192 - new TextEncoder().encode(suffix).byteLength), { stream: true }) + suffix;
-}
-
 /** Exactly one application-level AI.run invocation. No provider, tools, retries or orchestration. */
 export async function executeTeamModelTurn(env: Env, member: WorkspaceNativeMember, id: string, input: { expectedVersion: number; inputHash: string },
   options: { signal?: AbortSignal; beforeDispatch: () => Promise<void> }) {
@@ -57,9 +37,9 @@ export async function executeTeamModelTurn(env: Env, member: WorkspaceNativeMemb
   if (["running", "completed", "unknown", "cancelled", "blocked"].includes(turn.status)) return id;
   const money = requireTeamModelMoney(contract.money, contract.maxOutputTokens, Date.now(), contract.model);
   if (turn.status !== "approved" || turn.version !== input.expectedVersion || turn.grant_version !== grant.version) throw new TeamModelError("team_model_turn_not_approved", 403);
-  const modelInput = JSON.parse(turn.input_json) as TeamModelInput;
+  const modelInput = requireTeamModelTextInput(JSON.parse(turn.input_json), contract.model, contract.maxOutputTokens);
   const bytes = new TextEncoder().encode(turn.input_json).byteLength;
-  if (bytes !== turn.input_bytes || bytes > contract.maxInputBytes || money.quote.model !== contract.model || modelInput.stream !== false || (contract.model === TEAM_MODEL_LLAMA_MODEL ? modelInput.max_tokens !== contract.maxOutputTokens || Object.keys(modelInput).sort().join(",") !== "max_tokens,messages,stream" : modelInput.max_completion_tokens !== contract.maxOutputTokens || modelInput.n !== 1 || modelInput.tool_choice !== "none" || modelInput.store !== false || JSON.stringify(modelInput.modalities) !== '["text"]' || modelInput.chat_template_kwargs?.enable_thinking !== false)) throw new TeamModelError("team_model_input_policy_changed", 403);
+  if (bytes !== turn.input_bytes || bytes > contract.maxInputBytes || money.quote.model !== contract.model) throw new TeamModelError("team_model_input_policy_changed", 403);
   await options.beforeDispatch();
   const source = sourceGuard(binding, JSON.parse(turn.sources_json) as TeamModelSourceSnapshot), actor = membershipSql(member);
   const now = Date.now(), dispatchDeadline = Math.min(now + TEAM_MODEL_CALL_TIMEOUT_MS, turn.expires_at, contract.expiresAt, money.quote.dispatchUntil);
@@ -135,7 +115,7 @@ export async function executeTeamModelTurn(env: Env, member: WorkspaceNativeMemb
     const result = await Promise.race([inference, aborted]);
     controller.signal.throwIfAborted();
     receipt = await teamModelUsageReceipt(result, turn.input_hash, contract.maxOutputTokens, contract.model, turn.id);
-    output = outputText(result, contract.model);
+    output = teamModelTextOutput(result, contract.model);
   } catch (error) { errorCode = dispatched ? error instanceof Error && error.message === "team_model_usage_unknown" ? "team_model_usage_unknown" : "team_model_outcome_unknown" : "team_model_dispatch_blocked"; }
   finally {
     stopped = true; clearTimeout(timeout); if (pollTimer) clearTimeout(pollTimer); wake?.(); stopPolling?.(); await polling;
