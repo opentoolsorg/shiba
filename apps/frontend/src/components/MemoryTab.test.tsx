@@ -164,6 +164,15 @@ describe("MemoryTab", () => {
     });
   });
 
+  it("reports the remaining total fact count after forgetting", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ ok: true })));
+    const onCountsChange = vi.fn();
+    render(<MemoryTab initialFacts={mockFacts} initialSessions={mockSessions} onCountsChange={onCountsChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "Forget fact f_1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm forget" }));
+    await waitFor(() => expect(onCountsChange).toHaveBeenCalledWith({ facts: 1 }));
+  });
+
   it("filters facts by source chip", async () => {
     render(<MemoryTab initialFacts={mockFacts} initialSessions={mockSessions} />);
 

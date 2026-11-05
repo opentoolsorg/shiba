@@ -120,6 +120,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
       const fList = Array.isArray(factsBody.facts) ? factsBody.facts : [];
       const sList = Array.isArray(sessionsBody.sessions) ? sessionsBody.sessions : [];
       setFacts(fList);
+      totalFactsRef.current = fList.length;
       setSessions(sList);
       onCountsChange?.({ facts: fList.length, sessions: sList.length });
       setSearchActive(false);
@@ -163,11 +164,8 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
     }
   }, [query]);
 
-  const loadedOnce = useRef(false);
-  useEffect(() => {
-    if (!loadedOnce.current) { loadedOnce.current = true; return; }
-    onCountsChange?.({ facts: facts.length, sessions: sessions.length });
-  }, [facts.length, sessions.length, onCountsChange]);
+  // Total stored facts (a recall search shows only hits, so facts.length is not the total).
+  const totalFactsRef = useRef(initialFacts?.length ?? 0);
 
   const forgetFact = useCallback(
     async (factId: string) => {
@@ -175,8 +173,9 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
       setError(null);
       try {
         await apiJson(`/api/memory/facts/${encodeURIComponent(factId)}`, { method: "DELETE" });
-        // Keep the updater pure; the parent is told about the new count in the effect below.
         setFacts((prev) => prev.filter((fact) => fact.id !== factId));
+        totalFactsRef.current = Math.max(0, totalFactsRef.current - 1);
+        onCountsChange?.({ facts: totalFactsRef.current });
         setNotice("Fact forgotten from agent memory.");
         onForgetFact?.(factId);
         if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
@@ -191,7 +190,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
         setConfirmForget(null);
       }
     },
-    [onForgetFact],
+    [onForgetFact, onCountsChange],
   );
 
   const availableAgents = useMemo(() => {
