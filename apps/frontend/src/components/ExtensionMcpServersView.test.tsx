@@ -55,4 +55,14 @@ describe("Extension MCP uses the canonical reviewed registry", () => {
     expect(screen.getByRole("button",{name:"Discover / retry"})).toBeTruthy();
     expect(writes.some(item=>/enable|grant/.test(item.path))).toBe(false);
   });
+
+  it("renders breadcrumbs and Add Server header action", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ servers: [], principals: [], connections: [] })));
+    render(<ExtensionMcpServersView scope="workspace" />);
+    const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(nav.textContent).toContain("Workspace");
+    expect(nav.textContent).toContain("Extensions");
+    expect(nav.textContent).toContain("MCP Servers");
+    expect(screen.getByRole("button", { name: "Add Server" })).toBeTruthy();
+  });
 });

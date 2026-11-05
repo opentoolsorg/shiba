@@ -48,9 +48,9 @@ const INPUT: CodingTaskInput = {
 };
 
 describe("parseRepoSetup", () => {
-  it("loads a setup file whose refresh and entries aren't run yet", () => {
-    const capy = { format_version: 1, scripts: { initialize: MARKER, refresh: "pnpm i" }, timeouts: { refresh: 60 }, entries: [] };
-    expect(parseRepoSetup(JSON.stringify(capy))).toEqual({ initialize: MARKER, timeoutMs: 600_000 });
+  it("loads a file whose refresh and entries aren't run yet", () => {
+    const setup = { format_version: 1, scripts: { initialize: MARKER, refresh: "pnpm i" }, timeouts: { refresh: 60 }, entries: [] };
+    expect(parseRepoSetup(JSON.stringify(setup))).toEqual({ initialize: MARKER, timeoutMs: 600_000 });
   });
 
   it("reads initialize and the timeout, defaulting to 10 minutes", () => {

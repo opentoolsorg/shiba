@@ -9,6 +9,7 @@ const ROLE_CAPABILITIES: Record<CustomAgentRoleTemplateId, {
   integrationIds: readonly string[];
   mcpCatalogIds: readonly string[];
 }> = {
+  qa: { integrationIds: ["github", "sentry", "jira-atlassian"], mcpCatalogIds: ["sentry", "jira-atlassian"] },
   engineering: { integrationIds: ["github", "linear", "sentry", "jira-atlassian", "slack"], mcpCatalogIds: ["sentry", "jira-atlassian", "notion"] },
   design: { integrationIds: ["figma", "notion", "google-drive-docs-sheets", "slack"], mcpCatalogIds: ["figma", "notion"] },
   marketing: { integrationIds: ["posthog", "google-ads", "meta-ads", "hubspot", "webflow", "gmail-calendar"], mcpCatalogIds: ["posthog", "notion", "figma"] },

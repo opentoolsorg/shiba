@@ -1,5 +1,6 @@
 import { authorizeCollaborationAction, isTeamWorkspaceId, runInputHash, type DelegatedRun, type PendingApproval } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
+import { z } from "zod";
 import { isCollaborationContextCurrent } from "./collaboration-context.js";
 import { handleCollaborationApproval } from "./collaboration-approval-routes.js";
 import { collaborationExecutorIdentity, type CollaborationExecutorIdentity } from "./collaboration-executor.js";
@@ -12,19 +13,43 @@ import {
 } from "./collaboration-store.js";
 import { signInternalRequest } from "./edge-identity.js";
 import type { Env } from "./env.js";
-import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
+import { isAuthorizedRequest, requireJsonContentType, requireSameOriginBrowserMutation, resolveUserId } from "./request-auth.js";
+import {
+  archiveTeamWorkTask, commentTeamWorkTask, createTeamWorkTask, getTeamWorkTask, listTeamWorkTasks, TeamWorkTaskError, updateTeamWorkTask,
+  type TeamWorkActivityEntry, type TeamWorkTask, type TeamWorkTaskPriority, type TeamWorkTaskStatus,
+} from "./team-work-tasks-store.js";
 import { getTeamWorkspaceMembership, normalizeTeamWorkspaceEmail } from "./team-workspaces-store.js";
 
 /** Structural counterpart to the frontend DTO; never imports another app's source. */
 export interface TeamWorkItemDto {
   id: string; workspaceId: string; roomId: string; roomTitle: string; title: string;
-  assigneeUserId: string; assigneeActorId: string; assigneeKind: "human" | "agent"; assigneeName?: string;
-  status: "queued" | "needs-approval" | "running" | "completed" | "blocked" | "cancelled" | "unknown";
+  assigneeUserId?: string; assigneeActorId?: string; assigneeKind: "human" | "agent"; assigneeName?: string;
+  status: "queued" | "needs-approval" | "running" | "completed" | "blocked" | "cancelled" | "unknown" | TeamWorkTaskStatus;
   updatedAt: number; runId?: string; approvalRequired?: boolean; viewerCanApprove: boolean; resultAvailable?: boolean;
+  priority?: TeamWorkTaskPriority; ownerId?: string; reviewerId?: string; startDate?: string; endDate?: string; parentId?: string;
+  blocked?: boolean; objective?: string; waitingOn?: string[]; context?: string[]; doneWhen?: string[];
+  activity?: TeamWorkActivityEntry[]; archived?: boolean;
 }
 
 export const TEAM_WORK_LIMITS = { rooms: 20, tasks: 100, concurrentReads: 4 } as const;
-const ROUTE = /^\/api\/workspaces\/([^/]+)\/work$/;
+const ROUTE = /^\/api\/workspaces\/([^/]+)\/work(?:\/(task_[a-f0-9]{24})(?:\/(archive|comments))?)?$/;
+const BODY_LIMIT = 32_768;
+const line = (max: number) => z.string().trim().min(1).max(max);
+const lines = z.array(line(500)).max(50);
+const actorRef = z.string().regex(/^(human|agent):\S{1,320}$/);
+const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)), "Invalid date.");
+const PATCH_FIELDS = z.object({
+  title: line(200), status: z.enum(["backlog", "todo", "in-progress", "in-review", "done", "cancelled"]),
+  priority: z.enum(["none", "low", "medium", "high", "urgent"]), blocked: z.boolean(),
+  ownerId: actorRef.nullable(), reviewerId: actorRef.nullable(), startDate: day.nullable(), endDate: day.nullable(),
+  parentId: z.string().regex(/^task_[a-f0-9]{24}$/).nullable(), objective: z.string().trim().max(4000).nullable(),
+  waitingOn: lines, context: lines, doneWhen: lines,
+}).partial();
+const CREATE_BODY = PATCH_FIELDS.extend({ title: line(200) }).strict();
+const COMMENT_BODY = z.object({ text: line(4000) }).strict();
+const PATCH_BODY = z.object({
+  patch: PATCH_FIELDS.strict().refine((patch) => Object.keys(patch).length > 0, "Patch must change at least one field."),
+}).strict();
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: {
   "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
 } });
@@ -122,11 +147,83 @@ async function boundedMap<T, U>(items: readonly T[], limit: number, mapper: (ite
   return results;
 }
 
+function storedItem(task: TeamWorkTask): TeamWorkItemDto {
+  const owner = task.ownerId ?? undefined;
+  return {
+    id: task.taskId, workspaceId: task.workspaceId, roomId: "", roomTitle: "", title: task.title,
+    assigneeKind: owner?.startsWith("agent:") ? "agent" : "human", assigneeActorId: owner,
+    assigneeUserId: owner?.startsWith("human:") ? owner.slice("human:".length) : undefined,
+    status: task.status, updatedAt: task.updatedAt, viewerCanApprove: false, priority: task.priority, ownerId: owner,
+    reviewerId: task.reviewerId ?? undefined, startDate: task.startDate ?? undefined, endDate: task.endDate ?? undefined,
+    parentId: task.parentId ?? undefined, blocked: task.blocked, objective: task.objective ?? undefined,
+    waitingOn: task.waitingOn, context: task.context, doneWhen: task.doneWhen, activity: task.activity, archived: task.archived,
+  };
+}
+
+async function readJson(request: Request): Promise<unknown> {
+  const length = request.headers.get("content-length");
+  if (length !== null && (!/^\d+$/.test(length) || Number(length) > BODY_LIMIT)) throw new TeamWorkTaskError("Request body is too large.", 413);
+  const text = await request.text();
+  if (text.length > BODY_LIMIT) throw new TeamWorkTaskError("Request body is too large.", 413);
+  try { return JSON.parse(text); } catch { throw new TeamWorkTaskError("Request body must be a JSON object."); }
+}
+
+function parse<T>(schema: z.ZodType<T>, value: unknown): T {
+  const result = schema.safeParse(value);
+  if (!result.success) throw new TeamWorkTaskError(result.error.issues[0]?.message ?? "Invalid request body.");
+  return result.data;
+}
+
+/** Workspace-owned tasks: any active member may create and edit; the actor comes from the session. */
+async function mutateTeamWork(request: Request, env: Env, workspaceId: string, taskId: string | undefined, action: string | undefined): Promise<Response> {
+  const allowed = taskId === undefined || action !== undefined ? "POST" : "PATCH";
+  if (request.method !== allowed) return json({ error: "Method not allowed." }, 405);
+  const originError = requireSameOriginBrowserMutation(request) ?? requireJsonContentType(request);
+  if (originError) return originError;
+  if (!isTeamWorkspaceId(workspaceId)) return missing();
+  const selected = request.headers.get("X-Shiba-Workspace");
+  if (selected !== null && selected !== workspaceId) return missing();
+  if (!env.AGENT_AUDIT) return json({ error: "Workspace storage is unavailable." }, 503);
+  try {
+    const identity = await resolveUserId(request, env);
+    if (!identity) return json({ error: "Authenticated human session required." }, 401);
+    let userId: string;
+    try { userId = normalizeTeamWorkspaceEmail(identity); }
+    catch { return json({ error: "Authenticated email identity required." }, 403); }
+    if (!await getTeamWorkspaceMembership(env, workspaceId, userId)) return json({ error: "Workspace membership required." }, 403);
+    const actorId = humanActorId(userId), body = await readJson(request);
+    if (action === "archive") return json({ task: storedItem(await archiveTeamWorkTask(env, workspaceId, taskId ?? "", actorId)) });
+    if (action === "comments") {
+      const { text } = parse(COMMENT_BODY, body);
+      return json({ task: storedItem(await commentTeamWorkTask(env, workspaceId, taskId ?? "", actorId, text)) });
+    }
+    const { title, ...fields } = taskId === undefined ? parse(CREATE_BODY, body) : { title: undefined, ...parse(PATCH_BODY, body).patch };
+    for (const person of [fields.ownerId, fields.reviewerId]) {
+      if (person?.startsWith("human:") && !await getTeamWorkspaceMembership(env, workspaceId, person.slice("human:".length))) {
+        return json({ error: "Owner and reviewer must be workspace members." }, 400);
+      }
+    }
+    if (taskId !== undefined) return json({ task: storedItem(await updateTeamWorkTask(env, workspaceId, taskId, actorId, { title, ...fields })) });
+    // Pre-check what the follow-up update would reject so a failed create leaves no half-made task.
+    if (fields.startDate && fields.endDate && fields.startDate > fields.endDate) return json({ error: "Start date must be on or before the end date." }, 400);
+    const parent = fields.parentId ? await getTeamWorkTask(env, workspaceId, fields.parentId) : null;
+    if (fields.parentId && (!parent || parent.archived)) return json({ error: "Parent task not found." }, 400);
+    const created = await createTeamWorkTask(env, workspaceId, actorId, title ?? "");
+    const task = Object.keys(fields).length ? await updateTeamWorkTask(env, workspaceId, created.taskId, actorId, fields) : created;
+    return json({ task: storedItem(task) }, 201);
+  } catch (error) {
+    if (error instanceof TeamWorkTaskError) return json({ error: error.message }, error.status);
+    return json({ error: "Workspace work is temporarily unavailable." }, 503);
+  }
+}
+
 /** Current explicit room grants are the sole source; personal histories are never enumerated. */
 export async function handleTeamWork(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url), match = ROUTE.exec(url.pathname);
   if (!match) return null;
   if (request.headers.has("Authorization") || !await isAuthorizedRequest(request, env)) return json({ error: "Authenticated human session required." }, 401);
+  const [, routeWorkspaceId = "", taskId, action] = match;
+  if (taskId !== undefined || request.method === "POST") return mutateTeamWork(request, env, routeWorkspaceId, taskId, action);
   if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
   const origin = request.headers.get("Origin");
   if ((origin !== null && origin !== url.origin) || request.headers.get("Sec-Fetch-Site") === "cross-site") return json({ error: "Same-origin request required." }, 403);
@@ -178,6 +275,9 @@ export async function handleTeamWork(request: Request, env: Env): Promise<Respon
         tasks.push({ ...task, status: "unknown", runId: undefined, resultAvailable: false, approvalRequired: false, viewerCanApprove: false });
       } else tasks.push(task);
     }
+    const stored = await listTeamWorkTasks(env, workspaceId);
+    tasks.push(...stored.tasks.map(storedItem));
+    truncated ||= stored.truncated;
     const finalMembership = await getTeamWorkspaceMembership(env, workspaceId, userId);
     if (!finalMembership || finalMembership.version !== membership.version) return missing();
     return json({ workspaceId, currentActorId: humanActorId(userId), tasks: tasks.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)), truncated });

@@ -1,22 +1,22 @@
 /**
- * MemoryTab — workspace-pane view of the agent's long-term memory: banked
- * facts and recorded sessions from the Memory DO (megaplan T8/T9 contract).
- * ?q= runs recall (ranked by score); an empty box lists facts plainly.
- * Forget is a two-step confirm — it deletes the fact for good.
- *
- * Visually harmonized with the warm paper / navy / serif + mono dashboard design.
+ * MemoryTab — Durable agent memory view (banked facts, recorded sessions, workspace sources).
+ * Renders inside MainCard with a 48px header row, breadcrumb navigation, and search/sync actions.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import { Brain, ChevronRight, History, RefreshCw, Search, X } from "lucide-react";
 import type { MemoryFact, MemorySession } from "../types";
 import { formatTimeAgo } from "../ui-helpers";
 import { MemorySourcesView } from "./MemorySourcesView";
+import { EmptyState, type Scope } from "./ui/ContextPanel";
 
-const GHOST_BUTTON =
-  "text-[11px] bg-transparent hover:bg-[var(--card)] border border-[var(--border-1)] hover:border-[var(--border-2)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] font-medium py-1 px-2.5 touch:min-h-11 rounded-[var(--radius-button)] transition-colors inline-flex items-center justify-center gap-1.5";
-const ACCENT_BUTTON =
-  "text-[11px] bg-[var(--primary-soft)] hover:bg-[var(--primary-soft)] border border-[var(--primary)]/20 text-[var(--primary)] font-medium py-1 px-2.5 touch:min-h-11 rounded-[var(--radius-button)] transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed";
-const DANGER_BUTTON =
-  "text-[11px] bg-[var(--destructive-soft)] hover:bg-[var(--destructive)]/20 border border-[var(--destructive)]/50 text-[var(--destructive)] font-medium py-1 px-2.5 touch:min-h-11 rounded-[var(--radius-button)] transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed";
+const FIELD =
+  "w-full border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-[#0a0a0a] dark:text-zinc-100 placeholder:text-[#71717a] dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400 font-sans touch:min-h-11";
+const BUTTON =
+  "border border-[#e4e4e7] dark:border-zinc-800 bg-white dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-[#0a0a0a] dark:text-zinc-100 rounded-lg hover:bg-[#f4f4f5] dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors inline-flex items-center justify-center gap-1.5 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
+const PRIMARY =
+  "bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-xs font-medium rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors shadow-xs inline-flex items-center justify-center gap-1.5 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
+const DANGER =
+  "border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 px-3 py-1.5 text-xs font-medium rounded-lg hover:bg-rose-100 dark:hover:bg-rose-900/60 disabled:opacity-50 transition-colors inline-flex items-center justify-center gap-1.5 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
@@ -27,31 +27,27 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
-/** Where a fact was learned from — the provenance style chip. */
 export function sourceChipClass(source: string): string {
   switch (source) {
     case "run":
-      return "text-[var(--primary)] border-[var(--primary)]/30 bg-[var(--primary-soft)]";
+      return "text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/50";
     case "email":
-      return "text-[var(--warning-fg)] border-[color-mix(in_oklch,var(--warning)_40%,transparent)] bg-[var(--warning-subtle)]";
+      return "text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/50";
     default:
-      return "text-[var(--muted-foreground-2)] border-[var(--border-1)] bg-[var(--card)]";
+      return "text-[#71717a] dark:text-zinc-400 border-[#e4e4e7] dark:border-zinc-800 bg-[#fafafa] dark:bg-zinc-800";
   }
 }
 
-/** Format semantic recall similarity score (0.00 - 1.00). */
 export function formatRecallScore(score?: number): string {
   if (typeof score !== "number" || Number.isNaN(score)) return "";
   return score.toFixed(2);
 }
 
-/** Client-side filter helper by source (all, run, email, etc.) */
 export function filterFactsBySource(facts: MemoryFact[], source: string): MemoryFact[] {
   if (!source || source === "all") return facts;
   return facts.filter((f) => f.source.toLowerCase() === source.toLowerCase());
 }
 
-/** Client-side filter helper by agent */
 export function filterFactsByAgent(facts: MemoryFact[], agent: string): MemoryFact[] {
   if (!agent || agent === "all") return facts;
   return facts.filter((f) => f.agent === agent);
@@ -61,22 +57,33 @@ export type MemoryViewMode = "facts" | "sessions" | "sources";
 
 export interface MemoryTabProps {
   initialViewMode?: MemoryViewMode;
-  /** Optional initial facts (useful for tests and seeded state) */
+  activeView?: MemoryViewMode;
+  onSelectView?: (view: MemoryViewMode) => void;
+  scope?: Scope;
   initialFacts?: MemoryFact[];
-  /** Optional initial sessions (useful for tests and seeded state) */
   initialSessions?: MemorySession[];
-  /** Optional callback invoked when a fact is deleted */
   onForgetFact?: (factId: string) => void;
-  /** Optional container class name */
+  onCountsChange?: (counts: Partial<{ facts: number; sessions: number; sources: number }>) => void;
   className?: string;
 }
 
 export function MemoryTab(props: MemoryTabProps): JSX.Element {
-  const { initialFacts, initialSessions, onForgetFact, className = "" } = props;
+  const {
+    initialFacts,
+    initialSessions,
+    onForgetFact,
+    activeView: externalView,
+    onSelectView,
+    scope = "personal",
+    onCountsChange,
+    className = "",
+  } = props;
+
   const [facts, setFacts] = useState<MemoryFact[]>(initialFacts ?? []);
   const [sessions, setSessions] = useState<MemorySession[]>(initialSessions ?? []);
   const [query, setQuery] = useState("");
   const [searchActive, setSearchActive] = useState(false);
+  const [showSearchInput, setShowSearchInput] = useState(false);
   const [lastRecallQuery, setLastRecallQuery] = useState("");
   const [loading, setLoading] = useState(initialFacts === undefined && initialSessions === undefined);
   const [searching, setSearching] = useState(false);
@@ -86,13 +93,17 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
   const [confirmForget, setConfirmForget] = useState<string | null>(null);
   const [forgetBusy, setForgetBusy] = useState<string | null>(null);
 
-  // View & filtering controls
-  const [viewMode, setViewMode] = useState<MemoryViewMode>(props.initialViewMode ?? "facts");
+  const [internalViewMode, setInternalViewMode] = useState<MemoryViewMode>(props.initialViewMode ?? "facts");
+  const viewMode = externalView ?? internalViewMode;
+
+  const handleSelectView = (view: MemoryViewMode) => {
+    setInternalViewMode(view);
+    onSelectView?.(view);
+  };
+
   const [sourceFilter, setSourceFilter] = useState("all");
   const [agentFilter, setAgentFilter] = useState("all");
 
-  // A recall and a reload racing can resolve out of order; the token drops
-  // whichever response isn't the latest request (same idiom as InboxTab).
   const listRequestRef = useRef(0);
   const noticeTimerRef = useRef<number | null>(null);
 
@@ -106,8 +117,12 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
         apiJson<{ sessions?: MemorySession[] }>("/api/memory/sessions"),
       ]);
       if (listRequestRef.current !== request) return;
-      setFacts(Array.isArray(factsBody.facts) ? factsBody.facts : []);
-      setSessions(Array.isArray(sessionsBody.sessions) ? sessionsBody.sessions : []);
+      const fList = Array.isArray(factsBody.facts) ? factsBody.facts : [];
+      const sList = Array.isArray(sessionsBody.sessions) ? sessionsBody.sessions : [];
+      setFacts(fList);
+      totalFactsRef.current = fList.length;
+      setSessions(sList);
+      onCountsChange?.({ facts: fList.length, sessions: sList.length });
       setSearchActive(false);
       setLastRecallQuery("");
     } catch (err) {
@@ -117,7 +132,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
     } finally {
       if (listRequestRef.current === request) setLoading(false);
     }
-  }, []);
+  }, [onCountsChange]);
 
   useEffect(() => {
     if (initialFacts === undefined && initialSessions === undefined) {
@@ -139,7 +154,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
       setFacts(Array.isArray(body.facts) ? body.facts : []);
       setSearchActive(true);
       setLastRecallQuery(q);
-      setViewMode("facts");
+      handleSelectView("facts");
     } catch (err) {
       if (listRequestRef.current === request) {
         setError(err instanceof Error ? err.message : String(err));
@@ -149,6 +164,9 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
     }
   }, [query]);
 
+  // Total stored facts (a recall search shows only hits, so facts.length is not the total).
+  const totalFactsRef = useRef(initialFacts?.length ?? 0);
+
   const forgetFact = useCallback(
     async (factId: string) => {
       setForgetBusy(factId);
@@ -156,10 +174,10 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
       try {
         await apiJson(`/api/memory/facts/${encodeURIComponent(factId)}`, { method: "DELETE" });
         setFacts((prev) => prev.filter((fact) => fact.id !== factId));
+        totalFactsRef.current = Math.max(0, totalFactsRef.current - 1);
+        onCountsChange?.({ facts: totalFactsRef.current });
         setNotice("Fact forgotten from agent memory.");
         onForgetFact?.(factId);
-        // A second delete restarts the notice countdown instead of the stale
-        // timer clearing the new notice early.
         if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
         noticeTimerRef.current = window.setTimeout(() => {
           noticeTimerRef.current = null;
@@ -172,10 +190,9 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
         setConfirmForget(null);
       }
     },
-    [onForgetFact],
+    [onForgetFact, onCountsChange],
   );
 
-  // Available unique agents for filtering
   const availableAgents = useMemo(() => {
     const agents = new Set<string>();
     for (const f of facts) if (f.agent) agents.add(f.agent);
@@ -183,7 +200,6 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
     return Array.from(agents).sort();
   }, [facts, sessions]);
 
-  // Filtered facts based on source and agent
   const visibleFacts = useMemo(() => {
     let list = facts;
     if (sourceFilter !== "all") {
@@ -195,470 +211,423 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
     return list;
   }, [facts, sourceFilter, agentFilter]);
 
-  // Filtered sessions based on agent
   const visibleSessions = useMemo(() => {
     if (agentFilter === "all") return sessions;
     return sessions.filter((s) => s.agent === agentFilter);
   }, [sessions, agentFilter]);
 
+  const scopeLabel = scope === "workspace" ? "Workspace" : "Personal";
+  const viewTitle =
+    viewMode === "facts"
+      ? "Banked Facts"
+      : viewMode === "sources"
+      ? "Workspace Sources"
+      : "Recorded Sessions";
+
   return (
-    <div className={`flex flex-col gap-3.5 ${className}`}>
-      {/* Header & Activity Summary (settings & privacy rationale) */}
-      <header className="border border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] p-3.5 shadow-[var(--sh-card)]">
-        <div className="flex items-center justify-between gap-2 mb-1.5">
-          <div>
-            <h3 className="font-sans text-[17px] text-[var(--fg)] leading-tight">
-              Durable Agent Memory
-            </h3>
-            <p className="text-[11px] text-[var(--muted-foreground-2)] mt-0.5">
-              Facts & context persisted in the Memory DO across sessions.
-            </p>
-          </div>
+    <div className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${className}`.trim()}>
+      {/* 48px Header row: Breadcrumb + Actions */}
+      <div className="h-12 border-b border-[#e4e4e7] dark:border-zinc-800 px-4 flex items-center justify-between shrink-0">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs font-mono text-[#71717a] dark:text-zinc-400">
+          <span>{scopeLabel}</span>
+          <span className="text-[#a1a1aa] dark:text-zinc-600">/</span>
+          <span>Memory</span>
+          <span className="text-[#a1a1aa] dark:text-zinc-600">/</span>
+          <span className="text-[#0a0a0a] dark:text-zinc-100 font-medium">{viewTitle}</span>
+        </nav>
+
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setShowSearchInput((prev) => !prev)}
+            aria-label="Toggle search input"
+            className="p-1.5 text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 rounded-md hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+          >
+            <Search className="size-4" />
+          </button>
           <button
             type="button"
             onClick={() => void load()}
             disabled={loading}
-            className={GHOST_BUTTON}
-            title="Reload memory facts and sessions"
             aria-label="Reload memory"
+            title="Reload memory facts and sessions"
+            className="p-1.5 text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100 rounded-md hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors disabled:opacity-50 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
           >
-            <svg aria-hidden="true" 
-              className={`w-3.5 h-3.5 text-[var(--muted-foreground-2)] ${loading ? "animate-spin" : ""}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.8}
+            <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+        {/* Fallback segmented view switcher for standalone mode */}
+        {!externalView ? (
+          <nav aria-label="Memory sections" className="flex items-center gap-1 bg-[#f4f4f5] dark:bg-zinc-800/80 p-1 rounded-lg border border-[#e4e4e7] dark:border-zinc-800">
+            <button
+              type="button"
+              onClick={() => handleSelectView("facts")}
+              className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
+                viewMode === "facts"
+                  ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-xs font-semibold"
+                  : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100"
+              }`}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            <span className="hidden sm:inline">Sync</span>
-          </button>
-        </div>
+              Banked Facts ({facts.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectView("sessions")}
+              className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
+                viewMode === "sessions"
+                  ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-xs font-semibold"
+                  : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100"
+              }`}
+            >
+              Recorded Sessions ({sessions.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectView("sources")}
+              className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
+                viewMode === "sources"
+                  ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-xs font-semibold"
+                  : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100"
+              }`}
+            >
+              Workspace Memory
+            </button>
+          </nav>
+        ) : null}
 
-        {/* Activity & stats summary */}
-        <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-[var(--border-1)] text-[10px] font-mono text-[var(--muted-foreground-2)]">
-          <span className="inline-flex items-center gap-1 bg-[var(--bg)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)]">
-            <span className="font-bold text-[var(--primary)]">{facts.length}</span>
-            <span>facts banked</span>
-          </span>
-          <span className="inline-flex items-center gap-1 bg-[var(--bg)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)]">
-            <span className="font-bold text-[var(--fg)]">{sessions.length}</span>
-            <span>sessions</span>
-          </span>
-          {searchActive ? (
-            <span className="inline-flex items-center gap-1 bg-[var(--primary-soft)] text-[var(--primary)] border border-[var(--primary)]/20 px-2 py-0.5 rounded-[var(--radius-button)]">
-              <span>Recall:</span>
-              <span className="font-semibold truncate max-w-[120px]">"{lastRecallQuery}"</span>
-            </span>
-          ) : null}
-        </div>
-      </header>
-
-      {/* Segmented View Mode Switcher */}
-      <nav aria-label="Memory sections" className="flex items-center gap-1 bg-[var(--panel)] p-1 rounded-[var(--radius-button)] border border-[var(--border-1)]">
-        <button
-          type="button"
-          onClick={() => setViewMode("facts")}
-          className={`flex-1 text-[11px] font-medium py-1 px-3 rounded-[var(--radius-button)] transition-all touch:min-h-11 ${
-            viewMode === "facts"
-              ? "bg-[var(--card)] text-[var(--fg)] shadow-[var(--sh-card)] font-semibold"
-              : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
-          }`}
-        >
-          Banked Facts ({facts.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setViewMode("sessions")}
-          className={`flex-1 text-[11px] font-medium py-1 px-3 rounded-[var(--radius-button)] transition-all touch:min-h-11 ${
-            viewMode === "sessions"
-              ? "bg-[var(--card)] text-[var(--fg)] shadow-[var(--sh-card)] font-semibold"
-              : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
-          }`}
-        >
-          Recorded Sessions ({sessions.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setViewMode("sources")}
-          className={`flex-1 text-[11px] font-medium py-1 px-3 rounded-[var(--radius-button)] transition-all touch:min-h-11 ${
-            viewMode === "sources"
-              ? "bg-[var(--card)] text-[var(--fg)] shadow-[var(--sh-card)] font-semibold"
-              : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
-          }`}
-        >
-          Workspace Memory
-        </button>
-      </nav>
-
-      {viewMode === "sources" ? <MemorySourcesView /> : null}
-
-      {/* Recall / Search Form */}
-      {viewMode !== "sources" ? <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void runRecall();
-        }}
-        className="flex flex-col gap-2"
-      >
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1 min-w-0">
-            <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-[var(--muted-foreground-2)]">
-              <svg aria-hidden="true"  className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-            </div>
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Recall a fact (e.g. preferences, stack, conventions)…"
-              className="w-full text-[11px] font-mono bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] pl-8 pr-7 py-1.5 text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] focus:outline-none focus:border-[var(--primary)]/50 focus:ring-1 focus:ring-[var(--ring)] transition-colors"
-            />
-            {query.length > 0 ? (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                aria-label="Clear input text"
-                className="absolute inset-y-0 right-0 pr-2 flex items-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
-              >
-                <svg aria-hidden="true"  className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                    clipRule="evenodd"
-                  />
-                </svg>
+        {/* Search / Recall Bar */}
+        {showSearchInput || viewMode !== "sources" ? (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void runRecall();
+            }}
+            className="flex flex-col gap-2.5 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-[#fafafa] dark:bg-zinc-900 p-3 shadow-xs"
+          >
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 min-w-0">
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Recall a fact (e.g. preferences, stack, conventions)…"
+                  className={FIELD}
+                />
+                {query.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setQuery("")}
+                    aria-label="Clear input text"
+                    className="absolute inset-y-0 right-0 pr-2 flex items-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                ) : null}
+              </div>
+              <button type="submit" disabled={searching} className={PRIMARY}>
+                {searching ? "Recalling…" : "Recall"}
               </button>
+              {searchActive ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery("");
+                    void load();
+                  }}
+                  className="text-xs text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 px-1 font-medium touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+
+            {viewMode === "facts" ? (
+              <div className="flex items-center justify-between gap-2 flex-wrap text-xs text-[#71717a] dark:text-zinc-400">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="uppercase tracking-wider text-[10px] font-mono">Source:</span>
+                  {(["all", "run", "email"] as const).map((src) => (
+                    <button
+                      key={src}
+                      type="button"
+                      onClick={() => setSourceFilter(src)}
+                      className={`px-2 py-0.5 rounded-md border text-xs font-mono transition-colors  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
+                        sourceFilter === src
+                          ? "bg-white dark:bg-zinc-800 text-[#0a0a0a] dark:text-zinc-100 border-[#0a0a0a] dark:border-zinc-400 font-semibold shadow-xs"
+                          : "bg-transparent border-transparent hover:border-[#e4e4e7] dark:hover:border-zinc-700 text-[#71717a] dark:text-zinc-400"
+                      }`}
+                    >
+                      {src === "all" ? "All" : src.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+
+                {availableAgents.length > 1 ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="uppercase tracking-wider text-[10px] font-mono">Agent:</span>
+                    <select
+                      value={agentFilter}
+                      onChange={(e) => setAgentFilter(e.target.value)}
+                      className="text-xs font-mono bg-white dark:bg-zinc-800 border border-[#e4e4e7] dark:border-zinc-700 rounded-md px-2 py-0.5 text-[#0a0a0a] dark:text-zinc-100 focus:outline-none touch:min-h-11"
+                    >
+                      <option value="all">All agents</option>
+                      {availableAgents.map((ag) => (
+                        <option key={ag} value={ag}>
+                          @{ag}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
+          </form>
+        ) : null}
+
+        {/* Notifications & Error Feedback */}
+        {notice !== null ? (
+          <div role="status" className="border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/60 p-3 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2">
+            <span>{notice}</span>
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              className="text-emerald-800 dark:text-emerald-300 hover:underline font-semibold touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+            >
+              Dismiss
+            </button>
           </div>
-          <button type="submit" disabled={searching} className={ACCENT_BUTTON}>
-            {searching ? "Recalling…" : "Recall"}
-          </button>
-          {searchActive ? (
+        ) : null}
+
+        {error !== null ? (
+          <div role="alert" className="border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/60 p-3 rounded-xl text-xs text-rose-800 dark:text-rose-300 flex items-center justify-between gap-2">
+            <span className="flex-1">{error}</span>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="text-rose-800 dark:text-rose-300 underline font-semibold touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
+
+        {/* Active Recall Banner */}
+        {searchActive ? (
+          <div className="flex items-center justify-between gap-2 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-xl px-3.5 py-2 text-xs text-blue-800 dark:text-blue-300">
+            <span>
+              Recall query: <strong>"{lastRecallQuery}"</strong> ({visibleFacts.length} match{visibleFacts.length === 1 ? "" : "es"})
+            </span>
             <button
               type="button"
               onClick={() => {
                 setQuery("");
                 void load();
               }}
-              className="text-[11px] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] px-1"
+              className="font-mono underline text-xs font-medium touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
-              Clear
+              Reset
             </button>
-          ) : null}
-        </div>
-
-        {/* Filters bar: Source & Agent */}
-        {viewMode === "facts" ? (
-          <div className="flex items-center justify-between gap-2 flex-wrap text-[10px] font-mono text-[var(--muted-foreground-2)]">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="uppercase tracking-wider text-[9px] text-[var(--muted-foreground-2)]">Source:</span>
-              {(['all', 'run', 'email'] as const).map((src) => (
-                <button
-                  key={src}
-                  type="button"
-                  onClick={() => setSourceFilter(src)}
-                  className={`px-2 py-0.5 rounded-[var(--radius-button)] border transition-colors ${
-                    sourceFilter === src
-                      ? "bg-[var(--card)] text-[var(--fg)] border-[var(--primary)]/40 font-semibold shadow-[var(--sh-card)]"
-                      : "bg-transparent border-transparent hover:border-[var(--border-1)] text-[var(--muted-foreground-2)]"
-                  }`}
-                >
-                  {src === "all" ? "All" : src.toUpperCase()}
-                </button>
-              ))}
-            </div>
-
-            {availableAgents.length > 1 ? (
-              <div className="flex items-center gap-1">
-                <span className="uppercase tracking-wider text-[9px] text-[var(--muted-foreground-2)]">Agent:</span>
-                <select
-                  value={agentFilter}
-                  onChange={(e) => setAgentFilter(e.target.value)}
-                  className="text-[10px] font-mono bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-1.5 py-0.5 text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]/50"
-                >
-                  <option value="all">All agents</option>
-                  {availableAgents.map((ag) => (
-                    <option key={ag} value={ag}>
-                      @{ag}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
           </div>
         ) : null}
-      </form> : null}
 
-      {/* Notifications & Error Feedback */}
-      {notice !== null ? (
-        <div className="text-[11px] text-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] border border-[var(--success)]/20 rounded-[var(--radius-button)] px-2.5 py-2 flex items-center justify-between gap-2">
-          <span>{notice}</span>
-          <button
-            type="button"
-            onClick={() => setNotice(null)}
-            className="text-[var(--success)] hover:text-[var(--success)]/80 text-[10px] font-semibold"
-          >
-            Dismiss
-          </button>
-        </div>
-      ) : null}
+        {/* Sources View */}
+        {viewMode === "sources" ? <MemorySourcesView onCountsChange={onCountsChange} /> : null}
 
-      {error !== null ? (
-        <div className="text-[11px] text-[var(--destructive)] bg-[var(--destructive-soft)] border border-[var(--destructive)]/20 rounded-[var(--radius-button)] px-2.5 py-2 flex items-center justify-between gap-2">
-          <span className="flex-1">{error}</span>
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="text-[var(--destructive)] underline hover:no-underline font-semibold text-[10px]"
-          >
-            Retry
-          </button>
-        </div>
-      ) : null}
-
-      {/* Active Recall Banner */}
-      {searchActive ? (
-        <div className="flex items-center justify-between gap-2 bg-[var(--primary)]/5 border border-[var(--primary)]/15 rounded-[var(--radius-button)] px-3 py-2 text-[11px]">
-          <div className="flex items-center gap-1.5 text-[var(--primary)]">
-            <svg aria-hidden="true"  className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span>
-              Recall query: <strong className="font-mono font-semibold">"{lastRecallQuery}"</strong> ({visibleFacts.length} match{visibleFacts.length === 1 ? "" : "es"}, ranked by similarity)
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setQuery("");
-              void load();
-            }}
-            className="text-[10px] font-mono text-[var(--primary)] hover:underline font-semibold shrink-0"
-          >
-            Reset
-          </button>
-        </div>
-      ) : null}
-
-      {/* VIEW MODE 1: FACTS */}
-      {viewMode === "facts" ? (
-        <section aria-label="Banked Facts" className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <h4 className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground-2)]">
-              {searchActive ? "Recall results" : "Facts"}
-            </h4>
-            <span className="text-[10px] font-mono text-[var(--muted-foreground-2)]">
-              {visibleFacts.length} {visibleFacts.length === 1 ? "fact" : "facts"}
-            </span>
-          </div>
-
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
-              <p className="text-[var(--muted-foreground-2)] text-xs">Loading memory…</p>
+        {/* Facts View */}
+        {viewMode === "facts" ? (
+          <section aria-label="Banked Facts" className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold uppercase font-mono tracking-wider text-[#71717a] dark:text-zinc-400">
+                {searchActive ? "Recall results" : "Banked Facts"}
+              </h4>
+              <span className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
+                {visibleFacts.length} {visibleFacts.length === 1 ? "fact" : "facts"}
+              </span>
             </div>
-          ) : visibleFacts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
-              <p className="text-[var(--muted-foreground-2)] text-xs">
-                {searchActive
-                  ? `Nothing recalled for "${lastRecallQuery}".`
-                  : sourceFilter !== "all" || agentFilter !== "all"
-                  ? "No facts match current filters."
-                  : "No facts banked yet."}
-              </p>
-            </div>
-      ) : (
-            <ol className="flex flex-col gap-2.5">
-              {visibleFacts.map((fact) => {
-                const isConfirming = confirmForget === fact.id;
-                const scoreText = formatRecallScore(fact.score);
 
-                return (
-                  <li
-                    key={fact.id}
-                    className="border border-[var(--border-1)] hover:border-[var(--border-2)] rounded-[var(--radius-button)] bg-[var(--card)] p-3.5 shadow-[var(--sh-card)] transition-all flex flex-col gap-2"
-                  >
-                    <pre className="font-mono text-[11px] text-[var(--fg)] whitespace-pre-wrap break-words leading-relaxed bg-[var(--secondary)] p-2.5 rounded-[var(--radius-button)] border border-[var(--border-1)]">
-                      {fact.fact}
-                    </pre>
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[#e4e4e7] dark:border-zinc-800 rounded-xl text-xs text-[#71717a] dark:text-zinc-400">
+                Loading memory…
+              </div>
+            ) : visibleFacts.length === 0 ? (
+              <EmptyState
+                icon={Brain}
+                title={searchActive ? `Nothing recalled for "${lastRecallQuery}"` : "No banked facts yet"}
+                description={
+                  searchActive
+                    ? "Try a different recall query or check your source filters."
+                    : "Facts extracted during agent runs and sessions will appear here automatically."
+                }
+              />
+            ) : (
+              <ol className="flex flex-col gap-2.5">
+                {visibleFacts.map((fact) => {
+                  const isConfirming = confirmForget === fact.id;
+                  const scoreText = formatRecallScore(fact.score);
 
-                    <div className="flex items-center gap-2 flex-wrap pt-1">
-                      <span
-                        className={`text-[10px] font-bold uppercase tracking-wider border rounded-[var(--radius-button)] px-2 py-0.5 ${sourceChipClass(
-                          fact.source,
-                        )}`}
-                      >
-                        {fact.source}
-                      </span>
-
-                      <span className="text-[10px] font-mono text-[var(--muted-foreground-2)] bg-[var(--bg)] border border-[var(--border-1)] px-1.5 py-0.5 rounded-[var(--radius-button)]">
-                        @{fact.agent}
-                      </span>
-
-                      <time
-                        dateTime={new Date(fact.created_at).toISOString()}
-                        title={new Date(fact.created_at).toLocaleString()}
-                        className="text-[10px] font-mono text-[var(--muted-foreground-2)]"
-                      >
-                        {formatTimeAgo(fact.created_at)}
-                      </time>
-
-                      {scoreText !== "" ? (
-                        <span
-                          className="text-[10px] font-mono text-[var(--primary)] bg-[var(--primary-soft)] border border-[var(--primary)]/20 px-2 py-0.5 rounded-[var(--radius-button)] font-semibold"
-                          title={`Relevance score: ${scoreText}`}
-                        >
-                          Score {scoreText}
-                        </span>
-                      ) : null}
-
-                      <span className="flex-1 min-w-[8px]" />
-
-                      {!isConfirming ? (
-                        <button
-                          type="button"
-                          className={GHOST_BUTTON}
-                          onClick={() => setConfirmForget(fact.id)}
-                          aria-label={`Forget fact ${fact.id}`}
-                        >
-                          <svg aria-hidden="true"  className="w-3 h-3 text-[var(--muted-foreground-2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={1.8}
-                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                            />
-                          </svg>
-                          <span>Forget</span>
-                        </button>
-                      ) : null}
-                    </div>
-
-                    {/* Explicit Two-Step Confirmation Prompt */}
-                    {isConfirming ? (
-                      <div className="mt-1 bg-[var(--destructive)]/5 border border-[var(--destructive)]/25 rounded-[var(--radius-button)] p-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-center gap-1.5 text-[11px] text-[var(--destructive)]">
-                          <svg aria-hidden="true"  className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                            />
-                          </svg>
-                          <span>Permanently forget this fact? This cannot be undone.</span>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            className={DANGER_BUTTON}
-                            disabled={forgetBusy === fact.id}
-                            onClick={() => void forgetFact(fact.id)}
-                          >
-                            {forgetBusy === fact.id ? "Forgetting…" : "Confirm forget"}
-                          </button>
-                          <button
-                            type="button"
-                            className={GHOST_BUTTON}
-                            onClick={() => setConfirmForget(null)}
-                          >
-                            Keep
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ol>
-          )}
-        </section>
-      ) : null}
-
-      {/* VIEW MODE 2: SESSIONS */}
-      {viewMode === "sessions" ? (
-        <section aria-label="Recorded Sessions" className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <h4 className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground-2)]">
-              Recorded Sessions
-            </h4>
-            <span className="text-[10px] font-mono text-[var(--muted-foreground-2)]">
-              {visibleSessions.length} {visibleSessions.length === 1 ? "session" : "sessions"}
-            </span>
-          </div>
-
-          {!loading && visibleSessions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
-              <p className="text-[var(--muted-foreground-2)] text-xs">
-                {agentFilter !== "all"
-                  ? "No sessions recorded for selected agent."
-                  : "No sessions recorded yet."}
-              </p>
-            </div>
-          ) : (
-            <ol className="flex flex-col gap-2">
-              {visibleSessions.map((session) => {
-                const expanded = expandedSession === session.id;
-                return (
-                  <li
-                    key={session.id}
-                    className={`border rounded-[var(--radius-button)] bg-[var(--card)] overflow-hidden transition-colors ${
-                      expanded ? "border-[var(--primary)]/50 shadow-[var(--sh-card)]" : "border-[var(--border-1)] hover:border-[var(--border-2)]"
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setExpandedSession(expanded ? null : session.id)}
-                      aria-expanded={expanded}
-                      className="w-full text-left p-3 hover:bg-[var(--secondary)] transition-colors flex items-center gap-2 touch:min-h-11"
+                  return (
+                    <li
+                      key={fact.id}
+                      className="border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-3.5 shadow-xs flex flex-col gap-2.5 transition-colors"
                     >
-                      <svg aria-hidden="true" 
-                        className={`w-3.5 h-3.5 text-[var(--muted-foreground-2)] transition-transform shrink-0 ${
-                          expanded ? "rotate-90" : ""
-                        }`}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                      <span className="text-[10px] font-mono text-[var(--primary)] bg-[var(--primary-soft)] border border-[var(--primary)]/20 px-1.5 py-0.5 rounded-[var(--radius-button)] font-semibold">
-                        @{session.agent}
-                      </span>
-                      <span className="font-mono text-[11px] text-[var(--fg)] truncate flex-1">
-                        Session {session.id}
-                      </span>
-                      <time
-                        dateTime={new Date(session.started_at).toISOString()}
-                        title={new Date(session.started_at).toLocaleString()}
-                        className="text-[10px] font-mono text-[var(--muted-foreground-2)] shrink-0 ml-auto"
-                      >
-                        {formatTimeAgo(session.started_at)}
-                      </time>
-                    </button>
-                    {expanded ? (
-                      <div className="px-3 pb-3 pt-1 border-t border-[var(--border-1)] flex flex-col gap-2">
-                        <div className="flex items-center justify-between text-[10px] font-mono text-[var(--muted-foreground-2)]">
-                          <span>Started: {new Date(session.started_at).toLocaleString()}</span>
-                          <span>ID: {session.id}</span>
-                        </div>
-                        <pre className="font-mono text-[11px] text-[var(--fg)] bg-[var(--card)]/60 p-2.5 rounded-[var(--radius-button)] border border-[var(--border-1)] whitespace-pre-wrap break-words max-h-48 overflow-auto leading-relaxed">
-                          {session.summary}
-                        </pre>
+                      <pre className="font-sans text-xs text-[#0a0a0a] dark:text-zinc-200 whitespace-pre-wrap break-words leading-relaxed bg-[#fafafa] dark:bg-zinc-800/60 p-2.5 rounded-lg border border-[#e4e4e7] dark:border-zinc-800">
+                        {fact.fact}
+                      </pre>
+
+                      <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                        <span
+                          className={`text-[10px] font-bold font-mono uppercase tracking-wider border rounded-md px-2 py-0.5 ${sourceChipClass(
+                            fact.source,
+                          )}`}
+                        >
+                          {fact.source}
+                        </span>
+
+                        <span className="text-[10px] font-mono text-[#71717a] dark:text-zinc-400 bg-[#fafafa] dark:bg-zinc-800 border border-[#e4e4e7] dark:border-zinc-700 px-1.5 py-0.5 rounded-md">
+                          @{fact.agent}
+                        </span>
+
+                        <time
+                          dateTime={new Date(fact.created_at).toISOString()}
+                          title={new Date(fact.created_at).toLocaleString()}
+                          className="text-[10px] font-mono text-[#71717a] dark:text-zinc-400"
+                        >
+                          {formatTimeAgo(fact.created_at)}
+                        </time>
+
+                        {scoreText !== "" ? (
+                          <span
+                            className="text-[10px] font-mono text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-900 px-2 py-0.5 rounded-md font-semibold"
+                            title={`Relevance score: ${scoreText}`}
+                          >
+                            Score {scoreText}
+                          </span>
+                        ) : null}
+
+                        <span className="flex-1 min-w-[8px]" />
+
+                        {!isConfirming ? (
+                          <button
+                            type="button"
+                            className={BUTTON}
+                            onClick={() => setConfirmForget(fact.id)}
+                            aria-label={`Forget fact ${fact.id}`}
+                          >
+                            Forget
+                          </button>
+                        ) : null}
                       </div>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ol>
-          )}
-        </section>
-      ) : null}
+
+                      {/* Explicit Two-Step Confirmation Prompt */}
+                      {isConfirming ? (
+                        <div className="mt-1 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-lg p-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-xs text-rose-800 dark:text-rose-300">
+                          <span>Permanently forget this fact? This cannot be undone.</span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              className={DANGER}
+                              disabled={forgetBusy === fact.id}
+                              onClick={() => void forgetFact(fact.id)}
+                            >
+                              {forgetBusy === fact.id ? "Forgetting…" : "Confirm forget"}
+                            </button>
+                            <button
+                              type="button"
+                              className={BUTTON}
+                              onClick={() => setConfirmForget(null)}
+                            >
+                              Keep
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </section>
+        ) : null}
+
+        {/* Sessions View */}
+        {viewMode === "sessions" ? (
+          <section aria-label="Recorded Sessions" className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold uppercase font-mono tracking-wider text-[#71717a] dark:text-zinc-400">
+                Recorded Sessions
+              </h4>
+              <span className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
+                {visibleSessions.length} {visibleSessions.length === 1 ? "session" : "sessions"}
+              </span>
+            </div>
+
+            {!loading && visibleSessions.length === 0 ? (
+              <EmptyState
+                icon={History}
+                title="No sessions recorded yet"
+                description={
+                  agentFilter !== "all"
+                    ? "No recorded sessions match the selected agent."
+                    : "Interactive sessions will be summarized and banked here across turns."
+                }
+              />
+            ) : (
+              <ol className="flex flex-col gap-2">
+                {visibleSessions.map((session) => {
+                  const expanded = expandedSession === session.id;
+                  return (
+                    <li
+                      key={session.id}
+                      className={`border rounded-xl bg-white dark:bg-zinc-900 overflow-hidden transition-colors ${
+                        expanded ? "border-[#0a0a0a] dark:border-zinc-500 shadow-xs" : "border-[#e4e4e7] dark:border-zinc-800 hover:border-zinc-400"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setExpandedSession(expanded ? null : session.id)}
+                        aria-expanded={expanded}
+                        className="w-full text-left p-3 hover:bg-[#fafafa] dark:hover:bg-zinc-800/50 transition-colors flex items-center gap-2 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+                      >
+                        <ChevronRight
+                          className={`size-4 text-[#71717a] dark:text-zinc-400 transition-transform shrink-0 ${
+                            expanded ? "rotate-90" : ""
+                          }`}
+                        />
+                        <span className="text-[10px] font-mono text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-900 px-1.5 py-0.5 rounded-md font-semibold">
+                          @{session.agent}
+                        </span>
+                        <span className="font-mono text-xs text-[#0a0a0a] dark:text-zinc-100 truncate flex-1">
+                          Session {session.id}
+                        </span>
+                        <time
+                          dateTime={new Date(session.started_at).toISOString()}
+                          title={new Date(session.started_at).toLocaleString()}
+                          className="text-[10px] font-mono text-[#71717a] dark:text-zinc-400 shrink-0 ml-auto"
+                        >
+                          {formatTimeAgo(session.started_at)}
+                        </time>
+                      </button>
+                      {expanded ? (
+                        <div className="px-3 pb-3 pt-1 border-t border-[#e4e4e7] dark:border-zinc-800 flex flex-col gap-2">
+                          <div className="flex items-center justify-between text-[10px] font-mono text-[#71717a] dark:text-zinc-400">
+                            <span>Started: {new Date(session.started_at).toLocaleString()}</span>
+                            <span>ID: {session.id}</span>
+                          </div>
+                          <pre className="font-sans text-xs text-[#0a0a0a] dark:text-zinc-200 bg-[#fafafa] dark:bg-zinc-800/60 p-2.5 rounded-lg border border-[#e4e4e7] dark:border-zinc-800 whitespace-pre-wrap break-words max-h-48 overflow-auto leading-relaxed">
+                            {session.summary}
+                          </pre>
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </section>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -11,6 +11,46 @@ import { CustomAgentsView, type CustomAgentWire, useCustomAgentOptions } from ".
 import { createAgentThread } from "../agent-threads";
 
 describe("CustomAgentsView", () => {
+  it("saves mascot and supplied Gemini model, hydrates edits, preserves failed drafts, and clears automatic presets", async () => {
+    let saved: CustomAgentWire | undefined;
+    let failSave = false;
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (!init?.method) return Response.json({ agents: saved ? [saved] : [] });
+      if (failSave) return Response.json({ error: "Try again" }, { status: 503 });
+      const payload = JSON.parse(String(init.body));
+      saved = { id: "dog-1", slug: payload.slug ?? "my-dog", version: (saved?.version ?? 0) + 1, config: payload.config };
+      return Response.json({ agent: saved });
+    });
+    vi.stubGlobal("fetch", request);
+    render(<CustomAgentsView modelSuggestions={["google/gemini-2.5-pro"]} />);
+    await screen.findByText("No bots");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "My dog" } });
+    fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: "Review project notes." } });
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "google/gemini-2.5-pro" } });
+    fireEvent.change(screen.getByLabelText("Default repository"), { target: { value: "https://github.com/example/project" } });
+    fireEvent.click(screen.getByRole("radio", { name: "sleeping" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+    await waitFor(() => expect(saved?.config).toMatchObject({ mascotPreset: "sleeping", codingModel: "google/gemini-2.5-pro", defaultRepoUrl: "https://github.com/example/project" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit bot" }));
+    expect((screen.getByRole("radio", { name: "sleeping" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("google/gemini-2.5-pro");
+    fireEvent.click(screen.getByRole("radio", { name: "riding" }));
+    failSave = true;
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Try again");
+    expect((screen.getByRole("radio", { name: "riding" }) as HTMLInputElement).checked).toBe(true);
+    failSave = false;
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(saved?.config.mascotPreset).toBe("riding"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Automatic" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(saved?.config).not.toHaveProperty("mascotPreset"));
+    expect(saved?.config.codingModel).toBe("google/gemini-2.5-pro");
+    const patch = request.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(patch?.[1]?.body)).expectedVersion).toBe(1);
+  });
   it("skips fetching when disabled and loads bots when enabled", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({
@@ -257,8 +297,12 @@ describe("CustomAgentsView", () => {
     await waitFor(() => {
       expect(screen.getByText("No bots")).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
-    expect(screen.getByRole("alert").textContent).toContain("Name and instructions are required.");
+    const createBtn = screen.getByRole("button", { name: "Create bot" });
+    expect(createBtn.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Reviewer" } });
+    expect(createBtn.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: /instructions|description/i }), { target: { value: "Do review" } });
+    expect(createBtn.hasAttribute("disabled")).toBe(false);
   });
 
   it("asks before deleting and removes the row after the server accepts", async () => {
@@ -404,7 +448,7 @@ describe("account-scoped employee directory", () => {
     await screen.findByText("Old employee");
     if (operation === "create") {
       fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Old saved employee" } });
-      fireEvent.change(screen.getByRole("textbox", { name: "Instructions" }), { target: { value: "Old private draft" } });
+      fireEvent.change(screen.getByRole("textbox", { name: /instructions|description/i }), { target: { value: "Old private draft" } });
       fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
     } else if (operation === "save") {
       fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));

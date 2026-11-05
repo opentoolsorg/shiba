@@ -173,7 +173,7 @@ const UserMessageRow = memo(function UserMessageRow({
         <span>{peerChat ? "Peer chat" : "You"}</span>
         <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)]" />
       </div>
-      <div className="flex flex-col gap-2 max-w-[92%] md:max-w-[85%] bg-[var(--primary)] text-white rounded-[var(--radius-button)] p-4 font-medium shadow-[var(--sh-card)]">
+      <div className="flex flex-col gap-2 max-w-[92%] md:max-w-[85%] bg-[var(--primary)] text-[var(--primary-text)] rounded-[var(--radius-button)] p-4 font-medium shadow-[var(--sh-card)]">
         {message.parts.map((part, index) => {
           const text = partText(part);
           if (text === null) return null;

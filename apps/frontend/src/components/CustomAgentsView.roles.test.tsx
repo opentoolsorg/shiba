@@ -60,7 +60,7 @@ describe("role drafts in the Bots directory", () => {
   it("expands native advanced controls and restores their values from the account draft", () => {
     stubDirectory();
     const view = render(<CustomAgentsView draftScope="owner-a" connections={connections} />);
-    const summary = screen.getByText("Advanced settings");
+    const summary = screen.getByText("Advanced settings").closest("summary") as HTMLElement;
     expect(summary.tagName).toBe("SUMMARY");
     fireEvent.click(summary);
     expect(summary.closest("details")?.open).toBe(true);

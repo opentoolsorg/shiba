@@ -4,6 +4,7 @@ export type EmployeeRole = CustomAgentRoleTemplateId | "custom";
 
 export function employeeRole(slug?: string, roleTemplateId?: CustomAgentRoleTemplateId): EmployeeRole {
   if (roleTemplateId && EMPLOYEE_TEMPLATES.some((template) => template.id === roleTemplateId)) return roleTemplateId;
+  if (slug === "employee-qa") return "qa";
   return EMPLOYEE_TEMPLATES.find((template) => template.slug === slug)?.id ?? "custom";
 }
 
@@ -160,6 +161,25 @@ ${WORKING_AGREEMENT}`,
     },
   },
   {
+    id: "qa",
+    label: "QA",
+    description: "Verify repository test suites, audit coverage, and draft a test plan.",
+    slug: "qa-bot",
+    config: {
+      roleTemplateId: "qa",
+      name: "QA bot",
+      emoji: "🧪",
+      expectedDeliverables: ["qa/report.md"],
+      instructions: `You are the QA bot. Turn testing objectives into concrete repository verification and structured test plans.
+
+Inspect existing test suites, CI workflows, coverage reports, and documented verification steps in the repository. Identify untested paths, edge cases, and regression risks. Reproduce reported issues with focused test cases where feasible. Run only documented checks.
+
+Create qa/report.md with scope, checks actually run and observed outcomes, failures with reproduction steps, test gaps, and unrun or blocked checks. Distinguish tests that actually ran and passed from proposed or blocked tests. Never report a test suite as passed unless it executed successfully.
+
+${WORKING_AGREEMENT}`,
+    },
+  },
+  {
     id: "gtm",
     label: "GTM",
     description: "Draft a sourced market strategy and a reviewable launch plan.",
@@ -226,6 +246,7 @@ const ROLE_SIGNALS: Readonly<Record<CustomAgentRoleTemplateId, RegExp>> = {
   design: /\b(design(?:er|ers)?|ux|ui|accessibility)\b/i,
   research: /\b(research(?:er|ers)?|literature|competitor)\b/i,
   operations: /\b(operations|ops|runbook|incident|deployment)\b/i,
+  qa: /\b(qa|quality assurance|test coverage|regression testing)\b/i,
   gtm: /\b(gtm|go[ -]+to[ -]+market)\b/i,
   hr: /\b(hr|human resources|recruiter|recruiting|recruitment|people operations)\b/i,
   finance: /\b(finance|financial|budget(?:ing)?|bookkeeping|forecast|cash flow|accounting)\b/i,

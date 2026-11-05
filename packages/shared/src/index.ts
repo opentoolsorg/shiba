@@ -22,6 +22,7 @@ export * from "./runs.js";
 export * from "./execution-target.js";
 export * from "./types.js";
 export * from "./run-env.js";
+export * from "./run-attachments.js";
 export * from "./review.js";
 export * from "./pr-owner.js";
 export * from "./browser-e2e.js";

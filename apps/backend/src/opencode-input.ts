@@ -5,7 +5,7 @@
  */
 import { z } from "zod";
 import { personalExecutionSnapshotSchema, personalExecutionClaimSchema, runOutputArchivePolicySchema } from "@shiba/shared";
-import { AGENT_ROLES, HARNESS_IDS, RUN_SIGNAL_KINDS, runtimeSelectionSchema, testCommandSchema, expectedDeliverablesSchema, executionTargetSchema, isSafeDeliverablePath } from "@shiba/shared";
+import { AGENT_ROLES, HARNESS_IDS, MAX_RUN_ATTACHMENTS, RUN_ATTACHMENT_NAME, RUN_SIGNAL_KINDS, runtimeSelectionSchema, testCommandSchema, expectedDeliverablesSchema, executionTargetSchema, isSafeDeliverablePath } from "@shiba/shared";
 import { isApprovedRoute, type ApprovedRoute } from "./model-connections.js";
 import { parseGitHubRepoUrl } from "./security.js";
 import { onboardingSourceSnapshotSchema, draftTaskReferenceSchema } from "@shiba/shared";
@@ -101,8 +101,6 @@ const codingTaskInputSchema = z.object({
    * bound to `envDigest`. This envelope is persisted in the child's chat
    * history, so the values only ever appear here sealed.
    */
-  /** T72: the human opted in to running the repo's `.shiba/setup.json` initialize. */
-  runSetup: z.boolean().optional(),
   envSealed: z.string().min(1).optional(),
   envDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   /** Orchestrator that owns every artifact, including runs without sealed env. */
@@ -114,6 +112,14 @@ const codingTaskInputSchema = z.object({
     runId: z.string().min(1).max(512),
   }).strict().optional(),
   envOwner: z.string().min(1).max(320).optional(),
+  /** T72: the human opted in to running the repo's `.shiba/setup.json` initialize. */
+  runSetup: z.boolean().optional(),
+  /** T69: approved files, read from R2 under `attachmentOwner` (the orchestrator name). */
+  attachments: z
+    .array(z.object({ name: z.string().regex(RUN_ATTACHMENT_NAME), sha256: z.string().regex(/^[a-f0-9]{64}$/), size: z.number().int().nonnegative() }))
+    .max(MAX_RUN_ATTACHMENTS)
+    .optional(),
+  attachmentOwner: z.string().min(1).max(320).optional(),
   /**
    * T51: the approved runtime. `"local"` runs on the operator's machine
    * via the dispatch mailbox — admissible only from a dashboard intake

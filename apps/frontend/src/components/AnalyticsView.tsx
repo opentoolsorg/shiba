@@ -3,10 +3,13 @@
  * (`GET /api/runs` → DelegatedRun[]). Every metric is computed from fields
  * that actually exist on the run record; anything the backend does not
  * track (token counts, USD cost) is an honest empty state, never fabricated.
+ *
+ * Restyled into main card: 48px header with breadcrumb "Scope > Insights > Usage",
+ * neutral cards, and preserved details/empty states.
  */
 import { useMemo, type JSX } from "react";
-import { Plus } from "lucide-react";
-import { ViewEmpty, ViewGroup, ViewHeader, viewButtonClass } from "./ui/ViewChrome";
+import { ChevronRight, PanelLeft, Plus } from "lucide-react";
+import { ViewEmpty, ViewGroup, viewButtonClass } from "./ui/ViewChrome";
 import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
 import { ToneChip } from "./ToneChip";
@@ -25,6 +28,7 @@ import {
   statusChipClass,
   statusLabel,
 } from "../ui-helpers";
+import { MainCard, type Scope } from "./ui/ContextPanel";
 
 function isTerminal(status: string): boolean {
   return status === "completed" || ERROR_FAMILY_STATUSES.has(status);
@@ -47,10 +51,10 @@ function formatDuration(ms: number): string {
 
 function MetricCard({ label, value, sub }: { label: string; value: string; sub: string }): JSX.Element {
   return (
-    <div className="border-b border-[var(--border-1)] bg-[var(--bg)] px-4 py-4">
-      <p className="text-xs font-medium text-[var(--muted-foreground-2)]">{label}</p>
-      <p className="mt-1.5 font-sans text-xl text-[var(--fg)]">{value}</p>
-      <p className="mt-0.5 text-[11px] text-[var(--muted-foreground-2)]">{sub}</p>
+    <div className="rounded-xl border border-[#e4e4e7] bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900/50">
+      <p className="text-[11px] font-medium uppercase tracking-wider text-[#71717a] dark:text-zinc-400">{label}</p>
+      <p className="mt-1.5 text-2xl font-semibold tabular-nums text-[#0a0a0a] dark:text-zinc-100">{value}</p>
+      <p className="mt-1 text-[12px] text-[#71717a] dark:text-zinc-400">{sub}</p>
     </div>
   );
 }
@@ -69,29 +73,29 @@ function BreakdownCard({
 }): JSX.Element {
   const max = Math.max(1, ...rows.map((row) => row.count));
   return (
-    <section className="border-b border-[var(--border-1)] bg-[var(--bg)]">
+    <section className="rounded-xl border border-[#e4e4e7] bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
       <ViewGroup title={title} count={rows.reduce((sum, row) => sum + row.count, 0)}>
-      <p className="px-3 pb-3 text-xs text-[var(--muted-foreground-2)]">{hint}</p>
-      {rows.length === 0 ? (
-        <ViewEmpty>{empty}</ViewEmpty>
-      ) : (
-        <div className="flex flex-col gap-2 px-4 py-3">
-          {rows.map((row) => (
-            <div key={row.label} className="flex min-h-11 items-center gap-3 border-b border-[var(--border-1)]">
-              <span className="w-36 shrink-0 truncate font-mono text-[11px] text-[var(--fg)]" title={row.label}>
-                {row.label}
-              </span>
-              <div className="h-2.5 flex-1 bg-[var(--secondary)]">
-                <div
-                  className="h-full bg-[var(--primary)]"
-                  style={{ width: `${Math.round((row.count / max) * 100)}%` }}
-                />
+        <p className="px-3 pb-3 text-xs text-[#71717a] dark:text-zinc-400">{hint}</p>
+        {rows.length === 0 ? (
+          <ViewEmpty>{empty}</ViewEmpty>
+        ) : (
+          <div className="flex flex-col gap-2 px-3 py-2">
+            {rows.map((row) => (
+              <div key={row.label} className="flex min-h-10 items-center gap-3 border-b border-[#e4e4e7] dark:border-zinc-800/80 last:border-b-0 py-1">
+                <span className="w-36 shrink-0 truncate font-mono text-[11px] text-[#0a0a0a] dark:text-zinc-200" title={row.label}>
+                  {row.label}
+                </span>
+                <div className="h-2 flex-1 rounded-full bg-[#f4f4f5] dark:bg-zinc-800 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-zinc-900 dark:bg-zinc-100"
+                    style={{ width: `${Math.round((row.count / max) * 100)}%` }}
+                  />
+                </div>
+                <span className="w-10 shrink-0 text-right font-mono text-[11px] text-[#71717a] dark:text-zinc-400">{row.count}</span>
               </div>
-              <span className="w-10 shrink-0 text-right font-mono text-[11px] text-[var(--muted-foreground-2)]">{row.count}</span>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
       </ViewGroup>
     </section>
   );
@@ -112,13 +116,23 @@ export function AnalyticsView({
   onNavigate,
   sessionId,
   sessionApiAvailable,
+  scope = "personal",
+  sidebarCollapsed = false,
+  onToggleSidebar,
+  className = "",
 }: {
   runs: RetainedRun[];
   error?: string | null;
   onNavigate?: (view: AppNavView) => void;
   sessionId: string;
   sessionApiAvailable: boolean;
+  scope?: Scope;
+  sidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
+  className?: string;
 }): JSX.Element {
+  const scopeLabel = scope === "workspace" ? "Workspace" : "Personal";
+
   const stats = useMemo(() => {
     const terminal = runs.filter((run) => isTerminal(run.status));
     const completed = runs.filter((run) => run.status === "completed");
@@ -161,11 +175,61 @@ export function AnalyticsView({
   );
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-      <ViewHeader section="Analytics" view="Overview" count={`${runs.length} runs`}>
-        {onNavigate ? <button type="button" onClick={() => onNavigate("tasks")} className={viewButtonClass}><Plus aria-hidden="true" className="size-4" />New task</button> : null}
-      </ViewHeader>
-      <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+    <MainCard className={className}>
+      {/* 48px Header */}
+      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {onToggleSidebar ? (
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!sidebarCollapsed}
+              className="flex size-7 items-center justify-center rounded-md text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            >
+              <PanelLeft className="size-4" strokeWidth={1.75} aria-hidden="true" />
+            </button>
+          ) : null}
+
+          <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
+            <ol className="flex items-center gap-1.5 min-w-0">
+              <li className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[14px] text-[#71717a] dark:text-zinc-400 truncate">{scopeLabel}</span>
+              </li>
+              <li className="flex items-center gap-1.5 min-w-0">
+                <ChevronRight className="size-3.5 text-[#71717a] dark:text-zinc-500 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+                <span className="text-[14px] text-[#71717a] dark:text-zinc-400 truncate">Insights</span>
+              </li>
+              <li className="flex items-center gap-1.5 min-w-0">
+                <ChevronRight className="size-3.5 text-[#71717a] dark:text-zinc-500 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+                <h1 className="text-[14px] font-medium text-[#0a0a0a] dark:text-zinc-100 truncate" aria-current="page">
+                  Usage
+                </h1>
+              </li>
+            </ol>
+            <span className="ml-2 rounded-full bg-[#f4f4f5] dark:bg-zinc-800 px-2 py-0.5 text-xs text-[#71717a] dark:text-zinc-400 tabular-nums">
+              {runs.length} runs
+            </span>
+          </nav>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {onNavigate ? (
+            <button
+              type="button"
+              onClick={() => onNavigate("tasks")}
+              aria-label="New task"
+              className="flex h-8 items-center gap-1.5 rounded-lg bg-[#e4e4e7] px-2.5 text-[13px] font-medium text-[#0a0a0a] transition-colors hover:bg-[#d4d4d8] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+            >
+              <Plus className="size-3.5" strokeWidth={2} aria-hidden="true" />
+              <span>New task</span>
+            </button>
+          ) : null}
+        </div>
+      </header>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-4 lg:p-6 min-h-0 text-[#0a0a0a] dark:text-zinc-100">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
           {error ? <LoadErrorState message={error} onRetry={() => window.location.reload()} /> : null}
 
@@ -219,17 +283,16 @@ export function AnalyticsView({
 
           <UsageSection sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} />
 
-          <section className="border-b border-[var(--border-1)] bg-[var(--bg)]">
-            <header className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2.5">
+          <section className="rounded-xl border border-[#e4e4e7] bg-white overflow-hidden dark:border-zinc-800 dark:bg-zinc-900/40">
+            <header className="flex items-center justify-between gap-3 border-b border-[#e4e4e7] px-4 py-3 dark:border-zinc-800">
               <div>
-                <h3 className="text-xs font-semibold text-[var(--fg)]">Runs</h3>
-                <p className="text-[11px] text-[var(--muted-foreground-2)]">
+                <h3 className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">Runs</h3>
+                <p className="text-[11px] text-[#71717a] dark:text-zinc-400">
                   {tableRuns.length === runs.length
                     ? `${runs.length} run${runs.length === 1 ? "" : "s"}`
                     : `Latest ${tableRuns.length} of ${runs.length}`}
                 </p>
               </div>
-
             </header>
             {tableRuns.length === 0 ? (
               <div className="px-4 py-10 text-center">
@@ -248,7 +311,7 @@ export function AnalyticsView({
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
-                    <tr className="border-b border-[var(--border-1)] text-xs font-medium text-[var(--muted-foreground-2)]">
+                    <tr className="border-b border-[#e4e4e7] text-xs font-medium text-[#71717a] dark:border-zinc-800 dark:text-zinc-400">
                       <th className="px-4 py-2 font-semibold">Run</th>
                       <th className="px-4 py-2 font-semibold">Repository</th>
                       <th className="px-4 py-2 font-semibold">Status</th>
@@ -264,40 +327,40 @@ export function AnalyticsView({
                     {tableRuns.map((run) => {
                       const duration = runDurationMs(run);
                       return (
-                        <tr key={run.runId} className="h-11 border-b border-[var(--border-1)] last:border-b-0 hover:bg-[var(--card-hover)]">
+                        <tr key={run.runId} className="h-11 border-b border-[#e4e4e7] last:border-b-0 hover:bg-[#f4f4f5] dark:border-zinc-800 dark:hover:bg-zinc-800/40">
                           <td className="px-4 py-2">
-                            <div className="font-mono text-[11px] text-[var(--fg)]">{run.runId.slice(0, 8)}</div>
-                            <div className="max-w-56 truncate text-[11px] text-[var(--muted-foreground-2)]" title={run.task}>
+                            <div className="font-mono text-[11px] text-[#0a0a0a] dark:text-zinc-100">{run.runId.slice(0, 8)}</div>
+                            <div className="max-w-56 truncate text-[11px] text-[#71717a] dark:text-zinc-400" title={run.task}>
                               {run.task}
                             </div>
                           </td>
-                          <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]">{parseRepoName(run.repoUrl)}</td>
+                          <td className="px-4 py-2 font-mono text-[11px] text-[#71717a] dark:text-zinc-400">{parseRepoName(run.repoUrl)}</td>
                           <td className="px-4 py-2">
-                            <span className={`inline-block rounded-[var(--radius-button)] border px-2 py-0.5 text-[11px] font-medium ${statusChipClass(run.status)}`}>
+                            <span className={`inline-block rounded border px-2 py-0.5 text-[11px] font-medium ${statusChipClass(run.status)}`}>
                               {statusLabel(run.status)}
                             </span>
                           </td>
-                          <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]">{run.route?.harness ?? "—"}</td>
-                          <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]">{run.runtime ?? "sandbox"}</td>
-                          <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]">
+                          <td className="px-4 py-2 font-mono text-[11px] text-[#71717a] dark:text-zinc-400">{run.route?.harness ?? "—"}</td>
+                          <td className="px-4 py-2 font-mono text-[11px] text-[#71717a] dark:text-zinc-400">{run.runtime ?? "sandbox"}</td>
+                          <td className="px-4 py-2 font-mono text-[11px] text-[#71717a] dark:text-zinc-400">
                             {duration !== null ? formatDuration(duration) : run.status === "running" || run.status === "pending" ? "in flight" : "—"}
                           </td>
-                          <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]" data-testid="run-usage-cell">
+                          <td className="px-4 py-2 font-mono text-[11px] text-[#71717a] dark:text-zinc-400" data-testid="run-usage-cell">
                             {formatRunUsageLine(run) ?? "—"}
                           </td>
-                          <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]">{formatTimeAgo(run.createdAt)}</td>
+                          <td className="px-4 py-2 font-mono text-[11px] text-[#71717a] dark:text-zinc-400">{formatTimeAgo(run.createdAt)}</td>
                           <td className="px-4 py-2">
                             {run.pullUrl ? (
                               <a
                                 href={run.pullUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="inline-flex min-h-11 items-center rounded px-2 text-xs font-medium text-[var(--fg)] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+                                className="inline-flex min-h-8 items-center rounded px-2 text-xs font-medium text-[#0a0a0a] dark:text-zinc-100 underline underline-offset-4"
                               >
                                 Open PR
                               </a>
                             ) : (
-                              <span className="font-mono text-[11px] text-[var(--muted-foreground-2)]">—</span>
+                              <span className="font-mono text-[11px] text-[#71717a] dark:text-zinc-400">—</span>
                             )}
                           </td>
                         </tr>
@@ -309,13 +372,13 @@ export function AnalyticsView({
             )}
           </section>
 
-          <p className="text-[11px] text-[var(--muted-foreground-2)]">
+          <p className="text-[11px] text-[#71717a] dark:text-zinc-400">
             Statuses roll up the registry vocabulary — <ToneChip tone="ok" label="completed" /> counts toward the
             success rate; error, aborted, cancelled, and unknown count toward the error family.
           </p>
         </div>
       </div>
-    </div>
+    </MainCard>
   );
 }
 
@@ -386,11 +449,11 @@ function UsageSection({
 }): JSX.Element {
   const usage = useUsageReport(sessionId, sessionApiAvailable);
   return (
-    <section className="border-b border-[var(--border-1)] bg-[var(--bg)]">
-      <header className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2.5">
+    <section className="rounded-xl border border-[#e4e4e7] bg-white overflow-hidden dark:border-zinc-800 dark:bg-zinc-900/40">
+      <header className="flex items-center justify-between gap-3 border-b border-[#e4e4e7] px-4 py-3 dark:border-zinc-800">
         <div>
-          <h3 className="text-xs font-semibold text-[var(--fg)]">Token usage &amp; budget</h3>
-          <p className="text-[11px] text-[var(--muted-foreground-2)]">
+          <h3 className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">Token usage &amp; budget</h3>
+          <p className="text-[11px] text-[#71717a] dark:text-zinc-400">
             Harness-reported usage by day, in UTC.
           </p>
         </div>
@@ -405,7 +468,7 @@ function UsageSection({
         ) : null}
       </header>
       {usage.state.kind === "loading" ? (
-        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Loading usage…</div>
+        <div className="px-4 py-6 text-center text-xs text-[#71717a] dark:text-zinc-400">Loading usage…</div>
       ) : usage.state.kind === "error" ? (
         <div className="px-4 py-3">
           <LoadErrorState message={usage.state.message} onRetry={usage.reload} />
@@ -418,7 +481,6 @@ function UsageSection({
 }
 
 function UsageReportBody({ report }: { report: UsageReportWire }): JSX.Element {
-  // The backend buckets by UTC day — "today" is the same UTC day.
   const todayKey = new Date().toISOString().slice(0, 10);
   const weekStartKey = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const weekDays = report.days.filter((day) => day.date >= weekStartKey);
@@ -464,44 +526,44 @@ function UsageReportBody({ report }: { report: UsageReportWire }): JSX.Element {
       </div>
 
       {budget !== null ? (
-        <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] px-4 py-3">
+        <div className="rounded-xl border border-[#e4e4e7] bg-[#f4f4f5]/50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/30">
           <div className="flex items-baseline justify-between gap-3">
-            <span className="text-xs font-semibold text-[var(--fg)]">Daily budget</span>
-            <span className="font-mono text-[11px] text-[var(--muted-foreground-2)]">
+            <span className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">Daily budget</span>
+            <span className="font-mono text-[11px] text-[#71717a] dark:text-zinc-400">
               {spentToday === undefined ? "no spend reported" : usdCost(spentToday)} of {usdCost(budget)}
             </span>
           </div>
-          <div className="mt-2 h-2 border border-[var(--border-1)] bg-[var(--secondary)]">
+          <div className="mt-2 h-2 rounded-full overflow-hidden bg-[#e4e4e7] dark:bg-zinc-700">
             <div
-              className={`h-full ${spentToday !== undefined && spentToday > budget ? "bg-[var(--destructive)]" : "bg-[var(--primary-soft-hover)]"}`}
+              className={`h-full rounded-full ${spentToday !== undefined && spentToday > budget ? "bg-rose-500" : "bg-zinc-900 dark:bg-zinc-100"}`}
               style={{ width: `${spentPct}%` }}
             />
           </div>
-          <p className="mt-1.5 text-[11px] text-[var(--muted-foreground-2)]">
+          <p className="mt-1.5 text-[11px] text-[#71717a] dark:text-zinc-400">
             USAGE_BUDGET_USD — today&apos;s reported cost against the configured daily budget.
           </p>
         </div>
       ) : null}
 
       <div>
-        <p className="text-xs font-medium text-[var(--muted-foreground-2)]">
+        <p className="text-xs font-medium text-[#71717a] dark:text-zinc-400">
           Per harness · last 7 days
         </p>
         <div className="mt-2 flex flex-col gap-2">
           {groups.length === 0 ? (
-            <p className="text-xs text-[var(--muted-foreground-2)]">No usage in the last 7 days.</p>
+            <p className="text-xs text-[#71717a] dark:text-zinc-400">No usage in the last 7 days.</p>
           ) : (
             groups.map((group) => (
               <div
                 key={`${group.harness ?? ""}/${group.provider ?? ""}/${group.role ?? ""}`}
-                className="flex items-baseline justify-between gap-3 border-b border-[var(--border-1)] pb-2 last:border-b-0"
+                className="flex items-baseline justify-between gap-3 border-b border-[#e4e4e7] dark:border-zinc-800 pb-2 last:border-b-0"
               >
-                <span className="font-mono text-[11px] text-[var(--fg)]">
+                <span className="font-mono text-[11px] text-[#0a0a0a] dark:text-zinc-200">
                   {group.harness ?? "not recorded"}
-                  {group.provider !== null ? <span className="text-[var(--muted-foreground-2)]"> · {group.provider}</span> : null}
-                  {group.role !== null ? <span className="text-[var(--muted-foreground-2)]"> · {group.role}</span> : null}
+                  {group.provider !== null ? <span className="text-[#71717a] dark:text-zinc-400"> · {group.provider}</span> : null}
+                  {group.role !== null ? <span className="text-[#71717a] dark:text-zinc-400"> · {group.role}</span> : null}
                 </span>
-                <span className="text-right font-mono text-[11px] text-[var(--muted-foreground-2)]">
+                <span className="text-right font-mono text-[11px] text-[#71717a] dark:text-zinc-400">
                   {tokenTotalLabel(group.inputTokens, group.outputTokens)}
                   {group.costUsd !== undefined ? ` · ${usdCost(group.costUsd)}` : ""}
                   {` · ${group.runs} run${group.runs === 1 ? "" : "s"}`}

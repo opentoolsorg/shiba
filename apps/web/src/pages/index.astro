@@ -151,7 +151,6 @@ const steps = [
           AI employees that work in your repos and wait for your approval.
         </h2>
         <div class="manifesto-actions">
-          <a class="cta cta-primary" href="/docs/self-hosting/">Self host Shiba</a>
           <span class="manifesto-sub">Open source · AGPL-3.0-only · Your infrastructure</span>
         </div>
       </div>
@@ -278,7 +277,7 @@ const steps = [
                   </div>
                   <div class="deliv-files">
                     {c.shibaAction.files.map(f => (
-                      <div class="deliv-file-pill"><span>📄</span><code>{f}</code></div>
+                      <div class="deliv-file-pill"><svg class="deliv-file-icon" aria-hidden="true" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 1.5h5l3 3V14.5H4z"/><path d="M9 1.5v3h3"/></svg><code>{f}</code></div>
                     ))}
                   </div>
                   <p class="deliv-desc">{c.shibaAction.summary}</p>
@@ -575,7 +574,7 @@ const steps = [
 </script>
 
 <style>
-  /* 1120px hairline frame column (GetOverlay layout style) */
+  /* 1120px hairline frame column */
   .landing {
     max-width: 1120px;
     margin-inline: auto;
@@ -593,11 +592,11 @@ const steps = [
   section[id] { scroll-margin-top: 96px; }
   .home-hero, .manifesto-band, .home-section, .closing-section {
     border-bottom: 1px solid var(--hairline);
-    padding: 96px 40px;
+    padding: 72px 40px;
   }
   @media (max-width: 768px) {
     .home-hero, .manifesto-band, .home-section, .closing-section {
-      padding: 64px 20px;
+      padding: 56px 20px;
     }
   }
 
@@ -763,6 +762,7 @@ const steps = [
     margin: 0 0 32px;
   }
   .manifesto-actions { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .deliv-file-icon { flex: none; color: var(--ink-2); }
   .manifesto-sub { font: 400 12px/1.4 'Geist Mono', monospace; color: #A9A291; }
 
   /* SECTION 3: Real Dashboard Comic Panel */
@@ -882,7 +882,7 @@ const steps = [
   }
   .delivers-panel { padding: 24px; gap: 24px; grid-template-columns: 1fr 1fr; }
   .delivers-panel { display: grid; }
-  .delivers-js .delivers-panel:not(.is-active) { display: none; }
+  :global(.delivers-js) .delivers-panel:not(.is-active) { display: none; }
   .compare-col {
     padding: 20px;
     border: 1.5px solid var(--hairline);

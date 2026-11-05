@@ -4,7 +4,7 @@ import { EMPLOYEE_TEMPLATES, employeeRole, recommendEmployeeTemplate } from "./e
 
 describe("employee role templates", () => {
   it("preserves existing roles and offers GTM, HR and finance as optional editable identities", () => {
-    expect(EMPLOYEE_TEMPLATES.map((template) => template.label)).toEqual(["Engineering", "Marketing", "Sales", "Product", "Design", "Research", "Operations", "GTM", "HR", "Finance"]);
+    expect(EMPLOYEE_TEMPLATES.map((template) => template.label)).toEqual(["Engineering", "Marketing", "Sales", "Product", "Design", "Research", "Operations", "QA", "GTM", "HR", "Finance"]);
     expect(EMPLOYEE_TEMPLATES.map((template) => template.id)).toEqual(CUSTOM_AGENT_ROLE_TEMPLATE_IDS);
     expect(new Set(EMPLOYEE_TEMPLATES.map((template) => template.slug)).size).toBe(EMPLOYEE_TEMPLATES.length);
     for (const template of EMPLOYEE_TEMPLATES) {
@@ -32,6 +32,7 @@ describe("employee role templates", () => {
       ["design/spec.md"],
       ["research/report.md", "research/sources.json"],
       ["operations/runbook.md"],
+      ["qa/report.md"],
       ["gtm/strategy.md", "gtm/launch-plan.md"],
       ["hr/brief.md", "hr/workflow.md"],
       ["finance/analysis.md", "finance/assumptions.json"],
@@ -78,13 +79,16 @@ describe("employee role templates", () => {
     expect(recommendEmployeeTemplate(input)?.id).toBe(role);
   });
 
-  it("gives research and operations an evidence standard instead of fabricated outcomes", () => {
+  it("gives research, operations, and QA an evidence standard instead of fabricated outcomes", () => {
     const research = EMPLOYEE_TEMPLATES.find((template) => template.id === "research");
     const operations = EMPLOYEE_TEMPLATES.find((template) => template.id === "operations");
+    const qa = EMPLOYEE_TEMPLATES.find((template) => template.id === "qa");
     expect(research?.config.instructions).toContain("Separate verified facts from inferences and hypotheses");
     expect(research?.config.instructions).toContain("Validate the JSON");
     expect(research?.config.instructions).toContain("Never invent citations");
     expect(operations?.config.instructions).toContain("rollback or recovery steps");
     expect(operations?.config.instructions).toContain("Do not claim a schedule, notification, backup, or deployment exists");
+    expect(qa?.config.instructions).toContain("Distinguish tests that actually ran and passed from proposed or blocked tests");
+    expect(qa?.config.instructions).toContain("Never report a test suite as passed unless it executed successfully");
   });
 });

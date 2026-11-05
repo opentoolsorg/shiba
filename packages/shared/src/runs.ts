@@ -13,6 +13,7 @@ import type { ApprovalEvidence, SkillExecutionPin } from "./approvals.js";
 import type { RuntimeSelection } from "./local-runtime.js";
 import type { ApprovedRoute } from "./model.js";
 import type { Receipt } from "./receipts.js";
+import type { RunAttachment } from "./run-attachments.js";
 import type { RunErrorCode } from "./run-errors.js";
 import type { RunSignal } from "./run-signals.js";
 import type { SteeringNote } from "./steering.js";
@@ -187,6 +188,8 @@ export interface DelegatedRun extends OnboardingRunFields {
   employeeToolPolicyVersion?: number;
   /** Reviewed skill versions used to build this run's frozen task prompt. */
   skillPins?: SkillExecutionPin[];
+  /** T69: approval-hashed files, stored content-addressed under the owner in R2. */
+  attachments?: RunAttachment[];
   /**
    * Durable phase written before the next await. A Worker/DO restart
    * resumes `queued` and `dispatching` runs that have not touched a

@@ -201,11 +201,12 @@ describe("authorized shared Work projection", () => {
     expect((await workBody(await f.send())).truncated).toBe(true);
   });
 
-  it("requires a human session and same-origin bounded route, without allowing write methods", async () => {
+  it("requires a human session and same-origin bounded route, without allowing unsupported methods", async () => {
     const f = await fixture();
     expect((await f.send({ Authorization: "Bearer fixture" }))?.status).toBe(401);
     state.authorized = false; expect((await f.send())?.status).toBe(401); state.authorized = true;
-    expect((await f.send({}, "POST"))?.status).toBe(405);
+    expect((await f.send({}, "DELETE"))?.status).toBe(405);
+    expect((await f.send({}, "POST"))?.status).toBe(415);
     expect((await f.send({ Origin: "https://other.test" }))?.status).toBe(403);
     expect((await f.send({ "X-Shiba-Workspace": "default" }))?.status).toBe(404);
     expect((await f.send({}, "GET", "?owner=other"))?.status).toBe(404);

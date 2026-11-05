@@ -54,8 +54,8 @@ describe('App Slack draft handoff',()=>{
  });
  it('does not carry a late adopted result across a workspace switch',async()=>{
   holdAdopt=true;fireEvent.click(await openDraft());await waitFor(()=>expect(releaseAdopt).toBeDefined());
-  fireEvent.change(screen.getByRole('combobox',{name:'Workspace'}),{target:{value:otherWorkspace}});
-  await waitFor(()=>expect((screen.getByRole('combobox',{name:'Workspace'}) as HTMLSelectElement).value).toBe(otherWorkspace));
+  fireEvent.click(screen.getByRole('button',{name:/(· workspace|^Workspace profile)$/}));
+  fireEvent.click(screen.getByRole('menuitemradio',{name:'Other team'}));
   await act(async()=>{releaseAdopt?.(Response.json(draft));});
   expect(screen.queryByRole('region',{name:'Review Slack draft'})).toBeNull();expect(screen.queryByText(draft.text)).toBeNull();
   expect(calls.filter(({init})=>init?.method==='POST').map(({path})=>path)).toEqual(['/api/slack/coworker/drafts/adopt']);

@@ -1,6 +1,6 @@
 /** Owner-configured upstream MCP registry. The Worker supports HTTPS Streamable HTTP only. */
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+// The SDK client loads per connection (withClient), not at Worker startup.
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   curatedMcpTrustedHosts,
   curatedMcpVendorByCatalogId,
@@ -346,6 +346,10 @@ async function withClient<T>(env: Env, server: ExternalMcpServer, action: (clien
     if (response.url && response.url !== endpoint.href) { await response.body?.cancel().catch(() => {}); throw new Error("redirect_rejected"); }
     return response;
   };
+  const [{ Client }, { StreamableHTTPClientTransport }] = await Promise.all([
+    import("@modelcontextprotocol/sdk/client/index.js"),
+    import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
+  ]);
   const transport = new StreamableHTTPClientTransport(endpoint, { fetch: safeFetch as never,
     requestInit: token ? { headers: { authorization: `Bearer ${token}` } } : undefined,
     reconnectionOptions: { initialReconnectionDelay: 100, maxReconnectionDelay: 100, reconnectionDelayGrowFactor: 1, maxRetries: 0 } });
