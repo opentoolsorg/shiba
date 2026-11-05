@@ -793,3 +793,34 @@ body:not(:has([data-mobile-sidebar])) [data-menu-btn] {
 }
 
 :root { --nb-font-sans: "Geist", sans-serif; --nb-font-mono: "Geist Mono", monospace; }
+
+/* ---- Match the marketing site palette (src/layouts/MarketingPage.astro) ----
+   Docs and landing share one brand: warm paper, ink, periwinkle accent in dark. */
+:root {
+	--nb-background: #fbf8f1;
+	--nb-foreground: #111111;
+	--nb-card: #f3eee3;
+	--nb-muted: #eae4d6;
+	--nb-muted-foreground: #5f5a4d;
+	--nb-accent: #eae4d6;
+	--nb-border: rgba(17, 17, 17, 0.12);
+	--nb-border-strong: rgba(17, 17, 17, 0.2);
+	--nb-selected: #e3dccb;
+}
+
+[data-mode="dark"] {
+	--nb-background: #131209;
+	--nb-foreground: #f6f1e6;
+	--nb-card: #181818;
+	--nb-muted: #1f1f1f;
+	--nb-muted-foreground: #a9a291;
+	--nb-accent: #242424;
+	--nb-primary: #9cbce2;
+	--nb-primary-foreground: #111111;
+	--nb-primary-hover: #b8d0ee;
+	--nb-brand: #9cbce2;
+	--nb-border: rgba(246, 241, 230, 0.14);
+	--nb-border-strong: rgba(246, 241, 230, 0.22);
+	--nb-selected: #2a2a26;
+	--nb-ring: rgba(156, 188, 226, 0.45);
+}
