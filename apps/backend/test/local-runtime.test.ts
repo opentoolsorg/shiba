@@ -533,6 +533,56 @@ describe("T51 intake boundary", () => {
     expect(approval?.runtime).toBe("local");
   });
 
+  describe("repo-free local artifacts", () => {
+    const target = { kind: "artifact-workspace", expectedDeliverables: ["brief.md"] };
+    const body = { task: "Write a brief", runtime: "local", harness: "opencode", targetMachineId: "paired-1", executionTarget: target };
+    const voucher = { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD };
+
+    it("freezes the repository-free target, outputs, runtime and computer and deduplicates intake", async () => {
+      const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" });
+      const request = { ...body, commandId: "artifact-command" };
+      const queued = await orchestrator.onRequest(queueRequest(request, voucher));
+      expect(queued.status).toBe(200);
+      const { approvalId } = await queued.json() as { approvalId: string };
+      expect(orchestrator.state.pendingApprovals).toEqual([expect.objectContaining({
+        approvalId, repoUrl: "", runtime: "local", targetMachineId: "paired-1",
+        executionTarget: target, expectedDeliverables: ["brief.md"], publishPullRequest: false,
+      })]);
+      expect(orchestrator.state.runs).toHaveLength(0);
+      const replay = await orchestrator.onRequest(queueRequest(request, voucher));
+      expect(await replay.json()).toMatchObject({ approvalId, deduped: true });
+      expect(orchestrator.state.pendingApprovals).toHaveLength(1);
+    });
+
+    it.each([
+      { targetMachineId: undefined },
+      { executionTarget: { kind: "artifact-workspace", workspaceId: "zip-only", expectedDeliverables: [] } },
+      { executionTarget: { ...target, expectedDeliverables: ["../private.md"] } },
+      { expectedDeliverables: ["other.md"] },
+      { repoUrl: "https://github.com/o/r" },
+      { publishPullRequest: true },
+      { runSetup: true },
+      { harness: "grok" },
+    ])("refuses unsafe or unsupported artifact input before approval: %j", async (override) => {
+      const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" });
+      const response = await orchestrator.onRequest(queueRequest({ ...body, ...override }, voucher));
+      expect(response.status).toBe(400);
+      expect(orchestrator.state.pendingApprovals ?? []).toHaveLength(0);
+      expect(orchestrator.state.runs).toHaveLength(0);
+    });
+
+    it("preserves dashboard and deployment fences without switching to sandbox", async () => {
+      for (const [env, headers] of [
+        [{ [LOCAL_RUNTIME_FLAG]: "1" }, {}],
+        [{}, voucher],
+      ] as const) {
+        const orchestrator = makeOrchestrator(env);
+        expect((await orchestrator.onRequest(queueRequest(body, headers))).status).toBe(403);
+        expect(orchestrator.state.pendingApprovals ?? []).toHaveLength(0);
+      }
+    });
+  });
+
   describe("targetMachineId intake", () => {
     const queueLocal = (extra: Record<string, unknown>, orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" })) =>
       orchestrator.onRequest(
@@ -780,6 +830,20 @@ describe("LocalRuntimeAdapter", () => {
     const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
     const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, repoUrl: "", executionTarget,
       expectedDeliverables: ["brief.md"] } as never, NOOP_EMIT, {});
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("unapproved files");
+    expect(result.files).toEqual([]);
+  });
+
+  it("rejects duplicate daemon change paths instead of accepting a missing manifest entry", async () => {
+    const expectedDeliverables = ["brief.md", "notes.md"];
+    const { client } = makeClient({ status: async () => ({ status: "settled", result: {
+      ...RESULT, baseRevision: undefined, changedFiles: ["brief.md", "brief.md"], diff: "",
+      files: expectedDeliverables.map((path) => ({ path, content: "Complete text", encoding: "utf8" })),
+    } }) as never });
+    const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, repoUrl: "", expectedDeliverables,
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables } } as never, NOOP_EMIT, {});
     expect(result.status).toBe("error");
     expect(result.summary).toContain("unapproved files");
     expect(result.files).toEqual([]);
