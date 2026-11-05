@@ -46,6 +46,8 @@ jobs:
       - run: pnpm lint
       - run: pnpm lint:imports
       - run: pnpm test
+      - name: Verify personal native account isolation and daemon controls
+        run: pnpm test:personal-daemon
       - run: pnpm build
       - run: pnpm docs:check
       # Marketing page and SEO assertions run against the generated site.
