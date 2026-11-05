@@ -1,4 +1,4 @@
-import { TEAM_MODEL_PRICE_REFERENCE, TEAM_MODEL_LLAMA_MODEL, teamModelPriceReference, teamModelPriceQuoteDigest, teamModelMaximumDebitMicroUsd, teamModelQuotedCostMicroUsd, isTeamModelMoneyContract,
+import { TEAM_MODEL_TEXT_OPERATION, TEAM_MODEL_PRICE_REFERENCE, TEAM_MODEL_LLAMA_MODEL, teamModelPriceReference, teamModelPriceQuoteDigest, teamModelMaximumDebitMicroUsd, teamModelQuotedCostMicroUsd, isTeamModelMoneyContract,
   type TeamModelMoneyContract } from "@shiba/shared";
 import { hashToolArgs } from "./mcp-gateway.js";
 
@@ -11,7 +11,7 @@ export const TEAM_MODEL_MONEY_SCHEMA = `CREATE TABLE IF NOT EXISTS team_model_mo
   receipt_hash TEXT,receipt_json TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,
   CHECK(reported_micro_usd IS NULL OR (reported_micro_usd>=0 AND reported_micro_usd<=reserved_micro_usd)))`;
 export function prepareTeamModelMoney(budgetMicroUsd: number, maxOutputTokens: number, expiresAt: number, now = Date.now(), model: string = TEAM_MODEL_PRICE_REFERENCE.model): TeamModelMoneyContract {
-  const quote = { ...teamModelPriceReference(model), id: `tmq_${crypto.randomUUID().replaceAll("-", "")}`, createdAt: now, dispatchUntil: Math.min(now + 900_000, expiresAt) };
+  const quote = { ...teamModelPriceReference(model), operation: TEAM_MODEL_TEXT_OPERATION as typeof TEAM_MODEL_TEXT_OPERATION, id: `tmq_${crypto.randomUUID().replaceAll("-", "")}`, createdAt: now, dispatchUntil: Math.min(now + 900_000, expiresAt) };
   const money = { currency: "USD" as const, budgetMicroUsd, maximumDebitPerCallMicroUsd: teamModelMaximumDebitMicroUsd(maxOutputTokens, model), quote: { ...quote, digest: teamModelPriceQuoteDigest(quote) } };
   if (!isTeamModelMoneyContract(money, maxOutputTokens)) throw new TeamModelMoneyError("team_model_money_contract_invalid");
   return money;
@@ -35,6 +35,7 @@ export async function teamModelUsageReceipt(value: unknown, inputHash: string, m
   const receipt = model === TEAM_MODEL_LLAMA_MODEL
     ? { requestedModel: model, bindingRequestId, providerCompletionId: response.id ?? null, providerModel: response.model ?? null, inputHash, promptTokens: prompt, completionTokens: completion, totalTokens: total, quotedMicroUsd }
     : { completionId: response.id, model: response.model, inputHash, promptTokens: prompt, completionTokens: completion, totalTokens: total, quotedMicroUsd };
-  return { hash: await hashToolArgs(receipt), json: JSON.stringify(receipt), quotedMicroUsd };
+  const boundReceipt = { ...receipt, operation: TEAM_MODEL_TEXT_OPERATION };
+  return { hash: await hashToolArgs(boundReceipt), json: JSON.stringify(boundReceipt), quotedMicroUsd };
 }
 export const teamModelLedgerDebitSql = (grant: string) => `COALESCE((SELECT SUM(reserved_micro_usd) FROM team_model_money_ledger WHERE grant_id=${grant}),0)`;

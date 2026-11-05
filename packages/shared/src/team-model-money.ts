@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { stableHash } from "./approvals.js";
 
+export const TEAM_MODEL_TEXT_OPERATION = "text-generation";
 export const TEAM_MODEL_MONEY_VERSION = "shiba.team-cost.v2";
 export const TEAM_MODEL_MAX_BUDGET_MICRO_USD = 1_000_000;
 export const TEAM_MODEL_PRICE_REFERENCE = {
@@ -21,6 +22,7 @@ const integer = z.number().int().safe().nonnegative();
 const positive = integer.positive();
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const teamModelPriceQuoteSchema = z.object({
+  operation: z.literal(TEAM_MODEL_TEXT_OPERATION).optional(),
   version: z.literal(TEAM_MODEL_MONEY_VERSION), model: z.enum([TEAM_MODEL_PRICE_REFERENCE.model, TEAM_MODEL_LLAMA_MODEL]),
   sourceVerifiedOn: z.literal(TEAM_MODEL_PRICE_REFERENCE.sourceVerifiedOn), inputContextTokens: z.number().int().positive(),
   inputMicroUsdPerMillionTokens: z.number().int().positive(), outputMicroUsdPerMillionTokens: z.number().int().positive(),
@@ -69,7 +71,7 @@ export function teamModelMaximumDebitMicroUsd(outputTokens: number, model: strin
 export function teamModelPriceQuoteDigest(quote: Omit<TeamModelPriceQuote, "digest">): string {
   return stableHash([quote.version, quote.model, quote.sourceVerifiedOn, quote.inputContextTokens,
     quote.inputMicroUsdPerMillionTokens, quote.outputMicroUsdPerMillionTokens, quote.kind, quote.currency,
-    quote.id, quote.createdAt, quote.dispatchUntil]);
+    quote.id, quote.createdAt, quote.dispatchUntil, ...(quote.operation === undefined ? [] : [quote.operation])]);
 }
 export function isTeamModelMoneyContract(value: unknown, maxOutputTokens: number): value is TeamModelMoneyContract {
   const parsed = teamModelMoneyContractSchema.safeParse(value);

@@ -113,7 +113,7 @@ export function fundingContract(row: TeamModelFundingRow): TeamModelFundingContr
   let value: unknown;
   try { value = JSON.parse(row.contract_json); } catch { throw new TeamModelError("team_model_contract_unsupported", 403); }
   const parsed = teamModelFundingContractSchema.strict().safeParse(value);
-  if (!parsed.success) throw new TeamModelError("team_model_contract_unsupported", 403);
+  if (!parsed.success || (parsed.data.money && parsed.data.operation !== parsed.data.money.quote.operation)) throw new TeamModelError("team_model_contract_unsupported", 403);
   return parsed.data;
 }
 export function fundingBinding(row: TeamModelFundingRow) { return JSON.parse(row.binding_json) as TeamModelBinding; }
@@ -225,7 +225,7 @@ export async function prepareTeamModelFunding(env: Env, issuer: WorkspaceNativeM
     issuer, recipient, issuerRoom, recipientRoom, employeeRoom, employeeId: employee.id, employeeVersion: employee.version, employeeConfig: JSON.stringify(employee.config), policyKey: policy.key };
   const { currency: _currency, budgetMicroUsd, ...baseInput } = input;
   if (_currency !== "USD") throw new TeamModelError("team_model_currency_unsupported", 400);
-  const contract: TeamModelFundingContract = { ...baseInput, issuerId: issuer.userId, employeeName: employee.config.name, employeeInstructions: redactSecrets(employee.config.instructions),
+  const contract: TeamModelFundingContract = { ...baseInput, operation: "text-generation", issuerId: issuer.userId, employeeName: employee.config.name, employeeInstructions: redactSecrets(employee.config.instructions),
     billing: "deployment-workers-ai", audience: "requesting-member", tools: [], credentialRef: null,
     money: prepareTeamModelMoney(budgetMicroUsd, input.maxOutputTokens, input.expiresAt, Date.now(), input.model) };
   const id = modelId("tmf"), digest = await hashToolArgs({ id, version: 1, binding, contract });

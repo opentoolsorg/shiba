@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { TEAM_MODEL_TEXT_MODEL, TEAM_MODEL_LLAMA_MODEL, teamModelMaximumDebitMicroUsd, teamModelStateResponseSchema } from "@shiba/shared";
+import { TEAM_MODEL_TEXT_MODEL, TEAM_MODEL_LLAMA_MODEL, teamModelMaximumDebitMicroUsd, teamModelStateResponseSchema, teamModelPriceQuoteDigest } from "@shiba/shared";
 import type { Env } from "../src/env.js";
 import { handleTeamModelSessions } from "../src/team-model-routes.js";
 import { createTeamWorkspace, createTeamWorkspaceInvitation, acceptTeamWorkspaceInvitation, getTeamWorkspaceMembership } from "../src/team-workspaces-store.js";
 import { createCollaborationRoom, addCollaborationMember, createCollaborationMessage, humanActorId, type CollaborationScope } from "../src/collaboration-store.js";
 import { createCollaborationMemory } from "../src/collaboration-memory.js";
 import { createCustomAgent } from "../src/custom-agents-store.js";
+import { hashToolArgs } from "../src/mcp-gateway.js";
+import { ensureTeamModelSchema } from "../src/team-model-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const user = vi.hoisted(() => ({ email: "operator@example.test", native: true, accounts: {} as Record<string, string>, afterNative: undefined as (() => void) | undefined }));
@@ -111,6 +113,52 @@ function seedPermanentReservations(f: Awaited<ReturnType<typeof fixture>>, grant
 }
 
 describe("default-off native funded text with actual routes/SQLite and fixture AI only", { timeout: 20_000 }, () => {
+  it.each(["embedding", "image-generation", "payment"])("rejects unsupported %s before funding or dispatch", async (operation) => {
+    const f = await fixture();
+    await ensureTeamModelSchema(f.env);
+    const result = await f.call("/funding/prepare", "POST", { ...f.fundingInput, operation });
+    expect(result.response.status).toBe(400);
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM team_model_funding").get()).toMatchObject({ n: 0 });
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM team_model_money_ledger").get()).toMatchObject({ n: 0 });
+    expect(f.run).not.toHaveBeenCalled();
+  });
+  it("freezes the text operation in both sponsored contract and quote", async () => {
+    const f = await fixture();
+    const grant = await f.fund({ operation: "text-generation" });
+    const row = f.sqlite.prepare("SELECT contract_json FROM team_model_funding WHERE id=?").get(grant.id) as { contract_json: string };
+    expect(JSON.parse(row.contract_json)).toMatchObject({ operation: "text-generation", money: { quote: { operation: "text-generation" } } });
+    const approved = await f.approve(await f.turn(grant));
+    expect((await f.execute(approved)).response.status).toBe(200);
+    expect(f.run).toHaveBeenCalledTimes(1);
+  });
+  it.each(["contract", "quote", "missing-contract", "missing-quote"])("rejects %s operation tampering after approval without reserving", async (kind) => {
+    const f = await fixture(), grant = await f.fund(), approved = await f.approve(await f.turn(grant));
+    const row = f.sqlite.prepare("SELECT contract_json FROM team_model_funding WHERE id=?").get(grant.id) as { contract_json: string };
+    const contract = JSON.parse(row.contract_json);
+    if (kind === "contract") contract.operation = "embedding";
+    else if (kind === "quote") contract.money.quote.operation = "embedding";
+    else if (kind === "missing-contract") delete contract.operation;
+    else delete contract.money.quote.operation;
+    f.sqlite.prepare("UPDATE team_model_funding SET contract_json=? WHERE id=?").run(JSON.stringify(contract), grant.id);
+    expect((await f.execute(approved)).response.status).toBe(403);
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM team_model_money_ledger").get()).toMatchObject({ n: 0 });
+    expect(f.run).not.toHaveBeenCalled();
+  });
+  it("preserves reviewed legacy text contracts without rewriting their digests", async () => {
+    const f = await fixture(), draft = await f.prepare();
+    const row = f.sqlite.prepare("SELECT contract_json,binding_json FROM team_model_funding WHERE id=?").get(draft.id) as { contract_json: string; binding_json: string };
+    const contract = JSON.parse(row.contract_json);
+    delete contract.operation; delete contract.money.quote.operation;
+    const { digest: _digest, ...quote } = contract.money.quote;
+    contract.money.quote.digest = teamModelPriceQuoteDigest(quote);
+    const digest = await hashToolArgs({ id: draft.id, version: 1, binding: JSON.parse(row.binding_json), contract });
+    f.sqlite.prepare("UPDATE team_model_funding SET contract_json=?,digest=? WHERE id=?").run(JSON.stringify(contract), digest, draft.id);
+    const result = await f.call(`/funding/${draft.id}/activate`, "POST", { expectedVersion: draft.version, digest, reviewed: true, billingConsent: true });
+    expect(result.response.status).toBe(200);
+    const approved = await f.approve(await f.turn(result.body.grant as GrantReceipt));
+    expect((await f.execute(approved)).response.status).toBe(200);
+    expect(f.run).toHaveBeenCalledTimes(1);
+  });
   it("binds a reviewed Llama quote and max_tokens to the selected direct binding", async () => {
     const f = await fixture(); f.env.SHIBA_TEAM_MODEL_MODEL = TEAM_MODEL_LLAMA_MODEL;
     const grant = await f.fund({ model: TEAM_MODEL_LLAMA_MODEL, maxOutputTokens: 1024 });
@@ -122,7 +170,7 @@ describe("default-off native funded text with actual routes/SQLite and fixture A
     expect(f.run.mock.calls[0]![1]).not.toHaveProperty("max_completion_tokens");
     expect(f.sqlite.prepare("SELECT reserved_micro_usd FROM team_model_money_ledger").get()).toEqual({ reserved_micro_usd: 5158 });
     const receipt = JSON.parse(String(f.sqlite.prepare("SELECT receipt_json FROM team_model_money_ledger").get()!.receipt_json));
-    expect(receipt).toMatchObject({ requestedModel: TEAM_MODEL_LLAMA_MODEL, bindingRequestId: approved.id, providerModel: null, providerCompletionId: null });
+    expect(receipt).toMatchObject({ operation: "text-generation", requestedModel: TEAM_MODEL_LLAMA_MODEL, bindingRequestId: approved.id, providerModel: null, providerCompletionId: null });
   });
   it.each(["missing usage", "wrong echoed model"])("holds the Llama reservation on %s", async (kind) => {
     const f = await fixture(); f.env.SHIBA_TEAM_MODEL_MODEL = TEAM_MODEL_LLAMA_MODEL;
