@@ -36,6 +36,13 @@ export type TeamModelMoneyContract = z.infer<typeof teamModelMoneyContractSchema
 export const teamModelMoneyStateSchema = z.object({
   currency: z.literal("USD"), authorizedDebitMicroUsd: integer, remainingBudgetMicroUsd: integer,
   reportedQuotedMicroUsd: integer, unknownReservedMicroUsd: integer,
+  /** Volatile authorization headroom; a concurrent dispatch can consume it. */
+  capacity: z.object({
+    requesterLimitMicroUsd: positive, requesterReservedMicroUsd: integer, requesterRemainingMicroUsd: integer,
+    requesterCanReserveNext: z.boolean(), workspaceLimitMicroUsd: positive, workspaceCanReserveNext: z.boolean(),
+    // Workspace totals are only disclosed to a current deployment funding issuer.
+    workspaceReservedMicroUsd: integer.optional(), workspaceRemainingMicroUsd: integer.optional(),
+  }).strict().optional(),
 }).strict();
 export type TeamModelMoneyState = z.infer<typeof teamModelMoneyStateSchema>;
 export const teamModelTurnCostSchema = z.object({
