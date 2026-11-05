@@ -3,6 +3,7 @@ import { validateEmployeeBundle, type EmployeeBundle } from "@shiba/shared";
 import { reloadSavedSkills, useSavedSkills } from "../saved";
 import { EmployeeBundleReview } from "./EmployeeBundleReview";
 import { FounderReviewSchedule } from "./FounderReviewSchedule";
+import { FounderConnectorPlan } from "./FounderConnectorPlan";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
 
 interface LibrarySkill {
@@ -43,6 +44,8 @@ function FounderLibraryContent({ workspaceId, canManage, savedSkills, onInstalle
   const [busyId, setBusyId] = useState<string | null>(null);
   const [setup, setSetup] = useState<{ recipe: EmployeeBundle; signal: AbortSignal } | null>(null);
   const [schedule, setSchedule] = useState<LibrarySkill | null>(null);
+  const [connectorPlan, setConnectorPlan] = useState<LibrarySkill | null>(null);
+  const connectorButton = useRef<HTMLButtonElement | null>(null);
   const controller = useRef<AbortController | null>(null);
   const pending = useRef(false);
   const loadEpoch = useRef(0);
@@ -114,7 +117,7 @@ function FounderLibraryContent({ workspaceId, canManage, savedSkills, onInstalle
     <section aria-labelledby="founder-skill-library-heading" className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--section)] p-4 flex flex-col gap-3">
       <div>
         <h3 id="founder-skill-library-heading" className="text-sm font-semibold text-[var(--fg)]">Founder skill library</h3>
-        <p className="text-xs text-[var(--muted-foreground-2)] mt-1">Six setup templates. Install draft instructions, review current versions, and optionally configure private recurring review drafts. Review drafts do not execute employees or access apps. Scheduled connector execution remains unavailable; external actions need their own approval.</p>
+        <p className="text-xs text-[var(--muted-foreground-2)] mt-1">Six setup templates. Install draft instructions and review current versions. Private review drafts never execute work. Workspace app action plans schedule one fixed action for separate human review and requester execution; they do not generate the template's full report or Slack digest.</p>
       </div>
       {error ? <p role="alert" className="text-xs text-[var(--destructive)]">{error}</p> : null}
       {error && controller.current ? <button type="button" className={button} disabled={busyId !== null} onClick={() => { const signal = controller.current?.signal; if (signal) void load(signal); }}>Retry founder library</button> : null}
@@ -125,20 +128,24 @@ function FounderLibraryContent({ workspaceId, canManage, savedSkills, onInstalle
             <li key={skill.id} className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] p-3 flex flex-col gap-2">
               <span className="text-xs font-semibold text-[var(--fg)]">{skill.name}</span>
               <p className="text-[11px] text-[var(--muted-foreground-2)] leading-relaxed flex-1">{skill.description}</p>
-              <p className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Suggested: {skill.schedule.label} · not scheduled</p>
+              <p className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Suggested cadence: {skill.schedule.label} · configure separately</p>
               {skill.integrationCatalogIds.length ? <p className="text-[10px] text-[var(--muted-foreground-3)]">Required sources: {skill.integrationCatalogIds.join(", ")} · verify supported actions and connect separately</p> : null}
               {skill.requiresSensitiveApproval ? <p className="text-[10px] text-[var(--warning-fg)]">Sensitive updates stay drafts until separately approved.</p> : null}
               {skill.installed ? <p className="text-xs">Installed instructions: {skill.installedStatus ?? "review required"}{skill.installedVersion ? ` · v${skill.installedVersion}` : ""}</p> : null}
               <div className="flex flex-wrap gap-2">
                 <button type="button" disabled={!canManage || busyId !== null || skill.installed} onClick={() => void install(skill.id)} className={button}>{skill.installed ? "Instructions installed" : "Install draft"}</button>
                 {!workspaceId && <button type="button" aria-label={`Review employee setup: ${skill.name}`} disabled={busyId !== null} onClick={() => void reviewSetup(skill.id)} className={button}>Review employee setup</button>}
-                {canManage && <button type="button" aria-label={`Schedule review drafts: ${skill.name}`} disabled={busyId !== null} onClick={() => { setSchedule(skill); setSetup(null); }} className={button}>Schedule review drafts</button>}
+                {canManage && <button type="button" aria-label={`Schedule review drafts: ${skill.name}`} disabled={busyId !== null} onClick={() => { setSchedule(skill); setSetup(null); setConnectorPlan(null); }} className={button}>Schedule review drafts</button>}
+                {workspaceId && canManage && <button type="button" aria-label={`Configure app action reviews: ${skill.name}`} disabled={busyId !== null} onClick={(event) => { connectorButton.current = event.currentTarget; setConnectorPlan(skill); setSchedule(null); setSetup(null); }} className={button}>Configure app action reviews</button>}
               </div>
             </li>
           ))}
         </ul>
       )}
       {schedule && <FounderReviewSchedule key={`${workspaceId ?? "personal"}:${schedule.id}`} libraryId={schedule.id} name={schedule.name} suggested={schedule.schedule} workspaceId={workspaceId} onClose={() => setSchedule(null)} />}
+      {connectorPlan && workspaceId && <FounderConnectorPlan workspaceId={workspaceId} libraryId={connectorPlan.id} name={connectorPlan.name} timezone={connectorPlan.schedule.timezone} onClose={() => {
+        const signal = controller.current?.signal; setConnectorPlan(null); if (signal && current(signal) && connectorButton.current?.isConnected) connectorButton.current.focus();
+      }} />}
       {setup ? <EmployeeBundleReview key={setup.recipe.profile.provenance?.id} recipe={setup.recipe} onClose={() => setSetup(null)} onImported={(result) => {
         if (!current(setup.signal)) return;
         setSetup(null); setNotice(`Archived bot ${result.employeeId} and ${result.skillIds.length} draft skill(s) created. Review and restore the bot in Agents, activate selected skill versions, and configure your provider and exact integration grants before work. No executable schedule was installed.`);

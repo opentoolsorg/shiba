@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CollaborationView } from "./CollaborationView";
 import { personalFixture, PERSONAL_WORKSPACE } from "../personal-execution-fixtures";
+import { teamModelFixture, TEAM_MODEL_ROOM } from "../team-model-fixtures";
 
 beforeEach(() => vi.stubGlobal("WebSocket", undefined));
 
@@ -36,6 +37,29 @@ const roomDetail = {
   ],
   handoffs: [],
 };
+
+describe("CollaborationView explicit funded model setup", () => {
+  it("mounts funding and account verification once only after their explicit controls are opened", async () => {
+    const detail = { ...roomDetail, room: { ...roomDetail.room, roomId: TEAM_MODEL_ROOM } };
+    const fetcher = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [detail.room] });
+      if (path === `/api/collaboration/rooms/${TEAM_MODEL_ROOM}`) return Response.json(detail);
+      if (path.startsWith("/api/team-model-sessions/state")) return Response.json(teamModelFixture().state);
+      if (path.includes("bootstrap")) return Response.json({ error: "unavailable_fixture" }, { status: 403 });
+      return Response.json({ agents: [], computers: [] });
+    }); vi.stubGlobal("fetch", fetcher);
+    render(<CollaborationView workspaceId={PERSONAL_WORKSPACE} />);
+    await screen.findByRole("heading", { name: "Shared room" }); fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    expect(fetcher.mock.calls.some(([path]) => String(path).includes("team-model-sessions") || String(path).includes("bootstrap"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Open funded team text sessions" }));
+    await screen.findByLabelText("My text-session funding grant");
+    expect(fetcher.mock.calls.filter(([path]) => String(path).includes("team-model-sessions"))).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Check my account verification" }));
+    await waitFor(() => expect(fetcher.mock.calls.filter(([path]) => String(path).includes("bootstrap"))).toHaveLength(1));
+    expect(fetcher.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+});
 
 describe("CollaborationView explicit own-account request", () => {
   it("submits only a current grant selector and never a deployment or client snapshot override", async () => {

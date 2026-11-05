@@ -166,6 +166,26 @@ async function member(f: ReturnType<typeof fixture>) {
 }
 
 describe("full Worker ingress for restricted native team members", () => {
+  it("routes funded text through native member policy without a legacy orchestrator or implicit billing", async () => {
+    const f = fixture(), m = await member(f);
+    const anonymousProbe = await worker.fetch(request("/api/__shiba_preview_auth_probe__"), f.env);
+    expect(anonymousProbe.status).toBe(401);
+    const path = "/api/team-model-sessions/state?roomId=not-a-room";
+    const missingWorkspace = await worker.fetch(request(path, "GET", undefined, { cookie: m.cookie }), f.env);
+    expect(missingWorkspace.status).toBe(403);
+    const response = await worker.fetch(request(path, "GET", undefined, {
+      cookie: m.cookie, "X-Shiba-Workspace": m.workspace.workspaceId,
+    }), f.env);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "team_model_room_required" });
+    const operatorRoute = await worker.fetch(request("/api/providers/codex/connect", "POST", {}, {
+      cookie: m.cookie, "X-Shiba-Workspace": m.workspace.workspaceId,
+    }), f.env);
+    expect(operatorRoute.status).toBe(403);
+    expect(routing.getAgentByName).not.toHaveBeenCalled();
+    expect(routing.routeAgentRequest).not.toHaveBeenCalled();
+  });
+
   it("strips a forged Access owner identity before policy even when the invited account is verified", async () => {
     const f = fixture(),
       m = await member(f);

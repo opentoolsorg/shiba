@@ -4,6 +4,7 @@ import { App } from "../app";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { ThemeProvider, useTheme } from "../components/ThemeProvider";
 import { SlackRunCanvas } from "../components/SlackRunCanvas";
+import { BootstrapVerificationCallback } from "../components/BootstrapVerificationPanel";
 
 export const Route = createFileRoute("/$")({
   component: DashboardRoute,
@@ -22,6 +23,9 @@ function DashboardRoute() {
 }
 
 export function DashboardContent({ pathname, search }: { pathname: string; search: string }) {
+  if ((pathname === "/app" || pathname === "/app/") && new URLSearchParams(search).get("verify") === "bootstrap") {
+    return <BootstrapVerificationCallback />;
+  }
   return pathname === "/slack-canvas" || pathname === "/slack-canvas/"
     ? <SlackRunCanvas search={search} />
     : <App />;

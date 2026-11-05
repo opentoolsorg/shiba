@@ -20,6 +20,8 @@
  * never inherit the unverified bootstrap identity allowance.
  */
 import { APIError, betterAuth } from "better-auth";
+import { BOOTSTRAP_VERIFICATION_DDL, handleBootstrapVerification, type BootstrapVerificationAdapter } from "./bootstrap-verification.js";
+export type { BootstrapVerificationAdapter } from "./bootstrap-verification.js";
 import {
   ensureBetterAuthAccountPolicy, readBetterAuthAccountPolicy, recordBetterAuthAccountPolicy,
   type BetterAuthAccountPolicy,
@@ -130,6 +132,7 @@ export const BETTER_AUTH_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS "session_userId_idx" ON "session" ("userId")`,
   `CREATE INDEX IF NOT EXISTS "account_userId_idx" ON "account" ("userId")`,
   `CREATE INDEX IF NOT EXISTS "verification_identifier_idx" ON "verification" ("identifier")`,
+  BOOTSTRAP_VERIFICATION_DDL,
 ];
 
 /** D1/database handles whose auth schema is already ensured in this isolate. */
@@ -389,6 +392,7 @@ export async function handleBetterAuth(
   env: BetterAuthLaneEnv,
   redact: SecretRedactor = identityRedact,
   enrollment?: BetterAuthEnrollmentAdapter,
+  bootstrapVerification?: BootstrapVerificationAdapter,
 ): Promise<Response | null> {
   const url = new URL(request.url);
   if (!isBetterAuthPath(url.pathname) || !isBetterAuthConfigured(env)) {
@@ -416,6 +420,13 @@ export async function handleBetterAuth(
     return await withDeadline(
       (async () => {
         await ensureBetterAuthSchema(env as { AGENT_AUDIT: D1Database });
+        const bootstrapResponse = await handleBootstrapVerification(request, env as { AGENT_AUDIT: D1Database; BETTER_AUTH_SECRET: string; BETTER_AUTH_URL?: string }, bootstrapVerification,
+          async () => {
+            const account = await resolveBetterAuthSessionAccount(request, env, redact);
+            return account?.policy.kind === "bootstrap" && account.sessionId && account.sessionExpiresAt
+              ? { accountId: account.policy.accountId, email: account.policy.email, sessionId: account.sessionId, sessionExpiresAt: account.sessionExpiresAt, emailVerified: account.emailVerified } : null;
+          });
+        if (bootstrapResponse) return bootstrapResponse;
         if (url.pathname === `${BETTER_AUTH_BASE_PATH}/enrollment-status` && request.method === "GET") {
           const account = await resolveBetterAuthSessionAccount(request, env, redact);
           return Response.json(account ? { restricted: account.policy.kind === "invited", emailVerified: account.emailVerified,
@@ -462,7 +473,7 @@ export async function resolveBetterAuthSessionAccount(
   request: Request,
   env: BetterAuthLaneEnv,
   redact: SecretRedactor = identityRedact,
-): Promise<{ policy: BetterAuthAccountPolicy; emailVerified: boolean } | null> {
+): Promise<{ policy: BetterAuthAccountPolicy; emailVerified: boolean; sessionId?: string; sessionExpiresAt?: number } | null> {
   if (!isBetterAuthConfigured(env) || env.AGENT_AUDIT === undefined) {
     return null;
   }
@@ -481,7 +492,7 @@ export async function resolveBetterAuthSessionAccount(
       row.email.trim().toLowerCase() !== session.user.email.trim().toLowerCase()) return null;
     const expiresAt = typeof row.expiresAt === "number" ? row.expiresAt : Date.parse(row.expiresAt);
     if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return null;
-    return { policy, emailVerified: row.emailVerified === 1 };
+    return { policy, emailVerified: row.emailVerified === 1, sessionId: session.session.id, sessionExpiresAt: expiresAt };
   } catch (error) {
     console.warn(
       `better-auth session check failed: ${redact(error instanceof Error ? error.message : String(error))}`,

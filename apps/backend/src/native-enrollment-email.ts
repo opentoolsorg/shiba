@@ -24,3 +24,15 @@ export async function sendNativeEnrollmentVerification(env: Env, input: { email:
     subject: "Verify your email to join Shiba",
     text: `You requested an account through a Shiba workspace invitation. Verify your email using this link:\n\n${url.href}\n\nThe link expires in one hour. Verification does not grant deployment administration or join a workspace automatically. If you did not request this account, ignore this email.` });
 }
+
+/** Explicit owner request only. The token is a fragment, never an HTTP query. */
+export async function sendNativeBootstrapVerification(env: Env, input: { email: string; url: string }): Promise<void> {
+  const config = nativeEnrollmentEmailConfiguration(env);
+  if (!config) throw new Error("Bootstrap verification requires a configured verified email sender.");
+  const url = new URL(input.url), fragment = new URLSearchParams(url.hash.slice(1));
+  if (url.origin !== config.origin || url.pathname !== "/app/" || url.search !== "?verify=bootstrap" || url.username || url.password ||
+    [...fragment.keys()].length !== 1 || !fragment.get("bootstrapVerification")) throw new Error("Invalid bootstrap verification destination.");
+  await env.SEND_EMAIL!.send({ from: config.from, to: input.email,
+    subject: "Verify your Shiba dashboard email",
+    text: `You requested verification of your existing Shiba dashboard email. Open this link, then choose Confirm email:\n\n${url.href}\n\nThe link expires in one hour. Verification does not create an account, sign you in, or change your existing permissions. If you did not request it, ignore this email.` });
+}

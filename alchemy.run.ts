@@ -175,6 +175,8 @@ export const Worker = Cloudflare.Worker("Worker", {
     GATEWAY_ID: "default",
     INTEGRATIONS_PROVIDER: "openconnector",
     SHIBA_PERSONAL_LOCAL_EXECUTION: "0",
+    SHIBA_TEAM_MODEL_SESSIONS: "0",
+    SHIBA_TEAM_MODEL_MODEL: "@cf/zai-org/glm-4.7-flash",
     SLACK_CANVAS_OWNERS: "[]",
     SLACK_AGENT_SESSIONS_ENABLED: "false",
     SLACK_AGENT_SESSIONS_TEAM_ID: "",
@@ -392,6 +394,8 @@ export const Worker = Cloudflare.Worker("Worker", {
       // T51 opt-in (§18.13): absent = the local runtime is dark.
       "SHIBA_LOCAL_RUNTIME",
       "SHIBA_PERSONAL_LOCAL_EXECUTION",
+      "SHIBA_TEAM_MODEL_SESSIONS",
+      "SHIBA_TEAM_MODEL_MODEL",
       "CODEX_MODEL",
       "GROK_MODEL",
       "PI_MODEL",

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { reloadSavedSkills, useSavedSkills } from "../saved";
 import { FounderSkillLibrary } from "./FounderSkillLibrary";
+import { FOUNDER_BASE, FOUNDER_WORKSPACE, founderOptions, founderState } from "../founder-connector-fixtures";
 
 vi.mock("../saved", () => ({ reloadSavedSkills: vi.fn(), useSavedSkills: vi.fn(() => ({ skills: [] })) }));
 
@@ -64,7 +65,7 @@ describe("FounderSkillLibrary", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ skills: [{ ...entry, installed: true, installedStatus: "active", installedVersion: 2 }] })));
     render(<FounderSkillLibrary />);
     expect(await screen.findByText("Installed instructions: active · v2")).toBeTruthy();
-    expect(screen.getByText("Suggested: Daily · not scheduled")).toBeTruthy();
+    expect(screen.getByText("Suggested cadence: Daily · configure separately")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Instructions installed" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -108,5 +109,21 @@ describe("FounderSkillLibrary", () => {
     expect(new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers).get("X-Shiba-Workspace")).toBe("ws_aaaaaaaaaaaaaaaaaaaaaaaa");
     // Remove the unused once implementation before other fixtures mount a personal view.
     vi.mocked(useSavedSkills).mockReset().mockReturnValue({ skills: [] } as unknown as ReturnType<typeof useSavedSkills>);
+  });
+
+  it("opens workspace app action setup only after a click and restores focus when closed", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/founder-skills" ? Response.json({ skills: [entry] })
+      : String(input) === `${FOUNDER_BASE}/options` ? Response.json(founderOptions()) : Response.json(founderState()));
+    vi.stubGlobal("fetch", fetcher);
+    render(<FounderSkillLibrary workspaceId={FOUNDER_WORKSPACE} canManage />);
+    const open = await screen.findByRole("button", { name: "Configure app action reviews: Stripe revenue pulse" });
+    expect(fetcher).toHaveBeenCalledOnce();
+    fireEvent.click(open);
+    await screen.findByRole("combobox", { name: "Employee version" });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher.mock.calls.every((call) => new Headers((call as unknown as [string, RequestInit])[1].headers).get("X-Shiba-Workspace") === FOUNDER_WORKSPACE)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Close app action plan" }));
+    expect(screen.queryByRole("region", { name: /Scheduled app action:/ })).toBeNull();
+    expect(document.activeElement).toBe(open);
   });
 });

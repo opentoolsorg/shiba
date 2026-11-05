@@ -25,7 +25,9 @@ import { handleActivity } from "./activity-routes.js";
 import { handleApprovals } from "./approvals-routes.js";
 import { handleWorkspaceIntegrations } from "./workspace-integrations-routes.js";
 import { handlePersonalExecution } from "./personal-execution-routes.js";
+import { handleTeamModelSessions } from "./team-model-routes.js";
 import { tickFounderReviewSchedules } from "./founder-review-schedules.js";
+import { tickFounderConnectorJobs } from "./founder-connector-jobs.js";
 import { handleOnboardingProgress } from "./onboarding-progress.js";
 import { handleCollaborationWithRealtime } from "./collaboration-room-routes.js";
 import { handleTeamWorkspaces } from "./team-workspaces-routes.js";
@@ -61,6 +63,7 @@ import { handleSkills } from "./skills-routes.js";
 import { handleSpaces } from "./spaces-routes.js";
 import { Spaces } from "./spaces-do.js";
 import { handleFounderSkills } from "./founder-skills-routes.js";
+import { handleFounderConnectorJobs } from "./founder-connector-routes.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
 import { handleOrgModelKeys } from "./org-model-keys-routes.js";
 import { handleMeta } from "./meta-routes.js";
@@ -172,6 +175,9 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(tickFounderReviewSchedules(env).catch((error: unknown) => {
       console.error("Founder review scheduling failed", redactSecrets(String(error)));
+    }));
+    ctx.waitUntil(tickFounderConnectorJobs(env).catch((error: unknown) => {
+      console.error("Founder connector scheduling failed", redactSecrets(String(error)));
     }));
     ctx.waitUntil(
       automationsStub(env)
@@ -300,6 +306,8 @@ export default {
       if (workspaceIntegrationResponse) return workspaceIntegrationResponse;
       const personalExecutionResponse = await handlePersonalExecution(request, env);
       if (personalExecutionResponse) return personalExecutionResponse;
+      const teamModelResponse = await handleTeamModelSessions(request, env);
+      if (teamModelResponse) return teamModelResponse;
       const workResponse = await handleTeamWork(request, env);
       if (workResponse) return workResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);
@@ -337,6 +345,8 @@ export default {
       if (skillsResponse) return skillsResponse;
       const spacesResponse = await handleSpaces(request, env);
       if (spacesResponse) return spacesResponse;
+      const founderConnectorResponse = await handleFounderConnectorJobs(request, env);
+      if (founderConnectorResponse) return founderConnectorResponse;
       const founderSkillsResponse = await handleFounderSkills(request, env);
       if (founderSkillsResponse) return founderSkillsResponse;
       const orgSandboxResponse = await handleOrgSandboxSettings(request, env);
