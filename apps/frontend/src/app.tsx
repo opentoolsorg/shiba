@@ -2560,7 +2560,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           {accessUnconfigured ? (
             <a
               href="/docs/deployment/"
-              className="mt-1 w-full min-h-11 flex items-center justify-center rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-white text-sm font-semibold transition-colors shadow-[var(--sh-card)]"
+              className="mt-1 w-full min-h-11 flex items-center justify-center rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-[var(--primary-text)] text-sm font-semibold transition-colors shadow-[var(--sh-card)]"
             >
               Deployment documentation
             </a>
@@ -2568,7 +2568,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="mt-1 w-full min-h-11 rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-white text-sm font-semibold transition-colors shadow-[var(--sh-card)] active:scale-[0.98]"
+              className="mt-1 w-full min-h-11 rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-[var(--primary-text)] text-sm font-semibold transition-colors shadow-[var(--sh-card)] active:scale-[0.98]"
             >
               Sign in
             </button>

@@ -303,7 +303,7 @@ export function OnboardingModal({
                       onClick={() => toggleStep(step.id)}
                       className={`w-11 h-11 rounded-[var(--radius-button)] mt-0.5 flex items-center justify-center border transition-colors shrink-0 ${
                         isDone
-                          ? "bg-[var(--primary)] border-[var(--primary)] text-white font-bold text-xs"
+                          ? "bg-[var(--primary)] border-[var(--primary)] text-[var(--primary-text)] font-bold text-xs"
                           : "border-[var(--border-2)] bg-[var(--card)] hover:border-[var(--primary)]"
                       }`}
                       role="checkbox"
@@ -412,7 +412,7 @@ export function OnboardingModal({
                             disabled={!connections.canSaveSandbox || connections.savingSandbox}
                             className={`text-xs font-semibold px-3 py-1 rounded-[var(--radius-button)] border transition-colors ${
                               connections.canSaveSandbox
-                                ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-soft-hover)] border-transparent"
+                                ? "bg-[var(--primary)] text-[var(--primary-text)] hover:bg-[var(--primary-soft-hover)] border-transparent"
                                 : "bg-[var(--card)] text-[var(--muted-foreground-2)] border-[var(--border-1)] cursor-not-allowed opacity-60"
                             }`}
                           >
@@ -489,7 +489,7 @@ export function OnboardingModal({
                             disabled={!connections.canSaveModel || connections.savingModel}
                             className={`text-xs font-semibold px-3 py-1 rounded-[var(--radius-button)] border transition-colors ${
                               connections.canSaveModel
-                                ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-soft-hover)] border-transparent"
+                                ? "bg-[var(--primary)] text-[var(--primary-text)] hover:bg-[var(--primary-soft-hover)] border-transparent"
                                 : "bg-[var(--card)] text-[var(--muted-foreground-2)] border-[var(--border-1)] cursor-not-allowed opacity-60"
                             }`}
                           >
