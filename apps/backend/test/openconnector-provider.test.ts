@@ -5,6 +5,7 @@ import { createToolRegistry } from "../src/mcp-gateway.js";
 import { registerIntegrationTools } from "../src/mcp-integration-tools.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { workspaceIntegrationActionSchema } from "@shiba/shared";
+import { CREDENTIAL_INPUT_UNAVAILABLE } from "../src/integrations/action-input-policy.js";
 
 const configured = {
   OPEN_CONNECTOR_URL: "https://connector.example.test",
@@ -18,6 +19,32 @@ function provider(fetchImpl: typeof fetch, env = configured) {
 }
 
 describe("OpenConnector adapter", () => {
+  it("withholds known credential-input schemas from discovery and rejects exact lookup without echo", async () => {
+    const blocked = { id: "googleads.search_stream_gaql", service: "googleads", name: "Query", inputSchema: { type: "object", properties: { developerToken: { type: "string", default: "fixture-do-not-echo" } }, required: ["developerToken"] } };
+    const safe = { id: "googleads.list_accessible_customers", service: "googleads", name: "List", inputSchema: { type: "object", properties: {} } };
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => Response.json({ success: true, data: String(input).includes("/search?") ? [blocked, safe] : blocked }));
+    const adapter = provider(fetchImpl);
+    expect(await adapter.searchActions({ userId: "alice", toolkitSlug: "googleads", limit: 20 })).toEqual([{ ...safe, operationType: "unclassified" }]);
+    await expect(adapter.searchActions({ userId: "alice", toolkitSlug: "googleads", actionId: blocked.id, limit: 1 })).rejects.toThrow(CREDENTIAL_INPUT_UNAVAILABLE);
+  });
+
+  it.each(["required credential", "supplied credential", "misbound credential", "safe schema"])("fails closed before action POST for Google Ads: %s", async (scenario) => {
+    const row = { id: "google-ads-fixture", service: "googleads", connectionName: await openConnectorConnectionName("alice"), configured: true, virtual: false, oauthAuthorizationId: "fixture-consent", profile: { displayName: "Alice" } };
+    const posts: unknown[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/connections")) return Response.json([row]);
+      if (init?.method === "POST") { posts.push(init.body); return Response.json({ success: true, data: "fixture-output" }); }
+      return Response.json({ success: true, data: { id: "googleads.fixture", service: "googleads", name: "Fixture", inputSchema: scenario === "required credential" ? { required: ["developerToken"], properties: { developerToken: { type: "string" } } } : { type: "object", properties: { customerId: { type: "string" } } } } });
+    });
+    const adapter = provider(fetchImpl), connectionId = (await adapter.listConnections({ userId: "alice" }))[0]!.id;
+    fetchImpl.mockClear();
+    const output = await adapter.executeTool({ userId: "alice", toolkitSlug: scenario === "misbound credential" ? "github" : "googleads", toolSlug: "googleads.fixture", approvedConnectionId: connectionId,
+      arguments: scenario === "supplied credential" || scenario === "misbound credential" ? { developerToken: "fixture-do-not-echo" } : { customerId: "fixture-customer" } });
+    expect(output).toEqual(scenario === "safe schema" ? { ok: true, status: "completed", output: "fixture-output" } : { ok: false, status: "failed", error: CREDENTIAL_INPUT_UNAVAILABLE });
+    expect(posts).toHaveLength(scenario === "safe schema" ? 1 : 0);
+    expect(JSON.stringify(output)).not.toContain("fixture-do-not-echo");
+    if (scenario === "supplied credential" || scenario === "misbound credential") expect(fetchImpl).not.toHaveBeenCalled();
+  });
   it("uses the first 16 SHA-256 hex characters, with distinct aliases for different users", async () => {
     expect(await openConnectorConnectionName("alice")).toBe("u_2bd806c97f0e00af");
     expect(await openConnectorConnectionName("bob")).not.toBe(await openConnectorConnectionName("alice"));
