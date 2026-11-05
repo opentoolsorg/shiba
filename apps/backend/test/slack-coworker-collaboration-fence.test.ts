@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { createPendingApproval, resolvePendingApproval } from "../src/pending-approvals.js";
 import {
   bindCollaborationContextApproval, freezeCollaborationContext,
   isCollaborationApprovalDispatchable, isCollaborationContextCurrent,
@@ -80,10 +81,56 @@ async function fixture(slack: boolean, human = false) {
     grantedCapabilities: ["room.read"], profileVersion: human ? null : 1, status: "active", createdAt: 4, cancelledAt: null,
   };
   expect(await createRootCollaborationHandoff(env, scope, handoff, contextWrite)).not.toBeNull();
-  return { env, scope, handoffId, revoke: () => revokeSlackCoworkerIntake(env, member, grant.id) };
+  return { env, sqlite, scope, handoffId, revoke: () => revokeSlackCoworkerIntake(env, member, grant.id) };
 }
 
 describe("Slack coworker authority at real collaboration context boundaries", () => {
+  it("delivers a current frozen Slack handoff to fixture transport only after an explicit approval", async () => {
+    const f = await fixture(true);
+    const frozen = await freezeCollaborationContext(f.env, f.scope, ROOM, f.handoffId, TASK, ["selected_fact"], []);
+    const now = Date.now();
+    let approvals = createPendingApproval([], {
+      threadKey: "fixture-executor", approvalId: APPROVAL, repoUrl: "", task: frozen.task,
+      customAgentId: "helper", customAgentVersion: 1, collaborationHandoffId: f.handoffId,
+      createdAt: now,
+    });
+    await bindCollaborationContextApproval(f.env, f.handoffId, APPROVAL, frozen.task);
+    await linkCollaborationHandoffRun(f.env, f.scope, f.handoffId, APPROVAL, `agent-tool:${APPROVAL}`);
+    await finishSlackCoworkerExecution(f.env, f.handoffId, "queued");
+
+    // Compose the real approval transform and source fence with an in-memory executor transport.
+    const execute = vi.fn(async (request: Request) => Response.json({ accepted: await request.json() }));
+    const dispatch = async () => {
+      const approval = approvals.find(item => item.approvalId === APPROVAL);
+      if (approval?.status !== "approved" || !await isCollaborationApprovalDispatchable(f.env, {
+        handoffId: f.handoffId, approvalId: approval.approvalId,
+        employeeId: approval.customAgentId!, employeeVersion: approval.customAgentVersion!, task: approval.task,
+      })) return null;
+      return execute(new Request("https://fixture.invalid/execute", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handoffId: approval.collaborationHandoffId, approvalId: approval.approvalId, task: approval.task }),
+      }));
+    };
+    expect(await dispatch()).toBeNull();
+    expect(execute).not.toHaveBeenCalled();
+
+    const decision = resolvePendingApproval(approvals, {
+      threadKey: "fixture-executor", approvalId: APPROVAL, approved: true, decidedBy: f.scope.userId,
+    }, now + 1);
+    expect(decision.result).toBe("approved");
+    approvals = decision.approvals;
+    const delivered = await dispatch();
+    expect(execute).toHaveBeenCalledOnce();
+    expect(await delivered?.json()).toEqual({ accepted: {
+      handoffId: f.handoffId, approvalId: APPROVAL, task: frozen.task,
+    } });
+    expect(f.handoffId).toMatch(/^scx_/);
+
+    await f.revoke();
+    expect(await dispatch()).toBeNull();
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
   it.each([true, false])("rechecks queueability and approved dispatch after intake revocation (Slack: %s)", async (slack) => {
     const f = await fixture(slack);
     const frozen = await freezeCollaborationContext(f.env, f.scope, ROOM, f.handoffId, TASK, ["selected_fact"], []);
@@ -105,6 +152,31 @@ describe("Slack coworker authority at real collaboration context boundaries", ()
     expect(await queueable()).toBe(!slack);
     expect(await isCollaborationContextCurrent(f.env, f.handoffId, frozen.task, APPROVAL)).toBe(!slack);
     expect(await dispatchable()).toBe(!slack);
+  });
+
+  it.each([
+    "UPDATE slack_installations SET generation=generation+1",
+    "UPDATE slack_installations SET state='revoked'",
+    "UPDATE slack_coworker_bindings SET status='revoked'",
+    "UPDATE user SET emailVerified=0",
+    "UPDATE team_workspace_memberships SET version=version+1",
+  ])("fences a frozen Slack approval after authority changes: %s", async sql => {
+    const f = await fixture(true);
+    const frozen = await freezeCollaborationContext(f.env, f.scope, ROOM, f.handoffId, TASK, ["selected_fact"], []);
+    const dispatchable = () => isCollaborationApprovalDispatchable(f.env, {
+      handoffId: f.handoffId, approvalId: APPROVAL, employeeId: "helper", employeeVersion: 1, task: frozen.task,
+    });
+    expect(await dispatchable()).toBe(false);
+    await bindCollaborationContextApproval(f.env, f.handoffId, APPROVAL, frozen.task);
+    await linkCollaborationHandoffRun(f.env, f.scope, f.handoffId, APPROVAL, `agent-tool:${APPROVAL}`);
+    await finishSlackCoworkerExecution(f.env, f.handoffId, "queued");
+    expect(await dispatchable()).toBe(true);
+
+    f.sqlite.exec(sql);
+
+    expect(await isCollaborationContextQueueable(f.env, f.scope, ROOM, f.handoffId, frozen.task)).toBe(false);
+    expect(await isCollaborationContextCurrent(f.env, f.handoffId, frozen.task, APPROVAL)).toBe(false);
+    expect(await dispatchable()).toBe(false);
   });
 
   it.each([true, false])("withholds a frozen human assignment after intake revocation (Slack: %s)", async (slack) => {
