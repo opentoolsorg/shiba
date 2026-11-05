@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { OpenConnectorIntegrationProvider, openConnectorConnectionName } from "../src/integrations/openconnector-provider.js";
+import { createToolRegistry } from "../src/mcp-gateway.js";
+import { registerIntegrationTools } from "../src/mcp-integration-tools.js";
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const configured = {
   OPEN_CONNECTOR_URL: "https://connector.example.test",
@@ -199,6 +202,54 @@ describe("OpenConnector adapter", () => {
     const adapter = provider(fetchImpl); const approvedConnectionId = (await adapter.listConnections({ userId: "alice" }))[0]!.id;
     const result = await adapter.executeTool({ userId: "alice", toolkitSlug: "github", approvedConnectionId, toolSlug: "github.get_current_user", arguments: { limit: 2 }, connectedAccountId: "bobs-id", sessionId: "bobs-session" });
     expect(result).toEqual({ ok: true, status: "completed", output: { login: "alice" } });
+  });
+
+  it.each(["revoked", "cancelled", "allowed"])("rechecks trusted employee authority after the real account preflight: %s", async (scenario) => {
+    const row = { id: "approved-upstream-row", service: "github", connectionName: await openConnectorConnectionName("alice"), configured: true,
+      virtual: false, oauthAuthorizationId: "consent-frozen", profile: { displayName: "Alice" } };
+    let holdLookup = false;
+    let releaseLookup!: (response: Response) => void;
+    let beganLookup!: () => void;
+    const lookupStarted = new Promise<void>((resolve) => { beganLookup = resolve; });
+    const actionPosts: RequestInit[] = [];
+    const transport = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/connections") {
+        if (!holdLookup) return Response.json([row]);
+        beganLookup();
+        return new Promise<Response>((resolve) => { releaseLookup = resolve; });
+      }
+      expect(path).toBe("/v1/actions/github.create_issue");
+      if (init?.method !== "POST") return Response.json({ success: true, data: { id: "github.create_issue", service: "github", name: "Create issue" } });
+      actionPosts.push(init);
+      expect(new Headers(init.headers).get("x-oo-connector-app-id")).toBe(row.id);
+      expect(new Headers(init.headers).get("x-oo-connector-alias")).toBe(row.connectionName);
+      expect(JSON.parse(String(init.body))).toEqual({ input: { title: "Frozen approved title" } });
+      return Response.json({ success: true, data: { id: "created-once" } });
+    });
+    const bindings = { ...configured, OPEN_CONNECTOR: { fetch: transport }, AGENT_AUDIT: customAgentD1().database } as unknown as Env;
+    const adapter = provider(transport, bindings);
+    const approvedConnectionId = (await adapter.listConnections({ userId: "alice" }))[0]!.id;
+    let authorized = true;
+    let cancelled = false;
+    const revalidate = vi.fn(async () => {
+      if (!authorized) throw new Error("Employee grant revoked fixture");
+      if (cancelled) throw new DOMException("Employee task cancelled fixture", "AbortError");
+    });
+    const registry = createToolRegistry(bindings);
+    registerIntegrationTools(registry, bindings, "alice", revalidate, approvedConnectionId);
+    holdLookup = true;
+    const execution = registry.invoke("integrations.execute", { toolkitSlug: "github", toolSlug: "github.create_issue", arguments: { title: "Frozen approved title" } },
+      { principal: "employee-agent", orgId: "self-hosted", kind: "agent", scopes: ["integrations:execute"], created: 1, revoked: false });
+    await lookupStarted;
+    if (scenario === "revoked") authorized = false;
+    if (scenario === "cancelled") cancelled = true;
+    releaseLookup(Response.json([row]));
+    const result = await execution;
+    expect(actionPosts).toHaveLength(scenario === "allowed" ? 1 : 0);
+    expect(result.isError === true).toBe(scenario !== "allowed");
+    expect(result.structuredContent).toMatchObject({ ok: scenario === "allowed", status: scenario === "allowed" ? "completed" : "failed" });
+    expect(revalidate).toHaveBeenCalledTimes(3);
   });
 
   it("sanitizes upstream HTTP, JSON and network failures without logging tokens or outputs", async () => {

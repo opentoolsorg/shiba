@@ -171,7 +171,7 @@ describe("employee tool local workflow", () => {
     expect((await handleEmployeeTools(callRequest(employee.id, "integrations.execute", { ...args, arguments: { title: "Changed" } }), bindings))?.status).toBe(202);
     expect(integrations.executeTool).not.toHaveBeenCalled();
     expect((await handleEmployeeTools(callRequest(employee.id, "integrations.execute", args), bindings))?.status).toBe(200);
-    expect(integrations.executeTool).toHaveBeenCalledExactlyOnceWith({ ...args, userId: '["better-auth","owner-a"]', approvedConnectionId: 'connection:["better-auth","owner-a"]' });
+    expect(integrations.executeTool).toHaveBeenCalledExactlyOnceWith({ ...args, userId: '["better-auth","owner-a"]', approvedConnectionId: 'connection:["better-auth","owner-a"]', beforeDispatch: expect.any(Function), approvedUntil: expect.any(Number) });
     await handleEmployeeTools(callRequest(employee.id, "integrations.execute", args), bindings);
     expect(integrations.executeTool).toHaveBeenCalledTimes(1);
     authState.dashboard = true;
@@ -286,7 +286,7 @@ describe("employee tool local workflow", () => {
     expect(await otherCall.execute(input)).toMatchObject({ status: "pending_approval" });
     expect(integrations.executeTool).not.toHaveBeenCalled();
     expect(await call.execute(input)).toMatchObject({ ok: true, result: { structuredContent: { ok: true } } });
-    expect(integrations.executeTool).toHaveBeenCalledExactlyOnceWith({ ...input.args, userId: '["better-auth","owner-a"]', approvedConnectionId: 'connection:["better-auth","owner-a"]' });
+    expect(integrations.executeTool).toHaveBeenCalledExactlyOnceWith({ ...input.args, userId: '["better-auth","owner-a"]', approvedConnectionId: 'connection:["better-auth","owner-a"]', beforeDispatch: expect.any(Function), approvedUntil: expect.any(Number) });
   });
 
   it("routes employee endpoints through the org-authenticated API lane", () => {

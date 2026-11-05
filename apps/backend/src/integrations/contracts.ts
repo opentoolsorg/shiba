@@ -36,6 +36,12 @@ export interface IntegrationExecuteContext {
   connectedAccountId?: string;
   /** Internal employee-grant binding. Never accepted from an action's model arguments. */
   approvedConnectionId?: string;
+  /** Trusted Worker-only authority/cancellation recheck after provider preflight, never a wire argument. */
+  beforeDispatch?: () => Promise<void>;
+  /** Trusted task signal, checked synchronously at the final send boundary. */
+  signal?: AbortSignal;
+  /** Frozen human consent deadline. Internal only; never accepted from model or API arguments. */
+  approvedUntil?: number;
 }
 
 export interface IntegrationAction {
