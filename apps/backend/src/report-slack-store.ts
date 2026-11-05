@@ -15,6 +15,8 @@ import { hashToolArgs } from "./mcp-gateway.js";
 import { REPORT_SLACK_SCHEMA } from "./report-slack-schema.js";
 import { postReportSlackMessage } from "./report-slack-sender.js";
 import { loadFounderEvidenceReport, founderEvidenceReportGuard, type FounderEvidenceAuthority } from "./founder-evidence-reports.js";
+import { activeSlackInstallationForTeam, ensureSlackInstallations, readSlackInstallationCredential, slackInstallationGuard, slackOAuthConfiguration } from "./slack-installations-store.js";
+import { verifySlackInstallationBot } from "./slack-installations-oauth.js";
 
 interface Row {
   id: string; workspace_id: string; library_id: string; report_id: string; creator_id: string; creator_account_id: string;
@@ -48,23 +50,36 @@ function packed(guard: Guard): Guard {
   return { sql: `EXISTS(SELECT 1 FROM json_each(?) rsg WHERE ${sql})`, values: [JSON.stringify([guard.values])] };
 }
 function configured(env: Env): boolean {
-  return env.SLACK_ROOM_OUTBOX_ENABLED?.trim() === "true" && Boolean(env.SLACK_BOT_TOKEN?.trim() && env.SLACK_APPROVALS_CHANNEL?.trim()) &&
+  let tokenAvailable = Boolean(env.SLACK_BOT_TOKEN?.trim());
+  const managed = env.SLACK_INSTALLATIONS_ENABLED?.trim() === "true";
+  if (managed) { try { slackOAuthConfiguration(env); tokenAvailable = true; } catch { tokenAvailable = false; } }
+  return env.SLACK_ROOM_OUTBOX_ENABLED?.trim() === "true" && tokenAvailable && (managed || Boolean(env.SLACK_APPROVALS_CHANNEL?.trim())) &&
     parseApproverAllowlist(env.DASHBOARD_APPROVERS).length > 0 && parseSlackCanvasOwners(env.SLACK_CANVAS_OWNERS).length > 0;
 }
 function approver(env: Env, member: WorkspaceNativeMember): boolean { return member.role !== "member" && isApprover(member.userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS)); }
 export async function ensureReportSlackSchema(env: Env): Promise<void> {
   if (!env.AGENT_AUDIT) fail("report_slack_storage_unavailable", 503);
   if (initialized.has(env.AGENT_AUDIT)) return;
-  await ensureCollaborationSchema(env); await ensureTeamWorkspacesSchema(env);
+  await ensureCollaborationSchema(env); await ensureTeamWorkspacesSchema(env); await ensureSlackInstallations(env);
   for (const sql of REPORT_SLACK_SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
   initialized.add(env.AGENT_AUDIT);
 }
 function policyFor(env: Env, destination: ReportSlackDestination) {
   return parseSlackCanvasOwners(env.SLACK_CANVAS_OWNERS).find((policy) => policy.teamId === destination.teamId && policy.channelId === destination.channelId && policy.ownerId === destination.ownerId);
 }
+function installationGuard(env: Env, owner: WorkspaceNativeMember, destination: ReportSlackDestination): Guard {
+  const snapshot = destination.installation;
+  if (snapshot) {
+    if (env.SLACK_INSTALLATIONS_ENABLED?.trim() !== "true" || snapshot.workspaceId !== owner.workspaceId || snapshot.ownerAccountId !== owner.accountId || snapshot.teamId !== destination.teamId || snapshot.appId !== env.SLACK_OAUTH_APP_ID || !snapshot.scopes.includes("chat:write")) return { sql: "0=1", values: [] };
+    return slackInstallationGuard(snapshot);
+  }
+  if (env.SLACK_INSTALLATIONS_ENABLED?.trim() !== "true") return { sql: "NOT EXISTS(SELECT 1 FROM slack_installations WHERE team_id=?) AND NOT EXISTS(SELECT 1 FROM slack_installation_revocations WHERE team_id=?)", values: [destination.teamId, destination.teamId] };
+  if (env.SLACK_LEGACY_MODE_ENABLED?.trim() !== "true" || env.SLACK_LEGACY_TEAM_ID !== destination.teamId || env.SLACK_LEGACY_APP_ID !== env.SLACK_OAUTH_APP_ID || !env.SLACK_BOT_TOKEN?.trim()) return { sql: "0=1", values: [] };
+  return { sql: "NOT EXISTS(SELECT 1 FROM slack_installations WHERE app_id=? AND team_id=?) AND NOT EXISTS(SELECT 1 FROM slack_installation_revocations WHERE app_id=? AND team_id=?)", values: [env.SLACK_OAUTH_APP_ID, destination.teamId, env.SLACK_OAUTH_APP_ID, destination.teamId] };
+}
 /** Literal SQL and bound values only; no HTTP-supplied predicates. */
 function slackGuard(env: Env, owner: WorkspaceNativeMember, snapshot: LinkSnapshot, reader?: WorkspaceNativeMember) {
-  const d = snapshot.destination, native = membershipSql(owner, true), human = reader ? membershipSql(reader, true) : null;
+  const d = snapshot.destination, native = membershipSql(owner, true), human = reader ? membershipSql(reader, true) : null, installation = installationGuard(env, owner, d);
   const policy = policyFor(env, d), policyJson = policy ? JSON.stringify(policy) : "";
   return {
     sql: `${native.sql} AND ?=? AND ?=? AND EXISTS(SELECT 1 FROM collaboration_slack_room_links l JOIN collaboration_rooms r ON r.room_id=l.room_id AND r.tenant_id=l.tenant_id AND r.workspace_id=l.workspace_id
@@ -80,11 +95,11 @@ function slackGuard(env: Env, owner: WorkspaceNativeMember, snapshot: LinkSnapsh
         AND (NOT EXISTS(SELECT 1 FROM team_workspace_memberships t WHERE t.tenant_id=m.tenant_id AND t.workspace_id=m.workspace_id AND t.user_id=m.user_id AND t.status='active')
           OR (m.user_id<>? AND NOT EXISTS(SELECT 1 FROM json_each(?) WHERE value=m.user_id))))
       ${reader ? `AND EXISTS(SELECT 1 FROM collaboration_memberships v WHERE v.tenant_id=l.tenant_id AND v.workspace_id=l.workspace_id AND v.room_id=l.room_id AND v.actor_id=? AND v.user_id=? AND v.actor_kind='human' AND v.status='active' AND EXISTS(SELECT 1 FROM json_each(v.capabilities_json) WHERE value='room.read'))` : ""})
-      ${human ? `AND ${human.sql}` : ""}`,
-    values: [...native.values, policyJson, snapshot.policyJson, env.SLACK_APPROVALS_CHANNEL?.trim() ?? "", d.channelId,
+      ${human ? `AND ${human.sql}` : ""} AND ${installation.sql}`,
+    values: [...native.values, policyJson, snapshot.policyJson, d.installation ? d.channelId : env.SLACK_APPROVALS_CHANNEL?.trim() ?? "", d.channelId,
       owner.workspaceId, d.roomId, d.linkId, owner.userId, d.teamId, d.channelId, d.threadTs, snapshot.createdAt, d.roomTitle, snapshot.audienceJson,
       `human:${owner.userId}`, owner.userId, owner.userId, JSON.stringify(policy?.viewerIds ?? []),
-      ...(reader ? [`human:${reader.userId}`, reader.userId, ...human!.values] : [])],
+      ...(reader ? [`human:${reader.userId}`, reader.userId, ...human!.values] : []), ...installation.values],
   };
 }
 function snapshotOf(row: Row): LinkSnapshot { return { destination: destinationOf(row), audienceJson: row.audience_json, policyJson: row.policy_json, createdAt: row.link_created_at }; }
@@ -100,7 +115,12 @@ async function destinations(env: Env, owner: WorkspaceNativeMember): Promise<Lin
       threadTs: row.thread_ts, ownerId: owner.userId, roomAudienceIds: [...new Set(audience.map((item) => item.userId))].sort() });
     if (!d.success) continue;
     const policy = policyFor(env, d.data); if (!policy) continue;
-    const snapshot = { destination: d.data, audienceJson: row.audience_json, policyJson: JSON.stringify(policy), createdAt: row.created_at };
+    const destination = d.data;
+    if (env.SLACK_INSTALLATIONS_ENABLED?.trim() === "true") {
+      const installation = await activeSlackInstallationForTeam(env, env.SLACK_OAUTH_APP_ID ?? "", destination.teamId);
+      if (installation) destination.installation = installation;
+    }
+    const snapshot = { destination, audienceJson: row.audience_json, policyJson: JSON.stringify(policy), createdAt: row.created_at };
     const guard = slackGuard(env, owner, snapshot);
     if (await env.AGENT_AUDIT.prepare(`SELECT 1 AS current WHERE ${guard.sql}`).bind(...guard.values).first()) result.push(snapshot);
   }
@@ -213,14 +233,20 @@ export async function approveAndSendReportSlack(env: Env, member: WorkspaceNativ
   let state: "sent" | "blocked" | "failed" | "unknown" = "blocked", error = "report_slack_preflight_failed", receipt: string | null = null;
   let dispatched = false;
   try {
-    const token = env.SLACK_BOT_TOKEN!.trim(), installation = await (deps.verifyInstallation ?? verifySlackBotInstallation)(token);
-    if (installation.teamId !== destinationOf(row).teamId || !installation.userId || !installation.botId) fail("report_slack_installation_changed", 403);
+    const selected = destinationOf(row).installation;
+    const token = selected ? (await readSlackInstallationCredential(env, selected)).token : env.SLACK_BOT_TOKEN?.trim();
+    if (!token) fail("report_slack_installation_unavailable", 403);
+    const installation = await (deps.verifyInstallation ?? (selected ? verifySlackInstallationBot : verifySlackBotInstallation))(token);
+    if (installation.teamId !== destinationOf(row).teamId || !installation.userId || !installation.botId ||
+      selected && (installation.userId !== selected.botUserId || installation.botId !== selected.botId)) fail("report_slack_installation_changed", 403);
     const current = await boundReport(env, row); await verifySession();
     if (!configured(env) || !approver(env, member)) fail("report_slack_human_approver_required", 403);
     const last = finalGuard(env, row, current, member);
     if (!await env.AGENT_AUDIT.prepare(`SELECT 1 AS current FROM report_slack_deliveries WHERE id=? AND state='sending' AND digest=? AND approver_json=? AND ${last.sql}`)
       .bind(id, row.digest, JSON.stringify(member), ...last.values).first()) fail("report_slack_sources_changed", 403);
     const destination = destinationOf(row);
+    if (!configured(env) || !approver(env, member) || Date.now() >= row.expires_at || Date.now() >= current.expiresAt ||
+      selected?.expiresAt !== null && selected?.expiresAt !== undefined && Date.now() >= selected.expiresAt) fail("report_slack_expired_before_send", 403);
     // No asynchronous lookups follow the last authority snapshot. No automatic retry.
     dispatched = true;
     const response = await (deps.postMessage ?? postReportSlackMessage)(token, { channel: destination.channelId, threadTs: destination.threadTs, text: row.content, clientMsgId: row.request_id });
@@ -282,3 +308,7 @@ export async function readReportSlack(env: Env, member: WorkspaceNativeMember, l
   base.destinations = links.filter((link) => ids.has(`destination:${link.destination.linkId}`)).map((link) => link.destination);
   return { ...base, ...(!proof && candidates.length === 0 ? { available: false, unavailableReason: "report_slack_source_owner_required" } : !configured(env) ? { unavailableReason: "report_slack_not_configured" } : {}) };
 }
+
+/** Server-only reusable destination fence. A caller must also bind its own human/source grant and expiry. */
+export type ReportSlackLinkSnapshot = LinkSnapshot;
+export { destinations as listReportSlackDestinations, slackGuard as reportSlackDestinationGuard };

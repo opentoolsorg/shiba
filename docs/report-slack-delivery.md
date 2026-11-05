@@ -21,14 +21,21 @@ human authorship is used. The signed-in creator's disclosure and the separate
 configured native human's **Approve and send** are distinct actions.
 
 The recipient must already have an active immutable room link allowed by the
-strict `SLACK_CANVAS_OWNERS` owner/viewer policy, and its channel must equal
-`SLACK_APPROVALS_CHANNEL`. Approval requires a current native workspace manager
+strict `SLACK_CANVAS_OWNERS` owner/viewer policy. Legacy delivery channels must
+also equal `SLACK_APPROVALS_CHANNEL`. Approval requires a current native workspace manager
 who is also a human room reader and explicitly listed in `DASHBOARD_APPROVERS`.
 `SLACK_ROOM_OUTBOX_ENABLED=true`, a configured bot token and a valid policy are
 prerequisites. Missing configuration fails closed. The bot's `auth.test` team
 must match the selected team; the last combined D1 statement then rechecks the
 report, source receipts/grants, native identities, room, audience, link, exact
 approval and original expiry immediately before the fixed Slack POST.
+
+Optional [managed installations](slack-installations.md) bind the reviewed
+destination to its native-owned installation, app/team/bot identity, generation,
+version and token revision. Managed channels come only from that same explicit
+owner/viewer policy; the single legacy approvals channel does not stand in for
+another team's destination. A managed intent never falls back to a global bot
+token, including after refresh, revocation or disabling the feature.
 
 The complete escaped message, including its stored-excerpt/completeness/business
 success caveat, must fit **3,500 UTF-8 bytes**. An oversized report returns `413`;

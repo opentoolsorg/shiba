@@ -65,6 +65,8 @@ import { Spaces } from "./spaces-do.js";
 import { handleFounderSkills } from "./founder-skills-routes.js";
 import { handleFounderConnectorJobs } from "./founder-connector-routes.js";
 import { handleFounderEvidenceReports } from "./founder-evidence-routes.js";
+import { handleSlackInstallations } from "./slack-installations-routes.js";
+import { handleMultiInstallationSlackCallback } from "./slack-installations-routing.js";
 import { handleReportSlack } from "./report-slack-routes.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
 import { handleOrgModelKeys } from "./org-model-keys-routes.js";
@@ -261,6 +263,10 @@ export default {
       // request. The gate then composes both identity systems.
       const betterAuthResponse = await handleBetterAuth(request, env, { teamMemberPolicyEnabled: true });
       if (betterAuthResponse) return betterAuthResponse;
+      if (url.pathname === "/api/slack/installations/callback") {
+        const callback = await handleSlackInstallations(request, env);
+        if (callback) return callback;
+      }
       const devOAuthLoopbackResponse = await handleDevOAuthLoopback(request, env);
       if (devOAuthLoopbackResponse) {
         return devOAuthLoopbackResponse;
@@ -304,6 +310,8 @@ export default {
       }
       const memberPolicyResponse = await enforceTeamMemberApiPolicy(request, env);
       if (memberPolicyResponse) return memberPolicyResponse;
+      const slackInstallationResponse = await handleSlackInstallations(request, env);
+      if (slackInstallationResponse) return slackInstallationResponse;
       const workspaceIntegrationResponse = await handleWorkspaceIntegrations(request, env);
       if (workspaceIntegrationResponse) return workspaceIntegrationResponse;
       const personalExecutionResponse = await handlePersonalExecution(request, env);
@@ -461,6 +469,8 @@ export default {
       if (discordResponse) {
         return discordResponse;
       }
+      const managedSlackResponse = await handleMultiInstallationSlackCallback(request, env);
+      if (managedSlackResponse) return managedSlackResponse;
       const slackEventsResponse = await handleSlackEvents(
         request,
         env,
