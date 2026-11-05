@@ -1,11 +1,32 @@
-import { useState, type JSX } from "react";
-import { CheckSquare, ChevronDown, MessageSquare, Network, Plus, Search, Sliders, X } from "lucide-react";
-import { ContextPanel, PanelIconButton, PanelNavItem, type Scope } from "./ui/ContextPanel";
-import type { CustomAgentWire } from "./CustomAgentsView";
+import { CheckSquare, ChevronRight, Network, Pin, Plus, Search, Sliders, X } from "lucide-react";
+import { type JSX, useId, useState } from "react";
 import type { WebThread } from "../agent-threads";
-import { agentThreads } from "../agent-threads";
-import { employeeRole } from "../employee-templates";
-import { AgentAvatar } from "./AgentExperience";
+import { threadAgentId } from "../agent-threads";
+import { employeeRole, employeeRoleLabel } from "../employee-templates";
+import { AgentAvatar } from "./AgentAvatar";
+import { AgentThreadList, agentRunState, type ThreadRunState } from "./AgentThreadList";
+import type { CustomAgentWire } from "./CustomAgentsView";
+import { ContextPanel, PanelIconButton, PanelNavItem, type Scope } from "./ui/ContextPanel";
+
+const DEFAULT_AGENT_ID = "shiba";
+const PINNED_KEY = "shiba.agents.pinned";
+
+function readPinned(): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(PINNED_KEY) ?? "[]");
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePinned(ids: string[]): void {
+  try {
+    localStorage.setItem(PINNED_KEY, JSON.stringify(ids));
+  } catch {
+    // Pins are a per-viewer convenience; storage may be unavailable.
+  }
+}
 
 export interface AgentsPanelProps {
   scope: Scope;
@@ -14,16 +35,31 @@ export interface AgentsPanelProps {
   onSelect: (id: string) => void;
   agents?: CustomAgentWire[];
   threads?: WebThread[];
+  /** Live run state per thread id (e.g. the streaming session); overrides session metadata. */
+  threadStates?: Record<string, ThreadRunState>;
   onNewThread?: (agentId?: string) => void;
   onSelectThread?: (id: string) => void;
   onSelectAgent?: (id: string) => void;
   onNewAgent?: () => void;
+  /** Opens the agent catalog from the empty state; falls back to onNewAgent. */
+  onOpenCatalog?: () => void;
   ownerName?: string;
   workspaceName?: string;
   className?: string;
 }
 
-/** Secondary panel for Agents: lists custom agents, expandable threads, and nav destinations. */
+interface AgentRow {
+  id: string;
+  name: string;
+  subtitle: string;
+  agent?: CustomAgentWire;
+  threads: WebThread[];
+}
+
+const rowAction =
+  "flex size-6 shrink-0 items-center justify-center rounded text-[#71717a] hover:bg-[#d4d4d8] hover:text-[#0a0a0a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100";
+
+/** Secondary panel for Agents: the default chief of staff plus every custom agent, each with its threads. */
 export function AgentsPanel({
   scope,
   onScopeChange,
@@ -31,28 +67,80 @@ export function AgentsPanel({
   onSelect,
   agents = [],
   threads = [],
+  threadStates,
   onNewThread,
   onSelectThread,
   onSelectAgent,
   onNewAgent,
+  onOpenCatalog,
   ownerName,
   workspaceName,
   className = "",
 }: AgentsPanelProps): JSX.Element {
+  const listId = useId();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [pinned, setPinned] = useState<string[]>(readPinned);
 
-  const toggleExpand = (agentId: string) => {
-    setExpanded((prev) => ({ ...prev, [agentId]: !prev[agentId] }));
+  const togglePin = (agentId: string) => {
+    setPinned((prev) => {
+      const next = prev.includes(agentId)
+        ? prev.filter((id) => id !== agentId)
+        : [...prev, agentId];
+      writePinned(next);
+      return next;
+    });
   };
 
-  const filteredAgents = searchQuery.trim()
-    ? agents.filter((agent) =>
-        agent.config.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        agent.slug.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : agents;
+  const knownAgentIds = new Set(agents.map((agent) => agent.id));
+  // Unbound and orphaned sessions belong to the default agent; "default" always exists server-side.
+  const defaultThreads = threads.filter((thread) => !knownAgentIds.has(threadAgentId(thread)));
+  if (!defaultThreads.some((thread) => thread.id === "default")) {
+    defaultThreads.push({ id: "default", name: "Default session", agentName: "", updatedAt: 0 });
+  }
+  const byRecent = (a: WebThread, b: WebThread) => b.updatedAt - a.updatedAt;
+
+  const defaultRow: AgentRow = {
+    id: DEFAULT_AGENT_ID,
+    name: "Shiba",
+    subtitle:
+      scope === "workspace"
+        ? workspaceName
+          ? `${workspaceName} · Workspace`
+          : "Workspace"
+        : `${ownerName ?? "You"} · You`,
+    threads: defaultThreads.sort(byRecent),
+  };
+  const customRows: AgentRow[] = agents
+    .map((agent) => ({
+      id: agent.id,
+      name: agent.config.name,
+      subtitle: [
+        employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId)),
+        agent.config.harness,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      agent,
+      threads: threads
+        .filter((thread) => thread.id !== "default" && threadAgentId(thread) === agent.id)
+        .sort(byRecent),
+    }))
+    .sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)));
+
+  const query = searchQuery.trim().toLowerCase();
+  const matches = (row: AgentRow) =>
+    !query ||
+    row.name.toLowerCase().includes(query) ||
+    row.subtitle.toLowerCase().includes(query) ||
+    (row.agent?.slug.toLowerCase().includes(query) ?? false);
+  const rows = [defaultRow, ...customRows].filter(matches);
+
+  const openThread = (id: string) => {
+    onSelectThread?.(id);
+    onSelect(id);
+  };
 
   const actions = (
     <>
@@ -63,7 +151,11 @@ export function AgentsPanel({
           if (searchOpen) setSearchQuery("");
         }}
       >
-        {searchOpen ? <X className="size-4" strokeWidth={1.75} aria-hidden="true" /> : <Search className="size-4" strokeWidth={1.75} aria-hidden="true" />}
+        {searchOpen ? (
+          <X className="size-4" strokeWidth={1.75} aria-hidden="true" />
+        ) : (
+          <Search className="size-4" strokeWidth={1.75} aria-hidden="true" />
+        )}
       </PanelIconButton>
       <PanelIconButton label="New agent" onClick={onNewAgent}>
         <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" />
@@ -82,7 +174,10 @@ export function AgentsPanel({
       {searchOpen ? (
         <div className="mb-2 shrink-0 px-1">
           <div className="relative flex items-center">
-            <Search className="absolute left-2 size-3.5 text-[#71717a] dark:text-zinc-400" aria-hidden="true" />
+            <Search
+              className="absolute left-2 size-3.5 text-[#71717a] dark:text-zinc-400"
+              aria-hidden="true"
+            />
             <input
               type="search"
               value={searchQuery}
@@ -97,134 +192,147 @@ export function AgentsPanel({
         </div>
       ) : null}
 
-      <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto" role="list" aria-label="Custom agents">
-        {filteredAgents.length === 0 ? (
+      <div className="flex flex-1 flex-col overflow-y-auto">
+        {rows.length === 0 ? (
           <p className="px-2 py-3 text-center text-[12px] text-[#71717a] dark:text-zinc-500">
-            {searchQuery ? "No matching agents" : "No agents yet"}
+            No matching agents
           </p>
-        ) : (
-          filteredAgents.map((agent) => {
-            const isExpanded = expanded[agent.id] ?? false;
-            const agentThreadList = agentThreads(threads, agent.id);
-            const isAgentActive = active === agent.id;
-            const subtitle =
-              scope === "workspace"
-                ? workspaceName ? `${workspaceName} · Workspace` : "Workspace"
-                : `${ownerName ?? "You"} · You`;
-
+        ) : null}
+        <ul className="flex flex-col gap-0.5" aria-label="Agents">
+          {rows.map((row) => {
+            const isDefault = row.id === DEFAULT_AGENT_ID;
+            const isExpanded =
+              expanded[row.id] ?? (isDefault || row.threads.some((thread) => thread.id === active));
+            const status = agentRunState(row.threads, threadStates);
+            const isPinned = pinned.includes(row.id);
+            const threadsId = `${listId}-${row.id}`;
             return (
-              <div key={agent.id} className="flex flex-col" role="listitem">
+              <li key={row.id} className="flex flex-col">
                 <div
-                  className={`group relative flex items-center justify-between rounded-lg px-2 py-1.5 transition-colors ${
-                    isAgentActive
+                  className={`group relative flex items-center gap-0.5 rounded-lg px-2 py-1.5 transition-colors ${
+                    active === row.id
                       ? "bg-[#e4e4e7] dark:bg-zinc-800"
                       : "hover:bg-[#f4f4f5] dark:hover:bg-zinc-800/60"
                   }`}
                 >
                   <button
                     type="button"
+                    aria-current={active === row.id ? "page" : undefined}
                     onClick={() => {
-                      onSelectAgent?.(agent.id);
-                      onSelect(agent.id);
+                      if (row.agent) {
+                        onSelectAgent?.(row.id);
+                        onSelect(row.id);
+                        return;
+                      }
+                      const latest = row.threads[0];
+                      if (latest) openThread(latest.id);
                     }}
-                    className="flex min-w-0 flex-1 items-center gap-2.5 text-left rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                    className="flex min-w-0 flex-1 items-center gap-2.5 rounded text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
                   >
-                    <div className="shrink-0">
-                      {agent.config.emoji ? (
-                        <span className="flex size-7 items-center justify-center text-sm">{agent.config.emoji}</span>
-                      ) : (
-                        <AgentAvatar
-                          name={agent.config.name}
-                          slug={agent.slug}
-                          role={employeeRole(agent.slug, agent.config.roleTemplateId)}
-                        />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-medium text-[#0a0a0a] dark:text-zinc-100">
-                        {agent.config.name}
-                      </div>
-                      <div className="truncate text-[11px] text-[#71717a] dark:text-zinc-400">
-                        {subtitle}
-                      </div>
-                    </div>
+                    <AgentAvatar
+                      id={isDefault ? DEFAULT_AGENT_ID : (row.agent?.slug ?? row.id)}
+                      name={row.name}
+                      role={
+                        row.agent
+                          ? employeeRole(row.agent.slug, row.agent.config.roleTemplateId)
+                          : undefined
+                      }
+                      size={28}
+                      status={status}
+                      decorative
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium text-[#0a0a0a] dark:text-zinc-100">
+                        {row.name}
+                      </span>
+                      <span className="block truncate text-[11px] text-[#71717a] dark:text-zinc-400">
+                        {row.subtitle}
+                      </span>{" "}
+                    </span>
                   </button>
-
-                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  {row.agent ? (
                     <button
                       type="button"
-                      aria-label={`New thread with ${agent.config.name}`}
-                      title={`New thread with ${agent.config.name}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onNewThread?.(agent.id);
-                      }}
-                      className="flex size-6 items-center justify-center rounded text-[#71717a] hover:bg-[#d4d4d8] hover:text-[#0a0a0a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+                      aria-label={`${isPinned ? "Unpin" : "Pin"} ${row.name}`}
+                      title={`${isPinned ? "Unpin" : "Pin"} ${row.name}`}
+                      aria-pressed={isPinned}
+                      onClick={() => togglePin(row.id)}
+                      className={`${rowAction} ${isPinned ? "" : "sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100"}`}
                     >
-                      <Plus className="size-3.5" strokeWidth={2} aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`${isExpanded ? "Collapse" : "Expand"} ${agent.config.name}`}
-                      title={`${isExpanded ? "Collapse" : "Expand"} ${agent.config.name}`}
-                      aria-expanded={isExpanded}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleExpand(agent.id);
-                      }}
-                      className="flex size-6 items-center justify-center rounded text-[#71717a] hover:bg-[#d4d4d8] hover:text-[#0a0a0a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
-                    >
-                      <ChevronDown
-                        className={`size-3.5 transition-transform duration-150 ${isExpanded ? "" : "-rotate-90"}`}
+                      <Pin
+                        className={`size-3.5 ${isPinned ? "fill-current" : ""}`}
                         strokeWidth={2}
                         aria-hidden="true"
                       />
                     </button>
-                  </div>
-                </div>
-
-                {isExpanded ? (
-                  <div
-                    className="relative ml-5 mt-0.5 flex flex-col border-l border-[#e4e4e7] pl-2.5 dark:border-zinc-800"
-                    role="group"
-                    aria-label={`${agent.config.name} threads`}
+                  ) : null}
+                  <button
+                    type="button"
+                    aria-label={`New thread with ${row.name}`}
+                    title={`New thread with ${row.name}`}
+                    onClick={() => onNewThread?.(row.agent?.id)}
+                    className={rowAction}
                   >
-                    {agentThreadList.length === 0 ? (
-                      <span className="py-1 text-[12px] text-[#71717a] dark:text-zinc-500">No threads yet</span>
-                    ) : (
-                      agentThreadList.map((thread) => {
-                        const isThreadActive = active === thread.id;
-                        return (
-                          <button
-                            key={thread.id}
-                            type="button"
-                            aria-current={isThreadActive ? "page" : undefined}
-                            onClick={() => {
-                              onSelectThread?.(thread.id);
-                              onSelect(thread.id);
-                            }}
-                            className={`group/thread relative flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] transition-colors ${
-                              isThreadActive
-                                ? "bg-[#e4e4e7] font-medium text-[#0a0a0a] dark:bg-zinc-800 dark:text-zinc-100"
-                                : "text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100"
-                            }`}
-                          >
-                            <span className="absolute -left-2.5 top-1/2 h-px w-2 bg-[#e4e4e7] dark:bg-zinc-800" aria-hidden="true" />
-                            <MessageSquare className="size-3.5 shrink-0 opacity-70" strokeWidth={1.75} aria-hidden="true" />
-                            <span className="truncate">{thread.name || "Untitled thread"}</span>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
+                    <Plus className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`${isExpanded ? "Collapse" : "Expand"} ${row.name}`}
+                    title={`${isExpanded ? "Collapse" : "Expand"} ${row.name}`}
+                    aria-expanded={isExpanded}
+                    aria-controls={isExpanded ? threadsId : undefined}
+                    onClick={() => setExpanded((prev) => ({ ...prev, [row.id]: !isExpanded }))}
+                    className={rowAction}
+                  >
+                    <ChevronRight
+                      className={`size-3.5 motion-safe:transition-transform motion-safe:duration-150 ${isExpanded ? "rotate-90" : ""}`}
+                      strokeWidth={2}
+                      aria-hidden="true"
+                    />
+                  </button>
+                </div>
+                {isExpanded ? (
+                  <AgentThreadList
+                    id={threadsId}
+                    agentName={row.name}
+                    threads={row.threads}
+                    activeId={active}
+                    threadStates={threadStates}
+                    onSelect={openThread}
+                  />
                 ) : null}
-              </div>
+              </li>
             );
-          })
-        )}
+          })}
+        </ul>
+
+        {agents.length === 0 && !query ? (
+          <div className="mt-3 rounded-xl border border-dashed border-[#e4e4e7] px-3 py-6 text-center dark:border-zinc-800">
+            <AgentAvatar
+              id="support-triage"
+              name="Your next teammate"
+              size={72}
+              decorative
+              className="mx-auto"
+            />
+            <h3 className="mt-3 text-[14px] font-semibold text-[#0a0a0a] dark:text-zinc-100">
+              Make room for good work.
+            </h3>
+            <p className="mt-1.5 text-[12px] leading-relaxed text-[#71717a] dark:text-zinc-400">
+              A teammate for the work you love. And the work you don’t.
+            </p>
+            <button
+              type="button"
+              onClick={() => (onOpenCatalog ?? onNewAgent)?.()}
+              className="mt-4 min-h-11 w-full rounded-lg bg-[#0a0a0a] px-3 text-[12px] font-medium text-white hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:focus-visible:ring-offset-zinc-900"
+            >
+              Hire your first teammate
+            </button>
+          </div>
+        ) : null}
       </div>
 
-      <div className="mt-auto border-t border-[#e4e4e7] pt-2 dark:border-zinc-800 flex flex-col gap-0.5">
+      <div className="mt-auto flex flex-col gap-0.5 border-t border-[#e4e4e7] pt-2 dark:border-zinc-800">
         <PanelNavItem
           icon={Sliders}
           label="Tool policy"

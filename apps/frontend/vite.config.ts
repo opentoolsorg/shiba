@@ -35,6 +35,23 @@ export default defineConfig({
     open: "/",
   },
   plugins: [
+    {
+      name: "agent-mascot-assets",
+      applyToEnvironment: (env) => env.name === "client",
+      generateBundle() {
+        for (const name of ["agni", "chanakya", "kavi", "mitra", "shravan", "ved", "vishwa"]) {
+          this.emitFile({ type: "asset", fileName: `assets/agents/${name}.png`, source: readFileSync(resolve(rootDir, "public/assets/agents", `${name}.png`)) });
+        }
+      },
+      configureServer(server) {
+        server.middlewares.use("/assets/agents", (req, res, next) => {
+          const name = (req.url ?? "").split("?")[0] ?? "";
+          if (!/^\/(agni|chanakya|kavi|mitra|shravan|ved|vishwa)\.png$/.test(name)) { next(); return; }
+          res.writeHead(200, { "content-type": "image/png" });
+          res.end(readFileSync(resolve(rootDir, "public/assets/agents", name.slice(1))));
+        });
+      },
+    },
     tanstackStart({
       // The Worker serves /app/ from public/app/index.html; the default shell is /_shell.html.
       spa: { enabled: true, maskPath: "/app", prerender: { outputPath: "/app/index" } },

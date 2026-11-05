@@ -15,7 +15,7 @@ describe("WorkHeader", () => {
 
     render(
       <WorkHeader
-        crumbs={["Personal", "Work", "List"]}
+        crumbs={["Workspace", "Work", "List"]}
         countLabel="0 open"
         sidebarCollapsed={false}
         onToggleSidebar={onToggleSidebar}
@@ -24,7 +24,7 @@ describe("WorkHeader", () => {
       />,
     );
 
-    expect(screen.getByText("Personal")).toBeTruthy();
+    expect(screen.getByText("Workspace")).toBeTruthy();
     expect(screen.getByText("Work")).toBeTruthy();
     const lastCrumb = screen.getByText("List");
     expect(lastCrumb).toBeTruthy();
@@ -38,7 +38,7 @@ describe("WorkHeader", () => {
 
     const { rerender } = render(
       <WorkHeader
-        crumbs={["Personal", "Work", "List"]}
+        crumbs={["Workspace", "Work", "List"]}
         sidebarCollapsed={false}
         onToggleSidebar={onToggleSidebar}
         onSearch={vi.fn()}
@@ -55,7 +55,7 @@ describe("WorkHeader", () => {
 
     rerender(
       <WorkHeader
-        crumbs={["Personal", "Work", "List"]}
+        crumbs={["Workspace", "Work", "List"]}
         sidebarCollapsed={true}
         onToggleSidebar={onToggleSidebar}
         onSearch={vi.fn()}
@@ -91,13 +91,49 @@ describe("WorkHeader", () => {
     const newTaskButton = screen.getByRole("button", { name: "New task" });
     fireEvent.click(newTaskButton);
     expect(onNewTask).toHaveBeenCalledTimes(1);
+    expect(newTaskButton.textContent).toBe("New task");
+  });
+
+  it("marks the search control expanded when the filter input is open", () => {
+    render(
+      <WorkHeader
+        crumbs={["Workspace", "Work", "List"]}
+        sidebarCollapsed={false}
+        searchOpen
+        onToggleSidebar={vi.fn()}
+        onSearch={vi.fn()}
+        onNewTask={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Filter tasks" }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+  });
+
+  it("appends an open task title as a truncated current crumb with its full text as title", () => {
+    const title = "A very long task title that should be truncated in the breadcrumb bar";
+    render(
+      <WorkHeader
+        crumbs={["Workspace", "Work", "List", title]}
+        countLabel="3 open"
+        sidebarCollapsed={false}
+        onToggleSidebar={vi.fn()}
+        onSearch={vi.fn()}
+        onNewTask={vi.fn()}
+      />,
+    );
+    const crumb = screen.getByText(title);
+    expect(crumb.getAttribute("aria-current")).toBe("page");
+    expect(crumb.getAttribute("title")).toBe(title);
+    expect(crumb.className).toContain("truncate");
+    expect(screen.getByText("List").getAttribute("aria-current")).toBeNull();
   });
 
   it("renders segmented view control when activeView and onViewChange are provided", () => {
     const onViewChange = vi.fn();
     render(
       <WorkHeader
-        crumbs={["Personal", "Work", "List"]}
+        crumbs={["Workspace", "Work", "List"]}
         sidebarCollapsed={true}
         onToggleSidebar={vi.fn()}
         onSearch={vi.fn()}

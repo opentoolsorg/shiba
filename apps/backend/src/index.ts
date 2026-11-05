@@ -31,6 +31,7 @@ import { tickFounderConnectorJobs } from "./founder-connector-jobs.js";
 import { handleOnboardingProgress } from "./onboarding-progress.js";
 import { handleCollaborationWithRealtime } from "./collaboration-room-routes.js";
 import { handleTeamWorkspaces } from "./team-workspaces-routes.js";
+import { handleFirstRunSeed } from "./first-run-seed.js";
 import { handleTeamWork } from "./team-work-routes.js";
 import { handleEmployeeBundles } from "./employee-bundles-routes.js";
 import { enforceTeamMemberApiPolicy } from "./team-member-auth.js";
@@ -346,6 +347,8 @@ export default {
       if (workResponse) return workResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);
       if (workspaceResponse) return workspaceResponse;
+      const seedResponse = await handleFirstRunSeed(request, env);
+      if (seedResponse) return seedResponse;
       const bundleResponse = await handleEmployeeBundles(request, env);
       if (bundleResponse) return bundleResponse;
       const gmailResponse = await handleGmail(request, env);

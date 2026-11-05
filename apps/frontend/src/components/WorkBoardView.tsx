@@ -1,18 +1,14 @@
-import type { JSX } from "react";
-import {
-  AlertCircle,
-  Ban,
-  CheckCircle2,
-  GitPullRequest,
-  Circle,
-  Clock,
-  LoaderCircle,
-  TriangleAlert,
-} from "lucide-react";
-import type { TaskHistoryAttempt, TaskHistoryItem, TaskHistoryStatus } from "./TaskHistory";
 import type { RunStatus } from "@shiba/shared";
-import { formatTimeAgo, statusLabel } from "../ui-helpers";
+import { type DragEvent, type JSX, useState } from "react";
+import { AgentAvatar } from "./AgentAvatar";
+import type { TaskHistoryAttempt, TaskHistoryItem, TaskHistoryStatus } from "./TaskHistory";
 import { viewButtonClass } from "./ui/ViewChrome";
+import {
+  WORK_LIST_GROUPS,
+  type WorkListGroup,
+  WorkStatusIcon,
+  workListGroup,
+} from "./WorkListView";
 
 export type BoardTaskStatus = TaskHistoryStatus | RunStatus | string;
 
@@ -24,124 +20,47 @@ export interface WorkBoardTask {
   repoName?: string;
   error?: string;
   attempts?: TaskHistoryAttempt[];
+  assigneeActorId?: string;
+  assigneeUserId?: string;
+  assigneeName?: string;
+  assigneeKind?: "human" | "agent";
 }
 
 export interface WorkBoardViewProps {
   tasks: (WorkBoardTask | TaskHistoryItem)[];
   onOpen: (id: string) => void;
+  /** Moves a task to another column; drag-and-drop and the status menu are disabled without it. */
+  onMove?: (id: string, status: BoardWireStatus) => void;
   /** Opens the approval review for a needs-approval card. */
   onReview?: (id: string) => void;
   className?: string;
 }
 
-export type KanbanColumnId = "todo" | "in_progress" | "needs_approval" | "attention" | "pr_open" | "done";
+export type KanbanColumnId =
+  | "todo"
+  | "in_progress"
+  | "needs_approval"
+  | "attention"
+  | "pr_open"
+  | "done";
 
-export interface KanbanColumnDef {
-  id: KanbanColumnId;
-  title: string;
-  emptyText: string;
-  dotClass: string;
-}
-
-export const KANBAN_COLUMNS: readonly KanbanColumnDef[] = [
-  {
-    id: "todo",
-    title: "Todo",
-    emptyText: "No tasks in Todo",
-    dotClass: "bg-zinc-400 dark:bg-zinc-500",
-  },
-  {
-    id: "in_progress",
-    title: "In progress",
-    emptyText: "Nothing in progress",
-    dotClass: "bg-blue-500 dark:bg-blue-400",
-  },
-  {
-    id: "needs_approval",
-    title: "Needs approval",
-    emptyText: "Nothing needs approval",
-    dotClass: "bg-amber-500 dark:bg-amber-400",
-  },
-  {
-    id: "attention",
-    title: "Needs attention",
-    emptyText: "Nothing needs attention",
-    dotClass: "bg-rose-500 dark:bg-rose-400",
-  },
-  {
-    id: "pr_open",
-    title: "PR open",
-    emptyText: "No open pull requests",
-    dotClass: "bg-violet-500 dark:bg-violet-400",
-  },
-  {
-    id: "done",
-    title: "Done",
-    emptyText: "No completed tasks",
-    dotClass: "bg-emerald-500 dark:bg-emerald-400",
-  },
-] as const;
-
-export interface NormalizedBoardTask {
-  id: string;
-  title: string;
-  status: string;
-  updatedAt: number;
-  repoName?: string;
-  error?: string;
-}
-
-/**
- * Normalizes either a TaskHistoryItem (Shiba task history) or a WorkBoardTask
- * into a consistent shape without inventing fields.
- */
-export function normalizeBoardTask(item: WorkBoardTask | TaskHistoryItem): NormalizedBoardTask {
-  if ("taskId" in item && typeof item.taskId === "string") {
-    const latestAttempt = item.attempts?.at(-1);
-    return {
-      id: item.taskId,
-      title: item.title || "Untitled task",
-      status: latestAttempt?.status ?? "pending",
-      updatedAt: item.updatedAt ?? latestAttempt?.updatedAt ?? 0,
-      error: latestAttempt?.error,
-    };
-  }
-
-  const task = item as WorkBoardTask;
-  const latestAttempt = task.attempts?.at(-1);
-  return {
-    id: task.id,
-    title: task.title || "Untitled task",
-    status: task.status ?? latestAttempt?.status ?? "pending",
-    updatedAt: task.updatedAt ?? latestAttempt?.updatedAt ?? 0,
-    repoName: task.repoName,
-    error: task.error ?? latestAttempt?.error,
-  };
-}
-
-/**
- * Derives the kanban column from Shiba's real task/session status type.
- */
+/** Run-oriented grouping kept for WorkView's status normalisation. */
 export function deriveKanbanColumn(status: string): KanbanColumnId {
-  const normalized = status.toLowerCase().trim();
-  switch (normalized) {
+  switch (status.toLowerCase().trim()) {
     case "pending_approval":
     case "waiting-approval":
     case "needs-approval":
     case "needs_approval":
     case "needs-provider":
       return "needs_approval";
-
     case "running":
     case "live":
     case "in_progress":
     case "in-progress":
       return "in_progress";
-
     case "pr-open":
     case "pr_open":
       return "pr_open";
-
     case "error":
     case "aborted":
     case "cancelled":
@@ -149,240 +68,236 @@ export function deriveKanbanColumn(status: string): KanbanColumnId {
     case "expired":
     case "unknown":
       return "attention";
-
     case "completed":
     case "done":
       return "done";
-
     default:
       return "todo";
   }
 }
 
-function getTaskBadge(status: string) {
-  const s = status.toLowerCase().trim();
-  switch (s) {
-    case "completed":
-    case "done":
-      return {
-        label: "Completed",
-        className:
-          "text-emerald-700 bg-emerald-50 border-emerald-200/80 dark:text-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-800",
-        icon: CheckCircle2,
-        spin: false,
-      };
-    case "pr-open":
-    case "pr_open":
-      return {
-        label: "PR open",
-        className:
-          "text-violet-700 bg-violet-50 border-violet-200/80 dark:text-violet-300 dark:bg-violet-950/40 dark:border-violet-800",
-        icon: GitPullRequest,
-        spin: false,
-      };
-    case "running":
+/** Maps any task/run status onto the five board columns, matching the List view's groups. */
+/** Hyphenated status as stored on TeamWorkItem; column ids stay underscored internally. */
+export type BoardWireStatus = "backlog" | "todo" | "in-progress" | "in-review" | "done";
+
+export function toWireStatus(column: WorkListGroup): BoardWireStatus {
+  return column.replace("_", "-") as BoardWireStatus;
+}
+
+export function boardColumn(status: string): WorkListGroup {
+  switch (status.toLowerCase().replace(/[\s-]/g, "_")) {
     case "live":
-      return {
-        label: "Running",
-        className:
-          "text-blue-700 bg-blue-50 border-blue-200/80 dark:text-blue-300 dark:bg-blue-950/40 dark:border-blue-800",
-        icon: LoaderCircle,
-        spin: true,
-      };
+      return "in_progress";
+    case "pr_open":
     case "pending_approval":
-    case "waiting-approval":
-      return {
-        label: "Needs approval",
-        className:
-          "text-amber-700 bg-amber-50 border-amber-200/80 dark:text-amber-300 dark:bg-amber-950/40 dark:border-amber-800",
-        icon: Clock,
-        spin: false,
-      };
-    case "error":
-    case "aborted":
-    case "rejected":
-    case "expired":
-      return {
-        label: statusLabel(s),
-        className:
-          "text-rose-700 bg-rose-50 border-rose-200/80 dark:text-rose-300 dark:bg-rose-950/40 dark:border-rose-800",
-        icon: AlertCircle,
-        spin: false,
-      };
-    case "cancelled":
-      return {
-        label: "Cancelled",
-        className:
-          "text-zinc-600 bg-zinc-100 border-zinc-200 dark:text-zinc-400 dark:bg-zinc-800 dark:border-zinc-700",
-        icon: Ban,
-        spin: false,
-      };
-    case "unknown":
-      return {
-        label: "Unknown",
-        className:
-          "text-amber-700 bg-amber-50 border-amber-200/80 dark:text-amber-300 dark:bg-amber-950/40 dark:border-amber-800",
-        icon: TriangleAlert,
-        spin: false,
-      };
-    case "submitting":
-      return {
-        label: "Submitting",
-        className:
-          "text-blue-700 bg-blue-50 border-blue-200/80 dark:text-blue-300 dark:bg-blue-950/40 dark:border-blue-800",
-        icon: LoaderCircle,
-        spin: true,
-      };
+    case "waiting_approval":
+    case "needs_provider":
+      return "in_review";
     default:
-      return {
-        label: statusLabel(s),
-        className:
-          "text-zinc-600 bg-zinc-100 border-zinc-200 dark:text-zinc-400 dark:bg-zinc-800 dark:border-zinc-700",
-        icon: Circle,
-        spin: false,
-      };
+      return workListGroup(status);
   }
 }
 
-/**
- * Kanban Board view for tasks:
- * Columns: Todo, In progress, Needs approval, Needs attention, PR open, Done.
- * Rounded-xl columns with header + count and muted empty-column text.
- */
+export interface NormalizedBoardTask {
+  id: string;
+  title: string;
+  status: string;
+  error?: string;
+  assigneeId?: string;
+  assigneeName?: string;
+  assigneeKind?: "human" | "agent";
+}
+
+/** Normalizes a TaskHistoryItem or WorkBoardTask into one shape without inventing fields. */
+export function normalizeBoardTask(item: WorkBoardTask | TaskHistoryItem): NormalizedBoardTask {
+  if ("taskId" in item && typeof item.taskId === "string") {
+    const latestAttempt = item.attempts?.at(-1);
+    return {
+      id: item.taskId,
+      title: item.title || "Untitled task",
+      status: latestAttempt?.status ?? "pending",
+      error: latestAttempt?.error,
+    };
+  }
+  const task = item as WorkBoardTask;
+  const latestAttempt = task.attempts?.at(-1);
+  return {
+    id: task.id,
+    title: task.title || "Untitled task",
+    status: task.status ?? latestAttempt?.status ?? "pending",
+    error: task.error ?? latestAttempt?.error,
+    assigneeId: task.assigneeActorId ?? task.assigneeUserId,
+    assigneeName: task.assigneeName,
+    assigneeKind: task.assigneeKind,
+  };
+}
+
+function AssigneeSlot({ task }: { task: NormalizedBoardTask }): JSX.Element {
+  const name = task.assigneeName ?? task.assigneeId;
+  if (!task.assigneeId || !name) {
+    return (
+      <span
+        role="img"
+        aria-label="Unassigned"
+        className="size-5 shrink-0 rounded-full border border-dashed border-zinc-300 dark:border-zinc-600"
+      />
+    );
+  }
+  if (task.assigneeKind === "agent")
+    return <AgentAvatar id={task.assigneeId} name={name} size={20} />;
+  return (
+    <span
+      role="img"
+      aria-label={name}
+      className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-700 dark:text-zinc-100"
+    >
+      {name.trim().charAt(0).toUpperCase() || "?"}
+    </span>
+  );
+}
+
+/** Kanban board: Backlog, Todo, In progress, In review, Done, with drag-and-drop and a per-card status menu. */
 export function WorkBoardView({
   tasks,
   onOpen,
+  onMove,
   onReview,
   className = "",
 }: WorkBoardViewProps): JSX.Element {
-  const normalizedTasks = tasks.map(normalizeBoardTask);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [overColumn, setOverColumn] = useState<WorkListGroup | null>(null);
+  const normalized = tasks.map(normalizeBoardTask);
 
-  const columnMap: Record<KanbanColumnId, NormalizedBoardTask[]> = {
-    todo: [],
-    in_progress: [],
-    needs_approval: [],
-    attention: [],
-    pr_open: [],
-    done: [],
+  const move = (id: string, to: WorkListGroup) => {
+    const task = normalized.find((t) => t.id === id);
+    if (task && boardColumn(task.status) !== to) onMove?.(id, toWireStatus(to));
   };
 
-  for (const task of normalizedTasks) {
-    const col = deriveKanbanColumn(task.status);
-    columnMap[col].push(task);
-  }
+  const dropProps = (column: WorkListGroup) =>
+    onMove
+      ? {
+          onDragOver: (e: DragEvent) => {
+            e.preventDefault();
+            setOverColumn(column);
+          },
+          onDragLeave: (e: DragEvent) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOverColumn(null);
+          },
+          onDrop: (e: DragEvent) => {
+            e.preventDefault();
+            const id = e.dataTransfer?.getData("text/plain") || draggingId;
+            setOverColumn(null);
+            setDraggingId(null);
+            if (id) move(id, column);
+          },
+        }
+      : {};
 
   return (
     <section
       aria-label="Work board"
-      className={`w-full flex-1 flex flex-col min-h-0 overflow-y-auto ${className}`.trim()}
+      className={`flex min-h-0 w-full flex-1 flex-col ${className}`.trim()}
     >
-      <div className="p-4 w-full flex-1 min-h-0">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5 h-full items-start">
-          {KANBAN_COLUMNS.map((col) => {
-            const colTasks = columnMap[col.id];
-            return (
-              <div
-                key={col.id}
-                data-testid={`kanban-column-${col.id}`}
-                className="rounded-xl bg-zinc-50/80 dark:bg-zinc-900/40 border border-zinc-200/80 dark:border-zinc-800/80 p-3 flex flex-col min-h-[280px]"
-              >
-                {/* Column Header + count */}
-                <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-zinc-200/60 dark:border-zinc-800/60 select-none">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`size-2 rounded-full ${col.dotClass}`}
-                      aria-hidden="true"
-                    />
-                    <h3 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                      {col.title}
-                    </h3>
-                  </div>
-                  <span className="px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-zinc-200/70 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 tabular-nums">
-                    {colTasks.length}
-                  </span>
+      <div className="flex min-h-0 flex-1 snap-x gap-3 overflow-x-auto p-4">
+        {WORK_LIST_GROUPS.map((col) => {
+          const colTasks = normalized.filter((t) => boardColumn(t.status) === col.id);
+          const isOver = overColumn === col.id;
+          return (
+            <section
+              key={col.id}
+              aria-label={col.label}
+              data-testid={`board-column-${col.id}`}
+              className={`flex w-[min(17rem,calc(100vw-3rem))] shrink-0 snap-start flex-col rounded-xl p-2 motion-safe:transition-colors ${isOver ? "bg-zinc-100 dark:bg-zinc-800/60" : "bg-zinc-50/80 dark:bg-zinc-900/40"}`}
+              {...dropProps(col.id)}
+            >
+              <h3 className="flex items-center gap-2 px-1.5 pb-2 pt-1 text-xs font-semibold text-zinc-900 select-none dark:text-zinc-100">
+                <WorkStatusIcon group={col.id} />
+                {col.label}
+                <span className="font-normal tabular-nums text-zinc-500 dark:text-zinc-400">
+                  {colTasks.length}
+                </span>
+              </h3>
+
+              {colTasks.length === 0 ? (
+                <div
+                  className={`flex min-h-24 items-center justify-center rounded-lg border border-dashed text-xs select-none ${isOver ? "border-zinc-400 text-zinc-600 dark:border-zinc-500 dark:text-zinc-300" : "border-zinc-300 text-zinc-400 dark:border-zinc-700 dark:text-zinc-500"}`}
+                >
+                  Nothing here
                 </div>
-
-                {/* Card rows or empty text */}
-                {colTasks.length === 0 ? (
-                  <div className="flex flex-1 items-center justify-center py-10 px-3 text-center select-none">
-                    <p className="text-xs text-zinc-400 dark:text-zinc-500 font-normal">
-                      {col.emptyText}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {colTasks.map((task) => {
-                      const badge = getTaskBadge(task.status);
-                      const BadgeIcon = badge.icon;
-                      return (
-                        <div key={task.id} className="flex flex-col gap-1.5">
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          data-testid={`board-card-${task.id}`}
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {colTasks.map((task) => (
+                    <li key={task.id} className="flex flex-col gap-1.5">
+                      <article
+                        data-testid={`board-card-${task.id}`}
+                        draggable={Boolean(onMove)}
+                        onDragStart={(e) => {
+                          e.dataTransfer?.setData("text/plain", task.id);
+                          setDraggingId(task.id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggingId(null);
+                          setOverColumn(null);
+                        }}
+                        className={`relative rounded-lg border border-zinc-200/80 bg-white p-3 shadow-sm hover:border-zinc-300 focus-within:ring-2 focus-within:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700 motion-safe:transition-colors ${onMove ? "cursor-grab active:cursor-grabbing" : ""} ${draggingId === task.id ? "opacity-50" : ""}`}
+                      >
+                        <button
+                          type="button"
                           onClick={() => onOpen(task.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              onOpen(task.id);
-                            }
-                          }}
-                          className="group rounded-lg bg-white dark:bg-zinc-950 p-3 border border-zinc-200/80 dark:border-zinc-800 shadow-sm hover:border-zinc-300 dark:hover:border-zinc-700 hover:shadow transition-all cursor-pointer text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 select-none"
+                          className="block w-full text-left text-sm font-medium leading-snug text-zinc-900 outline-none line-clamp-3 before:absolute before:inset-0 before:rounded-lg dark:text-zinc-100"
                         >
-                          <p className="text-xs sm:text-sm font-medium text-zinc-900 dark:text-zinc-100 line-clamp-2 leading-snug group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                            {task.title}
+                          {task.title}
+                        </button>
+                        {task.error ? (
+                          <p className="mt-1 line-clamp-1 text-[11px] text-[var(--destructive-fg)]">
+                            {task.error}
                           </p>
-
-                          {task.error ? (
-                            <p className="text-[11px] text-[var(--destructive-fg)] line-clamp-1 mt-1">
-                              {task.error}
-                            </p>
-                          ) : null}
-
-                          <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] text-zinc-400 dark:text-zinc-500">
-                            <span
-                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium ${badge.className}`}
-                            >
-                              <BadgeIcon
-                                className={`size-3 shrink-0 ${badge.spin ? "animate-spin" : ""}`}
-                                aria-hidden="true"
-                              />
-                              <span>{badge.label}</span>
-                            </span>
-
-                            <div className="flex items-center gap-1.5 truncate">
-                              {task.repoName ? (
-                                <span className="truncate max-w-[90px] text-zinc-500 dark:text-zinc-400">
-                                  {task.repoName}
-                                </span>
-                              ) : null}
-                              {task.updatedAt > 0 ? (
-                                <span>{formatTimeAgo(task.updatedAt)}</span>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                        {col.id === "needs_approval" && task.status !== "needs-provider" && onReview ? (
-                          <button
-                            type="button"
-                            onClick={() => onReview(task.id)}
-                            aria-label={`Review ${task.title}`}
-                            className={`${viewButtonClass} w-fit`}
-                          >
-                            Review
-                          </button>
                         ) : null}
+                        <div className="mt-3 flex items-center justify-between gap-2">
+                          {onMove ? (
+                            <label className="relative z-10 inline-flex cursor-pointer rounded-full focus-within:ring-2 focus-within:ring-zinc-400">
+                              <WorkStatusIcon group={boardColumn(task.status)} />
+                              <select
+                                aria-label={`Status of ${task.title}`}
+                                value={boardColumn(task.status)}
+                                onChange={(e) => move(task.id, e.target.value as WorkListGroup)}
+                                className="absolute inset-0 cursor-pointer opacity-0"
+                              >
+                                {WORK_LIST_GROUPS.map((g) => (
+                                  <option key={g.id} value={g.id}>
+                                    {g.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          ) : (
+                            <WorkStatusIcon group={boardColumn(task.status)} />
+                          )}
+                          <span className="relative z-10">
+                            <AssigneeSlot task={task} />
+                          </span>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                      </article>
+                      {deriveKanbanColumn(task.status) === "needs_approval" &&
+                      task.status !== "needs-provider" &&
+                      onReview ? (
+                        <button
+                          type="button"
+                          onClick={() => onReview(task.id)}
+                          aria-label={`Review ${task.title}`}
+                          className={`${viewButtonClass} w-fit`}
+                        >
+                          Review
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })}
       </div>
     </section>
   );
 }
-

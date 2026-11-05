@@ -1,5 +1,5 @@
-import type { JSX } from "react";
 import { ChevronRight, PanelLeft, Plus, Search } from "lucide-react";
+import type { JSX } from "react";
 import { Tooltip } from "./Tooltip";
 
 export type WorkHeaderViewMode = "list" | "board" | "timeline" | "organization";
@@ -20,7 +20,7 @@ export interface WorkHeaderProps {
 
 /**
  * Top bar (48px) for the Work main card:
- * Left: sidebar toggle icon button, breadcrumb crumbs (Personal > Work > List), and optional count label (e.g. "0 open").
+ * Left: sidebar toggle icon button, breadcrumb crumbs (Workspace > Work > List [> task title]), and optional count label (e.g. "0 open").
  * Center: visible segmented view switcher when sidebar is collapsed or on screens below lg.
  * Right: search icon button and "New task" button with plus icon.
  */
@@ -74,9 +74,10 @@ export function WorkHeader({
                   <span
                     className={
                       isLast
-                        ? "text-[14px] font-medium text-[var(--fg,#0a0a0a)] truncate"
+                        ? "max-w-[12rem] sm:max-w-[20rem] text-[14px] font-medium text-[var(--fg,#0a0a0a)] truncate"
                         : "text-[14px] text-[var(--muted-foreground-2,#71717a)] truncate"
                     }
+                    title={crumb}
                     aria-current={isLast ? "page" : undefined}
                   >
                     {crumb}
@@ -87,9 +88,7 @@ export function WorkHeader({
           </ol>
 
           {countLabel ? (
-            <span
-              className="text-[12px] text-[var(--muted-foreground-3,#a5a69b)] select-none shrink-0 font-normal ml-1"
-            >
+            <span className="text-[12px] text-[var(--muted-foreground-3,#a5a69b)] select-none shrink-0 font-normal ml-1">
               {countLabel}
             </span>
           ) : null}
@@ -143,10 +142,10 @@ export function WorkHeader({
           type="button"
           onClick={onNewTask}
           aria-label="New task"
-          className="h-11 lg:h-8 px-2.5 rounded-lg bg-[#e4e4e7] hover:bg-[#d4d4d8] dark:bg-zinc-800 dark:hover:bg-zinc-700 text-[var(--fg,#0a0a0a)] dark:text-zinc-100 text-[13px] font-medium flex items-center gap-1.5 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+          className="h-11 lg:h-8 px-2.5 rounded-lg bg-[var(--primary,#0a0a0a)] text-[var(--primary-text,#fff)] hover:opacity-90 text-[13px] font-medium flex items-center gap-1.5 transition-opacity shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[var(--ring,#a1a1aa)]"
         >
           <Plus className="size-3.5" strokeWidth={2} aria-hidden="true" />
-          <span>New task</span>
+          <span className="hidden sm:inline">New task</span>
         </button>
       </div>
     </header>

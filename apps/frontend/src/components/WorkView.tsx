@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
-import { Clock, LayoutGrid, List, ListChecks, PanelLeft, Search, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import { ListChecks, Search, X } from "lucide-react";
 import type { RetainedRun, StoredApproval } from "../types";
-import { formatTimeAgo, parseRepoName, statusLabel, type PendingApproval as ChatPendingApproval } from "../ui-helpers";
+import { parseRepoName, statusLabel, type PendingApproval as ChatPendingApproval } from "../ui-helpers";
 import type { SessionItem } from "./SessionsSidebar";
 import { ViewGroup, viewButtonClass } from "./ui/ViewChrome";
-import { selectTeamWorkItems, type TeamWorkFilter, type TeamWorkItem } from "../team-work-items";
+import { isTeamWorkAssignedToViewer, selectTeamWorkItems, teamWorkNeedsViewer, type TeamWorkItem } from "../team-work-items";
+import type { WorkTaskPatch } from "../work-mutations";
 import { WorkHeader, type WorkHeaderViewMode } from "./WorkHeader";
 import { WorkBoardView, deriveKanbanColumn } from "./WorkBoardView";
 import { WorkQuickAdd } from "./WorkQuickAdd";
 import { WorkTimelineView } from "./WorkTimelineView";
-import { WorkOrganizationView, type OrganizationEmployee } from "./WorkOrganizationView";
+import { WorkOrganizationView, type OrganizationEmployee, type OrganizationUser } from "./WorkOrganizationView";
+import { WorkLeftPanel, type WorkLeftPanelProps, type WorkScope } from "./WorkLeftPanel";
+import { WorkListView, workListGroup } from "./WorkListView";
+import { TaskDetailPanel, type TaskDetailAgent } from "./TaskDetailPanel";
 
 export type WorkViewMode = WorkHeaderViewMode;
 
@@ -49,6 +53,68 @@ export interface WorkViewProps {
   onToggleSidebar?: () => void;
   employees?: OrganizationEmployee[];
   onOpenEmployee?: (id: string) => void;
+  /** Renders the Work left panel (scope tabs, nav, task sections) inside this view when given. */
+  onScopeChange?: (scope: WorkScope) => void;
+  /** Workspace scope: resolves to the created task, or null on failure (draft is kept). */
+  onCreateTask?: (title: string) => Promise<TeamWorkItem | null>;
+  onUpdateTask?: (id: string, patch: WorkTaskPatch) => unknown;
+  onArchiveTask?: (id: string) => unknown;
+  onCommentTask?: (id: string, text: string) => unknown;
+  /** Owner/reviewer candidates for the task detail panel. */
+  agents?: readonly TaskDetailAgent[];
+  /** Signed-in user for the Organization chart heading. */
+  user?: OrganizationUser;
+}
+
+const WORK_VIEWS: readonly WorkViewMode[] = ["list", "board", "timeline", "organization"];
+function readWorkUrl(): { view?: WorkViewMode; task: string | null } {
+  if (typeof window === "undefined") return { task: null };
+  const params = new URLSearchParams(window.location.search);
+  const view = WORK_VIEWS.find((mode) => mode === params.get("view"));
+  return { view, task: params.get("task") };
+}
+
+// replaceState keeps the app router's own history steps (one per page) untouched.
+function writeWorkUrl(view: WorkViewMode, task: string | null): void {
+  const params = new URLSearchParams(window.location.search);
+  if (view === "list") params.delete("view");
+  else params.set("view", view);
+  if (task) params.set("task", task);
+  else params.delete("task");
+  const search = params.toString();
+  const next = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`;
+  if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+    window.history.replaceState(window.history.state, "", next);
+  }
+}
+
+type PanelLists = Pick<WorkLeftPanelProps, "needsYou" | "assignedToMe" | "everything" | "selectedId" | "onOpenTask" | "onSearch">;
+
+// The shell is nested inside the app frame, so it fills its parent instead of the viewport.
+const SHELL_STYLE = { height: "100%", padding: 0, background: "transparent" } as const;
+
+function workShell(props: WorkViewProps, lists: PanelLists, card: JSX.Element, detail?: { panel: JSX.Element; onClose: () => void }): JSX.Element {
+  const showPanel = Boolean(props.onScopeChange) && !props.sidebarCollapsed;
+  return (
+    <div className="shiba-work-shell min-w-0 flex-1" style={SHELL_STYLE} data-context={showPanel ? undefined : "collapsed"} data-detail={detail ? "open" : undefined}>
+      {showPanel && props.onScopeChange ? (
+        <WorkLeftPanel
+          scope={props.workspaceId ? "workspace" : "personal"}
+          onScopeChange={props.onScopeChange}
+          view={props.view ?? "list"}
+          onViewChange={props.onViewChange ?? (() => {})}
+          {...lists}
+        />
+      ) : null}
+      {card}
+      {detail ? (
+        <>
+          <button type="button" tabIndex={-1} aria-hidden="true" className="shiba-scrim" onClick={detail.onClose} />
+          <div className="shiba-detail-panel">{detail.panel}</div>
+        </>
+      ) : null}
+    </div>
+  );
 }
 
 const STATUS_GROUPS = [
@@ -69,32 +135,49 @@ function workStatus(task: WorkTask, approvalStatus: "needs-approval" | "waiting-
 }
 
 export function WorkView(props: WorkViewProps): JSX.Element {
-  // A distinct component/key prevents personal drafts and team filters crossing scopes.
-  return props.workspaceId ? <TeamWorkView key={props.workspaceId} {...props} workspaceId={props.workspaceId} /> : <PersonalWorkView {...props} />;
-}
-
-function PersonalWorkView({
-  runs = [],
-  sessions = [],
-  storedApprovals = [],
-  pendingApprovals = [],
-  onSelectTask,
-  onNewTask,
-  onQuickAddTask,
-  onReviewApproval,
-  view: controlledView,
-  onViewChange,
-  sidebarCollapsed = false,
-  onToggleSidebar,
-  employees = [],
-  onOpenEmployee,
-}: WorkViewProps): JSX.Element {
-  const [internalView, setInternalView] = useState<WorkViewMode>("list");
-  const activeView = controlledView ?? internalView;
+  const { view: controlledView, onViewChange } = props;
+  const [internalView, setInternalView] = useState<WorkViewMode>(() => readWorkUrl().view ?? "list");
+  const [taskId, setTaskId] = useState<string | null>(() => readWorkUrl().task);
+  const view = controlledView ?? internalView;
   const setView = useCallback((mode: WorkViewMode) => {
     setInternalView(mode);
     onViewChange?.(mode);
   }, [onViewChange]);
+  // A deep-linked ?view= wins once over the parent's initial controlled value.
+  const urlView = useRef(readWorkUrl().view);
+  useEffect(() => {
+    const deepLinked = urlView.current;
+    urlView.current = undefined;
+    if (deepLinked && deepLinked !== controlledView) onViewChange?.(deepLinked);
+  }, [controlledView, onViewChange]);
+  useEffect(() => writeWorkUrl(view, taskId), [view, taskId]);
+
+  const scoped = { ...props, view, onViewChange: setView };
+  // A distinct component/key prevents personal drafts and team filters crossing scopes.
+  return props.workspaceId ? (
+    <TeamWorkView key={props.workspaceId} {...scoped} workspaceId={props.workspaceId} taskId={taskId} onTaskChange={setTaskId} />
+  ) : (
+    <PersonalWorkView {...scoped} />
+  );
+}
+
+function PersonalWorkView(props: WorkViewProps): JSX.Element {
+  const {
+    runs = [],
+    sessions = [],
+    storedApprovals = [],
+    pendingApprovals = [],
+    onSelectTask,
+    onNewTask,
+    onQuickAddTask,
+    onReviewApproval,
+    view: activeView = "list",
+    onViewChange: setView = () => {},
+    sidebarCollapsed = false,
+    onToggleSidebar,
+    employees = [],
+    onOpenEmployee,
+  } = props;
 
   const [filterQuery, setFilterQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -183,9 +266,18 @@ function PersonalWorkView({
 
   const viewTitle = activeView.charAt(0).toUpperCase() + activeView.slice(1);
   const crumbs = ["Personal", "Work", viewTitle];
+  const panelTask = (t: WorkTask) => ({ id: t.id, title: t.title, status: workStatus(t, "needs-approval") });
+  const panelLists: PanelLists = {
+    needsYou: tasks.filter((t) => t.group === "needs-approval").map(panelTask),
+    // Personal runs and threads carry no human assignee, so this stays a real empty state.
+    assignedToMe: [],
+    everything: tasks.filter((t) => t.group !== "done").map(panelTask),
+    onOpenTask: handleOpenTask,
+    onSearch: () => setSearchOpen(true),
+  };
 
-  return (
-    <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm text-[var(--fg)]">
+  const card = (
+    <div className="shiba-main-card h-full text-[var(--fg)]">
       <WorkHeader
         crumbs={crumbs}
         countLabel={`${openCount} open`}
@@ -234,8 +326,7 @@ function PersonalWorkView({
         <WorkQuickAdd
           onSubmit={(text) => onQuickAddTask?.(text)}
           disabled={!onQuickAddTask}
-          aria-label="Draft a task and press Enter"
-        />
+            />
       </div>
 
       {/* Main body by view */}
@@ -298,124 +389,180 @@ function PersonalWorkView({
           <WorkOrganizationView
             employees={employees}
             onOpen={onOpenEmployee}
+            user={props.user}
           />
         </section>
       )}
     </div>
   );
+  return workShell(props, panelLists, card);
 }
 
-const TEAM_STATUS_GROUPS = [
-  { id: "needs-approval", name: "Needs approval", dotClass: "bg-[var(--warning)]" },
-  { id: "queued", name: "Queued", dotClass: "bg-[var(--muted-foreground-2)]" },
-  { id: "running", name: "Running", dotClass: "bg-[var(--primary)]" },
-  { id: "blocked", name: "Blocked", dotClass: "bg-[var(--destructive)]" },
-  { id: "completed", name: "Completed", dotClass: "bg-[var(--success)]" },
-  { id: "cancelled", name: "Cancelled", dotClass: "bg-[var(--muted-foreground-3)]" },
-  { id: "unknown", name: "Status unavailable", dotClass: "bg-[var(--muted-foreground-3)]" },
-] as const;
+interface TeamWorkViewProps extends WorkViewProps {
+  workspaceId: string;
+  taskId: string | null;
+  onTaskChange: (id: string | null) => void;
+}
 
-function TeamWorkView({
-  workspaceId,
-  workspaceName,
-  currentActorId,
-  sharedTasks = [],
-  sharedTasksLoading = false,
-  sharedTasksError,
-  onOpenSharedTask,
-  onOpenTeam,
-  view: controlledView,
-  onViewChange,
-  sidebarCollapsed = false,
-  onToggleSidebar,
-}: WorkViewProps & { workspaceId: string }): JSX.Element {
-  const [internalView, setInternalView] = useState<WorkViewMode>("list");
-  const activeView = (controlledView === "organization" ? "list" : controlledView) ?? internalView;
-  const setView = useCallback((mode: WorkViewMode) => {
-    setInternalView(mode);
-    onViewChange?.(mode);
-  }, [onViewChange]);
-  // Workspace scope has no Organization view; keep the panel selection in step with this card.
-  useEffect(() => {
-    if (controlledView === "organization") onViewChange?.("list");
-  }, [controlledView, onViewChange]);
-
-  const [filter, setFilter] = useState<TeamWorkFilter>("all");
+function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
+  const {
+    workspaceId,
+    currentActorId,
+    sharedTasks = [],
+    sharedTasksLoading = false,
+    sharedTasksError,
+    view = "list",
+    onViewChange = () => {},
+    sidebarCollapsed = false,
+    onToggleSidebar,
+    onNewTask,
+    onCreateTask,
+    onUpdateTask,
+    onArchiveTask,
+    onCommentTask,
+    agents = [],
+    employees = [],
+    onOpenEmployee,
+    user,
+    taskId,
+    onTaskChange,
+  } = props;
   const [query, setQuery] = useState("");
-  // An authorization/loading failure must never leave cached room data visible.
-  const authorizedTasks = sharedTasksError ? [] : sharedTasks;
-  const scopeTasks = selectTeamWorkItems(authorizedTasks, workspaceId, "all", currentActorId);
-  const q = query.trim().toLowerCase();
-  const tasks = selectTeamWorkItems(authorizedTasks, workspaceId, filter, currentActorId).filter((task) => !q || `${task.title} ${task.roomTitle} ${task.assigneeName ?? ""} ${TEAM_STATUS_GROUPS.find((group) => group.id === task.status)?.name ?? "Status unavailable"}`.toLowerCase().includes(q));
-  const filters = [
-    { id: "all", name: "All shared work" },
-    { id: "assigned", name: "Assigned to me" },
-    { id: "needs-you", name: "Needs you" },
-  ] as const;
-  const taskCard = (task: TeamWorkItem) => {
-    const group = TEAM_STATUS_GROUPS.find((item) => item.id === task.status) ?? TEAM_STATUS_GROUPS[6];
-    return <article key={task.id} className={`min-w-0 border border-zinc-200 dark:border-zinc-800 rounded-lg bg-[var(--card)] ${activeView === "timeline" ? "relative" : ""}`}>
-      {activeView === "timeline" ? <span aria-hidden="true" className={`absolute -left-[31px] top-5 size-2 rounded-full ${group.dotClass}`} /> : null}
-      <div className="flex min-w-0 flex-col gap-3 p-4">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted-foreground-2)]">
-          <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${group.dotClass}`} />
-          <span className="font-mono">{group.name}</span>
-          {task.updatedAt > 0 ? <span className="ml-auto whitespace-nowrap">{formatTimeAgo(task.updatedAt)}</span> : null}
-        </div>
-        <h3 className="break-words text-sm font-medium leading-6">{task.title}</h3>
-        <p className="break-words text-xs text-[var(--muted-foreground-2)]">{task.assigneeKind === "agent" ? "Employee" : "Human"} · {task.assigneeName || "Name unavailable"}</p>
-        <p className="break-words text-xs text-[var(--muted-foreground-2)]">Room · {task.roomTitle}</p>
-        {task.resultAvailable === false ? <p className="text-xs text-[var(--muted-foreground-2)]">Result unavailable</p> : task.resultAvailable === true ? <p className="text-xs text-[var(--success-fg)]">Result available in room</p> : null}
-        {onOpenSharedTask ? <button type="button" onClick={() => onOpenSharedTask(task)} aria-label={`Open ${task.title} in ${task.roomTitle}`} className={`${viewButtonClass} w-full !rounded-none sm:w-fit`}>Open task in room</button> : null}
-      </div>
-    </article>;
-  };
+  const [searchOpen, setSearchOpen] = useState(false);
+  const quickAddRef = useRef<HTMLDivElement>(null);
+  const focusSearch = useCallback((input: HTMLInputElement | null) => { input?.focus(); }, []);
 
-  return <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm text-[var(--fg)]">
-    <header className="flex min-h-[48px] w-full flex-wrap gap-y-1 px-4 py-1 items-center justify-between border-b border-zinc-200 dark:border-zinc-800 shrink-0 select-none">
-      <div className="flex items-center gap-2.5 min-w-0">
-        {onToggleSidebar ? (
+  // An authorization/loading failure must never leave cached room data visible.
+  const all = selectTeamWorkItems(sharedTasksError ? [] : sharedTasks, workspaceId, "all", currentActorId);
+  const q = query.trim().toLowerCase();
+  const tasks = all.filter((task) => !q || `${task.title} ${task.assigneeName ?? ""}`.toLowerCase().includes(q));
+  const open = all.filter((task) => workListGroup(task.status) !== "done");
+  const selected = taskId ? all.find((task) => task.id === taskId) : undefined;
+
+  const toggleDone = (id: string) => {
+    const task = all.find((item) => item.id === id);
+    if (task) onUpdateTask?.(id, { status: workListGroup(task.status) === "done" ? "todo" : "done" });
+  };
+  const newTask = () => {
+    const input = quickAddRef.current?.querySelector("input");
+    if (onCreateTask && input) input.focus();
+    else onNewTask?.();
+  };
+  const viewTitle = view.charAt(0).toUpperCase() + view.slice(1);
+
+  const card = (
+    <div className="shiba-main-card h-full text-[var(--fg)]">
+      <WorkHeader
+        crumbs={selected ? ["Workspace", "Work", viewTitle, selected.title || "Untitled task"] : ["Workspace", "Work", viewTitle]}
+        countLabel={`${open.length} open`}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={onToggleSidebar ?? (() => {})}
+        searchOpen={searchOpen}
+        onSearch={() => {
+          setSearchOpen((prev) => !prev);
+          if (searchOpen) setQuery("");
+        }}
+        onNewTask={newTask}
+        activeView={view}
+        onViewChange={onViewChange}
+        className="border-b border-zinc-200 dark:border-zinc-800"
+      />
+      {searchOpen ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-zinc-200 bg-zinc-50/50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
+          <Search className="size-4 shrink-0 text-zinc-400" aria-hidden="true" />
+          <input
+            id="work-search"
+            type="search"
+            aria-label="Filter tasks"
+            placeholder="Filter tasks…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            ref={focusSearch}
+            className="min-h-11 w-full bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400 lg:min-h-8 dark:text-zinc-100"
+          />
           <button
             type="button"
-            onClick={onToggleSidebar}
-            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-expanded={!sidebarCollapsed}
-            className="hidden size-7 rounded-md lg:flex items-center justify-center text-[var(--icon-muted,#71717a)] hover:text-[var(--fg,#0a0a0a)] hover:bg-[var(--secondary,rgba(0,0,0,0.05))] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+            aria-label="Close search"
+            onClick={() => {
+              setSearchOpen(false);
+              setQuery("");
+            }}
+            className="flex size-11 items-center justify-center rounded-md text-zinc-400 hover:text-zinc-600 lg:size-7 dark:hover:text-zinc-200"
           >
-            <PanelLeft className="size-4" strokeWidth={1.75} aria-hidden="true" />
+            <X className="size-4" />
           </button>
-        ) : null}
-        <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-[var(--muted-foreground-2)]">
-          <span className="max-w-full break-words text-[14px] text-zinc-500 dark:text-zinc-400">{workspaceName || "Workspace"}</span>
-          <span aria-hidden="true" className="text-zinc-300 dark:text-zinc-600">&gt;</span>
-          <h2 className="text-[14px] font-medium text-zinc-900 dark:text-zinc-100">Shared work</h2>
-          <span className="text-[12px] text-zinc-400 dark:text-zinc-500 font-mono tabular-nums">{scopeTasks.length} tasks</span>
         </div>
+      ) : null}
+      {sharedTasksError ? <p role="alert" className="px-4 pt-3 text-sm text-[var(--destructive-fg)]">{sharedTasksError}</p> : null}
+      {sharedTasksLoading ? <p role="status" className="px-4 pt-3 text-sm text-[var(--muted-foreground-2)]">Loading work…</p> : null}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {view !== "organization" ? (
+            <div ref={quickAddRef} className="shrink-0 px-4 pt-3 pb-2">
+              <WorkQuickAdd
+                onSubmit={async (title) => (onCreateTask ? (await onCreateTask(title)) !== null : false)}
+                disabled={!onCreateTask}
+                failureMessage="Could not create the task. Your draft has been kept. Try again."
+              />
+            </div>
+          ) : null}
+          {view === "list" ? (
+            <section aria-label="List view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+              <WorkListView tasks={tasks} selectedId={selected?.id} onOpen={onTaskChange} onToggleDone={toggleDone} />
+            </section>
+          ) : view === "board" ? (
+            <section aria-label="Board view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <WorkBoardView
+                tasks={tasks}
+                onOpen={onTaskChange}
+                onMove={onUpdateTask ? (id, status) => onUpdateTask(id, { status }) : undefined}
+                className="h-full"
+              />
+            </section>
+          ) : view === "timeline" ? (
+            <section aria-label="Timeline view" className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4">
+              <WorkTimelineView tasks={tasks} onOpen={onTaskChange} className="h-full" />
+            </section>
+          ) : (
+            <section aria-label="Organization view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+              <WorkOrganizationView employees={employees} onOpen={onOpenEmployee} user={user} />
+            </section>
+          )}
       </div>
-      <fieldset aria-label="Work views" className="flex min-w-0 max-w-full flex-wrap gap-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 p-0.5">
-        {([ ["list", "List", List], ["board", "Board", LayoutGrid], ["timeline", "Timeline", Clock] ] as const).map(([mode, label, Icon]) => <button key={mode} type="button" aria-pressed={activeView === mode} onClick={() => setView(mode)} className={`flex min-h-11 lg:min-h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-[var(--ring)] transition-colors ${activeView === mode ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs" : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200"}`}><Icon aria-hidden="true" className="size-3.5" />{label}</button>)}
-      </fieldset>
-    </header>
-    <div className="mx-auto flex w-full min-w-0 max-w-5xl flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1"><h1 className="font-serif text-2xl">Work with your team</h1><p className="mt-1 text-sm text-[var(--muted-foreground-2)]">Shared handoffs, human assignments and employee runs. Open a room to see its context and available results.</p></div>
-        {onOpenTeam ? <button type="button" onClick={onOpenTeam} className={`${viewButtonClass} !rounded-none`}>Team &amp; chat</button> : null}
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <fieldset aria-label="Shared work filters" className="flex min-w-0 max-w-full flex-wrap gap-1">
-          {filters.map((item) => <button type="button" key={item.id} aria-pressed={filter === item.id} onClick={() => setFilter(item.id)} className={`${viewButtonClass} !rounded-none ${filter === item.id ? "bg-[var(--card)] shadow-plate" : ""}`}>{item.name}<span className="text-xs tabular-nums text-[var(--muted-foreground-2)]">{selectTeamWorkItems(authorizedTasks, workspaceId, item.id, currentActorId).length}</span></button>)}
-        </fieldset>
-        <label className="flex min-h-11 w-full min-w-0 items-center gap-2 border border-[var(--border-1)] bg-[var(--input)] px-3 sm:w-64"><Search aria-hidden="true" className="size-4 shrink-0 text-[var(--icon-muted)]" /><input type="search" aria-label="Filter shared work" placeholder="Filter shared work…" value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]" /></label>
-      </div>
-      {filter === "needs-you" ? <p className="text-xs text-[var(--muted-foreground-2)]">Pending approvals you are currently authorized to review. Decisions are made in the task’s room.</p> : null}
-      {sharedTasksError ? <p role="alert" className="text-sm text-[var(--destructive-fg)]">{sharedTasksError}</p> : null}
-      {sharedTasksLoading ? <p role="status" className="text-sm text-[var(--muted-foreground-2)]">Loading shared work…</p> : null}
-      <section aria-label={`${activeView === "list" ? "List" : activeView === "board" ? "Board" : "Timeline"} view`} className={tasks.length === 0 ? "" : activeView === "board" ? "grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-2 xl:grid-cols-3" : activeView === "timeline" ? "ml-4 flex min-w-0 flex-col gap-4 border-l-2 border-[var(--border-1)] pl-6" : "flex min-w-0 flex-col gap-6"}>
-        {tasks.length === 0 ? !sharedTasksLoading && !sharedTasksError ? <div className="border border-dashed border-[var(--border-2)] px-4 py-10 text-center"><p className="text-sm">{scopeTasks.length === 0 ? "No shared work yet" : "No shared work matches this view"}</p><p className="mt-2 text-xs text-[var(--muted-foreground-2)]">{scopeTasks.length === 0 ? "Create a handoff from a team room to track work here." : "Choose another filter or clear your search."}</p></div> : null : activeView === "timeline" ? tasks.map(taskCard) : TEAM_STATUS_GROUPS.map((group) => {
-          const grouped = tasks.filter((task) => task.status === group.id || group.id === "unknown" && !TEAM_STATUS_GROUPS.some((item) => item.id === task.status));
-          return grouped.length ? <section key={group.id} aria-label={`${group.name} - ${grouped.length}`} className="min-w-0"><ViewGroup title={group.name} count={grouped.length} dotClass={group.dotClass}><div className="flex min-w-0 flex-col gap-2 pt-2">{grouped.map(taskCard)}</div></ViewGroup></section> : null;
-        })}
-      </section>
     </div>
-  </div>;
+  );
+
+  const closeTask = () => onTaskChange(null);
+  const detail = selected
+    ? {
+        onClose: closeTask,
+        panel: (
+          <TaskDetailPanel
+            task={selected}
+            agents={agents}
+            tasks={all}
+            onChange={(patch) => onUpdateTask?.(selected.id, patch)}
+            onComment={onCommentTask ? (text) => onCommentTask(selected.id, text) : undefined}
+            onArchive={() => {
+              onArchiveTask?.(selected.id);
+              closeTask();
+            }}
+            onClose={closeTask}
+          />
+        ),
+      }
+    : undefined;
+
+  return workShell(
+    props,
+    {
+      needsYou: all.filter(teamWorkNeedsViewer),
+      assignedToMe: open.filter((task) => isTeamWorkAssignedToViewer(task, currentActorId) || (!!currentActorId && task.ownerId === currentActorId)),
+      everything: open,
+      selectedId: selected?.id,
+      onOpenTask: onTaskChange,
+      onSearch: () => setSearchOpen(true),
+    },
+    card,
+    detail,
+  );
 }

@@ -1,139 +1,73 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import {
-  WorkOrganizationView,
-  type OrganizationEmployee,
-} from "./WorkOrganizationView";
 
-afterEach(() => {
-  cleanup();
-});
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { type OrganizationEmployee, WorkOrganizationView } from "./WorkOrganizationView";
+
+vi.mock("./AgentAvatar", () => ({
+  AgentAvatar: ({ id, name }: { id: string; name: string }) => (
+    <span data-testid={`avatar-${id}`} role="img" aria-label={name} />
+  ),
+}));
+
+afterEach(cleanup);
 
 describe("WorkOrganizationView", () => {
-  it("renders the user card at the top with default and custom values", () => {
-    const { rerender } = render(<WorkOrganizationView employees={[]} />);
-
-    expect(screen.getByTestId("organization-user-card")).toBeDefined();
-    expect(screen.getByText("You")).toBeDefined();
-    // No role or status data: nothing is invented.
-    expect(screen.queryByText("Workspace Owner")).toBeNull();
-    expect(screen.queryByText("Lead")).toBeNull();
-    expect(screen.queryByText("Active")).toBeNull();
-
-    rerender(
-      <WorkOrganizationView
-        employees={[]}
-        user={{ name: "Alice Wonderland", role: "Head of AI", active: true }}
-      />
-    );
-
-    expect(screen.getByText("Alice Wonderland")).toBeDefined();
-    expect(screen.getByText("Head of AI")).toBeDefined();
-    expect(screen.getByText("AW")).toBeDefined();
-    expect(screen.queryByText("Lead")).toBeNull();
-    expect(screen.getByText("Active")).toBeDefined();
+  it("renders the workspace heading, subtitle and chief of staff card", () => {
+    render(<WorkOrganizationView employees={[]} user={{ name: "Prince" }} />);
+    expect(screen.getByRole("heading", { name: "Prince’s workspace" })).toBeDefined();
+    expect(screen.getByText("Workspace agents and member chiefs of staff.")).toBeDefined();
+    const chief = screen.getByTestId("organization-chief-card");
+    expect(chief.textContent).toContain("Shiba");
+    expect(chief.textContent).toContain("Workspace chief of staff");
+    expect(screen.getByTestId("avatar-workspace-chief")).toBeDefined();
   });
 
-  it("renders the muted empty state when no employees are present", () => {
+  it("renders the member chief card with the private note and falls back without a user", () => {
+    const { rerender } = render(<WorkOrganizationView employees={[]} user={{ name: "Prince" }} />);
+    const card = screen.getByTestId("organization-user-card");
+    expect(card.textContent).toContain("Prince’s Shiba");
+    expect(card.textContent).toContain("Prince - You");
+    expect(card.textContent).toContain("Personal chief of staff");
+    expect(card.textContent).toContain("Personal agents are private");
+
+    rerender(<WorkOrganizationView employees={[]} />);
+    expect(screen.getByRole("heading", { name: "Your workspace" })).toBeDefined();
+    expect(screen.getByTestId("organization-user-card").textContent).toContain("Your Shiba");
+  });
+
+  it("shows a real empty state and the coordination footer", () => {
     render(<WorkOrganizationView employees={[]} />);
-
     expect(screen.getByTestId("organization-empty-state")).toBeDefined();
-    expect(screen.getByText("No AI employees yet")).toBeDefined();
-    expect(
-      screen.getByText("Custom agents and employee bots will appear here grouped by department.")
-    ).toBeDefined();
+    expect(screen.getByText(/Lines show coordination, not access permissions\./)).toBeDefined();
   });
 
-  it("renders employees grouped by department with avatar initial, name, role, and open tasks", () => {
+  it("renders workspace agents with mascots, role and task counts, and opens on click", () => {
     const employees: OrganizationEmployee[] = [
-      {
-        id: "emp-1",
-        name: "Engineering bot",
-        role: "Software Engineer",
-        department: "Engineering",
-        emoji: "🛠️",
-        openTaskCount: 3,
-        description: "Implement focused repository changes with tests.",
-      },
-      {
-        id: "emp-2",
-        name: "Marketing bot",
-        role: "Growth Marketer",
-        department: "Marketing",
-        emoji: "📣",
-        openTaskCount: 0,
-        description: "Draft campaigns and briefs.",
-      },
+      { id: "emp-1", name: "Engineering bot", role: "Software Engineer", openTaskCount: 3 },
+      { id: "emp-2", name: "Research assistant", role: "Researcher", openTasks: 1 },
       {
         id: "emp-3",
-        name: "Research assistant",
-        role: "Researcher",
-        // department omitted to test role inference
-        openTasks: 1,
+        name: "",
+        role: "Product",
+        slug: "product-bot",
+        config: { name: "Product bot" },
       },
     ];
-
     const onOpen = vi.fn();
     render(<WorkOrganizationView employees={employees} onOpen={onOpen} />);
 
-    // Check department headers
-    expect(screen.getByText("Engineering")).toBeDefined();
-    expect(screen.getByText("Marketing")).toBeDefined();
-    expect(screen.getByText("Research")).toBeDefined();
-
-    // Check avatar initials
-    expect(screen.getByText("EB")).toBeDefined();
-    expect(screen.getByText("MB")).toBeDefined();
-    expect(screen.getByText("RA")).toBeDefined();
-
-    // Check emojis
-    expect(screen.getByText("🛠️")).toBeDefined();
-    expect(screen.getByText("📣")).toBeDefined();
-
-    // Check open task count badges
+    expect(screen.getByRole("list", { name: "Workspace agents" })).toBeDefined();
+    expect(screen.getByText("Workspace agents (3)")).toBeDefined();
+    expect(screen.getByRole("list", { name: "Member chiefs of staff" }).children).toHaveLength(1);
+    expect(screen.queryByTestId("organization-empty-state")).toBeNull();
+    expect(screen.getByTestId("avatar-emp-1")).toBeDefined();
+    expect(screen.getByTestId("avatar-product-bot")).toBeDefined();
     expect(screen.getByText("3 tasks")).toBeDefined();
-    expect(screen.getByText("0 tasks")).toBeDefined();
     expect(screen.getByText("1 task")).toBeDefined();
-
-    // Clicking an employee card triggers onOpen
-    const card = screen.getByTestId("employee-card-emp-1");
-    fireEvent.click(card);
-    expect(onOpen).toHaveBeenCalledWith("emp-1");
-  });
-
-  it("shows an employee status only when it is real data", () => {
-    render(
-      <WorkOrganizationView
-        employees={[
-          { id: "a", name: "Alpha", role: "Engineer", status: "idle" },
-          { id: "b", name: "Beta", role: "Engineer" },
-        ]}
-      />,
-    );
-    expect(screen.getByText("idle")).toBeDefined();
-    expect(screen.queryByText("Ready")).toBeNull();
-  });
-
-  it("supports employee template and custom agent config shapes", () => {
-    const employees: OrganizationEmployee[] = [
-      {
-        id: "custom-1",
-        name: "",
-        role: "Product development",
-        slug: "product-bot",
-        config: {
-          name: "Product bot",
-          emoji: "🧩",
-          instructions: "Define product specs",
-        },
-      },
-    ];
-
-    render(<WorkOrganizationView employees={employees} />);
-
     expect(screen.getByText("Product bot")).toBeDefined();
-    expect(screen.getByText("Product development")).toBeDefined();
-    expect(screen.getByText("🧩")).toBeDefined();
+
+    fireEvent.click(screen.getByTestId("employee-card-emp-1"));
+    expect(onOpen).toHaveBeenCalledWith("emp-1");
   });
 });

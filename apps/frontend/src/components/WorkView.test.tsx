@@ -5,7 +5,10 @@ import { WorkView } from "./WorkView";
 import type { RetainedRun, StoredApproval } from "../types";
 import type { TeamWorkItem } from "../team-work-items";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  window.history.replaceState(null, "", "/");
+});
 
 const mockRuns: RetainedRun[] = [
   {
@@ -131,7 +134,7 @@ describe("WorkView", () => {
     const onQuickAddTask = vi.fn().mockResolvedValue(true);
     render(<WorkView runs={mockRuns} onQuickAddTask={onQuickAddTask} />);
 
-    const input = screen.getByRole("textbox", { name: "Draft a task and press Enter" });
+    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" });
     fireEvent.change(input, { target: { value: "Investigate latency spikes" } });
     fireEvent.submit(input.closest("form")!);
 
@@ -143,13 +146,13 @@ describe("WorkView", () => {
     let finish!: (success: boolean) => void;
     const onQuickAddTask = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve; }));
     render(<WorkView onQuickAddTask={onQuickAddTask} />);
-    const input = screen.getByRole("textbox", { name: "Draft a task and press Enter" }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Keep this draft" } });
     const form = input.closest("form")!;
     fireEvent.submit(form);
     fireEvent.submit(form);
     expect(onQuickAddTask).toHaveBeenCalledOnce();
-    expect(input.disabled).toBe(true);
+    expect(input.readOnly).toBe(true);
     expect(input.value).toBe("Keep this draft");
     await act(async () => finish(false));
     expect(input.value).toBe("Keep this draft");
@@ -162,7 +165,7 @@ describe("WorkView", () => {
 
   it("keeps a rejected quick-add draft and reports the failure", async () => {
     render(<WorkView onQuickAddTask={vi.fn().mockRejectedValue(new Error("Offline"))} />);
-    const input = screen.getByRole("textbox", { name: "Draft a task and press Enter" }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Keep this offline draft" } });
     await act(async () => {
       fireEvent.submit(input.closest("form")!);
@@ -211,89 +214,11 @@ describe("WorkView", () => {
     expect(screen.queryByText(sharedTask.title)).toBeNull();
 
     rerender(<WorkView runs={mockRuns} storedApprovals={mockApprovals} workspaceId="workspace-1" workspaceName="Launch workspace" sharedTasks={[sharedTask]} />);
-    expect(screen.getByText("Launch workspace")).toBeTruthy();
+    expect(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByText("Workspace")).toBeTruthy();
     expect(screen.getByText(sharedTask.title)).toBeTruthy();
     expect(screen.queryByText("Retry webhook handler")).toBeNull();
     expect(screen.queryByText("Add pagination to audit log API")).toBeNull();
     expect(screen.queryByText("Personal")).toBeNull();
-    expect(screen.queryByRole("textbox", { name: "Draft a task and press Enter" })).toBeNull();
-  });
-
-  it("filters assignments by the exact human actor instead of employee owner identity", () => {
-    render(<WorkView workspaceId="workspace-1" currentActorId="human-1" sharedTasks={[
-      sharedTask,
-      { ...sharedTask, id: "employee", title: "Employee task", assigneeKind: "agent", assigneeActorId: "human-1" },
-      { ...sharedTask, id: "other-human", title: "Another member task", assigneeActorId: "human-2" },
-    ]} />);
-    fireEvent.click(screen.getByRole("button", { name: "Assigned to me 1" }));
-    expect(screen.getByText(sharedTask.title)).toBeTruthy();
-    expect(screen.queryByText("Employee task")).toBeNull();
-    expect(screen.queryByText("Another member task")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "All shared work 3" }));
-    expect(screen.getByText("Employee task")).toBeTruthy();
-    expect(screen.getByText("Another member task")).toBeTruthy();
-  });
-
-  it("shows Needs you only for an explicitly authorized pending decision and never grants a board approval action", () => {
-    const onReviewApproval = vi.fn();
-    render(<WorkView workspaceId="workspace-1" currentActorId="human-1" onReviewApproval={onReviewApproval} sharedTasks={[
-      { ...sharedTask, id: "allowed", title: "Authorized review", status: "needs-approval", approvalRequired: true, viewerCanApprove: true },
-      { ...sharedTask, id: "unproved", title: "Another owner review", status: "needs-approval", approvalRequired: true },
-      { ...sharedTask, id: "settled", title: "Already completed", status: "completed", approvalRequired: true, viewerCanApprove: true },
-    ]} />);
-    fireEvent.click(screen.getByRole("button", { name: "Board" }));
-    expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Needs you 1" }));
-    expect(screen.getByText("Authorized review")).toBeTruthy();
-    expect(screen.queryByText("Another owner review")).toBeNull();
-    expect(screen.queryByText("Already completed")).toBeNull();
-    expect(onReviewApproval).not.toHaveBeenCalled();
-  });
-
-  it("drops stale workspace rows and filters immediately when the selected workspace changes or is removed", () => {
-    const otherTask = { ...sharedTask, id: "other-workspace", title: "Other workspace work", workspaceId: "workspace-2" };
-    const { rerender } = render(<WorkView workspaceId="workspace-1" currentActorId="human-1" sharedTasks={[sharedTask, otherTask]} />);
-    fireEvent.click(screen.getByRole("button", { name: "Needs you 0" }));
-    fireEvent.change(screen.getByRole("searchbox", { name: "Filter shared work" }), { target: { value: "old search" } });
-    rerender(<WorkView workspaceId="workspace-2" currentActorId="human-1" sharedTasks={[sharedTask, otherTask]} />);
-    expect(screen.queryByText(sharedTask.title)).toBeNull();
-    expect(screen.getByText(otherTask.title)).toBeTruthy();
-    expect((screen.getByRole("searchbox", { name: "Filter shared work" }) as HTMLInputElement).value).toBe("");
-    rerender(<WorkView runs={mockRuns} sharedTasks={[sharedTask, otherTask]} />);
-    expect(screen.queryByText(otherTask.title)).toBeNull();
-    expect(screen.getByText("Retry webhook handler")).toBeTruthy();
-  });
-
-  it("opens the exact shared handoff from every view and exposes revoked results without a private run link", () => {
-    const onOpenSharedTask = vi.fn();
-    const onOpenTeam = vi.fn();
-    const unavailable = { ...sharedTask, status: "completed" as const, resultAvailable: false, runId: "private-run" };
-    render(<WorkView workspaceId="workspace-1" sharedTasks={[unavailable]} onOpenSharedTask={onOpenSharedTask} onOpenTeam={onOpenTeam} />);
-    for (const view of ["List", "Board", "Timeline"]) {
-      fireEvent.click(screen.getByRole("button", { name: view }));
-      const openTask = screen.getByRole("button", { name: `Open ${sharedTask.title} in ${sharedTask.roomTitle}` });
-      openTask.focus();
-      expect(document.activeElement).toBe(openTask);
-      expect(openTask.className).toContain("min-h-11");
-      fireEvent.click(openTask);
-      expect(onOpenSharedTask).toHaveBeenLastCalledWith(unavailable);
-      expect(screen.getByText("Result unavailable")).toBeTruthy();
-    }
-    expect(screen.queryByRole("link")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Team & chat" }));
-    expect(onOpenTeam).toHaveBeenCalledOnce();
-  });
-
-  it("keeps blocked, cancelled and unknown states distinct from successful execution", () => {
-    render(<WorkView workspaceId="workspace-1" sharedTasks={[
-      { ...sharedTask, id: "blocked", title: "Blocked task", status: "blocked" },
-      { ...sharedTask, id: "cancelled", title: "Cancelled task", status: "cancelled" },
-      { ...sharedTask, id: "unknown", title: "Unavailable task", status: "unknown" },
-    ]} />);
-    for (const [name, title] of [["Blocked", "Blocked task"], ["Cancelled", "Cancelled task"], ["Status unavailable", "Unavailable task"]] as const) {
-      expect(within(screen.getByRole("region", { name: `${name} - 1` })).getByText(title)).toBeTruthy();
-    }
-    expect(screen.queryByRole("region", { name: "Completed - 1" })).toBeNull();
   });
 
   it("renders centered empty state when there are zero tasks", () => {
@@ -313,13 +238,12 @@ describe("WorkView", () => {
     expect(onReviewApproval).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps failed runs out of Done and PR-open runs in their own board column", () => {
+  it("keeps failed runs out of Done and PR-open runs in review on the board", () => {
     const failed: RetainedRun = { ...mockRuns[2]!, runId: "run-failed", task: "Broken migration", status: "error" };
     render(<WorkView runs={[...mockRuns, failed]} />);
     fireEvent.click(screen.getByRole("button", { name: "Board" }));
-    expect(screen.getByTestId("kanban-column-attention").textContent).toContain("Broken migration");
-    expect(screen.getByTestId("kanban-column-done").textContent).not.toContain("Broken migration");
-    expect(screen.getByTestId("kanban-column-pr_open").textContent).toContain("Fix flaky checkout test");
+    expect(screen.getByTestId("board-column-done").textContent).not.toContain("Broken migration");
+    expect(screen.getByTestId("board-column-in_review").textContent).toContain("Fix flaky checkout test");
   });
 
   it("keeps cancelled and PR-open labels distinct in the Timeline", () => {
@@ -344,13 +268,6 @@ describe("WorkView", () => {
     expect(screen.queryByRole("button", { name: /^Review/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Timeline" }));
     expect(screen.queryByRole("button", { name: /^Review/ })).toBeNull();
-  });
-
-  it("returns a workspace-scoped controlled Organization view to List", () => {
-    const onViewChange = vi.fn();
-    render(<WorkView workspaceId={`ws_${"a".repeat(24)}`} view="organization" onViewChange={onViewChange} />);
-    expect(onViewChange).toHaveBeenCalledWith("list");
-    expect(screen.getByRole("region", { name: "List view" })).toBeTruthy();
   });
 
   it("supports controlled view and invokes onViewChange", () => {
@@ -412,12 +329,107 @@ describe("WorkView", () => {
     expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeTruthy();
   });
 
-  it("clears cached shared work on a membership or source refresh error", () => {
-    const { rerender } = render(<WorkView workspaceId="workspace-1" sharedTasks={[sharedTask]} />);
-    expect(screen.getByText(sharedTask.title)).toBeTruthy();
+  it("renders the left panel only with a scope handler and drives scope and view from it", () => {
+    const onScopeChange = vi.fn();
+    const { rerender } = render(<WorkView runs={mockRuns} storedApprovals={mockApprovals} />);
+    expect(screen.queryByRole("complementary", { name: "Work" })).toBeNull();
+    rerender(<WorkView runs={mockRuns} storedApprovals={mockApprovals} onScopeChange={onScopeChange} />);
+    const panel = screen.getByRole("complementary", { name: "Work" });
+    expect(within(panel).getByRole("button", { name: "Personal" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(within(panel).getByRole("button", { name: "Workspace" }));
+    expect(onScopeChange).toHaveBeenCalledWith("workspace");
+    expect(within(screen.getByRole("region", { name: "Needs you" })).getByRole("button", { name: "Add pagination to audit log API" })).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Assigned to me" })).getByText("Nothing assigned to you")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Everything" })).queryByText("Bump Node to 22")).toBeNull();
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Work pages" })).getByRole("button", { name: "Timeline" }));
+    expect(screen.getByRole("region", { name: "Timeline view" })).toBeTruthy();
+    rerender(<WorkView runs={mockRuns} onScopeChange={onScopeChange} sidebarCollapsed />);
+    expect(screen.queryByRole("complementary", { name: "Work" })).toBeNull();
+  });
+
+  it("syncs the view with ?view= and adopts a deep link over the controlled default", () => {
+    window.history.replaceState(null, "", "/work?view=board");
+    const onViewChange = vi.fn();
+    const { unmount } = render(<WorkView view="list" onViewChange={onViewChange} />);
+    expect(onViewChange).toHaveBeenCalledWith("board");
+    unmount();
+    window.history.replaceState(null, "", "/work?view=timeline");
+    render(<WorkView />);
+    expect(screen.getByRole("region", { name: "Timeline view" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    expect(window.location.search).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Organization" }));
+    expect(window.location.search).toBe("?view=organization");
+  });
+
+  it("lists workspace tasks in the panel sections by exact viewer identity", () => {
+    render(<WorkView workspaceId="workspace-1" currentActorId="human-1" onScopeChange={vi.fn()} sharedTasks={[
+      sharedTask,
+      { ...sharedTask, id: "employee", title: "Employee task", assigneeKind: "agent", assigneeActorId: "human-1" },
+      { ...sharedTask, id: "owned", title: "Owned by me", assigneeActorId: "human-2", ownerId: "human-1" },
+      { ...sharedTask, id: "allowed", title: "Authorized review", status: "needs-approval", approvalRequired: true, viewerCanApprove: true },
+      { ...sharedTask, id: "unproved", title: "Another owner review", status: "needs-approval", approvalRequired: true, assigneeActorId: "human-2" },
+      { ...sharedTask, id: "settled", title: "Already completed", status: "completed" },
+    ]} />);
+    const assigned = screen.getByRole("region", { name: "Assigned to me" });
+    expect(within(assigned).getByRole("button", { name: sharedTask.title })).toBeTruthy();
+    expect(within(assigned).getByRole("button", { name: "Owned by me" })).toBeTruthy();
+    expect(within(assigned).queryByText("Employee task")).toBeNull();
+    const needsYou = screen.getByRole("region", { name: "Needs you" });
+    expect(within(needsYou).getByRole("button", { name: "Authorized review" })).toBeTruthy();
+    expect(within(needsYou).queryByText("Another owner review")).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Everything" })).queryByText("Already completed")).toBeNull();
+    expect(screen.getByText("5 open")).toBeTruthy();
+  });
+
+  it("opens a task in the detail panel via ?task=, highlights it and closes it", () => {
+    const onUpdateTask = vi.fn();
+    render(<WorkView workspaceId="workspace-1" onScopeChange={vi.fn()} sharedTasks={[sharedTask]} onUpdateTask={onUpdateTask} />);
+    expect(screen.queryByRole("complementary", { name: "Task details" })).toBeNull();
+    fireEvent.click(within(screen.getByRole("region", { name: "List view" })).getByRole("button", { name: new RegExp(`^${sharedTask.title}`) }));
+    expect(new URLSearchParams(window.location.search).get("task")).toBe(sharedTask.id);
+    expect(screen.getByLabelText("Task details")).toBeTruthy();
+    expect(within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByText(sharedTask.title)).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Everything" })).getByRole("button", { name: sharedTask.title }).getAttribute("aria-current")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+    expect(screen.queryByLabelText("Task details")).toBeNull();
+    expect(window.location.search).toBe("");
+  });
+
+  it("restores a deep-linked task and archives it", () => {
+    window.history.replaceState(null, "", `/work?task=${sharedTask.id}`);
+    const onArchiveTask = vi.fn();
+    render(<WorkView workspaceId="workspace-1" sharedTasks={[sharedTask]} onArchiveTask={onArchiveTask} />);
+    expect(screen.getByLabelText("Task details")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Archive task" }));
+    expect(onArchiveTask).toHaveBeenCalledWith(sharedTask.id);
+    expect(screen.queryByLabelText("Task details")).toBeNull();
+  });
+
+  it("toggles done and creates workspace tasks from the quick-add bar", async () => {
+    const onUpdateTask = vi.fn();
+    const onCreateTask = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ ...sharedTask, id: "new" });
+    render(<WorkView workspaceId="workspace-1" sharedTasks={[sharedTask]} onUpdateTask={onUpdateTask} onCreateTask={onCreateTask} />);
+    fireEvent.click(screen.getByRole("button", { name: `Mark ${sharedTask.title} done` }));
+    expect(onUpdateTask).toHaveBeenCalledWith(sharedTask.id, { status: "done" });
+    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Draft the launch post" } });
+    await act(async () => { fireEvent.submit(input.closest("form")!); });
+    expect(onCreateTask).toHaveBeenCalledWith("Draft the launch post");
+    expect(input.value).toBe("Draft the launch post");
+    await act(async () => { fireEvent.submit(input.closest("form")!); });
+    await waitFor(() => expect(input.value).toBe(""));
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("shows the workspace Organization view and clears cached work on an access error", () => {
+    const { rerender } = render(<WorkView workspaceId="workspace-1" view="organization" employees={[{ id: "emp-1", name: "Coder Agent", role: "Software Engineer" }]} />);
+    expect(screen.getByRole("region", { name: "Organization view" })).toBeTruthy();
+    expect(screen.getByText("Coder Agent")).toBeTruthy();
     rerender(<WorkView workspaceId="workspace-1" sharedTasks={[sharedTask]} sharedTasksError="Workspace access is unavailable." />);
     expect(screen.getByRole("alert").textContent).toContain("Workspace access is unavailable.");
     expect(screen.queryByText(sharedTask.title)).toBeNull();
-    expect(screen.getByRole("button", { name: "All shared work 0" })).toBeTruthy();
+    expect(screen.getByText("0 open")).toBeTruthy();
   });
 });

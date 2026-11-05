@@ -21,6 +21,11 @@ export default {
       screens: {
         touch: { raw: "(pointer: coarse)" },
       },
+      spacing: {
+        rail: 'var(--shiba-rail-w)',
+        context: 'var(--shiba-context-w)',
+        detail: 'var(--shiba-detail-w)',
+      },
       fontFamily: {
         sans: [
           'Geist',
@@ -47,6 +52,7 @@ export default {
           'Consolas',
           'monospace',
         ],
+        serif: ['var(--font-serif)'],
         display: [
           'Geist',
           'system-ui',
@@ -68,6 +74,7 @@ export default {
         card: 'var(--radius-card)',
         overlay: 'var(--radius-overlay)',
         panel: 'var(--radius-panel)',
+        shell: 'var(--shiba-card-radius)',
       },
       boxShadow: {
         plate: 'var(--sh-plate)',
@@ -75,6 +82,9 @@ export default {
         overlay: 'var(--sh-overlay)',
         composer: 'var(--sh-composer)',
         sheet: 'var(--sh-sheet)',
+        'elev-1': 'var(--shiba-elev-1)',
+        'elev-2': 'var(--shiba-elev-2)',
+        'elev-3': 'var(--shiba-elev-3)',
       },
       colors: {
         bg: 'var(--bg)',
@@ -140,6 +150,14 @@ export default {
         complete: 'var(--complete)',
         attention: 'var(--attention)',
         progress: 'var(--progress)',
+        status: {
+          backlog: 'var(--shiba-status-backlog)',
+          todo: 'var(--shiba-status-todo)',
+          progress: 'var(--shiba-status-progress)',
+          review: 'var(--shiba-status-review)',
+          done: 'var(--shiba-status-done)',
+        },
+        today: 'var(--shiba-today)',
         brand: {
           DEFAULT: 'var(--primary)',
           light: 'var(--primary-soft)',

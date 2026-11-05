@@ -200,7 +200,7 @@ describe("app Work and Threads routing", () => {
   it("keeps a quick-add draft in the composer after creating and navigating to a thread", async () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
-    const input = await screen.findByRole("textbox", { name: "Draft a task and press Enter" });
+    const input = await screen.findByRole("textbox", { name: "Add a task and press Enter" });
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ cache: "no-store" })));
     await act(async () => {});
     fireEvent.change(input, { target: { value: "Investigate latency" } });
@@ -233,7 +233,7 @@ describe("app Work and Threads routing", () => {
     });
     try {
       render(<App />);
-      const input = await screen.findByRole("textbox", { name: "Draft a task and press Enter" });
+      const input = await screen.findByRole("textbox", { name: "Add a task and press Enter" });
       await waitFor(() => expect(finishSessions).toBeTypeOf("function"));
       await act(async () => finishSessions(Response.json({ sessions: [] })));
       fireEvent.change(input, { target: { value: "Keep this task without storage" } });
@@ -257,13 +257,13 @@ describe("app Work and Threads routing", () => {
       return originalFetch(url, options);
     }));
     render(<App />);
-    const input = await screen.findByRole("textbox", { name: "Draft a task and press Enter" });
+    const input = await screen.findByRole("textbox", { name: "Add a task and press Enter" });
     await act(async () => {});
     fireEvent.change(input, { target: { value: "Different quick task" } });
     fireEvent.submit(input.closest("form")!);
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ method: "POST" })));
     await act(async () => {});
-    expect((screen.getByRole("textbox", { name: "Draft a task and press Enter" }) as HTMLInputElement).value).toBe("Different quick task");
+    expect((screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement).value).toBe("Different quick task");
     fireEvent.click(screen.getByRole("button", { name: "Chats" }));
     expect((await screen.findByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Original unfinished task");
     expect(readDraft(composerDraftScope("test-operator", "default"))).toBe("Original unfinished task");
@@ -284,7 +284,7 @@ describe("app Work and Threads routing", () => {
     }));
     render(<App />);
     const newTask = await screen.findByRole("button", { name: "New task" });
-    const input = screen.getByRole("textbox", { name: "Draft a task and press Enter" }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Keep quick-add draft" } });
     const form = input.closest("form")!;
     if (entry === "quick-add") fireEvent.submit(form);
@@ -325,7 +325,8 @@ describe("app Work and Threads routing", () => {
       return originalFetch(url, options);
     }));
     render(<App />);
-    await screen.findByText("SHARED-TEAM-ONLY");
+    // The task shows in both the sidebar "Everything" section and the list.
+    expect((await screen.findAllByText("SHARED-TEAM-ONLY")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: /(· workspace|^Workspace profile)$/ }));
     expect(screen.getByRole("menuitemradio", { name: "Design team" }).getAttribute("aria-checked")).toBe("true");
     await act(async () => { window.history.pushState(null, "", "/threads/"); window.dispatchEvent(new PopStateEvent("popstate")); });

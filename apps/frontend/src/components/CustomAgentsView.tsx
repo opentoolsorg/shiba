@@ -7,8 +7,9 @@ import { formatTimeAgo } from "../ui-helpers";
 import { sanitizeCustomAgentSlug, type CustomAgentConfig, type CustomAgentRoleTemplateId } from "@shiba/shared";
 import { codingModelOptions, type ConnectionOption } from "../live-status";
 import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTemplate } from "../employee-templates";
-import { RoleShiba } from "./RoleShiba";
+import { AgentAvatar as MascotAvatar } from "./AgentAvatar";
 import { AgentTemplatesCatalog } from "./AgentTemplatesCatalog";
+import { AgentAvatar } from "./AgentExperience";
 import type { AgentTemplate } from "@shiba/shared";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
 
@@ -112,6 +113,8 @@ function ScopedCustomAgentsView({
   const [busy, setBusy] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const selectedAgent = agents?.find((agent) => agent.id === selectedAgentId);
   const [form, setForm] = useState(() => readRoleDraft(draftScope));
   const [draftStorageAvailable, setDraftStorageAvailable] = useState(true);
   const [expectedVersion, setExpectedVersion] = useState<number | undefined>(undefined);
@@ -254,7 +257,7 @@ function ScopedCustomAgentsView({
     if (!initialAgentId || appliedInitialAgent.current === initialAgentId || !agents) return;
     const agent = agents.find((item) => item.id === initialAgentId);
     appliedInitialAgent.current = initialAgentId;
-    if (agent) startEdit(agent);
+    if (agent) { setSelectedAgentId(agent.id); startEdit(agent); }
     onInitialAgentApplied?.();
   }, [initialAgentId, agents, onInitialAgentApplied]);
 
@@ -441,7 +444,8 @@ function ScopedCustomAgentsView({
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
-        <div className="max-w-3xl mx-auto flex flex-col gap-4">
+        <div className="max-w-6xl mx-auto flex flex-col gap-6">
+          {selectedAgent ? <section className="agent-detail-card" aria-label={`${selectedAgent.config.name} overview`}><div className="agent-detail-heading"><AgentAvatar agentId={selectedAgent.id} name={selectedAgent.config.name} slug={selectedAgent.slug} role={employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId)} large /><div><p className="agent-eyebrow">Your persistent teammate</p><h2>{selectedAgent.config.name}</h2><p>{employeeRoleLabel(employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId))}</p><span className="agent-category">{selectedAgent.config.harness} · {selectedAgent.config.codingModel || "Workspace default"}</span></div><button type="button" onClick={() => setSelectedAgentId(null)}>All teammates</button></div><p className="text-sm text-[var(--muted-foreground-2)]">{selectedAgent.config.instructions.slice(0, 240)}</p><div className="agent-detail-threads"><h3>Threads</h3>{threadsLoading ? <p>Loading threads…</p> : threadsUnavailable ? <p>Thread history is unavailable. Try refreshing the page.</p> : agentThreads(threads, selectedAgent.id).map((thread) => <button key={thread.id} type="button" onClick={() => onOpenThread?.(thread.id)}><span>{thread.name || "Untitled thread"}</span><time dateTime={new Date(thread.updatedAt).toISOString()}>{formatTimeAgo(thread.updatedAt)}</time></button>)}{!threadsLoading && !threadsUnavailable && !agentThreads(threads, selectedAgent.id).length ? <p>A fresh start. Give your teammate something to work on.</p> : null}{onStartThread ? <button type="button" disabled={startingAgentId !== null || busy} onClick={() => void startThread(selectedAgent)}>+ Start a thread</button> : null}</div></section> : null}
           {notice ? <StatusNotice tone={notice.tone}>{notice.text}</StatusNotice> : null}
 
           <AgentTemplatesCatalog workspaceId={workspaceId} onUse={async (template: AgentTemplate) => {
@@ -465,7 +469,7 @@ function ScopedCustomAgentsView({
             >
               <div className="flex items-center justify-between gap-2 border-b border-[#e4e4e7] pb-3 dark:border-zinc-800">
                 <div className="flex items-center gap-2.5">
-                  <RoleShiba role={employeeRole(form.slug || form.name, (form.roleTemplateId as CustomAgentRoleTemplateId) || undefined)} decorative className="size-8 shrink-0" />
+                  <MascotAvatar id={editingId ?? (form.slug || form.name || "new-agent")} name={form.name || "New agent"} role={employeeRole(form.slug || form.name, (form.roleTemplateId as CustomAgentRoleTemplateId) || undefined)} size={32} decorative />
                   <div>
                     <h2 className="text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100">
                       {editingId ? "Edit bot" : "New bot"}
@@ -578,7 +582,7 @@ function ScopedCustomAgentsView({
                         <button key={template.id} type="button" aria-label={template.label} disabled={busy || editingId !== null}
                           onClick={(event) => chooseTemplate(template, event.currentTarget)}
                           className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] p-3 text-left disabled:opacity-50">
-                          <RoleShiba role={template.id} decorative className="mb-2 size-9" />
+                          <MascotAvatar id={template.id} name={template.label} role={template.id} size={36} decorative className="mb-2" />
                           <span className="block text-xs font-medium text-[var(--fg)]">{template.label}</span>
                           <span className="mt-1 block text-[11px] text-[var(--muted-foreground-2)]">{template.description}</span>
                         </button>
@@ -729,7 +733,7 @@ function ScopedCustomAgentsView({
                   className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] px-4 py-3 flex flex-col sm:flex-row items-start justify-between gap-3 shadow-[var(--sh-card)]"
                 >
                   <div className="min-w-0">
-                    <div className="mb-3 flex items-center gap-3"><RoleShiba role={employeeRole(agent.slug, agent.config.roleTemplateId)} decorative className="size-12" /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))}</span></div>
+                    <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))}</span></div>
                     <div className="text-sm font-medium text-[var(--fg)]">
                       {agent.config.name}
                       <span className="text-[11px] font-mono text-[var(--muted-foreground-2)] ml-2">

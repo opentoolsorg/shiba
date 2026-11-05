@@ -17,7 +17,8 @@ import { RoomApprovalReview } from "./components/RoomApprovalReview";
 import { TeamWorkspaceView } from "./components/TeamWorkspaceView";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
 import { lastTeamWorkspace, rememberLastTeamWorkspace, useTeamWorkspaceDirectory } from "./team-workspaces-client";
-import { useTeamWorkItems } from "./team-work-client";
+import { useWorkTasks } from "./work-mutations";
+import { useFirstRunSeed } from "./first-run-seed";
 import { AnalyticsView } from "./components/AnalyticsView";
 import { AutomationsView } from "./components/AutomationsView";
 import { AgentsView } from "./components/AgentsView";
@@ -26,7 +27,7 @@ import { SkillsView } from "./components/SkillsView";
 import { SpacesView } from "./components/SpacesView";
 import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from "./components/CustomAgentsView";
 import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
-import { AgentDetailsPanel, AgentPageHeader, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
+import { AgentDetailsPanel, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
 import { useProjectContexts } from "./project-contexts";
@@ -57,7 +58,9 @@ import { SessionsSidebar, type SessionItem } from "./components/SessionsSidebar"
 import { ConversationWorkspaceHeading } from "./components/ConversationWorkspaceHeading";
 import { ConversationRoomPresence, RemoteAgentStream } from "./components/ConversationRoomPresence";
 import { ConversationModeSwitch } from "./components/ConversationModeSwitch";
-import { ChatMessageComposer } from "./components/ChatMessageComposer";
+import { AgentChatEmptyState } from "./components/AgentChatEmptyState";
+import { AgentChatHeader } from "./components/AgentChatHeader";
+import { AgentComposerShell } from "./components/AgentComposerShell";
 import {
   readConversationMode,
   readRememberedSessionId,
@@ -403,6 +406,14 @@ function viewFromUrl(): AppNavView | null {
   );
 }
 
+// WorkView writes ?view=/?task= itself; app state only seeds from them and follows back/forward.
+const WORK_VIEW_MODES: readonly WorkViewMode[] = ["list", "board", "timeline", "organization"];
+function workViewFromUrl(): WorkViewMode {
+  if (typeof window === "undefined") return "list";
+  const view = new URLSearchParams(window.location.search).get("view");
+  return WORK_VIEW_MODES.find((mode) => mode === view) ?? "list";
+}
+
 function pathForView(view: MainView): string {
   return view === "work" ? "/" : `/${view}/`;
 }
@@ -606,7 +617,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       ? localStorage.getItem("shiba:work-panel-collapsed") === "true"
       : false,
   );
-  const [workViewMode, setWorkViewMode] = useState<WorkViewMode>("list");
+  const [workViewMode, setWorkViewMode] = useState<WorkViewMode>(workViewFromUrl);
 
   const toggleSessionsCollapsed = useCallback(() => {
     setSessionsCollapsed((current) => {
@@ -668,6 +679,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   useEffect(() => {
     const onPop = () => {
       const view = viewFromUrl();
+      setWorkViewMode(workViewFromUrl());
       setMainView(view ?? DEFAULT_VIEW);
       if (view === "settings") setSettingsSection(normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
     };
@@ -737,7 +749,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const [sharedRoomId, setSharedRoomId] = useState<string | undefined>();
   const [sharedHandoffId, setSharedHandoffId] = useState<string | undefined>();
   const [sharedEmployeeId, setSharedEmployeeId] = useState<string | undefined>();
-  const sharedWork = useTeamWorkItems(signedIn ? orchestratorName : null, teamWorkspaceId, signedIn && mainView === "work");
+  const sharedWork = useWorkTasks(signedIn ? orchestratorName : null, teamWorkspaceId, signedIn && mainView === "work");
   useEffect(() => { setSharedRoomId(undefined); setSharedHandoffId(undefined); setSharedEmployeeId(undefined); }, [teamWorkspaceId, orchestratorName]);
   const projectContexts = useProjectContexts(privateDataEnabled ? orchestratorName : null);
   useEffect(() => setProjectContextId(""), [signedIn, orchestratorName]);
@@ -796,6 +808,16 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     loading: customAgentsLoading,
     error: customAgentsError,
   } = useCustomAgentOptions(signedIn && workspaceAuthorityReady && !teamDirectory.error, teamWorkspaceId || undefined, orchestratorName ?? undefined);
+  const firstRunSeed = useFirstRunSeed({ actorId: orchestratorName, enabled: signedIn && workspaceAuthorityReady && !teamDirectory.error && !restrictedTeamMember });
+  // The seed may add a workspace and starter agents; reload both lists so they appear without a page refresh.
+  const handledSeed = useRef<object | null>(null);
+  useEffect(() => {
+    const seeded = firstRunSeed.result;
+    if (!seeded || handledSeed.current === seeded) return;
+    handledSeed.current = seeded;
+    if (seeded.createdWorkspace) void teamDirectory.refresh();
+    if (seeded.createdAgents.length > 0) refreshCustomAgents();
+  }, [firstRunSeed.result, teamDirectory.refresh, refreshCustomAgents]);
   const customAgentPickerOptions = useMemo(
     () =>
       customAgentRecords.map((agent) => ({
@@ -2475,6 +2497,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     applyThreadProfile(customAgentRecords[0]!);
   }, [mainView, customAgentId, customAgentRecords, applyThreadProfile]);
   const employeeName = activeEmployee?.config.name ?? "Shiba";
+  const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
+  const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, role: employeeRole(record.slug, record.config.roleTemplateId) }));
   const showEmployeeOnboarding = !teamWorkspaceId && !restrictedTeamMember && !employeeOnboardingDismissed && !threadsLoading && !customAgentsLoading && !customAgentsError && sessionApiAvailable && customAgentRecords.length === 0 && webSessions.every((session) => session.id === "default") && sessions.every((session) => session.id === "default") && !threadHasWork;
 
   const activeSandboxCount = useMemo(() => {
@@ -2616,8 +2640,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         {...panelProps}
         active={mainView === "custom-agents" ? customAgentId : mainView}
         onSelect={(id) => { if (id === "employee-tools" || id === "swarm" || id === "tasks") openView(id); }}
-        agents={privateDataEnabled ? customAgentRecords : []}
+        agents={signedIn && workspaceAuthorityReady && !teamDirectory.error ? customAgentRecords : []}
         threads={visibleWebSessions}
+        // Only the open thread has a live stream; the rest fall back to stored session metadata.
+        threadStates={{ [selectedSessionId]: chat.isStreaming || chat.status === "streaming" || chat.status === "submitted" ? "working" : pendingApprovals.length > 0 ? "waiting" : "idle" }}
         ownerName={orchestratorName ?? undefined}
         workspaceName={teamWorkspace?.name}
         onSelectAgent={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
@@ -2900,36 +2926,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <section className="m-4 min-w-0 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal workspace feature"><h1 className="text-xl font-medium">Open this feature in your personal workspace</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">This view uses personal or deployment settings. Team messages, context and results stay in the selected team’s shared chat and Work views.</p><button type="button" className="mt-4 min-h-11 border border-[var(--border-1)] px-4" onClick={() => teamDirectory.selectWorkspace("")}>Switch to personal workspace</button><button type="button" className="ml-3 min-h-11 border border-[var(--border-1)] px-4" onClick={() => openView("threads")}>Open team chat</button></section>
           ) : mainView === "inbox" ? null : mainView === "work" ? (
             <div className="flex min-h-0 flex-1 p-2 gap-2 bg-[var(--bg)] overflow-hidden">
-              {!workPanelCollapsed ? (
-                <div id="work-panel" className="hidden lg:flex shrink-0 h-full">
-                  <SessionsSidebar
-                    title="Work"
-                    scope={teamWorkspaceId ? "workspace" : "personal"}
-                    onScopeChange={handleScopeChange}
-                    activeNav={workViewMode}
-                    onNavChange={setWorkViewMode}
-                    onSearchClick={() => setCommandMenuOpen(true)}
-                    sessions={privateDataEnabled && sessionRegistryOwner === orchestratorName ? sessions : []}
-                    agents={privateDataEnabled ? agentPrincipals : []}
-                    selectedId={selectedRunId ?? selectedSessionId}
-                    onSelect={handleSelectSession}
-                    onNewTask={handleNewTask}
-                    connectionLabel={teamWorkspaceId ? "Shared workspace" : connectionState}
-                    connectionTone={
-                      identityError || agent.connectionError
-                        ? "error"
-                        : launchBlocked || !agent.identified
-                          ? "pending"
-                          : "ok"
-                    }
-                    setupDone={setupDone}
-                    setupTotal={SETUP_TOTAL_STEPS}
-                    onOpenSetup={openFirstRun}
-                    onToggleCollapse={toggleWorkPanelCollapsed}
-                  />
-                </div>
-              ) : null}
-              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+              <div id="work-panel" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                 {teamWorkspaceId ? <aside className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--card)] px-4 py-3 text-xs"><p>Plan your first team task with optional role and employee choices. Saved drafts start no work.</p><button type="button" disabled={authMode !== "better-auth"} className="min-h-11 border border-[var(--line)] px-3 disabled:opacity-50" onClick={() => setShowFirstRun(true)}>{authMode === "better-auth" ? "Set up a team task" : "Saved setup requires email sign-in"}</button></aside> : null}
                 {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
                 <WorkView
@@ -2937,6 +2934,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   onViewChange={setWorkViewMode}
                   sidebarCollapsed={workPanelCollapsed}
                   onToggleSidebar={toggleWorkPanelCollapsed}
+                  onScopeChange={handleScopeChange}
                   employees={workEmployees}
                   // Browsing the org chart must not rewrite the composer's bot or model settings.
                   onOpenEmployee={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
@@ -2946,6 +2944,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   sharedTasks={sharedWork.tasks}
                   sharedTasksLoading={sharedWork.loading}
                   sharedTasksError={sharedWork.error ?? undefined}
+                  onCreateTask={(title) => sharedWork.create(title)}
+                  onUpdateTask={(id, patch) => { void sharedWork.update(id, patch); }}
+                  onArchiveTask={(id) => { void sharedWork.archive(id); }}
+                  onCommentTask={(id, text) => { void sharedWork.comment(id, text); }}
+                  agents={mentionableAgents}
                   onOpenTeam={() => openView("team")}
                   onOpenSharedTask={(item) => { setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
                   runs={retainedRuns}
@@ -3086,7 +3089,18 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 className="flex min-h-full min-w-0 flex-1 shrink-0 flex-col overflow-hidden bg-[var(--bg)] xl:min-h-0"
                 aria-busy={busy}
               >
-                <AgentPageHeader onShareWithTeam={() => { setNotice("Choose a team workspace, then start a shared conversation. Your private messages are not copied."); openView("team"); }} name={employeeName} slug={activeEmployee?.slug} role={activeEmployee?.config.roleTemplateId} detailsOpen={agentDetailsOpen} onToggleDetails={() => setAgentDetailsOpen((open) => !open)} onExpandSidebar={sessionsCollapsed ? toggleSessionsCollapsed : undefined} />
+                <AgentChatHeader
+                  agent={chatAgent}
+                  participants={[{ id: "you", name: "You" }, { id: chatAgent.id, name: chatAgent.name }]}
+                  panelOpen={agentDetailsOpen}
+                  onTogglePanel={() => setAgentDetailsOpen((open) => !open)}
+                  workspaceLabel={teamWorkspace?.name ?? "Personal"}
+                  actions={[
+                    ...(sessionsCollapsed ? [{ label: "Show sidebar", onSelect: toggleSessionsCollapsed }] : []),
+                    { label: "Start shared conversation", onSelect: () => { setNotice("Choose a team workspace, then start a shared conversation. Your private messages are not copied."); openView("team"); } },
+                    { label: "Edit agent", onSelect: () => openView("custom-agents") },
+                  ]}
+                />
                 {showEmployeeOnboarding ? <div className="max-h-[65vh] shrink-0 overflow-y-auto"><EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /></div> : null}
                 {!threadHasWork && sessionApiAvailable && activeWebSession && selectedSessionId !== "default" ? <div className="shrink-0 px-4 py-2"><ThreadTitleEditor key={selectedSessionId} sessionId={selectedSessionId} name={activeWebSession.name} onRenamed={(renamed) => setWebSessions((current) => applyThreadRename(current, renamed))} /></div> : null}
                 {/* Keep the existing session actions on nonempty threads. */}
@@ -3451,15 +3465,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         ? "flex-1 min-h-0 flex flex-col items-center [justify-content:safe_center] overflow-y-auto gap-5 px-3 sm:px-5 xl:px-8 py-5"
                         : "shrink-0 px-3 sm:px-5 xl:px-8 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
                     }>
-                      {chat.messages.length === 0 ? (
-                        <div className="max-w-2xl text-center">
-                          <h2 className="font-sans text-3xl text-[var(--fg)] mb-2">What should we explore?</h2>
-                          <p className="text-sm text-[var(--muted-foreground-2)]">
-                            Ask a question here. Chat mode has no task tools; switch to Work to delegate an approval-gated task.
-                          </p>
-                        </div>
-                      ) : null}
-                      <ChatMessageComposer
+                      {chat.messages.length === 0 ? <AgentChatEmptyState agent={chatAgent} /> : null}
+                      <AgentComposerShell
+                        agentName={employeeName}
+                        agents={mentionableAgents}
                         value={composerVisible ? task : ""}
                         onChange={setTask}
                         onSubmit={submitTask}

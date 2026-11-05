@@ -7,6 +7,46 @@ import { AGENT_TEMPLATES } from "@shiba/shared";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("AgentTemplatesCatalog", () => {
+  it("filters real catalog cards with search and category chips", () => {
+    render(<AgentTemplatesCatalog onUse={vi.fn()} />);
+    expect(document.querySelectorAll(".agent-template-card")).toHaveLength(11);
+    fireEvent.click(screen.getByRole("button", { name: "engineering" }));
+    expect(document.querySelectorAll(".agent-template-card")).toHaveLength(4);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search templates" }), { target: { value: "reviewer" } });
+    expect(document.querySelectorAll(".agent-template-card")).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "PR Reviewer" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search templates" }), { target: { value: "no-such-teammate" } });
+    expect(screen.getByText(/No teammates match your search/)).toBeTruthy();
+  });
+
+  it("shows a featured row only for the unfiltered catalog and hires from it", async () => {
+    const onUse = vi.fn().mockResolvedValue(undefined);
+    render(<AgentTemplatesCatalog onUse={onUse} />);
+    const featured = screen.getByRole("region", { name: "Featured teammates" });
+    const featuredIds = AGENT_TEMPLATES.filter((item) => item.categories.includes("featured"));
+    expect(featured.querySelectorAll("button")).toHaveLength(featuredIds.length);
+    const [first] = featuredIds;
+    const firstButton = featured.querySelector("button");
+    if (!first || !firstButton) throw new Error("Expected a featured teammate.");
+    fireEvent.click(firstButton);
+    await waitFor(() => expect(onUse).toHaveBeenCalledWith(first));
+    expect((await screen.findByRole("status")).textContent).toContain(`${first.name} added to your bots`);
+    fireEvent.click(screen.getByRole("button", { name: "ops" }));
+    expect(screen.queryByRole("region", { name: "Featured teammates" })).toBeNull();
+  });
+
+  it("renders mascot, category tag and capability chips derived from the template", () => {
+    render(<AgentTemplatesCatalog onUse={vi.fn()} />);
+    const card = screen.getByRole("heading", { name: "Coding Coworker" }).closest("article");
+    const mascot = card?.querySelector(".agent-avatar img");
+    if (!card || !mascot) throw new Error("Expected a card with a mascot.");
+    expect(mascot.getAttribute("src")).toBe("/assets/agents/agni.png");
+    expect(card.querySelector(".agent-category")?.textContent).toBe("engineering");
+    expect(Array.from(card.querySelectorAll(".agent-capabilities span"), (chip) => chip.textContent)).toEqual(["repository work", "slack threads", "Approval-gated"]);
+    fireEvent.error(mascot);
+    expect(card.querySelector(".agent-avatar img")).toBeNull();
+    expect(card.querySelector(".agent-avatar")?.textContent).toBe("CC");
+  });
   it("reviews a complete catalog bundle without creating a bot or installing metadata skills", async () => {
     const request = vi.fn(async (_url: string, init?: RequestInit) => Response.json({
       recipe: JSON.parse(String(init?.body)).recipe, previewId: "ebp-preview", digest: "d".repeat(64), expiresAt: Date.now() + 60_000,
@@ -14,7 +54,7 @@ describe("AgentTemplatesCatalog", () => {
     vi.stubGlobal("fetch", request);
     const onUse = vi.fn();
     render(<AgentTemplatesCatalog onUse={onUse}/>);
-    fireEvent.click(screen.getAllByRole("button", { name: "Review complete bundle" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Review bundle" })[0]!);
     await screen.findByText(/Review digest:/);
     expect(onUse).not.toHaveBeenCalled();
     expect(request).toHaveBeenCalledOnce();
@@ -63,7 +103,7 @@ describe("AgentTemplatesCatalog", () => {
   it("uses a catalog template by creating a custom bot", async () => {
     const onUse = vi.fn().mockResolvedValue(undefined);
     render(<AgentTemplatesCatalog onUse={onUse} />);
-    const useButton = screen.getAllByRole("button", { name: "Use" })[0];
+    const useButton = screen.getAllByRole("button", { name: "Hire" })[0];
     if (!useButton) throw new Error("Expected a use action.");
     fireEvent.click(useButton);
     await waitFor(() => expect(onUse).toHaveBeenCalledWith(AGENT_TEMPLATES[0]));

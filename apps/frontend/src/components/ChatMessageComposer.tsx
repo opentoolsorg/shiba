@@ -1,4 +1,4 @@
-import { type FormEvent, type JSX, type KeyboardEvent, useRef } from "react";
+import { type FormEvent, type JSX, type KeyboardEvent, type ReactNode, type RefObject, useRef } from "react";
 import { ArrowUp, AtSign, LoaderCircle, Plus, Square } from "lucide-react";
 
 export function ChatMessageComposer({
@@ -11,6 +11,12 @@ export function ChatMessageComposer({
   streaming,
   failed,
   placeholder = "What do you want to get done?",
+  agentName = "Shiba",
+  onAttach,
+  onMention,
+  mentionOpen,
+  textareaRef,
+  children,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -21,6 +27,12 @@ export function ChatMessageComposer({
   streaming: boolean;
   failed: boolean;
   placeholder?: string;
+  agentName?: string;
+  onAttach?: () => void;
+  onMention?: () => void;
+  mentionOpen?: boolean;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  children?: ReactNode;
 }): JSX.Element {
   const formRef = useRef<HTMLFormElement | null>(null);
 
@@ -42,10 +54,11 @@ export function ChatMessageComposer({
         onSubmit={onSubmit}
         className="w-full rounded-2xl border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-composer)] flex flex-col p-3 sm:p-4 gap-2.5 relative group focus-within:border-[var(--ring)] transition-colors"
       >
-        <label htmlFor="chat-message" className="sr-only">Message Shiba</label>
+        <label htmlFor="chat-message" className="sr-only">Message {agentName}</label>
         <textarea
+          ref={textareaRef}
           id="chat-message"
-          aria-label="Message Shiba"
+          aria-label={`Message ${agentName}`}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
@@ -60,6 +73,7 @@ export function ChatMessageComposer({
             <button
               type="button"
               aria-label="Add to message"
+              onClick={onAttach}
               className="inline-flex items-center justify-center size-9 rounded-full border border-[var(--border-1)] hover:bg-[var(--secondary)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               <Plus aria-hidden="true" className="size-4" />
@@ -67,6 +81,9 @@ export function ChatMessageComposer({
             <button
               type="button"
               aria-label="Mention"
+              aria-haspopup={onMention ? "menu" : undefined}
+              aria-expanded={onMention ? Boolean(mentionOpen) : undefined}
+              onClick={onMention}
               className="inline-flex items-center justify-center size-9 rounded-full border border-[var(--border-1)] hover:bg-[var(--secondary)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               <AtSign aria-hidden="true" className="size-4" />
@@ -113,9 +130,10 @@ export function ChatMessageComposer({
             </button>
           </div>
         </div>
+        {children}
       </form>
       <p className="mt-2 text-center text-xs text-[var(--muted-foreground-2)]">
-        Shiba can make mistakes. Check important info.
+        {agentName} can make mistakes. Check important info.
       </p>
     </div>
   );

@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { WebThread } from "../agent-threads";
 import { AgentsPanel } from "./AgentsPanel";
 import type { CustomAgentWire } from "./CustomAgentsView";
-import type { WebThread } from "../agent-threads";
 
 afterEach(() => {
   cleanup();
@@ -71,7 +71,7 @@ describe("AgentsPanel", () => {
         onNewAgent={onNewAgent}
         agents={mockAgents}
         threads={mockThreads}
-      />
+      />,
     );
 
     expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();
@@ -100,12 +100,12 @@ describe("AgentsPanel", () => {
         ownerName="Alice"
         agents={mockAgents}
         threads={mockThreads}
-      />
+      />,
     );
 
     expect(screen.getByText("Research Partner")).toBeTruthy();
     expect(screen.getByText("Engineering Lead")).toBeTruthy();
-    expect(screen.getByText("💻")).toBeTruthy();
+    expect(document.querySelector('img[src^="/assets/agents/"]')).toBeTruthy();
     expect(screen.getAllByText("Alice · You").length).toBeGreaterThan(0);
 
     rerender(
@@ -117,7 +117,7 @@ describe("AgentsPanel", () => {
         workspaceName="Acme Corp"
         agents={mockAgents}
         threads={mockThreads}
-      />
+      />,
     );
 
     expect(screen.getAllByText("Acme Corp · Workspace").length).toBeGreaterThan(0);
@@ -138,7 +138,7 @@ describe("AgentsPanel", () => {
         onNewThread={onNewThread}
         agents={mockAgents}
         threads={mockThreads}
-      />
+      />,
     );
 
     fireEvent.click(screen.getByText("Research Partner"));
@@ -163,28 +163,122 @@ describe("AgentsPanel", () => {
         onSelectThread={onSelectThread}
         agents={mockAgents}
         threads={mockThreads}
-      />
+      />,
     );
 
     expect(screen.queryByText("Competitor analysis")).toBeNull();
     const expandBtn = screen.getByRole("button", { name: "Expand Research Partner" });
     expect(expandBtn.getAttribute("aria-expanded")).toBe("false");
-
     fireEvent.click(expandBtn);
     expect(expandBtn.getAttribute("aria-expanded")).toBe("true");
 
-    const thread1 = screen.getByRole("button", { name: /Competitor analysis/ });
-    const thread3 = screen.getByRole("button", { name: /Literature review/ });
-    expect(thread1).toBeTruthy();
-    expect(thread3).toBeTruthy();
+    const group = screen.getByRole("group", { name: "Research Partner threads" });
+    const buttons = group.querySelectorAll("button");
+    expect(buttons[0]?.textContent).toContain("Literature review");
+    expect(buttons[1]?.textContent).toContain("Competitor analysis");
     expect(screen.queryByText("Tech debt review")).toBeNull();
 
-    fireEvent.click(thread1);
+    fireEvent.click(screen.getByRole("button", { name: /Competitor analysis/ }));
     expect(onSelectThread).toHaveBeenCalledWith("thread-1");
     expect(onSelect).toHaveBeenCalledWith("thread-1");
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse Research Partner" }));
     expect(screen.queryByText("Competitor analysis")).toBeNull();
+  });
+
+  it("always lists the default agent with the default session and unbound threads", () => {
+    const onSelectThread = vi.fn();
+    const onNewThread = vi.fn();
+    render(
+      <AgentsPanel
+        scope="personal"
+        onScopeChange={vi.fn()}
+        active=""
+        onSelect={vi.fn()}
+        onSelectThread={onSelectThread}
+        onNewThread={onNewThread}
+        agents={mockAgents}
+        threads={[
+          ...mockThreads,
+          { id: "loose", name: "Quick question", agentName: "web:user:4", updatedAt: 400 },
+        ]}
+      />,
+    );
+
+    const group = screen.getByRole("group", { name: "Shiba threads" });
+    expect(group.textContent).toContain("Quick question");
+    expect(group.textContent).toContain("Default session");
+    expect(group.textContent).not.toContain("Competitor analysis");
+
+    fireEvent.click(screen.getByText("Shiba"));
+    expect(onSelectThread).toHaveBeenCalledWith("loose");
+    fireEvent.click(screen.getByRole("button", { name: "New thread with Shiba" }));
+    expect(onNewThread).toHaveBeenCalledWith(undefined);
+  });
+
+  it("shows role and provider subtitles and live thread status", () => {
+    render(
+      <AgentsPanel
+        scope="personal"
+        onScopeChange={vi.fn()}
+        active="thread-3"
+        onSelect={vi.fn()}
+        agents={mockAgents}
+        threads={mockThreads}
+        threadStates={{ "thread-3": "working" }}
+      />,
+    );
+
+    expect(screen.getByText("Research · opencode")).toBeTruthy();
+    expect(screen.getByText("Custom · opencode")).toBeTruthy();
+    // The row holding the active thread opens on its own.
+    expect(screen.getByRole("button", { name: "Collapse Research Partner" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Literature review/ }).textContent).toContain(
+      "Working",
+    );
+    expect(screen.getAllByRole("img", { name: "working" }).length).toBe(1);
+  });
+
+  it("pins an agent to the top of the list and remembers it", () => {
+    localStorage.removeItem("shiba.agents.pinned");
+    render(
+      <AgentsPanel
+        scope="personal"
+        onScopeChange={vi.fn()}
+        active=""
+        onSelect={vi.fn()}
+        agents={mockAgents}
+      />,
+    );
+
+    const names = () => screen.getAllByRole("listitem").map((item) => item.textContent ?? "");
+    expect(names()[1]).toContain("Research Partner");
+    const pin = screen.getByRole("button", { name: "Pin Engineering Lead" });
+    fireEvent.click(pin);
+    expect(
+      screen.getByRole("button", { name: "Unpin Engineering Lead" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(names()[1]).toContain("Engineering Lead");
+    expect(localStorage.getItem("shiba.agents.pinned")).toBe(JSON.stringify(["agent-2"]));
+    localStorage.removeItem("shiba.agents.pinned");
+  });
+
+  it("shows a hire empty state that opens the catalog when there are no custom agents", () => {
+    const onOpenCatalog = vi.fn();
+    render(
+      <AgentsPanel
+        scope="personal"
+        onScopeChange={vi.fn()}
+        active=""
+        onSelect={vi.fn()}
+        onOpenCatalog={onOpenCatalog}
+      />,
+    );
+
+    expect(screen.getByText("Shiba")).toBeTruthy();
+    expect(screen.queryByText("No agents yet")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Hire your first teammate" }));
+    expect(onOpenCatalog).toHaveBeenCalledOnce();
   });
 
   it("renders panel navigation items for Tool policy, Swarm, and Tasks", () => {
@@ -196,7 +290,7 @@ describe("AgentsPanel", () => {
         active="employee-tools"
         onSelect={onSelect}
         agents={mockAgents}
-      />
+      />,
     );
 
     const toolsBtn = screen.getByRole("button", { name: /Tool policy/ });
@@ -222,7 +316,7 @@ describe("AgentsPanel", () => {
         active=""
         onSelect={vi.fn()}
         agents={mockAgents}
-      />
+      />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Search agents" }));
@@ -234,5 +328,21 @@ describe("AgentsPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Close search" }));
     expect(screen.getByText("Research Partner")).toBeTruthy();
+  });
+
+  it("reports no matches when the search excludes every agent", () => {
+    render(
+      <AgentsPanel
+        scope="personal"
+        onScopeChange={vi.fn()}
+        active=""
+        onSelect={vi.fn()}
+        agents={mockAgents}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Search agents" }));
+    fireEvent.change(screen.getByPlaceholderText("Search agents…"), { target: { value: "zzz" } });
+    expect(screen.getByText("No matching agents")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Hire your first teammate" })).toBeNull();
   });
 });
