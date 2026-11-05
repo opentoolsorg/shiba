@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { FounderReconciliationClient } from "./founder-reconciliation-client";
-import { RECON_ACTOR, RECON_WORKSPACE, reconScope, reconciliationDraft } from "./founder-reconciliation-fixtures";
+import { RECON_ACTOR, RECON_WORKSPACE, reconScope, reconciliationDraft, completedReconciliationCapture, rollingReconciliationFixture } from "./founder-reconciliation-fixtures";
 const signal = () => new AbortController().signal;
 const failure = async (p: Promise<unknown>) => { try { await p; return "unexpected success"; } catch (e) { return e instanceof Error ? e.message : String(e); } };
 describe("native captured receipt reconciliation", () => {
@@ -23,5 +23,80 @@ describe("native captured receipt reconciliation", () => {
     const bytes = new TextEncoder().encode(JSON.stringify([report.format, draft.id, draft.expiresAt, JSON.stringify(report)])); const reportHash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (n) => n.toString(16).padStart(2, "0")).join("");
     const value = { ...reconScope, draft: { ...draft, state: "completed", reportHash }, report }, client = new FounderReconciliationClient(RECON_WORKSPACE, RECON_ACTOR, async () => Response.json(value));
     expect((await client.detail(draft.id, signal())).report?.rows[0]).toMatchObject({ status: "matched_equal", stripeStatus: "paid", invoiceCreated: 42 }); value.report.notice = "changed"; expect(await failure(client.detail(draft.id, signal()))).toContain("digest");
+  });
+});
+
+describe("reviewed rolling capture client", () => {
+  it("posts exact consent and preserves integer strings above Number precision", async () => {
+    const capture = await completedReconciliationCapture(), report = rollingReconciliationFixture(capture);
+    const send = vi.fn(async (_path: RequestInfo | URL, _init?: RequestInit) => Response.json({ ...reconScope, report }));
+    const result = await new FounderReconciliationClient(RECON_WORKSPACE, RECON_ACTOR, send).rolling(capture.draft, { asOf: capture.asOf, periodDays: 7, metric: "invoice-paid-snapshot" }, signal());
+    expect(result.perCurrency[0]?.stripeMinor).toBe("90071992547409930001");
+    expect(JSON.parse(String(send.mock.calls[0]?.[1]?.body))).toEqual({ digest: capture.draft.digest, reviewed: true, consent: "filter-captured-invoice-created-window-not-revenue-mrr-or-churn", asOf: capture.asOf, periodDays: 7, metric: "invoice-paid-snapshot" });
+  });
+  it.each(["mrr", "churn"] as const)("returns %s unavailable, never relabeled invoice totals", async (metric) => {
+    const capture = await completedReconciliationCapture(), selection = { asOf: capture.asOf, periodDays: 1, metric };
+    const report = rollingReconciliationFixture(capture, selection);
+    const client = new FounderReconciliationClient(RECON_WORKSPACE, RECON_ACTOR, async () => Response.json({ ...reconScope, report }));
+    expect((await client.rolling(capture.draft, selection, signal())).metricAvailability.status).toBe("unavailable");
+    report.perCurrency = capture.report.perCurrency;
+    expect(await failure(client.rolling(capture.draft, selection, signal()))).toContain("availability");
+  });
+  it("refuses unreviewed, expired, future, and outside-window captures without any fetch", async () => {
+    const capture = await completedReconciliationCapture(), send = vi.fn();
+    const client = new FounderReconciliationClient(RECON_WORKSPACE, RECON_ACTOR, send), selection = { asOf: capture.asOf, periodDays: 7, metric: "invoice-paid-snapshot" as const };
+    for (const draft of [{ ...capture.draft, state: "draft" as const }, { ...capture.draft, state: "revoked" as const }, { ...capture.draft, expiresAt: 1 }, { ...capture.draft, sources: { ...capture.draft.sources, stripe: { ...capture.draft.sources.stripe, capturedAt: Date.now() + 100000 } } }]) expect(await failure(client.rolling(draft, selection, signal()))).not.toBe("unexpected success");
+    for (const change of [{ periodDays: 29 }, { periodDays: 1.5 }, { asOf: capture.asOf + 1 }, { asOf: capture.asOf - 28 * 86400 }]) expect(await failure(client.rolling(capture.draft, { ...selection, ...change }, signal()))).not.toBe("unexpected success");
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("fences tenant, actor, review digest, UTC boundaries and mapping responses", async () => {
+    const capture = await completedReconciliationCapture(), selection = { asOf: capture.asOf, periodDays: 7, metric: "invoice-paid-snapshot" as const };
+    const report = rollingReconciliationFixture(capture), original = { ...reconScope, report };
+    for (const value of [
+      { ...original, workspaceId: `ws_${"b".repeat(24)}` },
+      { ...original, actorId: "other@example.test" },
+      { ...original, report: { ...report, provenance: { ...report.provenance, reviewDigest: "b".repeat(64) } } },
+      { ...original, report: { ...report, period: { ...report.period, createdLt: report.period.createdLt + 1 } } },
+      { ...original, report: { ...report, period: { ...report.period, timezone: "America/New_York" } } },
+      { ...original, report: { ...report, mapping: { ...report.mapping, amountUnit: "minor-integer" } } },
+    ]) {
+      const client = new FounderReconciliationClient(RECON_WORKSPACE, RECON_ACTOR, async () => Response.json(value));
+      expect(await failure(client.rolling(capture.draft, selection, signal()))).not.toBe("unexpected success");
+    }
+  });
+  it("does not retry a revocation or unknown outcome after proof", async () => {
+    const capture = await completedReconciliationCapture();
+    for (const respond of [() => new Response("revoked", { status: 409 }), () => { throw new Error("unknown outcome"); }]) {
+      const send = vi.fn(async () => respond());
+      const client = new FounderReconciliationClient(RECON_WORKSPACE, RECON_ACTOR, send);
+      expect(await failure(client.rolling(capture.draft, { asOf: capture.asOf, periodDays: 7, metric: "invoice-paid-snapshot" }, signal()))).not.toBe("unexpected success");
+      expect(send).toHaveBeenCalledTimes(1);
+    }
+  });
+});
+
+describe("rolling response evidence", () => {
+  it("keeps duplicate and undated evidence separate from assigned totals", async () => {
+    const capture = await completedReconciliationCapture(), report = rollingReconciliationFixture(capture);
+    const raw = { ...report, unassignedRows: [{ ...capture.report.rows[0], status: "duplicate_key", invoiceCreated: null, crmMinor: null, stripeMinor: null, differenceMinor: null, reason: "ambiguous invoice ID" }], completeness: { ...report.completeness, statusCounts: { matched_equal: 1, duplicate_key: 1 }, reasons: [...report.completeness.reasons, "undated_or_ambiguous_rows_not_assigned_to_period"] } };
+    const client = new FounderReconciliationClient(RECON_WORKSPACE, RECON_ACTOR, async () => Response.json({ ...reconScope, report: raw }));
+    const result = await client.rolling(capture.draft, { asOf: capture.asOf, periodDays: 7, metric: "invoice-paid-snapshot" }, signal());
+    expect(result.unassignedRows[0]?.status).toBe("duplicate_key");
+    expect(result.perCurrency[0]?.matchedCount).toBe(1);
+  });
+  it("rejects duplicate currencies and non-integer or inconsistent totals", async () => {
+    const capture = await completedReconciliationCapture(), report = rollingReconciliationFixture(capture);
+    const total = capture.report.perCurrency[0]!;
+    for (const perCurrency of [[total, total], [{ ...total, stripeMinor: "1.5" }], [{ ...total, differenceMinor: "1" }]]) {
+      const client = new FounderReconciliationClient(RECON_WORKSPACE, RECON_ACTOR, async () => Response.json({ ...reconScope, report: { ...report, perCurrency } }));
+      expect(await failure(client.rolling(capture.draft, { asOf: capture.asOf, periodDays: 7, metric: "invoice-paid-snapshot" }, signal()))).not.toBe("unexpected success");
+    }
+  });
+  it("rejects an aborted response without retrying", async () => {
+    const capture = await completedReconciliationCapture(), controller = new AbortController();
+    const send = vi.fn(async () => { controller.abort(); return Response.json({ ...reconScope, report: rollingReconciliationFixture(capture) }); });
+    const client = new FounderReconciliationClient(RECON_WORKSPACE, RECON_ACTOR, send);
+    expect(await failure(client.rolling(capture.draft, { asOf: capture.asOf, periodDays: 7, metric: "invoice-paid-snapshot" }, controller.signal))).not.toBe("unexpected success");
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });
