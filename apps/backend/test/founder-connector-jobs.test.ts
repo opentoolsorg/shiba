@@ -321,6 +321,27 @@ describe("founder connector occurrence workflow with real SQLite and fixture sib
     expect((await f.call()).body.occurrences[0]).toMatchObject({ approval: null, canPrepare: false, canDecide: false, canExecute: false });
     expect(f.effects).toEqual([]);
   });
+  it("clamps cached execution flags when human approval expires before the final response", async () => {
+    const f = await founderFixture(), state = await f.prepare();
+    await approve(f, state);
+    const approval = state.occurrences[0]!.approval!;
+    vi.setSystemTime(approval.expiresAt - 1);
+    const original = f.env.AGENT_AUDIT.prepare.bind(f.env.AGENT_AUDIT);
+    f.env.AGENT_AUDIT.prepare = (sql) => {
+      const wrap = (statement: D1PreparedStatement): D1PreparedStatement => ({ ...statement,
+        bind: (...values: unknown[]) => wrap(statement.bind(...values)),
+        all: async <T>() => {
+          const result = await statement.all<T>();
+          if (/SELECT \* FROM founder_connector_occurrences WHERE plan_id=\? AND plan_version=\?/.test(sql)) vi.setSystemTime(approval.expiresAt + 1);
+          return result;
+        },
+      } as D1PreparedStatement);
+      return wrap(original(sql));
+    };
+    const read = await f.call();
+    expect(read.body.occurrences[0]).toMatchObject({ canDecide: false, canExecute: false, approval: { id: approval.id, canDecide: false, canExecute: false } });
+    expect(f.effects).toEqual([]);
+  });
   it("recovers an orphaned approval handoff by exact local receipt without renewing its original expiry", async () => {
     const f = await founderFixture(), state = await f.due();
     const original = f.env.AGENT_AUDIT.prepare.bind(f.env.AGENT_AUDIT);
