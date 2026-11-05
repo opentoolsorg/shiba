@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import type { FounderStripeGrant, FounderStripeReceipt } from "@shiba/shared";
 import { FounderStripeClient } from "../founder-stripe-client";
+import { FounderStripeAutomaticSlack } from "./FounderStripeAutomaticSlack";
 
 const BUTTON = "min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 py-2 text-xs disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
 const FIELD = "mt-1 min-h-11 min-w-0 w-full border border-[var(--input-line)] bg-[var(--paper)] px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
@@ -10,13 +11,14 @@ export function FounderStripeReads(props: Props): JSX.Element { return <StripeCo
 function StripeContent({ workspaceId, actorId, onClose }: Props): JSX.Element {
   const [client] = useState(() => new FounderStripeClient(workspaceId, actorId));
   const [grants, setGrants] = useState<FounderStripeGrant[] | null>(null), [available, setAvailable] = useState(false), [detail, setDetail] = useState<Detail | null>(null);
-  const [report, setReport] = useState<{ text: string; digest: string; expiresAt: number } | null>(null);
+  const [report, setReport] = useState<{ text: string; digest: string; expiresAt: number; receiptId: string } | null>(null);
+  const [showSlack, setShowSlack] = useState(false);
   const [accountId, setAccountId] = useState(""), [mode, setMode] = useState<"" | "test" | "live">(""), [kind, setKind] = useState<"" | "invoices" | "balance_transactions">("");
   const [start, setStart] = useState(""), [end, setEnd] = useState(""), [expiry, setExpiry] = useState(""), [limit, setLimit] = useState(""), [calls, setCalls] = useState("");
   const [attested, setAttested] = useState(false), [review, setReview] = useState(""), [quota, setQuota] = useState(""), [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null);
   const keyField = useRef<HTMLInputElement>(null), controller = useRef<AbortController | null>(null), pending = useRef<AbortSignal | null>(null);
   const active = (signal: AbortSignal) => controller.current?.signal === signal && !signal.aborted;
-  const clearPrivate = () => { setReport(null); setReview(""); setQuota(""); };
+  const clearPrivate = () => { setReport(null); setShowSlack(false); setReview(""); setQuota(""); };
   const perform = async (work: (signal: AbortSignal) => Promise<void>) => { const signal = controller.current?.signal; if (!signal || !active(signal) || pending.current) return;
     pending.current = signal; setBusy(true); setError(null); setNotice(null);
     try { await work(signal); } catch (cause) { if (active(signal)) { clearPrivate(); setDetail(null); setUncertain(true); setError(cause instanceof Error ? cause.message : "Stripe state could not be confirmed."); } }
@@ -40,7 +42,7 @@ function StripeContent({ workspaceId, actorId, onClose }: Props): JSX.Element {
   const act = (action: "verify" | "enable" | "revoke") => { if (!grant || uncertain || (action === "enable" && (review !== reviewKey || quota !== reviewKey))) return;
     clearPrivate(); void perform(async (signal) => { const value = await client.decide(grant, action, signal); if (active(signal)) { setDetail({ grant: value, receipts: [] }); setNotice(action === "verify" ? "The account verification returned. Review the exact grant before enabling." : action === "enable" ? "The exact scheduled read grant is enabled." : "The grant is revoked."); } });
   };
-  const openReport = (receipt: FounderStripeReceipt) => { if (!grant || uncertain) return; clearPrivate(); void perform(async (signal) => { const value = await client.report(grant, receipt, signal); if (active(signal)) setReport({ text: JSON.stringify(value.report, null, 2), digest: value.digest, expiresAt: Math.min(receipt.expiresAt, grant.expiresAt) }); }); };
+  const openReport = (receipt: FounderStripeReceipt) => { if (!grant || uncertain) return; clearPrivate(); void perform(async (signal) => { const value = await client.report(grant, receipt, signal); if (active(signal)) setReport({ text: JSON.stringify(value.report, null, 2), digest: value.digest, expiresAt: Math.min(receipt.expiresAt, grant.expiresAt), receiptId: receipt.id }); }); };
   return <section aria-label="Private Stripe scheduled reads" className="mt-3 min-w-0 border border-[var(--line)] bg-[var(--card)] p-4 text-xs">
     <header className="flex flex-wrap justify-between gap-2"><h4 className="font-semibold">Private Stripe scheduled reads</h4><button className={BUTTON} type="button" disabled={busy} onClick={onClose}>Close Stripe reads</button></header>
     <p className="mt-3">A restricted read-only key authorizes one fixed Stripe account and selection. Verification consumes a call. The fixed UTC interval repeats daily until expiry or the call cap. Provider requests can consume quota or incur charges.</p>
@@ -62,6 +64,6 @@ function StripeContent({ workspaceId, actorId, onClose }: Props): JSX.Element {
       {grant.state !== "revoked" && <button type="button" className={`${BUTTON} mt-3`} disabled={busy || uncertain} onClick={() => act("revoke")}>Revoke Stripe grant</button>}
       <ul className="mt-3 grid gap-2">{detail.receipts.map((r) => <li className="border border-[var(--line)] p-3" key={r.id}>{r.state} · {new Date(r.createdAt).toISOString()} {available && r.state === "completed" && r.expiresAt > Date.now() && <button type="button" className={BUTTON} disabled={busy || uncertain} onClick={() => openReport(r)}>Read private report</button>}</li>)}</ul>
     </article>}
-    {report && <div className="mt-3 border-t border-[var(--line)] pt-3"><p className="break-all">Private report digest {report.digest} · expires {new Date(report.expiresAt).toISOString()}</p><pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words">{report.text}</pre></div>}
+    {report && grant && <div className="mt-3 border-t border-[var(--line)] pt-3"><p className="break-all">Private report digest {report.digest} · expires {new Date(report.expiresAt).toISOString()}</p><pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words">{report.text}</pre><button type="button" className={`${BUTTON} mt-3`} disabled={busy||uncertain||report.expiresAt<=Date.now()} onClick={()=>setShowSlack(value=>!value)}>{showSlack?"Close future Stripe Slack review":"Review future Stripe Slack delivery"}</button>{showSlack&&<FounderStripeAutomaticSlack workspaceId={workspaceId} actorId={actorId} sample={{grantId:grant.id,grantRevision:grant.revision,grantDigest:grant.digest,sampleReceiptId:report.receiptId,sampleDigest:report.digest,expiresAt:report.expiresAt,grantExpiresAt:grant.expiresAt}} onClose={()=>setShowSlack(false)}/>}</div>}
   </section>;
 }

@@ -9,7 +9,9 @@ claimed to work end to end**.
 - `pr188-founder-followup.manifest.json` records its SHA-256 and the exact
   path, byte count and SHA-256 of every captured file.
 
-The reconciliation composer, UI and tests depend on synthetic HubSpot authority;
+This archive records the earlier unfinished version. Subsequent runnable source adds a native HubSpot capture lane, receipt comparison and separately consented Stripe Slack delivery; see [current completion](../verification/pr188-current-status.md). The archived version remains unapplied.
+
+In this historical patch, the reconciliation composer, UI and tests depend on synthetic HubSpot authority;
 the supported HubSpot OAuth audience/schema/native capture adapter is missing.
 The Stripe standing Slack source/store/tick work lacks completed routes, UI,
 integration and security acceptance. These parts must not be enabled or treated
