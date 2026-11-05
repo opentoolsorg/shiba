@@ -2192,6 +2192,20 @@ describe("chat approval gate", () => {
     expect(instance.state.pendingApprovals ?? []).toEqual([]);
   });
 
+  it.each(["explicit", "deployment"] as const)("refuses %s local artifact chat work rather than substituting sandbox", async (selection) => {
+    const instance = agent();
+    Object.assign(instance, { name: "owner@example.test" });
+    instance.env.SHIBA_LOCAL_RUNTIME = "1";
+    if (selection === "deployment") instance.env.RUNTIME = "local";
+    await expect(delegateOf(instance).needsApproval({
+      ...INPUT, repoUrl: "",
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["brief.md"] },
+      ...(selection === "explicit" ? { runtime: "local" } : {}),
+    }, { toolCallId: "local-artifact-chat" })).rejects.toThrow(/dashboard Work composer.*No cloud fallback/);
+    expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
   it("mints the durable pointer at gate time so chat Approve can mint its run", async () => {
     const instance = agent();
     mocks.execute.mockResolvedValue(formatAgentResult({
