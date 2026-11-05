@@ -43,6 +43,7 @@ The final full repository suite passed **3,148 tests with 3 credential-dependent
 
 The real Worker/local-daemon journey passed [9 UI steps and 12 protocol checks in both web and Electron](local-runtime.md), including approval-gated file edits, scoped diff display and cancellation with a fixture model CLI. This instance has no ready model-provider connection, so live inference, provider authentication and production OAuth remain unverified. Native Mac execution, installer launch, deep links, signing and notarization require a Mac runner/device.
 
+No external-site feature comparison is asserted.
 
 ## Reproduction on this Linux cloud host
 

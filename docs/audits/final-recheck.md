@@ -127,8 +127,6 @@ does not automatically load the project MCP definition. The API and students
 page are blocked by the proxy. No live Morph call, student eligibility, credits,
 or speed/quality claim was verified. See [Morph tooling](morph-tooling.md).
 
-The Reason Machines site was also blocked, so exact feature parity against it
-was not established.
 
 The saved environment draft includes reproducible installation/startup,
 desktop tools, Morph skill restoration, and requested network/credential

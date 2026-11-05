@@ -15,7 +15,7 @@
 
 *Commands run for this slice:* targeted vitest (`spaces-*`, `skill-library*`, `mcp-coworker-contract`, `mcp-gateway`, `mcp-run-tools`, `IntegrationsView`, `SkillLibraryCards`, `SpacesView`) + `pnpm typecheck`.
 
-**2026-10-25 — P12 hosted-agent parity: T72 opt-in repo setup, plus T71 and T87 (branch `capy-parity`).**
+**2026-10-25 — P12 product gap closure: T72 opt-in repo setup, plus T71 and T87 (branch `capy-parity`).**
 
 *T72 (owner chose opt-in per run):*
 - `runSetup` is part of the approval hash and threaded like `testCommand`: approval, queue input, hash check, replay compare, run record, mint evidence, dispatch envelope.
@@ -54,7 +54,7 @@
 - `scripts.refresh`, named `entries` and the Setup tab (T74) aren't built.
 - Dictation was not tried in a real browser.
 
-**2026-10-24 — P12 hosted-agent parity: T67 reasoning effort + T68 per-run environment variables (branch `capy-parity`).**
+**2026-10-24 — P12 product gap closure: T67 reasoning effort + T68 per-run environment variables (branch `capy-parity`).**
 
 *T67:*
 - The effort chip lists only levels the selected harness accepts.

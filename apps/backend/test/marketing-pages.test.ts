@@ -17,7 +17,7 @@ describe.skipIf(!built)("new marketing pages", () => {
     const waitlist = page("waitlist/index.html");
     expect(why).toContain('href="https://tryshiba.dev/why-shiba/"');
     expect(waitlist).toContain('href="https://tryshiba.dev/waitlist/"');
-    expect(why).toContain("Before you try it");
+    expect(why).toContain("Choosing a tool");
     expect(why).not.toMatch(/cloudroom/i);
     expect(waitlist).toContain('id="waitlist-form"');
     expect(waitlist).toContain('name="consent"');

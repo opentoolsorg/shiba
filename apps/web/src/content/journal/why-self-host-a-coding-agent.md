@@ -29,10 +29,8 @@ not a verified live cloud run.
 The usual offer is a binary. Run the vendor's agent on your machines, keep
 your repos on your side, and call it self-hosted.
 
-`PLAN.md` names the gap directly. Closed hosted agents lock you to the
-vendor's agent, or run yours only on your laptop, never your own in the
-cloud. None lets a team run their harness on their account against their
-model.
+`PLAN.md` names the setup this project targets: a team runs its harness in
+its cloud account with its chosen model provider.
 
 That is the gap. You can self-host the workload and still rent the judgment.
 The agent's identity, the model it thinks with, and the account it bills to

@@ -18,9 +18,9 @@
 | **Fix first (P0)** | SQLite migration · instance type · **dead model default** · the `WORKER_ORIGIN` path that makes every run throw |
 | **Then (P1–P2)** | Egress allowlist · per-run GitHub token scoping · Access · structured result parsing · one proven live run |
 | **Then build (P3–P4)** | Slack bot end to end · automations (cron, GitHub events, Slack bursts, webhooks) |
-| **Then unlock (P5)** | **Bring your own agent and model** — pluggable harness (OpenCode / Claude Code / Codex) and any provider. The differentiator that hosted SaaS agents cannot offer. |
+| **Then unlock (P5)** | **Bring your own agent and model** — pluggable harness (OpenCode / Claude Code / Codex) and any provider. The differentiator that closed SaaS agents do not offer. |
 | **Cut** | Multi-tenancy · snapshots · multi-repo projects · Linear/Tailscale/Vercel · cost-estimate UI · rename tracking |
-| **Ceiling** | `standard-4` (4 vCPU / 12 GiB / 20 GB) is Cloudflare's max. Larger hosted platforms go to 16 vCPU / 128 GB. Heavy builds are out of reach — say so in the README. |
+| **Ceiling** | `standard-4` (4 vCPU / 12 GiB / 20 GB) is Cloudflare's max. Some hosted agents go to 16 vCPU / 128 GB. Heavy builds are out of reach — say so in the README. |
 | **Effort** | P0 ≈ 3h · P1 ≈ 5h · P2 ≈ 5h · P3 ≈ 14h · P4 ≈ 10h · **P5 ≈ 14h** · P6 ≈ 4h → **~55h** |
 | **Rev 4 status** | All of the above is **done except T10** — the live run is now verified locally via `wrangler dev` up to the model call (AI Gateway credential needed); the cloud deploy itself is still blocked on GOAL.md. See §2.0. |
 | **Rev 9 status** | §17 (P7, reference-agent parity): **W0 done 2026-09-27** (T27 spec amended, T28 audit clean — see §2.0). ~80% of the reference agent's spine already ships; the remaining delta is OAuth MCP, web chat + steering, and screenshot/preview. Recommended scope W1–W3 + T37–T39 ≈ 43h. |
@@ -134,7 +134,7 @@ Baseline: **1187 tests passing across 74 files** (count drifts per rev — treat
 | Grok harness | **Done.** Headless print-mode harness (streaming-json) pinned to the `api.x.ai` forwarder via `GROK_MODELS_BASE_URL`. The shared ACP transport was tried and dropped; Cursor stays a remote executor — its token exchange can't hold the dummy-key invariant. |
 | Connected agent accounts (dashboard) | **Not pursued.** Per-user credential storage conflicts with GOAL.md's credential contract — needs a deliberate spec amendment before any `harness-accounts` work. |
 | T27 spec/monorepo reconcile | **Done (2026-09-27).** Option (a): `spec/GOAL.md` accepts the pnpm+turbo monorepo and enumerates the formerly-forbidden primitives now in use — D1 `AGENT_AUDIT`, KV `AGENT_TOKENS`, R2 `ATTACHMENTS`, Vectorize `MEMORY_VECTORS` — each justified; Queues/Workflows/Hono remain forbidden. |
-| T28 VERIFICATION_PLAN re-audit | **Done (2026-09-27).** G1–G11 re-checked in place: all resolve, including G10 (assets tracked under `apps/web/public/`) and G11 (the extra theme stylesheet deleted; per-app postcss/tailwind configs are legitimate). Per-row evidence in `VERIFICATION_PLAN.md` §1. |
+| T28 VERIFICATION_PLAN re-audit | **Done (2026-09-27).** G1–G11 re-checked in place: all resolve, including G10 (assets tracked under `apps/web/public/`) and G11 (legacy theme CSS deleted; per-app postcss/tailwind configs are legitimate). Per-row evidence in `VERIFICATION_PLAN.md` §1. |
 
 ### 2.0 Status as of rev 7 (2026-09-19)
 
@@ -213,17 +213,17 @@ The fix is deletion, not wiring (T4).
 
 ### The SaaS this replaces
 
-Hosted coding-agent SaaS typically offers threads, parallel subagent tasks, PRs with CI handling, a review agent, automations, projects, snapshots, skills, integrations and a REST API, at roughly $99/seat/mo.
+Closed SaaS coding agents offer threads, tasks (parallel subagent trees), PRs with CI handling, a review agent, automations, projects, machines, snapshots, volumes, skills, integrations and a REST API, typically at around $99/seat/month.
 
-**These products are ahead on product, and they are closed SaaS.** The defensible position is the one they cannot occupy: open source, the user's own account, no seat fee, no vendor holding the code. At §8's numbers that is ~$5–12/month against $99/seat.
+**They are ahead on product, and they are closed SaaS.** The defensible position is the one they cannot occupy: open source, the user's own account, no seat fee, no vendor holding the code. At §8's numbers that is ~$5–12/month against $99/seat.
 
 **That pitch only works if users can bring their own cheap model** — which is why **B11** is load-bearing, not cosmetic. If people are locked to one provider, "self-hosted" saves them the seat fee and nothing else.
 
 ### On bringing a Claude Code / Codex subscription
 
-Tempting — §8 shows tokens are ~40× compute, so a subscription would make this near-free to run. Anthropic's terms are explicit: *"Anthropic does not permit third-party developers to offer Claude.ai login or to route requests through Free, Pro, or Max plan credentials on behalf of their users."* One hosted competitor hit this and engineered around it — subscription agents run **locally on the user's Mac**, cloud sandboxes use API keys. When a funded competitor builds a native macOS app to avoid doing a thing, that is the signal.
+Tempting — §8 shows tokens are ~40× compute, so a subscription would make this near-free to run. Anthropic's terms are explicit: *"Anthropic does not permit third-party developers to offer Claude.ai login or to route requests through Free, Pro, or Max plan credentials on behalf of their users."* One shipping product engineered around it — subscription agents run **locally on the user's Mac**, cloud sandboxes use API keys. When a funded vendor builds a native macOS app to avoid doing a thing, that is the signal.
 
-**Amended (T48–T51, landed):** the blanket prohibition narrows to the case that motivated it — brokering a login or running *someone else's* credential. A self-hosted, single-tenant deployment where the operator connects *their own* `claude setup-token` is permitted, under three load-bearing constraints (§18.10): `setup-token` handoff only (the app never drives an Anthropic login); opt-in and dark by default (`SHIBA_CLAUDE_SUBSCRIPTION=1`; if multi-tenancy ever lands the feature is removed, not reworked — a shared deployment is exactly the "on behalf of their users" case); and the token never enters the container (placeholder `CLAUDE_CONFIG_DIR` credentials; the Bearer is attached at a dedicated deny-by-default egress branch, not AI Gateway). The hosted-competitor reasoning stays: this is why the design is that narrow. API keys through AI Gateway remain the default provider path — subscription is the documented exception, not the recommendation.
+**Amended (T48–T51, landed):** the blanket prohibition narrows to the case that motivated it — brokering a login or running *someone else's* credential. A self-hosted, single-tenant deployment where the operator connects *their own* `claude setup-token` is permitted, under three load-bearing constraints (§18.10): `setup-token` handoff only (the app never drives an Anthropic login); opt-in and dark by default (`SHIBA_CLAUDE_SUBSCRIPTION=1`; if multi-tenancy ever lands the feature is removed, not reworked — a shared deployment is exactly the "on behalf of their users" case); and the token never enters the container (placeholder `CLAUDE_CONFIG_DIR` credentials; the Bearer is attached at a dedicated deny-by-default egress branch, not AI Gateway). The original reasoning stays: this is why the design is that narrow. API keys through AI Gateway remain the default provider path — subscription is the documented exception, not the recommendation.
 
 ---
 
@@ -233,8 +233,8 @@ Tempting — §8 shows tokens are ~40× compute, so a subscription would make th
 |---|---|
 | **Multi-tenancy / per-user DOs** | GOAL.md: *"Each installation is single-tenant and account-owned."* — **§17.7 (T35) proposes revisiting this as a product decision. Not code; a spec change.** |
 | **MCP integrations** | Each is its own auth surface for one workflow. — **§17.3 (T29) now builds one first, the OAuth MCP server, because it is the parity gap, not a cut.** |
-| **Machine snapshots** (hosted 1–2s restore) | No Cloudflare equivalent. Partial substitute: fatten the Dockerfile, or R2 FUSE mounts for `node_modules`. Not equal — say so. |
-| **Machines > `standard-4`** | Hard platform ceiling: 4 vCPU / 12 GiB / 20 GB vs 16 vCPU / 128 GB on larger platforms. Heavy builds and big test suites are out of reach. **README, not a surprise.** |
+| **Machine snapshots** (1–2s restore in hosted products) | No Cloudflare equivalent. Partial substitute: fatten the Dockerfile, or R2 FUSE mounts for `node_modules`. Not equal — say so. |
+| **Machines > `standard-4`** | Hard platform ceiling: 4 vCPU / 12 GiB / 20 GB vs 16 vCPU / 128 GB on some hosted agents. Heavy builds and big test suites are out of reach. **README, not a surprise.** |
 | **Multi-repo projects, volumes, skills, environments** | A workspace layer. Real work, no pipeline reuse. Revisit after P4. |
 | **Linear / Tailscale / Vercel / MCP integrations** | Each is its own auth surface for one workflow. |
 | **Cost-estimate UI** | Old plan hardcoded invented rates. GOAL.md: *"Cost surfaces without invented prices."* Link §8 instead. |
@@ -247,7 +247,7 @@ Tempting — §8 shows tokens are ~40× compute, so a subscription would make th
 
 Noted so the next reader knows these were considered rather than missed. None of them are on the critical path; none are scheduled.
 
-- **PR review agent** (~9h). A `review_pull_request` tool: clone at the PR head so the agent reads surrounding code rather than diff context alone, emit `{path, line, severity, comment}` findings, publish via `POST /repos/{o}/{r}/pulls/{n}/reviews` as `COMMENT` — never `APPROVE`, an agent must not approve. Reuses the whole pipeline with a different prompt and a different endpoint, so it stays cheap whenever it returns. Competitive cost, stated plainly: a self-hosted review tool exists solely to be this, and hosted agents commonly ship one.
+- **PR review agent** (~9h). A `review_pull_request` tool: clone at the PR head so the agent reads surrounding code rather than diff context alone, emit `{path, line, severity, comment}` findings, publish via `POST /repos/{o}/{r}/pulls/{n}/reviews` as `COMMENT` — never `APPROVE`, an agent must not approve. Reuses the whole pipeline with a different prompt and a different endpoint, so it stays cheap whenever it returns. Competitive cost, stated plainly: a self-hosted review tool exists solely to be this, and closed SaaS agents ship one.
 - **PR feedback loop** (~4h, needs the review agent). Extend `/api/github/webhook` to `pull_request_review_comment`; a comment mentioning the bot on an shiba PR starts a run against that PR's branch and replies on the same thread.
 - **Live preview URLs.** **Shipped in rev 8** — `index.ts:1093-1099` proxies to the sandbox. Screenshot capture remains open; see §17.5 (T33).
 - **Resumable runs.** Stop/resume/fork, the way other agents do it, for work exceeding `OPENCODE_TIMEOUT_MS`. A real architecture change, not a tuning knob (§16).
@@ -557,9 +557,9 @@ export async function verifySlackRequest(body, headers, secret, now = Date.now()
 
 **Repo resolution — never guess.** (1) a GitHub URL in the mention or thread; (2) `SLACK_CHANNEL_REPOS` channel→repo map — this is what makes bare `@shiba fix this` work in `#incidents`; (3) neither → **reply asking**.
 
-**Burst grouping (a common hosted-agent pattern).** An incident thread fires twenty messages in a minute. Each matched message extends a sliding window (default 10s, bounded 1–300s); the group closes when the window elapses, a different author posts, or it hits 20 messages / 100 KB. **One run per burst, not per message.** Without this, on call is unusable.
+**Burst grouping.** An incident thread fires twenty messages in a minute. Each matched message extends a sliding window (default 10s, bounded 1–300s); the group closes when the window elapses, a different author posts, or it hits 20 messages / 100 KB. **One run per burst, not per message.** Without this, on call is unusable.
 
-**Thread controls (same pattern).** `aside …` excludes a message from processing entirely; `mute` / `unmute` stop replies to non-mention messages. Cheap, and necessary for a bot living in a busy channel.
+**Thread controls.** `aside …` excludes a message from processing entirely; `mute` / `unmute` stop replies to non-mention messages. Cheap, and necessary for a bot living in a busy channel.
 
 **Context.** `conversations.replies` for the thread plus any linked issue/PR (`GET /repos/{o}/{r}/issues/{n}`, plus review comments for PRs). The alert text and reviewer comment *are* the task description.
 
@@ -620,7 +620,7 @@ New `apps/web/src/content/docs/docs/slack.md`: app manifest and scopes · Reques
 
 ## 10. Phase P4 — Automations (~10h)
 
-Model: 1–20 triggers OR'd together, at most one run per event. This is what turns the product from "a thing you ask" into "a thing that works while you sleep".
+The model: 1–20 triggers OR'd together, at most one run per event. This is what turns the product from "a thing you ask" into "a thing that works while you sleep".
 
 ### T18 · Trigger engine and storage (~4h)
 
@@ -628,7 +628,7 @@ An `Automations` DO holding `{id, prompt, triggers[], repoUrl, enabled, runAs, l
 
 | Trigger | Source | Notes |
 |---|---|---|
-| **Schedule** | Cloudflare [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/) | Five-field cron. Floor of one per 5 min, matching common practice. Coalesce missed occurrences into one run — never a backlog. |
+| **Schedule** | Cloudflare [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/) | Five-field cron. Floor of one per 5 min, matching common SaaS practice. Coalesce missed occurrences into one run — never a backlog. |
 | **GitHub** | existing `/api/github/webhook` | PR opened/pushed/merged, comments, reviews, labels, check runs |
 | **Slack** | P3 events endpoint | Reuses T13's burst grouping |
 | **Incoming webhook** | `/api/automations/{id}/trigger` | Per-automation secret. **Returned once on create and never again** — say so in the API response and the docs. |
@@ -662,7 +662,7 @@ Plus a kill switch: disable/enable by id, and a global `AUTOMATIONS_ENABLED` var
 
 ## 11. Phase P5 — Bring Your Own Agent and Model (~14h)
 
-**This is the differentiator.** Hosted SaaS agents lock you to the vendor's agent, or run your own only on a laptop, never your own in the cloud. None lets a team run *their* harness on *their* account against *their* model. That combination is the entire open-source case — without it, "self-hosted" saves a seat fee and nothing else.
+**This phase targets bringing the agent harness and model provider under the team's control.**
 
 Two axes of lock-in, both hardcoded today:
 
@@ -825,7 +825,7 @@ T5–T8 are independent of each other. Within P3, T12 gates everything; T13/T14 
 | Runs regularly exceed `OPENCODE_TIMEOUT_MS` (15 min) | One-shot delegation is the wrong shape; you need resumable runs — Workflows or checkpointing, a genuine architecture change. Other agents already solved this with stop/resume/fork. Slack makes it more likely, because an on-call request arrives with less scoping than a dashboard one. |
 | A harness changes its JSON stream format | `parseEvent` breaks silently for that harness only — the run appears to hang rather than fail. Pin every harness CLI version (T26) and treat format changes as breaking. This risk multiplies with each harness added, which is the real ongoing cost of P5. |
 | Users need machines bigger than `standard-4` | Platform ceiling. No workaround on Cloudflare. This is the honest limit of the whole approach. |
-| A self-hosted review tool adds "fix" to "review" | A peer lands directly on this product with a year's head start. Dropping the review agent (§4) widens the gap on that flank; the answer is shipping P3 and P5, where hosted SaaS agents cannot follow. |
+| A self-hosted review tool adds "fix" to "review" | A peer lands directly on this product with a year's head start. Dropping the review agent (§4) widens the gap on that flank; the answer is shipping P3 and P5, where closed SaaS agents cannot follow. |
 
 **Standing risk:** mocked tests cannot establish any of this works in the cloud. 111 green tests and a clean dry run are necessary, not sufficient. Until T10 and the P3–P5 acceptance lists are dated in `VERIFICATION.md`, the honest status stays "local prototype" — exactly as `readiness.md` already says.
 
@@ -835,7 +835,7 @@ T5–T8 are independent of each other. Within P3, T12 gates everything; T13/T14 
 
 **Added:** 2026-09-27. **Benchmark:** a reference cloud agent — a self-hostable cloud coding agent (Slack/Teams/Telegram/Discord/Web → ephemeral sandbox → clone → code → test → screenshot → PR). Source-available, FCL-1.0.
 
-**One correction before anything else:** the benchmark is **not** an editor extension. It is a *server-side* cloud agent — the same category as the hosted agents §3 already benchmarks. The port is therefore a feature-parity exercise against a peer, not an integration of a plugin.
+**One correction before anything else:** the benchmark is **not** an editor extension. It is a *server-side* cloud agent — the same category as the SaaS agents §3 already benchmarks. The port is therefore a feature exercise against a peer, not an integration of a plugin.
 
 **What this phase is not:** a rewrite. As of rev 8 the repo already implements the large majority of the reference agent's spine. The work below is the honest delta.
 
@@ -1204,7 +1204,7 @@ New `harness/claude-subscription.ts`, registered in `harness/index.ts` — **sep
 
 **Multi-account:** separate accounts = separate instances, separate config dirs, isolated conversation state. A run may only resume against the account it started on: continuation key `claude:home:<resolvedConfigDir>` (t3code's derivation) is part of the run record, and the **T40 decider** enforces resume-against-same-key — not the UI. Account identity never appears in argv.
 
-**Documentation is part of the feature:** amend `PLAN.md` §3 — replace the blanket prohibition with the narrowed design + its three constraints, keeping the hosted-competitor precedent visible (do not delete it; it is why the design is this narrow); fix the `claude-code.ts` docstring ("deliberately not supported" → scoped to the API-key harness, pointing at the new one); add the harness to the `spec/GOAL.md` and `ARCHITECTURE.md` catalogs noting the AI-Gateway bypass; write a user-facing note stating the operator's own Anthropic terms apply, the token is a deployment secret, and revoking it stops runs mid-flight — in the product's voice, no implementation detail.
+**Documentation is part of the feature:** amend `PLAN.md` §3 — replace the blanket prohibition with the narrowed design + its three constraints, keeping the original reasoning visible (do not delete it; it is why the design is this narrow); fix the `claude-code.ts` docstring ("deliberately not supported" → scoped to the API-key harness, pointing at the new one); add the harness to the `spec/GOAL.md` and `ARCHITECTURE.md` catalogs noting the AI-Gateway bypass; write a user-facing note stating the operator's own Anthropic terms apply, the token is a deployment secret, and revoking it stops runs mid-flight — in the product's voice, no implementation detail.
 
 **Definition of done (all provable by test):** with the ack var absent the harness is unlisted/unselectable and every existing gate is byte-identical; with it present and a valid token a run completes and opens a PR; with an invalid token `verify` fails with the real reason and no run starts; signing out mid-run stops in-flight runs *before* clearing metadata; the token appears in no log line, UI response, argv, or sandbox file; a resumed run refuses to cross accounts.
 
@@ -1284,7 +1284,7 @@ T40–T46 + T29 ≈ one session of work; T47–T50 ≈ one; T51 ≈ one. T29 is 
 - No plan-tier credential in a container, argv, log, UI response, or sandbox disk. No exception for debugging.
 - A delivered callback, a stored secret, or a 200 from a token exchange never sets `succeeded` — only a capability probe against the real CLI does.
 - No T51 local run without the approval gate, and no chat-surface intake for local runs under any circumstance.
-- The hosted-competitor precedent in §3 is not deleted or softened — T48–T51's narrowness is a direct consequence of it, and the reasoning stays visible next to the code that now exists.
+- The precedent in §3 is not deleted or softened — T48–T51's narrowness is a direct consequence of it, and the reasoning stays visible next to the code that now exists.
 - No T47–T51 work that delays or destabilizes T40–T46/T29 — they are separate files, separate vars, and land behind the approval gate they must provably leave unchanged.
 
 **Success criteria.** T40: the (state × command) table passes with no Worker runtime imported. T41: retried approve ⇒ one container; approved-but-undispatched is re-driven once on restart. T42: zero real-time sleeps used for synchronization in `pnpm test`. T43: `verify` rejects exit-0/empty-diff; runnability is a capability check. T44: "what did it change before it broke" is answerable from R2 post-destroy. T45: an off-allowlist command never reaches `exec`. T46: no-proof/no-diff settles `error`. T29: per §17.10. T47: ownership blocks cross-session advance/cancel; `succeeded` only via probe; `clear()` ordered and idempotent. T48–T50: each phase's definition-of-done lines above. T51: a local run passes the unchanged approval card, produces receipts and a PR, and a chat-surface attempt at `runtime: "local"` is refused at intake with a test proving it.
@@ -1450,9 +1450,9 @@ macOS-only Electron shell that loads `<origin>/app/` and supervises `scripts/shi
 - D7 no secret leaves its home: no adapter token or task text in IPC, logs, notifications or URLs.
 - D8 hardened binary: Electron fuses, hardened runtime, only `clipboard-sanitized-write` permitted.
 
-## 22. Phase P12 — hosted-agent parity (T67–T90)
+## 22. Phase P12 — Product gap closure (T67–T90)
 
-**Goal:** an open-source hosted-agent equivalent. Close the product gap with hosted coding-agent SaaS on shiba's own stack (Worker + DOs + Sandbox), without giving up what they can't offer: bring-your-own harness, the approval gate, and running entirely on the owner's Cloudflare account.
+**Goal:** close the product gap with hosted coding agents on shiba's own stack (Worker + DOs + Sandbox), without giving up what they can't offer: bring-your-own harness, the approval gate, and running entirely on the owner's Cloudflare account.
 
 **Rules for every task in this phase:**
 - Any field that changes what executes (model settings, env, files, machine) is part of the approved input. It either rides `ApprovedRoute` or enters `runInputHash`. No field reaches a container unapproved.
@@ -1562,7 +1562,7 @@ Browser speech API first; a pluggable speech-to-text endpoint later.
 
 **t3code** (observed 2026-09-27) — [pingdotgg/t3code](https://github.com/pingdotgg/t3code) · internals docs `docs/internals/{overview,providers,connection-runtime,environment-auth}.md` · provider guides `docs/user/providers-{claude,codex,antigravity}.md` · `orchestration/decider.ts` + `OrchestrationEventStore.ts` (command/event/receipt atomicity) · `provider/ProviderDriver.ts` (record-per-instance SPI, continuationIdentity) · `provider/ProviderAuthFlow.ts` (owner-scoped auth state machine) · `Drivers/{ClaudeHome,CodexHomeLayout}.ts` (config-dir isolation, shadow-home overlay, continuation-vs-account keys) · `antigravityCallback.ts` + `antigravityAuthSupport.ts` (callback validation, `removedEnvironmentKeys`).
 
-**Reference cloud coding agent** (observed 2026-09-27) — parity claims above are from its public README; sandboxes, providers and channels are README-advertised, not independently verified against a running deployment. It is source-available under a licence with a user cap — **read the licence before copying any implementation.**
+**Reference cloud coding agent** (observed 2026-09-27) — parity claims above are illustrative and are not independently verified. Do not copy external implementation until its applicable licence is identified and reviewed.
 
 **Cloudflare** — [Sandbox outbound traffic](https://developers.cloudflare.com/sandbox/guides/outbound-traffic/) · [credential injection changelog](https://developers.cloudflare.com/changelog/post/2026-04-13-sandbox-outbound-workers-tls-auth/) · [Sandbox get-started](https://developers.cloudflare.com/sandbox/get-started/) · [Sandbox options](https://developers.cloudflare.com/sandbox/configuration/sandbox-options/) · [Containers limits](https://developers.cloudflare.com/containers/platform/limits/) · [Containers pricing](https://developers.cloudflare.com/containers/pricing/) · [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) · [Wrangler config](https://developers.cloudflare.com/workers/wrangler/configuration/) · [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/) · [Think tools and approval](https://developers.cloudflare.com/agents/harnesses/think/tools/) · [AI Gateway BYOK](https://developers.cloudflare.com/ai-gateway/configuration/bring-your-own-keys/)
 

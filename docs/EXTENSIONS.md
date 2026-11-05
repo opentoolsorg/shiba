@@ -9,11 +9,11 @@ alternate API routes or workspace-owned app credentials. See
 [current integration readiness](integrations-readiness.md) and
 [package boundaries](integrations-architecture.md) for runtime authority.
 
-The shared extension schemas model `personal` / `workspace` scope and
+Shiba's extension model uses `personal` / `workspace` scope and
 `personal` / `workspace` / `archived` views. Skills, MCP servers, and
 planned OpenConnector workspace bindings share pure archive, restore, and scope-move rules.
 Archived rows remember `archivedFromScope`; restoring returns the row to that
-scope. The schema's MCP archive plan also disables the server. Shared Zod records and the pure scope planners live in
+scope. Archiving an MCP server also disables it. Shared Zod records and the pure scope planners live in
 `packages/shared/src/extensions/` for Worker stores and API DTOs to reuse.
 
 ## Record mapping
