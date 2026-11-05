@@ -8,7 +8,8 @@ import { isWorkspaceNativeAccountCurrent } from "./workspace-native-authority.js
 import { redactSecrets } from "./security.js";
 import { COLLAB_TENANT_ID, getCollaborationRoom } from "./collaboration-store.js";
 import { membershipSql, WorkspaceIntegrationError } from "./workspace-integrations-store.js";
-import { claimComputerLease, computerBinding, computerDto, computerPolicy, ensureSharedComputerSchema, fundSharedComputer, prepareSharedComputer, readComputerRow, SharedComputerError, type ComputerRow, type SharedComputerEnv } from "./shared-computer-store.js";
+import { assertComputerCurrent, claimComputerLease, computerBinding, computerContract, computerDto, computerPolicy, ensureSharedComputerSchema, fundSharedComputer, prepareSharedComputer, readComputerRow, SharedComputerError, type ComputerRow, type SharedComputerEnv } from "./shared-computer-store.js";
+import { computerDocumentAction, computerDocumentPreview, computerDocumentImportSchema, computerDocumentPreviewSchema } from "./shared-computer-documents.js";
 import { frameSharedComputer, inputSharedComputer, startSharedComputer, stopSharedComputer } from "./shared-computer-runtime.js";
 
 const BASE = "/api/shared-computers", headers = { "cache-control": "no-store, private", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" };
@@ -76,6 +77,23 @@ export async function handleSharedComputers(request: Request, env: SharedCompute
       const state: SharedComputerState = { ok: true, enabled: policy.enabled, available: policy.available, unavailableReason: policy.reason, workspaceId: actor.workspaceId, roomId, actorId: actor.userId, sessions,
         members: options.results.map((m) => ({ userId: m.user_id, version: m.version, canFund: m.can_fund === 1 })) };
       return json(state);
+    }
+    const documentOperation = /^\/sessions\/(scs_[a-f0-9]{32})\/documents\/(preview|import)$/.exec(url.pathname.slice(BASE.length));
+    if (documentOperation && request.method === "POST") {
+      const row = await readComputerRow(env, actor.workspaceId, documentOperation[1]!);
+      if (documentOperation[2] === "preview") {
+        const input = await parse(request, computerDocumentPreviewSchema);
+        if (input.expectedVersion !== row.version) throw new SharedComputerError("shared_computer_version_changed");
+        if (!computerContract(row).viewers.includes(actor.userId)) throw new SharedComputerError("shared_computer_viewer_required", 403);
+        const document = await computerDocumentPreview(row);
+        await currentSession(); await assertComputerCurrent(env, row, actor, true);
+        return json({ ok: true, document });
+      }
+      const input = await parse(request, computerDocumentImportSchema);
+      const action = await computerDocumentAction(row, input);
+      await inputSharedComputer(env, actor, row, { ...input, action }, { signal: request.signal, beforeDispatch: currentSession });
+      await currentSession();
+      return json({ ok: true, session: await computerDto(env, actor, await readComputerRow(env, actor.workspaceId, row.id)) });
     }
     if (request.method !== "POST" || (operation?.[2] === "frame")) return json({ error: "shared_computer_method_unavailable" }, 405);
     let id: string;

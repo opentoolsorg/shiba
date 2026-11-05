@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import type { SharedComputerSession } from "@shiba/shared";
 import { ComputerSession } from "../src/computer-session.js";
 import { handleSharedComputers } from "../src/shared-computer-routes.js";
+import { computerDocumentPreview, computerDocumentAction, computerDocumentImportSchema, computerDocumentPreviewSchema } from "../src/shared-computer-documents.js";
 import { computerInputArgv } from "../src/shared-computer-runtime.js";
 import { readComputerRow, type SharedComputerEnv } from "../src/shared-computer-store.js";
 import { signComputerOperation } from "../src/shared-computer-auth.js";
@@ -271,4 +272,96 @@ describe("separate native-funded offline shared computer, real SQLite/DO with fa
 describe("typed offline desktop input construction", () => {
   it("preserves metacharacters as one argument without a shell", () => { expect(computerInputArgv({ type: "type", text: "; touch /tmp/x $(id)" }).at(-1)).toBe("; touch /tmp/x $(id)"); });
   it.each([{ type: "click", x: -1, y: 0, button: "left" }, { type: "click", x: 1024, y: 0, button: "left" }, { type: "key", key: "exec" }, { type: "type", text: "a\u0000b" }, { type: "scroll", direction: "up", ticks: 6 }, { type: "type", text: "😀".repeat(300) }])("rejects invalid input before runtime", (value) => { expect(() => computerInputArgv(value as never)).toThrow(); });
+});
+
+describe("bundled public document import, offline fixture only", { timeout: 20_000 }, () => {
+  const documentId = "rfc2606-example-domains-v1";
+  async function reviewed(f: Awaited<ReturnType<typeof fixture>>, s: SharedComputerSession) {
+    const result = await f.call(`/sessions/${s.id}/documents/preview`, { expectedVersion: s.version, documentId });
+    expect(result.response.status, JSON.stringify(result.body)).toBe(200);
+    return result.body.document as { text: string; documentDigest: string; format: string };
+  }
+  const importBody = (f: Awaited<ReturnType<typeof fixture>>, s: SharedComputerSession, documentDigest: string) => {
+    const { action: _action, ...input } = f.action(s);
+    return { ...input, documentId, documentDigest, reviewed: true };
+  };
+  it("previews exact bounded text and types once without fetch, cookies, tokens or networking", async () => {
+    const f = await fixture(), leased = await f.lease(await f.start());
+    const network = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("No public retrieval authorized"));
+    const preview = await reviewed(f, leased), input = importBody(f, leased, preview.documentDigest);
+    expect(preview.format).toBe("inert-text-snapshot");
+    expect(new TextEncoder().encode(preview.text).length).toBeLessThanOrEqual(1024);
+    const path = `/sessions/${leased.id}/documents/import`;
+    expect((await f.call(path, input)).response.status).toBe(200);
+    expect((await f.call(path, input)).response.status).not.toBe(200);
+    expect(f.calls.filter((a) => a[0] === "xdotool")).toEqual([computerInputArgv({ type: "type", text: preview.text })]);
+    expect(network).not.toHaveBeenCalled();
+    expect(f.starts).toMatchObject([{ enableInternet: false }]);
+    const audit = JSON.stringify(f.sqlite.prepare("SELECT * FROM shared_computer_commands").all());
+    expect(audit).not.toContain(preview.text);
+  });
+  it("binds reviewed bytes to session, version and digest and refuses unreviewed or substituted content", async () => {
+    const f = await fixture(), leased = await f.lease(await f.start()), preview = await reviewed(f, leased);
+    const path = `/sessions/${leased.id}/documents/import`, input = importBody(f, leased, preview.documentDigest);
+    for (const changes of [{ reviewed: false }, { documentDigest: "0".repeat(64) }, { text: "secret replacement" }, { action: { type: "type", text: "replacement" } }, { expectedVersion: leased.version + 1 }, { digest: "0".repeat(64) }])
+      expect((await f.call(path, { ...input, ...changes })).response.status).not.toBe(200);
+    const row = await readComputerRow(f.env, f.workspace.workspaceId, leased.id);
+    for (const changed of [{ ...row, workspace_id: "foreign" }, { ...row, id: `scs_${"f".repeat(32)}` }, { ...row, version: row.version + 1 }, { ...row, digest: "0".repeat(64) }]) {
+      expect((await computerDocumentPreview(changed)).documentDigest).not.toBe(preview.documentDigest);
+      await expect(computerDocumentAction(changed, computerDocumentImportSchema.parse(input))).rejects.toThrow("shared_computer_document_changed");
+    }
+    expect(f.calls.some((a) => a[0] === "xdotool")).toBe(false);
+  });
+  it.each(["http://127.0.0.1", "http://169.254.169.254/latest/meta-data", "https://[::1]", "https://public.test/redirect", "https://rebind.test", "https://user:password@public.test", "file:///etc/passwd"])("does not accept a URL or redirect target: %s", async (url) => {
+    const f = await fixture(), leased = await f.lease(await f.start()), preview = await reviewed(f, leased);
+    expect((await f.call(`/sessions/${leased.id}/documents/preview`, { expectedVersion: leased.version, documentId: url })).response.status).toBe(400);
+    expect((await f.call(`/sessions/${leased.id}/documents/import`, { ...importBody(f, leased, preview.documentDigest), url })).response.status).toBe(400);
+    expect(f.calls.some((a) => a[0] === "xdotool")).toBe(false);
+  });
+  it("rejects oversized and credential-bearing extensions without consuming the sequence", async () => {
+    const f = await fixture(), leased = await f.lease(await f.start()), preview = await reviewed(f, leased);
+    const path = `/sessions/${leased.id}/documents/import`, input = importBody(f, leased, preview.documentDigest);
+    expect((await f.call(path, { ...input, text: "x".repeat(9000) })).response.status).toBe(413);
+    for (const extra of [{ cookies: "session=secret" }, { authorization: "secret" }, { agentId: "agent" }, { redirect: "follow" }])
+      expect((await f.call(path, { ...input, ...extra })).response.status).toBe(400);
+    expect((await f.call(path, input)).response.status).toBe(200);
+    expect(computerDocumentPreviewSchema.safeParse({ expectedVersion: 1, documentId, url: "https://other.test" }).success).toBe(false);
+  });
+  it("separates native viewers and controllers and denies foreign workspaces and bearer agents", async () => {
+    const f = await fixture(), leased = await f.lease(await f.start()), preview = await reviewed(f, leased);
+    const path = `/sessions/${leased.id}/documents/import`, input = importBody(f, leased, preview.documentDigest);
+    auth.user = VIEWER;
+    expect((await reviewed(f, leased)).documentDigest).toBe(preview.documentDigest);
+    expect((await f.call(path, input)).response.status).not.toBe(200);
+    auth.user = OTHER;
+    expect((await f.call(`/sessions/${leased.id}/documents/preview`, { expectedVersion: leased.version, documentId })).response.status).not.toBe(200);
+    auth.user = OWNER; auth.native = false;
+    expect((await f.call(path, input)).response.status).toBe(403);
+    auth.native = true;
+    const headers = { Origin: "https://shiba.test", "Content-Type": "application/json", "X-Shiba-Workspace": f.workspace.workspaceId, Authorization: "Bearer fixture-agent" };
+    expect((await f.call(path, input, "POST", { headers })).response.status).toBe(403);
+    delete (headers as Partial<typeof headers>).Authorization;
+    headers["X-Shiba-Workspace"] = "foreign-workspace";
+    expect((await f.call(path, input, "POST", { headers })).response.status).not.toBe(200);
+    expect(f.calls.some((a) => a[0] === "xdotool")).toBe(false);
+  });
+  it.each(["room", "account", "lease", "expiry", "stop"])("fences import after %s revocation", async (kind) => {
+    const f = await fixture(), leased = await f.lease(await f.start()), preview = await reviewed(f, leased);
+    if (kind === "room") f.sqlite.prepare("UPDATE collaboration_memberships SET status='removed' WHERE room_id=? AND user_id=?").run(f.roomId, VIEWER);
+    if (kind === "account") f.sqlite.prepare('UPDATE "user" SET emailVerified=0 WHERE id=?').run(auth.ids[OWNER]!);
+    if (kind === "lease") f.sqlite.prepare("UPDATE shared_computer_sessions SET lease_expires_at=1 WHERE id=?").run(leased.id);
+    if (kind === "expiry") vi.spyOn(Date, "now").mockReturnValue(leased.contract.expiresAt + 1);
+    if (kind === "stop") expect((await f.call(`/sessions/${leased.id}/stop`, { expectedVersion: leased.version })).response.status).toBe(200);
+    expect((await f.call(`/sessions/${leased.id}/documents/import`, importBody(f, leased, preview.documentDigest))).response.status).not.toBe(200);
+    expect(f.calls.some((a) => a[0] === "xdotool")).toBe(false);
+  });
+  it("never retries an uncertain import and does not bypass session revocation before dispatch", async () => {
+    const f = await fixture(), leased = await f.lease(await f.start()), preview = await reviewed(f, leased);
+    f.failInput();
+    const path = `/sessions/${leased.id}/documents/import`, input = importBody(f, leased, preview.documentDigest);
+    expect((await f.call(path, input)).response.status).toBe(503);
+    expect((await f.call(path, input)).response.status).not.toBe(200);
+    expect(f.calls.filter((a) => a[0] === "xdotool")).toHaveLength(1);
+    expect(f.sqlite.prepare("SELECT status FROM shared_computer_commands").get()).toEqual({ status: "unknown" });
+  });
 });
