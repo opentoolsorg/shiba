@@ -135,6 +135,7 @@ export async function postSlackMessage(
 export async function verifySlackBotInstallation(token: string): Promise<{ teamId: string; userId: string; botId: string; scopes?: string[] }> {
   const response = await fetch(SLACK_AUTH_TEST, {
     method: "POST",
+    redirect: "manual",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/x-www-form-urlencoded" },
     signal: AbortSignal.timeout(SLACK_POST_TIMEOUT_MS),
   });
