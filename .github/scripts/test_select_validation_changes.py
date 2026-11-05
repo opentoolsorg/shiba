@@ -21,13 +21,13 @@ class ValidationSelectionTests(unittest.TestCase):
         for number in ("", " "):
             self.assertEqual(
                 select_checks(number, unexpected_fetch),
-                {"desktop": True, "sandbox_image": False},
+                {"desktop": True, "sandbox_image": False, "computer_image": False},
             )
 
     def test_docs_and_screenshots_skip_both_checks(self):
         self.assertEqual(
             self.select([{"filename": "docs/setup.md"}, {"filename": "screenshots/app.png"}]),
-            {"desktop": False, "sandbox_image": False},
+            {"desktop": False, "sandbox_image": False, "computer_image": False},
         )
 
     def test_application_and_unknown_root_changes_keep_desktop_only(self):
@@ -35,7 +35,7 @@ class ValidationSelectionTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(
                     self.select([{"filename": path}]),
-                    {"desktop": True, "sandbox_image": False},
+                    {"desktop": True, "sandbox_image": False, "computer_image": False},
                 )
 
     def test_each_image_input_selects_both_checks(self):
@@ -53,7 +53,9 @@ class ValidationSelectionTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(
                     self.select([{"filename": path}]),
-                    {"desktop": True, "sandbox_image": True},
+                    {"desktop": True, "sandbox_image": True, "computer_image": path not in (
+                        "apps/backend/Dockerfile", "apps/backend/scripts/acp-install.sh",
+                        "apps/backend/Dockerfile.dockerignore", ".github/workflows/build-sandbox-image.yml") },
                 )
 
     def test_renaming_an_image_input_into_docs_still_builds_image(self):
@@ -61,7 +63,7 @@ class ValidationSelectionTests(unittest.TestCase):
             self.select(
                 [{"filename": "docs/old-image.txt", "previous_filename": "apps/backend/Dockerfile"}]
             ),
-            {"desktop": True, "sandbox_image": True},
+            {"desktop": True, "sandbox_image": True, "computer_image": False},
         )
 
     def test_renaming_application_code_into_docs_keeps_desktop_only(self):
@@ -69,7 +71,7 @@ class ValidationSelectionTests(unittest.TestCase):
             self.select(
                 [{"filename": "docs/old-code.txt", "previous_filename": "apps/frontend/src/app.tsx"}]
             ),
-            {"desktop": True, "sandbox_image": False},
+            {"desktop": True, "sandbox_image": False, "computer_image": False},
         )
 
     def test_later_image_page_is_not_lost_after_desktop_is_selected(self):
@@ -81,7 +83,7 @@ class ValidationSelectionTests(unittest.TestCase):
                 return [{"filename": f"apps/frontend/src/file-{i}.ts"} for i in range(100)]
             return [{"filename": "apps/backend/Dockerfile"}]
 
-        self.assertEqual(select_checks("188", fetch), {"desktop": True, "sandbox_image": True})
+        self.assertEqual(select_checks("188", fetch), {"desktop": True, "sandbox_image": True, "computer_image": False})
         self.assertEqual(calls, [(188, 1), (188, 2)])
 
     def test_paginated_docs_can_finish_without_selecting_either_check(self):
@@ -91,7 +93,7 @@ class ValidationSelectionTests(unittest.TestCase):
             calls.append(page)
             return [{"filename": f"docs/page-{i}.md"} for i in range(100)] if page == 1 else []
 
-        self.assertEqual(select_checks("188", fetch), {"desktop": False, "sandbox_image": False})
+        self.assertEqual(select_checks("188", fetch), {"desktop": False, "sandbox_image": False, "computer_image": False})
         self.assertEqual(calls, [1, 2])
 
     def test_paginated_application_changes_do_not_imply_image_changes(self):
@@ -100,7 +102,7 @@ class ValidationSelectionTests(unittest.TestCase):
                 return [{"filename": f"docs/page-{i}.md"} for i in range(100)]
             return [{"filename": "apps/backend/src/runtime.ts"}]
 
-        self.assertEqual(select_checks("188", fetch), {"desktop": True, "sandbox_image": False})
+        self.assertEqual(select_checks("188", fetch), {"desktop": True, "sandbox_image": False, "computer_image": False})
 
     def test_full_3000_file_limit_selects_both_checks_conservatively(self):
         calls = []
@@ -109,7 +111,7 @@ class ValidationSelectionTests(unittest.TestCase):
             calls.append(page)
             return [{"filename": f"docs/page-{page}-{i}.md"} for i in range(100)]
 
-        self.assertEqual(select_checks("188", fetch), {"desktop": True, "sandbox_image": True})
+        self.assertEqual(select_checks("188", fetch), {"desktop": True, "sandbox_image": True, "computer_image": True})
         self.assertEqual(calls, list(range(1, 31)))
 
     def test_fetch_failure_on_first_or_later_page_selects_both_checks(self):
@@ -121,7 +123,7 @@ class ValidationSelectionTests(unittest.TestCase):
                     return [{"filename": f"apps/frontend/src/file-{i}.ts"} for i in range(100)]
 
                 self.assertEqual(
-                    select_checks("188", fetch), {"desktop": True, "sandbox_image": True}
+                    select_checks("188", fetch), {"desktop": True, "sandbox_image": True, "computer_image": True}
                 )
 
     def test_malformed_responses_select_both_checks(self):
@@ -135,15 +137,25 @@ class ValidationSelectionTests(unittest.TestCase):
             [{"filename": "docs/file.md"}] * 101,
         ):
             with self.subTest(response=response):
-                self.assertEqual(self.select(response), {"desktop": True, "sandbox_image": True})
+                self.assertEqual(self.select(response), {"desktop": True, "sandbox_image": True, "computer_image": True})
 
     def test_invalid_pr_numbers_select_both_without_a_request(self):
         for number in ("0", "-1", "not-a-number"):
             with self.subTest(number=number):
                 self.assertEqual(
                     select_checks(number, lambda *_: self.fail("Unexpected request")),
-                    {"desktop": True, "sandbox_image": True},
+                    {"desktop": True, "sandbox_image": True, "computer_image": True},
                 )
+
+    def test_computer_image_inputs_do_not_build_coding_image(self):
+        for path in ("apps/backend/Dockerfile.computer", "apps/backend/computer/offline-acceptance.mjs"):
+            with self.subTest(path=path):
+                self.assertEqual(self.select([{"filename": path}]),
+                    {"desktop": True, "sandbox_image": False, "computer_image": True})
+
+    def test_renamed_computer_input_preserves_validation(self):
+        self.assertEqual(self.select([{"filename": "docs/old.txt", "previous_filename": "apps/backend/Dockerfile.computer"}]),
+            {"desktop": True, "sandbox_image": False, "computer_image": True})
 
     def test_api_adapter_requests_the_exact_page_with_bounded_timeout(self):
         class Response:
@@ -179,7 +191,7 @@ class ValidationSelectionTests(unittest.TestCase):
                 env=env,
                 check=True,
             )
-            self.assertEqual(output.read_text(), "desktop=true\nsandbox_image=false\n")
+            self.assertEqual(output.read_text(), "desktop=true\nsandbox_image=false\ncomputer_image=false\n")
 
 
 if __name__ == "__main__":

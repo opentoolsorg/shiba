@@ -130,6 +130,38 @@ jobs:
     concurrency:
       group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-sandbox-image
       cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}
+  computer-image:
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' && needs.changes.outputs.computer_image == 'true' }}
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the pinned offline desktop without credentials or publishing
+        run: |
+          imageDockerConfig=$(mktemp -d /tmp/shiba-computer-docker.XXXXXX)
+          trap 'rm -rf "$imageDockerConfig"' EXIT
+          timeout 900s docker --config "$imageDockerConfig" build --pull --progress=plain --platform linux/amd64 \
+            --secret id=proxy_ca,src=/etc/ssl/certs/ca-certificates.crt \
+            --tag shiba-computer-offline:ci --file apps/backend/Dockerfile.computer apps/backend
+      - name: Verify real offline display, human input, capture and watchdog
+        run: node apps/backend/computer/verify-offline.mjs --image shiba-computer-offline:ci --output /tmp/shiba-computer-evidence
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: shiba-offline-computer-evidence
+          path: |
+            /tmp/shiba-computer-evidence/report.json
+            /tmp/shiba-computer-evidence/*.jpg
+          if-no-files-found: warn
+          retention-days: 3
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-computer-image
+      cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}
   desktop-release:
     if: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/desktop-v') }}
 
@@ -172,6 +204,7 @@ jobs:
     outputs:
       desktop: ${{ steps.files.outputs.desktop }}
       sandbox_image: ${{ steps.files.outputs.sandbox_image }}
+      computer_image: ${{ steps.files.outputs.computer_image }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
