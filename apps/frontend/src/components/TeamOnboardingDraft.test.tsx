@@ -3,12 +3,60 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TeamOnboardingDraft } from "./TeamOnboardingDraft";
 import { EMPTY_ONBOARDING_DRAFT } from "../onboarding-draft";
+import { onboardingTaskText } from "@shiba/shared";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const workspaceId = `ws_${"a".repeat(24)}`;
 const snapshot = (goal = "", revision = 0) => ({ schemaVersion: 2, revision, draftTask: { ...EMPTY_ONBOARDING_DRAFT, goal } });
 
 describe("team first task draft", () => {
+  it("keeps oversized task text intact and disables staging", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/custom-agents" ? Response.json({ agents: [] }) : Response.json(snapshot())));
+    render(<TeamOnboardingDraft workspaceId={workspaceId} actorId="member@example.test" onStageTask={vi.fn()} onClose={vi.fn()} onOpenRooms={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save team draft" })).toHaveProperty("disabled", false));
+    fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "x".repeat(4000) } });
+    fireEvent.change(screen.getByLabelText("Audience"), { target: { value: "Team" } });
+    fireEvent.change(screen.getByLabelText("Acceptance"), { target: { value: "Accurate" } });
+    expect(screen.getByRole("button", { name: "Review saved task in team rooms" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("alert").textContent).toContain("not been shortened");
+    expect(screen.getByLabelText("Goal")).toHaveProperty("value", "x".repeat(4000));
+  });
+  it.each(["valid", "mismatch", "conflict", "late actor"])("stages only a verified saved snapshot: %s", async (scenario) => {
+    const actorId = "member@example.test", draftTaskId = "draft_12345678-1234-4123-8123-123456789abc";
+    let savedDraft = { ...EMPTY_ONBOARDING_DRAFT }, resolveRead!: (value: Response) => void;
+    const late = new Promise<Response>((resolve) => { resolveRead = resolve; });
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/custom-agents") return Response.json({ agents: [] });
+      if (path.startsWith("/api/onboarding/progress/team-task?")) {
+        if (scenario === "late actor") return late;
+        return Response.json({ workspaceId, actorId, accountId: "account-1", draftTaskId, draftTaskVersion: scenario === "mismatch" ? 2 : 1, progressRevision: 1, text: onboardingTaskText(savedDraft), employee: null, savedAt: 1000, expiresAt: Date.now() + 60000 });
+      }
+      if (init?.method === "POST") {
+        savedDraft = { ...EMPTY_ONBOARDING_DRAFT, ...JSON.parse(String(init.body)).draftTask, version: 1 };
+        return Response.json({ ...snapshot(), draftTaskId, draftTask: savedDraft, revision: 1 }, { status: scenario === "conflict" ? 409 : 200 });
+      }
+      return Response.json(snapshot());
+    }); vi.stubGlobal("fetch", fetcher);
+    const onStageTask = vi.fn(), props = { workspaceId, actorId, onStageTask, onClose: vi.fn(), onOpenRooms: vi.fn() };
+    const view = render(<TeamOnboardingDraft {...props} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save team draft" })).toHaveProperty("disabled", false));
+    for (const [field, value] of [["Goal", "Write a brief"], ["Audience", "Team"], ["Acceptance", "Accurate"]] as const) fireEvent.change(screen.getByLabelText(field), { target: { value } });
+    fireEvent.click(screen.getByRole("button", { name: "Review saved task in team rooms" }));
+    if (scenario === "late actor") {
+      await waitFor(() => expect(fetcher.mock.calls.some(([path]) => String(path).includes("team-task?"))).toBe(true));
+      view.rerender(<TeamOnboardingDraft {...props} actorId="other@example.test" />);
+      await act(async () => resolveRead(Response.json({ workspaceId, actorId, accountId: "account-1", draftTaskId, draftTaskVersion: 1, progressRevision: 1, text: onboardingTaskText(savedDraft), employee: null, savedAt: 1000, expiresAt: Date.now() + 60000 })));
+      expect(onStageTask).not.toHaveBeenCalled();
+    } else if (scenario === "valid") {
+      await waitFor(() => expect(onStageTask).toHaveBeenCalledOnce());
+      const read = fetcher.mock.calls.find(([path]) => String(path).includes("team-task?"));
+      expect(String(read?.[0])).toContain(`draftTaskId=${draftTaskId}&draftTaskVersion=1&expectedRevision=1`);
+      expect(new Headers(read?.[1]?.headers).get("X-Shiba-Workspace")).toBe(workspaceId);
+    } else { await screen.findByRole("alert"); expect(onStageTask).not.toHaveBeenCalled(); }
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    if (scenario === "conflict") expect(fetcher.mock.calls.some(([path]) => String(path).includes("team-task?"))).toBe(false);
+  });
   it.each(["save", "reload", "configure"])("ignores late A %s completions after an unkeyed workspace change", async (operation) => {
     let finishA!: (value: Response) => void, finishB!: (value: Response) => void;
     const lateA = new Promise<Response>((done) => { finishA = done; });

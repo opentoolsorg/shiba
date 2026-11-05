@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { onboardingTaskText } from "@shiba/shared";
+import { onboardingTaskText, teamOnboardingTaskSchema, type TeamOnboardingTask } from "@shiba/shared";
+import type { FirstRunProgressSnapshot } from "./FirstRunWizard";
 import { EMPLOYEE_TEMPLATES, type EmployeeTemplate } from "../employee-templates";
 import { EMPTY_ONBOARDING_DRAFT, type OnboardingDraft } from "../onboarding-draft";
 import { OnboardingProgressClient } from "../onboarding-progress-client";
@@ -11,14 +12,15 @@ interface Employee { id: string; version: number; config: { name: string } }
 interface TeamOnboardingDraftProps {
   workspaceId: string; workspaceName?: string; onClose: () => void; onOpenRooms: () => void;
   onConfigureEmployee?: (templateId: EmployeeTemplate["id"] | null) => void;
+  actorId?: string; onStageTask?: (value: TeamOnboardingTask) => void;
 }
 
 /** A per-person team draft. Only a room's normal approval flow can start work. */
 export function TeamOnboardingDraft(props: TeamOnboardingDraftProps): JSX.Element {
-  return <TeamOnboardingDraftForm key={props.workspaceId} {...props} />;
+  return <TeamOnboardingDraftForm key={`${props.workspaceId}:${props.actorId ?? ""}`} {...props} />;
 }
 
-function TeamOnboardingDraftForm({ workspaceId, workspaceName, onClose, onOpenRooms, onConfigureEmployee }: TeamOnboardingDraftProps): JSX.Element {
+function TeamOnboardingDraftForm({ workspaceId, workspaceName, actorId, onStageTask, onClose, onOpenRooms, onConfigureEmployee }: TeamOnboardingDraftProps): JSX.Element {
   const [draft, setDraft] = useState<OnboardingDraft>({ ...EMPTY_ONBOARDING_DRAFT });
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [busy, setBusy] = useState(true);
@@ -26,6 +28,7 @@ function TeamOnboardingDraftForm({ workspaceId, workspaceName, onClose, onOpenRo
   const [notice, setNotice] = useState<string | null>(null);
   const controller = useRef(new AbortController());
   const client = useRef<OnboardingProgressClient | null>(null);
+  const accepted = useRef<FirstRunProgressSnapshot | null>(null);
   const live = useRef(false);
   const currentOperation = () => {
     const owner = client.current, abort = controller.current;
@@ -43,7 +46,7 @@ function TeamOnboardingDraftForm({ workspaceId, workspaceName, onClose, onOpenRo
       }
       return response;
     };
-    const progress = new OnboardingProgressClient(fetcher, () => {}); client.current = progress;
+    const progress = new OnboardingProgressClient(fetcher, (snapshot) => { accepted.current = snapshot; }); client.current = progress;
     void Promise.all([
       progress.read(),
       fetcher("/api/custom-agents", { credentials: "same-origin", cache: "no-store" }).then(async (response) => {
@@ -94,6 +97,27 @@ function TeamOnboardingDraftForm({ workspaceId, workspaceName, onClose, onOpenRo
     } catch { if (active()) setError("Copy unavailable. Select and copy the task text above."); }
   };
   const task = onboardingTaskText(draft);
+  const canReview = Boolean(draft.goal.trim() && draft.audience.trim() && draft.acceptance.trim() && task.length <= 4000);
+  const stage = async () => {
+    if (busy || !client.current || !actorId || !onStageTask || !canReview) return;
+    const progress = client.current, active = currentOperation();
+    setBusy(true); setError(null); setNotice(null); accepted.current = null;
+    try {
+      const { schemaVersion: _schema, sourceRefs: _refs, version: _version, preparedAt: _prepared, ...answers } = draft;
+      await progress.update({ action: "save-draft", draftTask: { ...answers, sourceIds: [], completedSteps: [], skippedSteps: [] } });
+      const saved = accepted.current as FirstRunProgressSnapshot | null;
+      if (!active()) return;
+      if (!saved?.draftTaskId || !saved.draftTask || !Number.isSafeInteger(saved.draftTask.version) || saved.draftTask.version < 1 || !Number.isSafeInteger(saved.revision) || saved.revision < 0 || onboardingTaskText(saved.draftTask) !== task || saved.draftTask.employeeId !== draft.employeeId || saved.draftTask.employeeVersion !== draft.employeeVersion) throw new Error("Saved task could not be verified. Reload the saved answers and try again.");
+      const query = new URLSearchParams({ draftTaskId: saved.draftTaskId, draftTaskVersion: String(saved.draftTask.version), expectedRevision: String(saved.revision) });
+      const response = await fetch(`/api/onboarding/progress/team-task?${query}`, { credentials: "same-origin", cache: "no-store", signal: controller.current.signal, headers: teamWorkspaceHeaders(workspaceId) });
+      if (!response.ok) throw new Error("Saved task could not be reviewed. Reload the saved answers and try again.");
+      const parsed = teamOnboardingTaskSchema.safeParse(await response.json());
+      if (!active()) return;
+      if (!parsed.success || parsed.data.expiresAt <= Date.now() || parsed.data.workspaceId !== workspaceId || parsed.data.actorId !== actorId || parsed.data.draftTaskId !== saved.draftTaskId || parsed.data.draftTaskVersion !== saved.draftTask.version || parsed.data.progressRevision !== saved.revision || parsed.data.text !== task || (parsed.data.employee?.id ?? null) !== draft.employeeId || (parsed.data.employee?.version ?? null) !== draft.employeeVersion) throw new Error("Saved task could not be verified. Reload the saved answers and try again.");
+      onStageTask(parsed.data);
+    } catch (cause) { if (active()) setError(cause instanceof Error ? cause.message : "Saved task could not be reviewed."); }
+    finally { if (active()) setBusy(false); }
+  };
   return <section aria-label="Team first task setup" className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--paper)] p-4 text-[var(--ink)] sm:p-7"><div className="mx-auto grid w-full max-w-3xl gap-4">
     <header><h2 className="text-xl">First task in {workspaceName ?? "your workspace"}</h2><p className="mt-2 text-sm text-[var(--ink-2)]">Save a draft for your account in this workspace. Optional answers can stay blank. Private memory, personal sources and provider connections are not inherited. In a team room, select shared context and request normal human approval before work starts.</p></header>
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
@@ -101,6 +125,6 @@ function TeamOnboardingDraftForm({ workspaceId, workspaceName, onClose, onOpenRo
     <label className="text-xs">Starting role, optional<select className={FIELD} value={draft.employeeTemplateId ?? ""} disabled={busy} onChange={(event) => { const template = EMPLOYEE_TEMPLATES.find((entry) => entry.id === event.target.value); setDraft((previous) => ({ ...previous, employeeTemplateId: template?.id ?? null, employeeTemplateVersion: template ? 1 : null })); }}><option value="">Skip role selection</option>{EMPLOYEE_TEMPLATES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}</select></label>
     <label className="text-xs">Saved team employee, optional<select className={FIELD} value={draft.employeeId ?? ""} disabled={busy} onChange={(event) => { const employee = employees.find((entry) => entry.id === event.target.value); setDraft((previous) => ({ ...previous, employeeId: employee?.id ?? null, employeeVersion: employee?.version ?? null })); }}><option value="">Choose later in a room</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.config.name} · v{employee.version}</option>)}</select></label>
     <div className="flex flex-wrap gap-2"><button type="button" className={BUTTON} disabled={busy} onClick={() => { void save(); }}>Save team draft</button><button type="button" className={BUTTON} disabled={busy} onClick={() => { void reload(); }}>Reload saved answers</button>{onConfigureEmployee && <button type="button" className={BUTTON} disabled={busy} onClick={() => { void configure(); }}>Configure team employee</button>}<button type="button" className={BUTTON} onClick={onClose}>Close setup</button></div>
-    <section className="border border-[var(--line)] bg-[var(--card)] p-4"><h3 className="text-sm font-semibold">Review and continue in a team room</h3><pre className="mt-3 whitespace-pre-wrap break-words text-xs">{task}</pre><p className="mt-3 text-xs text-[var(--ink-2)]">Copy this draft into a room, choose the current employee and shared sources, then review the frozen task approval. This saved setup draft cannot execute by itself.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" className={BUTTON} disabled={busy || !draft.goal.trim() || !draft.audience.trim() || !draft.acceptance.trim()} onClick={() => { void copy(); }}>Copy task draft</button><button type="button" className={BUTTON} onClick={onOpenRooms}>Open team rooms</button></div></section>
+    <section className="border border-[var(--line)] bg-[var(--card)] p-4"><h3 className="text-sm font-semibold">Review and continue in a team room</h3><pre className="mt-3 whitespace-pre-wrap break-words text-xs">{task}</pre><p className="mt-3 text-xs text-[var(--ink-2)]">Review the saved task in a room, choose the current employee and shared sources, then review the frozen task approval. This saved setup draft cannot execute by itself.</p>{task.length > 4000 && <p role="alert">The task must be at most 4,000 characters to review in a room. It has not been shortened.</p>}<div className="mt-3 flex flex-wrap gap-2">{actorId && onStageTask && <button type="button" className={BUTTON} disabled={busy || !canReview} onClick={() => { void stage(); }}>Review saved task in team rooms</button>}<button type="button" className={BUTTON} disabled={busy || !draft.goal.trim() || !draft.audience.trim() || !draft.acceptance.trim()} onClick={() => { void copy(); }}>Copy task draft</button><button type="button" className={BUTTON} onClick={onOpenRooms}>Open team rooms</button></div></section>
   </div></section>;
 }

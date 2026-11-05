@@ -23,7 +23,7 @@ The Work view offers **Set up a team task** to native email-session users. This 
 
 Goal, audience, acceptance, supplied context, role, saved employee and app requirements can be saved and resumed. Optional fields may stay blank. Employee IDs are checked against the selected team's current employee version. The route rejects private source IDs and does not read private Memory, provider status, private run history or accepted-deliverable evidence.
 
-These drafts are planning records. They have no executable prepared token. `/prepare-task` responds with `team_draft_requires_room_approval`; the user copies the reviewed task into a team room, chooses current shared sources and an employee, then requests the normal frozen human approval. Copying does not grant execution. A direct, version-bound setup-to-room import is not implemented. Cloudflare Access users without a native email session do not have this saved setup identity contract.
+These drafts are planning records. They have no executable prepared token. `/prepare-task` responds with `team_draft_requires_room_approval`. **Review saved task in team rooms** saves and reads the exact owned draft version/revision, then stages a short-lived snapshot for explicit room-composer review. Existing unsent work requires replacement confirmation; copying submits no task and grants no execution. The user chooses current shared sources and an employee, then requests the normal frozen human approval. Later setup edits do not update a copied task, and the run does not inherit a personal prepared-task reference. See [the snapshot and review contract](team-onboarding-task-transfer.md). Cloudflare Access users without a native email session do not have this saved setup identity contract.
 
 ## Verification boundary
 

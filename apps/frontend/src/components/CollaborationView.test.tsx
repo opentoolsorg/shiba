@@ -1221,6 +1221,44 @@ describe("Slack draft room review", () => {
     });
     vi.stubGlobal("fetch", fetcher); return fetcher;
   }
+  it("reviews a saved team snapshot explicitly, preserves unsent work, and does not post", async () => {
+    const fetcher = setupFetch(), consumed = vi.fn();
+    const teamDraft = { ...draft, source: "team-onboarding" as const, draftTaskId: "draft_12345678-1234-4123-8123-123456789abc", draftTaskVersion: 3, progressRevision: 8, expiresAt: Date.now() + 60000 };
+    const view = render(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={{ ...teamDraft, actorId: "other@example.test" }} onTaskDraftConsumed={consumed} />);
+    await screen.findByRole("heading", { name: "Shared room" }); fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    expect(screen.queryByRole("region", { name: "Review saved team task" })).toBeNull();
+    view.rerender(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={teamDraft} onTaskDraftConsumed={consumed} />);
+    expect(screen.getByText(/Saved draft version 3/)).toBeTruthy();
+    const task = screen.getByLabelText("Employee task request"); fireEvent.change(task, { target: { value: "Unsent" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review replacing my unsent task" }));
+    expect(task).toHaveProperty("value", "Unsent");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm replacing my unsent task" }));
+    expect(task).toHaveProperty("value", draft.text); expect(consumed).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+    view.rerender(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={{ ...teamDraft, expiresAt: Date.now() - 1 }} onTaskDraftConsumed={consumed} />);
+    expect(screen.queryByRole("region", { name: "Review saved team task" })).toBeNull();
+  });
+  it("hides the saved task preview when its review lease expires", async () => {
+    setupFetch(); const consumed = vi.fn();
+    const teamDraft = { ...draft, source: "team-onboarding" as const, draftTaskId: "draft_12345678-1234-4123-8123-123456789abc", draftTaskVersion: 1, progressRevision: 1, expiresAt: Date.now() + 1500 };
+    render(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={teamDraft} onTaskDraftConsumed={consumed} />);
+    await screen.findByRole("heading", { name: "Shared room" }); fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    expect(screen.getByRole("region", { name: "Review saved team task" })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Review saved team task" })).toBeNull(), { timeout: 2500 });
+    expect(consumed).not.toHaveBeenCalled();
+  });
+  it("opens Work once when a saved team task reaches a readable room", async () => {
+    setupFetch(); const consumed = vi.fn();
+    const teamDraft = { ...draft, source: "team-onboarding" as const, draftTaskId: "draft_12345678-1234-4123-8123-123456789abc", draftTaskVersion: 1, progressRevision: 1, expiresAt: Date.now() + 60000 };
+    const view = render(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={teamDraft} onTaskDraftConsumed={consumed} />);
+    await screen.findByRole("region", { name: "Review saved team task" });
+    expect(screen.getByRole("tab", { name: "Work" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("tab", { name: "People" }));
+    expect(screen.queryByRole("region", { name: "Review saved team task" })).toBeNull();
+    view.rerender(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={{ ...teamDraft }} onTaskDraftConsumed={consumed} />);
+    expect(screen.getByRole("tab", { name: "People" }).getAttribute("aria-selected")).toBe("true");
+    expect(consumed).not.toHaveBeenCalled();
+  });
   it("requires matching native identity and an explicit room review before copying without posting", async () => {
     const fetcher = setupFetch(), consumed = vi.fn();
     const view = render(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={{ ...draft, actorId: "other@example.test" }} onTaskDraftConsumed={consumed}/>);
