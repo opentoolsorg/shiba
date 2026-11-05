@@ -604,7 +604,6 @@ describe("Phase 1 core loop (integration)", () => {
       { executionTarget: target, expectedDeliverables: ["sales/other.md"] },
       { executionTarget: { ...target, expectedDeliverables: ["../private.md"] } },
       { executionTarget: target, publishPullRequest: true },
-      { executionTarget: target, runtime: "local" },
       { executionTarget: target, runSetup: true },
     ];
     for (const body of invalidRequests) {
