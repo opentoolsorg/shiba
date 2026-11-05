@@ -24,6 +24,19 @@ export const TEAM_MODEL_CALL_TIMEOUT_MS = 30_000;
 const REVIEW_TTL_MS = 15 * 60_000;
 const DAY_MS = 86_400_000;
 const DB_NOW = "CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)";
+// Same permanent all-state sums as the dispatch transaction. These expressions
+// are private server-owned table aliases, never caller-supplied SQL or identities.
+function lifetimeDebitSql(grant: string) {
+  return {
+    workspace: `COALESCE((SELECT SUM(l.reserved_micro_usd) FROM team_model_money_ledger l WHERE l.workspace_id=${grant}.workspace_id),0)`,
+    requester: `COALESCE((SELECT SUM(l.reserved_micro_usd) FROM team_model_money_ledger l JOIN team_model_funding f ON f.id=l.grant_id AND f.workspace_id=l.workspace_id
+      WHERE l.workspace_id=${grant}.workspace_id AND json_extract(f.binding_json,'$.recipient.accountId')=json_extract(${grant}.binding_json,'$.recipient.accountId')),0)`,
+  };
+}
+function lifetimeFitsSql(grant: string) {
+  const debit = lifetimeDebitSql(grant);
+  return `${debit.requester}+?<=${TEAM_MODEL_ACTOR_LIMIT_MICRO_USD} AND ${debit.workspace}+?<=${TEAM_MODEL_WORKSPACE_LIMIT_MICRO_USD}`;
+}
 export function teamModelPolicy(env: Env) {
   const model = env.SHIBA_TEAM_MODEL_MODEL ?? TEAM_MODEL_TEXT_MODEL;
   const enabled = env.SHIBA_TEAM_MODEL_SESSIONS === "1" && (model === TEAM_MODEL_TEXT_MODEL || model === TEAM_MODEL_LLAMA_MODEL);
@@ -228,8 +241,9 @@ export async function activateTeamModelFunding(env: Env, member: WorkspaceNative
   const money = requireTeamModelMoney(contract.money, contract.maxOutputTokens, Date.now(), contract.model);
   const guard = fundingGuard(binding), now = Date.now();
   requireChanged(await updateGuarded(env, "team_model_funding", { state: "active", version: row.version + 1, updated_at: now },
-    `id=? AND state='draft' AND version=? AND digest=? AND review_expires_at>${DB_NOW} AND json_extract(contract_json,'$.expiresAt')>${DB_NOW} AND ?>${DB_NOW} AND ${guard.sql}`,
-    [id, row.version, input.digest, money.quote.dispatchUntil, ...guard.values]).run());
+    `id=? AND state='draft' AND version=? AND digest=? AND review_expires_at>${DB_NOW} AND json_extract(contract_json,'$.expiresAt')>${DB_NOW} AND ?>${DB_NOW} AND ${guard.sql}
+      AND ${lifetimeFitsSql("team_model_funding")}`,
+    [id, row.version, input.digest, money.quote.dispatchUntil, ...guard.values, money.maximumDebitPerCallMicroUsd, money.maximumDebitPerCallMicroUsd]).run());
   return id;
 }
 export async function revokeTeamModelFunding(env: Env, member: WorkspaceNativeMember, id: string, expectedVersion: number) {
@@ -286,10 +300,10 @@ export async function prepareTeamModelTurn(env: Env, member: WorkspaceNativeMemb
     prompt: input.prompt, input_json: inputJson, sources_json: JSON.stringify(sources), input_bytes: inputBytes, expires_at: expiresAt,
     status: "pending", output: null, error_code: null, created_at: now, updated_at: now, dispatch_deadline: null },
     { sql: `${guard.sql} AND ${actor.sql} AND EXISTS(SELECT 1 FROM team_model_funding WHERE id=? AND version=? AND state='active' AND used_requests<? AND json_extract(contract_json,'$.expiresAt')>${DB_NOW}
-      AND ?>${DB_NOW} AND ${teamModelLedgerDebitSql("team_model_funding.id")}+?<=?)
+      AND ?>${DB_NOW} AND ${teamModelLedgerDebitSql("team_model_funding.id")}+?<=? AND ${lifetimeFitsSql("team_model_funding")})
       AND NOT EXISTS(SELECT 1 FROM team_model_turns WHERE grant_id=? AND status IN ('running','unknown')) AND NOT EXISTS(SELECT 1 FROM team_model_money_ledger WHERE grant_id=? AND state IN ('held','unknown'))
       AND (SELECT COUNT(*) FROM team_model_turns WHERE grant_id=?)<20`,
-      values: [...guard.values, ...actor.values, row.id, row.version, contract.maxRequests, money.quote.dispatchUntil, money.maximumDebitPerCallMicroUsd, money.budgetMicroUsd, row.id, row.id, row.id] });
+      values: [...guard.values, ...actor.values, row.id, row.version, contract.maxRequests, money.quote.dispatchUntil, money.maximumDebitPerCallMicroUsd, money.budgetMicroUsd, money.maximumDebitPerCallMicroUsd, money.maximumDebitPerCallMicroUsd, row.id, row.id, row.id] });
   try { requireChanged(await insert.run()); }
   catch (error) {
     const existing = await env.AGENT_AUDIT.prepare("SELECT id,request_hash FROM team_model_turns WHERE workspace_id=? AND requester_account_id=? AND request_id=?")
@@ -311,9 +325,9 @@ export async function approveTeamModelTurn(env: Env, member: WorkspaceNativeMemb
   const source = sourceGuard(fundingBinding(grant), JSON.parse(row.sources_json) as TeamModelSourceSnapshot), actor = membershipSql(member);
   requireChanged(await updateGuarded(env, "team_model_turns", { status: "approved", version: row.version + 1, updated_at: Date.now() },
     `id=? AND version=? AND status='pending' AND input_hash=? AND requester_account_id=? AND expires_at>${DB_NOW} AND ${actor.sql} AND ${source.sql}
-      AND EXISTS(SELECT 1 FROM team_model_funding WHERE id=? AND version=? AND state='active' AND ?>${DB_NOW} AND ${teamModelLedgerDebitSql("team_model_funding.id")}+?<=?)
+      AND EXISTS(SELECT 1 FROM team_model_funding WHERE id=? AND version=? AND state='active' AND ?>${DB_NOW} AND ${teamModelLedgerDebitSql("team_model_funding.id")}+?<=? AND ${lifetimeFitsSql("team_model_funding")})
       AND NOT EXISTS(SELECT 1 FROM team_model_turns other WHERE other.grant_id=? AND other.status IN ('running','unknown')) AND NOT EXISTS(SELECT 1 FROM team_model_money_ledger WHERE grant_id=? AND state IN ('held','unknown'))`,
-    [id, input.expectedVersion, input.inputHash, member.accountId, ...actor.values, ...source.values, grant.id, row.grant_version, money.quote.dispatchUntil, money.maximumDebitPerCallMicroUsd, money.budgetMicroUsd, grant.id, grant.id]).run());
+    [id, input.expectedVersion, input.inputHash, member.accountId, ...actor.values, ...source.values, grant.id, row.grant_version, money.quote.dispatchUntil, money.maximumDebitPerCallMicroUsd, money.budgetMicroUsd, money.maximumDebitPerCallMicroUsd, money.maximumDebitPerCallMicroUsd, grant.id, grant.id]).run());
   return id;
 }
 export async function cancelTeamModelTurn(env: Env, member: WorkspaceNativeMember, id: string, expectedVersion: number) {
@@ -326,20 +340,28 @@ export async function cancelTeamModelTurn(env: Env, member: WorkspaceNativeMembe
 }
 
 interface FinalSourceRow { id: string; kind: string; busy: number; used_requests: number; reserved_input_bytes: number; reserved_output_tokens: number; money_json: string | null }
-interface FinalMoney { authorizedDebitMicroUsd: number; reportedQuotedMicroUsd: number; unknownReservedMicroUsd: number; turnState: "held" | "confirmed" | "unknown" | null; turnDebit: number; turnReported: number | null }
+interface FinalMoney { authorizedDebitMicroUsd: number; reportedQuotedMicroUsd: number; unknownReservedMicroUsd: number; requesterReservedMicroUsd: number; workspaceReservedMicroUsd: number; turnState: "held" | "confirmed" | "unknown" | null; turnDebit: number; turnReported: number | null }
 function finalMoney(row: FinalSourceRow | undefined): FinalMoney | null { return row?.money_json ? JSON.parse(row.money_json) as FinalMoney : null; }
+function capacityReason(ledger: FinalMoney | null, nextDebit: number): string | null {
+  if (!ledger) return "team_model_capacity_unavailable";
+  if (ledger.requesterReservedMicroUsd + nextDebit > TEAM_MODEL_ACTOR_LIMIT_MICRO_USD) return "team_model_requester_lifetime_limit";
+  if (ledger.workspaceReservedMicroUsd + nextDebit > TEAM_MODEL_WORKSPACE_LIMIT_MICRO_USD) return "team_model_workspace_lifetime_limit";
+  return null;
+}
 async function finalModelReadFence(env: Env, member: WorkspaceNativeMember, roomId: string, roomMember: RoomParticipant, snapshots: Array<{ kind: "funding" | "turn"; grant: TeamModelFundingRow; turn?: TeamModelTurnRow }>) {
   const actor = membershipSql(member), room = roomGuard({ workspaceId: member.workspaceId, roomId }, roomMember);
   const mapped = snapshots.map((snapshot) => ({ ...snapshot, binding: fundingBinding(snapshot.grant), sources: snapshot.turn ? JSON.parse(snapshot.turn.sources_json) as TeamModelSourceSnapshot : { messages: [], notes: [] } }));
   const at = (path: string) => `json_extract(s.value,'$.${path}')`;
   const reader = `${actor.sql} AND ${room.sql} AND NOT EXISTS(SELECT 1 FROM collaboration_slack_room_links WHERE tenant_id='${COLLAB_TENANT_ID}' AND workspace_id=? AND room_id=? AND status='active')`;
   const readerValues = [...actor.values, ...room.values, member.workspaceId, roomId];
+  const lifetime = lifetimeDebitSql("g");
   const rows = await env.AGENT_AUDIT.prepare(`SELECT '' AS id,'actor' AS kind,0 AS busy,0 AS used_requests,0 AS reserved_input_bytes,0 AS reserved_output_tokens,NULL AS money_json WHERE ${reader}
     UNION ALL SELECT '' AS id,'funder' AS kind,0,0,0,0,NULL WHERE ${reader} AND EXISTS(SELECT 1 FROM shiba_auth_account_policy WHERE account_id=? AND email=? AND kind='bootstrap') AND ?<>'member'
     UNION ALL SELECT CASE WHEN ${at("kind")}='turn' THEN ${at("turn.id")} ELSE g.id END,${at("kind")},
       (EXISTS(SELECT 1 FROM team_model_turns busy WHERE busy.grant_id=g.id AND busy.status IN ('running','unknown')) OR EXISTS(SELECT 1 FROM team_model_money_ledger l WHERE l.grant_id=g.id AND l.state IN ('held','unknown'))),g.used_requests,g.reserved_input_bytes,g.reserved_output_tokens,
       json_object('authorizedDebitMicroUsd',${teamModelLedgerDebitSql("g.id")},'reportedQuotedMicroUsd',COALESCE((SELECT SUM(reported_micro_usd) FROM team_model_money_ledger WHERE grant_id=g.id AND state='confirmed'),0),
         'unknownReservedMicroUsd',COALESCE((SELECT SUM(reserved_micro_usd) FROM team_model_money_ledger WHERE grant_id=g.id AND state='unknown'),0),
+        'requesterReservedMicroUsd',${lifetime.requester},'workspaceReservedMicroUsd',${lifetime.workspace},
         'turnState',(SELECT state FROM team_model_money_ledger WHERE turn_id=${at("turn.id")}),
         'turnDebit',COALESCE((SELECT reserved_micro_usd FROM team_model_money_ledger WHERE turn_id=${at("turn.id")}),0),
         'turnReported',(SELECT reported_micro_usd FROM team_model_money_ledger WHERE turn_id=${at("turn.id")}))
@@ -368,7 +390,13 @@ function fundingDto(row: TeamModelFundingRow, member: WorkspaceNativeMember, cur
   const moneyValid = isTeamModelMoneyContract(contract.money, contract.maxOutputTokens), ledger = finalMoney(current);
   const quoteCurrent = moneyValid && contract.money!.quote.dispatchUntil > now && contract.money!.quote.createdAt <= now;
   const money = moneyValid && ledger ? { currency: "USD" as const, authorizedDebitMicroUsd: ledger.authorizedDebitMicroUsd, remainingBudgetMicroUsd: Math.max(0, contract.money!.budgetMicroUsd - ledger.authorizedDebitMicroUsd),
-    reportedQuotedMicroUsd: ledger.reportedQuotedMicroUsd, unknownReservedMicroUsd: ledger.unknownReservedMicroUsd } : undefined;
+    reportedQuotedMicroUsd: ledger.reportedQuotedMicroUsd, unknownReservedMicroUsd: ledger.unknownReservedMicroUsd,
+    capacity: { requesterLimitMicroUsd: TEAM_MODEL_ACTOR_LIMIT_MICRO_USD, requesterReservedMicroUsd: ledger.requesterReservedMicroUsd,
+      requesterRemainingMicroUsd: Math.max(0, TEAM_MODEL_ACTOR_LIMIT_MICRO_USD - ledger.requesterReservedMicroUsd),
+      requesterCanReserveNext: ledger.requesterReservedMicroUsd + contract.money!.maximumDebitPerCallMicroUsd <= TEAM_MODEL_ACTOR_LIMIT_MICRO_USD,
+      workspaceLimitMicroUsd: TEAM_MODEL_WORKSPACE_LIMIT_MICRO_USD,
+      workspaceCanReserveNext: ledger.workspaceReservedMicroUsd + contract.money!.maximumDebitPerCallMicroUsd <= TEAM_MODEL_WORKSPACE_LIMIT_MICRO_USD,
+      ...(canFund ? { workspaceReservedMicroUsd: ledger.workspaceReservedMicroUsd, workspaceRemainingMicroUsd: Math.max(0, TEAM_MODEL_WORKSPACE_LIMIT_MICRO_USD - ledger.workspaceReservedMicroUsd) } : {}) } } : undefined;
   const ownIssuer = member.userId === binding.issuer.userId && member.accountId === binding.issuer.accountId;
   const ownRecipient = member.userId === binding.recipient.userId && member.accountId === binding.recipient.accountId;
   return { id: row.id, version: row.version, digest: row.digest,
@@ -377,20 +405,21 @@ function fundingDto(row: TeamModelFundingRow, member: WorkspaceNativeMember, cur
     usedRequests: current?.used_requests ?? row.used_requests, reservedInputBytes: current?.reserved_input_bytes ?? row.reserved_input_bytes,
     reservedOutputTokens: current?.reserved_output_tokens ?? row.reserved_output_tokens,
     ...(money ? { money } : {}),
-    canActivate: Boolean(current && enabled && policyCurrent && ownIssuer && canFund && row.state === "draft" && row.review_expires_at > now && quoteCurrent),
-    canRevoke: row.state !== "revoked" && (canFund || ownRecipient), unavailableReason: !enabled ? "team_model_disabled" : !current ? "team_model_source_changed" : !policyCurrent ? "team_model_policy_changed" : busy ? "team_model_outcome_requires_inspection" : !moneyValid ? "team_model_budget_upgrade_required" : !quoteCurrent ? "team_model_price_quote_expired" : money && money.remainingBudgetMicroUsd < contract.money!.maximumDebitPerCallMicroUsd ? "team_model_budget_insufficient" : null };
+    canActivate: Boolean(current && enabled && policyCurrent && ownIssuer && canFund && row.state === "draft" && row.review_expires_at > now && quoteCurrent && !capacityReason(ledger, contract.money!.maximumDebitPerCallMicroUsd)),
+    canRevoke: row.state !== "revoked" && (canFund || ownRecipient), unavailableReason: !enabled ? "team_model_disabled" : !current ? "team_model_source_changed" : !policyCurrent ? "team_model_policy_changed" : busy ? "team_model_outcome_requires_inspection" : !moneyValid ? "team_model_budget_upgrade_required" : !quoteCurrent ? "team_model_price_quote_expired" : money && money.remainingBudgetMicroUsd < contract.money!.maximumDebitPerCallMicroUsd ? "team_model_budget_insufficient" : capacityReason(ledger, contract.money!.maximumDebitPerCallMicroUsd) };
 }
 function turnDto(row: TeamModelTurnRow, grant: TeamModelFundingRow, current: FinalSourceRow | undefined, enabled: boolean, policyCurrent: boolean): TeamModelTurn {
   const contract = fundingContract(grant), input = JSON.parse(row.input_json) as TeamModelInput, sources = JSON.parse(row.sources_json) as TeamModelSourceSnapshot;
   const expired = Date.now() >= row.expires_at, lost = row.status === "running" && Date.now() >= (row.dispatch_deadline ?? row.updated_at + TEAM_MODEL_CALL_TIMEOUT_MS);
   const usable = Boolean(current && enabled && grant.state === "active"), status = lost ? "unknown" : !usable && row.status !== "cancelled" ? "blocked" : row.status;
   const ledger = finalMoney(current), moneyValid = isTeamModelMoneyContract(contract.money, contract.maxOutputTokens);
+  const capacityError = moneyValid ? capacityReason(ledger, contract.money!.maximumDebitPerCallMicroUsd) : null;
   const costCurrent = moneyValid && contract.money!.quote.dispatchUntil > Date.now() && contract.money!.quote.createdAt <= Date.now() &&
-    contract.money!.budgetMicroUsd - (ledger?.authorizedDebitMicroUsd ?? 0) >= contract.money!.maximumDebitPerCallMicroUsd;
+    contract.money!.budgetMicroUsd - (ledger?.authorizedDebitMicroUsd ?? 0) >= contract.money!.maximumDebitPerCallMicroUsd && !capacityError;
   return { id: row.id, grantId: grant.id, version: row.version, roomId: row.room_id, requesterId: row.requester_id, employeeId: contract.employeeId, model: contract.model,
     requestedPrompt: usable ? row.prompt : "", messages: usable ? input.messages : [], sources: usable ? sources.public : [], inputHash: row.input_hash,
     inputBytes: row.input_bytes, maxOutputTokens: contract.maxOutputTokens, expiresAt: row.expires_at, status,
-    output: usable && row.status === "completed" ? row.output : null, error: !usable ? "team_model_source_changed" : lost ? "team_model_outcome_unknown" : expired && ["pending", "approved"].includes(status) ? "team_model_turn_expired" : row.error_code,
+    output: usable && row.status === "completed" ? row.output : null, error: !usable ? "team_model_source_changed" : lost ? "team_model_outcome_unknown" : expired && ["pending", "approved"].includes(status) ? "team_model_turn_expired" : ["pending", "approved"].includes(status) && capacityError ? capacityError : row.error_code,
     ...(usable && moneyValid && ledger ? { cost: { currency: "USD" as const, maximumDebitMicroUsd: contract.money!.maximumDebitPerCallMicroUsd, quoteDigest: contract.money!.quote.digest, dispatchUntil: contract.money!.quote.dispatchUntil,
       authorizedDebitMicroUsd: ledger.turnDebit, reportedQuotedMicroUsd: ledger.turnReported, state: ledger.turnState ?? "not-dispatched" as const } } : {}),
     canApprove: usable && policyCurrent && costCurrent && !current?.busy && !expired && row.status === "pending" && (current?.used_requests ?? grant.used_requests) < contract.maxRequests,
