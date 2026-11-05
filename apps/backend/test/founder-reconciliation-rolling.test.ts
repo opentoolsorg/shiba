@@ -45,7 +45,7 @@ describe("explicit bounded rolling captured comparison", () => {
   });
   it("is deterministic on retries and never mutates or widens captured evidence", () => {
     const { draft, report } = fixture(), original = structuredClone(report);
-    expect(rollingFounderComparison(draft, report, decision)).toEqual(rollingFounderComparison(draft, report, decision));
+    expect(rollingFounderComparison(draft, report, decision, asOf * 1000)).toEqual(rollingFounderComparison(draft, report, decision, asOf * 1000));
     expect(report).toEqual(original);
     expect(rollingFounderComparison(draft, report, { ...decision, periodDays: 28 }).period.createdGte).toBe(sources.stripe.createdGte);
   });
@@ -73,14 +73,14 @@ describe("explicit bounded rolling captured comparison", () => {
     expect(result.rows[0]?.status).toBe("non_comparable");
     expect(result.perCurrency).toEqual([]);
   });
-  it.each([{ periodDays: 0 }, { periodDays: 29 }, { periodDays: 1.5 }, { asOf: 1.5 }, { asOf: -1 }, { reviewed: false }, { consent: "compare-exact-captured-receipts" }, { metric: "mrr" }])("rejects invalid or implicit consent %j", changes => {
+  it.each([{ periodDays: 0 }, { periodDays: 29 }, { periodDays: 1.5 }, { asOf: 1.5 }, { asOf: -1 }, { reviewed: false }, { consent: "compare-exact-captured-receipts" }, { metric: "revenue" }])("rejects invalid or implicit consent %j", changes => {
     expect(founderRollingComparisonDecisionSchema.safeParse({ ...decision, ...changes }).success).toBe(false);
   });
   it("rejects windows beyond the captured interval and future endpoints", () => {
     const { draft, report } = fixture();
     expect(() => rollingFounderComparison(draft, report, { ...decision, asOf: asOf + 1 })).toThrow("reconciliation_rolling_outside_capture");
     expect(() => rollingFounderComparison(draft, report, { ...decision, periodDays: 28, asOf: asOf - 1 })).toThrow("reconciliation_rolling_outside_capture");
-    expect(() => rollingFounderComparison(draft, report, decision, asOf * 1000 - 1)).toThrow("reconciliation_rolling_outside_capture");
+    expect(() => rollingFounderComparison(draft, report, decision, asOf * 1000 - 1)).toThrow("reconciliation_rolling_future_capture");
   });
   it.each(["draft", "revoked"] as const)("rejects %s source comparisons", state => {
     const { draft, report } = fixture();
@@ -91,5 +91,68 @@ describe("explicit bounded rolling captured comparison", () => {
     expect(() => rollingFounderComparison(draft, report, { ...decision, digest: "b".repeat(64) })).toThrow("reconciliation_rolling_review_required");
     expect(() => rollingFounderComparison({ ...draft, reportHash: null }, report, decision)).toThrow("reconciliation_rolling_review_required");
     expect(() => rollingFounderComparison(draft, {}, decision)).toThrow();
+  });
+});
+
+
+describe("rolling metric contracts and provenance", () => {
+  it.each(["mrr", "churn"] as const)("never relabels invoice totals as %s", metric => {
+    const { draft, report } = fixture();
+    const result = rollingFounderComparison(draft, report, { ...decision, metric });
+    expect(result.selectedMetric).toBe(metric);
+    expect(result.metricAvailability.status).toBe("unavailable");
+    expect(result.metricAvailability.missingDataReasons).toHaveLength(3);
+    expect(result.metricAvailability.missingDataReasons.join(" ")).toContain("definition_contract_missing");
+    expect(result.perCurrency).toEqual([]);
+    expect(result.rows).toHaveLength(2);
+  });
+  it("reports partial, stale, missing and independently timed evidence without a completeness claim", () => {
+    const { draft, report } = fixture();
+    report.sources.hubspot.capturedAt -= 3600000;
+    const result = rollingFounderComparison(draft, report, decision, (asOf + 86400) * 1000);
+    expect(result.completeness).toMatchObject({
+      captureSkewMs: 3600000,
+      sourceAgesMs: { hubspot: 90000000, stripe: 86400000 },
+      statusCounts: { matched_equal: 1, matched_difference: 1, unmatched_in_capture: 1, uncaptured_deal: 1 },
+    });
+    expect(result.completeness.reasons).toEqual(expect.arrayContaining(["stripe_capture_has_more_pages", "uncaptured_deal", "source_capture_expired", "source_capture_times_differ"]));
+    expect(result.provenance).toEqual({ reviewDigest: hash, reportId: report.id, reportHash: hash, executorDigest: hash });
+    expect(result.datasetCompleteness).toBe("unknown");
+  });
+  it("does not interpret a CRM timezone or daylight saving transition as a variable-length rolling day", () => {
+    const { draft, report } = fixture();
+    report.sources.hubspot.timezoneName = "America/New_York";
+    const result = rollingFounderComparison(draft, report, decision);
+    expect(result.period).toMatchObject({ timezone: "UTC", durationSeconds: 86400, createdGte: start, createdLt: asOf });
+  });
+  it("sums minor units beyond JS safe integer range without currency conversion", () => {
+    const { draft, report } = fixture();
+    Object.assign(report, computeFounderReconciliation([
+      { dealId: "1", properties: { invoice_id: "in_Start", paid: "900719925474099312345.67", currency: "USD" } },
+      { dealId: "2", properties: { invoice_id: "in_Euro", paid: "123", currency: "JPY" } },
+    ], [invoices[0]!, { ...invoices[3]!, currency: "jpy", amountPaid: 123 }], mapping, []));
+    expect(rollingFounderComparison(draft, report, decision).perCurrency).toEqual([
+      { currency: "JPY", matchedCount: 1, crmMinor: "123", stripeMinor: "123", differenceMinor: "0" },
+      { currency: "USD", matchedCount: 1, crmMinor: "90071992547409931234567", stripeMinor: "120", differenceMinor: "90071992547409931234447" },
+    ]);
+  });
+  it("rejects future source captures even for a historical period", () => {
+    const { draft, report } = fixture();
+    report.sources.stripe.capturedAt = asOf * 1000 + 1;
+    expect(() => rollingFounderComparison(draft, report, decision, asOf * 1000)).toThrow("reconciliation_rolling_future_capture");
+  });
+  it.each(["id", "executorDigest", "mapping", "sources"] as const)("rejects report %s not bound to the reviewed draft", field => {
+    const { draft, report } = fixture();
+    const modified = structuredClone(report);
+    if (field === "id") modified.id = "another-report";
+    if (field === "executorDigest") modified.executorDigest = "b".repeat(64);
+    if (field === "mapping") modified.mapping.paidAmountProperty = "other_amount";
+    if (field === "sources") modified.sources.stripe.receiptId = "another-receipt";
+    expect(() => rollingFounderComparison(draft, modified, decision)).toThrow("reconciliation_rolling_source_invalid");
+  });
+  it("fails closed on malformed matched integer amounts instead of truncating or coercing", () => {
+    const { draft, report } = fixture();
+    report.rows[0]!.crmMinor = "1e20";
+    expect(() => rollingFounderComparison(draft, report, decision)).toThrow("reconciliation_rolling_source_invalid");
   });
 });
