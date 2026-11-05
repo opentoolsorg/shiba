@@ -1331,3 +1331,25 @@ describe("Slack draft room review", () => {
     expect(consumed).not.toHaveBeenCalled();
   });
 });
+
+describe("Slack draft submission bridge", () => {
+  it("keeps source identity in a separate review rather than copying into the ordinary composer", async () => {
+    const detail = { ...roomDetail, room: { ...roomDetail.room, roomId: "room_" + "a".repeat(24) },
+      members: [...roomDetail.members.map(member => ({ ...member, status: "active" })), { actorId: "agent:fixture", userId: "fixture", role: "member", actorKind: "agent", status: "active", displayName: "Fixture" }] };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/collaboration/rooms") return Response.json({ rooms: [detail.room] });
+      if (String(input).includes(detail.room.roomId)) return Response.json(detail);
+      return Response.json({ computers: [], grants: [], agents: [] });
+    }));
+    render(<CollaborationView workspaceId={PERSONAL_WORKSPACE} incomingTaskDraft={{
+      id: "native-review", slackDraftId: "sd_" + "b".repeat(32), source: "slack",
+      workspaceId: PERSONAL_WORKSPACE, actorId: detail.currentUserId, text: "Bound source statement",
+    }} />);
+    await screen.findByRole("heading", { name: "Shared room" });
+    fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    await screen.findByRole("region", { name: "Review Slack submission" });
+    expect(screen.queryByRole("button", { name: "Use Slack draft in this room task" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Submit Slack draft for approval" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByLabelText("Slack task agent").textContent).toContain("agent:fixture");
+  });
+});
