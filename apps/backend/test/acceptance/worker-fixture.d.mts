@@ -12,3 +12,11 @@ export function startWorkerFixture(options?: {
   buildAssets?: boolean;
   localRuntime?: boolean;
 }): Promise<LocalWorkerFixture>;
+
+export function waitForWorkerReady(options: {
+  worker: { exitCode: number | null; signalCode: string | null; fixtureSpawnError?: string };
+  origin: string;
+  logs: string[];
+  timeoutMs?: number;
+  fetchImpl?: typeof fetch;
+}): Promise<void>;

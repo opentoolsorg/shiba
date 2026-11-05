@@ -10,6 +10,35 @@ import { fileURLToPath } from "node:url";
 
 const defaultRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
+// Keep the most recent readiness observation: Wrangler can stay alive while its
+// listener is unavailable, or respond with an application error before ready.
+export async function waitForWorkerReady({ worker, origin, logs, timeoutMs = 45_000, fetchImpl = fetch }) {
+  const started = Date.now();
+  const until = started + timeoutMs;
+  let attempts = 0;
+  let observation = "no request completed";
+  const failure = (reason) => new Error(`Fixture Worker ${reason} after ${Date.now() - started}ms (${attempts} readiness attempts; last: ${observation}).\n${logs.slice(-15).join("")}`);
+  while (Date.now() < until) {
+    if (worker.fixtureSpawnError) throw failure(`failed to spawn (${worker.fixtureSpawnError})`);
+    if (worker.exitCode !== null || worker.signalCode !== null) throw failure(`exited (code ${worker.exitCode}, signal ${worker.signalCode})`);
+    attempts++;
+    try {
+      const response = await fetchImpl(`${origin}/api/auth/bootstrap`, { signal: AbortSignal.timeout(Math.min(1000, Math.max(1, until - Date.now()))) });
+      if (response.ok) return;
+      observation = `HTTP ${response.status}`;
+    } catch (error) {
+      // Only report error categories/codes, never URLs, response bodies, or env.
+      const code = error?.cause?.code ?? error?.code;
+      observation = /^[A-Z][A-Z0-9_]*$/.test(code ?? "") ? `request error ${code}` : error?.name === "TimeoutError" ? "request timed out" : "request failed";
+    }
+    const remaining = until - Date.now();
+    if (remaining > 0) await delay(Math.min(150, remaining));
+  }
+  if (worker.fixtureSpawnError) throw failure(`failed to spawn (${worker.fixtureSpawnError})`);
+  if (worker.exitCode !== null || worker.signalCode !== null) throw failure(`exited (code ${worker.exitCode}, signal ${worker.signalCode})`);
+  throw failure("startup timed out");
+}
+
 async function freePort() {
   const server = createServer();
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
@@ -44,7 +73,8 @@ export async function startWorkerFixture({ repoRoot = defaultRoot, buildAssets =
     const child = spawn(command, args, { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
     children.add(child);
     child.stdout.on("data", collect); child.stderr.on("data", collect);
-    child.once("error", collect); child.once("close", () => children.delete(child));
+    child.once("error", (error) => { child.fixtureSpawnError = error.code ?? "unknown"; collect(error); });
+    child.once("close", () => children.delete(child));
     return child;
   }
   function signal(child, value) {
@@ -116,16 +146,8 @@ export async function startWorkerFixture({ repoRoot = defaultRoot, buildAssets =
     const wrangler = path.join(repoRoot, "node_modules/wrangler/bin/wrangler.js");
     await command(process.execPath, [wrangler, "d1", "migrations", "apply", "fixture-0", "--local", `--config=${configPath}`, `--persist-to=${persistDir}`], tempRoot);
     const worker = launch(process.execPath, [wrangler, "dev", "--local", `--config=${configPath}`, `--persist-to=${persistDir}`, `--port=${port}`, "--ip=127.0.0.1", "--inspector-port=0", "--enable-containers=false"], tempRoot);
-    const until = Date.now() + 45_000;
-    while (Date.now() < until) {
-      if (worker.exitCode !== null || worker.signalCode !== null) throw new Error(`Fixture Worker exited.\n${logs.slice(-15).join("")}`);
-      try {
-        const response = await fetch(`${origin}/api/auth/bootstrap`, { signal: AbortSignal.timeout(1000) });
-        if (response.ok) return { origin, persistDir, tempRoot, logs, adapterToken, stop };
-      } catch {}
-      await delay(150);
-    }
-    throw new Error(`Fixture Worker startup timed out.\n${logs.slice(-15).join("")}`);
+    await waitForWorkerReady({ worker, origin, logs });
+    return { origin, persistDir, tempRoot, logs, adapterToken, stop };
   } catch (error) {
     try { await stop(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "Fixture startup and cleanup failed."); }
     throw error;
