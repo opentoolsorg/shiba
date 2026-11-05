@@ -105,19 +105,19 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("Mailbox");
     expect(markup).toContain("Memory");
     expect(markup).toContain("Sandbox");
-    expect(markup).toContain("No runs yet.");
+    expect(markup).toContain("No runs yet");
   });
 
   it("shows useful empty states when no task has started", () => {
     const markup = renderApp();
 
     expect(markup).toContain('aria-label="Work views"');
-    expect(markup).toContain('aria-label="Draft a task and press Enter"');
-    expect(markup).toContain("Nothing waiting");
-    expect(markup).toContain("No tasks in Running");
+    expect(markup).toContain('aria-label="Add a task and press Enter"');
+    expect(markup).toContain("Nothing needs you");
+    expect(markup).toContain("Nothing assigned to you");
+    expect(markup).toContain("No open tasks");
     expect(markup).toContain("New task");
-    expect(markup).toContain("New thread");
-    expect(markup).toContain("Threads");
+    expect(markup).toContain('aria-label="Chats"');
   });
 
   it("shows the task composer when Threads has a saved Work mode preference", () => {
@@ -234,11 +234,11 @@ describe("dashboard rendering", () => {
 
   it("renders the top navigation bar without the retired Architecture view", () => {
     const markup = renderApp();
-    expect(markup).toContain("New thread");
-    expect(markup).toContain("Threads");
-    expect(markup).toContain("Pull requests");
-    expect(markup).toContain("Automations");
-    expect(markup).toContain("More");
+    expect(markup).toContain("New task");
+    expect(markup).toContain('aria-label="Chats"');
+    expect(markup).toContain('aria-label="Agents"');
+    expect(markup).toContain('aria-label="More"');
+    expect(markup).toContain('aria-label="Settings"');
     expect(markup).not.toContain("Architecture");
     // Deduped surfaces stay deep-link reachable but are out of the nav.
     expect(markup).not.toContain("Missions &amp; Standing Goals");
@@ -300,7 +300,7 @@ describe("dashboard rendering", () => {
       sessionId: "default",
       sessionApiAvailable: false,
     }));
-    expect(markup).toContain("Analytics");
+    expect(markup).toContain("Usage");
     expect(markup).toContain("Fix bug");
     expect(markup).toContain("owner/repo");
   });
@@ -313,7 +313,7 @@ describe("dashboard rendering", () => {
     expect(markup).toContain(">Triggers</button>");
     expect(markup).toContain("New automation");
     expect(markup).toContain('aria-label="Deployed automations"');
-    expect(markup).toContain("Runs still need your approval.");
+    expect(markup).toContain("All runs require your approval.");
   });
 
   it("renders OnboardingModal with steps from PLAN.md", () => {
@@ -334,8 +334,8 @@ describe("dashboard rendering", () => {
     const markup = renderApp();
     expect(markup).toContain('aria-label="Collapse sidebar"');
     expect(markup).toContain('aria-expanded="true"');
-    expect(markup).toContain('aria-label="Search"');
-    expect(markup).toContain("Threads");
+    expect(markup).toContain('aria-label="Search tasks"');
+    expect(markup).toContain('aria-label="Chats"');
   });
 
   it("renders Tooltip component wrapping trigger elements", () => {

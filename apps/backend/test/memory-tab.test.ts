@@ -79,7 +79,7 @@ describe("MemoryTab helpers", () => {
 describe("MemoryTab component rendering", () => {
   it("renders the loading state on mount when no initial state is provided", () => {
     const html = renderToStaticMarkup(React.createElement(MemoryTab));
-    expect(html).toContain("Durable Agent Memory");
+    expect(html).toContain("Banked Facts");
     expect(html).toContain("Loading memory…");
   });
 
@@ -89,9 +89,8 @@ describe("MemoryTab component rendering", () => {
       initialSessions: [mockSession],
     };
     const html = renderToStaticMarkup(React.createElement(MemoryTab, props));
-    expect(html).toContain("Durable Agent Memory");
-    expect(html).toContain("2");
-    expect(html).toContain("facts banked");
+    expect(html).toContain("Banked Facts (2)");
+    expect(html).toContain("2 facts");
     expect(html).toContain("Prefers pnpm over npm");
     expect(html).toContain("Production deployment approval required");
     expect(html).toContain("RUN");
@@ -109,9 +108,8 @@ describe("MemoryTab component rendering", () => {
       initialSessions: [],
     };
     const html = renderToStaticMarkup(React.createElement(MemoryTab, props));
-    expect(html).toContain("No facts banked yet.");
-    expect(html).toContain("0");
-    expect(html).toContain("facts banked");
+    expect(html).toContain("No banked facts yet");
+    expect(html).toContain("0 facts");
   });
 
   it("renders accessible navigation tabs for Facts and Sessions", () => {

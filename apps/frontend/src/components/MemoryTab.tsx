@@ -30,11 +30,11 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 export function sourceChipClass(source: string): string {
   switch (source) {
     case "run":
-      return "text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/50";
+      return "text-[var(--primary)] border-[var(--primary)]/30 bg-[var(--primary-soft)]";
     case "email":
-      return "text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/50";
+      return "text-[var(--warning-fg)] border-[color-mix(in_oklch,var(--warning)_40%,transparent)] bg-[var(--warning-subtle)]";
     default:
-      return "text-[#71717a] dark:text-zinc-400 border-[#e4e4e7] dark:border-zinc-800 bg-[#fafafa] dark:bg-zinc-800";
+      return "text-[var(--muted-foreground-2)] border-[var(--border-1)] bg-[var(--card)]";
   }
 }
 
