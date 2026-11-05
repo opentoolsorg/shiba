@@ -15,3 +15,22 @@ export async function selectRepositoryTask(page) {
   await repository.getByRole("textbox", { name: "Task description", exact: true }).waitFor({ state: "visible" });
   return repository;
 }
+
+/** Follow the desktop rail and contextual panels used by the shared dashboard. */
+export async function openAppView(page, view) {
+  const rail = page.getByRole("navigation", { name: "App Icon Rail", exact: true });
+  if (["Agents", "Chats", "Work"].includes(view)) {
+    await rail.getByRole("button", { name: view, exact: true }).click();
+    return;
+  }
+  if (!["Integrations", "Approvals", "Pull requests"].includes(view)) {
+    throw new Error(`Unsupported fixture destination: ${view}`);
+  }
+  await rail.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menu", { name: "Additional views", exact: true })
+    .getByRole("menuitem", { name: view === "Integrations" ? "Extensions" : "Insights", exact: true }).click();
+  if (view !== "Integrations") {
+    await page.getByRole("complementary", { name: "Insights", exact: true })
+      .getByRole("button", { name: view, exact: true }).click();
+  }
+}

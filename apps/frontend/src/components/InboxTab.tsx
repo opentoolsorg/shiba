@@ -126,6 +126,8 @@ export interface InboxTabProps {
   onSelectMailbox?: (mailbox: string) => void;
   onCountsChange?: (counts: { inbox: number; unread: number; sent: number; drafts: number; queued: number }) => void;
   onMailboxesChange?: (mailboxes: InboxMailbox[]) => void;
+  /** Optional preloaded mailboxes, before the first refresh. */
+  initialMailboxes?: InboxMailbox[];
   className?: string;
 }
 
@@ -139,13 +141,14 @@ export function InboxTab({
   onSelectMailbox,
   onCountsChange,
   onMailboxesChange,
+  initialMailboxes,
   className = "",
 }: InboxTabProps): JSX.Element {
   const [internalFolder, setInternalFolder] = useState<string>("inbox");
   const folder = externalFolder ?? internalFolder;
   const setFolder = onSelectFolder ?? setInternalFolder;
 
-  const [mailboxes, setMailboxes] = useState<InboxMailbox[] | null>(null);
+  const [mailboxes, setMailboxes] = useState<InboxMailbox[] | null>(initialMailboxes ?? null);
   const [internalMailbox, setInternalMailbox] = useState("");
   const mailbox = externalMailbox ?? internalMailbox;
   const setMailbox = onSelectMailbox ?? setInternalMailbox;

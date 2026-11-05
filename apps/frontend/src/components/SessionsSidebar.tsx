@@ -125,7 +125,7 @@ function AgentRow({ agent }: { agent: AgentPrincipal }) {
 
   return (
     <Tooltip content={tooltipText} side="right" align="start" delayMs={400}>
-      <div className="w-full text-left rounded-lg px-2.5 py-1.5 flex items-center gap-2.5 text-[#71717a] dark:text-zinc-400">
+      <div role="group" aria-label={tooltipText} className="w-full text-left rounded-lg px-2.5 py-1.5 flex items-center gap-2.5 text-[#71717a] dark:text-zinc-400">
         <span
           className={`size-1.5 rounded-full shrink-0 ${
             agent.live ? "bg-[var(--success)] animate-pulse-subtle" : "bg-[var(--muted-foreground-3)]"

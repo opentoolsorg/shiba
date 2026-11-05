@@ -144,14 +144,15 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await page.getByRole("button", { name: "Use first task draft in Work", exact: true }).click();
     await page.getByRole("group", { name: "Selected first-task goal", exact: true }).waitFor();
     await expect.poll(() => page.getByLabel("Task description").inputValue()).toContain(goal);
-    await page.getByRole("complementary", { name: "Primary Left Rail" }).getByRole("button", { name: "New thread", exact: true }).first().click();
+    await page.getByRole("complementary", { name: "Primary Left Rail" }).getByRole("button", { name: "Chats", exact: true }).click();
+    await page.getByRole("complementary", { name: "Chats", exact: true }).getByRole("button", { name: "New chat", exact: true }).first().click();
     await page.getByRole("button", { name: "Rename thread", exact: true }).click();
     await page.getByLabel("Thread name", { exact: true }).fill(threadName);
     await page.getByRole("button", { name: "Save name", exact: true }).click();
     await page
       .getByRole("form", { name: "Rename thread", exact: true })
       .waitFor({ state: "detached" });
-    await page.getByRole("button", { name: /^(?:Chat & )?Threads$/, exact: true }).click();
+    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
     await page
       .getByRole("region", { name: "Saved first task draft", exact: true })
       .getByRole("button", { name: "Use first task draft", exact: true })
@@ -164,7 +165,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
     await page.waitForURL(`${fixture.origin}/app/**`);
-    await page.getByRole("button", { name: /^(?:Chat & )?Threads$/, exact: true }).click();
+    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
     await page.getByRole("button", { name: "Rename thread", exact: true }).waitFor();
     await page.getByRole("region", { name: "Saved first task draft", exact: true }).waitFor();
     await page.getByRole("group", { name: "Selected first-task goal", exact: true }).waitFor();
@@ -226,7 +227,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
       .toBeTruthy();
     if (!employee) throw new Error("Fixture employee was not persisted");
     await page.goto(`${fixture.origin}/`);
-    await page.getByRole("button", { name: /^(?:Chat & )?Threads$/, exact: true }).click();
+    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
     await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
     await page.getByRole("button", { name: "Edit employee", exact: true }).click();
     await page.getByText("Use an existing employee", { exact: true }).click();
@@ -421,7 +422,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
       .toBeTruthy();
     if (!run) throw new Error("Native fixture run did not complete");
     await page.goto(`${fixture.origin}/`);
-    await page.getByRole("button", { name: /^(?:Chat & )?Threads$/, exact: true }).click();
+    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
     await page.getByLabel("Review decision for reports/native-fixture.md").selectOption("approved");
     await page.getByRole("button", { name: "Save review", exact: true }).click();
     await page.getByText("Current saved review: approved", { exact: true }).waitFor();
@@ -441,7 +442,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     app = await launch();
     page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
-    await page.getByRole("button", { name: /^(?:Chat & )?Threads$/, exact: true }).click();
+    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
     await page.getByText("Current saved review: approved", { exact: true }).waitFor();
     expect(await retainedText()).toBe(output);
     expect((await progress(page)).draftTaskId).toBe(executable.draftTaskId);

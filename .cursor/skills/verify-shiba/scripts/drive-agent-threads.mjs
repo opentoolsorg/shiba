@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
-import { selectRepositoryTask } from "./composer-target.mjs";
+import { openAppView, selectRepositoryTask } from "./composer-target.mjs";
 
 const base = new URL(process.env.VERIFY_APP_URL ?? "http://localhost:5173");
 assert(["localhost", "127.0.0.1", "[::1]"].includes(base.hostname), "This smoke test writes local fixture records only.");
@@ -27,7 +27,7 @@ let fixtureAgentId;
 let fixtureSessionId;
 async function openAgentsDirectory() {
   await page.goto(new URL("/app/", base).href);
-  await page.getByRole("navigation", { name: "Main", exact: true }).getByRole("button", { name: "Agents", exact: true }).click();
+  await openAppView(page, "Agents");
 }
 async function assertThreadProfile(profileName, choiceText = profileName) {
   const composer = await selectRepositoryTask(page);
@@ -94,7 +94,7 @@ try {
   await page.screenshot({ path: resolve(output, "renamed-thread.png"), fullPage: true });
 
   await page.reload();
-  await page.getByRole("navigation", { name: "Main", exact: true }).getByRole("button", { name: "Agents", exact: true }).click();
+  await openAppView(page, "Agents");
   await page.getByRole("list", { name: `${name} threads`, exact: true }).getByRole("button").filter({ hasText: renamed }).click();
   await assertThreadProfile(name);
   await page.getByRole("button", { name: "Rename thread", exact: true }).waitFor();
@@ -102,8 +102,9 @@ try {
   assert(persisted.sessions.some((item) => item.id === session.id && item.name === renamed && item.metadata?.customAgentId === agent.id));
   passed("Refresh preserves the renamed thread and restores its bot profile on selection");
 
-  const threadList = page.getByRole("complementary", { name: "Primary Left Rail", exact: true }).getByRole("listbox", { name: "Threads", exact: true });
-  await threadList.getByRole("option").filter({ hasText: "Default Session" }).click();
+  await openAppView(page, "Chats");
+  const threadList = page.getByRole("complementary", { name: "Chats", exact: true }).getByRole("region", { name: "Recents", exact: true });
+  await threadList.getByRole("button").filter({ hasText: "Default Session" }).click();
   await assertThreadProfile("Shiba", "Default (no bot)");
   assert.equal(await page.getByRole("button", { name: "Rename thread", exact: true }).count(), 0);
   // Hold the real resume request until the old selection has been observed.
@@ -114,7 +115,7 @@ try {
   await page.route(resumePath, async (route) => { await resumeGate; await route.continue(); });
   try {
     const resumeSeen = page.waitForRequest(resumePath);
-    await threadList.getByRole("option").filter({ hasText: renamed }).click();
+    await threadList.getByRole("button").filter({ hasText: renamed }).click();
     await resumeSeen;
     const selection = assertThreadProfile(name).then(() => null, (error) => error);
     const menu = page.getByRole("menu", { name: "Thread configuration", exact: true });
