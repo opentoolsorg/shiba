@@ -538,9 +538,9 @@ describe("T51 intake boundary", () => {
     const body = { task: "Write a brief", runtime: "local", harness: "opencode", targetMachineId: "paired-1", executionTarget: target };
     const voucher = { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD };
 
-    it("freezes the repository-free target, outputs, runtime and computer and deduplicates intake", async () => {
-      const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" });
-      const request = { ...body, commandId: "artifact-command" };
+    it.each(["opencode", "claude-code", "codex"])("freezes the repository-free %s target, outputs, runtime and computer and deduplicates intake without gateway funding", async (harness) => {
+      const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1", AI_GATEWAY_TOKEN: undefined });
+      const request = { ...body, harness, commandId: "artifact-command" };
       const queued = await orchestrator.onRequest(queueRequest(request, voucher));
       expect(queued.status).toBe(200);
       const { approvalId } = await queued.json() as { approvalId: string };
@@ -811,7 +811,7 @@ describe("LocalRuntimeAdapter", () => {
       ...RESULT, baseRevision: undefined, changedFiles: ["out/brief.md"], diff: "", files: [{ path: "out/brief.md", content: "# Complete brief\n", encoding: "utf8" }],
     } }) as never });
     const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
-    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, repoUrl: "", executionTarget,
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, targetMachineId: "paired-artifact-fixture", initiatorUserId: "operator-fixture", repoUrl: "", executionTarget,
       expectedDeliverables: executionTarget.expectedDeliverables } as never, NOOP_EMIT, {});
     expect(result.status).toBe("completed");
     expect(state.dispatched[0]).toMatchObject({ repoUrl: "", executionTarget, expectedDeliverables: ["out/brief.md"] });
@@ -828,7 +828,7 @@ describe("LocalRuntimeAdapter", () => {
       ],
     } }) as never });
     const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
-    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, repoUrl: "", executionTarget,
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, targetMachineId: "paired-artifact-fixture", initiatorUserId: "operator-fixture", repoUrl: "", executionTarget,
       expectedDeliverables: ["brief.md"] } as never, NOOP_EMIT, {});
     expect(result.status).toBe("error");
     expect(result.summary).toContain("unapproved files");
@@ -842,7 +842,7 @@ describe("LocalRuntimeAdapter", () => {
       files: expectedDeliverables.map((path) => ({ path, content: "Complete text", encoding: "utf8" })),
     } }) as never });
     const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
-    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, repoUrl: "", expectedDeliverables,
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, targetMachineId: "paired-artifact-fixture", initiatorUserId: "operator-fixture", repoUrl: "", expectedDeliverables,
       executionTarget: { kind: "artifact-workspace", expectedDeliverables } } as never, NOOP_EMIT, {});
     expect(result.status).toBe("error");
     expect(result.summary).toContain("unapproved files");
