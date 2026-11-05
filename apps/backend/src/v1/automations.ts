@@ -10,7 +10,7 @@ const invalid = (detail?: string) =>
   Response.json({ ok: false, error: "invalid_request", ...(detail ? { detail } : {}) }, { status: 400 });
 const notFound = () => Response.json({ ok: false, error: "automation_not_found" }, { status: 404 });
 
-// Hoplite eventKind <-> shiba github/slack trigger; only exact equivalents map.
+// Public eventKind <-> shiba github/slack trigger; only exact equivalents map.
 const EVENT_KINDS: Record<string, AutomationTrigger> = {
   "github.pull_request.opened": { kind: "github", events: ["pull_request:opened"] },
   "github.pull_request.closed": { kind: "github", events: ["pull_request:closed"] },
@@ -45,8 +45,8 @@ function eventKindOf(trigger: AutomationTrigger): string | null {
   return Object.entries(EVENT_KINDS).find(([, mapped]) => mapped.kind === "github" && mapped.events[0] === trigger.events[0])?.[0] ?? null;
 }
 
-function toHoplite(automation: PublicAutomation, projectId: string) {
-  // Manual triggers are implicit in Hoplite (every automation is runnable), so they are not listed.
+function toPublicAutomation(automation: PublicAutomation, projectId: string) {
+  // Manual triggers are implicit in the public API (every automation is runnable), so they are not listed.
   const triggers = automation.triggers.filter((trigger) => trigger.kind !== "manual").map((trigger, index) => ({
     id: `t${index}`, triggerKind: trigger.kind === "schedule" ? "schedule" : "webhook", eventKind: eventKindOf(trigger),
     schedule: trigger.kind === "schedule"
@@ -149,7 +149,7 @@ export async function handleAutomations(ctx: V1Context): Promise<Response | null
 
   try {
     if (action === "collection" && ctx.request.method === "GET") {
-      return Response.json({ ok: true, automations: (await list()).map((automation) => toHoplite(automation, projectId)) });
+      return Response.json({ ok: true, automations: (await list()).map((automation) => toPublicAutomation(automation, projectId)) });
     }
     if (action === "status") {
       const statuses = (await list()).map((automation) => {
@@ -187,7 +187,7 @@ export async function handleAutomations(ctx: V1Context): Promise<Response | null
         const existing = (await listAll()).find((automation) => automation.id === id);
         // Ids are global: replaying a key from another project must not overwrite that record.
         if (existing && !sameRepo(existing.repoUrl, projectId)) return Response.json({ ok: false, error: "idempotency_key_conflict" }, { status: 409 });
-        if (existing) return Response.json({ ok: true, automation: toHoplite(existing, projectId), secretUnavailable: existing.hasWebhookSecret }, { status: 201 });
+        if (existing) return Response.json({ ok: true, automation: toPublicAutomation(existing, projectId), secretUnavailable: existing.hasWebhookSecret }, { status: 201 });
       }
       const response = await call("POST", "/api/automations", { ...(id ? { id } : {}), prompt: body.prompt, repoUrl, triggers,
         enabled: body.enabled ?? true });
@@ -195,7 +195,7 @@ export async function handleAutomations(ctx: V1Context): Promise<Response | null
       if (response.status === 400) return invalid(created.error);
       if (!response.ok || !created.automation) throw new Error(`automations_${response.status}`);
       // The secret is shown once, here; the DO never returns it again.
-      return Response.json({ ok: true, automation: toHoplite(created.automation, projectId),
+      return Response.json({ ok: true, automation: toPublicAutomation(created.automation, projectId),
         ...(created.webhookSecret ? { webhookToken: created.webhookSecret, webhookUrl: `${ctx.url.origin}/api/automations/${encodeURIComponent(created.automation.id)}/trigger` } : {}) },
         { status: 201 });
     }
@@ -225,7 +225,7 @@ export async function handleAutomations(ctx: V1Context): Promise<Response | null
       if (response.status === 404) return notFound();
       if (response.status === 400) return invalid(updated.error);
       if (!response.ok || !updated.automation) throw new Error(`automations_${response.status}`);
-      return Response.json({ ok: true, automation: toHoplite(updated.automation, projectId) });
+      return Response.json({ ok: true, automation: toPublicAutomation(updated.automation, projectId) });
     }
     // run
     if (!automation.triggers.some((trigger) => trigger.kind === "manual")) {

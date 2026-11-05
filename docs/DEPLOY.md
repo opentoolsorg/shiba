@@ -10,7 +10,7 @@ This repository intentionally has **two deploy entrypoints** that must declare t
 
 **CI gate:** `node scripts/check-alchemy-drift.mjs` (also `pnpm check:deploy`) fails on binding, var, container, or secret-list drift. `node scripts/check-env-types.mjs` keeps `apps/backend/src/env.ts` aligned with wrangler.
 
-**Cloud agents and CI must not deploy.** No `wrangler deploy`, `wrangler secret put`, `d1 --remote`, `alchemy deploy`, or Pages deploy from automation — only the owner runs the commands below on a trusted Mac (Docker available for image builds).
+**Cloud agents and CI must not deploy the Worker.** No `wrangler deploy`, `wrangler secret put`, `d1 --remote`, or `alchemy deploy` from automation (Alchemy replaces the Worker secret set) — only the owner runs the commands below on a trusted Mac (Docker available for image builds). Exception: `.github/workflows/deploy.yml` auto-deploys the static Pages site on push to `main`.
 
 ---
 
