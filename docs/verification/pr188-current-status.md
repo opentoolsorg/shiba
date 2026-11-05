@@ -2,10 +2,12 @@
 
 For the latest six requested areas, see the [six-feature acceptance
 checkpoint](pr188-six-features-20261105.md): **not all features are complete**.
-The latest prior published checkpoint is `42121d47`, whose CI #535 and Desktop
-#108 passed. This combined hardening increment preserves its lifetime
-funding-capacity controls but requires fresh exact-head validation. Consult the
-PR for current checks; older reports do not establish this increment's acceptance.
+Application-code head `22f790cf` passed [CI](https://github.com/opentoolsorg/shiba/actions/runs/42090354921)
+with 7,423 workspace tests and three live skips. Its [Desktop run](https://github.com/opentoolsorg/shiba/actions/runs/42090354887)
+failed during native-onboarding fixture Worker startup; both images passed.
+This preserves lifetime funding-capacity controls from `42121d47` without
+force-pushing. Required human review and seven unresolved threads remain.
+Consult the PR for later exact-head checks; older reports are historical evidence.
 Preview work is paused. No production deployment, merge, real provider request,
 Slack send, paid inference or credential creation is included in this evidence.
 The earlier unfinished work remains preserved in a [historical source
