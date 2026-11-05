@@ -11,3 +11,37 @@ Duplicate invoice IDs on either captured side are ambiguous and never summed. Mi
 The HubSpot source is a separate default-off native lane using a user-supplied, appropriate static single-account or existing private-app token. It does not reuse OpenConnector or MCP OAuth. A selected portal is verified against the account-details response, then a fixed batch read requests only explicitly selected deal IDs and three reviewed properties. No arbitrary REST or MCP proxy is authorized. Until both exact current authorized receipts exist, the composer fails closed. Native HubSpot source provenance uses `native-hubspot.v1` and an application source digest; these are not cloud-deployment attestation. The tests use synthetic receipts and do not establish live HubSpot or Stripe compatibility. No standing composition or Slack-delivery grant is created by this feature. Current local grant checks do not prove that a provider has not independently revoked access since capture.
 
 Future unattended private comparisons require the separate [standing reconciliation contract](founder-reconciliation-schedules.md). This one-shot approval does not enable or widen that authority.
+
+## Explicit rolling-period review
+
+The native private dashboard can select a completed, still-authorized comparison,
+then review a metric, a UTC Unix-second exclusive endpoint, and 1–28 fixed
+24-hour days before requesting a rolling view. This is an invoice-creation
+window, inclusive at the start and exclusive at the end, not a local calendar
+day or a payment-date ledger. The source account's timezone is evidence only;
+it does not change the UTC interval, including across daylight-saving changes.
+The endpoint must remain within the captured Stripe interval and cannot be in
+the future. Source captures from the future are refused. Changing the selection
+requires fresh UI review; a failed request never retries automatically.
+
+`invoice-paid-snapshot` sums only uniquely matched comparable captured amounts,
+using integer strings and separate currencies. Dated non-comparable and unmatched
+rows remain visible; undated and duplicate-key rows stay unassigned rather than
+being silently excluded as outside the period. The output includes selected and
+unassigned row status counts, explicit partial-input reasons, capture ages and
+skew, mapping, exact receipt/report/executor provenance, and the reviewed digest.
+Capture ages describe evaluation time, so replaying the same request preserves
+rows/totals but may change ages. Source expiry remains an authorization boundary:
+the native route rechecks the exact source, owner, membership and session proof
+after composition and withholds all output if any authority changed. It does
+not refresh a source or create standing or Slack-sharing consent.
+
+`mrr` and `churn` are selectable definition requests, not aliases for invoice
+totals. Both return **unavailable**, no metric totals, and explicit missing-data
+reasons. MRR requires captured subscription lifecycle snapshots, recurring
+price/quantity/interval/effective dates, and a reviewed normalization contract.
+Churn requires lifecycle events, a period-start cohort, cancellation/reactivation
+effective dates, and a reviewed denominator/event contract. Those inputs and
+contracts do not exist in this capture lane; provider fetching or inferred
+subscription metrics must not be added to composition. Completeness remains
+unknown and business success unverified for every selection.
