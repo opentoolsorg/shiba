@@ -47,6 +47,7 @@ import { isPersonalOwnerCurrent, personalComputerMatches, personalGrantFence, is
 import { validatePersonalExecutionClaim } from "./personal-execution-claim.js";
 
 const RECORD_PREFIX = "run:";
+const ARTIFACT_DISPATCH_PREFIX = "artifact-dispatched:";
 const MAX_LOCAL_EVENT_BATCH = 64;
 const MAX_SESSION_EVENTS = 200;
 const COMPUTER_PREFIX = "computer:";
@@ -371,6 +372,11 @@ export class LocalDispatch extends DurableObject<Env> {
         return Response.json({ error: "Invalid run envelope." }, { status: 400 });
       }
       const existing = await this.getRecord(parsed.data.sandboxId);
+      const artifact = parsed.data.executionTarget?.kind === "artifact-workspace";
+      if ((existing && (artifact || existing.envelope.executionTarget?.kind === "artifact-workspace")) ||
+        await this.ctx.storage.get(`${ARTIFACT_DISPATCH_PREFIX}${parsed.data.sandboxId}`)) {
+        return Response.json({ error: "Local artifact execution was already dispatched; create a new approval instead of retrying." }, { status: 409 });
+      }
       if (existing && parsed.data.personalExecution) return Response.json({ error: "Personal execution was already dispatched." }, { status: 409 });
       if (existing !== null && existing.status !== "settled" && existing.status !== "cancelled") {
         return Response.json(
@@ -409,6 +415,7 @@ export class LocalDispatch extends DurableObject<Env> {
         typeof body.dashboardOwnerId === "string" && body.dashboardOwnerId.trim() !== ""
           ? body.dashboardOwnerId.trim().slice(0, 200)
           : undefined;
+      if (artifact && (!target || !dashboardOwnerId)) return Response.json({ error: "Local artifacts require a paired computer and owner." }, { status: 403 });
       const record: LocalDispatchRecord = {
         envelope: parsed.data,
         status: "pending",
@@ -427,6 +434,8 @@ export class LocalDispatch extends DurableObject<Env> {
         });
         return inserted ? Response.json({ ok: true }) : Response.json({ error: "Personal dispatch changed or already exists." }, { status: 409 });
       }
+      // Keep a small replay fence after the bounded run audit record is pruned.
+      if (artifact) await this.ctx.storage.put(`${ARTIFACT_DISPATCH_PREFIX}${parsed.data.sandboxId}`, true);
       await this.putRecord(record);
       return Response.json({ ok: true });
     }
