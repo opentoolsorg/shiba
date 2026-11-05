@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -8,9 +8,10 @@ import { expect, it } from "vitest";
 
 const exec = promisify(execFile);
 
-it.each([false, true, "artifact" as const])("executes a local run (session=%s) without exposing daemon or unrelated shell secrets to repository children", async (mode) => {
-  const artifact = mode === "artifact";
-  const session = mode === true;
+it.each([false, true, "artifact", "artifact-session", "artifact-revoked", "artifact-uncertain"] as const)("executes a local run (session=%s) without exposing daemon or unrelated shell secrets to repository children", async (mode) => {
+  const artifact = typeof mode === "string";
+  const refused = mode === "artifact-revoked" || mode === "artifact-uncertain";
+  const session = mode === true || mode === "artifact-session";
   const root = await mkdtemp(path.join(os.tmpdir(), "shiba-daemon-env-"));
   const repo = path.join(root, "repo");
   const bin = path.join(root, "bin");
@@ -20,7 +21,7 @@ it.each([false, true, "artifact" as const])("executes a local run (session=%s) w
   await writeFile(path.join(repo, "README.md"), "test\n");
   await exec("git", ["-C", repo, "add", "."]);
   await exec("git", ["-C", repo, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
-  if (artifact) await writeFile(path.join(bin, "git"), "#!/bin/sh\necho unexpected-git >&2\nexit 90\n", { mode: 0o755 });
+  if (artifact) await writeFile(path.join(bin, "git"), `#!/bin/sh\ntouch "${path.join(root, "git-used")}"\necho unexpected-git >&2\nexit 90\n`, { mode: 0o755 });
   const forbidden = ["LOCAL_ADAPTER_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "AWS_SECRET_ACCESS_KEY", "UNRELATED_SECRET"];
   // The same repo-controlled executable runs during discovery and execution.
   await writeFile(path.join(bin, "codex"), [
@@ -36,10 +37,16 @@ it.each([false, true, "artifact" as const])("executes a local run (session=%s) w
   const sessionScript = path.join(bin, "fake-claude.mjs");
   await writeFile(sessionScript, `
     import { createInterface } from "node:readline";
+    import { mkdirSync, writeFileSync } from "node:fs";
     if (${JSON.stringify(forbidden)}.some((key) => process.env[key])) process.exit(42);
     const effort = process.argv.indexOf("--effort");
     if (effort < 0 || process.argv[effort + 1] !== "high") process.exit(45);
     createInterface({ input: process.stdin }).on("line", () => {
+      if (${artifact}) {
+        mkdirSync("out", { recursive: true });
+        writeFileSync("out/brief.md", "# Complete private artifact\\n");
+        writeFileSync("unrequested.txt", "not approved");
+      }
       process.stdout.write(JSON.stringify({ type: "result", result: "secret isolation passed" }) + "\\n");
     });
   `);
@@ -63,6 +70,11 @@ it.each([false, true, "artifact" as const])("executes a local run (session=%s) w
         ...(session ? { session: { provider: "claude", model: "claude-test", permissionMode: "approval-required", reasoningEffort: "high", bin: process.execPath, binArgs: [sessionScript] } } : {}),
       } }));
     } else {
+      if (request.url === "/api/local/control" && refused) {
+        response.statusCode = mode === "artifact-revoked" ? 409 : 503;
+        response.end(JSON.stringify({ error: "fixture claim unavailable" }));
+        return;
+      }
       if (request.url === "/api/local/result") result = body.result;
       response.end("{}");
     }
@@ -90,12 +102,18 @@ it.each([false, true, "artifact" as const])("executes a local run (session=%s) w
       daemon.on("close", resolve);
     });
     expect(output).not.toContain("daemon-control-secret");
-    expect(exitCode, output).toBe(0);
+    expect(exitCode, output).toBe(refused ? 1 : 0);
+    if (refused) {
+      expect(result).toMatchObject({ status: "error", files: [] });
+      await expect(access(path.join(root, "run", "env-test", "work", "out", "brief.md"))).rejects.toThrow();
+      return;
+    }
     expect(result).toMatchObject({ status: "completed", summary: session ? expect.stringContaining("secret isolation passed") : "secret isolation passed" });
     if (artifact) {
       expect(result?.files).toEqual([{ path: "out/brief.md", content: "# Complete private artifact\n", encoding: "utf8" }]);
       expect(result?.baseRevision).toBeUndefined();
       expect(output).not.toContain("unexpected-git");
+      await expect(access(path.join(root, "git-used"))).rejects.toThrow();
     }
   } finally {
     clearTimeout(timer);
