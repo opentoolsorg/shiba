@@ -516,6 +516,15 @@ export default {
         if (!isAuthorizedSessionAgent(name, currentUserId)) {
           return Response.json({ error: "Forbidden." }, { status: 403 });
         }
+        // All child work uses trusted parent RPC. Unknown or malformed child
+        // paths must not fall back to an ordinary parent chat transport.
+        try {
+          if (decodeURIComponent(route[2] ?? "").split("/").includes("sub")) {
+            return Response.json({ error: "Not found." }, { status: 404 });
+          }
+        } catch {
+          return Response.json({ error: "Invalid agent path." }, { status: 400 });
+        }
         if (name.startsWith(WEB_SESSION_PREFIX)) {
           const parsed = parseSessionAgentName(name);
           if (parsed && parsed.sessionId !== DEFAULT_SESSION_ID) {

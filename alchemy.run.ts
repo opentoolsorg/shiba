@@ -175,6 +175,8 @@ export const Worker = Cloudflare.Worker("Worker", {
     GATEWAY_ID: "default",
     INTEGRATIONS_PROVIDER: "openconnector",
     SLACK_CANVAS_OWNERS: "[]",
+    SLACK_AGENT_SESSIONS_ENABLED: "false",
+    SLACK_AGENT_SESSIONS_TEAM_ID: "",
     ORCHESTRATOR_MODEL: "@cf/zai-org/glm-4.7-flash",
     CODING_MODEL: "google/gemini-3.5-flash-lite",
     RUNTIME: "sandbox",
@@ -194,6 +196,7 @@ export const Worker = Cloudflare.Worker("Worker", {
     ...(openDashboard ? { OPEN_DASHBOARD: "1" } : {}),
 
     AI: Cloudflare.Workers.AI(),
+    CF_VERSION_METADATA: Cloudflare.Workers.VersionMetadata(),
 
     // Code Mode (`worker_loaders` in wrangler.jsonc) — dynamic isolate loader.
     LOADER: Cloudflare.WorkerLoader("LOADER"),
@@ -401,6 +404,8 @@ export const Worker = Cloudflare.Worker("Worker", {
       "SLACK_APPROVALS_CHANNEL",
       "SLACK_ROOM_OUTBOX_ENABLED",
       "SLACK_CANVAS_OWNERS",
+      "SLACK_AGENT_SESSIONS_ENABLED",
+      "SLACK_AGENT_SESSIONS_TEAM_ID",
       // Agent mailbox identity (default dev@tryshiba.dev).
       "AGENT_MAILBOX",
       "MEMORY_ENABLED",

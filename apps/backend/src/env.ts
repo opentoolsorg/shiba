@@ -9,6 +9,8 @@ import type { Sandbox } from "./sandbox.js";
 import type { ConversationRoom } from "./conversation-room-do.js";
 
 export interface Env {
+  /** Cloudflare-provided immutable version metadata, never supplied by a caller. */
+  CF_VERSION_METADATA?: { id: string; tag: string; timestamp: string };
   AI: Ai;
   /**
    * Dynamic Worker Loader for Code Mode (`worker_loaders` in wrangler.jsonc)
@@ -269,8 +271,12 @@ export interface Env {
   SLACK_SIGNING_SECRET?: string;
   /** Optional. Comma-separated Slack user ids allowed to approve; unset = nobody. */
   SLACK_APPROVERS?: string;
-  /** Optional. Bot token used only to post approval cards (chat.postMessage). */
+  /** Optional. Worker-only bot token for verified Slack replies, cards and opt-in session status. */
   SLACK_BOT_TOKEN?: string;
+  /** Native agent sessions are dark unless exactly `true`; requires an agent-enabled Slack installation. */
+  SLACK_AGENT_SESSIONS_ENABLED?: string;
+  /** Exact single Slack workspace allowed for optional native session status. */
+  SLACK_AGENT_SESSIONS_TEAM_ID?: string;
   /**
    * Optional. Channel id email-kind approval cards post to. Run approvals
    * mint inside a Slack thread and post their card there; email approvals

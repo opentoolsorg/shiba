@@ -132,7 +132,7 @@ export async function postSlackMessage(
 }
 
 /** Ask Slack which workspace the configured token belongs to; caller must compare team_id to the linked thread. */
-export async function verifySlackBotInstallation(token: string): Promise<{ teamId: string; userId: string; botId: string }> {
+export async function verifySlackBotInstallation(token: string): Promise<{ teamId: string; userId: string; botId: string; scopes?: string[] }> {
   const response = await fetch(SLACK_AUTH_TEST, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/x-www-form-urlencoded" },
@@ -144,7 +144,11 @@ export async function verifySlackBotInstallation(token: string): Promise<{ teamI
   if (!response.ok || json.ok !== true || typeof json.team_id !== "string" || typeof json.user_id !== "string" || typeof json.bot_id !== "string") {
     throw new SlackPostRejectedError(typeof json.error === "string" ? json.error : `Slack auth.test ${response.status}`, true);
   }
-  return { teamId: json.team_id, userId: json.user_id, botId: json.bot_id };
+  const scopes = response.headers.get("x-oauth-scopes");
+  return {
+    teamId: json.team_id, userId: json.user_id, botId: json.bot_id,
+    ...(scopes !== null ? { scopes: scopes.split(",").map((scope) => scope.trim()).filter(Boolean) } : {}),
+  };
 }
 
 /**
