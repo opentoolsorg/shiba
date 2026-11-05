@@ -3,8 +3,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { reloadSavedSkills, useSavedSkills } from "../saved";
 import { FounderSkillLibrary } from "./FounderSkillLibrary";
+import { AUTOMATIC_WORKSPACE, AUTOMATIC_LIBRARY, AUTOMATIC_BASE, automaticOptions, automaticState } from "../founder-automatic-fixtures";
 import { FOUNDER_BASE, FOUNDER_WORKSPACE, founderOptions, founderState } from "../founder-connector-fixtures";
 import { EVIDENCE_BASE, EVIDENCE_LIBRARY, EVIDENCE_WORKSPACE, evidenceOptions } from "../founder-evidence-fixtures";
+import { AUTO_SLACK_WORKSPACE, AUTO_SLACK_LIBRARY, automaticSlackGrant, automaticSlackState } from "../founder-automatic-slack-fixtures";
 
 vi.mock("../saved", () => ({ reloadSavedSkills: vi.fn(), useSavedSkills: vi.fn(() => ({ skills: [] })) }));
 
@@ -13,6 +15,23 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 describe("FounderSkillLibrary", () => {
   const entry = { id: "founder-stripe-revenue-pulse", name: "Stripe revenue pulse", description: "Daily metrics", author: "Shiba", schedule: { label: "Daily", cron: "0 8 * * *", timezone: "UTC" }, integrationCatalogIds: ["stripe"], requiresSensitiveApproval: false };
   const recipe = { format: "shiba.employee-bundle.v1", audience: "personal", profile: { name: "Revenue writer", harness: "opencode", instructions: "Draft from supplied figures. No account writes.", expectedDeliverables: ["reports/revenue.md"] }, skills: [{ name: "Revenue style", instructions: "State assumptions." }], requirements: [{ kind: "app", name: "stripe", description: "Configure separately.", configurationRequired: ["Choose exact grants"] }], routines: [{ name: "Daily pulse", description: "Suggested only", configurationRequired: ["Choose a schedule"], enabled: false }] };
+
+  it("lets a different human review disclosed future Slack grants without reading the owner's private report", async () => {
+    const actorId = "approver@example.test";
+    const disclosed = { ...automaticSlackGrant(), state: "disclosed" as const, canDisclose: false, canApprove: true, canRevoke: false };
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/founder-skills"
+      ? Response.json({ skills: [{ ...entry, id: AUTO_SLACK_LIBRARY }] })
+      : Response.json(automaticSlackState(disclosed, actorId)));
+    vi.stubGlobal("fetch", fetcher);
+    render(<FounderSkillLibrary workspaceId={AUTO_SLACK_WORKSPACE} actorId={actorId} canManage />);
+    const open = await screen.findByRole("button", { name: "Review future Slack grants: Stripe revenue pulse" });
+    expect(fetcher).toHaveBeenCalledOnce(); fireEvent.click(open);
+    await screen.findByRole("button", { name: "Approve bounded future reports" });
+    expect(screen.getByRole("button", { name: "Prepare future-delivery draft" }).hasAttribute("disabled")).toBe(true);
+    expect(fetcher.mock.calls.map(([path]) => String(path))).toEqual([
+      "/api/founder-skills", `/api/founder-skills/${AUTO_SLACK_LIBRARY}/automatic-slack`,
+    ]);
+  });
 
   it("continues setup through the actual reviewed-bundle UI without importing before explicit review", async () => {
     const imports: unknown[] = [];
@@ -126,6 +145,16 @@ describe("FounderSkillLibrary", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close app action plan" }));
     expect(screen.queryByRole("region", { name: /Scheduled app action:/ })).toBeNull();
     expect(document.activeElement).toBe(open);
+  });
+
+  it("opens standing-read setup only explicitly and never interprets a manual plan as permission", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/founder-skills" ? Response.json({ skills: [{ ...entry, id: AUTOMATIC_LIBRARY }] })
+      : String(input) === `${AUTOMATIC_BASE}/options` ? Response.json(automaticOptions()) : Response.json(automaticState()));
+    vi.stubGlobal("fetch", fetcher); render(<FounderSkillLibrary workspaceId={AUTOMATIC_WORKSPACE} canManage />);
+    const open = await screen.findByRole("button", { name: "Configure bounded scheduled reads: Stripe revenue pulse" }); expect(fetcher).toHaveBeenCalledOnce();
+    fireEvent.click(open); await screen.findByText("Configure a new exact standing-read draft"); expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher.mock.calls.every((call) => (call as unknown as [string, RequestInit])[1].method !== "POST")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Close scheduled reads" })); expect(document.activeElement).toBe(open);
   });
 
   it("opens private evidence metadata only on demand and starts no draft, download or Slack call", async () => {

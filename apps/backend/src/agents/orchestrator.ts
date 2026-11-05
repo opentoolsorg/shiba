@@ -1,6 +1,8 @@
 import { personalExecutionSnapshotSchema, personalExecutionClaimSchema, personalExecutionContextDigest, APPROVAL_TTL_MS as PERSONAL_APPROVAL_TTL_MS, type PersonalExecutionSnapshot } from "@shiba/shared";
 import { revalidatePersonalExecutionSnapshot } from "../personal-execution-store.js";
 import { personalClaimPrincipal } from "../personal-execution-claim.js";
+import { resolveArchiveOwnerAccount } from "../run-output-archive-reservations.js";
+import { resolveBetterAuthSessionAccount } from "@shiba/auth/better-auth";
 /**
  * Planning and delegation agent. It never edits repositories itself:
  * the only repository-touching capability is delegate_coding_task, which
@@ -12,6 +14,7 @@ import { buildSlackCanvasUrl, parseSlackCanvasOrigin, resolveSlackCanvasBinding,
 import { SlackAgentSessionOutbox, type SlackAgentSessionIntent } from "../slack-agent-sessions.js";
 import {
   AGENT_ROLES,
+  newRunOutputArchivePolicy,
   approvalEventInput,
   foldOutboxEvent,
   parseChatThreadName,
@@ -217,7 +220,7 @@ import {
   type LeakHooks,
   leakedContainers,
 } from "../sandbox/lifecycle.js";
-import type { SandboxSelectionContext } from "../sandbox/selection.js";
+import { resolveSandboxSelection, type SandboxSelectionContext } from "../sandbox/selection.js";
 import {
   type ScreenAction,
   ScreenActionError,
@@ -2071,6 +2074,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         // The reserved run's frozen command is what the human approved.
         ...(reserved.testCommand ? { testCommand: reserved.testCommand } : {}),
         ...(reserved.expectedDeliverables !== undefined ? { expectedDeliverables: reserved.expectedDeliverables } : {}),
+        ...(reserved.outputArchive !== undefined ? { outputArchive: { ...reserved.outputArchive } } : {}),
         ...(reserved.runtime !== undefined ? { runtime: reserved.runtime } : { runtime: "sandbox" as const }),
         // Read from the hashed run record, never the mutable pointer.
         ...(reserved.runtime === "local" && reserved.targetMachineId !== undefined
@@ -2689,6 +2693,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     personalExecution?: unknown;
     testCommand?: unknown;
     expectedDeliverables?: unknown;
+    outputArchive?: unknown;
     skillPins?: unknown;
     role?: unknown;
     intake?: unknown;
@@ -2703,7 +2708,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     orgId?: unknown;
     projectContextId?: unknown;
     collaborationHandoffId?: unknown;
-  }, taskLimit = MAX_APPROVED_TASK_CHARS, childFields?: { parentRunId: string; subagentPath: string; subagentSandbox: "fresh" }, trustedSlackOrigin?: string): Promise<Response> {
+  }, taskLimit = MAX_APPROVED_TASK_CHARS, childFields?: { parentRunId: string; subagentPath: string; subagentSandbox: "fresh" }, trustedSlackOrigin?: string,
+  nativeArchiveOwner?: { accountId: string; userId: string }): Promise<Response> {
+    if (input.outputArchive !== undefined && input.outputArchive !== null)
+      return Response.json({ error: "Output archive limits are server-authored. Use null to opt out." }, { status: 400 });
     if (input.collaborationHandoffId !== undefined && [input.draftTaskId, input.draftTaskVersion,
       input.onboardingSourceSnapshot, input.projectContextId].some((value) => value !== undefined))
       return Response.json({ error: "Room execution accepts only its explicitly selected shared context, never private onboarding or project context." }, { status: 403 });
@@ -3228,6 +3236,14 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ? input.threadKey.trim()
         : "default";
     const canvasRoom = trustedSlackOrigin ? await resolveSlackCanvasBinding(this.env, trustedSlackOrigin, approvalId) : null;
+    const archiveOwner = nativeArchiveOwner && input.intake === LOCAL_INTAKE_DASHBOARD && !childFields && !personalExecution && !input.queuedBy && !collaborationHandoffId &&
+      !customAgentId && !skillPins?.length && !goalBinding && !input.projectContextId && input.outputArchive !== null &&
+      effectiveRuntime !== "local" && (this.name === nativeArchiveOwner.userId || parseSessionAgentName(this.name)?.userId === nativeArchiveOwner.userId) &&
+      nativeArchiveOwner.userId === initiatorUserIdFromOrchestratorName(this.name)
+        ? initiatorUserIdFromOrchestratorName(this.name) : undefined;
+    const archiveProvider = archiveOwner ? await resolveSandboxSelection(this.env, { orgId: intakeOrgId, taskProviderId: taskSandboxProvider || undefined }) : null;
+    const archiveAccountId = archiveOwner && archiveProvider?.providerId === "cloudflare" &&
+      await resolveArchiveOwnerAccount(this.env, archiveOwner) === nativeArchiveOwner?.accountId ? nativeArchiveOwner.accountId : null;
     if (queueCommandId !== undefined) {
       const prior = this.commandReceipt(queueCommandId);
       if (prior?.approvalId !== undefined) return replayQueue(prior.approvalId);
@@ -3265,6 +3281,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(personalExecution ? { personalExecution } : {}),
           ...(testCommand !== undefined ? { testCommand } : {}),
           ...(expectedDeliverables !== undefined ? { expectedDeliverables } : {}),
+          ...(archiveAccountId ? { outputArchive: newRunOutputArchivePolicy(Date.now(), archiveAccountId) } : {}),
           ...(skillPins !== undefined && skillPins.length > 0 ? { skillPins } : {}),
           ...(executionTarget !== undefined ? { executionTarget } : {}),
           // T52: the approved role rides the frozen input — dispatch
@@ -3275,7 +3292,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(typeof input.queuedBy === "string" && input.queuedBy.trim()
             ? { queuedBy: input.queuedBy.trim().slice(0, 200) }
             : {}),
-          ...(taskSandboxProvider ? { sandboxProvider: taskSandboxProvider } : {}),
+          ...(taskSandboxProvider ? { sandboxProvider: taskSandboxProvider } : archiveAccountId ? { sandboxProvider: "cloudflare" } : {}),
           ...(customAgentId ? { customAgentId } : {}),
           ...(runEnv ?? {}),
           ...(runSetup ? { runSetup: true } : {}),
@@ -4153,6 +4170,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       sandboxId: makeSandboxId(record.repoUrl, record.task, record.approvalId),
       repoUrl: record.repoUrl,
       ...(record.executionTarget !== undefined ? { executionTarget: record.executionTarget } : {}),
+      ...(record.outputArchive !== undefined ? { outputArchive: { ...record.outputArchive } } : {}),
       task: record.task,
       baseBranch: record.baseBranch ?? "main",
       publishPullRequest: record.publishPullRequest ?? false,
@@ -4191,6 +4209,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...onboardingRunFields(record),
         repoUrl: record.repoUrl,
         ...(record.executionTarget !== undefined ? { executionTarget: record.executionTarget } : {}),
+        ...(record.outputArchive !== undefined ? { outputArchive: { ...record.outputArchive } } : {}),
         task: record.task,
         baseBranch: record.baseBranch ?? "main",
         publishPullRequest: record.publishPullRequest ?? false,
@@ -7271,11 +7290,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       // let any caller attribute its run to another principal. Same for the
       // T51 intake voucher: only the Worker's /api/runs handler stamps
       // X-Shiba-Intake: dashboard (after deleting the caller's copy).
+      const nativeArchiveAccount = !request.headers.has("authorization") && !agentPrincipal && !trustedSlackOrigin && request.headers.get(LOCAL_INTAKE_HEADER) === LOCAL_INTAKE_DASHBOARD
+        ? await resolveBetterAuthSessionAccount(request, this.env, redactSecrets) : null;
       return this.queueSlackRun({
         ...(queueBody as Record<string, unknown>),
         queuedBy: agentPrincipal ?? undefined,
         intake: request.headers.get(LOCAL_INTAKE_HEADER) ?? undefined,
-      }, MAX_APPROVED_TASK_CHARS, undefined, trustedSlackOrigin ?? undefined);
+      }, MAX_APPROVED_TASK_CHARS, undefined, trustedSlackOrigin ?? undefined,
+      nativeArchiveAccount?.emailVerified && nativeArchiveAccount.policy.kind === "bootstrap"
+        ? { accountId: nativeArchiveAccount.policy.accountId, userId: nativeArchiveAccount.policy.email } : undefined);
     }
     if (request.method !== "GET" && request.method !== "DELETE") {
       return Response.json({ error: "Method not allowed." }, { status: 405 });

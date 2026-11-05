@@ -33,6 +33,7 @@ const INACTIVITY_TIMEOUT_MS = 60_000;
 const KEEPALIVE_ALARM_MS = 30_000;
 const JOURNAL_DEADLINES_KEY = "execution-journal-deadlines:v1";
 const JOURNAL_DRAIN_GRACE_MS = 1_500;
+const RETIRED_KEY = "sandbox-retired:v1";
 /** Max stdout/stderr retained in the DO while a process runs (before scopedExec caps). */
 const EXEC_COLLECT_CAP = 512_000;
 
@@ -155,8 +156,20 @@ export class Sandbox extends DurableObject<Env> {
   }
 
   async destroy(): Promise<void> {
-    if (this.#container.running) await this.#container.destroy();
-    await this.ctx.storage.deleteAll();
+    // Per-attempt IDs are never reused. Retirement precedes the destructive
+    // effect and survives failure, RPC response loss and a fresh DO instance.
+    this.ctx.storage.kv.put(RETIRED_KEY, { version: 1, retiredAt: Date.now() });
+    const claims = await this.ctx.storage.list<JournalClaim>({ prefix: "execution-journal:" });
+    for (const [key, claim] of claims) this.ctx.storage.kv.put(key, { ...claim, state: "lost" });
+    let failure: unknown;
+    try { if (this.#container.running) await this.#container.destroy(); }
+    catch (error) { failure = error; }
+    // Never deleteAll then recreate the tombstone: another event could see an
+    // unclaimed old ID in that window. Keep only nonsecret one-shot identity.
+    const entries = await this.ctx.storage.list();
+    const discard = [...entries.keys()].filter((key) => key !== RETIRED_KEY && !key.startsWith("execution-journal:"));
+    if (discard.length) await this.ctx.storage.delete(discard);
+    if (failure) throw failure;
   }
 
   async snapshotContainer(name?: string): Promise<{ id: string; size: number } | null> {
@@ -199,6 +212,7 @@ export class Sandbox extends DurableObject<Env> {
       requiredJournalJobId?: string;
     },
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) throw new Error("This sandbox attempt was retired; execution is refused.");
     let settlementClaim: JournalClaim | undefined;
     if (options?.requiredJournalJobId !== undefined) {
       const jobId = options.requiredJournalJobId;
@@ -219,6 +233,7 @@ export class Sandbox extends DurableObject<Env> {
         ? setTimeout(() => abort.abort(), options.timeout)
         : undefined;
     try {
+      if (this.ctx.storage.kv.get(RETIRED_KEY)) throw new Error("This sandbox attempt was retired before dispatch.");
       const proc = await this.#container.exec(settlementClaim
         ? ["node", "-e", EXECUTION_JOURNAL_SOURCE, "--", "settle", options!.requiredJournalJobId!, "0", settlementClaim.digest!, String(settlementClaim.deadline)]
         : ["sh", "-c", command], {
@@ -270,7 +285,10 @@ export class Sandbox extends DurableObject<Env> {
 
   /** Claims one prepared CLI execution before its first launch. */
   async startExecution(input: JournalExecutionInput): Promise<{ jobId: string; state: JournalState }> {
+    assertJournalJobId(input.jobId);
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId: input.jobId, state: "lost" };
     const digest = await executionInputDigest(input);
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId: input.jobId, state: "lost" };
     const key = `execution-journal:${input.jobId}`;
     const retained = this.ctx.storage.kv.get<JournalClaim>(key);
     if (retained) {
@@ -288,6 +306,7 @@ export class Sandbox extends DurableObject<Env> {
     };
     if (input.deadline <= Date.now()) return state("timed_out");
     const epoch = await this.#journalEpoch();
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId: input.jobId, state: "lost" };
     if (!this.ctx.storage.kv.get<JournalClaim>(key)) return { jobId: input.jobId, state: "lost" };
     if (this.ctx.storage.kv.get<JournalClaim>(key)?.state === "cancelled") return state("cancelled");
     if (!epoch) return state("lost");
@@ -300,13 +319,14 @@ export class Sandbox extends DurableObject<Env> {
     // The helper sees only trusted startup variables. Approved application
     // variables are carried on stdin and supplied to the CLI child only.
     const spec = JSON.stringify({ command: input.command, cwd: input.cwd, env: { ...TRUST_ENV, ...input.env }, deadline: input.deadline, digest });
-    if (!this.ctx.storage.kv.get<JournalClaim>(key)) return { jobId: input.jobId, state: "lost" };
+    if (this.ctx.storage.kv.get(RETIRED_KEY) || !this.ctx.storage.kv.get<JournalClaim>(key)) return { jobId: input.jobId, state: "lost" };
     if (this.ctx.storage.kv.get<JournalClaim>(key)?.state === "cancelled") return state("cancelled");
     await this.#container.exec(["node", "-e", EXECUTION_JOURNAL_SOURCE, "--", "start", input.jobId], {
       env: TRUST_ENV,
       stdin: new Blob([spec]).stream(),
       stdout: "ignore", stderr: "ignore",
     });
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId: input.jobId, state: "lost" };
     if (!this.ctx.storage.kv.get<JournalClaim>(key)) return { jobId: input.jobId, state: "lost" };
     if (this.ctx.storage.kv.get<JournalClaim>(key)?.state === "cancelled") {
       await this.#journalControl("cancel", input.jobId).catch(() => undefined);
@@ -316,17 +336,31 @@ export class Sandbox extends DurableObject<Env> {
   }
 
   /** Reading a journal never starts or restores a container. */
+  async getExecutionClaim(jobId: string): Promise<{ jobId: string; digest: string; epoch: string; currentEpoch: string | null; deadline: number; state: string } | null> {
+    assertJournalJobId(jobId);
+    const claim = this.ctx.storage.kv.get<JournalClaim>(`execution-journal:${jobId}`);
+    if (!claim?.digest || !claim.epoch) return null;
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId, digest: claim.digest, epoch: claim.epoch, currentEpoch: null, deadline: claim.deadline, state: "lost" };
+    const currentEpoch = await this.#journalEpoch();
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId, digest: claim.digest, epoch: claim.epoch, currentEpoch: null, deadline: claim.deadline, state: "lost" };
+    const current = this.ctx.storage.kv.get<JournalClaim>(`execution-journal:${jobId}`);
+    if (!current || current.digest !== claim.digest || current.epoch !== claim.epoch || current.deadline !== claim.deadline) return null;
+    return { jobId, digest: current.digest!, epoch: current.epoch!, currentEpoch, deadline: current.deadline, state: current.state };
+  }
+
+  /** Reading a journal never starts or restores a container. */
   async readExecution(jobId: string, after: number): Promise<JournalPage> {
     assertJournalJobId(jobId);
     if (!Number.isSafeInteger(after) || after < 0 || after > 4096) throw new Error("Invalid execution journal cursor.");
     const key = `execution-journal:${jobId}`;
     const claim = this.ctx.storage.kv.get<JournalClaim>(key);
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return emptyJournalPage(jobId, "lost", after, "Original sandbox was retired; no replacement command was started.");
     if (!claim) return emptyJournalPage(jobId, "lost", after, "No retained execution claim exists.");
     if (claim.state === "cancelled") return emptyJournalPage(jobId, "cancelled", after);
     if (!claim.epoch || await this.#journalEpoch() !== claim.epoch) {
       return emptyJournalPage(jobId, "lost", after, "Execution container was stopped or replaced.");
     }
-    if (!this.ctx.storage.kv.get<JournalClaim>(key)) return emptyJournalPage(jobId, "lost", after, "Execution claim was removed.");
+    if (this.ctx.storage.kv.get(RETIRED_KEY) || !this.ctx.storage.kv.get<JournalClaim>(key)) return emptyJournalPage(jobId, "lost", after, "Execution claim was removed or retired.");
     if (this.ctx.storage.kv.get<JournalClaim>(key)?.state === "cancelled") return emptyJournalPage(jobId, "cancelled", after);
     let page: JournalPage;
     try {
@@ -338,7 +372,7 @@ export class Sandbox extends DurableObject<Env> {
       if (!(error instanceof JournalIntegrityError)) throw new Error("Execution journal transport is unavailable.");
       page = emptyJournalPage(jobId, "lost", after, "Execution journal could not be read safely.");
     }
-    if (!this.ctx.storage.kv.get<JournalClaim>(key)) return emptyJournalPage(jobId, "lost", after, "Execution claim was removed.");
+    if (this.ctx.storage.kv.get(RETIRED_KEY) || !this.ctx.storage.kv.get<JournalClaim>(key)) return emptyJournalPage(jobId, "lost", after, "Execution claim was removed or retired.");
     if (this.ctx.storage.kv.get<JournalClaim>(key)?.state === "cancelled") return emptyJournalPage(jobId, "cancelled", after);
     this.ctx.storage.kv.put(key, { ...claim, state: page.state });
     if (page.state === "exited") {
@@ -352,6 +386,7 @@ export class Sandbox extends DurableObject<Env> {
   /** A sticky cancellation also fences a launch whose response was lost. */
   async cancelExecution(jobId: string): Promise<{ jobId: string; state: JournalState }> {
     assertJournalJobId(jobId);
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId, state: "lost" };
     const key = `execution-journal:${jobId}`;
     const previous = this.ctx.storage.kv.get<JournalClaim>(key);
     if (previous && !["starting", "running", "cancelled"].includes(previous.state)) return { jobId, state: previous.state };
@@ -558,8 +593,10 @@ export class Sandbox extends DurableObject<Env> {
   }
 
   async #ensureRunning(): Promise<void> {
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) throw new Error("This sandbox attempt was retired. A new human-approved attempt requires a different sandbox ID.");
     if (this.#container.running) {
       await this.#container.setInactivityTimeout(INACTIVITY_TIMEOUT_MS);
+      if (this.ctx.storage.kv.get(RETIRED_KEY)) throw new Error("This sandbox attempt was retired.");
       return;
     }
     const instanceType = (this.env.INSTANCE_TYPE?.trim() || "standard-1") as
@@ -569,6 +606,7 @@ export class Sandbox extends DurableObject<Env> {
       | "standard-3"
       | "standard-4";
     const snapshotId = await this.ctx.storage.get<string>("container-snapshot-id");
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) throw new Error("This sandbox attempt was retired.");
     this.ctx.storage.kv.put(JOURNAL_DEADLINES_KEY, {});
     if (snapshotId) {
       this.#container.start({

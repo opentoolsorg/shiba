@@ -38,11 +38,12 @@
     "INTEGRATIONS_PROVIDER": "openconnector",
     "SHIBA_PERSONAL_LOCAL_EXECUTION": "0",
     "SHIBA_TEAM_MODEL_SESSIONS": "0",
+    // Optional features remain unavailable without separately reviewed bindings and setup.
     "SHIBA_SHARED_COMPUTER": "0",
     "SHIBA_SHARED_COMPUTER_IMAGE": "",
-    "SHIBA_TEAM_MODEL_MODEL": "@cf/zai-org/glm-4.7-flash",
-    // Slack canvas access requires an explicit team/channel owner policy.
-    "SLACK_CANVAS_OWNERS": "[]",
+    "FOUNDER_AUTOMATIC_READS_ENABLED": "false",
+    "OPEN_CONNECTOR_READ_VERSION_ID": "",
+    "OPEN_CONNECTOR_READ_MANIFEST_SHA256": "",
     "SLACK_INSTALLATIONS_ENABLED": "false",
     "SLACK_OAUTH_APP_ID": "",
     "SLACK_OAUTH_CLIENT_ID": "",
@@ -52,6 +53,9 @@
     "SLACK_LEGACY_MODE_ENABLED": "false",
     "SLACK_LEGACY_TEAM_ID": "",
     "SLACK_LEGACY_APP_ID": "",
+    "SHIBA_TEAM_MODEL_MODEL": "@cf/zai-org/glm-4.7-flash",
+    // Slack canvas access requires an explicit team/channel owner policy.
+    "SLACK_CANVAS_OWNERS": "[]",
     "SLACK_AGENT_SESSIONS_ENABLED": "false",
     "SLACK_AGENT_SESSIONS_TEAM_ID": "",
     // Separate open-connector sibling Worker (OPEN_CONNECTOR binding or OPEN_CONNECTOR_URL).

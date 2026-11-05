@@ -166,6 +166,20 @@ describe("workspace-shared app fixture flows", () => {
     expect(screen.queryByText("Shared CRM fixture")).toBeNull(); expect(screen.queryByRole("button", { name: "Browse workspace app catalog" })).toBeNull();
   });
 
+  it("loads owner Slack management only after an explicit request in the selected workspace", async () => {
+    const f = fixture(); f.seed();
+    render(<IntegrationsView workspaceId={workspaceA} workspaceRole="owner" actorId={owner} />);
+    await screen.findByText("Shared CRM fixture");
+    const open = screen.getByRole("button", { name: "Manage Slack installations" });
+    expect(open.getAttribute("aria-expanded")).toBe("false");
+    expect(f.calls.some((call) => call.path === "/api/slack/installations")).toBe(false);
+    fireEvent.click(open);
+    await waitFor(() => expect(f.calls.some((call) => call.path === "/api/slack/installations")).toBe(true));
+    expect(f.calls.every((call) => call.workspace === workspaceA)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Close Slack installation setup" }));
+    expect(screen.getByRole("button", { name: "Manage Slack installations" }).getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("closes a retained A popup and rejects its late consent after switching to B", async () => {
     const pendingA = deferred<Response>(), windowFixture = popup(); vi.spyOn(window, "open").mockReturnValue(windowFixture);
     const calls: Array<{ path: string; init?: RequestInit }> = [];

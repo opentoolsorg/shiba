@@ -1,0 +1,285 @@
+{
+  "kind": "local-Chromium-standing-read-HTTP-fixture",
+  "startedAt": "2026-11-05T07:09:13.168Z",
+  "baseCommit": "aae43bb6a26fc9a5af359ac5287ad984f95721c1",
+  "boundary": "Actual React/native browser fetch/shared parsers/product CSS; all API data is intercepted synthetic HTTP. No Worker authentication, provider business read, gateway attestation, scheduler, cron, model, Slack or actual standing grant is exercised. Scheduled receipts are injected fixtures, not live automation proof.",
+  "sourceAtStart": {
+    "apps/frontend/src/components/FounderAutomaticReads.tsx": "70ca6360b451055960aac384396c214db688a1ada265f095470d168e32655ee8",
+    "apps/frontend/src/founder-automatic-client.ts": "be319deb6b72a899a691657130680c11be4c9ed116074be5963aff4bab5076b1",
+    "packages/shared/src/founder-automatic-reads.ts": "5921841c8b1d7263b3184cb4ff3ff5c8ef253ad6b3af26f59ec67b8494a740cf",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "assertions": [
+    {
+      "name": "Mount reads scoped options/state only; no source operation, draft or schedule is started",
+      "status": "passed"
+    },
+    {
+      "name": "Employee, account, operation, cadence and provider budgets have no implicit selections",
+      "status": "passed"
+    },
+    {
+      "name": "Explicit fixed operation and complete budgets save only a frozen review draft under a distinct scheduler principal",
+      "status": "passed"
+    },
+    {
+      "name": "Both complete standing-read review and separate provider quota or charge consent are required to enable",
+      "status": "passed"
+    },
+    {
+      "name": "Injected scheduler receipt is private qualified evidence with no fabricated human approval, business conclusion or retry action",
+      "status": "passed"
+    },
+    {
+      "name": "Explicit authenticated download matches the shared-hash-verified private report bytes",
+      "status": "passed"
+    },
+    {
+      "name": "1280px dark fits the viewport",
+      "status": "passed"
+    },
+    {
+      "name": "390px light fits the viewport",
+      "status": "passed"
+    },
+    {
+      "name": "320px light fits the viewport",
+      "status": "passed"
+    },
+    {
+      "name": "Pause reduces authority without new quota consent; resume requires a fresh exact review",
+      "status": "passed"
+    },
+    {
+      "name": "Unknown scheduled work exposes no automatic or manual retry control",
+      "status": "passed"
+    },
+    {
+      "name": "Late A-to-B private download creates no Blob or anchor in the new workspace",
+      "status": "passed"
+    },
+    {
+      "name": "Revoked-source focus refresh removes frozen arguments and private report content",
+      "status": "passed"
+    },
+    {
+      "name": "All network effects stay in the isolated HTTP fixture; frozen sources and zero Chromium page errors",
+      "status": "passed"
+    }
+  ],
+  "api": [
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/options",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "employeeId": "employee-one",
+        "employeeVersion": 2,
+        "skillId": "skill-one",
+        "skillVersion": 3,
+        "operations": [
+          {
+            "connectionId": "account-github",
+            "connectionVersion": 4,
+            "operationId": "github.list_pull_requests",
+            "arguments": {
+              "owner": "fixture",
+              "repo": "fixture",
+              "perPage": 5,
+              "state": "open"
+            }
+          }
+        ],
+        "cadence": "daily",
+        "localTime": "09:00",
+        "timezone": "UTC",
+        "expiresAt": 1793948940000,
+        "maxOccurrences": 2,
+        "maxCalls": 2,
+        "maxCapturedBytes": 65536,
+        "maxBytesPerOccurrence": 32768,
+        "expectedVersion": 0
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/enable",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 1,
+        "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "reviewed": true,
+        "readConsent": "allow-exact-scheduled-read-operations-and-bounded-provider-calls",
+        "quotaConsent": "provider-requests-may-use-account-quota-or-incur-charges"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/options",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/occurrences/fao-fixture/report",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/occurrences/fao-fixture/report/download",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/pause",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 2,
+        "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "reviewed": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/resume",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 3,
+        "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "reviewed": true,
+        "readConsent": "allow-exact-scheduled-read-operations-and-bounded-provider-calls",
+        "quotaConsent": "provider-requests-may-use-account-quota-or-incur-charges"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/options",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/options",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/occurrences/fao-fixture/report",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/occurrences/fao-fixture/report/download",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/options",
+      "workspaceId": "ws_bbbbbbbbbbbbbbbbbbbbbbbb",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads",
+      "workspaceId": "ws_bbbbbbbbbbbbbbbbbbbbbbbb",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/options",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/occurrences/fao-fixture/report",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads/options",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-reads",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    }
+  ],
+  "blockedExternal": [],
+  "pageErrors": [],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+    "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ],
+  "screenshots": [
+    {
+      "path": "founder-automatic-browser-20261105-desktop-dark.png",
+      "sha256": "fd244904c8c634957b15a9d0319c12481bccc11ffc42c80de8df2860838b97bf"
+    },
+    {
+      "path": "founder-automatic-browser-20261105-390-light.png",
+      "sha256": "e96cb8c8bf6d937cf141ba6b523d6d9bf6a878b388f295521f0d8895615a9122"
+    },
+    {
+      "path": "founder-automatic-browser-20261105-320-light.png",
+      "sha256": "3e198e22bc0ade5b74a8ffa7ae680d65b5a9df0be80b23d0e12c35a7683dcf04"
+    }
+  ],
+  "sourceAtEnd": {
+    "apps/frontend/src/components/FounderAutomaticReads.tsx": "70ca6360b451055960aac384396c214db688a1ada265f095470d168e32655ee8",
+    "apps/frontend/src/founder-automatic-client.ts": "be319deb6b72a899a691657130680c11be4c9ed116074be5963aff4bab5076b1",
+    "packages/shared/src/founder-automatic-reads.ts": "5921841c8b1d7263b3184cb4ff3ff5c8ef253ad6b3af26f59ec67b8494a740cf",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "status": "passed",
+  "browser": "154.0.8037.57",
+  "completedAt": "2026-11-05T07:09:22.446Z",
+  "expectedFaults": [
+    "Revoked-source intercepted reads return403; related console errors are retained."
+  ]
+}

@@ -172,7 +172,7 @@ export interface RuntimeAdapter {
       onPrepared?: (record: PreparedRuntimeExecution) => Promise<void>;
       onSettlementStarted?: () => Promise<void>;
       onJournalFrame?: (frame: JournalFrame) => Promise<void>;
-      onJournalEnd?: () => Promise<void>;
+      onJournalEnd?: (exitCode?: number) => Promise<void>;
     },
   ): Promise<CodingTaskResult>;
 }
@@ -249,7 +249,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       onPrepared?: (record: PreparedRuntimeExecution) => Promise<void>;
       onSettlementStarted?: () => Promise<void>;
       onJournalFrame?: (frame: JournalFrame) => Promise<void>;
-      onJournalEnd?: () => Promise<void>;
+      onJournalEnd?: (exitCode?: number) => Promise<void>;
     },
   ): Promise<CodingTaskResult> {
     throwIfAborted(opts?.signal);
@@ -537,7 +537,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       // nonzero verdicts alike; a thrown error means it never went idle.
       milestone("harness.idle", `exitCode:${run.exitCode}`);
       await output.finish();
-      await opts?.onJournalEnd?.();
+      await opts?.onJournalEnd?.(run.exitCode);
       throwIfAborted(opts?.signal);
       // Persist this fence before any checkpoint, collection or test mutation.
       await opts?.onSettlementStarted?.();

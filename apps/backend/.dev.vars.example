@@ -74,6 +74,8 @@
 # SLACK_SIGNING_SECRET=
 # SLACK_APPROVERS=
 # SLACK_BOT_TOKEN=
+# Optional managed-installation encryption keyring; remains Worker-only.
+# SLACK_INSTALLATION_KEYRING=
 # JSON map {channelId: "https://github.com/owner/repo"} for bare @mentions.
 # SLACK_CHANNEL_REPOS=
 
@@ -143,3 +145,5 @@ INTEGRATIONS_PROVIDER=openconnector
 # OPEN_CONNECTOR_URL=
 # OPEN_CONNECTOR_ADMIN_TOKEN=
 # OPEN_CONNECTOR_RUNTIME_TOKEN=
+# Separate scoped Worker-only key for the default-off audited read gateway.
+# OPEN_CONNECTOR_READ_RUNTIME_TOKEN=

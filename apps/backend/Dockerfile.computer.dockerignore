@@ -1,0 +1,13 @@
+# Only public desktop source and hash-verified public package cache enter the build.
+**
+!Dockerfile.computer
+!Dockerfile.computer.dockerignore
+!computer/
+!computer/entrypoint.sh
+!computer/ready.sh
+!computer/desktop.html
+!computer/NOTICE
+!computer/LICENSE-sandbox
+!computer/pinned-debs/
+!computer/pinned-debs/README.md
+!computer/pinned-debs/*.deb

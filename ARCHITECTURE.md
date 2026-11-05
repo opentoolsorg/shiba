@@ -104,6 +104,14 @@ Its source and upstream license stay outside Shiba's AGPL source tree.
 See [the deployment guide](docs/OPENCONNECTOR.md) for the separate migration,
 secrets, and deployment sequence. The [integration package boundaries](docs/integrations-architecture.md) describe shared contracts, backend adapters, canonical registries and the separate provisioning boundary.
 
+### Bounded automatic reads and isolated computers
+
+`packages/openconnector-read-gateway` is a Worker-only policy/transport package with no external runtime dependencies. The backend owns native authorization, standing consent, quotas and durable receipts. The optional pinned upstream entry owns its existing encrypted OAuth database and fixed read executors. A separate least-privilege `OPEN_CONNECTOR_READ_RUNTIME_TOKEN` authenticates only the read service binding; it never replaces the existing manual integration runtime token. The reverse binding receives one-purpose signed permits and cannot read Shiba's auth/audit database or signing key. Shared browser-safe contracts stay in `packages/shared`. See [the adapter boundaries and setup](docs/openconnector-read-adapter.md).
+
+The optional `ComputerSession` class owns a separately approved, offline human desktop; it never attaches to a coding sandbox. Its resource reservation, native audience, scoped one-shot RPC operations and private frames are independent of employee/provider billing. The default stack does not provision its optional namespace/image. [Computer limits and verification](docs/shared-computers.md) distinguish source/fixture checks from an actual image and Cloudflare run.
+
+[Output archives](docs/container-replacement-journal-proposal.md) retain an approved native owner's sanitized, externally acknowledged output in room SQLite, with a separate D1 quota/lease reservation. They do not restore destroyed processes, unacknowledged output or uncommitted files, and do not authorize replacement execution.
+
 ## 4. Durable Objects — the state map
 
 | DO | Owns | Migration |

@@ -1,0 +1,119 @@
+{
+  "startedAt": "2026-11-05T08:25:16.605Z",
+  "status": "PASS",
+  "bundle": "temporary full pinned-source bundle (not committed)",
+  "bundleBytes": 41147924,
+  "bundleSha256": "551d9f17712c467e76b73cb414b6f2cde82084849f39df0257c195118ced1eb0",
+  "node": "v24.19.0",
+  "compatibilityDate": "2026-06-01",
+  "compatibilityFlags": [
+    "nodejs_compat"
+  ],
+  "bindings": {
+    "SHIBA_AUTOMATIC_READ_GATEWAY_ENABLED": "false"
+  },
+  "outboundAttempts": 0,
+  "outboundAllowed": 0,
+  "requestCount": 1,
+  "limits": {
+    "wallSeconds": 60,
+    "processTreeRssMiB": 1536,
+    "nodeHeapMiB": 512
+  },
+  "providerOrOAuthCalls": false,
+  "deploymentPerformed": false,
+  "readyUrl": "local loopback only",
+  "initializationMs": 5665,
+  "responseStatus": 503,
+  "responseBody": "{\"error\":\"read_gate_unattested\"}",
+  "disposed": true,
+  "finishedAt": "2026-11-05T08:25:22.361Z",
+  "supervisor": {
+    "exitCode": 0,
+    "elapsedSeconds": 6.787,
+    "peakProcessGroupRssBytes": 594100224,
+    "limitReason": null,
+    "ownedProcessGroup": "run-owned process group",
+    "onlyOwnedGroupTerminated": true
+  },
+  "wranglerResolution": {
+    "version": "4.140.0",
+    "installedSource": "installed wrangler@4.140.0/wrangler-dist/cli.js",
+    "getBuildConditionsLine": 184001,
+    "buildOptionsConditionsLine": 184182,
+    "conditions": [
+      "workerd",
+      "worker",
+      "browser"
+    ],
+    "platform": "browser (esbuild default; retained from prior build)",
+    "mainFields": "not overridden by Wrangler; left omitted as before",
+    "otherWranglerPluginsEmulated": false
+  },
+  "originalBundleUnchanged": true,
+  "sourceHashChecks": {
+    "allTwelveSourcesUnchangedAtRun": true,
+    "note": "Later comment-only Biome annotation and generated manifest change are outside this measured bundle."
+  },
+  "dependencies": {
+    "prior88InstancesPreserved": true,
+    "totalPackageInstances": 89,
+    "addedPackageInstances": [
+      [
+        "character-entities",
+        "2.0.2",
+        "node_modules/character-entities"
+      ]
+    ],
+    "removedPackageInstances": [],
+    "versionMismatches": [],
+    "crossPackageImportEdges": 216,
+    "edgeMismatches": [],
+    "externalPlatformImports": [
+      "cloudflare:workers",
+      "node:async_hooks",
+      "node:buffer",
+      "node:crypto",
+      "node:dns",
+      "node:dns/promises",
+      "node:events",
+      "node:fs",
+      "node:fs/promises",
+      "node:http",
+      "node:https",
+      "node:net",
+      "node:os",
+      "node:path",
+      "node:querystring",
+      "node:stream",
+      "node:stream/promises",
+      "node:string_decoder",
+      "node:timers",
+      "node:timers/promises",
+      "node:url",
+      "node:util",
+      "node:zlib"
+    ],
+    "newDownloadsOrInstalls": false,
+    "sameExisting31TarballMaterializations": true,
+    "materializationProofSha256": "832e3d6056ca7281cb3d7313776a781857235fd1f2107f67ff4962dde0344454",
+    "npmPackagesExternalized": false,
+    "prior215EdgesPreserved": true,
+    "addedEdges": [
+      {
+        "parent": "decode-named-character-reference",
+        "child": "character-entities@2.0.2",
+        "count": 1
+      }
+    ]
+  },
+  "bundleWarnings": [],
+  "cleanup": "Miniflare disposed successfully; supervisor cleaned only its own process group.",
+  "acceptanceLimits": [
+    "This passes only actual local module initialization and one disabled reserved manifest request.",
+    "No Cloudflare one-second startup/deployment/OAuth/provider/cron/native binding acceptance.",
+    "Measured initializationMs includes local Miniflare setup and is not Cloudflare startup CPU time.",
+    "Existing Node24.19.0 remains below upstream required Node24.22.1 range.",
+    "All upstream and repository source hashes match prior bundle report."
+  ]
+}

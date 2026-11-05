@@ -1,6 +1,7 @@
 import type { JournalFrame } from "@shiba/sandbox";
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
+import { bindArchiveSource, type ArchiveSourceProof } from "./run-output-archive.js";
 import {
   MAX_RUN_JOURNAL_FRAMES, MAX_RUN_JOURNAL_CHARS, RUN_ROOM_CHUNK_CHARS, RUN_ROOM_RPC_TIMEOUT_MS, runRoomName,
   type RunJournalBatch, type RunJournalIdentity, type RunRoomIdentity,
@@ -52,6 +53,7 @@ export async function createRunJournalPublisher(
   let ended = false;
   let failure: unknown;
   let accepting = false;
+  let archiveSource: ArchiveSourceProof | undefined;
   const buffers: Record<Stream, number[]> = { stdout: [], stderr: [] };
   const dropping = { stdout: false, stderr: false };
   const fromSequence = { stdout: 0, stderr: 0 };
@@ -71,7 +73,8 @@ export async function createRunJournalPublisher(
         });
       }
     }
-    const batch = { ...journal, sourceSequence, acknowledgedThrough: through, events };
+    if (journal.archive) archiveSource ??= await bindArchiveSource(env, journal.archive);
+    const batch = { ...journal, ...(archiveSource ? { archiveSource } : {}), sourceSequence, acknowledgedThrough: through, events };
     let next: number;
     try { next = await bounded(() => room.appendRunJournalBatch(identity, batch)); }
     catch { next = await bounded(() => room.appendRunJournalBatch(identity, batch)); }
@@ -119,7 +122,7 @@ export async function createRunJournalPublisher(
         await append(frame.sequence, complete ? frame.sequence : acknowledged, output ? [{ stream, from, text: output }] : [], false);
       });
     },
-    async end(): Promise<void> {
+    async end(exitCode?: number): Promise<void> {
       await exclusive(async () => {
         if (ended) return;
         const outputs: Array<{ stream: Stream; from: number; text: string }> = [];
@@ -129,6 +132,9 @@ export async function createRunJournalPublisher(
           });
         }
         await append(readSequence, readSequence, outputs, true);
+        if (journal.archive && archiveSource && exitCode !== undefined) {
+          await bounded(() => room.completeRunOutputArchive(identity, journal, archiveSource!, readSequence, exitCode));
+        }
         buffers.stdout = []; buffers.stderr = [];
         ended = true;
       });

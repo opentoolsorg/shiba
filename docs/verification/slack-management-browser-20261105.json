@@ -1,0 +1,213 @@
+{
+  "kind": "local-Chromium-Slack-HTTP-fixture",
+  "startedAt": "2026-11-05T07:46:17.984Z",
+  "baseCommit": "2c5336fbe0988535c9023bd645a3b699d8330156",
+  "boundary": "Actual React components, browser fetch, shared DTO parsers and product CSS. All API responses and native identities are deterministic fixtures. No Worker session, provider business read, OAuth exchange, actual installation, human authorization or Slack delivery is exercised. All external network destinations are blocked.",
+  "sourceAtStart": {
+    "apps/frontend/src/components/SlackInstallationsPanel.tsx": "cbdd3f6f0ed2711a3932177ae73fcb12c77d8eca807d0f191c50cfe9803ab565",
+    "apps/frontend/src/slack-installations-client.ts": "287394da3fb6862a30a49120e59ef9362032983f2aabfa3828589647029f0bdb",
+    "apps/frontend/src/components/FounderAutomaticSlack.tsx": "6e0c1c8d17bf273cde4fd411a73df54e73c7259c46797d6616da937617c16cdb",
+    "apps/frontend/src/founder-automatic-slack-client.ts": "3d546caa38e60848f525799bbdc7308b4728c5168b37eed36c81578828ca56b7",
+    "packages/shared/src/slack-installations.ts": "99d8caff9db1e8ea1a0137419463ffa4aa3623e3a18c32577554f7a430425fa9",
+    "packages/shared/src/founder-automatic-slack.ts": "6eb174d49fd00479e171f41da5e4313117f2e4147c538145f828d2e02af71a62"
+  },
+  "assertions": [
+    {
+      "name": "Installation mount uses status GET only; no OAuth, activation or outbound Slack effect",
+      "status": "passed"
+    },
+    {
+      "name": "Explicit keyboard scope consent prepares one reviewed OAuth link without opening Slack",
+      "status": "passed"
+    },
+    {
+      "name": "Pending team/app/bot/revision requires a separate exact human activation review",
+      "status": "passed"
+    },
+    {
+      "name": "1280px installation has no document overflow",
+      "status": "passed"
+    },
+    {
+      "name": "390px installation light has no document overflow",
+      "status": "passed"
+    },
+    {
+      "name": "Separate future-delivery pane reads status only and starts with blank send and expiry limits",
+      "status": "passed"
+    },
+    {
+      "name": "Explicit completed sample, exact managed destination and limits prepare a private draft only",
+      "status": "passed"
+    },
+    {
+      "name": "Review shows complete fixed source contract, qualified neutralized sample and exact managed installation metadata",
+      "status": "passed"
+    },
+    {
+      "name": "Original source owner separately consents to all current and future Slack readers and cannot self-approve",
+      "status": "passed"
+    },
+    {
+      "name": "390px future delivery light has no document overflow",
+      "status": "passed"
+    },
+    {
+      "name": "1280px future delivery dark has no document overflow",
+      "status": "passed"
+    },
+    {
+      "name": "Different human explicitly approves the exact bounded future family; acknowledgment is not displayed as a send receipt",
+      "status": "passed"
+    },
+    {
+      "name": "Denied current authority clears frozen private source arguments, sample and action controls",
+      "status": "passed"
+    },
+    {
+      "name": "All requests remain in the isolated fixture; exact source hashes unchanged and zero Chromium page errors",
+      "status": "passed"
+    }
+  ],
+  "api": [
+    {
+      "method": "GET",
+      "path": "/api/slack/installations",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null,
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/slack/installations/begin",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "requestId": "84f44cad-8bb3-4b77-96d7-c4169de05d99",
+        "scopes": [
+          "chat:write"
+        ],
+        "consent": "install-bot-in-selected-slack-workspace"
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/slack/installations/fixture-installation/activate",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 1,
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reviewed": true
+      },
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-slack",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null,
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-slack",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null,
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-slack/preview",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "requestId": "7e14fa53-a907-4ac0-aee2-5afb3b4bbf41",
+        "readGrantId": "far-fixture",
+        "readGrantVersion": 2,
+        "sampleOccurrenceId": "fao-fixture",
+        "sampleReportHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "roomId": "room-fixture",
+        "linkId": "link-fixture",
+        "maxSends": 2,
+        "expiresAt": 1793865960000
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-slack/grants/asgr-fixture/disclose",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 1,
+        "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "expiresAt": 1793865960000,
+        "reviewed": true,
+        "futureReportConsent": "share-future-completed-reports-from-this-exact-read-grant",
+        "audienceConsent": "all-current-and-future-people-with-access-to-selected-slack-channel-thread"
+      },
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-slack",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null,
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-slack",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null,
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-slack/grants/asgr-fixture/approve",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 1,
+        "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "expiresAt": 1793865960000,
+        "reviewed": true
+      },
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-slack",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null,
+      "status": 403
+    }
+  ],
+  "blockedExternal": [],
+  "pageErrors": [],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ],
+  "screenshots": [
+    "slack-management-browser-20261105-slack-installations-390-light.png",
+    "slack-management-browser-20261105-automatic-slack-390-light.png",
+    "slack-management-browser-20261105-automatic-slack-desktop-dark.png"
+  ],
+  "sourceAtEnd": {
+    "apps/frontend/src/components/SlackInstallationsPanel.tsx": "cbdd3f6f0ed2711a3932177ae73fcb12c77d8eca807d0f191c50cfe9803ab565",
+    "apps/frontend/src/slack-installations-client.ts": "287394da3fb6862a30a49120e59ef9362032983f2aabfa3828589647029f0bdb",
+    "apps/frontend/src/components/FounderAutomaticSlack.tsx": "6e0c1c8d17bf273cde4fd411a73df54e73c7259c46797d6616da937617c16cdb",
+    "apps/frontend/src/founder-automatic-slack-client.ts": "3d546caa38e60848f525799bbdc7308b4728c5168b37eed36c81578828ca56b7",
+    "packages/shared/src/slack-installations.ts": "99d8caff9db1e8ea1a0137419463ffa4aa3623e3a18c32577554f7a430425fa9",
+    "packages/shared/src/founder-automatic-slack.ts": "6eb174d49fd00479e171f41da5e4313117f2e4147c538145f828d2e02af71a62"
+  },
+  "browser": "154.0.8037.57",
+  "status": "passed",
+  "completedAt": "2026-11-05T07:46:26.738Z",
+  "expectedHttpFailures": [
+    {
+      "method": "GET",
+      "path": "/api/founder-skills/founder-pr-digest/automatic-slack",
+      "status": 403
+    }
+  ],
+  "consoleAssessment": "One intentionally injected403 emits the browser resource error; there are no unexpected HTTP failures or JavaScript page errors.",
+  "fixtureSetupNotes": "First config-bundled Vite start failed on installed jiti export; native config loader used. First browser navigation reached initial compile timeout; rerun after module warmup passed without product timeout changes."
+}

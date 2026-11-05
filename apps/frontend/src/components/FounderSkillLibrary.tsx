@@ -5,6 +5,8 @@ import { EmployeeBundleReview } from "./EmployeeBundleReview";
 import { FounderReviewSchedule } from "./FounderReviewSchedule";
 import { FounderConnectorPlan } from "./FounderConnectorPlan";
 import { FounderEvidenceReports } from "./FounderEvidenceReports";
+import { FounderAutomaticReads } from "./FounderAutomaticReads";
+import { FounderAutomaticSlack } from "./FounderAutomaticSlack";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
 
 interface LibrarySkill {
@@ -29,8 +31,8 @@ function librarySkill(value: unknown): value is LibrarySkill {
     typeof row.schedule.timezone === "string" && Array.isArray(row.integrationCatalogIds) && row.integrationCatalogIds.every((id) => typeof id === "string");
 }
 
-export function FounderSkillLibrary({ workspaceId, canManage = true, onInstalled }: { workspaceId?: string; canManage?: boolean; onInstalled?: () => void } = {}): JSX.Element {
-  return workspaceId ? <FounderLibraryContent key={workspaceId} workspaceId={workspaceId} canManage={canManage} savedSkills={[]} onInstalled={onInstalled} /> : <PersonalFounderLibrary />;
+export function FounderSkillLibrary({ workspaceId, actorId, canManage = true, onInstalled }: { workspaceId?: string; actorId?: string; canManage?: boolean; onInstalled?: () => void } = {}): JSX.Element {
+  return workspaceId ? <FounderLibraryContent key={`${actorId ?? ""}:${workspaceId}`} actorId={actorId} workspaceId={workspaceId} canManage={canManage} savedSkills={[]} onInstalled={onInstalled} /> : <PersonalFounderLibrary />;
 }
 
 function PersonalFounderLibrary(): JSX.Element {
@@ -38,7 +40,7 @@ function PersonalFounderLibrary(): JSX.Element {
   return <FounderLibraryContent canManage savedSkills={saved.skills} onInstalled={() => { void reloadSavedSkills().catch(() => {}); }} />;
 }
 
-function FounderLibraryContent({ workspaceId, canManage, savedSkills, onInstalled }: { workspaceId?: string; canManage: boolean; savedSkills: Array<{ id: string; status: LibrarySkill["installedStatus"]; version: number }>; onInstalled?: () => void }): JSX.Element {
+function FounderLibraryContent({ workspaceId, actorId, canManage, savedSkills, onInstalled }: { workspaceId?: string; actorId?: string; canManage: boolean; savedSkills: Array<{ id: string; status: LibrarySkill["installedStatus"]; version: number }>; onInstalled?: () => void }): JSX.Element {
   const [skills, setSkills] = useState<LibrarySkill[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -47,8 +49,12 @@ function FounderLibraryContent({ workspaceId, canManage, savedSkills, onInstalle
   const [schedule, setSchedule] = useState<LibrarySkill | null>(null);
   const [connectorPlan, setConnectorPlan] = useState<LibrarySkill | null>(null);
   const [evidence, setEvidence] = useState<LibrarySkill | null>(null);
+  const [automatic, setAutomatic] = useState<LibrarySkill | null>(null);
+  const [slackReview, setSlackReview] = useState<LibrarySkill | null>(null);
+  const slackReviewButton = useRef<HTMLButtonElement | null>(null);
   const connectorButton = useRef<HTMLButtonElement | null>(null);
   const evidenceButton = useRef<HTMLButtonElement | null>(null);
+  const automaticButton = useRef<HTMLButtonElement | null>(null);
   const controller = useRef<AbortController | null>(null);
   const pending = useRef(false);
   const loadEpoch = useRef(0);
@@ -120,7 +126,7 @@ function FounderLibraryContent({ workspaceId, canManage, savedSkills, onInstalle
     <section aria-labelledby="founder-skill-library-heading" className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--section)] p-4 flex flex-col gap-3">
       <div>
         <h3 id="founder-skill-library-heading" className="text-sm font-semibold text-[var(--fg)]">Founder skill library</h3>
-        <p className="text-xs text-[var(--muted-foreground-2)] mt-1">Six setup templates. Install draft instructions and review current versions. Private review drafts never execute work. Workspace app action plans schedule one fixed action for separate human review and requester execution; they do not generate the template's full report or Slack digest.</p>
+        <p className="text-xs text-[var(--muted-foreground-2)] mt-1">Six setup templates. Install draft instructions and review current versions. Private review drafts never execute work. Workspace app action plans schedule one fixed action for separate human review and requester execution; they do not generate the template's full report or Slack digest. Audited scheduled reads and future Slack delivery use separate opt-in setup and consent.</p>
       </div>
       {error ? <p role="alert" className="text-xs text-[var(--destructive)]">{error}</p> : null}
       {error && controller.current ? <button type="button" className={button} disabled={busyId !== null} onClick={() => { const signal = controller.current?.signal; if (signal) void load(signal); }}>Retry founder library</button> : null}
@@ -138,20 +144,28 @@ function FounderLibraryContent({ workspaceId, canManage, savedSkills, onInstalle
               <div className="flex flex-wrap gap-2">
                 <button type="button" disabled={!canManage || busyId !== null || skill.installed} onClick={() => void install(skill.id)} className={button}>{skill.installed ? "Instructions installed" : "Install draft"}</button>
                 {!workspaceId && <button type="button" aria-label={`Review employee setup: ${skill.name}`} disabled={busyId !== null} onClick={() => void reviewSetup(skill.id)} className={button}>Review employee setup</button>}
-                {canManage && <button type="button" aria-label={`Schedule review drafts: ${skill.name}`} disabled={busyId !== null} onClick={() => { setSchedule(skill); setSetup(null); setConnectorPlan(null); setEvidence(null); }} className={button}>Schedule review drafts</button>}
-                {workspaceId && canManage && <button type="button" aria-label={`Configure app action reviews: ${skill.name}`} disabled={busyId !== null} onClick={(event) => { connectorButton.current = event.currentTarget; setConnectorPlan(skill); setSchedule(null); setSetup(null); setEvidence(null); }} className={button}>Configure app action reviews</button>}
-                {workspaceId && canManage && <button type="button" aria-label={`Build private evidence: ${skill.name}`} disabled={busyId !== null} onClick={(event) => { evidenceButton.current = event.currentTarget; setEvidence(skill); setConnectorPlan(null); setSchedule(null); setSetup(null); }} className={button}>Build private evidence</button>}
+                {canManage && <button type="button" aria-label={`Schedule review drafts: ${skill.name}`} disabled={busyId !== null} onClick={() => { setSchedule(skill); setSetup(null); setConnectorPlan(null); setEvidence(null); setAutomatic(null); setSlackReview(null); }} className={button}>Schedule review drafts</button>}
+                {workspaceId && canManage && <button type="button" aria-label={`Configure app action reviews: ${skill.name}`} disabled={busyId !== null} onClick={(event) => { connectorButton.current = event.currentTarget; setConnectorPlan(skill); setSchedule(null); setSetup(null); setEvidence(null); setAutomatic(null); setSlackReview(null); }} className={button}>Configure app action reviews</button>}
+                {workspaceId && canManage && <button type="button" aria-label={`Build private evidence: ${skill.name}`} disabled={busyId !== null} onClick={(event) => { evidenceButton.current = event.currentTarget; setEvidence(skill); setConnectorPlan(null); setSchedule(null); setSetup(null); setAutomatic(null); setSlackReview(null); }} className={button}>Build private evidence</button>}
+                {workspaceId && canManage && <button type="button" aria-label={`Configure bounded scheduled reads: ${skill.name}`} disabled={busyId !== null} onClick={(event) => { automaticButton.current = event.currentTarget; setAutomatic(skill); setSlackReview(null); setConnectorPlan(null); setEvidence(null); setSchedule(null); setSetup(null); }} className={button}>Configure bounded scheduled reads</button>}
+                {workspaceId && canManage && actorId && <button type="button" aria-label={`Review future Slack grants: ${skill.name}`} disabled={busyId !== null} onClick={(event) => { slackReviewButton.current = event.currentTarget; setSlackReview(skill); setAutomatic(null); setConnectorPlan(null); setEvidence(null); setSchedule(null); setSetup(null); }} className={button}>Review future Slack grants</button>}
               </div>
             </li>
           ))}
         </ul>
       )}
+      {slackReview && workspaceId && actorId && <FounderAutomaticSlack workspaceId={workspaceId} libraryId={slackReview.id} actorId={actorId} onClose={() => {
+        const signal = controller.current?.signal; setSlackReview(null); if (signal && current(signal) && slackReviewButton.current?.isConnected) slackReviewButton.current.focus();
+      }} />}
       {schedule && <FounderReviewSchedule key={`${workspaceId ?? "personal"}:${schedule.id}`} libraryId={schedule.id} name={schedule.name} suggested={schedule.schedule} workspaceId={workspaceId} onClose={() => setSchedule(null)} />}
       {connectorPlan && workspaceId && <FounderConnectorPlan workspaceId={workspaceId} libraryId={connectorPlan.id} name={connectorPlan.name} timezone={connectorPlan.schedule.timezone} onClose={() => {
         const signal = controller.current?.signal; setConnectorPlan(null); if (signal && current(signal) && connectorButton.current?.isConnected) connectorButton.current.focus();
       }} />}
       {evidence && workspaceId && <FounderEvidenceReports workspaceId={workspaceId} libraryId={evidence.id} name={evidence.name} onClose={() => {
         const signal = controller.current?.signal; setEvidence(null); if (signal && current(signal) && evidenceButton.current?.isConnected) evidenceButton.current.focus();
+      }} />}
+      {automatic && workspaceId && <FounderAutomaticReads workspaceId={workspaceId} libraryId={automatic.id} name={automatic.name} onClose={() => {
+        const signal = controller.current?.signal; setAutomatic(null); if (signal && current(signal) && automaticButton.current?.isConnected) automaticButton.current.focus();
       }} />}
       {setup ? <EmployeeBundleReview key={setup.recipe.profile.provenance?.id} recipe={setup.recipe} onClose={() => setSetup(null)} onImported={(result) => {
         if (!current(setup.signal)) return;

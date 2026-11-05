@@ -1,4 +1,4 @@
-import { createRequire } from "node:module";
+import { createRequire, builtinModules } from "node:module";
 import { mkdtemp, readFile, writeFile, rm, realpath, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,7 +20,8 @@ export async function waitFor(read, accept, milliseconds = 10_000) {
   while (Date.now() < until) { const value = await read(); if (accept(value)) return value; await delay(15); }
   throw new Error("Local recovery fixture barrier timed out");
 }
-export async function startJournalWorkerFixture() {
+export async function startJournalWorkerFixture({ purpose = "same-container" } = {}) {
+  if (!["same-container", "replacement-archive"].includes(purpose)) throw new Error("Unknown fixed local journal fixture purpose");
   const root = await mkdtemp(path.join(tmpdir(), "shiba-worker-journal-"));
   const bundle = path.join(root, "worker.mjs"), sourceBundle = path.join(root, "journal.mjs"), adapterBundle = path.join(root, "adapter.mjs");
   let runtime, origin, supervisor;
@@ -107,7 +108,12 @@ export async function startJournalWorkerFixture() {
   try {
     const require = createRequire(await realpath(path.join(repoRoot, "node_modules/wrangler/package.json")));
     const { build } = require("esbuild"), { Miniflare, convertV4MiniflareOptions, Log, LogLevel } = require("miniflare");
-    await build({ entryPoints: [path.join(repoRoot, "apps/backend/test/acceptance/worker-journal-fixture-entry.ts")], outfile: bundle, bundle: true, format: "esm", platform: "browser", target: "es2022", external: ["cloudflare:*"], logLevel: "silent" });
+    const builtins = new Set(builtinModules.map((name) => name.replace(/^node:/, "")));
+    await build({ entryPoints: [path.join(repoRoot, `apps/backend/test/acceptance/${purpose === "replacement-archive" ? "worker-archive-replacement-entry" : "worker-journal-fixture-entry"}.ts`)], outfile: bundle, bundle: true, format: "esm", platform: "browser", target: "es2022", external: ["cloudflare:*"], logLevel: "silent",
+      plugins: [{ name: "workerd-node-compat", setup(build) { build.onResolve({ filter: /^(?:node:)?[a-z_]+(?:\/[a-z_]+)?$/ }, (args) => {
+        const name = args.path.replace(/^node:/, ""); return builtins.has(name) ? { path: `node:${name}`, external: true } : undefined;
+      }); } }],
+    });
     await build({ entryPoints: [path.join(repoRoot, "apps/backend/src/sandbox/execution-journal.ts")], outfile: sourceBundle, bundle: true, format: "esm", platform: "node", logLevel: "silent" });
     await build({ entryPoints: [path.join(repoRoot, "packages/sandbox/src/adapters/cloudflare-journal.ts")], outfile: adapterBundle, bundle: true, format: "esm", platform: "node", logLevel: "silent" });
     const { EXECUTION_JOURNAL_SOURCE, executionInputDigest } = await import(pathToFileURL(sourceBundle));
@@ -116,7 +122,9 @@ export async function startJournalWorkerFixture() {
     if (!EXECUTION_JOURNAL_SOURCE.includes(literal)) throw new Error("Production journal root literal changed");
     localSource = EXECUTION_JOURNAL_SOURCE.replace(literal, `const ROOT = ${JSON.stringify(path.join(root, "journals"))};`);
     const gate1 = path.join(root, "continue-1"), gate2 = path.join(root, "continue-2"), phase1 = path.join(root, "phase-1"), phase2 = path.join(root, "phase-2"), launched = path.join(root, "launches");
-    const program = `const fs=require('node:fs');fs.appendFileSync(${JSON.stringify(launched)},'launch\\n');const wait=p=>new Promise(r=>{const t=setInterval(()=>{if(fs.existsSync(p)){clearInterval(t);r()}},10)});(async()=>{process.stdout.write('before\\n');process.stderr.write('stderr-before\\n');process.stdout.write('fixture-secret-');fs.writeFileSync(${JSON.stringify(phase1)},'1');await wait(${JSON.stringify(gate1)});process.stdout.write('value\\n');process.stdout.write(Buffer.from([0xf0,0x9f]));fs.writeFileSync(${JSON.stringify(phase2)},'2');await wait(${JSON.stringify(gate2)});process.stdout.write(Buffer.from([0x99,0x82,0x0a]));process.stderr.write('stderr-after\\n');process.stdout.write('after\\n')})()`;
+    const program = purpose === "replacement-archive"
+      ? `const fs=require('node:fs');fs.appendFileSync(${JSON.stringify(launched)},'launch\\n');const pause=()=>new Promise(r=>setTimeout(r,15));const wait=p=>new Promise(r=>{const t=setInterval(()=>{if(fs.existsSync(p)){clearInterval(t);r()}},10)});(async()=>{process.stdout.write('prefix\\n');process.stderr.write('stderr-prefix\\n');fs.writeFileSync(${JSON.stringify(phase1)},'1');await wait(${JSON.stringify(gate1)});process.stdout.write('fixture-secret-');await pause();process.stdout.write('value\\n');process.stdout.write(Buffer.from([0xf0,0x9f]));await pause();process.stdout.write(Buffer.from([0x99,0x82,0x0a]));fs.writeFileSync(${JSON.stringify(phase2)},'2');await wait(${JSON.stringify(gate2)});process.stdout.write('unacknowledged-tail\\n');setInterval(()=>{},1000)})()`
+      : `const fs=require('node:fs');fs.appendFileSync(${JSON.stringify(launched)},'launch\\n');const wait=p=>new Promise(r=>{const t=setInterval(()=>{if(fs.existsSync(p)){clearInterval(t);r()}},10)});(async()=>{process.stdout.write('before\\n');process.stderr.write('stderr-before\\n');process.stdout.write('fixture-secret-');fs.writeFileSync(${JSON.stringify(phase1)},'1');await wait(${JSON.stringify(gate1)});process.stdout.write('value\\n');process.stdout.write(Buffer.from([0xf0,0x9f]));fs.writeFileSync(${JSON.stringify(phase2)},'2');await wait(${JSON.stringify(gate2)});process.stdout.write(Buffer.from([0x99,0x82,0x0a]));process.stderr.write('stderr-after\\n');process.stdout.write('after\\n')})()`;
     input = { jobId, command: `${quote(process.execPath)} -e ${quote(program)}`, cwd: root, deadline: Date.now() + 90_000, env: {} };
     digest = await executionInputDigest(input);
     async function restart() {
@@ -125,7 +133,10 @@ export async function startJournalWorkerFixture() {
       runtime = new Miniflare(convertV4MiniflareOptions({ name: `journal-recovery-${jobId.slice(0, 12)}`, rootPath: root, modulesRoot: root, scriptPath: bundle, modules: true,
         compatibilityDate: "2026-09-18", compatibilityFlags: ["nodejs_compat"], host: "127.0.0.1", port: 0, inspectorPort: 0,
         cf: false, telemetry: { enabled: false }, unsafeRuntimeEnv: { SHIBA_LOCAL_RECOVERY_FIXTURE_ID: jobId }, logRequests: false, log: new Log(LogLevel.ERROR, { prefix: "journal-fixture" }),
-        resourcePersistencePath: persist, isolatedResourcePersistencePath: path.join(root, "isolated"), resourceTmpPath: path.join(root, "tmp"), unsafeDevRegistryPath: path.join(root, "dev-registry"), bindings: { FIXTURE_JOB: jobId }, durableObjects: { ConversationRoom: { className: "ConversationRoom", useSQLite: true } },
+        resourcePersistencePath: persist, isolatedResourcePersistencePath: path.join(root, "isolated"), resourceTmpPath: path.join(root, "tmp"), unsafeDevRegistryPath: path.join(root, "dev-registry"), bindings: { FIXTURE_JOB: jobId,
+          ...(purpose === "replacement-archive" ? { INTERNAL_SIGNING_KEY: "local-fixture-archive-key-only-1234567890" } : {}) },
+        durableObjects: { ConversationRoom: { className: "ConversationRoom", useSQLite: true }, ...(purpose === "replacement-archive" ? { Sandbox: { className: "ArchiveFixtureSource", useSQLite: true } } : {}) },
+        ...(purpose === "replacement-archive" ? { d1Databases: { AGENT_AUDIT: "local-archive-d1" } } : {}),
         outboundService: async (request) => { deniedNetwork.push(new URL(request.url).origin); return new Response("Fixture outbound network denied", { status: 502 }); },
         handleUncaughtError: (error) => output(error.message),
       }));
@@ -171,6 +182,8 @@ export async function startJournalWorkerFixture() {
     }
     await restart();
     return { root, jobId, input, trace, restart, start, read, api, socket, stop,
+      database: () => { if (purpose !== "replacement-archive") throw new Error("This fixed fixture has no D1"); return runtime.getD1Database("AGENT_AUDIT"); },
+      async destroySource() { if (purpose !== "replacement-archive") throw new Error("This fixed fixture cannot replace its source"); await stopSource(); await rm(path.join(root, "journals"), { recursive: true, force: true }); },
       release: (phase) => writeFile(phase === 1 ? gate1 : gate2, "continue"),
       phaseReady: (phase) => waitFor(() => readFile(phase === 1 ? phase1 : phase2).then(() => true, () => false), Boolean),
       launches: () => readFile(launched, "utf8").then((text) => text.trim().split(/\s+/).length),

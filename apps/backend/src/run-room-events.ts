@@ -33,8 +33,10 @@ export const MAX_RUN_JOURNAL_BATCH_CHARS = 140_000;
 export interface RunJournalIdentity {
   jobId: string;
   generation: string;
+  archive?: import("./run-output-archive.js").ArchiveAuthorization;
 }
 export interface RunJournalBatch extends RunJournalIdentity {
+  archiveSource?: import("./run-output-archive.js").ArchiveSourceProof;
   sourceSequence: number;
   acknowledgedThrough: number;
   events: Array<{ eventId: string; event: Extract<RunRoomEvent, { kind: "terminal" }> }>;

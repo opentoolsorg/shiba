@@ -178,8 +178,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     SHIBA_TEAM_MODEL_SESSIONS: "0",
     SHIBA_SHARED_COMPUTER: "0",
     SHIBA_SHARED_COMPUTER_IMAGE: "",
-    SHIBA_TEAM_MODEL_MODEL: "@cf/zai-org/glm-4.7-flash",
-    SLACK_CANVAS_OWNERS: "[]",
+    FOUNDER_AUTOMATIC_READS_ENABLED: "false",
+    OPEN_CONNECTOR_READ_VERSION_ID: "",
+    OPEN_CONNECTOR_READ_MANIFEST_SHA256: "",
     SLACK_INSTALLATIONS_ENABLED: "false",
     SLACK_OAUTH_APP_ID: "",
     SLACK_OAUTH_CLIENT_ID: "",
@@ -189,6 +190,8 @@ export const Worker = Cloudflare.Worker("Worker", {
     SLACK_LEGACY_MODE_ENABLED: "false",
     SLACK_LEGACY_TEAM_ID: "",
     SLACK_LEGACY_APP_ID: "",
+    SHIBA_TEAM_MODEL_MODEL: "@cf/zai-org/glm-4.7-flash",
+    SLACK_CANVAS_OWNERS: "[]",
     SLACK_AGENT_SESSIONS_ENABLED: "false",
     SLACK_AGENT_SESSIONS_TEAM_ID: "",
     ORCHESTRATOR_MODEL: "@cf/zai-org/glm-4.7-flash",
@@ -342,6 +345,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "GMAIL_TOKEN_KEY",
       "OPEN_CONNECTOR_ADMIN_TOKEN",
       "OPEN_CONNECTOR_RUNTIME_TOKEN",
+      "OPEN_CONNECTOR_READ_RUNTIME_TOKEN",
       "MODEL_CREDENTIAL_KEY",
       // Optional OAuth client IDs registered by the operator for curated MCP vendors.
       // Unset IDs keep that vendor's OAuth connect path unavailable.
@@ -409,6 +413,18 @@ export const Worker = Cloudflare.Worker("Worker", {
       "SHIBA_TEAM_MODEL_SESSIONS",
       "SHIBA_SHARED_COMPUTER",
       "SHIBA_SHARED_COMPUTER_IMAGE",
+      "FOUNDER_AUTOMATIC_READS_ENABLED",
+      "OPEN_CONNECTOR_READ_VERSION_ID",
+      "OPEN_CONNECTOR_READ_MANIFEST_SHA256",
+      "SLACK_INSTALLATIONS_ENABLED",
+      "SLACK_OAUTH_APP_ID",
+      "SLACK_OAUTH_CLIENT_ID",
+      "SLACK_OAUTH_REDIRECT_URI",
+      "SLACK_OAUTH_PKCE_ENABLED",
+      "SLACK_OAUTH_QUERY_REDACTION_VERIFIED",
+      "SLACK_LEGACY_MODE_ENABLED",
+      "SLACK_LEGACY_TEAM_ID",
+      "SLACK_LEGACY_APP_ID",
       "SHIBA_TEAM_MODEL_MODEL",
       "CODEX_MODEL",
       "GROK_MODEL",
@@ -424,15 +440,6 @@ export const Worker = Cloudflare.Worker("Worker", {
       "SLACK_APPROVALS_CHANNEL",
       "SLACK_ROOM_OUTBOX_ENABLED",
       "SLACK_CANVAS_OWNERS",
-      "SLACK_INSTALLATIONS_ENABLED",
-      "SLACK_OAUTH_APP_ID",
-      "SLACK_OAUTH_CLIENT_ID",
-      "SLACK_OAUTH_REDIRECT_URI",
-      "SLACK_OAUTH_PKCE_ENABLED",
-      "SLACK_OAUTH_QUERY_REDACTION_VERIFIED",
-      "SLACK_LEGACY_MODE_ENABLED",
-      "SLACK_LEGACY_TEAM_ID",
-      "SLACK_LEGACY_APP_ID",
       "SLACK_AGENT_SESSIONS_ENABLED",
       "SLACK_AGENT_SESSIONS_TEAM_ID",
       // Agent mailbox identity (default dev@tryshiba.dev).
@@ -491,6 +498,12 @@ export default Alchemy.Stack(
     if (process.env.OPEN_CONNECTOR_WORKER) {
       yield* worker.bind`OPEN_CONNECTOR`({
         bindings: [{ type: "service", name: "OPEN_CONNECTOR", service: process.env.OPEN_CONNECTOR_WORKER }],
+      });
+    }
+    // Optional reviewed read-gateway service; this binding creates no sibling or credential.
+    if (process.env.OPEN_CONNECTOR_READ_WORKER) {
+      yield* worker.bind`OPEN_CONNECTOR_READ_GATEWAY`({
+        bindings: [{ type: "service", name: "OPEN_CONNECTOR_READ_GATEWAY", service: process.env.OPEN_CONNECTOR_READ_WORKER }],
       });
     }
     // Scoped memory recall filters on `agent`; Vectorize ignores unindexed metadata.

@@ -4,7 +4,7 @@
  * parseAgentToolInput. The child never scrapes arbitrary prose.
  */
 import { z } from "zod";
-import { personalExecutionSnapshotSchema, personalExecutionClaimSchema } from "@shiba/shared";
+import { personalExecutionSnapshotSchema, personalExecutionClaimSchema, runOutputArchivePolicySchema } from "@shiba/shared";
 import { AGENT_ROLES, HARNESS_IDS, RUN_SIGNAL_KINDS, runtimeSelectionSchema, testCommandSchema, expectedDeliverablesSchema, executionTargetSchema, isSafeDeliverablePath } from "@shiba/shared";
 import { isApprovedRoute, type ApprovedRoute } from "./model-connections.js";
 import { parseGitHubRepoUrl } from "./security.js";
@@ -24,6 +24,7 @@ const codingTaskInputSchema = z.object({
   task: z.string().min(1),
   baseBranch: z.string().min(1),
   publishPullRequest: z.boolean(),
+  outputArchive: runOutputArchivePolicySchema.optional(),
   /** Worker-authored. Publishing proposes a separate human action after the sandbox settles. */
   deferPullRequestPublish: z.boolean().optional(),
   sandboxId: z.string().min(1),
@@ -144,7 +145,7 @@ const codingTaskInputWithRouteSchema = codingTaskInputSchema.superRefine((input,
     const personal = input.personalExecution;
     if (input.runtime !== "local" || input.targetMachineId !== personal.machineId || input.harness !== personal.harness ||
       input.codingModel !== personal.codingModel || input.repoUrl !== personal.repoUrl || input.publishPullRequest ||
-      input.runSetup || input.envSealed || input.authAccount || input.chatgptAccessToken || input.forkCheckpointRef || input.testCommand?.length ||
+      input.outputArchive || input.runSetup || input.envSealed || input.authAccount || input.chatgptAccessToken || input.forkCheckpointRef || input.testCommand?.length ||
       input.personalExecutionClaim?.snapshot.grantId !== personal.grantId ||
       JSON.stringify(input.personalExecutionClaim.snapshot) !== JSON.stringify(personal)) {
       ctx.addIssue({ code: "custom", message: "Personal execution requires its exact approved local account, machine and claim proof." });

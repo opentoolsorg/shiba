@@ -79,8 +79,9 @@ The publisher also replaces oversized output lines with a safety notice. This
 test proves complete redacted replay for its retained-window case, not universal
 lossless output for every run size.
 
-Container replacement remains separate. A process destroyed with its container
-cannot be reconstructed by reconnecting. A future external journal may preserve
-bytes acknowledged before replacement; it must still report any unacknowledged
-tail as unknown and must not relaunch an uncertain command without fresh human
-authorization. This drill makes no replacement-recovery claim.
+Container replacement remains separate from this drill. A process destroyed with
+its container cannot be reconstructed by reconnecting. The bounded private output
+archive and its separate replacement drill are documented in
+[container-replacement-journal-proposal.md](container-replacement-journal-proposal.md).
+They preserve the acknowledged sanitized projection and explicitly unknown tail;
+they do not relaunch an uncertain command or establish live Container recovery.

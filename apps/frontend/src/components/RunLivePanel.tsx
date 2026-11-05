@@ -3,6 +3,7 @@ import { type ConversationRunFrame, useConversationRoomRealtime } from "../conve
 import { ConversationRoomPresence } from "./ConversationRoomPresence";
 import { DiffViewer } from "./DiffViewer";
 import { TerminalView } from "./TerminalView";
+import { RunOutputArchivePanel } from "./RunOutputArchivePanel";
 
 const NO_MESSAGES: never[] = [];
 const ignoreMessage = () => {};
@@ -31,6 +32,7 @@ function ScopedRunLivePanel({ runId, sessionId = "default", showDiff = true, roo
   const [streamGap, setStreamGap] = useState(false);
   const [children, setChildren] = useState<Record<string, string>>({});
   const [sessionChildren, setSessionChildren] = useState<Record<string, string>>({});
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const onRunEvent = useCallback((frame: ConversationRunFrame) => {
     if (frame.sequence < lastSequence.current) {
       // The room hook permits a rewind only after the durable source resets.
@@ -131,6 +133,8 @@ function ScopedRunLivePanel({ runId, sessionId = "default", showDiff = true, roo
           </ul>
         </div> : null}
         <TerminalView text={terminal.text} totalChars={terminal.totalChars} epoch={terminal.epoch} />
+        {!roomUrl && <button type="button" className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]" onClick={() => setArchiveOpen((value) => !value)}>{archiveOpen ? "Hide retained terminal archive" : "Review retained terminal archive"}</button>}
+        {!roomUrl && archiveOpen && <RunOutputArchivePanel runId={runId} sessionId={sessionId} onClose={() => setArchiveOpen(false)} />}
         {showDiff && diffNotice ? <p role="status" className="text-xs text-[var(--ink-2)]">{diffNotice}</p> : null}
         {showDiff && diff ? <DiffViewer diff={diff} runId={runId} /> : null}
       </div>
