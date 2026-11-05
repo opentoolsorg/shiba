@@ -350,7 +350,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     } catch (error) {
       throwIfAborted(opts?.signal);
       if (opts?.recovery) throw error;
-      return failureResult(`${this.harness.name} configuration failed: ${scrub(shortError(error))}`, 0, "", signals);
+      return failureResult(`${this.harness.name} configuration failed: ${shortError(error, scrub)}`, 0, "", signals);
     }
     let baseRevision: string | undefined;
     let setupCommit: string | null = null;
@@ -379,7 +379,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           if (!ops.pinEgress) throw new Error("Sandbox provider cannot pin artifact-workspace egress.");
           await ops.pinEgress();
           const init = await scoped.exec(shellJoin(["git", "init", "--initial-branch=main", workdir]), { cwd: "/workspace", signal: opts?.signal });
-          if (init.exitCode !== 0) throw new Error(boundTail(init.stderr, 1000) || "git init failed.");
+          if (init.exitCode !== 0) throw new Error(boundTail(scrub(init.stderr), 1000) || "git init failed.");
           if (ephemeral) {
             const directories = await scopedExec(ops, shellJoin(["mkdir", "-p", `${workdir}/.shiba`, `${workdir}/out`]), {
               cwd: workdir, signal: opts?.signal, allowlist: [["mkdir", "-p"]], signals,
@@ -392,10 +392,10 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
             })}\n`);
           }
           const baseline = await scoped.exec(shellJoin(["git", "-C", workdir, "-c", "user.name=shiba", "-c", "user.email=shiba@shiba.local", "commit", "--allow-empty", "-m", "shiba artifact workspace baseline"]), { cwd: "/workspace", signal: opts?.signal });
-          if (baseline.exitCode !== 0) throw new Error(boundTail(baseline.stderr, 1000) || "Could not initialize artifact workspace baseline.");
+          if (baseline.exitCode !== 0) throw new Error(boundTail(scrub(baseline.stderr), 1000) || "Could not initialize artifact workspace baseline.");
           milestone("clone.complete", "artifact-workspace");
         } catch (error) {
-          return failureResult(`Artifact workspace initialization failed: ${shortError(error)}`, 0, "", signals);
+          return failureResult(`Artifact workspace initialization failed: ${shortError(error, scrub)}`, 0, "", signals);
         }
       } else {
         await emit({
@@ -410,7 +410,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           await ops.gitCheckout(input.repoUrl, { branch: input.baseBranch, targetDir: workdir });
           milestone("clone.complete", input.baseBranch);
         } catch (error) {
-          return failureResult(`Clone failed: ${shortError(error)}`, 0, "", signals);
+          return failureResult(`Clone failed: ${shortError(error, scrub)}`, 0, "", signals);
         }
       }
 
@@ -426,7 +426,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           }
           baseRevision = head.stdout.trim();
         } catch (error) {
-          return failureResult(`Repository base revision capture failed: ${shortError(error)}`, 0, "", signals);
+          return failureResult(`Repository base revision capture failed: ${shortError(error, scrub)}`, 0, "", signals);
         }
       }
 
@@ -450,7 +450,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         if (!isGitObjectId(baselineCommit)) throw new Error("Baseline checkpoint has no immutable commit identity.");
         milestone("checkpoint.captured", baselineRef);
       } catch (error) {
-        return failureResult(`Baseline checkpoint failed: ${shortError(error)}`, 0, "", signals);
+        return failureResult(`Baseline checkpoint failed: ${shortError(error, scrub)}`, 0, "", signals);
       }
 
       await emit({
@@ -484,7 +484,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         }
         milestone("config.written", config?.path ?? "none");
       } catch (error) {
-        return failureResult(`Config write failed: ${shortError(error)}`, 0, "", signals);
+        return failureResult(`Config write failed: ${shortError(error, scrub)}`, 0, "", signals);
       }
 
       await emit({
@@ -571,7 +571,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       }
       uncertainTransport = harnessDispatched && !harnessSettled && !(error instanceof ScopedExecRefusal);
       return failureResult(
-        `${uncertainTransport ? "Harness transport failed before its outcome was confirmed. Execution outcome is uncertain. " : ""}${this.harness.name} execution failed: ${scrub(shortError(error))}`,
+        `${uncertainTransport ? "Harness transport failed before its outcome was confirmed. Execution outcome is uncertain. " : ""}${this.harness.name} execution failed: ${shortError(error, scrub)}`,
         0,
         "",
         signals,
@@ -630,7 +630,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
             signal: opts?.signal,
           });
         } catch (error) {
-          return failureResult(`Repo setup check failed: ${shortError(error)}`, 0, stderrTail, signals, output.usage, journalSupported ? "outcome_unknown" : undefined);
+          return failureResult(`Repo setup check failed: ${shortError(error, scrub)}`, 0, stderrTail, signals, output.usage, journalSupported ? "outcome_unknown" : undefined);
         }
       }
       if (overlap.length > 0) {
@@ -702,7 +702,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         } catch (error) {
           if (!(error instanceof ScopedExecRefusal)) {
             return failureResult(
-              `Test command failed to execute: ${shortError(error)}`,
+              `Test command failed to execute: ${shortError(error, scrub)}`,
               run.exitCode,
               stderrTail,
               signals,
@@ -735,7 +735,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       return completed;
     } catch (error) {
       return failureResult(
-        `Change collection failed: ${shortError(error)}`,
+        `Change collection failed: ${shortError(error, scrub)}`,
         run.exitCode,
         stderrTail,
         signals,
@@ -1102,9 +1102,9 @@ function failureResult(
   };
 }
 
-function shortError(error: unknown): string {
+function shortError(error: unknown, scrub: (text: string) => string = (text) => text): string {
   const message = error instanceof Error ? error.message : String(error);
-  return redactSecrets(boundTail(message, 2000));
+  return boundTail(redactSecrets(scrub(message)), 2000);
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -1151,7 +1151,7 @@ function streamProgress(
     pending = pending.then(() =>
       emit({
         phase: "code",
-        message: text,
+        message: scrub(text),
         fraction: Math.min(0.25 + emitted * 0.05, 0.8),
       }),
     );
@@ -1190,8 +1190,9 @@ function streamProgress(
         buffer = buffer.slice(newline + 1);
         searchFrom = 0;
         try {
-          // Scrub before parsers bound text; truncation can otherwise expose part of a value.
-          const event = harness.parseEvent(scrub(line));
+          // Preserve protocol fields and usage. Parsers scrub complete display
+          // and error content before applying their text bounds.
+          const event = harness.parseEvent(line, scrub);
           if (event === null || event === undefined) continue;
           // Usage events carry real reported numbers: per-step deltas sum,
           // a cumulative report replaces (it already includes the deltas).
@@ -1531,7 +1532,7 @@ export async function collectRepositoryChanges(
   const diffResult = await ops.exec(shellJoin(["git", "--no-replace-objects", "diff", "--no-ext-diff", "--no-textconv", "--no-color", baseline, settled, "--"]), {
     cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal, maxOutputChars: 20_000_000,
   });
-  if (diffResult.exitCode !== 0) throw new Error(`git diff failed: ${boundTail(diffResult.stderr, 1000)}`);
+  if (diffResult.exitCode !== 0) throw new Error(`git diff failed with exit code ${diffResult.exitCode}.`);
   const rawDiff = diffResult.stdout;
   if (rawDiff.length > MAX_DIFF_CHARS && opts.exportDiff) {
     const key = await opts.exportDiff(rawDiff);

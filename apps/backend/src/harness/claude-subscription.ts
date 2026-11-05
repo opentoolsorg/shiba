@@ -38,6 +38,7 @@
  * `ANTHROPIC_API_KEY` at all — a cached API key conflicts with the
  * subscription credential, and a stored secret is not proof of access.
  */
+import type { HarnessTextSanitizer } from "./event-sanitizer.js";
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import {
   assertSupportedModel,
@@ -215,11 +216,11 @@ export class ClaudeSubscriptionHarness implements AgentHarness {
     ];
   }
 
-  parseEvent(line: string): HarnessEvent | null {
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
     try {
-      return parseClaudeCodeEvent(line);
+      return parseClaudeCodeEvent(line, sanitize);
     } catch (error) {
-      if (error instanceof ClaudeCodeErrorEvent && /usage|rate.?limit|quota/i.test(error.detail)) {
+      if (error instanceof ClaudeCodeErrorEvent && error.usageLimited) {
         throw new ClaudeUsageLimitError(error.detail);
       }
       throw error;

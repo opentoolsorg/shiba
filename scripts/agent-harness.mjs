@@ -38,6 +38,7 @@ const CHECKPOINT_PREFIX = "refs/shiba/checkpoints/";
  * @property {string} [patch]
  * @property {string} [message]
  * @property {string} [sessionId]
+ * @property {boolean} [usageLimited]
  */
 
 /**
@@ -90,7 +91,8 @@ export function parseSessionLine(line) {
 
 function bound(value, max) {
   const text = String(value ?? "");
-  return text.length <= max ? text : text.slice(0, max);
+  // Worker sanitization needs complete values. Never emit an unmatchable prefix.
+  return text.length <= max ? text : `[Output exceeded ${max} characters.]`;
 }
 
 const APPROVAL_TITLE_LIMIT = 200;
@@ -373,7 +375,7 @@ async function openCodex(spec, emit) {
   const rpc = attachJsonRpc(child);
   let threadId = spec.resumeThreadId ?? "";
   let turnId = "";
-  /** @type {((outcome: { status: string, summary: string }) => void) | null} */
+  /** @type {((outcome: { status: string, summary: string, usageLimited: boolean }) => void) | null} */
   let settle = null;
   let interrupted = false;
   const stderr = [];
@@ -387,7 +389,7 @@ async function openCodex(spec, emit) {
     if (!settle) return;
     const done = settle;
     settle = null;
-    done({ status, summary: bound(summary, 4000) });
+    done({ status, summary: bound(summary, 4000), usageLimited: /usage|rate.?limit|quota/i.test(summary) });
   };
 
   rpc.onNotification((msg) => {
@@ -444,7 +446,7 @@ async function openCodex(spec, emit) {
       finish(interrupted ? "interrupted" : status === "failed" ? "failed" : status, error);
     } else if (msg.method === "error") {
       const message = typeof params.message === "string" ? params.message : "codex error";
-      emit({ type: "error", message: bound(message, 500) });
+      emit({ type: "error", message: bound(message, 500), usageLimited: /usage|rate.?limit|quota/i.test(message) });
       finish("failed", message);
     }
   });
@@ -638,7 +640,7 @@ async function openClaude(spec, emit) {
   let threadId = spec.resumeThreadId ?? "";
   let prompted = false;
   let promptText = "";
-  /** @type {((outcome: { status: string, summary: string }) => void) | null} */
+  /** @type {((outcome: { status: string, summary: string, usageLimited: boolean }) => void) | null} */
   let settle = null;
   let interrupted = false;
   /** @type {string[]} */
@@ -651,7 +653,7 @@ async function openClaude(spec, emit) {
     if (!settle) return;
     const done = settle;
     settle = null;
-    done({ status, summary: bound(summary, 4000) });
+    done({ status, summary: bound(summary, 4000), usageLimited: /usage|rate.?limit|quota/i.test(summary) });
   };
   const sendPrompt = () => {
     if (prompted || promptText === "") return;
@@ -880,6 +882,7 @@ async function openLoggedSession(spec) {
         type: "turn.completed",
         status: outcome.status,
         summary: outcome.summary,
+        usageLimited: outcome.usageLimited === true,
         threadId: provider.threadId,
       });
       emit({ type: "session.updated", sessionId: id, status: "ready" });
