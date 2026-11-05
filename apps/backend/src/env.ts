@@ -198,6 +198,10 @@ export interface Env {
   SHIBA_LOCAL_RUNTIME?: string;
   /** Opt-in owner-bound personal machines; no deployment provider or account fallback. */
   SHIBA_PERSONAL_LOCAL_EXECUTION?: string;
+  /** Explicit operator-funded, bounded native team text turns. Default off. */
+  SHIBA_TEAM_MODEL_SESSIONS?: string;
+  /** Exact supported Workers AI model; changes invalidate prior funding grants. */
+  SHIBA_TEAM_MODEL_MODEL?: string;
   /** Reason Network local companion dispatch is explicitly disabled unless set to "1". */
   REASON_NETWORK_ENABLED?: string;
   /** verify-shiba: "1" runs deterministic publish/review without containers. */

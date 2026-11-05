@@ -61,3 +61,5 @@ export * from "./agent-templates.js";
 export * from "./extensions/index.js";
 export * from "./personal-execution.js";
 export * from "./founder-review-schedules.js";
+export * from "./founder-connector-jobs.js";
+export * from "./team-model-sessions.js";

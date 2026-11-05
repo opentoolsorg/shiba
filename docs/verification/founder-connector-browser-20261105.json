@@ -1,0 +1,246 @@
+{
+  "kind": "local-Chromium-founder-component-HTTP-fixture",
+  "startedAt": "2026-11-05T05:20:56.397Z",
+  "baseCommit": "1c443213e255919fa4e83dc783b0ee483a627a42",
+  "boundary": "Actual React component, native browser fetch, shared validators and product CSS. Deterministic intercepted HTTP replaces Worker/native authentication, D1, scheduler, OpenConnector, accounts and all vendor effects. This is not live provider or full dashboard acceptance.",
+  "sourceAtStart": {
+    "apps/frontend/src/components/FounderConnectorPlan.tsx": "b9011144d8b4bf9c5a567ef50cf7c2b407fb41ffc024244e737f3c93437d32b9",
+    "apps/frontend/src/founder-connector-client.ts": "507613a17f33326e99090143171e60f8a0f0d1bf52879c898df0f95a6e5b47ae",
+    "packages/shared/src/founder-connector-jobs.ts": "8e29e54d2f2f5dbada09b207fef093389c369fcfa0e76b6d9b9543cda20d306a",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "assertions": [
+    {
+      "name": "Mount performs scoped metadata reads only; no app/model execution",
+      "status": "passed"
+    },
+    {
+      "name": "Exact account/action/argument plan is frozen before review; no action is sent",
+      "status": "passed"
+    },
+    {
+      "name": "Enabling a cadence grants storage-only occurrences, not execution",
+      "status": "passed"
+    },
+    {
+      "name": "Occurrence preparation and human approval alone produce zero simulated effects",
+      "status": "passed"
+    },
+    {
+      "name": "Only explicit original-requester execution yields one fixture completion receipt",
+      "status": "passed"
+    },
+    {
+      "name": "1280px dark fits viewport",
+      "status": "passed"
+    },
+    {
+      "name": "390px light fits viewport",
+      "status": "passed"
+    },
+    {
+      "name": "320px light fits viewport",
+      "status": "passed"
+    },
+    {
+      "name": "Unkeyed A-to-B scope switch aborts and discards a late private execution receipt",
+      "status": "passed"
+    },
+    {
+      "name": "Focus refresh removes cached arguments and private output after revoked access",
+      "status": "passed"
+    },
+    {
+      "name": "All API traffic remains in the founder fixture namespace; no OAuth/model/Slack/vendor endpoint",
+      "status": "passed"
+    },
+    {
+      "name": "Source bytes stayed frozen and Chromium reported no page errors",
+      "status": "passed"
+    }
+  ],
+  "api": [
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job/options",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job/actions",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "employeeId": "employee-one",
+        "employeeVersion": 2,
+        "skillId": "skill-one",
+        "skillVersion": 3,
+        "connectionId": "account-one",
+        "connectionVersion": 4,
+        "actionId": "stripe.list-subscriptions",
+        "arguments": {
+          "limit": 10
+        },
+        "cadence": "daily",
+        "localTime": "09:00",
+        "timezone": "UTC",
+        "expiresAt": 1796448063675,
+        "expectedVersion": 0
+      }
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job/enable",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 1,
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reviewed": true
+      }
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job/options",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job/occurrences/occurrence-one/prepare",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 2,
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "occurrenceDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      }
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job/occurrences/occurrence-one/decision",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 2,
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "occurrenceDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "approvalId": "wca-one",
+        "inputHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "approved": true
+      }
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job/occurrences/occurrence-one/execute",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 2,
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "occurrenceDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "approvalId": "wca-one",
+        "inputHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job/options",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job/occurrences/occurrence-two/execute",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedVersion": 2,
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "occurrenceDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+        "approvalId": "wca-two",
+        "inputHash": "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job/options",
+      "method": "GET",
+      "workspaceId": "ws_bbbbbbbbbbbbbbbbbbbbbbbb",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job",
+      "method": "GET",
+      "workspaceId": "ws_bbbbbbbbbbbbbbbbbbbbbbbb",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job/options",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job/options",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/connector-job",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    }
+  ],
+  "blockedExternal": [],
+  "pageErrors": [],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+    "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ],
+  "screenshots": [
+    "founder-connector-browser-20261105-desktop-dark.png",
+    "founder-connector-browser-20261105-390-light.png",
+    "founder-connector-browser-20261105-320-light.png"
+  ],
+  "sourceAtEnd": {
+    "apps/frontend/src/components/FounderConnectorPlan.tsx": "b9011144d8b4bf9c5a567ef50cf7c2b407fb41ffc024244e737f3c93437d32b9",
+    "apps/frontend/src/founder-connector-client.ts": "507613a17f33326e99090143171e60f8a0f0d1bf52879c898df0f95a6e5b47ae",
+    "packages/shared/src/founder-connector-jobs.ts": "8e29e54d2f2f5dbada09b207fef093389c369fcfa0e76b6d9b9543cda20d306a",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "status": "passed",
+  "simulatedEffects": 1,
+  "browser": "154.0.8037.57",
+  "completedAt": "2026-11-05T05:21:08.308Z",
+  "fixtureData": "All account, actor, grant, approval and output values are synthetic. No authentication cookie or credential was used.",
+  "workingTreeSources": true,
+  "expectedConsoleErrors": "The two HTTP 403 console entries are intentionally injected options/state access revocations in the final privacy test; no page exception occurred.",
+  "fixtureServerStatus": "Stopped after verification; localhost URL is not a deployed preview."
+}

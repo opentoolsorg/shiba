@@ -9,6 +9,8 @@ entry (`apps/backend/src/index.ts`) — as-built, not aspirational.
 
 The November 4 [shared-context and employee report](docs/shared-context-employees-acceptance.md) describes explicit collaboration-room realtime, selected shared notes, revoked-source output guards and optional role setup. Room notes live in D1 under existing membership and Slack-origin audience checks. Private Memory DO facts stay scoped to their owner or exact Slack thread; there is no shared JavaScript heap or automatic private-transcript merge.
 
+The [November 5 contract index](docs/verification/team-contracts-completion-20261105.md) tracks native member execution, workspace app accounts and founder schedules. Their authority and receipts live in D1; they do not inherit the deployment operator's credentials or billing. Optional funded text sessions use a separate default-off Workers AI service with explicit operator consent, per-member limits and human-reviewed input. A founder connector timer creates an occurrence; the original native requester and a current manager still perform the existing action review and execution steps. Neither path exposes an approval tool to an agent.
+
 **Companions:** `spec/GOAL.md` (product contract — *currently contradicted by
 the tree*, see `PLAN.md` §17.2 T27) · `design.md` (visual design system, not
 this) · `PLAN.md` §17 (parity roadmap).
@@ -72,7 +74,7 @@ gateway is stateless (`createMcpHandler` per request), not a DO. Work happens in
 | **Orchestration** | `agents/orchestrator.ts`, `automation-runner.ts` | Plans, exposes `delegate_coding_task`, queues approvals. Never touches a repo. |
 | **Execution** | `agents/opencode-agent.ts`, `harness/*`, `sandbox.ts`, `sandbox/lifecycle.ts` | Clone → exec harness → collect. Exactly one harness per run. |
 | **Egress control** | `egress.ts`, `sandbox.ts` (`allowedHosts`) | Deny-by-default; per-harness host list; TLS interception; scoped GitHub token. |
-| **State** | the nine DO classes | All durable state. No other store is authoritative. |
+| **State** | DO classes, D1 stores, private R2 objects | DOs coordinate agent/runtime state. D1 owns native membership, versioned policy, source bindings and action receipts. R2 holds private artifacts. |
 | **Presentation** | `apps/frontend` (dashboard), `apps/web` (docs/marketing) | React dashboard; Astro docs. Both served via the Worker's `ASSETS` binding. |
 | **Deploy** | `alchemy.run.ts` (primary), `wrangler.jsonc` (rollback) | Both declare the same stack; wrangler remains a working rollback path. |
 
