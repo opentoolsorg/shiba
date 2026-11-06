@@ -41,6 +41,9 @@
     // Optional features remain unavailable without separately reviewed bindings and setup.
     "SHIBA_SHARED_COMPUTER": "0",
     "SHIBA_SHARED_COMPUTER_IMAGE": "",
+    "SHIBA_PUBLIC_BROWSER": "0",
+    "SHIBA_PUBLIC_BROWSER_IMAGE": "",
+    "SHIBA_PUBLIC_BROWSER_CATALOG": "",
     "FOUNDER_AUTOMATIC_READS_ENABLED": "false",
     "FOUNDER_STRIPE_READS_ENABLED": "false",
     "FOUNDER_META_READS_ENABLED": "false",

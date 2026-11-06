@@ -1,0 +1,11 @@
+# Only public browser source and license files enter the build.
+**
+!Dockerfile.public-browser
+!Dockerfile.public-browser.dockerignore
+!public-browser/
+!public-browser/entrypoint.sh
+!public-browser/ready.sh
+!public-browser/policy.json
+!computer/
+!computer/NOTICE
+!computer/LICENSE-sandbox

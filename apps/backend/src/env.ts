@@ -27,6 +27,12 @@ export interface Env {
   ComputerSession?: DurableObjectNamespace<import("./computer-session.js").ComputerSession>;
   SHIBA_SHARED_COMPUTER?: string;
   SHIBA_SHARED_COMPUTER_IMAGE?: string;
+  /** Separate default-off public browser; absent binding means unavailable. */
+  PublicBrowserSession?: DurableObjectNamespace<import("./public-browser-session.js").PublicBrowserSession>;
+  SHIBA_PUBLIC_BROWSER?: string;
+  SHIBA_PUBLIC_BROWSER_IMAGE?: string;
+  /** Operator-reviewed shiba.public-browser.v1 manifest JSON; empty means unavailable. */
+  SHIBA_PUBLIC_BROWSER_CATALOG?: string;
   /** Default-off bounded standing reads through an operator-pinned service. */
   FOUNDER_AUTOMATIC_READS_ENABLED?: string;
   /** Separate opt-in native-owner restricted Stripe read lane. */
