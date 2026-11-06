@@ -89,7 +89,7 @@ describe("OpenConnector full catalog (fixture upstream)", () => {
   });
 
   it("validates readiness queries and returns filtered catalog totals through the authenticated route", async () => {
-    const env = { ...configured, OPEN_CONNECTOR: { fetch: upstream() } } as Env;
+    const env = { ...configured, OPEN_CONNECTOR: { fetch: upstream() } } as unknown as Env;
     const bad = await handleIntegrationProviderRoutes(new Request("https://app.example.test/api/integrations/provider/catalog?readiness=live"), env);
     expect(bad?.status).toBe(400);
 
