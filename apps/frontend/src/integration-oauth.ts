@@ -153,7 +153,7 @@ export function useIntegrationOAuth(options: {
     };
   }, [options.actorId]);
   const beginConnect = useCallback(
-    async (item: IntegrationProviderCatalogItem) => {
+    async (item: IntegrationProviderCatalogItem, options: { reconnect?: boolean } = {}) => {
       if (pending.current || latest.current.actorId === null) return;
       if (!item.connectable) {
         setError(
@@ -195,15 +195,18 @@ export function useIntegrationOAuth(options: {
       try {
         const baseline = await ownedAppConnections(controller.current.signal, true);
         if (!current(request)) { popup.close(); return; }
-        request.baselineIds = new Set(baseline.filter((connection) => connection.providerKey === item.providerKey).map((connection) => connection.id));
-        if (request.baselineIds.size) throw new Error("Disconnect the existing owned account before starting a new sign-in. An old account cannot confirm new consent.");
+        const owned = baseline.filter((connection) => connection.providerKey === item.providerKey);
+        request.baselineIds = new Set(owned.map((connection) => connection.id));
+        // Reconnect replaces only unusable rows; the old IDs stay in the baseline so they cannot confirm new consent.
+        if (owned.length && (!options.reconnect || owned.some((connection) => connection.connectionState === "active")))
+          throw new Error(options.reconnect ? "This account is still active. Disconnect it explicitly before signing in again." : "Disconnect the existing owned account before starting a new sign-in. An old account cannot confirm new consent.");
         const response = await fetch("/api/integrations/provider/connect", {
           method: "POST",
           credentials: "same-origin",
           cache: "no-store",
           signal: controller.current.signal,
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ providerKey: item.providerKey }),
+          body: JSON.stringify({ providerKey: item.providerKey, ...(options.reconnect ? { replaceUnavailable: true } : {}) }),
         });
         const body = (await response.json().catch(() => ({}))) as {
           ok?: boolean;
