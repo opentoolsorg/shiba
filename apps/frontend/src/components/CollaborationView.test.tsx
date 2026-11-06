@@ -1410,4 +1410,17 @@ describe("workspace room deep links", () => {
     await waitFor(() => expect(onRoomChange).toHaveBeenCalledWith(secondRoomId));
     expect(onRoomChange).not.toHaveBeenCalledWith(roomId);
   });
+  it("does not republish a loaded room when the parent supplies a new callback", async () => {
+    fixture();
+    const firstCallback = vi.fn();
+    const view = render(<CollaborationView workspaceId={workspaceId} initialRoomId={roomId} onRoomChange={firstCallback} />);
+    await screen.findByRole("heading", { name: "Shared room" });
+    await waitFor(() => expect(firstCallback).toHaveBeenCalledWith(roomId));
+
+    const nextCallback = vi.fn();
+    view.rerender(<CollaborationView workspaceId={workspaceId} initialRoomId={roomId} onRoomChange={nextCallback} />);
+
+    expect(firstCallback).toHaveBeenCalledTimes(1);
+    expect(nextCallback).not.toHaveBeenCalled();
+  });
 });
