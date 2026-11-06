@@ -192,7 +192,7 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
         ...(consent ? { authorizationFingerprint: await fingerprint([row.connectionName, row.service, consent]) } : {}),
         executionReady: active && Boolean(consent),
         connectionState: active ? "active" : row.status === "reauth_required" ? "reauth_required" : "unavailable",
-        ...(!active ? { unavailableReason: "Account authorization is unavailable. Disconnect this account before signing in again." }
+        ...(!active ? { unavailableReason: "Account authorization is unavailable. Reconnect to restore access; the existing account is preserved until new consent succeeds." }
           : !consent ? { unavailableReason: "This account has no verifiable OAuth consent generation. Employee actions are unavailable; ask the operator for a supported OAuth connection." } : {}),
       } satisfies IntegrationProviderConnection;
     }));
@@ -269,8 +269,7 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
       if (existing.length && !replaceable) return { ok: false, provider: this.id, error: context.replaceUnavailable ? "Only an expired or unavailable account can be reconnected. Disconnect the active account explicitly first." : "Disconnect the existing owned account before starting a new connection. Existing consent cannot confirm a new sign-in." };
       const setup = await this.oauthSetup(context.providerKey);
       if (setup !== "ready") return { ok: false, provider: this.id, error: setup === "needs_configuration" ? "Configure this provider's OAuth application in OpenConnector before connecting an account." : setup === "unsupported" ? "This provider has no supported OAuth sign-in path. Configure its credentials with the OpenConnector operator." : "Provider OAuth setup could not be verified. Refresh readiness before connecting." };
-      // Remove the unusable row only after setup is verified, so a failed reconnect cannot strand the user.
-      if (existing.length) await this.disconnect(context);
+      // Keep the existing upstream account intact while consent is pending; OAuth may be rejected or abandoned.
       // The /v1 creation endpoint generates a random alias; the local OAuth API accepts ours.
       const result = this.parse(authorizationSchema, await this.request("/api/oauth/authorizations", "admin", {
         method: "POST",
