@@ -154,7 +154,8 @@ const boundaries = [
 <style>
   /* Hero */
   .hero { text-align: center; padding-top: 88px; padding-bottom: 64px; }
-  .hero h1 { font: 600 clamp(48px, 6.4vw, 88px)/1.02 'Geist', sans-serif; letter-spacing: -.055em; margin: 0 0 24px; color: var(--lp-ink); text-wrap: balance; }
+  .lp-h2 { font-size: 44px; line-height: 1.08; max-width: 720px; }
+  .hero h1 { max-width: none; font: 600 clamp(48px, 6.4vw, 88px)/1.02 'Geist', sans-serif; letter-spacing: -.055em; margin: 0 0 24px; color: var(--lp-ink); text-wrap: balance; }
   .accent { color: var(--lp-accent); }
   .hero-copy { max-width: 640px; margin: 0 auto 30px; color: var(--lp-ink2); font-size: 19px; line-height: 1.6; }
   .actions { display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; }
@@ -225,6 +226,7 @@ const boundaries = [
   @media (max-width: 700px) {
     .hero { padding-top: 56px; }
     .hero h1 { font-size: 48px; }
+    .lp-h2 { font-size: 36px; }
     .hero-copy { font-size: 16px; }
     .visual { min-height: 500px; margin-top: 40px; }
     .visual-center { padding-top: 40px; }

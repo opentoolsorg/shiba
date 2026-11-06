@@ -5,10 +5,10 @@ const total = plannedTools.length;
 ---
 
 <section id="directory" class="planned-catalog" aria-labelledby="planned-title" data-planned-catalog>
-  <div class="shell">
+  <div class="catalog-shell">
     <div class="head">
       <div>
-        <p class="eyebrow">Looking ahead</p>
+        <p class="catalog-eyebrow">Looking ahead</p>
         <h2 id="planned-title">More of your tools.<br />On the roadmap.</h2>
       </div>
       <p class="side">A future catalog for the places your team already works.</p>
@@ -57,7 +57,7 @@ const total = plannedTools.length;
       <div class="grid">
         {
           plannedTools.map((tool) => (
-            <article class="card" data-planned-tool={tool.name}>
+            <article class="tool-card" data-planned-tool={tool.name}>
               <div class="logo">
                 <span class="logo-clip" aria-hidden="true">
                   <img src={plannedLogoSprite} style={tool.logoStyle} alt="" width="192" height="288" />
@@ -65,7 +65,7 @@ const total = plannedTools.length;
               </div>
               <div class="card-copy">
                 <h3>{tool.name}</h3>
-                <span class="chip">Planned</span>
+                <span class="planned-status">Planned</span>
               </div>
             </article>
           ))
@@ -138,10 +138,10 @@ const total = plannedTools.length;
     color: var(--lp-ink);
     border-bottom: 1px solid var(--lp-line);
   }
-  .shell {
-    max-width: 1200px;
+  .catalog-shell {
+    max-width: calc(1312px + 2 * var(--lp-gutter));
     margin-inline: auto;
-    padding: 96px 24px;
+    padding: 80px max(var(--lp-gutter), env(safe-area-inset-right, 0px)) 80px max(var(--lp-gutter), env(safe-area-inset-left, 0px));
   }
   .head {
     display: flex;
@@ -150,30 +150,32 @@ const total = plannedTools.length;
     gap: 32px;
     margin-bottom: 24px;
   }
-  .eyebrow,
+  .catalog-eyebrow,
   .kicker,
   .search-label,
   .results,
-  .chip {
+  .planned-status {
     font-family: 'Geist Mono', ui-monospace, monospace;
   }
-  .eyebrow {
-    margin: 0 0 12px;
-    font-size: 12px;
+  .catalog-eyebrow {
+    margin: 0 0 16px;
+    font-size: 11px;
     font-weight: 500;
     color: var(--lp-accent);
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.12em;
   }
   h2 {
     margin: 0;
-    font-size: clamp(32px, 5vw, 52px);
-    line-height: 1.05;
-    letter-spacing: -0.035em;
+    max-width: 720px;
+    font-size: 44px;
+    line-height: 1.08;
+    letter-spacing: -0.04em;
     font-weight: 600;
+    text-wrap: balance;
   }
   .side {
-    max-width: 340px;
+    max-width: 390px;
     margin: 0;
     color: var(--lp-ink2);
     font-size: 15px;
@@ -286,7 +288,7 @@ const total = plannedTools.length;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 20px;
   }
-  .card {
+  .tool-card {
     display: flex;
     align-items: center;
     gap: 16px;
@@ -297,7 +299,7 @@ const total = plannedTools.length;
     background: var(--lp-raised);
     border: 1px solid var(--lp-line);
   }
-  .card[hidden] {
+  .tool-card[hidden] {
     display: none;
   }
   .logo {
@@ -327,7 +329,7 @@ const total = plannedTools.length;
   .card-copy {
     min-width: 0;
   }
-  .card h3 {
+  .tool-card h3 {
     margin: 0 0 8px;
     font-size: 15px;
     font-weight: 500;
@@ -335,7 +337,7 @@ const total = plannedTools.length;
     letter-spacing: -0.025em;
     overflow-wrap: anywhere;
   }
-  .chip {
+  .planned-status {
     display: inline-flex;
     align-items: center;
     padding: 3px 8px;
@@ -391,8 +393,11 @@ const total = plannedTools.length;
     }
   }
   @media (max-width: 700px) {
-    .shell {
-      padding: 64px 16px;
+    .catalog-shell {
+      padding-block: 56px;
+    }
+    h2 {
+      font-size: 36px;
     }
     .head,
     .toolbar {
@@ -410,7 +415,7 @@ const total = plannedTools.length;
       font-size: 12px;
       padding-inline: 14px;
     }
-    .card {
+    .tool-card {
       padding: 20px;
       gap: 14px;
     }
@@ -429,10 +434,10 @@ const total = plannedTools.length;
       grid-template-columns: 1fr;
       gap: 14px;
     }
-    .card {
+    .tool-card {
       min-height: 112px;
     }
-    .card h3 {
+    .tool-card h3 {
       font-size: 17px;
     }
   }
