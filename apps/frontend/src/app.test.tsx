@@ -199,6 +199,33 @@ describe("app Work and Threads routing", () => {
     expect(window.location.search).toBe("");
   });
 
+  it("replaces a loaded room with verification when popstate selects an invalid room link", async () => {
+    const workspaceId = `ws_${"a".repeat(24)}`;
+    const roomId = `room_${"b".repeat(24)}`;
+    const actorId = "test-operator@example.test";
+    localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actorId)}`, workspaceId);
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/whoami") return Response.json({ agent: actorId, auth: "access" });
+      if (String(url) === "/api/workspaces") return Response.json({ workspaces: [{
+        workspaceId, name: "Fixture team", version: 1, createdAt: 1,
+        membership: { workspaceId, userId: actorId, role: "member", version: 1, joinedAt: 1 },
+      }] });
+      if (String(url) === "/api/collaboration/rooms") return Response.json({ rooms: [{ roomId, title: "Loaded fixture room", visibility: "shared" }] });
+      if (String(url) === `/api/collaboration/rooms/${roomId}`) return Response.json({ room: { roomId, title: "Loaded fixture room", visibility: "shared" }, currentUserId: actorId, members: [], messages: [], handoffs: [] });
+      return Response.json({ workspaces: [], sessions: [], runs: [], approvals: [], decided: [], agents: [], connections: [], computers: [], entries: [] });
+    }));
+    window.history.replaceState(null, "", `/threads/?view=threads&workspace=${workspaceId}&room=${roomId}`);
+    render(<App />);
+
+    expect(await screen.findByText("Loaded fixture room")).toBeTruthy();
+    window.history.pushState(null, "", "/threads/?view=threads&workspace=invalid&room=invalid");
+    await act(async () => { window.dispatchEvent(new PopStateEvent("popstate")); });
+
+    expect(await screen.findByRole("region", { name: "Workspace verification" })).toBeTruthy();
+    expect(screen.queryByText("Fixture team")).toBeNull();
+    expect(window.location.search).toBe("?view=threads&workspace=invalid&room=invalid");
+  });
+
   it("keeps Work as the plain root default and after popstate", async () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
