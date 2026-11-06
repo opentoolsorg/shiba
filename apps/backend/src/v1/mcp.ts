@@ -9,12 +9,13 @@ import {
   discoverExternalMcpOAuth,
   exchangeExternalMcpOAuthCode,
   readDeploymentOAuthClientId,
+  registerExternalMcpOAuthClient,
   saveExternalMcpBearerToken,
 } from "../external-mcp-oauth.js";
 import { CURATED_MCP_VENDORS, curatedMcpVendorByCatalogId } from "@shiba/shared";
 import { decideEmployeeActionApproval as decideApproval, getEmployeeActionApproval, listEmployeeActionApprovals } from "../employee-tool-store.js";
 import { resolveCapabilityInvocationApproval } from "../capability-invocations.js";
-import { executeApprovedExternalMcpAction } from "../external-mcp.js";
+import { executeApprovedExternalMcpAction, validateExternalMcpEndpoint } from "../external-mcp.js";
 
 const BUILTIN_ID = "shiba";
 const response = (value: unknown, status = 200) => Response.json(value, { status, headers: { "cache-control": "no-store" } });
@@ -51,7 +52,7 @@ function safeError(error: unknown): Response {
     server_limit: 409, server_not_found: 404, tool_disabled: 409, approval_not_found: 404,
     invalid_catalog_id: 400, connection_label_required: 400, connection_label_taken: 409, invalid_connection_label: 400,
     oauth_discovery_failed: 502, oauth_storage_unavailable: 503, oauth_state_invalid: 400, oauth_token_exchange_failed: 502,
-    oauth_refresh_in_progress: 503, oauth_client_not_configured: 503, invalid_bearer: 400 };
+    oauth_refresh_in_progress: 503, oauth_client_not_configured: 503, oauth_registration_failed: 502, invalid_bearer: 400 };
   const allowed = new Set(Object.keys(statuses));
   return response({ ok: false, error: allowed.has(code) ? code : "external_mcp_unavailable" }, statuses[code] ?? 503);
 }
@@ -138,7 +139,18 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
       return response({ ok: false, error: "invalid_request" }, 400);
     }
     if (input.redirectUri !== `${ctx.url.origin}/api/v1/mcp/oauth/callback` || server.status === "disabled") return response({ ok: false, error: "invalid_request" }, 400);
-    if (!server.catalogId || server.authMode !== "oauth") return response({ ok: false, error: "invalid_request" }, 400);
+    if (server.authMode !== "oauth") return response({ ok: false, error: "invalid_request" }, 400);
+    if (!server.catalogId) {
+      // Custom servers: the operator-trusted host gate applies before any metadata fetch.
+      try {
+        validateExternalMcpEndpoint(server.endpoint, ctx.env);
+        const discovery = await discoverExternalMcpOAuth({ endpoint: server.endpoint });
+        const clientId = await registerExternalMcpOAuthClient(discovery, input.redirectUri);
+        const begin = await beginExternalMcpOAuthConnect(ctx.env, { serverId: server.id, orgId: server.orgId, ownerId: server.ownerId,
+          catalogId: "custom", redirectUri: input.redirectUri, clientId, scopes: discovery.scopes ?? "", discovery });
+        return response({ ok: true, ...begin, discovery: { resource: discovery.resource.resource, issuer: discovery.authorizationServer.issuer } });
+      } catch (error) { return safeError(error); }
+    }
     const vendor = curatedMcpVendorByCatalogId(server.catalogId);
     if (!vendor) return response({ ok: false, error: "invalid_catalog_id" }, 400);
     const clientId = readDeploymentOAuthClientId(ctx.env, server.catalogId);

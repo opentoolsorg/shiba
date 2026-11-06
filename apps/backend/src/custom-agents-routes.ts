@@ -14,6 +14,14 @@ import { decodeCreateCustomAgent, decodeUpdateCustomAgent } from "./custom-agent
 import { resolveHarness } from "./harness/index.js";
 import { resolveUserId } from "./request-auth.js";
 import { recordEmployeeBundleProfileOwner } from "./employee-bundles-store.js";
+import { areSkillPinsActive } from "./skills-store.js";
+
+/** Attached skills must be active at the exact pinned version when the bot is saved. */
+async function attachedSkillsRejection(env: Env, orgId: string, pins: readonly { skillId: string; version: number }[] | undefined): Promise<Response | null> {
+  if (!pins?.length) return null;
+  if (await areSkillPinsActive(env, orgId, pins)) return null;
+  return Response.json({ ok: false, error: "skill_pins_unavailable", detail: "Attach only active skills at their active version, without duplicates." }, { status: 409 });
+}
 
 function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number]) {
   return {
@@ -102,6 +110,8 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     if (parsed.config.toolScopes?.length) {
       return Response.json({ ok: false, error: "unsupported_tool_scopes", detail: "Custom tool scopes are not enforced yet. Use the deployment tool policy." }, { status: 400 });
     }
+    const skillRejection = await attachedSkillsRejection(env, auth.orgId, parsed.config.skillPins);
+    if (skillRejection) return skillRejection;
     try {
       resolveHarness(parsed.config.harness, env);
     } catch (error) {
@@ -143,6 +153,8 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     if (parsed.config.toolScopes?.length) {
       return Response.json({ ok: false, error: "unsupported_tool_scopes", detail: "Custom tool scopes are not enforced yet. Clear legacy scopes explicitly before saving; existing stored configuration was not changed." }, { status: 400 });
     }
+    const skillRejection = await attachedSkillsRejection(env, auth.orgId, parsed.config.skillPins);
+    if (skillRejection) return skillRejection;
     try {
       resolveHarness(parsed.config.harness, env);
     } catch (error) {
