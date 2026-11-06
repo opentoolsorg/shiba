@@ -20,7 +20,8 @@ From the repo root on the owner's Mac (Docker running, or `SANDBOX_IMAGE` pointi
 
 ```sh
 pnpm install
-pnpm typecheck && pnpm lint && pnpm test && pnpm build
+pnpm typecheck && pnpm lint && pnpm lint:imports && pnpm test && pnpm build && pnpm test:built
+pnpm check:ci
 pnpm check:deploy
 export ALCHEMY_STAGE=dogfood          # never pass --stage
 export CLOUDFLARE_ACCOUNT_ID=<account>
@@ -29,6 +30,7 @@ export WORKERS_SUBDOMAIN=<account workers.dev subdomain>
 # https://shiba-ai-coworker-dogfood.<subdomain>.workers.dev — the preflight
 # rejects any other value on a non-live stage.
 pnpm env:load                         # validates .env
+pnpm env:scan
 pnpm deploy:preview                   # alchemy plan: read it before applying
 pnpm deploy:alchemy                   # pnpm build && alchemy deploy
 ```
@@ -39,7 +41,12 @@ Do not set `ACCESS_AUD` or `REQUIRE_ACCESS`; the preflight rejects both. A non-l
 
 ## Migration order
 
-Cloudflare applies migrations in list order, from the first tag the script has not yet recorded. Alchemy emits the tags for the classes it adds; wrangler lists them all.
+Cloudflare applies migrations in list order, from the first tag the script has not yet recorded. The two deploy paths record tags differently:
+
+- **Alchemy (the path used here)** emits its own provider tag for the classes it adds, of the form `alchemy:vN`. It does not consume the `v*` entries below; those exist so a later wrangler deploy can replay the same history.
+- **Wrangler** walks the `v*` list below in order.
+
+After an Alchemy deploy, read the tag the script now carries (see the check below) and append it to `wrangler.jsonc` `migrations` as a bare `{ "tag": "alchemy:vN" }` entry, exactly as `alchemy:v10`, `alchemy:v11` and `alchemy:v22` were recorded. Without that entry a later wrangler deploy sees an unknown tag and re-applies history.
 
 | Tag | Change |
 | --- | --- |
@@ -59,15 +66,25 @@ Cloudflare applies migrations in list order, from the first tag the script has n
 | v14 | `Spaces` |
 | v15 | `ConversationRoom` |
 
-**Skipping is safe** because every tag is additive (`new_sqlite_classes`) apart from the v4→v8 create-then-delete of `McpGateway`, which replays cleanly in order. A Worker that never saw v9–v15 gets them in sequence and ends with all classes. Risks to check in the plan:
+**Skipping is safe on the wrangler path** because every tag is additive (`new_sqlite_classes`) apart from the v4→v8 create-then-delete of `McpGateway`, which replays cleanly in order. A Worker that never saw v9–v15 gets them in sequence and ends with all classes. Risks to check in the plan:
 
-- `alchemy:*` tags are only placeholders. If the dogfood script's recorded tag is not in this list, Cloudflare rejects the deploy with a migration-tag mismatch. Wrangler 4.140 has **no** `migrations list` subcommand (the one in `docs/DEPLOY.md` is stale), so read the tag from the plan output and, if the deploy is rejected, from the current version's details in the dashboard (Workers → `shiba-ai-coworker-dogfood` → Deployments). Compare that against the table before changing anything.
+- `alchemy:*` tags are only placeholders. Wrangler 4.140 has **no** `migrations list` subcommand (the one in `docs/DEPLOY.md` is stale). Read the script's `migration_tag` from `GET /accounts/<account_id>/workers/services/shiba-ai-coworker-dogfood` (`default_environment.script.migration_tag`) or from the current version's details in the dashboard (Workers → `shiba-ai-coworker-dogfood` → Deployments), and compare it against the table before changing anything.
+- If that tag is missing from the list, wrangler warns and re-applies **every** migration, which then fails on the first class that already exists. If it is present but not last, wrangler applies only the entries after it. Both behaviours are decided by the tag, so get it right before deploying.
+- Before any wrangler fallback, reconcile the list against the classes the script already has: a tag that would re-create an existing class fails, and a missing tag re-applies history.
 - Never edit, reorder or remove a tag to make a plan pass.
 - Do not combine this deploy with a Sandbox SDK major bump (`docs/DEPLOY.md`).
 
 ## Secrets
 
-Alchemy **replaces** the Worker's secret set with the names present in `.env` that are listed in `worker-secrets.json`. Anything set only with `wrangler secret put` is removed on the next Alchemy deploy, so put every one of these in `.env` before deploying. Do not paste values anywhere else.
+Alchemy **replaces** the Worker's secret set with the names present in `.env` that are listed in `worker-secrets.json`. Anything set only with `wrangler secret put` is removed on the next Alchemy deploy.
+
+Before deploying, inventory what dogfood already has and make sure every name you intend to keep is in `.env`:
+
+```sh
+npx wrangler secret list --name shiba-ai-coworker-dogfood
+```
+
+Compare that list with `apps/backend/worker-secrets.json` and with the five names below. Any active secret missing from `.env` is deleted by the deploy. Do not paste values anywhere else.
 
 | Secret | What it unlocks |
 | --- | --- |
@@ -81,10 +98,11 @@ Also needed for a usable dogfood stage: a built-in auth pair (`BETTER_AUTH_SECRE
 
 ## Rollback
 
-- Code and bindings: redeploy the previous commit with the same command (`git checkout <previous-sha>`, then repeat the deploy). Durable Object migrations do not roll back, and classes added by v9–v15 stay on the script. That is harmless because older code simply does not use them.
+- Code and bindings: redeploy the previous commit with the same command (`git checkout <previous-sha>`, then repeat the deploy). Durable Object migrations do not roll back, and classes added by v9–v15 stay on the script. **Keep the current `wrangler.jsonc` `migrations` list and the current DO exports when reverting application code** — an older config whose last tag predates the script's tag is rejected, and dropping a class export while its binding remains breaks the Worker. Revert code, not migration history.
+- Inspect the plan for `deleted_classes` before redeploying; a revert that removes a class declaration can emit a deletion migration that destroys its state.
 - Do not delete DO classes to undo a deploy; that needs a new `deleted_classes` tag and destroys state.
 - Secrets: Alchemy replaces the set, so rollback must run with the previous `.env`.
-- **Do not use `wrangler deploy` for dogfood.** `wrangler.jsonc` carries `routes: [{ pattern: "app.tryshiba.dev", custom_domain: true }]`, so even with `--name shiba-ai-coworker-dogfood` it would attach the live custom domain to the dogfood script and steal production traffic. The wrangler path in `docs/DEPLOY.md` is for the live Worker only.
+- **Do not use `wrangler deploy` with `apps/backend/wrangler.jsonc` for dogfood.** That file carries `routes: [{ pattern: "app.tryshiba.dev", custom_domain: true }]`, so even with `--name shiba-ai-coworker-dogfood` it would attach the live custom domain to the dogfood script and steal production traffic. The wrangler path in `docs/DEPLOY.md` is for the live Worker only. A script-only dogfood fallback would need its own reviewed config: no `routes`, stage-suffixed R2 buckets, KV namespace, D1 database and container, and the same `migrations` list. Do not improvise one during an incident.
 - `pnpm deploy:destroy` with `ALCHEMY_STAGE=dogfood` removes the whole stage. It is not a rollback.
 
 ## Post-deploy smoke checks
@@ -97,7 +115,7 @@ Use the printed `workers.dev` origin for `dogfood`.
 4. Open a session in two tabs: the `ConversationRoom` presence indicator appears (see `docs/ROOM-REALTIME.md`).
 5. Connect the ChatGPT plan: exercises `ChatGptAuth`. Connect a provider via OAuth: exercises `UserProviderOAuth`.
 6. Download a run artifact: exercises `ARTIFACTS` and `ARTIFACT_SIGNING_KEY`.
-7. Local runtime (if enabled): `POST /api/local/claim` with a wrong bearer returns 401, and `node scripts/shiba-local-daemon.mjs --once` reports "no pending runs".
+7. Local runtime (if enabled): `POST /api/local/claim` with a wrong bearer returns 401. Only then, with an explicit target and a throwaway run root, `SHIBA_WORKER_URL=https://shiba-ai-coworker-dogfood.<subdomain>.workers.dev LOCAL_ADAPTER_TOKEN=<dogfood token> SHIBA_LOCAL_RUN_ROOT=$(mktemp -d) node scripts/shiba-local-daemon.mjs --once`. `--once` can claim and execute a real pending run, so run it only when the queue is known empty; never point it at a saved config that may target live.
 8. Slack (if enabled): a test message reaches the Worker with a valid signature and a forged one returns 401.
 9. Queue a throwaway task with publishing disabled and confirm no sandbox starts before approval.
 10. Confirm the live Worker `shiba-ai-coworker` is unchanged (version list in the dashboard).
