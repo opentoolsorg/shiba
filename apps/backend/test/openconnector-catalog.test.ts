@@ -86,6 +86,7 @@ describe("OpenConnector full catalog (fixture upstream)", () => {
     expect(ready).toEqual(services.map((row) => row.service).filter((service) => Number(service.slice(4)) % 5 === 0 && Number(service.slice(4)) % 3 !== 0));
     const unsupported = await adapter.listCatalog({ userId: "alice", limit: 50, readiness: "unsupported" });
     expect(unsupported.items.every((item) => item.setupState === "unsupported" && !item.connectable)).toBe(true);
+    expect(unsupported.items).toEqual(expect.arrayContaining([expect.objectContaining({ providerKey: "svc_007", setupState: "unsupported" })]));
   });
 
   it("validates readiness queries and returns filtered catalog totals through the authenticated route", async () => {
@@ -130,5 +131,9 @@ describe("OpenConnector full catalog (fixture upstream)", () => {
     const unready = upstream([{ ...expired, service: "svc_001" }]);
     expect(await new OpenConnectorIntegrationProvider({ env: configured, fetchImpl: unready }).beginConnect({ ...context, providerKey: "svc_001", replaceUnavailable: true })).toMatchObject({ ok: false, error: expect.stringContaining("OAuth application") });
     expect(unready.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+
+    const saas = upstream([{ ...expired, source: "saas" }]);
+    expect(await new OpenConnectorIntegrationProvider({ env: configured, fetchImpl: saas }).beginConnect({ ...context, replaceUnavailable: true })).toMatchObject({ ok: false, error: expect.stringContaining("SaaS account") });
+    expect(saas.mock.calls.some(([url]) => String(url).endsWith("/api/oauth/authorizations"))).toBe(false);
   });
 });

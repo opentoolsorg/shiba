@@ -243,7 +243,7 @@ function OwnedAppAccounts({
                     {connection.unavailableReason && <p className="mt-1 text-xs text-[var(--ink-2)]">{connection.unavailableReason}</p>}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {connection.connectionState !== undefined && connection.connectionState !== "active" && (
+                    {connection.connectionState !== undefined && connection.connectionState !== "active" && connection.reconnectSupported !== false && (
                       <button
                         type="button"
                         className={BUTTON}
