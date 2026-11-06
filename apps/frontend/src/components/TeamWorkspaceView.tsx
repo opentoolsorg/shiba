@@ -32,6 +32,7 @@ export interface TeamWorkspaceViewProps {
   onChanged?: () => void;
   onOpenChat?: () => void;
   onOpenWork?: () => void;
+  onOpenApps?: () => void;
 }
 
 export type TeamWorkspaceTab = "people" | "invitations" | "roles" | "settings";
@@ -65,6 +66,7 @@ function TeamWorkspaceSurface({
   onChanged,
   onOpenChat,
   onOpenWork,
+  onOpenApps,
   isCurrent,
 }: TeamWorkspaceViewProps & { isCurrent: () => boolean }): JSX.Element {
   const [workspace, setWorkspace] = useState<TeamWorkspaceDetail | null>(null);
@@ -409,7 +411,7 @@ function TeamWorkspaceSurface({
 
         {/* Workspace tabs */}
         {workspace ? (
-          <div role="tablist" aria-label="Workspace tabs" className="flex items-center gap-1 border-t border-[#e4e4e7] dark:border-zinc-800 mt-5 pt-3 -mb-2">
+          <div role="tablist" aria-label="Workspace tabs" className="flex items-center gap-1 overflow-x-auto border-t border-[#e4e4e7] dark:border-zinc-800 mt-5 pt-3 -mb-2">
             {(
               [
                 { id: "people", label: "People", count: workspace.members.length },
@@ -424,7 +426,7 @@ function TeamWorkspaceSurface({
                 role="tab"
                 aria-selected={activeTab === tab.id}
                 onClick={() => setActiveTab(tab.id as TeamWorkspaceTab)}
-                className={`h-8 px-3 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                className={`min-h-11 shrink-0 px-3 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${
                   activeTab === tab.id
                     ? "bg-[#e4e4e7] text-[#0a0a0a] dark:bg-zinc-800 dark:text-zinc-100"
                     : "text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100"
@@ -535,6 +537,30 @@ function TeamWorkspaceSurface({
           </div>
         ) : (
           <>
+            <section aria-label="Team coworker launchpad" className="border border-[var(--line)] bg-[var(--card)] p-4 text-[var(--ink)]">
+              <h3 className="font-serif text-xl">Your team, one coworker workspace</h3>
+              <p className="mt-1 text-xs text-[var(--ink-2)]">
+                Bring people, shared context, and Slack together. Your personal chats and credentials stay separate.
+              </p>
+              <ol className="mt-4 grid min-w-0 gap-4 md:grid-cols-3">
+                <li className="min-w-0">
+                  <h4 className="text-sm font-semibold">1. Bring your team</h4>
+                  <p className="mt-1 text-xs text-[var(--ink-2)]">Workspace membership does not automatically grant access to every room.</p>
+                  {manager ? <button type="button" className="mt-2 min-h-11 border border-[var(--line)] px-3 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]" onClick={() => setActiveTab("invitations")}>Invite teammates</button>
+                    : <p className="mt-2 text-xs text-[var(--ink-2)]">Ask a workspace owner or admin to invite teammates.</p>}
+                </li>
+                <li className="min-w-0">
+                  <h4 className="text-sm font-semibold">2. Collaborate in a room</h4>
+                  <p className="mt-1 text-xs text-[var(--ink-2)]">Choose room members, chat live, and select shared notes for employee work. Execution still needs human approval.</p>
+                  {onOpenChat && <button type="button" className="mt-2 min-h-11 border border-[var(--line)] px-3 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]" onClick={onOpenChat}>Open shared rooms</button>}
+                </li>
+                <li className="min-w-0">
+                  <h4 className="text-sm font-semibold">3. Connect Slack deliberately</h4>
+                  <p className="mt-1 text-xs text-[var(--ink-2)]">An owner manages the installation in Apps. Each member links their own identity and reviews exact-thread intake. Room sharing and outbound messages require separate review.</p>
+                  {onOpenApps && <button type="button" className="mt-2 min-h-11 border border-[var(--line)] px-3 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]" onClick={onOpenApps}>Open Slack setup</button>}
+                </li>
+              </ol>
+            </section>
             {/* General Settings Tab (Workspace name & info) */}
             <div className={`${PANEL} ${activeTab === "settings" ? "block" : "hidden"}`}>
               <div className="flex flex-wrap justify-between gap-2 border-b border-[#e4e4e7] dark:border-zinc-800 pb-3">
@@ -663,7 +689,7 @@ function TeamWorkspaceSurface({
                     yourself; Shiba sends no invitation email.
                   </p>
                 </div>
-                <form onSubmit={invite} className="mt-4 flex flex-wrap items-end gap-2.5">
+                <form onSubmit={invite} className="mt-4 grid items-end gap-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
                   <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-xs font-medium text-[#0a0a0a] dark:text-zinc-200">
                     Teammate email
                     <input
