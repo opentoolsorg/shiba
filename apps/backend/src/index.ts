@@ -62,6 +62,8 @@ import { handleSlackInstallations } from "./slack-installations-routes.js";
 import { handleMultiInstallationSlackCallback } from "./slack-installations-routing.js";
 import { handleSharedComputers } from "./shared-computer-routes.js";
 import { ComputerSession } from "./computer-session.js";
+import { PublicBrowserSession } from "./public-browser-session.js";
+import { PublicBrowserOutbound } from "./public-browser-outbound.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
 import { handleOrgModelKeys } from "./org-model-keys-routes.js";
 import { handleMeta } from "./meta-routes.js";
@@ -111,6 +113,8 @@ export {
   ChatGptAuth,
   ConversationRoom,
   ComputerSession,
+  PublicBrowserSession,
+  PublicBrowserOutbound,
   UserProviderOAuth,
   CodingOrchestrator,
   LocalDispatch,
