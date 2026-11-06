@@ -57,6 +57,7 @@ export * from "./integrations-provider.js";
 export * from "./workspace-integrations.js";
 export * from "./curated-mcp-vendors.js";
 export * from "./founder-skill-library.js";
+export * from "./skill-markdown.js";
 export * from "./onboarding.js";
 export * from "./agent-templates.js";
 export * from "./extensions/index.js";

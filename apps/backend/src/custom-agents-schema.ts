@@ -26,6 +26,10 @@ export const CustomAgentConfigSchema = Schema.Struct({
   defaultRepoUrl: Schema.optional(Bounded(500)),
   approvalPolicy: Schema.optional(Schema.Literals(CUSTOM_AGENT_APPROVAL_POLICIES)),
   toolScopes: Schema.optional(Schema.Array(Bounded(64)).check(Schema.isMaxLength(32))),
+  skillPins: Schema.optional(Schema.Array(Schema.Struct({
+    skillId: Bounded(100),
+    version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)),
+  })).check(Schema.isMaxLength(5))),
 });
 
 export const CreateCustomAgentSchema = Schema.Struct({

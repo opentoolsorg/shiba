@@ -4,6 +4,7 @@ import { skillTeamGrant, withCurrentSkillAuthority } from "./team-skill-authorit
 import { resolveUserId } from "./request-auth.js";
 import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
+import { SkillMarkdown, SkillMarkdownError } from "@shiba/shared";
 import {
   activateSkill,
   createSkill,
@@ -122,6 +123,25 @@ async function handleSkillRoutes(request: Request, env: Env, auth: ResolvedOrgAu
     if (!content) return Response.json({ ok: false, error: "invalid_skill" }, { status: 400 });
     const skill = await createSkill(env, auth.orgId, ownerId, content, Date.now(), mutationOptions);
     return Response.json({ ok: true, skill: publicSkill(skill, ownerId) }, { status: 201, headers: { "cache-control": "no-store" } });
+  }
+
+  if (id === "import") {
+    if (request.method !== "POST") return methodNotAllowed();
+    const body = await parseJson(request);
+    if (!body || typeof body.markdown !== "string" || Object.keys(body).some((key) => key !== "markdown" && key !== "sourceUrl")) {
+      return Response.json({ ok: false, error: "invalid_skill_markdown" }, { status: 400 });
+    }
+    let parsed;
+    try { parsed = SkillMarkdown.parse(body.markdown); } catch (error) {
+      if (error instanceof SkillMarkdownError) return Response.json({ ok: false, error: error.code }, { status: 400 });
+      throw error;
+    }
+    // Imports always land as drafts; review and activation stay separate human steps.
+    const content = parseSkillContent({ name: parsed.name, instructions: parsed.instructions, sourceUrl: body.sourceUrl });
+    if (!content) return Response.json({ ok: false, error: "invalid_skill" }, { status: 400 });
+    const skill = await createSkill(env, auth.orgId, ownerId, content, Date.now(), mutationOptions);
+    return Response.json({ ok: true, skill: publicSkill(skill, ownerId), ignoredKeys: parsed.ignoredKeys },
+      { status: 201, headers: { "cache-control": "no-store" } });
   }
 
   if (!id) return methodNotAllowed();
