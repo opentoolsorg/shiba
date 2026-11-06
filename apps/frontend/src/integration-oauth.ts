@@ -42,6 +42,7 @@ export function integrationOAuthTarget(value: string): string {
 }
 
 /** OAuth completion messages are hints only. Only a fresh owned-account read confirms consent. */
+/** Coordinate isolated OAuth popups and verify consent against freshly read owned accounts. */
 export function useIntegrationOAuth(options: {
   actorId?: string | null;
   onVerified?: (connection: IntegrationProviderConnection) => void;
