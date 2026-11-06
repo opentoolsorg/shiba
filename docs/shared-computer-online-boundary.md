@@ -4,6 +4,14 @@ Status: **blocked for online browsing and agent control; offline human desktop o
 Inspected at `d424d0385ae632fda3f802356f845301bf1774b9`. This design does not enable
 network access, change the API, approve execution, or certify live Cloudflare behavior.
 
+## Design follow-up
+
+The owner selected **online browsing design first** and **model funding only**
+on November 6, 2026. The [staged proposal](shared-computer-online-design.md)
+recommends a separate public, human-controlled browser mode, lists approval and
+transport proof gates, and leaves activation and external catalog selection
+unapproved. It does not relax this offline boundary or authorize agent control.
+
 ## Actual transport and enforced boundary
 
 - `apps/backend/src/computer-session.ts` owns a dedicated raw Workers `Container`
