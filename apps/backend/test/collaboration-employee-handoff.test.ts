@@ -490,7 +490,7 @@ describe("approval-gated employee handoffs", () => {
     ).toEqual({ approval_id: "approval-employee-1", run_id: "agent-tool:approval-employee-1" });
   });
 
-  it("queues a repo-free artifact-workspace handoff through approval and persists its completed employee reply", async () => {
+  it.each(["sandbox", "local"] as const)("queues a repo-free %s artifact handoff through approval and persists its completed employee reply", async (runtime) => {
     const f = fixture();
     const employee = await createCustomAgent(f.env, "self-hosted", "writer", {
       name: "Report Writer",
@@ -519,10 +519,13 @@ describe("approval-gated employee handoffs", () => {
         kind: "artifact-workspace",
         expectedDeliverables: ["reports/room-summary.md"],
       },
-      runtime: "sandbox",
+      runtime,
+      ...(runtime === "local" ? { targetMachineId: "paired-fixture" } : {}),
     }));
 
     expect(state.queued).toMatchObject({
+      runtime,
+      ...(runtime === "local" ? { targetMachineId: "paired-fixture" } : {}),
       task: "Summarize the provided meeting notes into a short report.",
       executionTarget: {
         kind: "artifact-workspace",

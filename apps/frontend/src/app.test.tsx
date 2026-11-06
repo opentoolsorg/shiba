@@ -32,12 +32,15 @@ vi.mock("./auth-client", () => ({ authClient: { signOut: vi.fn() } }));
 vi.mock("./components/FirstRunWizard", () => ({ FirstRunWizard: () => null, ONBOARDING_STORAGE_KEY: "onboarding" }));
 vi.mock("./components/ThemeProvider", () => ({ useTheme: () => ({ resolvedTheme: "light", setTheme: vi.fn() }) }));
 vi.mock("./components/InboxTab", () => ({ InboxTab: () => <div data-testid="private-mailbox">PRIVATE-MAILBOX-CONTENT</div> }));
-vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChange, onSubmit, onExecutionTargetKindChange, onArtifactDeliverablesChange, isSubmitting }: {
+vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChange, onSubmit, onExecutionTargetKindChange, onArtifactDeliverablesChange, isSubmitting, runTarget, onRunTargetChange }: {
+  runTarget?: "sandbox" | "local"; onRunTargetChange?: (value: "sandbox" | "local") => void;
   task: string; onTaskChange: (value: string) => void; onSubmit: (event: FormEvent) => void;
   onExecutionTargetKindChange?: (kind: "repository" | "artifact-workspace") => void; onArtifactDeliverablesChange?: (value: string) => void; isSubmitting?: boolean;
 }) => <form data-testid="task-composer" onSubmit={onSubmit}>
   <textarea aria-label="Task draft" value={task} onChange={(event) => onTaskChange(event.target.value)} />
   <button type="button" onClick={() => { onExecutionTargetKindChange?.("artifact-workspace"); onArtifactDeliverablesChange?.(""); }}>Use automatic workspace</button>
+  <button type="button" onClick={() => onRunTargetChange?.("local")}>Use local computer</button>
+  <output data-testid="selected-runtime">{runTarget}</output>
   <button type="submit" disabled={isSubmitting}>Queue fixture task</button>
 </form> }));
 vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value }: { value: string }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} readOnly /></div> }));
@@ -132,6 +135,16 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
+  it("preserves an explicit local artifact selection instead of silently switching to sandbox", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem("shiba:conversation-mode:default", "work");
+    window.history.replaceState(null, "", "/threads/");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Use local computer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use automatic workspace" }));
+    await waitFor(() => expect(screen.getByTestId("selected-runtime").textContent).toBe("local"));
+  });
+
   it("retries an unacknowledged automatic workspace with one frozen target and command receipt", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     localStorage.setItem("shiba:conversation-mode:default", "work");

@@ -55,6 +55,22 @@ describe("ConversationWorkspaceHeading", () => {
     expect(screen.getByLabelText("Next task target: Cloud sandbox, Artifact workspace, Launch notes")).toBeTruthy();
   });
 
+  it("labels local artifact execution without showing a repository or claiming cloud execution", () => {
+    render(
+      <ConversationWorkspaceHeading
+        title="Research brief"
+        executionTargetKind="artifact-workspace"
+        runTarget="local"
+        repoUrl="https://github.com/acme/ignored"
+        artifactWorkspaceName="Launch notes"
+        machineName="dev-laptop"
+      />,
+    );
+
+    expect(screen.getByLabelText("Next task target: Local computer, Artifact workspace, Launch notes")).toBeTruthy();
+    expect(screen.queryByText(/Cloud sandbox|acme\/ignored/)).toBeNull();
+  });
+
   it("identifies the paired local machine when local repository execution is selected", () => {
     render(
       <ConversationWorkspaceHeading

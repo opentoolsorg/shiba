@@ -4,14 +4,14 @@ import { describeTaskRoute } from "./supported-task-routes";
 const repository = { runtime: "sandbox", workType: "repository", harness: "claude-code", model: "anthropic/example", connectionId: "", connections: [] } as const;
 
 describe("declared coding task routes", () => {
-  it.each(["claude-code", "codex"])("describes %s API work on a sandbox and repository-only local work", (harness) => {
+  it.each(["claude-code", "codex"])("describes %s API work on a sandbox and bounded local artifact work", (harness) => {
     expect(describeTaskRoute({ ...repository, harness }).blockedReason).toBeNull();
     expect(describeTaskRoute({ ...repository, harness, workType: "artifact-workspace" }).blockedReason).toBeNull();
     const local = describeTaskRoute({ ...repository, harness, runtime: "local" });
     expect(local.blockedReason).toBeNull();
     expect(local.account).toContain("computer's CLI credentials");
     expect(local.billing).toContain("check the account on that computer");
-    expect(describeTaskRoute({ ...repository, harness, runtime: "local", workType: "artifact-workspace" }).blockedReason).toContain("Choose Cloud explicitly");
+    expect(describeTaskRoute({ ...repository, harness, runtime: "local", workType: "artifact-workspace" }).blockedReason).toBeNull();
   });
 
   it("does not route a local ChatGPT subscription harness or connected-app work through a CLI", () => {

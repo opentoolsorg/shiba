@@ -58,14 +58,14 @@ export function ConversationWorkspaceHeading({
   className = "",
 }: ConversationWorkspaceHeadingProps): JSX.Element {
   const artifact = executionTargetKind === "artifact-workspace";
-  const local = runTarget === "local" && !artifact;
+  const local = runTarget === "local";
   const target = artifact
     ? artifactWorkspaceName.trim() || "Untitled workspace"
     : local
       ? machineName?.trim() || "Paired computer"
       : repositoryLabel(repoUrl);
   const targetKind = artifact ? "Artifact workspace" : "Repository";
-  const execution = artifact ? "Cloud sandbox" : local ? "Local computer" : "Cloud sandbox";
+  const execution = local ? "Local computer" : "Cloud sandbox";
   const TargetIcon = artifact ? FileText : local ? Laptop : FolderGit2;
   const ExecutionIcon = local ? Laptop : Cloud;
 

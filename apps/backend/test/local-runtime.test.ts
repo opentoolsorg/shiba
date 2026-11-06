@@ -477,6 +477,34 @@ function queueRequest(body: unknown, headers: Record<string, string> = {}) {
 const RUN_BODY = { repoUrl: "https://github.com/o/r", task: "fix the tests" };
 
 describe("T51 intake boundary", () => {
+  const artifactInput = { repoUrl: "", task: "Write a brief", runtime: "local", harness: "opencode",
+    executionTarget: { kind: "artifact-workspace", workspaceId: "local-brief", expectedDeliverables: ["out/brief.md"] } };
+
+  it("freezes explicitly selected local artifacts without starting execution", async () => {
+    const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1", AI_GATEWAY_TOKEN: "" });
+    const response = await orchestrator.onRequest(queueRequest(artifactInput, { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }));
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(orchestrator.state.pendingApprovals?.[0]).toMatchObject({ status: "pending", runtime: "local", repoUrl: "",
+      expectedDeliverables: ["out/brief.md"], executionTarget: artifactInput.executionTarget });
+    expect(orchestrator.state.runs).toEqual([]);
+  });
+
+  it.each([
+    { headers: {}, env: { [LOCAL_RUNTIME_FLAG]: "1" }, status: 403 },
+    { headers: { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }, env: {}, status: 403 },
+  ])("retains local artifact authority gates: %j", async ({ headers, env, status }) => {
+    expect((await makeOrchestrator(env).onRequest(queueRequest(artifactInput, headers as Record<string, string>))).status).toBe(status);
+  });
+
+  it.each([
+    { executionTarget: { ...artifactInput.executionTarget, expectedDeliverables: [] } },
+    { publishPullRequest: true }, { runSetup: true }, { repoUrl: "https://github.com/o/r" },
+  ])("rejects conflicting local artifact authority: %j", async (extra) => {
+    const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" });
+    expect((await orchestrator.onRequest(queueRequest({ ...artifactInput, ...extra }, { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }))).status).toBe(400);
+    expect(orchestrator.state.pendingApprovals ?? []).toEqual([]);
+  });
+
   it("rejects an unknown runtime value", async () => {
     const res = await makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" }).onRequest(
       queueRequest({ ...RUN_BODY, runtime: "nonsense" }),

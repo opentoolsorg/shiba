@@ -76,6 +76,22 @@ beforeEach(() => {
 });
 
 describe("ephemeral profile intake", () => {
+  it("freezes explicit local artifacts from dashboard chat without converting them to sandbox", async () => {
+    const f = fixture();
+    Object.assign(f.instance, { name: "owner@example.test", env: { ...f.instance.env, SHIBA_LOCAL_RUNTIME: "1", AI_GATEWAY_TOKEN: "" } });
+    await expect(f.gate({ runtime: "local" })).resolves.toBe(true);
+    expect(f.instance.state.pendingApprovals?.[0]).toMatchObject({ runtime: "local", status: "pending", repoUrl: "",
+      expectedDeliverables: ["out/marketing/brief.md", "out/sources.json", "out/human.md"] });
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects explicit local artifacts from non-dashboard chat before approval", async () => {
+    const f = fixture();
+    Object.assign(f.instance, { name: "slack:T:C:123", env: { ...f.instance.env, SHIBA_LOCAL_RUNTIME: "1" } });
+    await expect(f.gate({ runtime: "local" })).rejects.toThrow("dashboard session");
+    expect(f.instance.state.pendingApprovals ?? []).toEqual([]);
+  });
+
   it.each(["http", "chat"])("preserves the explicit ephemeral workspace through %s profile defaults and freezes executable outputs", async (surface) => {
     const f = fixture();
     if (surface === "http") expect((await f.queue()).status).toBe(200);
@@ -170,14 +186,14 @@ describe("ephemeral profile intake", () => {
     expect(f.instance.state.pendingApprovals ?? []).toEqual([]);
   });
 
-  it("freezes an isolated cloud runtime and its sealed context despite a local deployment default", async () => {
+  it("preserves an explicitly selected cloud runtime and sealed context on a local-default deployment", async () => {
     const metadata: Record<string, unknown> = { workspaceTarget: { type: "ephemeral", workspaceId: "cloud-only" }, expectedDeliverables: ["out/human.md"] };
     const f = fixture(metadata);
     f.instance.name = "human@example.com";
     f.instance.env.RUNTIME = "local";
     const sealed = await sealRunEnv(f.instance.env, f.instance.name, [{ name: "CAMPAIGN_LABEL", value: "summer-campaign" }]);
     metadata.environment = { sealed: sealed.sealed, digest: sealed.digest };
-    await expect(f.gate({ runtime: "local" })).resolves.toBe(true);
+    await expect(f.gate({ runtime: "sandbox" })).resolves.toBe(true);
     expect(f.instance.state.pendingApprovals?.[0]).toMatchObject({
       runtime: "sandbox", repoUrl: "", executionTarget: { workspaceId: "cloud-only" },
       envNames: ["CAMPAIGN_LABEL"], envDigest: sealed.digest,
@@ -185,12 +201,12 @@ describe("ephemeral profile intake", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
-  it("applies cloud provider preflight even when both the deployment and model request local execution", async () => {
+  it("applies cloud provider preflight when sandbox is explicitly selected on a local-default deployment", async () => {
     mocks.resolveCustom.mockResolvedValue({ ...PROFILE, config: { ...PROFILE.config, sandboxProvider: "e2b" } });
     const f = fixture();
     f.instance.name = "human@example.com";
     f.instance.env.RUNTIME = "local";
-    await expect(f.gate({ runtime: "local" })).rejects.toThrow(/e2b|egress|capabilit/i);
+    await expect(f.gate({ runtime: "sandbox" })).rejects.toThrow(/e2b|egress|capabilit/i);
     expect(f.instance.state.pendingApprovals ?? []).toEqual([]);
     expect(mocks.execute).not.toHaveBeenCalled();
   });
