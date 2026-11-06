@@ -174,9 +174,15 @@ Tags in `wrangler.jsonc` `migrations` are **append-only**. Never edit or remove 
 
 Wrangler 4.140 has no `migrations list` subcommand. Read the tag the plan
 intends to apply from `pnpm deploy:preview`, and the tag already on the script
-from the current version's details in the dashboard (Workers → the Worker →
-Deployments). A deploy whose recorded tag is missing from `wrangler.jsonc` is
-rejected with a migration-tag mismatch; add the missing tag, never edit one.
+from `GET /accounts/<account_id>/workers/services/<worker>`
+(`default_environment.script.migration_tag`) or the current version's details
+in the dashboard (Workers → the Worker → Deployments).
+
+If that tag is missing from `wrangler.jsonc`, **stop before deploying**.
+Wrangler only warns and then submits every configured migration step, which
+fails on the first class that already exists. Reconcile the history and add the
+missing tag; never edit an existing one. If the tag is present but not last,
+wrangler applies only the entries after it.
 
 ---
 
