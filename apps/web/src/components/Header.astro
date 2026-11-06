@@ -60,11 +60,11 @@ const resolveSectionHref = (href: string): string =>
 ---
 
 <header class="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur-lg">
-  <div class="mx-auto grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 h-14 px-4 lg:px-6">
+  <div class="mx-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 h-14 px-4 lg:px-6">
     <div class="flex items-center gap-3 min-w-0">
       <slot name="brand">
         {/* Same round mark and wordmark as the marketing header. */}
-        <a href={homeHref} class="flex shrink-0 items-center gap-2.5 text-foreground transition-opacity hover:opacity-70" aria-label={`${config.title} docs home`}>
+        <a href={homeHref} class="flex shrink-0 items-center gap-2.5 text-foreground transition-opacity hover:opacity-70" aria-label={`${config.title} Docs site home`}>
           <img src="/assets/mascot/pet-logo.png" alt="" width="28" height="28" class="h-7 w-7 shrink-0 rounded-full border border-border bg-[#faf5f1] object-contain p-0.5" />
           <span class="text-[1.625rem] leading-none tracking-[0.04em]" style="font-family:'Bebas Neue','Geist',sans-serif">{config.title.toUpperCase()}</span>
           <span class="font-mono text-[0.75rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">Docs</span>
@@ -91,7 +91,6 @@ const resolveSectionHref = (href: string): string =>
       )}
     </div>
 
-    <div class="justify-self-center">{config.search !== false && <SearchTrigger />}</div>
     <div class="flex items-center justify-self-end gap-2 shrink-0">
       <slot name="actions" />
       {config.github && (
@@ -120,6 +119,7 @@ const resolveSectionHref = (href: string): string =>
           class="md:hidden text-muted-foreground"
         />
       )}
+      {config.search !== false && <SearchTrigger />}
     </div>
   </div>
   {/* Phones: the tabs on a row of their own under the bar. */}

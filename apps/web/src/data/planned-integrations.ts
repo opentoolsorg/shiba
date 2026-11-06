@@ -60,6 +60,7 @@ export const plannedTools: PlannedTool[] = inventory.map((tool, i) => ({
   logoStyle: `left:-${(i % 4) * 48}px;top:-${Math.floor(i / 4) * 48}px`,
 }));
 
+/** Filters planned catalog entries by case-insensitive query and category. */
 export function filterPlanned<T extends { name: string; category: string }>(
   tools: readonly T[],
   { query = '', category = 'All' }: { query?: string; category?: string },
