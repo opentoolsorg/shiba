@@ -71,19 +71,29 @@ describe("SettingsPage", () => {
     expect(onBack).toHaveBeenCalled();
   });
 
-  it("renders TeamWorkspaceView when section is team", () => {
-    const fetcher = vi.fn(async () => Response.json({ workspace: null }));
+  it("forwards Slack setup from Team settings", async () => {
+    const id = `ws_${"a".repeat(24)}`;
+    const fetcher = vi.fn(async () => Response.json({ workspace: {
+      workspaceId: id, name: "Acme team", version: 1, createdAt: 1,
+      membership: { workspaceId: id, userId: "test@example.com", role: "owner", version: 1, joinedAt: 1 },
+      members: [{ workspaceId: id, userId: "test@example.com", role: "owner", version: 1, joinedAt: 1 }],
+      invitations: [],
+    } }));
     vi.stubGlobal("fetch", fetcher);
+    const onOpenApps = vi.fn();
 
     render(
       <SettingsPage
         section="team"
         actorId="test@example.com"
-        workspaceId="ws_123"
+        workspaceId={id}
+        onOpenApps={onOpenApps}
       />,
     );
 
     expect(screen.getByLabelText("Team workspace settings")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Open Slack setup" }));
+    expect(onOpenApps).toHaveBeenCalledOnce();
   });
 
   it("renders RemoteAccessView when section is remote", () => {
