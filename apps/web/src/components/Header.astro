@@ -60,7 +60,7 @@ const resolveSectionHref = (href: string): string =>
 ---
 
 <header class="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur-lg">
-  <div class="mx-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 h-14 px-4 lg:px-6">
+  <div class="mx-auto grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 h-14 px-4 lg:px-6">
     <div class="flex items-center gap-3 min-w-0">
       <slot name="brand">
         {/* Same round mark and wordmark as the marketing header. */}
@@ -91,6 +91,8 @@ const resolveSectionHref = (href: string): string =>
       )}
     </div>
 
+    {config.search !== false && <div class="hidden md:flex justify-self-center"><SearchTrigger /></div>}
+
     <div class="flex items-center justify-self-end gap-2 shrink-0">
       <slot name="actions" />
       {config.github && (
@@ -108,6 +110,7 @@ const resolveSectionHref = (href: string): string =>
         </LinkButton>
       )}
       <ThemeToggle />
+      {config.search !== false && <div class="md:hidden"><SearchTrigger /></div>}
       {showSidebar && (
         <Button
           variant="ghost"
@@ -119,7 +122,6 @@ const resolveSectionHref = (href: string): string =>
           class="md:hidden text-muted-foreground"
         />
       )}
-      {config.search !== false && <SearchTrigger />}
     </div>
   </div>
   {/* Phones: the tabs on a row of their own under the bar. */}
