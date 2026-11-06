@@ -53,6 +53,8 @@ let agentId;
 let sessionId;
 let approvalId;
 let runId;
+let artifactAgentId;
+let artifactSessionId;
 let stage = "create";
 
 async function json(path) {
@@ -139,6 +141,14 @@ try {
   assert.equal(session.metadata.customAgentId, agentId);
   await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
   await assertThreadProfile();
+  const launchPanel = page.getByTestId("bot-launch-panel");
+  await launchPanel.and(page.locator('[data-ready="true"]')).waitFor();
+  assert.match(await page.getByTestId("bot-launch-target").innerText(), /https:\/\/github\.com\/cloudflare\/ai-chat/);
+  await launchPanel.getByTestId("bot-synthetic-badge").waitFor();
+  const readinessRead = await json(`/api/custom-agents/${agentId}/readiness`);
+  assert.equal(readinessRead.readiness.synthetic, true, "Stand-in deployments must label execution as synthetic");
+  report.launchReadiness = readinessRead.readiness;
+  await page.screenshot({ path: resolve(output, "launch-readiness.png"), fullPage: true });
   await page.getByLabel("Task description", { exact: true }).fill(task);
   await directory();
   const resumeResponse = page.waitForResponse((response) =>
@@ -148,7 +158,7 @@ try {
   await card().getByRole("list", { name: `${name} threads`, exact: true }).getByRole("button").filter({ hasText: name }).first().click();
   assert.equal((await resumeResponse).status(), 200, "Reopening a bot conversation must resume its named session");
   await assertThreadProfile();
-  passed("Launch a bot conversation and reopen it from the bot's own thread history");
+  passed("Launch a bot conversation, show its default target and preflight readiness before Send task, and reopen it from the bot's own thread history");
 
   stage = "queue";
   const composer = page.getByLabel("Task description", { exact: true });
@@ -260,6 +270,12 @@ try {
   await openAppView(page, "Chats");
   await page.getByRole("complementary", { name: "Chats", exact: true }).getByRole("region", { name: "Recents", exact: true }).getByRole("button").filter({ hasText: name }).first().click();
   await page.getByTestId("run-agent-version").filter({ hasText: "Bot profile v2" }).first().waitFor();
+  const workView = page.getByTestId("bot-run-workspace").and(page.locator('[data-run-status="completed"]'));
+  await workView.waitFor();
+  await workView.getByTestId("run-synthetic-badge").waitFor();
+  assert.equal(await workView.locator('[data-step="approval"]').getAttribute("data-state"), "done");
+  assert.equal(await workView.locator('[data-step="result"]').getAttribute("data-state"), "done");
+  assert.equal(await workView.getByTestId("run-progress").count(), 1, "Live activity and deliverables render inside the run's work view");
   const reviewRead = await reviewReadPromise;
   assert.equal(new URL(reviewRead.url()).searchParams.get("session"), sessionId);
   assert.equal(reviewRead.status(), 200, "Named conversation review must resolve its own run");
@@ -271,7 +287,7 @@ try {
     pullRequest: { requested: false, visible: false },
   };
   await page.screenshot({ path: resolve(output, "completed-profile-run.png"), fullPage: true });
-  passed("Conversation history shows the frozen bot version and scopes review/PR reads without false missing-run errors");
+  passed("One work view shows the persisted plan, synthetic label, live panel, and review for the completed run; review/PR reads stay scoped");
 
   stage = "archive";
   await directory();
@@ -306,6 +322,32 @@ try {
   assert.deepEqual(snapshot(history.run ?? history), snapshot(approvedInput));
   await page.screenshot({ path: resolve(output, "restored-agent-history.png"), fullPage: true });
   passed("Restore retains the latest editable profile and the older run's frozen provenance and conversation history");
+
+  stage = "artifact-bot";
+  await directory();
+  await page.getByText("Advanced settings", { exact: true }).click();
+  await page.getByLabel("Slug", { exact: true }).fill(`${slug}-artifact`);
+  await page.getByLabel("Name", { exact: true }).fill(`${name} writer`);
+  await page.getByLabel(/^Instructions/).fill(instructions(1));
+  await page.getByLabel("Harness", { exact: true }).fill("opencode");
+  await page.getByLabel("Model", { exact: true }).fill(model);
+  await page.getByRole("combobox", { name: /^Model connection/ }).selectOption("");
+  await page.getByLabel("Default repository", { exact: true }).fill("");
+  const artifactCreate = page.waitForResponse((response) => response.url().endsWith("/api/custom-agents") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Create bot", exact: true }).click();
+  const artifactCreated = await artifactCreate;
+  assert.equal(artifactCreated.status(), 201, await artifactCreated.text());
+  artifactAgentId = (await artifactCreated.json()).agent.id;
+  const artifactSession = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
+  await page.getByRole("button", { name: `Launch bot ${name} writer`, exact: true }).click();
+  artifactSessionId = (await (await artifactSession).json()).session.id;
+  await page.getByTestId("bot-launch-panel").and(page.locator('[data-ready="true"]')).waitFor();
+  assert.match(await page.getByTestId("bot-launch-target").innerText(), /artifact workspace \(no repository\)/);
+  assert.equal(await page.getByTestId("task-composer").getByRole("combobox", { name: "Work target", exact: true }).inputValue(), "artifact-workspace");
+  const artifactReadiness = await json(`/api/custom-agents/${artifactAgentId}/readiness`);
+  assert.equal(artifactReadiness.readiness.target.kind, "artifact-workspace");
+  await page.screenshot({ path: resolve(output, "artifact-bot-launch.png"), fullPage: true });
+  passed("A bot without a repository launches straight into an artifact-workspace composer with readiness shown up front");
   report.status = "PASS";
 } catch (error) {
   report.status = "FAIL";
@@ -313,7 +355,7 @@ try {
   await page.screenshot({ path: resolve(output, "failure.png"), fullPage: true }).catch(() => {});
   process.exitCode = 1;
 } finally {
-  report.fixture = { agentId, sessionId, approvalId, runId };
+  report.fixture = { agentId, sessionId, approvalId, runId, artifactAgentId, artifactSessionId };
   report.cleanup = [];
   // Only IDs returned by this invocation are eligible for cleanup.
   if (approvalId) {
@@ -323,7 +365,7 @@ try {
       report.cleanup.push({ kind: "pending-approval", status: rejected.status() });
     }
   }
-  for (const [kind, id] of [["sessions", sessionId], ["custom-agents", agentId]]) {
+  for (const [kind, id] of [["sessions", sessionId], ["sessions", artifactSessionId], ["custom-agents", agentId], ["custom-agents", artifactAgentId]]) {
     if (!id) continue;
     try {
       const response = await page.request.delete(new URL(`/api/${kind}/${encodeURIComponent(id)}`, base).href, { headers: { origin: base.origin } });

@@ -340,6 +340,52 @@
           }
         }
       },
+      "BotReadinessProblem": {
+        "type": "object",
+        "required": ["id", "severity", "message", "fix"],
+        "properties": {
+          "id": { "type": "string" },
+          "severity": { "type": "string", "enum": ["error", "warn"] },
+          "message": { "type": "string" },
+          "fix": {
+            "type": "object",
+            "required": ["label", "view"],
+            "properties": {
+              "label": { "type": "string" },
+              "view": { "type": "string", "enum": ["providers", "settings", "custom-agents"] }
+            }
+          }
+        }
+      },
+      "BotReadiness": {
+        "type": "object",
+        "required": ["ready", "target", "harness", "model", "connectionId", "synthetic", "problems"],
+        "properties": {
+          "ready": { "type": "boolean", "description": "False when any error-severity problem would block queueing." },
+          "target": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["kind", "repoUrl"],
+                "properties": { "kind": { "type": "string", "enum": ["repository"] }, "repoUrl": { "type": "string" } }
+              },
+              {
+                "type": "object",
+                "required": ["kind", "expectedDeliverables"],
+                "properties": {
+                  "kind": { "type": "string", "enum": ["artifact-workspace"] },
+                  "expectedDeliverables": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            ]
+          },
+          "harness": { "type": "string" },
+          "model": { "type": "string" },
+          "connectionId": { "type": ["string", "null"] },
+          "synthetic": { "type": "boolean", "description": "True when this deployment runs the verify-shiba stand-in instead of real execution." },
+          "problems": { "type": "array", "items": { "$ref": "#/components/schemas/BotReadinessProblem" } }
+        }
+      },
       "CustomAgent": {
         "type": "object",
         "required": [
@@ -752,6 +798,27 @@
           "409": {
             "description": "Version conflict"
           }
+        }
+      }
+    },
+    "/org-agents/{agentId}/readiness": {
+      "get": {
+        "summary": "Check whether a bot can be given a task",
+        "description": "Runs the same read-only preflight a queued run uses (model route, credentials, sandbox) against the bot's saved defaults. It never creates an approval or starts work; human approval is still required after a task is queued.",
+        "parameters": [{ "name": "agentId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "Launch readiness for the bot's default target",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "ok": { "type": "boolean" }, "readiness": { "$ref": "#/components/schemas/BotReadiness" } }
+                }
+              }
+            }
+          },
+          "404": { "description": "Bot not found or archived" }
         }
       }
     },
