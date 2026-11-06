@@ -26,6 +26,8 @@
   --lp-font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --lp-font-display: 'Bebas Neue', 'Geist', 'Arial Narrow', sans-serif;
   --lp-gutter: 64px;
+  --lp-motion-duration: 560ms;
+  --lp-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
 
   color-scheme: light;
   background: var(--lp-paper);
@@ -170,6 +172,33 @@ html[data-theme='dark'] .landing {
 
 .landing :is(input, select, textarea):focus-visible {
   outline-offset: 2px;
+}
+
+/* Entrances are opt-in and finite; the resting state is always visible.
+ * No pending/hidden class: failed scripts or observers cannot strand content. */
+@keyframes lp-enter {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .landing [data-motion='hero']:not([data-motion-done]) > :nth-child(-n + 6) {
+    animation: lp-enter var(--lp-motion-duration) var(--lp-motion-ease) backwards;
+  }
+
+  .landing [data-motion='reveal'].lp-enter {
+    animation: lp-enter var(--lp-motion-duration) var(--lp-motion-ease) backwards;
+  }
+
+  .landing [data-motion='hero']:not([data-motion-done]) > :nth-child(2) { animation-delay: 60ms; }
+  .landing [data-motion='hero']:not([data-motion-done]) > :nth-child(3) { animation-delay: 120ms; }
+  .landing [data-motion='hero']:not([data-motion-done]) > :nth-child(4) { animation-delay: 180ms; }
+  .landing [data-motion='hero']:not([data-motion-done]) > :nth-child(5) { animation-delay: 240ms; }
+  .landing [data-motion='hero']:not([data-motion-done]) > :nth-child(6) { animation-delay: 300ms; }
+
+  .landing [data-motion='hero']:focus-within > :nth-child(-n + 6),
+  .landing .lp-enter:focus-within,
+  .landing [data-motion='hero']:focus-within > * { animation: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
