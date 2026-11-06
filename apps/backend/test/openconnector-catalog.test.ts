@@ -109,9 +109,19 @@ describe("OpenConnector full catalog (fixture upstream)", () => {
     const adapter = new OpenConnectorIntegrationProvider({ env: configured, fetchImpl });
     expect(await adapter.beginConnect(context)).toMatchObject({ ok: false, error: expect.stringContaining("Disconnect") });
     expect(await adapter.beginConnect({ ...context, replaceUnavailable: true })).toMatchObject({ ok: true, redirectUrl: "https://vendor.example.test/consent?state=s" });
-    const deletes = fetchImpl.mock.calls.filter(([, init]) => init?.method === "DELETE");
-    expect(deletes).toHaveLength(1);
-    expect(JSON.parse(String(deletes[0]![1]!.body))).toEqual({ connectionName: own });
+    expect(fetchImpl.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+
+    const rejected = upstream([expired]);
+    rejected.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === "/api/oauth/authorizations") return new Response("rejected", { status: 400 });
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/providers") return Response.json(services);
+      if (path === "/api/connections") return Response.json([expired]);
+      if (/^\/v1\/providers\/([^/]+)\/setup$/.test(path)) return Response.json({ success: true, data: { service: "svc_005", oauthClient: { configured: true, missingFields: [] } } });
+      throw new Error(`Unexpected fixture request ${path}`);
+    });
+    expect(await new OpenConnectorIntegrationProvider({ env: configured, fetchImpl: rejected }).beginConnect({ ...context, replaceUnavailable: true })).toMatchObject({ ok: false });
+    expect(rejected.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
 
     const active = upstream([{ ...expired, status: "active" }]);
     expect(await new OpenConnectorIntegrationProvider({ env: configured, fetchImpl: active }).beginConnect({ ...context, replaceUnavailable: true })).toMatchObject({ ok: false, error: expect.stringContaining("active") });
