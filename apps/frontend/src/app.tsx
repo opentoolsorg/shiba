@@ -554,9 +554,9 @@ export function App(): React.JSX.Element {
   const [settingsSection, setSettingsSection] = useState<string>(() =>
     typeof window === "undefined" ? "account" : normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
   const previousViewRef = useRef<MainView>(DEFAULT_VIEW);
-  const clearRoomLinkRef = useRef<() => boolean>(() => true);
+  const clearRoomLinkRef = useRef<() => void>(() => {});
   const openView = useCallback((view: AppNavView) => {
-    if (view !== "threads" && view !== "collaboration" && !clearRoomLinkRef.current()) return;
+    if (view !== "threads" && view !== "collaboration") clearRoomLinkRef.current();
     setShowFirstRun(false);
     if (view === "settings") previousViewRef.current = currentNavigation.current.view === "settings" ? previousViewRef.current : currentNavigation.current.view;
     setMainView(view);
@@ -793,14 +793,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const teamIdentityAvailable = signedIn && /^[^\s@:]+@[^\s@:]+\.[^\s@:]+$/.test(orchestratorName ?? "");
   const teamDirectory = useTeamWorkspaceDirectory({ actorId: teamIdentityAvailable ? orchestratorName?.trim().toLowerCase() ?? null : null, enabled: teamIdentityAvailable });
   const roomRoute = useRoomLinkRoute(teamIdentityAvailable ? orchestratorName?.trim().toLowerCase() ?? null : null, teamDirectory);
-  const { ready: roomRouteReady, clear: clearRoomRoute } = roomRoute;
+  const { clear: clearRoomRoute } = roomRoute;
   useEffect(() => {
-    clearRoomLinkRef.current = () => {
-      if (!roomRouteReady) return false;
-      clearRoomRoute();
-      return true;
-    };
-  }, [roomRouteReady, clearRoomRoute]);
+    clearRoomLinkRef.current = clearRoomRoute;
+  }, [clearRoomRoute]);
   const workspaceAuthorityReady = roomRoute.ready && (!teamIdentityAvailable || teamDirectory.verified);
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
   // Entering Settings inside a team workspace lands on its only team section, not a personal-only notice.

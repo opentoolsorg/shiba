@@ -60,6 +60,21 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
 
 describe("app employee onboarding", () => {
+  it("lets navigation leave an invalid room link without switching workspaces", async () => {
+    const workspaceId = `ws_${"a".repeat(24)}`;
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?workspace=${workspaceId}&room=invalid`);
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Workspace access could not be verified" });
+    const settingsButton = screen.getByRole("button", { name: "Settings" });
+    fireEvent.click(settingsButton);
+
+    await waitFor(() => expect(settingsButton.getAttribute("aria-current")).toBe("page"));
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(screen.queryByRole("button", { name: "Switch to personal workspace" })).toBeNull();
+  });
+
   it("shows on first run, skips, and persists dismissal across remounts", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Set up your AI employees" });
