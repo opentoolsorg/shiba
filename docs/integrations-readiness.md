@@ -160,7 +160,7 @@ Record the account, exact action, success/error, cleanup and cross-user denial
 without recording credential values. This document does not claim those live
 vendor checks have passed.
 
-The [November 6 OpenConnector catalog fixture journey](verification/openconnector-catalog-fixture-20261106.md)
+The [November 6 OpenConnector catalog fixture journey](verification/openconnector-catalog-fixture-20261106/README.md)
 covers catalog search/readiness, connect/reconnect/disconnect and responsive
 layout against intercepted synthetic OpenConnector responses. All evidence is
 explicitly fixture-only; no sibling Worker, vendor, account or credential was used.
