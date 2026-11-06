@@ -1,0 +1,48 @@
+{
+  "evidence": "FIXTURE: Vite dashboard with intercepted /api; synthetic OpenConnector catalog (120 services) and consent page; no Worker, sibling, vendor or credentials",
+  "steps": [
+    {
+      "name": "open connectors tab",
+      "ok": true
+    },
+    {
+      "name": "browse full catalog with counts",
+      "ok": true
+    },
+    {
+      "name": "filter needs_configuration has no Connect",
+      "ok": true
+    },
+    {
+      "name": "filter ready + search svc_005",
+      "ok": true
+    },
+    {
+      "name": "connect via fixture consent popup",
+      "ok": true
+    },
+    {
+      "name": "active account has no Reconnect",
+      "ok": true
+    },
+    {
+      "name": "expired account shows Reconnect and replaces consent",
+      "ok": true
+    },
+    {
+      "name": "disconnect",
+      "ok": true
+    },
+    {
+      "name": "direct execute stays 403 (fixture route mirrors backend contract)",
+      "ok": true
+    },
+    {
+      "name": "mobile catalog",
+      "ok": true
+    }
+  ],
+  "pageErrors": [],
+  "executeRequestsFromTestOnly": 1,
+  "requests": 96
+}

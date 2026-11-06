@@ -4,6 +4,7 @@ import type { Env } from "./env.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { rejectCrossOriginMutation } from "./dashboard-mutation.js";
 import { getIntegrationProvider } from "./integrations/runtime.js";
+import { parseReadiness } from "./integrations-provider-routes.js";
 import {
   WorkspaceIntegrationError, assertWorkspaceMemberCurrent, connectionDto, createWorkspaceConnection,
   disconnectWorkspaceConnection, listWorkspaceConnections, reconcileWorkspaceConnection, saveWorkspaceGrant, workspaceGrantDirectory,
@@ -86,8 +87,10 @@ async function dispatch(request: Request, env: Env, member: WorkspaceNativeMembe
   const suffix = url.pathname.slice(BASE.length);
   if (suffix === "/connections" && request.method === "GET") return json({ ok: true, workspaceId: member.workspaceId });
   if (suffix === "/catalog" && request.method === "GET") {
+    const readiness = parseReadiness(url.searchParams.get("readiness"));
+    if (readiness === null) return json({ error: "invalid_readiness" }, 400);
     await assertWorkspaceMemberCurrent(env, member, true);
-    const result = await getIntegrationProvider(env).listCatalog({ userId: member.userId, workspaceId: member.workspaceId,
+    const result = await getIntegrationProvider(env).listCatalog({ userId: member.userId, workspaceId: member.workspaceId, ...(readiness ? { readiness } : {}),
       query: (url.searchParams.get("query") ?? "").slice(0, 200), limit: Math.max(1, Math.min(50, Number(url.searchParams.get("limit")) || 20)), cursor: url.searchParams.get("cursor") ?? undefined });
     await assertWorkspaceMemberCurrent(env, member, true);
     return json({ ok: true, workspaceId: member.workspaceId, provider: "openconnector", ...result });

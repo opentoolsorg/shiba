@@ -94,4 +94,27 @@ describe("IntegrationsBrowseCatalogDialog", () => {
     fireEvent.click(linkBtn);
     expect(onLinkExisting).toHaveBeenCalledWith(expect.objectContaining({ providerKey: "zendesk" }));
   });
+  it("requests a readiness-filtered page and labels services only from setup metadata", async () => {
+    const fetcher = vi.fn(async (path: RequestInfo | URL) => Response.json(String(path).includes("readiness=needs_configuration")
+      ? { items: [{ id: "zoom", providerKey: "zoom", name: "Zoom", description: "", source: "openconnector", isConnected: false, connectable: false, setupState: "needs_configuration" }], hasMore: false, total: 120, oauthCapable: 80 }
+      : { items: [
+        { id: "notion", providerKey: "notion", name: "Notion", description: "", source: "openconnector", isConnected: false, connectable: true, setupState: "ready" },
+        { id: "stripe", providerKey: "stripe", name: "Stripe", description: "", source: "openconnector", isConnected: false, connectable: false, setupState: "unsupported", authTypes: ["api_key"] },
+        { id: "odd", providerKey: "odd", name: "Odd", description: "", source: "openconnector", isConnected: false, connectable: false, setupState: "unverified" },
+      ], hasMore: true, nextCursor: "50", total: 120, oauthCapable: 80 }));
+    vi.stubGlobal("fetch", fetcher);
+    const connect = vi.fn();
+    render(<IntegrationsBrowseCatalogDialog open actorId="alice" onClose={() => {}} onConnect={connect} />);
+    expect(await screen.findByText("Sign-in available")).toBeTruthy();
+    expect(screen.getByText("No OAuth sign-in (api_key)")).toBeTruthy();
+    expect(screen.getByText("Readiness unverified")).toBeTruthy();
+    expect(screen.getByText(/120 provider services match · 80 declare OAuth sign-in/)).toBeTruthy();
+    expect(screen.queryByText(/Live|Connected/)).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Connect" })).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText("Filter by readiness"), { target: { value: "needs_configuration" } });
+    expect(await screen.findByText("OAuth app setup required")).toBeTruthy();
+    expect(String(fetcher.mock.calls.at(-1)?.[0])).toContain("readiness=needs_configuration");
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+    expect(connect).not.toHaveBeenCalled();
+  });
 });

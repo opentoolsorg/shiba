@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
-import type { IntegrationProviderConnection, TeamWorkspaceRole } from "@shiba/shared";
+import type { IntegrationProviderCatalogItem, IntegrationProviderConnection, TeamWorkspaceRole } from "@shiba/shared";
 import type { IntegrationBindingInputs } from "../integration-connection-bindings";
 import { ownedAppConnections, useIntegrationOAuth } from "../integration-oauth";
 import { IntegrationCatalogDirectory } from "./IntegrationCatalogDirectory";
@@ -34,6 +34,10 @@ export function WorkspaceConnectorsPanel(props: WorkspaceConnectorsPanelProps): 
       isCurrent={() => current.current === scope}
     />}
   </div>;
+}
+/** The server re-verifies OAuth client readiness before replacing the unusable row. */
+function reconnectItem(connection: IntegrationProviderConnection): IntegrationProviderCatalogItem {
+  return { id: connection.providerKey, providerKey: connection.providerKey, name: connection.providerKey, description: "", source: "openconnector", connectable: true, isConnected: false };
 }
 function OwnedAppAccounts({
   bindingInputs,
@@ -236,16 +240,32 @@ function OwnedAppAccounts({
                     </p>
                     {connection.unavailableReason && <p className="mt-1 text-xs text-[var(--ink-2)]">{connection.unavailableReason}</p>}
                   </div>
-                  <button
-                    type="button"
-                    className={BUTTON}
-                    disabled={Boolean(busy) || Boolean(oauth.connectingKey)}
-                    onClick={() => {
-                      void disconnect(connection);
-                    }}
-                  >
-                    Disconnect {connection.providerKey}
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    {connection.connectionState !== undefined && connection.connectionState !== "active" && (
+                      <button
+                        type="button"
+                        className={BUTTON}
+                        disabled={Boolean(busy) || Boolean(oauth.connectingKey)}
+                        onClick={() => {
+                          setNotice(null);
+                          setError(null);
+                          void oauth.beginConnect(reconnectItem(connection), { reconnect: true });
+                        }}
+                      >
+                        Reconnect {connection.providerKey}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={BUTTON}
+                      disabled={Boolean(busy) || Boolean(oauth.connectingKey)}
+                      onClick={() => {
+                        void disconnect(connection);
+                      }}
+                    >
+                      Disconnect {connection.providerKey}
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

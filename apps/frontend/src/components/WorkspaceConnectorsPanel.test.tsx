@@ -229,4 +229,25 @@ describe("owned OpenConnector accounts through normal HTTP paths", () => {
     expect(screen.queryByText(/hubspot disconnected/)).toBeNull();
     expect(await screen.findByText(/Alice HubSpot/)).toBeTruthy();
   });
+  it("reconnects an expired owned account through replacement consent, never for an active one", async () => {
+    let state: "expired" | "fresh" = "expired";
+    const fresh = { ...account, id: "owned-hubspot-2", authorizationFingerprint: "b".repeat(64), connectionState: "active", executionReady: true };
+    const fetcher = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/connect")) return Response.json({ ok: true, redirectUrl: "https://oauth.example.test/consent", authorizationFingerprint: fresh.authorizationFingerprint });
+      if (path.includes("/connections")) return Response.json({ ok: true, provider: "openconnector", connections: state === "fresh" ? [fresh] : path.includes("includeUnavailable=1") ? [{ ...account, connectionState: "reauth_required", executionReady: false }] : [] });
+      return Response.json(path.endsWith("/meta") ? { health: { provider: "openconnector", status: "healthy", checkedAt: 1 } } : { items: [listing], hasMore: false });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const tab = popup(); vi.spyOn(window, "open").mockReturnValue(tab);
+    render(<WorkspaceConnectorsPanel actorId="alice" bindingInputs={bindingInputs} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Reconnect hubspot" }));
+    await waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith("https://oauth.example.test/consent"));
+    const post = fetcher.mock.calls.find(([path]) => String(path).endsWith("/connect"));
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({ providerKey: "hubspot", replaceUnavailable: true });
+    state = "fresh"; fireEvent(window, new Event("focus"));
+    expect(await screen.findByText(/hubspot account confirmed/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Reconnect hubspot" })).toBeNull();
+    expect(fetcher.mock.calls.some(([path]) => String(path).endsWith("/execute"))).toBe(false);
+  });
 });

@@ -1,6 +1,6 @@
 # Apps, MCP and skills readiness
 
-This inventory describes the checked-in product contracts on November 4, 2026.
+This inventory describes the checked-in product contracts on November 6, 2026.
 Counts describe discovery options, not connected accounts or successful vendor
 calls. Each self-hosted deployment must configure and verify its own services.
 
@@ -21,10 +21,15 @@ Generic Webhook, External MCP, GitHub and Linear. A label can represent more tha
 one product, and some entries represent infrastructure rather than app actions.
 Do not add these overlapping counts or present them as 39 connected apps.
 
-The dynamic OpenConnector provider catalog depends on the sibling deployment,
-its release, configured OAuth clients and the requesting user's connections.
-Its live contents and vendor compatibility have not been independently verified
-for this preview. No fixed upstream app count is promised here.
+The dynamic OpenConnector catalog is fetched from the configured sibling Worker,
+not limited to the 39 static directory rows. The pinned v1.9.4 source contains
+1,714 provider directories; the actual deployed `/api/providers` response is the
+source of truth for a deployment and can differ by release/build. Shiba pages that
+full response with search and readiness filters. OAuth-capable rows are connectable
+only when the sibling's per-provider setup metadata says `ready`; non-OAuth rows
+are `unsupported`, and failed metadata checks are `unverified`. These are setup
+states, not connected/live claims. No vendor action or live account has been
+verified by the fixture acceptance.
 
 Inventory sources: [integration directory](../packages/shared/src/integration-catalog.ts),
 [MCP presets](../packages/shared/src/curated-mcp-vendors.ts),
@@ -75,10 +80,15 @@ does not prove that the upstream runtime token permits an action.
 Direct `POST /api/integrations/provider/execute` returns 403 and cannot substitute
 for the registered employee approval path.
 
-OpenConnector's Shiba adapter currently addresses accounts by authenticated user;
-it has no separate workspace-owned connection identity or transfer lifecycle.
-Shared workspace service accounts therefore remain a product gap.
-Joining a team must not expose another member's personal connected accounts.
+Personal connections remain scoped to the authenticated user. A separate
+workspace-owned connection path is implemented in Integrations → Connectors:
+a current native workspace owner/admin explicitly starts consent using a
+server-derived workspace alias; Shiba keeps the receipt, grant, member, employee,
+consent-generation and approval checks in the workspace integrations store. It does
+not transfer a personal connection, and membership alone grants no account or
+employee access. See [workspace app account design and authority](workspace-integrations.md).
+This safely supports shared service accounts under explicit owner/admin authority;
+legal ownership at the vendor is not inferred.
 
 Sources: [adapter](../apps/backend/src/integrations/openconnector-provider.ts),
 [employee policy](../apps/backend/src/employee-tool-policy.ts) and
@@ -150,11 +160,13 @@ Record the account, exact action, success/error, cleanup and cross-user denial
 without recording credential values. This document does not claim those live
 vendor checks have passed.
 
+The [November 6 OpenConnector catalog fixture journey](verification/openconnector-catalog-fixture-20261106.md)
+covers catalog search/readiness, connect/reconnect/disconnect and responsive
+layout against intercepted synthetic OpenConnector responses. All evidence is
+explicitly fixture-only; no sibling Worker, vendor, account or credential was used.
 The [November 4 browser acceptance](verification/integrations-local-browser-20261104.md)
-records ten actual local Worker/dashboard journeys and twelve separate responsive
-component checks, including before/after mobile screenshots. The OpenConnector
-HTTP service was a synthetic fixture; remote MCP success and vendor actions were
-not exercised. Reports retain expected HTTP failures and SDK navigation warnings.
+records the prior local Worker/dashboard journeys and separate responsive component
+checks. Remote MCP success and vendor actions were not exercised. Reports retain expected HTTP failures and SDK navigation warnings.
 The [preview observation](verification/preview-auth-reexposure-20261104.json)
 separately records the deployed anonymous default identity after external operator
 changes; the branch's static-only authentication protection is not deployed there.

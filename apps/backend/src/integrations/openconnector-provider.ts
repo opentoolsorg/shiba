@@ -3,6 +3,7 @@ import type {
   IntegrationProviderConnection,
   IntegrationProviderExecuteResponse,
   IntegrationProviderHealth,
+  IntegrationProviderSetupState,
 } from "@shiba/shared";
 import { z } from "zod";
 import { isTeamWorkspaceId, integrationActionOperationTypeSchema } from "@shiba/shared";
@@ -40,6 +41,7 @@ const authorizationSchema = z.object({ authorizationUrl: z.string().url(), state
 const executionSchema = z.object({ success: z.boolean(), data: z.unknown() });
 const setupSchema = z.object({ success: z.literal(true), data: z.object({ service: z.string(), oauthClient: z.object({ configured: z.boolean(), missingFields: z.array(z.string()) }).optional() }) });
 const SERVICE = /^[A-Za-z0-9_-]{1,100}$/;
+const CATALOG_PROBE_BUDGET = 40;
 
 async function fingerprint(parts: string[]): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(parts)));
@@ -133,7 +135,7 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     return parsed.data;
   }
 
-  private async oauthSetup(service: string): Promise<"ready" | "needs_configuration" | "unverified" | "unsupported"> {
+  private async oauthSetup(service: string): Promise<IntegrationProviderSetupState> {
     if (!SERVICE.test(service)) return "unsupported";
     try {
       // The pinned upstream classifies this metadata path as admin/connection management.
@@ -199,14 +201,33 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     const providers = this.parse(providersSchema, await this.request("/api/providers", "admin"));
     const connected = new Map((await this.listConnections({ userId: query.userId, ...(query.workspaceId !== undefined ? { workspaceId: query.workspaceId } : {}) })).map((row) => [row.providerKey, row]));
     const search = query.query?.trim().toLowerCase() ?? "";
-    const rows = providers.filter((row) => `${row.service} ${row.displayName} ${row.description ?? ""}`.toLowerCase().includes(search));
+    const matches = providers.filter((row) => `${row.service} ${row.displayName} ${row.description ?? ""}`.toLowerCase().includes(search));
+    const oauth = (row: (typeof providers)[number]) => row.authTypes.includes("oauth2");
     const offset = query.cursor && /^\d+$/.test(query.cursor) ? Number(query.cursor) : 0;
     const limit = Math.max(1, Math.min(50, Math.floor(query.limit) || 8));
-    const next = offset + limit;
-    const page = rows.slice(offset, next);
-    // Four metadata reads at a time; a failed setup check cannot enable OAuth.
-    const setup = new Map<string, Awaited<ReturnType<OpenConnectorIntegrationProvider["oauthSetup"]>>>();
-    for (let start = 0; start < page.length; start += 4) await Promise.all(page.slice(start, start + 4).map(async (row) => { setup.set(row.service, row.authTypes.includes("oauth2") ? await this.oauthSetup(row.service) : "unsupported"); }));
+    const readiness = query.readiness;
+    // Upstream lists every service; only OAuth services need a per-service client probe.
+    const rows = readiness === undefined ? matches : readiness === "unsupported" ? matches.filter((row) => !oauth(row)) : matches.filter(oauth);
+    const setup = new Map<string, IntegrationProviderSetupState>();
+    const page: typeof rows = [];
+    let next = offset;
+    if (readiness === undefined || readiness === "unsupported") {
+      page.push(...rows.slice(offset, offset + limit));
+      next = offset + page.length;
+      await this.probeSetup(page, setup);
+    } else {
+      // A filtered page may scan past non-matching services; the probe budget bounds upstream reads per request.
+      const budget = Math.max(limit, CATALOG_PROBE_BUDGET);
+      while (next < rows.length && page.length < limit && next - offset < budget) {
+        const batch = rows.slice(next, Math.min(next + 4, offset + budget, rows.length));
+        await this.probeSetup(batch, setup);
+        for (const row of batch) {
+          next++;
+          if (setup.get(row.service) === readiness) page.push(row);
+          if (page.length >= limit) break;
+        }
+      }
+    }
     return {
       items: page.map((row) => ({
         id: row.service,
@@ -217,21 +238,37 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
         source: this.id,
         connectable: setup.get(row.service) === "ready",
         setupState: setup.get(row.service) ?? "unverified",
+        authTypes: row.authTypes,
         isConnected: connected.has(row.service),
         connectionId: connected.get(row.service)?.id ?? null,
       })),
       nextCursor: next < rows.length ? String(next) : null,
       hasMore: next < rows.length,
       fallbackCatalog: false,
+      total: matches.length,
+      oauthCapable: matches.filter(oauth).length,
     };
+  }
+
+  /** Four metadata reads at a time; a failed setup check cannot enable OAuth. */
+  private async probeSetup(rows: { service: string; authTypes: string[] }[], into: Map<string, IntegrationProviderSetupState>): Promise<void> {
+    for (let start = 0; start < rows.length; start += 4) {
+      await Promise.all(rows.slice(start, start + 4).map(async (row) => {
+        if (!into.has(row.service)) into.set(row.service, row.authTypes.includes("oauth2") ? await this.oauthSetup(row.service) : "unsupported");
+      }));
+    }
   }
 
   async beginConnect(context: IntegrationConnectContext): Promise<IntegrationProviderBeginConnectResponse> {
     try {
       if (!SERVICE.test(context.providerKey)) return { ok: false, provider: this.id, error: "Unsupported provider identifier." };
-      if ((await this.ownedConnectionRows(context.userId, context.workspaceId)).some((row) => row.service === context.providerKey && !row.virtual)) return { ok: false, provider: this.id, error: "Disconnect the existing owned account before starting a new connection. Existing consent cannot confirm a new sign-in." };
+      const existing = (await this.ownedConnectionRows(context.userId, context.workspaceId)).filter((row) => row.service === context.providerKey && !row.virtual);
+      const replaceable = context.replaceUnavailable === true && existing.every((row) => !row.configured || (row.status !== undefined && row.status !== "active"));
+      if (existing.length && !replaceable) return { ok: false, provider: this.id, error: context.replaceUnavailable ? "Only an expired or unavailable account can be reconnected. Disconnect the active account explicitly first." : "Disconnect the existing owned account before starting a new connection. Existing consent cannot confirm a new sign-in." };
       const setup = await this.oauthSetup(context.providerKey);
       if (setup !== "ready") return { ok: false, provider: this.id, error: setup === "needs_configuration" ? "Configure this provider's OAuth application in OpenConnector before connecting an account." : setup === "unsupported" ? "This provider has no supported OAuth sign-in path. Configure its credentials with the OpenConnector operator." : "Provider OAuth setup could not be verified. Refresh readiness before connecting." };
+      // Remove the unusable row only after setup is verified, so a failed reconnect cannot strand the user.
+      if (existing.length) await this.disconnect(context);
       // The /v1 creation endpoint generates a random alias; the local OAuth API accepts ours.
       const result = this.parse(authorizationSchema, await this.request("/api/oauth/authorizations", "admin", {
         method: "POST",
