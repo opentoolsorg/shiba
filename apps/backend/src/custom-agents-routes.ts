@@ -14,6 +14,7 @@ import { decodeCreateCustomAgent, decodeUpdateCustomAgent } from "./custom-agent
 import { resolveHarness } from "./harness/index.js";
 import { resolveUserId } from "./request-auth.js";
 import { recordEmployeeBundleProfileOwner } from "./employee-bundles-store.js";
+import { BotReadinessCheck } from "./bot-readiness.js";
 
 function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number]) {
   return {
@@ -33,7 +34,7 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
   if (!url.pathname.startsWith("/api/custom-agents")) return null;
   // Only explicit lifecycle suffixes are supported. An unknown suffix must
   // never turn DELETE /:id/unknown into deletion of the real agent.
-  const route = url.pathname.match(/^\/api\/custom-agents(?:\/([^/]+)(?:\/(archive|restore))?)?\/?$/);
+  const route = url.pathname.match(/^\/api\/custom-agents(?:\/([^/]+)(?:\/(archive|restore|readiness))?)?\/?$/);
   if (!route) return Response.json({ ok: false, error: "not_found" }, { status: 404 });
   if (!env.AGENT_AUDIT) {
     return Response.json({ ok: false, error: "AGENT_AUDIT D1 binding is not configured." }, { status: 503 });
@@ -63,6 +64,14 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     if (/[/\\]/.test(agentId)) {
       return Response.json({ ok: false, error: "invalid_agent_id" }, { status: 400 });
     }
+  }
+
+  if (route[2] === "readiness") {
+    if (request.method !== "GET") return Response.json({ ok: false, error: "method_not_allowed" }, { status: 405 });
+    const agent = agentId ? await getCustomAgentById(env, auth.orgId, agentId) : null;
+    if (!agent) return Response.json({ ok: false, error: "not_found" }, { status: 404 });
+    const readiness = await new BotReadinessCheck(env, auth.orgId, agent).run();
+    return Response.json({ ok: true, readiness }, { headers: { "cache-control": "no-store" } });
   }
 
   if (route[2]) {

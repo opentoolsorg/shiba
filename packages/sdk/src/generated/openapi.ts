@@ -577,6 +577,57 @@ export type paths = {
         };
         trace?: never;
     };
+    "/org-agents/{agentId}/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check whether a bot can be given a task
+         * @description Runs the same read-only preflight a queued run uses (model route, credentials, sandbox) against the bot's saved defaults. It never creates an approval or starts work; human approval is still required after a task is queued.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    agentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Launch readiness for the bot's default target */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            readiness?: components["schemas"]["BotReadiness"];
+                        };
+                    };
+                };
+                /** @description Bot not found or archived */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/threads/{threadId}/runs": {
         parameters: {
             query?: never;
@@ -765,6 +816,36 @@ export type components = {
             approvalPolicy?: "standard" | "auto_approve";
             /** @description Legacy values are readable; create/update reject nonempty scopes until execution enforces them. */
             toolScopes?: string[];
+        };
+        BotReadinessProblem: {
+            id: string;
+            /** @enum {string} */
+            severity: "error" | "warn";
+            message: string;
+            fix: {
+                label: string;
+                /** @enum {string} */
+                view: "providers" | "settings" | "custom-agents";
+            };
+        };
+        BotReadiness: {
+            /** @description False when any error-severity problem would block queueing. */
+            ready: boolean;
+            target: {
+                /** @enum {string} */
+                kind: "repository";
+                repoUrl: string;
+            } | {
+                /** @enum {string} */
+                kind: "artifact-workspace";
+                expectedDeliverables: string[];
+            };
+            harness: string;
+            model: string;
+            connectionId: string | null;
+            /** @description True when this deployment runs the verify-shiba stand-in instead of real execution. */
+            synthetic: boolean;
+            problems: components["schemas"]["BotReadinessProblem"][];
         };
         CustomAgent: {
             id: string;
