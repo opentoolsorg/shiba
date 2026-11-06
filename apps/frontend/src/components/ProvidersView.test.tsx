@@ -84,4 +84,70 @@ describe("ProvidersView sign-in", () => {
     });
     expect(screen.getByTestId("provider-signin-message-codex").textContent).toMatch(/connected/i);
   });
+
+  it("shows the ChatGPT task lane separately from registry ACP metadata and checks only on request", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "/api/providers") return { ok: true, json: async () => snapshot({ phase: "connected", signInKind: "chatgpt-device", testOk: true, userCode: null, verificationUri: null, message: "Saved account is present." }) };
+      return { ok: true, json: async () => ({ connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] }) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ProvidersView />);
+    const route = await screen.findByTestId("provider-route-codex");
+    expect(route.textContent).toContain("codex-subscription");
+    expect(route.textContent).toContain("Signed-in user's ChatGPT plan");
+    expect(screen.getByTestId("provider-status-codex").textContent).toContain("Configuration checked");
+    expect(screen.getByRole("button", { name: "Check saved configuration" })).toBeTruthy();
+    expect(screen.getByText(/Registry adapter/).parentElement?.textContent).toContain("codex-acp");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/test") || String(url).endsWith("/default"))).toBe(false);
+  });
+
+  it.each(["Access expired. Sign in again.", "Provider quota exceeded.", "Selected computer is offline."])("preserves a failed check without promising inference or changing accounts: %s", async (message) => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "/api/providers") return { ok: true, json: async () => snapshot({ phase: "connected", testOk: false, message, userCode: null, verificationUri: null }) };
+      return { ok: true, json: async () => ({ connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] }) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ProvidersView />);
+    expect((await screen.findByTestId("provider-status-codex")).textContent).toContain("Test failed");
+    expect(screen.getByTestId("provider-signin-message-codex").textContent).toBe(message);
+    expect(screen.queryByText("Ready")).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => /\/(connect|verify|default|test)$/.test(String(url)))).toBe(false);
+  });
+
+  it("describes paired Claude account reuse for bounded artifacts separately from legacy tokens", async () => {
+    const claude = { ...card({ phase: "connected", signInKind: "claude-daemon", testOk: true, userCode: null, verificationUri: null }), id: "claude", label: "Claude Code", harness: "claude-acp" } satisfies AcpProviderCard;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? { org: "self-hosted", defaultProviderId: null, providers: [claude] } : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));
+    render(<ProvidersView />);
+    const route = await screen.findByTestId("provider-route-claude");
+    expect(route.textContent).toContain("claude-code");
+    expect(route.textContent).toContain("Paired local computer · repositories and bounded artifacts");
+    expect(route.textContent).toContain("identity and billing are not reported");
+    expect(screen.getByText(/Local artifacts require explicit complete output paths/)).toBeTruthy();
+  });
+
+  it("labels a saved legacy token as deployment-gated rather than native cloud login", async () => {
+    const claude = { ...card({ phase: "connected", signInKind: "claude-setup-token", userCode: null, verificationUri: null }), id: "claude", label: "Claude Code", harness: "claude-acp" } satisfies AcpProviderCard;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? { org: "self-hosted", defaultProviderId: null, providers: [claude] } : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));
+    render(<ProvidersView />);
+    expect((await screen.findByTestId("provider-route-claude")).textContent).toContain("claude-subscription (legacy opt-in)");
+    expect(screen.getByText(/Storing a token does not enable this runtime/)).toBeTruthy();
+  });
+
+  it("keeps a Codex API credential separate from ChatGPT billing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? snapshot({ phase: "connected", authMode: "api-key", userCode: null, verificationUri: null }) : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));
+    render(<ProvidersView />);
+    const route = await screen.findByTestId("provider-route-codex");
+    expect(route.textContent).toContain("codex or codex-acp (sandbox)");
+    expect(route.textContent).toContain("Configured API credential");
+    expect(route.textContent).not.toContain("ChatGPT plan");
+  });
+
+  it("renders breadcrumbs in the header", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? snapshot() : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));
+    render(<ProvidersView scope="workspace" />);
+    const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(nav.textContent).toContain("Workspace");
+    expect(nav.textContent).toContain("Extensions");
+    expect(nav.textContent).toContain("Providers");
+  });
 });

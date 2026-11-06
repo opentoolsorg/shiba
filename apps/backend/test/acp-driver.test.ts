@@ -171,6 +171,18 @@ async function handshake(run: DriverRun) {
 }
 
 describe("ACP driver — happy path", () => {
+  it("uses a generic oversized error instead of sending an unredactable secret prefix", async () => {
+    const run = loadDriver();
+    await tick();
+    const secret = 'private-"quote\\slash-credential-tail-987654321';
+    run.respond({ id: 1, error: { code: -32000, message: `${"x".repeat(870)}${secret}${"y".repeat(80)}` } });
+    await tick();
+    const event = run.events.find((row) => row.type === "error");
+    expect(event?.message).toBe("ACP driver error exceeded its display limit.");
+    expect(JSON.stringify(run.events)).not.toContain("private-");
+    expect(run.exits).toEqual([1]);
+  });
+
   it("runs initialize → session/new → set_model → prompt, then done + SIGTERM + exit 0", async () => {
     const run = loadDriver();
     await handshake(run);

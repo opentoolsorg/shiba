@@ -222,6 +222,7 @@ export function createEmployeeRunTools(
       description: "Call one supported Shiba app tool listed by employee_tool_catalog. The Worker rechecks employee version, grants, resource and exact-payload approval for every call.",
       inputSchema,
       execute: async ({ tool: toolName, args }, options) => {
+        options?.abortSignal?.throwIfAborted();
         const executionContextId = resolveExecutionContextId();
         const context = executionContextId ? await currentContext() : null;
         if (!context?.allowed.includes(capabilityId(toolName)) || !executionContextId) {
@@ -237,7 +238,17 @@ export function createEmployeeRunTools(
           }
           return { ok: !result.isError, result };
         }
-        const response = await dispatchEmployeeToolForPrincipal(env, context.employeeId, context.principal, toolName, args, executionContextId);
+        const beforeDispatch = async () => {
+          options?.abortSignal?.throwIfAborted();
+          if (trustedBinding.skillPins?.length) {
+            const current = await currentContext();
+            if (!current || JSON.stringify(await binding(current, executionContextId)) !== JSON.stringify(trustedBinding)) {
+              throw new Error("Selected skill or employee context changed before dispatch.");
+            }
+          }
+          options?.abortSignal?.throwIfAborted();
+        };
+        const response = await dispatchEmployeeToolForPrincipal(env, context.employeeId, context.principal, toolName, args, executionContextId, beforeDispatch, options?.abortSignal);
         const body = await response.json().catch(() => ({})) as Record<string, unknown>;
         if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : `Employee tool call failed (${response.status}).`);
         if (draftStore && toolName === "gmail_read") {

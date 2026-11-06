@@ -37,7 +37,7 @@ describe("original role Shibas", () => {
       unmount();
       return accessory;
     });
-    expect(new Set(shapes).size).toBe(7);
+    expect(new Set(shapes).size).toBe(EMPLOYEE_TEMPLATES.length);
     expect(shapes.every(Boolean)).toBe(true);
     expect(JSON.stringify(EMPLOYEE_TEMPLATES)).toBe(before);
   });

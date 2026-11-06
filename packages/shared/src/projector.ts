@@ -19,6 +19,8 @@ export interface OutboxEntry {
   effectKind: SideEffectKind | (string & {});
   target: string;
   summary?: string;
+  persona?: "lead" | "explorer" | "fixer" | "reviewer";
+  blocks?: unknown[];
   status: "pending" | "dispatched" | "failed";
   attempts: number;
   requestedAt: number;
@@ -229,7 +231,7 @@ export function foldOutboxEvent(
   event: SpineEvent,
 ): OutboxEntry[] | undefined {
   if (event.kind === "side_effect.requested" && event.payload && "effectId" in event.payload) {
-    const { effectId, effectKind, target, summary } = event.payload;
+    const { effectId, effectKind, target, summary, persona, blocks } = event.payload;
     const rows = outbox ?? [];
     if (rows.some((entry) => entry.id === effectId)) return rows;
     return pruneOutboxEntries([
@@ -239,6 +241,8 @@ export function foldOutboxEvent(
         effectKind: effectKind as SideEffectKind,
         target,
         summary,
+        ...(persona ? { persona } : {}),
+        ...(blocks ? { blocks } : {}),
         status: "pending" as const,
         attempts: 0,
         requestedAt: event.at,

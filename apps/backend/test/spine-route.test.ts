@@ -50,7 +50,7 @@ const AGENT_PRINCIPAL_HEADER = "X-Agent-Principal";
 
 function agent(threadName?: string) {
   return Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
-    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", SLACK_BOT_TOKEN: "xoxb-test" },
+    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", SLACK_BOT_TOKEN: "xoxb-test", DASHBOARD_APPROVERS: "reviewer@example.test" },
     name: threadName,
     ctx: { waitUntil: (promise: Promise<unknown>) => void promise.catch(() => undefined) },
     state: { runs: [] } as OrchestratorState,
@@ -81,7 +81,7 @@ const resolveBody = (approvalId: string, approved = true) =>
   new Request("https://internal/api/approvals", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ threadKey: "default", approvalId, approved, decidedBy: "U1" }),
+    body: JSON.stringify({ threadKey: "default", approvalId, approved, decidedBy: "reviewer@example.test" }),
   });
 
 /** Let a fire-and-forget waitUntil chain settle (microtask drain). */
@@ -179,13 +179,17 @@ describe("GET /api/spine", () => {
       postToThread(text: string, context?: { runId?: string; causationId?: string }): void;
     };
     const threaded = instance as unknown as ThreadInternals;
-    threaded.postToThread("mine finished", { runId: mineRun });
-    threaded.postToThread("theirs finished", { runId: theirsRun });
+    threaded.postToThread("mine finished", { runId: mineRun, causationId: "scope-fixture:mine" });
+    threaded.postToThread("theirs finished", { runId: theirsRun, causationId: "scope-fixture:theirs" });
 
     // Full view: both runs' effects are owed.
     const all = (await (await instance.onRequest(spineGet())).json()) as { outbox: OutboxEntry[] };
-    expect(all.outbox.filter((e) => e.runId === mineRun)).toHaveLength(1);
-    expect(all.outbox.filter((e) => e.runId === theirsRun)).toHaveLength(1);
+    expect(all.outbox.filter((e) => e.id === "fx:slack.post:scope-fixture:mine")).toEqual([
+      expect.objectContaining({ runId: mineRun }),
+    ]);
+    expect(all.outbox.filter((e) => e.id === "fx:slack.post:scope-fixture:theirs")).toEqual([
+      expect.objectContaining({ runId: theirsRun }),
+    ]);
 
     // Agent view: only its own run's effects — the previous assertion was
     // vacuous while the outbox stayed empty.
@@ -193,6 +197,8 @@ describe("GET /api/spine", () => {
       outbox: OutboxEntry[];
     };
     expect(scoped.outbox.length).toBeGreaterThan(0);
+    expect(scoped.outbox.some((e) => e.id === "fx:slack.post:scope-fixture:mine")).toBe(true);
+    expect(scoped.outbox.some((e) => e.id === "fx:slack.post:scope-fixture:theirs")).toBe(false);
     expect(scoped.outbox.every((e) => e.runId === mineRun)).toBe(true);
     expect(scoped.outbox.some((e) => e.runId === theirsRun)).toBe(false);
   });

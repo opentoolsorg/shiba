@@ -1,0 +1,2590 @@
+{
+  "startedAt": "2026-11-04T14:21:26.456Z",
+  "result": "specified-local-journeys-and-focused-fixes-passed-with-live-integration-blockers",
+  "runtime": "Actual built dashboard served by actual local workerd with local D1, DO and R2 fixture bindings. Chromium, no HTTP mocks.",
+  "authentication": "Actual Better Auth password sign-in and session checks. Owner created through real UI; two email-verified invited account provenance rows seeded only in disposable D1. Verification email transport not tested.",
+  "exclusions": [
+    "No deployed Cloudflare acceptance",
+    "No provider/model execution",
+    "No sandbox/container start",
+    "No actual Slack/email sends",
+    "No production changes"
+  ],
+  "checks": [
+    {
+      "name": "Native invitation enrollment stays unavailable when verified email transport is absent; no email is sent."
+    },
+    {
+      "name": "Two fixture-verified invited accounts sign in through actual UI and receive distinct authenticated identities."
+    },
+    {
+      "name": "Invited member accepts the email-bound workspace invitation through UI; token replay grants no second effect."
+    },
+    {
+      "name": "Owner changes member/admin role through version-bound UI; last-owner controls remain disabled."
+    },
+    {
+      "name": "Two independently authenticated workspace and room members share live attributed presence and bidirectional durable chat."
+    },
+    {
+      "name": "Shared notes and messages persist across full reload; exact-version notes and attributed messages are explicitly selectable."
+    },
+    {
+      "name": "Third authenticated user cannot read the guessed room, shared Work endpoint, or workspace room socket."
+    },
+    {
+      "name": "Real shared human handoff appears in Work list, board and timeline without private run-registry data."
+    },
+    {
+      "name": "Recipe import requires explicit review, creates archived bot and draft skill, then separate bot restore, skill review and activation clicks succeed."
+    },
+    {
+      "name": "Missing provider configuration fails closed before approval, active run, model execution or sandbox start."
+    },
+    {
+      "name": "Actual built chat, shared Work and team settings captured at 390/768/1440 in light and dark themes.",
+      "screenshots": 18,
+      "overflowFailures": 0
+    },
+    {
+      "name": "Switching from the team workspace clears cached room messages; returning reauthorizes and reloads shared state."
+    },
+    {
+      "name": "Workspace removal revokes room content and live presence, clears cached member UI, and denies room and Work API reads."
+    }
+  ],
+  "blocked": [
+    {
+      "feature": "Real native invited-account enrollment and verification email delivery",
+      "reason": "The operator must configure a verified BETTER_AUTH_VERIFICATION_FROM sender, SEND_EMAIL, and HTTPS BETTER_AUTH_URL.",
+      "fixtureSubstitution": "Two invited emailVerified account rows seeded only in disposable local D1; real password/session auth follows."
+    },
+    {
+      "feature": "Actual employee provider/model execution and trusted terminal/artifact output",
+      "reason": "AI Gateway is not configured (AI_GATEWAY_TOKEN is unset). Add the gateway token, connect Codex with Sign in with ChatGPT, or run Claude on a paired local daemon.",
+      "status": 400
+    }
+  ],
+  "pageErrors": [],
+  "console": [
+    {
+      "who": "member",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "outsider",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "WebSocket connection to 'ws://localhost:8788/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime?viewer=718572ab-1d9f-4bf2-8841-682797ffe66b&workspaceId=ws_3915f47c18a6bd14ba5672a8' failed: Error during WebSocket handshake: Unexpected response code: 404"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 400 (Bad Request)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 405 (Method Not Allowed)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "PartySocket: discarded 2 buffered message(s) while replacing the socket, because the connection destination changed. Pass transferEnqueuedMessages: true to deliver buffered messages to the new destination instead."
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "WebSocket connection to 'ws://localhost:8788/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime?viewer=55a2a450-67fe-40f2-a3ce-3efc8b977890' failed: WebSocket is closed before the connection is established."
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "WebSocket connection to 'ws://localhost:8788/agents/coding-orchestrator/owner@example.test?_pk=[omitted] failed: WebSocket is closed before the connection is established."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost — this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "network": [
+    {
+      "who": "member",
+      "status": 401,
+      "path": "/api/whoami"
+    },
+    {
+      "who": "member",
+      "status": 401,
+      "path": "/api/model-config"
+    },
+    {
+      "who": "member",
+      "status": 401,
+      "path": "/api/agents"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/mailboxes"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/custom-agents"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/org/sandbox"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/org/model-keys"
+    },
+    {
+      "who": "outsider",
+      "status": 401,
+      "path": "/api/whoami"
+    },
+    {
+      "who": "outsider",
+      "status": 401,
+      "path": "/api/model-config"
+    },
+    {
+      "who": "outsider",
+      "status": 401,
+      "path": "/api/agents"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/mailboxes"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/org/sandbox"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/custom-agents"
+    },
+    {
+      "who": "outsider",
+      "status": 404,
+      "path": "/api/workspaces/invitations/accept"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/org/model-keys"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/model-config"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/agents"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/mailboxes"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/custom-agents"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/org/sandbox"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/org/model-keys"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/workspaces/invitations/accept"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/providers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/providers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/agents"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/model-config"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/mailboxes"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/org/sandbox"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/org/model-keys"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/agents"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/model-config"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/mailboxes"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/org/sandbox"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/org/model-keys"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "outsider",
+      "status": 404,
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc"
+    },
+    {
+      "who": "outsider",
+      "status": 404,
+      "path": "/api/workspaces/ws_3915f47c18a6bd14ba5672a8/work"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 400,
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/handoffs"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/handoffs/ho_74d3f513-ad69-4b5c-bd7c-0c6277d58b38/live"
+    },
+    {
+      "who": "owner",
+      "status": 405,
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/handoffs/ho_74d3f513-ad69-4b5c-bd7c-0c6277d58b38/live"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/model-config"
+    },
+    {
+      "who": "outsider",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/agents"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/mailboxes"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/setup/status"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/org/sandbox"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 403,
+      "path": "/api/org/model-keys"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/collaboration/rooms"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/collaboration/rooms"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/workspaces/ws_3915f47c18a6bd14ba5672a8/work"
+    }
+  ],
+  "sockets": [
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "member",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "member",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "outsider",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [],
+      "closed": true
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": true
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [],
+      "closed": true
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": true
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "member",
+      "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/realtime",
+      "frameTypes": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": false
+    }
+  ],
+  "screenshots": [
+    "team-chat-390-light.png",
+    "team-work-390-light.png",
+    "team-admin-390-light.png",
+    "team-chat-390-dark.png",
+    "team-work-390-dark.png",
+    "team-admin-390-dark.png",
+    "team-chat-768-light.png",
+    "team-work-768-light.png",
+    "team-admin-768-light.png",
+    "team-chat-768-dark.png",
+    "team-work-768-dark.png",
+    "team-admin-768-dark.png",
+    "team-chat-1440-light.png",
+    "team-work-1440-light.png",
+    "team-admin-1440-light.png",
+    "team-chat-1440-dark.png",
+    "team-work-1440-dark.png",
+    "team-admin-1440-dark.png",
+    "member-workspace-revoked.png"
+  ],
+  "overflows": [
+    {
+      "label": "team-chat",
+      "viewport": 390,
+      "theme": "light",
+      "document": 390,
+      "body": 390,
+      "pass": true
+    },
+    {
+      "label": "team-work",
+      "viewport": 390,
+      "theme": "light",
+      "document": 390,
+      "body": 390,
+      "pass": true
+    },
+    {
+      "label": "team-admin",
+      "viewport": 390,
+      "theme": "light",
+      "document": 390,
+      "body": 390,
+      "pass": true
+    },
+    {
+      "label": "team-chat",
+      "viewport": 390,
+      "theme": "dark",
+      "document": 390,
+      "body": 390,
+      "pass": true
+    },
+    {
+      "label": "team-work",
+      "viewport": 390,
+      "theme": "dark",
+      "document": 390,
+      "body": 390,
+      "pass": true
+    },
+    {
+      "label": "team-admin",
+      "viewport": 390,
+      "theme": "dark",
+      "document": 390,
+      "body": 390,
+      "pass": true
+    },
+    {
+      "label": "team-chat",
+      "viewport": 768,
+      "theme": "light",
+      "document": 768,
+      "body": 768,
+      "pass": true
+    },
+    {
+      "label": "team-work",
+      "viewport": 768,
+      "theme": "light",
+      "document": 768,
+      "body": 768,
+      "pass": true
+    },
+    {
+      "label": "team-admin",
+      "viewport": 768,
+      "theme": "light",
+      "document": 768,
+      "body": 768,
+      "pass": true
+    },
+    {
+      "label": "team-chat",
+      "viewport": 768,
+      "theme": "dark",
+      "document": 768,
+      "body": 768,
+      "pass": true
+    },
+    {
+      "label": "team-work",
+      "viewport": 768,
+      "theme": "dark",
+      "document": 768,
+      "body": 768,
+      "pass": true
+    },
+    {
+      "label": "team-admin",
+      "viewport": 768,
+      "theme": "dark",
+      "document": 768,
+      "body": 768,
+      "pass": true
+    },
+    {
+      "label": "team-chat",
+      "viewport": 1440,
+      "theme": "light",
+      "document": 1440,
+      "body": 1440,
+      "pass": true
+    },
+    {
+      "label": "team-work",
+      "viewport": 1440,
+      "theme": "light",
+      "document": 1440,
+      "body": 1440,
+      "pass": true
+    },
+    {
+      "label": "team-admin",
+      "viewport": 1440,
+      "theme": "light",
+      "document": 1440,
+      "body": 1440,
+      "pass": true
+    },
+    {
+      "label": "team-chat",
+      "viewport": 1440,
+      "theme": "dark",
+      "document": 1440,
+      "body": 1440,
+      "pass": true
+    },
+    {
+      "label": "team-work",
+      "viewport": 1440,
+      "theme": "dark",
+      "document": 1440,
+      "body": 1440,
+      "pass": true
+    },
+    {
+      "label": "team-admin",
+      "viewport": 1440,
+      "theme": "dark",
+      "document": 1440,
+      "body": 1440,
+      "pass": true
+    }
+  ],
+  "sourceSha256AtStart": {
+    "apps/backend/src/index.ts": "c49fbf53766c9774ce64b40063a53802ddd8938a4b1505bfb488e8040eb50468",
+    "apps/backend/src/team-member-auth.ts": "a50159ee074881abcb64ed91dc22c613bef3915d45ed788c7d3a161307e650fe",
+    "apps/backend/src/team-workspaces-store.ts": "8ead8f9c3831e79de105df1493f13d6bc9750a390f408ae984709623031ff1de",
+    "apps/backend/src/collaboration-routes.ts": "49191906b0d76c680a6d6e5bf3f606f3d22eaf02ccd2642b38f9cae24a724aec",
+    "apps/backend/src/collaboration-room-access.ts": "d60473d0db1eb18ab55ae7b8f5176013828d48dddaa37c248a2c9b46ef1f2e52",
+    "apps/backend/src/collaboration-artifact-routes.ts": "530491964f04609cfee91d4a8504ab79889fe5554f7c28d91aa7358e5d28f994",
+    "apps/backend/src/collaboration-live-routes.ts": "1b61676055e4237cf8f1c061f9d8a697b1fc98e126b50cb6c5e45d0cdf0e859a",
+    "apps/frontend/src/app.tsx": "a4bcd4380c13be8f5a2550300a144085140404ff4ff285d7d63fec82b6e3a34f",
+    "apps/frontend/src/components/CollaborationView.tsx": "cf3b71f63273af3536f07ed600e012793575e24fa5f3d91838e9aa9bc6ae5eb1",
+    "apps/frontend/src/components/TeamWorkspaceView.tsx": "9fda3089b9faab9cfd87b44c04e5b374ee848fcd97e835f1902bf8efcfc57691",
+    "apps/frontend/src/components/SkillsView.tsx": "554e6b82988601a57bec1247c1ba3284da5ddefeac4426623953cd648c1d7f00",
+    "apps/frontend/src/components/WorkView.tsx": "28d9f18d9e8e4a4896eb9c6585942e417cada6bb87fcc8996bf1dea469141c1f"
+  },
+  "builtDashboardHtmlSha256": "e00d33841ead9de79d0a3f9f0eed7e5646e7f9caa5e5cc35c07e365db53cfba5",
+  "roomId": "room_ddb58d4a01447c3af8364cbc",
+  "bundle": {
+    "employeeId": "cag-3618370d513a885929782d9f",
+    "skillIds": [
+      "skill-40bdc02d61ea55fe99294c45"
+    ],
+    "profileState": "archived_pending_review",
+    "skillState": "draft",
+    "requirementsState": "unconfigured",
+    "routinesState": "descriptions_only"
+  },
+  "completedAt": "2026-11-04T14:23:17.211Z",
+  "gitHead": "9d0362a5295ced0d4798447f1590498d2d63b5ee",
+  "sourceSha256": {
+    "apps/backend/src/index.ts": "c49fbf53766c9774ce64b40063a53802ddd8938a4b1505bfb488e8040eb50468",
+    "apps/backend/src/team-member-auth.ts": "a50159ee074881abcb64ed91dc22c613bef3915d45ed788c7d3a161307e650fe",
+    "apps/backend/src/team-workspaces-store.ts": "8ead8f9c3831e79de105df1493f13d6bc9750a390f408ae984709623031ff1de",
+    "apps/backend/src/collaboration-routes.ts": "49191906b0d76c680a6d6e5bf3f606f3d22eaf02ccd2642b38f9cae24a724aec",
+    "apps/backend/src/collaboration-room-access.ts": "d60473d0db1eb18ab55ae7b8f5176013828d48dddaa37c248a2c9b46ef1f2e52",
+    "apps/backend/src/collaboration-artifact-routes.ts": "530491964f04609cfee91d4a8504ab79889fe5554f7c28d91aa7358e5d28f994",
+    "apps/backend/src/collaboration-live-routes.ts": "1b61676055e4237cf8f1c061f9d8a697b1fc98e126b50cb6c5e45d0cdf0e859a",
+    "apps/frontend/src/app.tsx": "a4bcd4380c13be8f5a2550300a144085140404ff4ff285d7d63fec82b6e3a34f",
+    "apps/frontend/src/components/CollaborationView.tsx": "cf3b71f63273af3536f07ed600e012793575e24fa5f3d91838e9aa9bc6ae5eb1",
+    "apps/frontend/src/components/TeamWorkspaceView.tsx": "9fda3089b9faab9cfd87b44c04e5b374ee848fcd97e835f1902bf8efcfc57691",
+    "apps/frontend/src/components/SkillsView.tsx": "554e6b82988601a57bec1247c1ba3284da5ddefeac4426623953cd648c1d7f00",
+    "apps/frontend/src/components/WorkView.tsx": "28d9f18d9e8e4a4896eb9c6585942e417cada6bb87fcc8996bf1dea469141c1f"
+  },
+  "sourceChangedDuringRun": [],
+  "visualRecapture": {
+    "completedAt": "2026-11-04T14:26:18.930Z",
+    "phase": "After member revocation; owner retains authorized room history. Explicit room selection and both message DOM assertions precede each capture.",
+    "rows": [
+      {
+        "filename": "team-chat-390-light.png",
+        "viewport": 390,
+        "document": 390,
+        "body": 390,
+        "theme": "light",
+        "selectedRoom": true,
+        "bothAttributedMessagesVisible": true
+      },
+      {
+        "filename": "team-chat-390-dark.png",
+        "viewport": 390,
+        "document": 390,
+        "body": 390,
+        "theme": "dark",
+        "selectedRoom": true,
+        "bothAttributedMessagesVisible": true
+      },
+      {
+        "filename": "team-chat-768-light.png",
+        "viewport": 768,
+        "document": 768,
+        "body": 768,
+        "theme": "light",
+        "selectedRoom": true,
+        "bothAttributedMessagesVisible": true
+      },
+      {
+        "filename": "team-chat-768-dark.png",
+        "viewport": 768,
+        "document": 768,
+        "body": 768,
+        "theme": "dark",
+        "selectedRoom": true,
+        "bothAttributedMessagesVisible": true
+      },
+      {
+        "filename": "team-chat-1440-light.png",
+        "viewport": 1440,
+        "document": 1440,
+        "body": 1440,
+        "theme": "light",
+        "selectedRoom": true,
+        "bothAttributedMessagesVisible": true
+      },
+      {
+        "filename": "team-chat-1440-dark.png",
+        "viewport": 1440,
+        "document": 1440,
+        "body": 1440,
+        "theme": "dark",
+        "selectedRoom": true,
+        "bothAttributedMessagesVisible": true
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "human-handoff-instructions-not-persisted",
+      "status": "fixed-and-browser-verified",
+      "evidence": "Actual UI accepts required task instructions for a human recipient, but the saved human handoff has only its task/grouping ID. Read-only inspection of local D1 found no context snapshot and no occurrence of the submitted synthetic instruction in handoffs, messages or context snapshots.",
+      "snapshotCount": 0,
+      "instructionStorageMatches": 0,
+      "resolvedEvidence": "Final focused retake: persisted humanRequest instructions/digest/selected-source body, assignee reload, Worker restart, source revocation and membership removal."
+    }
+  ],
+  "consoleCaptureLimit": 200,
+  "consoleMayBeTruncated": true,
+  "networkCaptureLimit": 200,
+  "networkMayBeTruncated": false,
+  "knownDiagnostics": [
+    "Intentional auth, invitation replay, outsider access, provider preflight, missing approved-run proof and client-write denials.",
+    "Invited UI still sends forbidden administrative/computer/setup polling requests; server denies them.",
+    "Operator UI polls unavailable /api/computers (404).",
+    "SDK socket buffer/discard warnings occur during navigation; zero uncaught page errors."
+  ],
+  "finalRetake": {
+    "startedAt": "2026-11-04T15:25:35.975Z",
+    "checks": [
+      "Anonymous sessions cannot access workspace, shared Work, runs, providers or guessed room APIs after the upstream authentication merge.",
+      "A real room request fails missing-provider preflight; authenticated owner and member cannot access its exact server-created unregistered executor over public HTTP or the SDK WebSocket.",
+      "A removed member rejoins only through a fresh email-bound UI invitation; prior room access is not automatically restored.",
+      "Human instructions and exact selected message/note context persist with a digest and are visible to the assignee after a full browser reload.",
+      "Actual local Worker restart reconnects authenticated room presence and retains the same D1 human-request digest; no CLI-process recovery is claimed.",
+      "Revoking a selected source removes the frozen human request from authorized HTTP output and the assignee cached UI.",
+      "Repeated workspace removal denies the rejoined member and clears the new assignment from the UI."
+    ],
+    "pageErrors": [],
+    "network": [
+      {
+        "who": "member",
+        "status": 401,
+        "path": "/api/whoami"
+      },
+      {
+        "who": "member",
+        "status": 403,
+        "path": "/api/custom-agents"
+      },
+      {
+        "who": "owner",
+        "status": 404,
+        "path": "/api/computers"
+      },
+      {
+        "who": "owner",
+        "status": 400,
+        "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/handoffs"
+      },
+      {
+        "who": "owner",
+        "status": 404,
+        "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc/handoffs/ho_c555fe5a-3069-4e5a-b2a9-6f7ccd25c604/live"
+      },
+      {
+        "who": "owner",
+        "status": 404,
+        "path": "/agents/coding-orchestrator/[isolated executor address omitted]"
+      },
+      {
+        "who": "member",
+        "status": 403,
+        "path": "/agents/coding-orchestrator/[isolated executor address omitted]"
+      },
+      {
+        "who": "member",
+        "status": 403,
+        "path": "/api/custom-agents"
+      },
+      {
+        "who": "member",
+        "status": 404,
+        "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc"
+      },
+      {
+        "who": "owner",
+        "status": 404,
+        "path": "/api/computers"
+      },
+      {
+        "who": "member",
+        "status": 403,
+        "path": "/api/computers"
+      },
+      {
+        "who": "member",
+        "status": 403,
+        "path": "/api/computers"
+      },
+      {
+        "who": "member",
+        "status": 403,
+        "path": "/api/computers"
+      },
+      {
+        "who": "member",
+        "status": 404,
+        "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc"
+      }
+    ],
+    "modelExecutions": 0,
+    "externalSends": 0,
+    "sandboxStarts": 0,
+    "sourceSha256AtStart": {
+      "apps/backend/src/index.ts": "b6c838f76c9b9e0679f0c8180a19d216e55682633f63252fe342eee4502a3aae",
+      "apps/backend/src/request-auth.ts": "cf0f814211f155a0e5516867e11d283e07fe80025a5a38ba3476444bbbbbbcfa",
+      "apps/backend/src/team-member-auth.ts": "a50159ee074881abcb64ed91dc22c613bef3915d45ed788c7d3a161307e650fe",
+      "apps/backend/src/collaboration-context.ts": "ca6921b6ced0465ead8b21f97b73297d49e3cd4ae8cf53ca2451630b840aabc2",
+      "apps/backend/src/collaboration-routes.ts": "805a270b02452fab27511b5da9ffb218f4c2a98fb8f84de075ab0711112c1703",
+      "apps/backend/src/collaboration-store.ts": "ef829fc9178371635cb3bb284d66c8cd32fd84ac75ab277b0ec18931b7957b7a",
+      "apps/backend/src/agents/orchestrator.ts": "0878f6d5e227057582c32e048403cf76a0a3a4ecff77d9c1271000ba734d6765",
+      "apps/frontend/src/app.tsx": "c6aead5de44801b33545eac76ad9aa309852701501344e79df3e605564c6f931",
+      "apps/frontend/src/components/CollaborationView.tsx": "02b7d8cd069246fa2e01653ed7a31c85a101ef4cc3e8e6a592b81a5a821f60ce",
+      "apps/frontend/src/components/RunLivePanel.tsx": "5612c17b19958b4014190c3f2e715b68fee40e537ab0fed38c5c2aadfaa66e69"
+    },
+    "builtDashboardHtmlSha256": "4e5290823648be5f759d920f74ced76f930525ba925c62a4fa810d9fe5b5b72e",
+    "isolatedExecutor": {
+      "proof": "Exact server-created named pin read only from disposable local D1 after a real missing-provider room request; address omitted.",
+      "handoffId": "ho_c555fe5a-3069-4e5a-b2a9-6f7ccd25c604",
+      "providerStatus": 400
+    },
+    "handoffId": "ho_88f7f0a6-4e40-4af2-a431-d5568d894618",
+    "requestDigest": "d3197dcf087d649a66c4ca01d00fcf6652c5896d5e2c675eb45ee6f7d0414f6b",
+    "result": "passed",
+    "completedAt": "2026-11-04T15:26:22.677Z",
+    "sourceSha256": {
+      "apps/backend/src/index.ts": "b6c838f76c9b9e0679f0c8180a19d216e55682633f63252fe342eee4502a3aae",
+      "apps/backend/src/request-auth.ts": "cf0f814211f155a0e5516867e11d283e07fe80025a5a38ba3476444bbbbbbcfa",
+      "apps/backend/src/team-member-auth.ts": "a50159ee074881abcb64ed91dc22c613bef3915d45ed788c7d3a161307e650fe",
+      "apps/backend/src/collaboration-context.ts": "ca6921b6ced0465ead8b21f97b73297d49e3cd4ae8cf53ca2451630b840aabc2",
+      "apps/backend/src/collaboration-routes.ts": "805a270b02452fab27511b5da9ffb218f4c2a98fb8f84de075ab0711112c1703",
+      "apps/backend/src/collaboration-store.ts": "ef829fc9178371635cb3bb284d66c8cd32fd84ac75ab277b0ec18931b7957b7a",
+      "apps/backend/src/agents/orchestrator.ts": "0878f6d5e227057582c32e048403cf76a0a3a4ecff77d9c1271000ba734d6765",
+      "apps/frontend/src/app.tsx": "c6aead5de44801b33545eac76ad9aa309852701501344e79df3e605564c6f931",
+      "apps/frontend/src/components/CollaborationView.tsx": "02b7d8cd069246fa2e01653ed7a31c85a101ef4cc3e8e6a592b81a5a821f60ce",
+      "apps/frontend/src/components/RunLivePanel.tsx": "5612c17b19958b4014190c3f2e715b68fee40e537ab0fed38c5c2aadfaa66e69"
+    },
+    "sourceChangedDuringRun": [],
+    "screenshot": "team-current-human-assignment-390.png"
+  },
+  "cursorRetake": {
+    "harnessCorrection": "Initial local harness assumed a Chat tab that this unified layout does not have; removed that selector and explicitly selected the existing team workspace for a fresh sign-in before reusing its granted membership. No runtime source changed.",
+    "startedAt": "2026-11-04T15:36:31.729Z",
+    "runtime": "Actual local Worker/DO/D1 and fresh built dashboard; independent real authenticated Chromium contexts; no HTTP mocks.",
+    "checks": [
+      "Two independently authenticated room members see each other’s normalized attributed pointer; leaving the shared pane clears the remote marker.",
+      "Removing the member revokes live shared-room content and pointer rendering; there is no shared cursor authority outside the room grant."
+    ],
+    "pageErrors": [],
+    "network": [
+      {
+        "who": "member",
+        "status": 401,
+        "path": "/api/whoami"
+      },
+      {
+        "who": "member",
+        "status": 403,
+        "path": "/api/custom-agents"
+      },
+      {
+        "who": "owner",
+        "status": 404,
+        "path": "/api/computers"
+      },
+      {
+        "who": "member",
+        "status": 403,
+        "path": "/api/computers"
+      },
+      {
+        "who": "member",
+        "status": 404,
+        "path": "/api/collaboration/rooms/room_ddb58d4a01447c3af8364cbc"
+      },
+      {
+        "who": "member",
+        "status": 404,
+        "path": "/api/collaboration/rooms"
+      },
+      {
+        "who": "member",
+        "status": 404,
+        "path": "/api/collaboration/rooms"
+      }
+    ],
+    "sourceSha256AtStart": {
+      "apps/backend/src/conversation-room-do.ts": "8aafa9c54e96c0a44a26d8cda13c5897e349d0c6144f4e3f73cd0d7d9e87166d",
+      "apps/frontend/src/collaboration-room-realtime.ts": "d320440ea8fcc6652bb2a77f8f3e423c3ea5d63f126775e224857037bc6bf34f",
+      "apps/frontend/src/components/CollaborationView.tsx": "e1cc3d6db75906a33d90aad51cc6676dae4b4356e88ba5b0e6b5b0209c0cf2c6"
+    },
+    "modelExecutions": 0,
+    "sandboxStarts": 0,
+    "externalSends": 0,
+    "markerLabels": {
+      "owner": "owner@example.test",
+      "member": "teammate@example.test"
+    },
+    "result": "passed",
+    "completedAt": "2026-11-04T15:36:50.858Z",
+    "sourceSha256": {
+      "apps/backend/src/conversation-room-do.ts": "8aafa9c54e96c0a44a26d8cda13c5897e349d0c6144f4e3f73cd0d7d9e87166d",
+      "apps/frontend/src/collaboration-room-realtime.ts": "d320440ea8fcc6652bb2a77f8f3e423c3ea5d63f126775e224857037bc6bf34f",
+      "apps/frontend/src/components/CollaborationView.tsx": "e1cc3d6db75906a33d90aad51cc6676dae4b4356e88ba5b0e6b5b0209c0cf2c6"
+    },
+    "sourceChangedDuringRun": [],
+    "screenshot": "team-current-cursor-1440.png",
+    "builtDashboardHtmlSha256": "4bca34e1f8939604ba641b332e5bde6406c4df340ac474308e913512e57c4124"
+  },
+  "cleanup": {
+    "ownedProcessesStopped": true,
+    "fixtureDatabaseRemoved": true,
+    "fixtureLoginStateRemoved": true,
+    "localAuthSecretRemoved": true,
+    "productionChanges": false,
+    "providerModelExecutions": 0,
+    "externalSends": 0,
+    "sandboxStarts": 0,
+    "completedAt": "2026-11-04T15:37:33.447Z",
+    "rawRuntimeLogsRemoved": true,
+    "wranglerRuntimeCacheRemoved": true
+  }
+}

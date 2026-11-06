@@ -68,3 +68,12 @@ it("reuses a running container with the matching instance label", async () => {
   expect(run.mock.calls.filter(([args]) => args[0] === "run")).toHaveLength(1);
   expect(run.mock.calls.filter(([args]) => args[0] === "rm")).toHaveLength(0);
 });
+
+it("refuses journal recovery before creating or executing in a local container", async () => {
+  const docker = mockDocker(); const run = vi.spyOn(docker, "run");
+  const instance = await createDockerLocalSandboxProvider({ image: "shiba-sandbox:mock", dockerExec: docker }).get("refuse-resume");
+  await expect(instance.exec("do-not-run", { journal: { jobId: "a".repeat(64), deadline: Date.now() + 60_000,
+    mode: "attach", observationDeadline: Date.now() + 60_000 } })).rejects.toMatchObject({ code: "capability_unsupported" });
+  await expect(instance.exec("do-not-run", { requiredJournalJobId: "a".repeat(64) })).rejects.toMatchObject({ code: "capability_unsupported" });
+  expect(run).not.toHaveBeenCalled();
+});

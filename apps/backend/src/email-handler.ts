@@ -78,7 +78,11 @@ export function resetInboundEmailStats(): void {
 }
 
 function logWarn(event: string, detail: Record<string, unknown>): void {
-  console.warn(redactSecrets(`${event} ${JSON.stringify(detail)}`));
+  // Scrub values before JSON escapes quoted credentials or exposes delimiters
+  // to a pattern that can consume a string's closing quote.
+  const redacted = JSON.stringify(detail, (_key, value: unknown) =>
+    typeof value === "string" ? redactSecrets(value) : value);
+  console.warn(`${redactSecrets(event)} ${redacted}`);
 }
 
 /**

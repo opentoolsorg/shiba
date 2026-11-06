@@ -3,6 +3,7 @@ import { LoaderCircle, X } from "lucide-react";
 import type { RunProgressRecord } from "../types";
 import { statusChipClass, statusLabel } from "../ui-helpers";
 import { RunDeliverables } from "./RunDeliverables";
+import { RunLivePanel } from "./RunLivePanel";
 
 /** Latest retained run for the active task thread — honest status, not a spinner that never ends. */
 export function RunProgressCard({
@@ -19,6 +20,14 @@ export function RunProgressCard({
   if (!run) return null;
   const inFlight = run.status === "pending" || run.status === "running";
   const failed = run.status === "error" || run.status === "aborted" || run.status === "cancelled" || run.status === "unknown";
+  const bundle = run.artifactBundle;
+  let bundleUrl: string | undefined;
+  if (bundle && bundle.expiresAt > Date.now()) {
+    try {
+      const url = new URL(bundle.downloadUrl);
+      if (url.protocol === "https:" && !url.username && !url.password) bundleUrl = url.toString();
+    } catch { /* Invalid download capabilities are never rendered as links. */ }
+  }
   return (
     <section
       data-testid="run-progress"
@@ -53,8 +62,8 @@ export function RunProgressCard({
         <p className="text-xs text-[var(--fg)] flex items-center gap-2">
           <LoaderCircle className="w-3.5 h-3.5 animate-spin text-[var(--primary)]" aria-hidden="true" />
           {run.status === "pending"
-            ? "Waiting for approval or dispatch — refresh if you already approved."
-            : "Sandbox run in progress — diff and PR links appear when phases finish."}
+            ? "Waiting for approval or dispatch. Refresh if you already approved."
+            : "Sandbox run in progress. Live output and diffs appear as work progresses."}
         </p>
       ) : null}
       {failed && run.error ? (
@@ -70,10 +79,18 @@ export function RunProgressCard({
         </a>
       ) : run.publishPullRequest && run.status === "completed" ? (
         <p className="text-xs text-[var(--muted-foreground-2)]">
-          Run finished but no pull request URL was recorded — check GitHub or the run transcript.
+          The changes are ready. Review the separate publication approval before publishing the pull request.
         </p>
       ) : null}
+      {run.status === "completed" && bundle ? (
+        <div className="text-xs text-[var(--fg)]">
+          {bundleUrl ? <a href={bundleUrl} referrerPolicy="no-referrer" className="min-h-11 inline-flex items-center font-medium text-[var(--text-link)] underline underline-offset-4">Download artifacts ZIP</a>
+            : <p>The artifact download link has expired or is unavailable.</p>}
+          <p>{bundle.fileCount} files. Links expire after seven days.</p>
+        </div>
+      ) : null}
       <RunDeliverables runId={run.runId} status={run.status} expected={run.expectedDeliverables} deliverables={run.deliverables} sessionId={sessionId} />
+      <RunLivePanel key={`${sessionId ?? "default"}:${run.runId}`} runId={run.runId} sessionId={sessionId} />
     </section>
   );
 }

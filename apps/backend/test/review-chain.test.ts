@@ -56,6 +56,10 @@ describe("decideChain", () => {
     expect(decideChain(run({}), [failed], "abc").kind).toBe("queue_review");
   });
 
+  it.each(["posting", "unknown"] as const)("does not requeue a failed round whose publication is %s", (publicationOutcome) => {
+    expect(decideChain(run({}), [{ ...roundA, status: "failed", publicationOutcome }], "abc").kind).toBe("none");
+  });
+
   it("does not queue a reviewer, unapproved publish, or incomplete run", () => {
     expect(decideChain(run({ reviewOf: "run-0" }), [], "abc").kind).toBe("none");
     expect(decideChain(run({ reviewAfterPublish: false }), [], "abc").kind).toBe("none");

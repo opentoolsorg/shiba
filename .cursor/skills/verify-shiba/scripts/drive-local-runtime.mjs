@@ -16,15 +16,12 @@ import {spawn, execFile} from 'node:child_process';
 import {mkdirSync, writeFileSync} from 'node:fs';
 import {promisify} from 'node:util';
 import {createHash} from 'node:crypto';
-import {createRequire} from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-// Reuse the repository's existing Playwright Core dependency from the desktop
-// workspace. The fixture supplies its own installed Chromium executable, so
-// it does not need Playwright's browser-download package.
-const desktopRequire=createRequire(new URL('../../../../apps/desktop/package.json',import.meta.url));
-const {chromium}=desktopRequire('playwright-core');
+import {chromium} from 'playwright';
 import {launchLifecycleTarget} from './lifecycle-target.mjs';
+import {openAppView,selectRepositoryTask} from './composer-target.mjs';
+import {fixtureAuthRequest} from './run-employee-ci.mjs';
 const exec=promisify(execFile);
 const origin=process.env.VERIFY_LOCAL_WORKER_URL??'http://localhost:8794';
 assert(['localhost','127.0.0.1','[::1]'].includes(new URL(origin).hostname),'This disposable-account fixture may run only against a local Worker.');
@@ -66,9 +63,9 @@ send({type:'control_request',request_id:'write-fixture',request:{subtype:'can_us
 if(m.response?.response?.behavior==='allow'){writeFileSync('README.md','after approved local run\\n');for(const file of marketingFiles){if(prompt.includes('OMIT_DELIVERABLE_FIXTURE')&&file.path==='marketing/campaign.md')continue;mkdirSync(path.dirname(file.path),{recursive:true});writeFileSync(file.path,file.content);}send({type:'result',result:'fixture edit complete',session_id:'local-fixture'});}else send({type:'result',is_error:true,result:'permission denied',session_id:'local-fixture'});
 }});\n`,{mode:0o755});
 let cookie='';
-async function api(route,body,method=body===undefined?'GET':'POST') {const res=await fetch(origin+route,{method,headers:{'content-type':'application/json',origin,...(cookie?{cookie}:{})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(10000)}); const raw=await res.text();let data;try{data=JSON.parse(raw)}catch{data=raw}; if(!res.ok)throw Error(route+' '+res.status+' '+JSON.stringify(data).slice(0,500));return {res,data};}
+async function api(route,body,method=body===undefined?'GET':'POST',headers={}) {const res=await fetch(origin+route,{method,headers:{'content-type':'application/json',origin,...headers,...(cookie?{cookie}:{})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(10000)}); const raw=await res.text();let data;try{data=JSON.parse(raw)}catch{data=raw}; if(!res.ok)throw Error(route+' '+res.status+' '+JSON.stringify(data).slice(0,500));return {res,data};}
 async function poll(fn,label,ms=45000){const until=Date.now()+ms;while(Date.now()<until){const out=await fn();if(out)return out;await new Promise(r=>setTimeout(r,250))}throw Error('Timeout: '+label)}
-const authFile=process.env.VERIFY_LOCAL_AUTH_FILE??'.verify/local-daemon-e2e/auth.json';let auth;try{auth=JSON.parse(await readFile(authFile,'utf8'))}catch{};if(!auth){auth={name:'Local fixture operator',email:'local-fixture-'+Date.now()+'@example.test',password:'Fixture-only-password-'+Date.now()};await writeFile(authFile,JSON.stringify(auth),{mode:0o600});}const signup=await api('/api/auth/'+(auth.created?'sign-in':'sign-up')+'/email',auth);auth.created=true;await writeFile(authFile,JSON.stringify(auth),{mode:0o600});
+const authFile=process.env.VERIFY_LOCAL_AUTH_FILE??'.verify/local-daemon-e2e/auth.json';let auth;try{auth=JSON.parse(await readFile(authFile,'utf8'))}catch{};if(!auth){auth={name:'Local fixture operator',email:'local-fixture-'+Date.now()+'@example.test',password:'Fixture-only-password-'+Date.now()};await writeFile(authFile,JSON.stringify(auth),{mode:0o600});}const authRequest=fixtureAuthRequest(auth);const signup=await api(authRequest.route,authRequest.body,'POST',authRequest.headers);auth.created=true;delete auth.bootstrapToken;await writeFile(authFile,JSON.stringify(auth),{mode:0o600});
 cookie=signup.res.headers.getSetCookie().map(x=>x.split(';')[0]).join('; ');assert(cookie);
 const pairing=(await api('/api/computers/pairing-token',{})).data;
 const daemonEnv={...process.env,HOME:operatorProfile,PATH:bin+path.delimiter+process.env.PATH,SHIBA_LOCAL_RUN_ROOT:daemonRoot};delete daemonEnv.LOCAL_ADAPTER_TOKEN;delete daemonEnv.SHIBA_WORKER_URL;
@@ -85,8 +82,16 @@ const config={name:(marketing?'Marketing fixture bot ':'Local fixture bot ')+sta
 target=await launchLifecycleTarget(new URL(origin),chromium);page=target.page;page.setDefaultTimeout(30000);
 const browserCookies=signup.res.headers.getSetCookie().map(raw=>{const pair=raw.split(';')[0];const split=pair.indexOf('=');return {name:pair.slice(0,split),value:pair.slice(split+1),url:origin,httpOnly:true,sameSite:'Lax'};});
 await target.context.addCookies(browserCookies);
-await page.goto(origin+'/app/?tab=integrations');
-const initialSetupClose=page.getByRole('button',{name:'Close setup',exact:true});await initialSetupClose.waitFor({timeout:10000}).catch(()=>{});if(await initialSetupClose.isVisible())await initialSetupClose.click();
+const onboardingResponse=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/onboarding/progress'&&response.request().method()==='GET');
+await page.goto(origin+'/app/');
+const onboarding=await onboardingResponse;assert(onboarding.ok(),'Account setup progress must load before navigation');
+const progress=await onboarding.json();
+if(progress.activatedAt===null&&progress.dismissedAt===null&&!progress.draftTask?.preparedAt){
+  const skipSetup=page.getByRole('button',{name:'Skip setup',exact:true});
+  await skipSetup.click();await skipSetup.waitFor({state:'hidden'});
+  passed('Dismiss the disposable account setup through the real UI');
+}
+await openAppView(page, "Integrations");
 await page.getByRole('heading',{name:'Integrations',exact:true}).waitFor();
 await page.getByRole('button',{name:'Browse capability catalog',exact:true}).click();
 const catalog=await api('/api/capabilities?limit=50');
@@ -107,18 +112,19 @@ await page.getByRole('combobox',{name:'Filter by type'}).selectOption('mcp');
 await page.getByRole('combobox',{name:'Filter by status'}).selectOption('available');
 await page.screenshot({path:artifactDir+'/capability-catalog.png',fullPage:true});
 passed('Browse the authenticated registry-backed catalog, inspect required scope, search/filter MCP tools, and withhold unsupported actions');
-await page.goto(origin+'/app/?tab=custom-agents');
-const setupClose=page.getByRole('button',{name:'Close setup',exact:true});await setupClose.waitFor({timeout:10000}).catch(()=>{});if(await setupClose.isVisible())await setupClose.click();
+await openAppView(page, "Agents");
 await page.getByRole('button',{name:'Create bot',exact:true}).waitFor();
 if(marketing){
+  await page.getByText('Use a role template',{exact:true}).click();
   await page.getByRole('button',{name:'Marketing',exact:true}).click();
+  await page.getByText('Advanced settings',{exact:true}).click();
   assert.equal(await page.getByLabel('Name',{exact:true}).inputValue(),'Marketing bot');
   assert.equal(await page.getByLabel('Required deliverables',{exact:true}).inputValue(),marketingFiles.map(file=>file.path).join('\n'));
   const templateInstructions=await page.getByLabel(/^Instructions/).inputValue();
   assert(templateInstructions.includes('You are the marketing bot.'));
   config.instructions=templateInstructions+'\n\n'+config.instructions;
   passed('Marketing role template fills real required deliverables before creation');
-}
+}else await page.getByText('Advanced settings',{exact:true}).click();
 await page.getByLabel('Slug',{exact:true}).fill('local-ui-fixture-'+stamp);
 await page.getByLabel('Name',{exact:true}).fill(config.name);
 await page.getByLabel(/^Instructions/).fill(config.instructions);
@@ -139,15 +145,24 @@ await page.screenshot({path:artifactDir+'/bot-created.png',fullPage:true});
 const [sessionCreated]=await Promise.all([page.waitForResponse(response=>new URL(response.url()).pathname==='/api/sessions'&&response.request().method()==='POST'),page.getByRole('button',{name:'Launch bot '+config.name,exact:true}).click()]);assert.equal(sessionCreated.status(),201,await sessionCreated.text());
 const session=(await sessionCreated.json()).session;assert.equal(session.metadata.customAgentId,profile.id);
 const sessionQuery='?session='+encodeURIComponent(session.id);
-const botLabel='Bot: '+(profile.config.emoji?profile.config.emoji+' ':'')+config.name;
-await page.getByText(botLabel,{exact:true}).waitFor();
+async function assertThreadProfile(){
+  const composer=await selectRepositoryTask(page);
+  await composer.getByRole('button',{name:'Thread configuration',exact:true}).click();
+  const configuration=composer.getByRole('menu',{name:'Thread configuration',exact:true});
+  const selected=configuration.getByRole('menuitemradio').filter({hasText:config.name});
+  assert.equal(await selected.getAttribute('aria-checked'),'true','The named thread must retain its selected bot.');
+  await selected.press('Escape');await configuration.waitFor({state:'hidden'});
+}
+await page.getByRole('button',{name:/^(?:Chats|(?:Chat & )?Threads)$/,exact:true}).click();
+await assertThreadProfile();
 passed('Launch bot opens a real bound conversation');
 async function reopenThread(){
-  await page.goto(origin+'/app/?tab=custom-agents');
+  await openAppView(page, "Agents");
   await page.getByRole('list',{name:config.name+' threads',exact:true}).getByRole('button').filter({hasText:config.name}).first().click();
-  await page.getByText(botLabel,{exact:true}).waitFor();
+  await assertThreadProfile();
 }
 async function queue(task){
+  await selectRepositoryTask(page);
   await page.getByLabel('Task description',{exact:true}).fill(task);
   await page.getByRole('button',{name:/^Run on:/}).click();
   await page.getByRole('menuitemradio',{name:/Local \(Paired computer\)/}).click();
@@ -164,14 +179,14 @@ async function queue(task){
   return approval;
 }
 async function approveInUi(pointer){
-  await page.goto(origin+'/app/?tab=approvals');
+  await openAppView(page, "Approvals");
   const card=page.locator('div').filter({has:page.getByRole('button',{name:'Approve',exact:true})}).filter({hasText:pointer.task}).last();
   await card.getByText('Bot profile v1',{exact:true}).waitFor();
   if(marketing){
     const frozen=card.getByRole('list',{name:'Frozen required deliverables',exact:true});
     for(const file of marketingFiles)await frozen.getByText(file.path,{exact:true}).waitFor();
   }
-  const [response]=await Promise.all([page.waitForResponse(response=>new URL(response.url()).pathname==='/api/approvals'&&response.request().method()==='POST'),card.getByRole('button',{name:'Approve',exact:true}).click()]);assert(response.ok(),'Approval status '+response.status());
+  const [response]=await Promise.all([page.waitForResponse(response=>{if(new URL(response.url()).pathname!=='/api/approvals'||response.request().method()!=='POST')return false;const decision=response.request().postDataJSON();return decision.approvalId===pointer.approvalId&&decision.threadKey===pointer.threadKey&&decision.approved===true}),card.getByRole('button',{name:'Approve',exact:true}).click()]);assert(response.ok(),'Approval status '+response.status());assert.equal((await response.json()).result,'approved','The exact human decision must be accepted');
   passed('Human approval uses the real dashboard button');
 }
 const p=await queue('EDIT_FIXTURE');
@@ -202,8 +217,16 @@ if(marketing){
   assert.equal(Object.hasOwn(retained,'resultArtifacts'),false,'Private bodies must not appear on the run detail API');
   assert.equal(Object.hasOwn(listed,'resultArtifacts'),false,'Private bodies must not appear on the run list API');
   const expectedMetadata=marketingFiles.map(file=>({path:file.path,mediaType:'text/markdown; charset=utf-8',bytes:Buffer.byteLength(file.content),sha256:createHash('sha256').update(file.content).digest('hex')}));
-  assert.deepEqual(retained.deliverables,expectedMetadata);
-  assert.deepEqual(listed.deliverables,expectedMetadata);
+  assert.deepEqual(retained.deliverables.map(({path,mediaType,bytes,sha256})=>({path,mediaType,bytes,sha256})),expectedMetadata);
+  assert.deepEqual(listed.deliverables,retained.deliverables);
+  assert.equal(new Set(retained.deliverables.map(file=>file.artifactId)).size,marketingFiles.length);
+  for(const file of retained.deliverables){
+    assert.match(file.artifactId,/^artifact_[a-f0-9]+$/);
+    assert.equal(file.version,1);assert.equal(file.sourceRunId,completed.runId);
+    assert.deepEqual(file.provenance.customAgent,{id:profile.id,version:1});
+    assert.equal(file.review.status,'pending_review');assert.equal(file.review.revision,0);
+    assert.equal(Object.hasOwn(file,'content'),false,'Public metadata must not contain private artifact bodies');
+  }
   const wrongSession=(await api('/api/sessions',{name:'Marketing fixture access check '+stamp})).data.session;
   assert.notEqual(wrongSession.id,session.id);
   const deliverables=page.getByRole('region',{name:'Deliverables',exact:true}).filter({has:page.getByRole('link',{name:'Download marketing/brief.md',exact:true})});
@@ -241,7 +264,7 @@ if(marketing){
 }
 const [reviewResponse]=await Promise.all([
   page.waitForResponse(response=>new URL(response.url()).pathname==='/api/v1/threads/'+encodeURIComponent(completed.runId)+'/pr/review'&&response.request().method()==='GET'),
-  page.getByRole('navigation',{name:'Main',exact:true}).getByRole('button',{name:'Pull requests',exact:true}).click(),
+  openAppView(page, "Pull requests"),
 ]);
 assert.equal(reviewResponse.status(),200,'Named-session review must resolve the completed run');
 assert.equal(new URL(reviewResponse.url()).searchParams.get('session'),session.id,'Review request must retain the owning session');
@@ -269,6 +292,9 @@ if(checkMissingDeliverable){
   const missingActive=await poll(async()=>{const run=(await api('/api/runs/'+encodeURIComponent(missingDeliverableRunId)+sessionQuery)).data.run;if(!run?.sandboxId)return false;return (await api('/api/computers/harness')).data.runs?.find(row=>row.sandboxId===run.sandboxId&&row.approvals?.some(approval=>approval.requestId==='write-fixture'&&approval.decision===undefined))},'missing deliverable tool approval');
   await page.getByRole('region',{name:'Live agent session',exact:true}).filter({has:page.getByText(missingActive.sandboxId,{exact:true})}).getByRole('button',{name:'Allow',exact:true}).click();
   const failed=await poll(async()=>{const run=(await api('/api/runs/'+encodeURIComponent(missingDeliverableRunId)+sessionQuery)).data.run;assert.notEqual(run?.status,'completed','Missing required file must never produce a completed run');return run?.status==='error'&&run},'missing required marketing file fails closed');
+  const missingReason=failed.error??failed.summary??'';
+  assert.match(missingReason,/Expected deliverable marketing\/campaign\.md could not be captured/,'Missing-file acceptance must not mask an unrelated execution or cleanup failure');
+  assert.doesNotMatch(missingReason,/termination unconfirmed/);
   assert.deepEqual(failed.expectedDeliverables,marketingFiles.map(file=>file.path));
   assert.equal(failed.deliverables?.length??0,0);assert.equal(Object.hasOwn(failed,'resultArtifacts'),false);
   const missingWork=path.join(daemonRoot,'runs',missingActive.sandboxId,'work');
@@ -288,7 +314,7 @@ if(checkMissingDeliverable){
 }
 const cancelledPointer=await queue('CANCEL_FIXTURE');await approveInUi(cancelledPointer);
 const cancelRunId='agent-tool:'+cancelledPointer.approvalId;
-const running=await poll(async()=>{const r=(await api('/api/runs/'+encodeURIComponent(cancelRunId)+sessionQuery)).data.run;if(!r?.sandboxId)return false;try{await readFile(path.join(daemonRoot,'runs',r.sandboxId,'work','.git/fake-cli-proof.json'));return r}catch{return false}},'cancel fixture CLI starts');
+const running=await poll(async()=>{assert.equal(daemon.exitCode,null,'Daemon exited before cancellation fixture dispatch: '+output.slice(-4000));assert.equal(daemon.signalCode,null,'Daemon was signaled before cancellation fixture dispatch');const r=(await api('/api/runs/'+encodeURIComponent(cancelRunId)+sessionQuery)).data.run;assert(!['error','unknown','aborted','cancelled'].includes(r?.status),'Cancellation fixture did not reach its CLI: '+JSON.stringify(r));if(!r?.sandboxId)return false;try{await readFile(path.join(daemonRoot,'runs',r.sandboxId,'work','.git/fake-cli-proof.json'));return r}catch{return false}},'cancel fixture CLI starts');
 const cancelled=(await api('/api/runs/'+encodeURIComponent(cancelRunId)+sessionQuery,undefined,'DELETE')).data.run; assert.equal(cancelled.status,'cancelled');
 await poll(async()=>{try{return await readFile(path.join(daemonRoot,'runs',running.sandboxId,'work','.git/fake-cli-cancelled'),'utf8')}catch{return false}},'cancel reaches actual CLI',10000);
 assert.equal((await api('/api/runs/'+encodeURIComponent(cancelRunId)+sessionQuery)).data.run.status,'cancelled');

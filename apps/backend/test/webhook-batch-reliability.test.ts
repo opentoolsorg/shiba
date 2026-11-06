@@ -138,23 +138,22 @@ describe("durable webhook batches", () => {
     expect(h.storage.data.has(BATCH_KEY)).toBe(false);
   });
 
-  it.each([409, 503])("retries unattended resolution failure %i using its saved approval and charges the run only once", async (status) => {
+  it.each([409, 503])("never attempts unattended resolution even when that endpoint would fail with %i", async (status) => {
     const h = fixture({ unattended: true, unattendedRepos: ["owner/repo"], dailyRunLimit: 1 }); h.due();
     h.env.GITHUB_TOKEN = "test-only-github-token";
     let resolves = 0;
     h.fetch.mockImplementation(async (request) => {
       if (new URL(request.url).pathname === "/api/runs") return Response.json({ approvalId: "pending" });
       resolves += 1;
-      return resolves === 1 ? new Response(null, { status }) : Response.json({ ok: true });
+      return new Response(null, { status });
     });
-    expect(await h.instance.tick(h.orchestrator, NOW)).toEqual({ fired: 0 });
-    expect(h.storage.data.has(BATCH_KEY)).toBe(true);
-    expect((await h.storage.get<AutomationsState>("state"))!.items[0]!.runCount).toBe(1);
-    expect(await h.recreate().tick(h.orchestrator, NOW + 300_000)).toEqual({ fired: 1 });
-    expect(h.fetch.mock.calls.filter(([request]) => new URL(request.url).pathname === "/api/runs")).toHaveLength(1);
-    expect(resolves).toBe(2);
-    expect((await h.storage.get<AutomationsState>("state"))!.items[0]!.runCount).toBe(1);
+    expect(await h.instance.tick(h.orchestrator, NOW)).toEqual({ fired: 1 });
     expect(h.storage.data.has(BATCH_KEY)).toBe(false);
+    expect((await h.storage.get<AutomationsState>("state"))!.items[0]!.runCount).toBe(1);
+    expect(await h.recreate().tick(h.orchestrator, NOW + 300_000)).toEqual({ fired: 0 });
+    expect(h.fetch.mock.calls.filter(([request]) => new URL(request.url).pathname === "/api/runs")).toHaveLength(1);
+    expect(resolves).toBe(0);
+    expect((await h.storage.get<AutomationsState>("state"))!.items[0]!.runCount).toBe(1);
     expect(h.storage.data.has("webhook-queue-intent:batched")).toBe(false);
   });
 

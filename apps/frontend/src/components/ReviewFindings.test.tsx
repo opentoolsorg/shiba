@@ -99,6 +99,21 @@ describe("ReviewFindings", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Retry network unavailable"));
   });
 
+  it.each(["posting", "unknown"] as const)("blocks review retry when publication outcome is %s", async (publicationOutcome) => {
+    const error = "Review publication is uncertain. Inspect GitHub before taking further action.";
+    const request = vi.fn(async () => Response.json({
+      round: { ...sampleRound, status: "failed", publicationOutcome, error },
+    }));
+    vi.stubGlobal("fetch", request);
+    render(<ReviewFindings threadId="run-1" sessionId="named" reviewAfterPublish />);
+
+    const retry = await screen.findByRole<HTMLButtonElement>("button", { name: "Retry review" });
+    expect(retry.disabled).toBe(true);
+    expect(screen.getByRole("alert").textContent).toContain(error);
+    fireEvent.click(retry);
+    expect(request).toHaveBeenCalledExactlyOnceWith("/api/v1/threads/run-1/pr/review?session=named");
+  });
+
   it("renders nothing when review was not requested and round is absent", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ round: null })));
     const { container } = render(<ReviewFindings threadId="run-1" />);

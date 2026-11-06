@@ -1,0 +1,111 @@
+{
+  "kind": "local-Chromium-retained-output-component-fixture",
+  "startedAt": "2026-11-05T07:54:06.508Z",
+  "boundary": "Actual React retained-output client/panel and product CSS with deterministic intercepted HTTP only. This does not test native authentication, real Container RPC, providers, models, CLI, Slack or deployment.",
+  "sourceAtStart": {
+    "apps/frontend/src/run-output-archive-client.ts": "159a66671f9a74fdf900f82a2f9c739bb54afcd7e5458b1be8774d8673e02556",
+    "apps/frontend/src/components/RunOutputArchivePanel.tsx": "9db5d4e8c138502b87a7ca7d200cb68c5a65d93e107e59c62e77c53bc40e67f7",
+    "apps/frontend/src/components/RunLivePanel.tsx": "39e2bbafcfce949f0213756468adeb575f69ad3795e886fe7d4b4eefaec485b7",
+    "packages/shared/src/run-output-archive.ts": "d9d9f6b43cddf5f54cb866214577a1465e71bdba4136fc8fcc81a385fd746a75",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "checks": [
+    "Mounting the fixture shell makes zero archive requests until explicit Open",
+    "Explicit Open verifies scoped native directory and hash-chain content using read-only requests",
+    "Incomplete source is labelled unknown and exposes no execution, send or download action",
+    "390px and320px archive metadata, hashes and controls fit without horizontal overflow",
+    "Current access denial removes retained private content before any further action",
+    "Late A page after native actor/run B switch cannot paint old bytes or create a download",
+    "Exact local archive lease expiry hides cached bytes before the20-second poll",
+    "No JS/console errors, external traffic, browser credentials/storage or source drift"
+  ],
+  "requests": [
+    {
+      "path": "/api/run-output-archives",
+      "query": "",
+      "method": "GET"
+    },
+    {
+      "path": "/api/run-output-archives",
+      "query": "",
+      "method": "GET"
+    },
+    {
+      "path": "/api/run-output-archives/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "query": "?after=0",
+      "method": "GET"
+    },
+    {
+      "path": "/api/run-output-archives",
+      "query": "",
+      "method": "GET"
+    },
+    {
+      "path": "/api/run-output-archives",
+      "query": "",
+      "method": "GET"
+    },
+    {
+      "path": "/api/run-output-archives",
+      "query": "",
+      "method": "GET"
+    },
+    {
+      "path": "/api/run-output-archives",
+      "query": "",
+      "method": "GET"
+    },
+    {
+      "path": "/api/run-output-archives",
+      "query": "",
+      "method": "GET"
+    },
+    {
+      "path": "/api/run-output-archives/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "query": "?after=0",
+      "method": "GET"
+    },
+    {
+      "path": "/api/run-output-archives",
+      "query": "",
+      "method": "GET"
+    },
+    {
+      "path": "/api/run-output-archives",
+      "query": "",
+      "method": "GET"
+    },
+    {
+      "path": "/api/run-output-archives",
+      "query": "",
+      "method": "GET"
+    },
+    {
+      "path": "/api/run-output-archives",
+      "query": "",
+      "method": "GET"
+    },
+    {
+      "path": "/api/run-output-archives/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "query": "?after=0",
+      "method": "GET"
+    }
+  ],
+  "screenshots": [
+    "run-output-archive-browser-20261105-desktop-dark.png",
+    "run-output-archive-browser-20261105-390-dark.png",
+    "run-output-archive-browser-20261105-320-dark.png"
+  ],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "blockedExternal": [],
+  "sourceAtEnd": {
+    "apps/frontend/src/run-output-archive-client.ts": "159a66671f9a74fdf900f82a2f9c739bb54afcd7e5458b1be8774d8673e02556",
+    "apps/frontend/src/components/RunOutputArchivePanel.tsx": "9db5d4e8c138502b87a7ca7d200cb68c5a65d93e107e59c62e77c53bc40e67f7",
+    "apps/frontend/src/components/RunLivePanel.tsx": "39e2bbafcfce949f0213756468adeb575f69ad3795e886fe7d4b4eefaec485b7",
+    "packages/shared/src/run-output-archive.ts": "d9d9f6b43cddf5f54cb866214577a1465e71bdba4136fc8fcc81a385fd746a75",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "status": "passed",
+  "finishedAt": "2026-11-05T07:54:15.961Z"
+}

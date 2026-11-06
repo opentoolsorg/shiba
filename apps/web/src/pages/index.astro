@@ -10,8 +10,8 @@ const description = 'AI employees for the work behind your company: code, design
 const faqItems = [
   {"q": "What is Shiba?", "a": "Shiba is an open-source workspace for AI employees. Give an employee a task and the context it needs, review the proposed work, and inspect the files or changes it returns."},
   {"q": "What kind of work can I give it?", "a": "Draft campaign copy, research an account using supplied context, outline a design, fix a bug, prepare an operating checklist, or organize supplied figures into a draft budget or pipeline summary. Set clear instructions and review the result before using it."},
-  {"q": "Do I need a repository for non-coding tasks?", "a": "Yes. Every task currently needs a GitHub repository, including non-code work. It gives Shiba context and a place to return draft files. The task does not have to change code."},
-  {"q": "What happens before I approve?", "a": "Shiba can plan and call a model before approval. Normal task execution waits for your decision on the exact request. Scoped unattended automations require explicit permission in advance."},
+  {"q": "Do I need a repository for non-coding tasks?", "a": "No. Repository tasks use GitHub. Other tasks can use an ephemeral workspace when artifact storage and signed downloads are configured."},
+  {"q": "What happens before I approve?", "a": "Shiba can plan and call a model before approval. Every execution waits for explicit human approval of the exact request."},
   {"q": "Where does my information go?", "a": "You host the app in your own account. The model provider you choose receives the context needed for its requests. Review the security and connection settings before using confidential information."},
   {"q": "Which agents and connections can I use?", "a": "The provider catalog includes agent adapters such as OpenCode, Claude Code, and Codex. Availability depends on your configured connection. Chat channels and other integrations also need setup; a listed adapter is not evidence of a successful live run."},
   {"q": "What does it cost?", "a": "The software is free to self-host under AGPL-3.0-only. You pay for hosting and model usage through your chosen providers."},
@@ -20,7 +20,7 @@ const faqItems = [
 ];
 
 const schema = [
-  { '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'Shiba', url: 'https://tryshiba.dev/', description, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Cloudflare Workers', license: 'https://spdx.org/licenses/AGPL-3.0-only.html', sameAs: 'https://github.com/princepal9120/shiba', offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' }, featureList: ['AI employees for company work', 'Approval-gated sandbox execution', 'Reviewable draft files and diffs', 'Connected repository required for execution', 'Configurable agents and model connections'] },
+  { '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'Shiba', url: 'https://tryshiba.dev/', description, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Cloudflare Workers', license: 'https://spdx.org/licenses/AGPL-3.0-only.html', sameAs: 'https://github.com/princepal9120/shiba', offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' }, featureList: ['AI employees for company work', 'Approval-gated sandbox execution', 'Reviewable draft files and diffs', 'Repository tasks and configured private file workspaces', 'Configurable agents and model connections'] },
   { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqItems.map(item => ({ '@type': 'Question', name: item.q, acceptedAnswer: { '@type': 'Answer', text: item.a } })) },
 ];
 
@@ -85,17 +85,17 @@ const chatbotComparisons = [
 ];
 
 const controls = [
-  { title: 'Approval gate', text: 'Work pauses before any repository commit. You retain final authority over every merge.' },
+  { title: 'Approval gate', text: 'Approve the task and its scope before execution. Publishing changes requires a separate approval.' },
   { title: 'Your Cloudflare account', text: 'Runs on Workers and Containers in your cloud infrastructure. Stored data stays yours.' },
   { title: 'Sandbox per task', text: 'Each task executes in an ephemeral container with strict memory and CPU limits.' },
-  { title: 'Repository required', text: 'Non-coding and coding tasks operate inside a designated GitHub repository.' },
+  { title: 'Choose where work happens', text: 'Coding tasks use a GitHub repository. Document work can use a private workspace when artifact storage is configured.' },
   { title: 'Deployment-owned credentials', text: 'Model keys stay inside Cloudflare AI Gateway; containers never receive raw secrets.' },
   { title: 'Reviewable diffs', text: 'Inspect line-by-line diffs, generated drafts, and test logs before accepting work.' }
 ];
 
 const steps = [
   { num: '01', title: 'Self host in your account', text: 'Deploy to Cloudflare Workers with Docker sandbox container in minutes.' },
-  { num: '02', title: 'Connect a repository', text: 'Select a GitHub repo to give your AI employees context and output files.' },
+  { num: '02', title: 'Choose a workspace', text: 'Select a repository for code, or configure a private workspace for files.' },
   { num: '03', title: 'Assign your first task', text: 'Describe the work, review the proposed plan, and approve the run.' }
 ];
 ---
@@ -120,7 +120,7 @@ const steps = [
         </div>
         <div class="hero-disclosures">
           <p class="hero-note">Free software to self-host. Hosting and model usage cost extra.</p>
-          <p class="hero-note">Tasks need a GitHub repository and your approval. The demo is a simulation.</p>
+          <p class="hero-note">Approve a repository task or use a configured private file workspace. The demo is a simulation.</p>
         </div>
 
         <!-- Static "Works with" chip row -->
@@ -151,7 +151,6 @@ const steps = [
           AI employees that work in your repos and wait for your approval.
         </h2>
         <div class="manifesto-actions">
-          <a class="cta cta-primary" href="/docs/self-hosting/">Self host Shiba</a>
           <span class="manifesto-sub">Open source · AGPL-3.0-only · Your infrastructure</span>
         </div>
       </div>
@@ -278,7 +277,7 @@ const steps = [
                   </div>
                   <div class="deliv-files">
                     {c.shibaAction.files.map(f => (
-                      <div class="deliv-file-pill"><span>📄</span><code>{f}</code></div>
+                      <div class="deliv-file-pill"><svg class="deliv-file-icon" aria-hidden="true" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 1.5h5l3 3V14.5H4z"/><path d="M9 1.5v3h3"/></svg><code>{f}</code></div>
                     ))}
                   </div>
                   <p class="deliv-desc">{c.shibaAction.summary}</p>
@@ -575,7 +574,7 @@ const steps = [
 </script>
 
 <style>
-  /* 1120px hairline frame column (GetOverlay layout style) */
+  /* 1120px hairline frame column */
   .landing {
     max-width: 1120px;
     margin-inline: auto;
@@ -593,11 +592,11 @@ const steps = [
   section[id] { scroll-margin-top: 96px; }
   .home-hero, .manifesto-band, .home-section, .closing-section {
     border-bottom: 1px solid var(--hairline);
-    padding: 96px 40px;
+    padding: 72px 40px;
   }
   @media (max-width: 768px) {
     .home-hero, .manifesto-band, .home-section, .closing-section {
-      padding: 64px 20px;
+      padding: 56px 20px;
     }
   }
 
@@ -763,6 +762,7 @@ const steps = [
     margin: 0 0 32px;
   }
   .manifesto-actions { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .deliv-file-icon { flex: none; color: var(--ink-2); }
   .manifesto-sub { font: 400 12px/1.4 'Geist Mono', monospace; color: #A9A291; }
 
   /* SECTION 3: Real Dashboard Comic Panel */
@@ -882,7 +882,7 @@ const steps = [
   }
   .delivers-panel { padding: 24px; gap: 24px; grid-template-columns: 1fr 1fr; }
   .delivers-panel { display: grid; }
-  .delivers-js .delivers-panel:not(.is-active) { display: none; }
+  :global(.delivers-js) .delivers-panel:not(.is-active) { display: none; }
   .compare-col {
     padding: 20px;
     border: 1.5px solid var(--hairline);

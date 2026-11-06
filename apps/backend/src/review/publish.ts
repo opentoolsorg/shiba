@@ -13,6 +13,14 @@ export interface PostReviewDeps {
 
 const API_BASE = "https://api.github.com";
 
+/** GitHub may have accepted the review. A retry could create a second copy. */
+export class ReviewPublicationUnknownError extends Error {
+  constructor(message: string) {
+    super(redactSecrets(message));
+    this.name = "ReviewPublicationUnknownError";
+  }
+}
+
 function marker(roundId: string): string {
   return `<!-- shiba-review-round:${roundId} -->`;
 }
@@ -40,6 +48,9 @@ export async function postReview(
   token: string,
   deps: PostReviewDeps = {},
 ): Promise<{ githubReviewId: number; url: string }> {
+  if (round.publicationOutcome === "unknown") {
+    throw new ReviewPublicationUnknownError("Review publication outcome is unknown. Inspect GitHub before retrying.");
+  }
   const fetchImpl = deps.fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
   const apiBase = (deps.apiBase ?? API_BASE).replace(/\/$/, "");
   const { owner, repo, number, headSha } = round.pull;
@@ -87,26 +98,47 @@ export async function postReview(
       tag,
       ...bodyOnly.map((finding) => `- ${finding.severity} ${finding.path}:${finding.line} ${finding.title}`),
     ].filter((part) => part !== "").join("\n\n");
-    const created = await fetchImpl(`${apiBase}${path}`, {
-      method: "POST",
-      headers: headers(token),
-      body: JSON.stringify({
-        commit_id: headSha,
-        event: "COMMENT",
-        body,
-        comments: inline.map((finding) => ({
-          path: finding.path,
-          line: finding.line,
-          side: "RIGHT",
-          body: commentBody(finding),
-        })),
-      }),
-    });
-    const createdText = await created.text();
-    if (!created.ok) throw new Error(`GitHub create review failed ${created.status}: ${createdText.slice(0, 300)}`);
-    const review = JSON.parse(createdText) as { id: number; html_url?: string };
-    return { githubReviewId: review.id, url: review.html_url ?? "" };
+    let created: Response;
+    try {
+      created = await fetchImpl(`${apiBase}${path}`, {
+        method: "POST",
+        headers: headers(token),
+        body: JSON.stringify({
+          commit_id: headSha,
+          event: "COMMENT",
+          body,
+          comments: inline.map((finding) => ({
+            path: finding.path,
+            line: finding.line,
+            side: "RIGHT",
+            body: commentBody(finding),
+          })),
+        }),
+      });
+    } catch (error) {
+      throw new ReviewPublicationUnknownError(`Review publication response was lost: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!created.ok) {
+      const detail = await created.text().catch(() => "Response body unavailable.");
+      if (created.status === 408 || created.status >= 500) {
+        throw new ReviewPublicationUnknownError(`Review publication returned an uncertain HTTP ${created.status}: ${detail.slice(0, 300)}`);
+      }
+      throw new Error(`GitHub create review failed ${created.status}: ${detail.slice(0, 300)}`);
+    }
+    try {
+      const review: unknown = JSON.parse(await created.text());
+      if (typeof review !== "object" || review === null || !Number.isSafeInteger((review as { id?: unknown }).id) ||
+          ((review as { id: number }).id) < 1 ||
+          ((review as { html_url?: unknown }).html_url !== undefined && typeof (review as { html_url?: unknown }).html_url !== "string")) {
+        throw new Error("GitHub returned an invalid review receipt.");
+      }
+      const receipt = review as { id: number; html_url?: string };
+      return { githubReviewId: receipt.id, url: receipt.html_url ?? "" };
+    } catch (error) {
+      throw new ReviewPublicationUnknownError(`Review publication receipt is unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    }
   } catch (error) {
+    if (error instanceof ReviewPublicationUnknownError) throw error;
     throw new Error(redactSecrets(error instanceof Error ? error.message : String(error)));
   }
 }

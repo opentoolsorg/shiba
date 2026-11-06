@@ -1,3 +1,4 @@
+import type { PersonalExecutionSnapshot } from "./personal-execution.js";
 import type { OnboardingRunFields } from "./onboarding.js";
 /**
  * Durable run registry wire types — shared between the orchestrator's DO
@@ -7,11 +8,12 @@ import type { OnboardingRunFields } from "./onboarding.js";
  * `queued` or `dispatching` (no sandbox side effects yet). Once the
  * checkpoint is `executing` or `settling`, the outcome is unknown.
  */
-import type { RunDeliverable } from "./deliverables.js";
+import type { RunArtifactBundle, RunDeliverable } from "./deliverables.js";
 import type { ApprovalEvidence, SkillExecutionPin } from "./approvals.js";
 import type { RuntimeSelection } from "./local-runtime.js";
 import type { ApprovedRoute } from "./model.js";
 import type { Receipt } from "./receipts.js";
+import type { RunAttachment } from "./run-attachments.js";
 import type { RunErrorCode } from "./run-errors.js";
 import type { RunSignal } from "./run-signals.js";
 import type { SteeringNote } from "./steering.js";
@@ -36,6 +38,7 @@ export type RunStatus =
   | "unknown";
 
 export interface DelegatedRun extends OnboardingRunFields {
+  outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   runId: string;
   sandboxId: string;
   repoUrl: string;
@@ -64,6 +67,7 @@ export interface DelegatedRun extends OnboardingRunFields {
   summary?: string;
   /** Public metadata for captured requested outputs. */
   deliverables?: RunDeliverable[];
+  artifactBundle?: RunArtifactBundle;
   error?: string;
   /** Classified error code; set on every error/unknown transition. */
   errorCode?: RunErrorCode;
@@ -99,6 +103,8 @@ export interface DelegatedRun extends OnboardingRunFields {
    * without it; absent on records predating the decider.
    */
   approval?: ApprovalEvidence;
+  /** Routing hint only. Private delivery receipts independently authorize any post. */
+  slackCommandOrigin?: string;
   /**
    * T42: typed pipeline milestones the child emitted in order
    * (sandbox.ready → … → pr.opened/screenshot.captured), persisted on the
@@ -126,6 +132,7 @@ export interface DelegatedRun extends OnboardingRunFields {
   runtime?: RuntimeSelection;
   /** T51: the only machine whose daemon may claim this local run; approval-hashed. */
   targetMachineId?: string;
+  personalExecution?: PersonalExecutionSnapshot;
   /** The test command this approval-gated run executes, as argv. */
   testCommand?: string[];
   /** Exact workspace outputs required by this approval. */
@@ -181,6 +188,8 @@ export interface DelegatedRun extends OnboardingRunFields {
   employeeToolPolicyVersion?: number;
   /** Reviewed skill versions used to build this run's frozen task prompt. */
   skillPins?: SkillExecutionPin[];
+  /** T69: approval-hashed files, stored content-addressed under the owner in R2. */
+  attachments?: RunAttachment[];
   /**
    * Durable phase written before the next await. A Worker/DO restart
    * resumes `queued` and `dispatching` runs that have not touched a
@@ -243,6 +252,7 @@ export type RunPatch = {
   summary?: string;
   /** Public metadata for captured requested outputs. */
   deliverables?: RunDeliverable[];
+  artifactBundle?: RunArtifactBundle;
   error?: string;
   errorCode?: RunErrorCode;
   diff?: string;

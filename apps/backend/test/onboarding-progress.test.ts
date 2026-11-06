@@ -52,6 +52,27 @@ async function prepareDraft(ctx: ReturnType<typeof context>) {
 }
 
 describe("server-owned onboarding progress", () => {
+  it.each(["engineering", "design", "marketing", "gtm", "sales", "operations", "hr", "finance", "product", "research"])(
+    "retains an optional %s role selection without creating an employee or claiming readiness", async (employeeTemplateId) => {
+      const ctx = context();
+      const saved = await saveDraft(ctx, { employeeTemplateId, employeeTemplateVersion: 1 });
+      expect(saved.status).toBe(200);
+      expect(await saved.json()).toMatchObject({
+        draftTask: { employeeTemplateId, employeeTemplateVersion: 1, employeeId: null, preparedAt: null },
+        activatedAt: null,
+        evidence: { connectedProvider: false, successfulRun: false, acceptedDeliverable: false },
+      });
+      const retained = await (await call(ctx)).json();
+      expect(retained.draftTask?.employeeTemplateId).toBe(employeeTemplateId);
+    },
+  );
+
+  it("rejects unknown role IDs and unsupported template versions", async () => {
+    const ctx = context();
+    expect((await saveDraft(ctx, { employeeTemplateId: "payroll-admin", employeeTemplateVersion: 1 })).status).toBe(400);
+    expect((await saveDraft(ctx, { employeeTemplateId: "finance", employeeTemplateVersion: 99 })).status).toBe(400);
+  });
+
   it("persists the step across dismiss and resume without treating dismissal as activation", async () => {
     const ctx = context();
     const initial = await (await call(ctx)).json() as { revision: number; currentStep: string };

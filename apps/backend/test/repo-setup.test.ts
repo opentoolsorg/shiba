@@ -2,6 +2,7 @@
  * T72: the repo's `.shiba/setup.json` initialize runs only when the human
  * opted in, before the baseline checkpoint, and a failure fails the run.
  */
+import { repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { describe, expect, it, vi } from "vitest";
 import { LOCAL_RUNTIME_FLAG, runInputHash } from "@shiba/shared";
 import { CodingOrchestrator, delegateInputSchema } from "../src/agents/orchestrator.js";
@@ -47,9 +48,9 @@ const INPUT: CodingTaskInput = {
 };
 
 describe("parseRepoSetup", () => {
-  it("loads a setup file whose refresh and entries aren't run yet", () => {
-    const capy = { format_version: 1, scripts: { initialize: MARKER, refresh: "pnpm i" }, timeouts: { refresh: 60 }, entries: [] };
-    expect(parseRepoSetup(JSON.stringify(capy))).toEqual({ initialize: MARKER, timeoutMs: 600_000 });
+  it("loads a file whose refresh and entries aren't run yet", () => {
+    const setup = { format_version: 1, scripts: { initialize: MARKER, refresh: "pnpm i" }, timeouts: { refresh: 60 }, entries: [] };
+    expect(parseRepoSetup(JSON.stringify(setup))).toEqual({ initialize: MARKER, timeoutMs: 600_000 });
   });
 
   it("reads initialize and the timeout, defaulting to 10 minutes", () => {
@@ -85,12 +86,15 @@ describe("sandbox runtime", () => {
   ) {
     const calls: { command: string; cwd?: string; env?: Record<string, string> }[] = [];
     const signals: { kind: string; detail?: string }[] = [];
+    const snapshot = repositorySnapshotFixture({ status: opts.status ?? "" });
     const ops = {
       async gitCheckout() {},
       async writeFile() {},
       async exec(command: string, execOpts?: { cwd?: string; env?: Record<string, string> }) {
         calls.push({ command, cwd: execOpts?.cwd, env: execOpts?.env });
         if (command.includes(MARKER)) return { stdout: "", stderr: "boom", exitCode: opts.setupExit ?? 0 };
+        const captured = await snapshot(command);
+        if (captured) return captured;
         if (command.includes("diff-tree")) return { stdout: opts.setupPaths ?? "", stderr: "", exitCode: opts.diffTreeExit ?? 0 };
         if (command.includes("rev-parse") && command.includes("HEAD")) return { stdout: `${"a".repeat(40)}\n`, stderr: "", exitCode: 0 };
         if (command.includes("ls-files")) return { stdout: "", stderr: "", exitCode: opts.tracked ? 0 : 1 };
@@ -131,7 +135,7 @@ describe("sandbox runtime", () => {
     const outcome = await result;
     expect(outcome.status).toBe("error");
     expect(outcome.summary).toContain("Repo setup check failed");
-    const check = calls.find((c) => c.command.includes("diff-tree"));
+    const check = calls.find((c) => c.command.startsWith("'git'") && c.command.includes("diff-tree"));
     expect(check?.command).toContain("a".repeat(40));
     expect(check?.command).toContain("src/app.ts");
   });
@@ -166,10 +170,13 @@ describe("sandbox runtime", () => {
     const { calls, result } = run({ ...INPUT, runSetup: true }, { file: SETUP_JSON, env: { DATABASE_URL: "x" } });
     await result;
     const setupAt = calls.findIndex((c) => c.command.includes(MARKER));
-    const firstGit = calls.findIndex((c) => c.command.includes("git"));
+    const baseRevisionAt = calls.findIndex((c) => c.command.includes("HEAD^{commit}"));
+    const checkpointAt = calls.findIndex((c) => c.command.includes("--git-dir"));
     const harnessAt = calls.findIndex((c) => c.command.includes("opencode"));
     expect(setupAt).toBeGreaterThanOrEqual(0);
-    expect(setupAt).toBeLessThan(firstGit);
+    expect(baseRevisionAt).toBeGreaterThanOrEqual(0);
+    expect(baseRevisionAt).toBeLessThan(setupAt);
+    expect(setupAt).toBeLessThan(checkpointAt);
     expect(setupAt).toBeLessThan(harnessAt);
     expect(calls[setupAt]).toMatchObject({ cwd: "/workspace/run-abc", env: { DATABASE_URL: "x" } });
   });

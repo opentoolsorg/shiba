@@ -3,16 +3,16 @@
  * Claude and Codex parseEvent both accept these so a cloud run's progress
  * feed stays the same shape whether the CLI or the session layer wrote the line.
  */
-import { boundTail } from "../security.js";
+import { sanitizedEventText, type HarnessTextSanitizer } from "./event-sanitizer.js";
 import type { HarnessEvent } from "./types.js";
 
 export type SessionLine =
   | { kind: "foreign" }
   | { kind: "skip" }
   | { kind: "event"; event: HarnessEvent }
-  | { kind: "error"; detail: string };
+  | { kind: "error"; detail: string; usageLimited: boolean };
 
-export function classifySessionLine(line: string): SessionLine {
+export function classifySessionLine(line: string, sanitize?: HarnessTextSanitizer): SessionLine {
   const trimmed = line.trim();
   if (!trimmed.startsWith("{")) return { kind: "foreign" };
   let record: unknown;
@@ -29,16 +29,19 @@ export function classifySessionLine(line: string): SessionLine {
   const event = row.event;
   if (event === null || typeof event !== "object" || Array.isArray(event)) return { kind: "skip" };
   const body = event as Record<string, unknown>;
-  if (body.type === "error") {
-    const detail = typeof body.message === "string" ? body.message : "session error";
-    return { kind: "error", detail: boundTail(detail, 500) };
+  const failedTurn = body.type === "turn.completed" && (body.status === "failed" || body.status === "error");
+  if (body.type === "error" || failedTurn) {
+    const detail = failedTurn
+      ? typeof body.summary === "string" && body.summary ? body.summary : "session execution failed"
+      : typeof body.message === "string" ? body.message : "session error";
+    return { kind: "error", detail: sanitizedEventText(detail, sanitize), usageLimited: body.usageLimited === true || /usage|rate.?limit|quota/i.test(detail) };
   }
-  const text = typeof row.text === "string" ? row.text.trim() : "";
-  if (text === "") return { kind: "skip" };
-  const shown = boundTail(text, 500);
+  const text = typeof row.text === "string" ? row.text : "";
+  if (text.trim() === "") return { kind: "skip" };
+  const shown = sanitizedEventText(text, sanitize, 500, true);
   if (body.type === "tool.started" || body.type === "tool.completed") {
     const name = typeof body.name === "string" && body.name !== "" ? body.name : "tool";
-    return { kind: "event", event: { kind: "tool", name, text: shown } };
+    return { kind: "event", event: { kind: "tool", name: sanitizedEventText(name, sanitize), text: shown } };
   }
   if (body.type === "turn.completed") {
     return { kind: "event", event: { kind: "result", text: shown } };

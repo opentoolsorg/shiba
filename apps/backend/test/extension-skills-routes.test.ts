@@ -82,12 +82,13 @@ describe("extension skills routes", () => {
     expect((await f.send(`${base}/${personalId}`))?.status).toBe(404);
     const directoryResponse = await f.send(`${base}/directory`);
     const directory = await directoryResponse?.json() as Array<Record<string, unknown>>;
-    expect(directory).toEqual([{ _id: sharedId, name: "Shared", description: "Workspace policy", enabled: true }]);
+    expect(directory).toEqual([{ _id: sharedId, name: "Shared", description: "Workspace policy", enabled: true, version: 1 }]);
     expect(JSON.stringify(directory)).not.toContain("Shared body");
     expect(await (await f.send(`${base}/${sharedId}/instructions`))?.json()).toEqual({
       _id: sharedId,
       name: "Shared",
       instructions: "Shared body",
+      version: 1,
     });
     expect((await f.send(`${base}/${sharedId}`, "PATCH", { name: "Hijack" }))?.status).toBe(403);
     expect((await f.send(`${base}/${sharedId}/archive`, "POST"))?.status).toBe(403);

@@ -62,10 +62,14 @@ class ManagedContainerImpl implements ManagedContainer {
     /** Ops adopt this signal when a call doesn't carry its own — the scope wires the one interruption forwards to. */
     private readonly fallbackSignal?: AbortSignal,
   ) {
+    const writeStream = inner.writeFileStream?.bind(inner);
     this.ops = {
+      get journaledExec() { return inner.journaledExec; },
+      ...(inner.supportsJournal ? { supportsJournal: () => this.call(() => inner.supportsJournal!()) } : {}),
       ...(inner.pinEgress ? { pinEgress: () => this.call(() => inner.pinEgress!()) } : {}),
       gitCheckout: (repoUrl, opts) => this.call(() => inner.gitCheckout(repoUrl, opts)),
       writeFile: (path, content) => this.call(() => inner.writeFile(path, content)),
+      ...(writeStream !== undefined ? { writeFileStream: (path, body) => this.call(() => writeStream(path, body)) } : {}),
       exec: (command, opts) =>
         this.call(() => inner.exec(command, { ...opts, signal: opts?.signal ?? this.fallbackSignal })),
       readFile: (path, opts) =>

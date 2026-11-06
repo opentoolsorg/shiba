@@ -10,7 +10,7 @@
  */
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import { DUMMY_PROVIDER_KEY } from "../provider-gateway.js";
-import { boundTail } from "../security.js";
+import { sanitizedEventText, type HarnessTextSanitizer } from "./event-sanitizer.js";
 import {
   assertSupportedModel,
   PROVIDER_HOSTS,
@@ -27,30 +27,33 @@ export const ANTIGRAVITY_PROVIDERS = ["google"] as const;
 /** Thrown when agy reports an error event. */
 export class AntigravityErrorEvent extends Error {
   readonly detail: string;
-  constructor(detail: string) {
-    super(detail);
+  readonly usageLimited: boolean;
+  constructor(detail: string, sanitize?: HarnessTextSanitizer) {
+    const safe = sanitizedEventText(detail, sanitize);
+    super(safe);
     this.name = "AntigravityErrorEvent";
-    this.detail = detail;
+    this.detail = safe;
+    this.usageLimited = /usage|rate.?limit|quota|sign.?in|auth/i.test(detail);
   }
 }
 
 /** JSON lines surface their text/message field; anything else is plain progress text. */
-export function parseAntigravityEvent(line: string): HarnessEvent | null {
+export function parseAntigravityEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
   let event: unknown;
   try {
     event = JSON.parse(trimmed);
   } catch {
-    return { kind: "text", text: boundTail(trimmed, 500) };
+    return { kind: "text", text: sanitizedEventText(line, sanitize, 500, true) };
   }
   if (event === null || typeof event !== "object" || Array.isArray(event)) {
-    return { kind: "text", text: boundTail(trimmed, 500) };
+    return { kind: "text", text: sanitizedEventText(line, sanitize, 500, true) };
   }
   const record = event as Record<string, unknown>;
   if (record.type === "error") {
     const detail = typeof record.message === "string" ? record.message : JSON.stringify(record);
-    throw new AntigravityErrorEvent(boundTail(detail, 500));
+    throw new AntigravityErrorEvent(detail, sanitize);
   }
   const text = typeof record.text === "string"
     ? record.text
@@ -59,7 +62,7 @@ export function parseAntigravityEvent(line: string): HarnessEvent | null {
       : typeof record.content === "string"
         ? record.content
         : "";
-  return text.trim() ? { kind: "text", text: boundTail(text.trim(), 500) } : null;
+  return text.trim() ? { kind: "text", text: sanitizedEventText(text, sanitize, 500, true) } : null;
 }
 
 export class AntigravityHarness implements AgentHarness {
@@ -93,8 +96,8 @@ export class AntigravityHarness implements AgentHarness {
     ];
   }
 
-  parseEvent(line: string): HarnessEvent | null {
-    return parseAntigravityEvent(line);
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
+    return parseAntigravityEvent(line, sanitize);
   }
   /** T43 declared capabilities — the gates read this, not the name. */
   capabilities(_model?: string): HarnessCapabilities {

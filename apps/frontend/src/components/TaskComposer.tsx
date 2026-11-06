@@ -3,14 +3,17 @@ import {
   type JSX,
   type ReactNode,
   type SyntheticEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import {
   ArrowUp,
+  AtSign,
   Bot,
   Check,
   ChevronDown,
@@ -27,6 +30,7 @@ import {
   Laptop,
   Lock,
   Mic,
+  Paperclip,
   Plus,
   Search,
   SlidersHorizontal,
@@ -35,10 +39,12 @@ import {
   X,
 } from "lucide-react";
 import { Tooltip } from "./Tooltip";
+import { formatBytes } from "../ui-helpers";
 import { AgentConversationEmpty } from "./AgentExperience";
 import type { SavedSkill } from "../saved";
-import { HARNESS_REASONING_EFFORTS, type ConnectedComputer, type ReasoningEffort } from "@shiba/shared";
+import { HARNESS_REASONING_EFFORTS, type ConnectedComputer, type CustomAgentRoleTemplateId, type ReasoningEffort } from "@shiba/shared";
 import { hasComposerInput, parseArtifactDeliverables } from "../execution-target-input";
+import { describeTaskRoute } from "../supported-task-routes";
 
 // Ambient types for browser Web Speech API.
 interface SpeechRecognitionResultItem {
@@ -109,6 +115,10 @@ export interface TaskComposerProps {
   reviewAfterPublish?: boolean;
   runSetup?: boolean;
   onRunSetupChange?: (value: boolean) => void;
+  attachments?: { name: string; size: number }[];
+  attachmentsUploading?: boolean;
+  onAttachFiles?: (files: File[]) => void;
+  onRemoveAttachment?: (name: string) => void;
   harness: string;
   /** Paired local computers are verified through the authenticated fleet API. */
   executionTargetKind?: "repository" | "artifact-workspace";
@@ -145,7 +155,7 @@ export interface TaskComposerProps {
   selectedSkillIds?: string[];
   onToggleSkill?: (id: string) => void;
   /** Org custom agents from /api/custom-agents */
-  customAgents?: { id: string; name: string; slug: string; emoji?: string; expectedDeliverables?: readonly string[] }[];
+  customAgents?: { id: string; name: string; slug: string; mascotPreset?: import("@shiba/shared").CustomAgentMascotPreset; emoji?: string; roleTemplateId?: CustomAgentRoleTemplateId; expectedDeliverables?: readonly string[] }[];
   customAgentId?: string;
   projects?: { id: string; name: string; purpose: string; defaultCustomAgentId: string | null; defaultHarness: string | null }[];
   projectContextId?: string;
@@ -162,23 +172,17 @@ export interface TaskComposerProps {
   onEnvVarsChange?: (vars: { name: string; value: string }[]) => void;
 }
 
-// Keep the picker simple: the everyday harnesses plus Pi. Everything else stays
-// reachable — a deployment default, role pin, MCP, or API call naming codex /
-// devin / a subscription / an ACP lane still resolves and runs; when such a
-// harness is already selected it is appended to the list so the field never
-// renders blank.
+// Keep everyday API and ChatGPT routes explicit. A pinned or legacy harness
+// remains visible when selected; the server validates its deployment gate and
+// capabilities before approval. Visibility is not a readiness guarantee.
 const HARNESS_OPTIONS: { value: string; label: string; desc: string }[] = [
   { value: "opencode", label: "OpenCode", desc: "Default autonomous coding engine" },
   { value: "claude-code", label: "Claude Code", desc: "Anthropic Claude Code CLI" },
+  { value: "codex", label: "Codex (API credential)", desc: "OpenAI Codex CLI using the selected API route" },
   {
     value: "codex-subscription",
     label: "Codex (ChatGPT plan)",
     desc: "Your ChatGPT subscription — no AI Gateway token",
-  },
-  {
-    value: "claude-subscription",
-    label: "Claude (setup-token)",
-    desc: "Opt-in setup-token. Prefer Local + Claude Code",
   },
   { value: "pi", label: "Pi", desc: "Earendil Pi agent — Anthropic, OpenAI, Google, xAI" },
 ];
@@ -191,7 +195,7 @@ const LOCAL_HARNESS_OPTIONS: { value: string; label: string; desc: string }[] = 
   { value: "codex", label: "Codex", desc: "OpenAI Codex CLI" },
 ];
 
-type PopoverKind = "menu" | "repo" | "branch" | "harness" | "model" | "effort" | "access" | "target" | "config" | "env" | null;
+type PopoverKind = "menu" | "repo" | "branch" | "harness" | "model" | "effort" | "access" | "target" | "config" | "env" | "mention" | null;
 
 function formatEffort(level: string): string {
   return level ? level.charAt(0).toUpperCase() + level.slice(1) : "";
@@ -254,7 +258,10 @@ function Popover({
       panel.querySelector<HTMLElement>("input:not(:disabled), button:not(:disabled), select:not(:disabled)")?.focus();
     }
     const onPointerDown = (event: PointerEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) onClose();
+      const target = event.target as Node;
+      // The trigger owns its toggle. Closing during pointer-down would make
+      // its subsequent click reopen the popover instead of closing it.
+      if (ref.current && !ref.current.contains(target) && !document.getElementById(labelledBy)?.contains(target)) onClose();
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -270,7 +277,7 @@ function Popover({
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [open, onClose, returnFocusId]);
+  }, [open, onClose, labelledBy, returnFocusId]);
   if (!open) return null;
   return (
     <div
@@ -317,6 +324,10 @@ export function TaskComposer({
   publishPullRequest,
   reviewAfterPublish = false,
   runSetup = false,
+  attachments = [],
+  attachmentsUploading = false,
+  onAttachFiles,
+  onRemoveAttachment,
   harness,
   runTarget = "sandbox",
   executionTargetKind = "repository",
@@ -364,21 +375,28 @@ export function TaskComposer({
   envVars = [],
   onEnvVarsChange,
 }: TaskComposerProps): JSX.Element {
+  const routeDescription = describeTaskRoute({ runtime: runTarget, workType: executionTargetKind,
+    harness, model: routing.codingModel, connectionId: routing.connectionId, connections: routing.connections ?? [] });
   const localTargetBlocked = runTarget === "local" && (
     !localRunAvailable || !targetMachineId || localComputersLoading || localComputersError !== null
   );
-  const artifactPathsValid = parseArtifactDeliverables(artifactDeliverables).success;
+  const artifactPaths = parseArtifactDeliverables(artifactDeliverables);
+  const artifactPathsValid = artifactPaths.success && (runTarget !== "local" || artifactPaths.data.length > 0);
   const computerTaskBlocked =
+    Boolean(routeDescription.blockedReason) ||
     (executionTargetKind === "artifact-workspace" && !artifactPathsValid) ||
     localTargetBlocked || Boolean(
     customAgentId && (customAgentsLoading || !customAgents.some((agent) => agent.id === customAgentId)),
   );
   const sendDisabled = busy || isSubmitting || clearing || Boolean(blockedReason) || !hasComposerInput({ task, repoUrl, executionTargetKind, appToolsWork }) || (appToolsWork ? appToolsWorkIssue !== null : computerTaskBlocked);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const hero = variant === "hero";
 
   const [open, setOpen] = useState<PopoverKind>(null);
-  const [menuView, setMenuView] = useState<"root" | "skills">("root");
+  const [menuView, setMenuView] = useState<"root" | "skills" | "projects">("root");
+  const [mentionFilter, setMentionFilter] = useState("");
+  const [mentionIndex, setMentionIndex] = useState(0);
   const [repoFilter, setRepoFilter] = useState("");
   const [repoUrlDraft, setRepoUrlDraft] = useState("");
   const [modelFilter, setModelFilter] = useState("");
@@ -504,6 +522,10 @@ export function TaskComposer({
         const next = current === kind ? null : kind;
         if (next !== null) {
           if (next !== "menu") setMenuView("root");
+          if (next === "mention") {
+            setMentionFilter("");
+            setMentionIndex(0);
+          }
           if (next === "repo") {
             setRepoFilter("");
             setRepoUrlDraft(repoUrl.startsWith("https://") ? "" : repoUrl);
@@ -521,7 +543,11 @@ export function TaskComposer({
     },
     [repoUrl, baseBranch],
   );
-  const close = useCallback(() => setOpen(null), []);
+  const close = useCallback(() => {
+    setOpen(null);
+    setMenuView("root");
+    setMentionFilter("");
+  }, []);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -532,14 +558,51 @@ export function TaskComposer({
 
   const handleSubmit = (event: SyntheticEvent) => {
     event.preventDefault();
-    if (sendDisabled) return;
+    if (sendDisabled || attachmentsUploading) return;
     setOpen(null);
     stopListening();
     onSubmit(event);
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (open === "mention") {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setMentionIndex((prev) => (filteredMentionItems.length ? (prev + 1) % filteredMentionItems.length : 0));
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setMentionIndex((prev) => (filteredMentionItems.length ? (prev - 1 + filteredMentionItems.length) % filteredMentionItems.length : 0));
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        if (filteredMentionItems[mentionIndex]) {
+          acceptMention(filteredMentionItems[mentionIndex]);
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(null);
+        setMentionFilter("");
+        return;
+      }
+    }
+
+    if (event.key === "@") {
+      setMentionIndex(0);
+      setMentionFilter("");
+      setOpen("mention");
+      return;
+    }
+
+    if (event.key === "Enter") {
+      if (event.shiftKey) {
+        return;
+      }
+      event.preventDefault();
       handleSubmit(event);
     }
   };
@@ -547,7 +610,7 @@ export function TaskComposer({
   const harnessBase = runTarget === "local" ? LOCAL_HARNESS_OPTIONS : HARNESS_OPTIONS;
   const harnessOptions =
     harness !== "" && !harnessBase.some((h) => h.value === harness)
-      ? [...harnessBase, { value: harness, label: harness, desc: "Deployment-pinned harness" }]
+      ? [...harnessBase, { value: harness, label: harness, desc: harness === "claude-subscription" ? "Legacy setup-token; deployment opt-in required" : "Deployment-pinned harness; server validates availability" }]
       : harnessBase;
   const currentHarness = harnessOptions.find((h) => h.value === harness);
   const connections = routing.connections ?? [];
@@ -587,6 +650,106 @@ export function TaskComposer({
     if (next) routing.onCodingModelChange(next);
     setOpen(null);
   };
+
+  const mentionItems = useMemo(() => {
+    const items: {
+      id: string;
+      group: "Skills" | "Agents" | "Repositories" | "Projects";
+      label: string;
+      sublabel: string;
+      icon: JSX.Element;
+      onSelect: () => void;
+    }[] = [];
+
+    if (skills && skills.length > 0) {
+      for (const skill of skills) {
+        items.push({
+          id: `skill-${skill.id}`,
+          group: "Skills",
+          label: skill.name,
+          sublabel: skill.description || "Saved skill",
+          icon: <Sparkles className="size-3.5 text-[var(--primary)] shrink-0" aria-hidden="true" />,
+          onSelect: () => {
+            if (!selectedSkillIds.includes(skill.id)) {
+              onToggleSkill?.(skill.id);
+            }
+          },
+        });
+      }
+    }
+
+    if (customAgents && customAgents.length > 0) {
+      for (const agent of customAgents) {
+        items.push({
+          id: `agent-${agent.id}`,
+          group: "Agents",
+          label: agent.name,
+          sublabel: agent.slug,
+          icon: <Bot className="size-3.5 text-[var(--icon-muted)] shrink-0" aria-hidden="true" />,
+          onSelect: () => {
+            onCustomAgentChange?.(agent.id);
+          },
+        });
+      }
+    }
+
+    const repos = Array.from(new Set([...repoSuggestions, ...(repoUrl ? [repoUrl] : [])]));
+    for (const repo of repos) {
+      items.push({
+        id: `repo-${repo}`,
+        group: "Repositories",
+        label: repoSlugOf(repo),
+        sublabel: repo,
+        icon: <FolderGit2 className="size-3.5 text-[var(--icon-muted)] shrink-0" aria-hidden="true" />,
+        onSelect: () => {
+          pickRepo(repo);
+        },
+      });
+    }
+
+    if (projects && projects.length > 0) {
+      for (const proj of projects) {
+        items.push({
+          id: `proj-${proj.id}`,
+          group: "Projects",
+          label: proj.name,
+          sublabel: proj.purpose || "Project context",
+          icon: <Home className="size-3.5 text-[var(--icon-muted)] shrink-0" aria-hidden="true" />,
+          onSelect: () => {
+            onProjectContextChange?.(proj.id);
+          },
+        });
+      }
+    }
+
+    return items;
+  }, [skills, selectedSkillIds, onToggleSkill, customAgents, onCustomAgentChange, repoSuggestions, repoUrl, projects, onProjectContextChange]);
+
+  const filteredMentionItems = useMemo(() => {
+    const q = mentionFilter.trim().toLowerCase();
+    if (!q) return mentionItems;
+    return mentionItems.filter(
+      (item) =>
+        item.label.toLowerCase().includes(q) ||
+        item.sublabel.toLowerCase().includes(q) ||
+        item.group.toLowerCase().includes(q),
+    );
+  }, [mentionItems, mentionFilter]);
+
+  const acceptMention = useCallback(
+    (item: (typeof filteredMentionItems)[number]) => {
+      item.onSelect();
+      setOpen(null);
+      setMentionFilter("");
+      if (task.endsWith("@")) {
+        onTaskChange(task.slice(0, -1));
+      } else if (/@\w+$/.test(task)) {
+        onTaskChange(task.replace(/@\w+$/, ""));
+      }
+      textareaRef.current?.focus();
+    },
+    [task, onTaskChange],
+  );
 
   const chevron = (
     <ChevronDown aria-hidden="true" className="size-3 text-[var(--icon-muted)] shrink-0" />
@@ -838,7 +1001,7 @@ export function TaskComposer({
                   type="button"
                   role="menuitemradio"
                   aria-checked={runTarget === "local"}
-                  disabled={executionTargetKind === "artifact-workspace" || !localRunAvailable || localComputersLoading}
+                  disabled={!localRunAvailable || localComputersLoading}
                   className={menuRowClass}
                   onClick={() => {
                     onRunTargetChange("local");
@@ -849,8 +1012,7 @@ export function TaskComposer({
                   <span className="flex-1 min-w-0">
                     <span className="block font-medium">Local (Paired computer)</span>
                     <span className="block text-[10px] text-[var(--muted-foreground-2)]">
-                      {executionTargetKind === "artifact-workspace" ? "Artifact files require the cloud sandbox"
-                        : localComputersLoading ? "Checking paired computers…" : localRunAvailable
+                      {localComputersLoading ? "Checking paired computers…" : localRunAvailable
                         ? "Run on a paired computer"
                         : "Pair a computer in Remote Access first"}
                     </span>
@@ -889,7 +1051,7 @@ export function TaskComposer({
 
       {executionTargetKind === "artifact-workspace" ? (
         <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)]/60 p-2.5 flex flex-col gap-1.5">
-          <label htmlFor={idFor("artifact-deliverables")} className={sectionLabelClass}>Required output files (one path per line)</label>
+          <label htmlFor={idFor("artifact-deliverables")} className={sectionLabelClass}>Output files ({runTarget === "local" ? "required" : "optional"}, one path per line)</label>
           <textarea
             id={idFor("artifact-deliverables")}
             aria-label="Artifact deliverables"
@@ -900,7 +1062,9 @@ export function TaskComposer({
             placeholder="deliverables/brief.md"
           />
           <p className="text-[10px] leading-relaxed text-[var(--muted-foreground-2)]">
-            Drafts are saved as workspace artifacts after approval. Connected-app writes are unavailable until a permissioned adapter exists.
+            {runTarget === "local"
+              ? "List the complete UTF-8 files to export: at most 8 files, 16 KiB each, 64 KiB total. Only approved paths are captured after approval."
+              : "Leave blank to collect all final files in out/ as a ZIP. Drafts are saved as workspace artifacts after approval."}
           </p>
         </div>
       ) : null}
@@ -910,7 +1074,16 @@ export function TaskComposer({
           ?? (targetMachineId ? `Local: ${localComputers.find((computer) => computer.machineId === targetMachineId)?.hostname ?? "Selected computer"}`
             : localRunAvailable ? "Choose a paired computer before sending." : "No compatible paired computer is online. Refresh or choose Cloud explicitly.")}
       </p> : null}
-
+      <details className="min-w-0 text-[11px] text-[var(--muted-foreground-2)]" aria-label="Selected execution route">
+        <summary className="cursor-pointer break-words">{routeDescription.runtime} · {routeDescription.harness} · {routeDescription.workType}</summary>
+        <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 break-words">
+          <dt>Model</dt><dd>{routeDescription.model}</dd>
+          <dt>Account</dt><dd>{routeDescription.account}</dd>
+          <dt>Billing</dt><dd>{routeDescription.billing}</dd>
+        </dl>
+        <p className="mt-1">{routeDescription.note}</p>
+      </details>
+      {routeDescription.blockedReason ? <p role="status" className="text-xs text-[var(--warning-fg)]">{routeDescription.blockedReason}</p> : null}
 
     </fieldset>
   );
@@ -953,6 +1126,37 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
         }`}
         aria-label="Task description"
       />
+
+      {/* Attachment chips */}
+      {attachments.length > 0 || attachmentsUploading ? (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {attachments.map((file) => (
+            <span
+              key={file.name}
+              className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--fg)]"
+            >
+              <Paperclip aria-hidden="true" className="size-2.5 text-[var(--muted-foreground-2)]" />
+              <span>{file.name}</span>
+              <span className="text-[var(--muted-foreground-2)]">({formatBytes(file.size)})</span>
+              {onRemoveAttachment ? (
+                <button
+                  type="button"
+                  aria-label={`Remove ${file.name}`}
+                  onClick={() => onRemoveAttachment(file.name)}
+                  className="hover:text-[var(--fg)] cursor-pointer text-[var(--muted-foreground-2)]"
+                >
+                  <X aria-hidden="true" className="size-2.5" />
+                </button>
+              ) : null}
+            </span>
+          ))}
+          {attachmentsUploading ? (
+            <span className="text-[10px] text-[var(--muted-foreground-2)] font-medium">
+              Uploading…
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Selected skills removable chips */}
       {customAgentId && !selectedCustomAgent ? (
@@ -1386,7 +1590,7 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
                       }}
                     >
                       <Bot aria-hidden="true" className="size-3.5 text-[var(--icon-muted)] shrink-0" />
-                      <span className="flex-1 truncate">{opt.label}</span>
+                      <span className="flex-1 text-left"><span className="block">{opt.label}</span><span className="block text-[10px] text-[var(--muted-foreground-2)]">{opt.desc}</span></span>
                       {opt.value === harness ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
                     </button>
                   ))}
@@ -1642,6 +1846,37 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
+        {/* Attach files */}
+        {onAttachFiles ? (
+          <>
+            <input
+              type="file"
+              ref={fileInputRef}
+              multiple
+              className="sr-only"
+              tabIndex={-1}
+              onChange={(e) => {
+                const files = e.target.files ? Array.from(e.target.files) : [];
+                if (files.length > 0) {
+                  onAttachFiles(files);
+                }
+                e.target.value = "";
+              }}
+            />
+            <Tooltip content="Attach files" side="top">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={attachmentsUploading}
+                aria-label="Attach files"
+                className="inline-flex items-center justify-center size-8 touch:min-h-11 touch:w-11 rounded-[var(--radius-button)] border text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border-[var(--border-1)] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Paperclip aria-hidden="true" className="size-4" />
+              </button>
+            </Tooltip>
+          </>
+        ) : null}
+
         {/* Voice dictation */}
         {getSpeechRecognitionClass() ? (
           <Tooltip content="Dictate — uses your browser's speech recognition" side="top">
@@ -1665,7 +1900,7 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
         <Tooltip content="Send task" shortcut="⌘↵" side="top">
           <button
             type="submit"
-            disabled={sendDisabled || isSubmitting}
+            disabled={sendDisabled || isSubmitting || attachmentsUploading}
             aria-label={isSubmitting ? "Sending…" : "Send task"}
             className="inline-flex items-center justify-center size-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] bg-[var(--primary)] hover:opacity-90 text-[var(--primary-text)] rounded-[var(--radius-button)] transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[var(--sh-plate)] active:scale-95"
           >
@@ -1686,7 +1921,7 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
   };
 
   if (agentName) return <div className="flex min-h-0 flex-1 flex-col">
-    {hero ? <div className="flex min-h-0 flex-1 flex-col overflow-y-auto"><AgentConversationEmpty name={agentName} slug={selectedCustomAgent?.slug} examples={examples} prefillDisabled={task.trim() !== ""} onPrefill={prefill} /></div> : null}
+    {hero ? <div className="flex min-h-0 flex-1 flex-col overflow-y-auto"><AgentConversationEmpty name={agentName} agentId={selectedCustomAgent?.id} mascotPreset={selectedCustomAgent?.mascotPreset} slug={selectedCustomAgent?.slug} role={selectedCustomAgent?.roleTemplateId} examples={examples} prefillDisabled={task.trim() !== ""} onPrefill={prefill} /></div> : null}
     <div className="mx-auto mt-auto w-full max-w-[820px] shrink-0 px-4 pb-3 pt-3">{form}<p className="mt-3 text-center text-xs text-[var(--muted-foreground-2)]">Shiba can make mistakes. Check important info.</p></div>
   </div>;
 

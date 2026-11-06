@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const dist = join(import.meta.dirname, "..", "..", "web", "dist");
@@ -47,6 +47,13 @@ describe.skipIf(!built)("marketing SEO (built dist)", () => {
 		expect(home).not.toContain('"@type":"BreadcrumbList"');
 		const overview = page("docs/overview/index.html");
 		expect(overview).toContain('"@type":"BreadcrumbList"');
+		const schemas = [...overview.matchAll(/<script\b[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)]
+			.map((match) => JSON.parse(match[1] ?? "null"));
+		const breadcrumb = schemas.find((schema) => schema?.["@type"] === "BreadcrumbList");
+		expect(breadcrumb?.itemListElement).toEqual([
+			{ "@type": "ListItem", position: 1, name: "Home", item: "https://tryshiba.dev/" },
+			{ "@type": "ListItem", position: 2, name: "Welcome", item: "https://tryshiba.dev/docs/overview/" },
+		]);
 		expect(overview).toContain("og:image");
 		expect(overview).toContain("twitter:image");
 	});

@@ -105,6 +105,37 @@ export async function pollCodingRunComplete(port, runId, { requirePull = true } 
   });
 }
 
+/** A test-owner decision at the loopback mock boundary, never a live publication approval. */
+export async function approveMockPublication(port, runId) {
+  if (githubMode() !== "mock" || containersMode() !== "disabled" || standinMode() !== "enabled" ||
+      String(port) !== String(readPort()) || !/^\d+$/.test(String(port)) || Number(port) < 1 || Number(port) > 65535) {
+    throw new Error("Publication fixture approval requires the recorded loopback mock and disabled containers.");
+  }
+  const run = await pollCodingRunComplete(port, runId, { requirePull: false });
+  if (run.pullUrl) throw new Error("Publication occurred before the separate fixture owner decision.");
+  if (!run.publishPullRequest || !run.repoUrl || !run.sandboxId) throw new Error("The fixture run did not request a scoped publication.");
+  const approval = await waitFor(`reviewed publication approval for ${runId}`, async () => {
+    const response = await fetchJson(`http://127.0.0.1:${port}/api/approvals`);
+    if (!response.ok) throw new Error(`Publication approval lookup failed: ${response.status}`);
+    const candidate = response.body?.approvals?.find((item) => item.kind === "pr_publish" && item.payload?.runId === runId);
+    if (!candidate) return null;
+    if (candidate.status !== "pending" || candidate.approvalId !== `pr-publish:${runId}` ||
+        candidate.repoUrl !== run.repoUrl || candidate.baseBranch !== run.baseBranch ||
+        candidate.payload.repoUrl !== run.repoUrl || candidate.payload.sandboxId !== run.sandboxId ||
+        candidate.payload.baseBranch !== run.baseBranch || !/^[a-f0-9]{40}$/.test(candidate.payload.baseRevision ?? "") ||
+        !/^[a-f0-9]{64}$/.test(candidate.payload.sha256 ?? "") || !candidate.threadKey) {
+      throw new Error("Publication fixture approval does not match the completed run and captured revision.");
+    }
+    return candidate;
+  });
+  const decision = await fetchJson(`http://127.0.0.1:${port}/api/approvals`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ threadKey: approval.threadKey, approvalId: approval.approvalId, approved: true }),
+  });
+  if (!decision.ok || decision.body?.result !== "approved") throw new Error(`Publication fixture decision failed: ${decision.status}`);
+  return { approvalId: approval.approvalId, kind: approval.kind, runId, sha256: approval.payload.sha256, source: "fixture owner API" };
+}
+
 export async function pollReviewRoundTerminal(port, threadId) {
   return waitFor(`review round for ${threadId}`, async () => {
     const res = await fetchJson(

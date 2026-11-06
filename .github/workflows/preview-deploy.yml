@@ -1,6 +1,6 @@
 name: Preview deploy (alchemy, pr-<n> stage)
 
-# Labeled same-repo PRs get an isolated
+# The preview:deploy label on a same-repo PR starts an isolated
 # ALCHEMY_STAGE=pr-<n> deploy (worker/stores suffixed by alchemy.run.ts) and a
 # comment with its workers.dev URL. Fork PRs skip (no secrets + no trust);
 # the close job destroys the stage when the PR merges or closes.
@@ -14,15 +14,74 @@ on:
 permissions:
   contents: read
 jobs:
+  update-existing-preview:
+    # This label never runs the Alchemy deploy job. Fixed to the already
+    # provisioned PR 188 Worker; unknown bindings/account/state fail closed.
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'preview:update-existing' && github.event.pull_request.number == 188 && github.repository == 'opentoolsorg/shiba' && github.event.pull_request.state == 'open' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    concurrency:
+      group: shiba-preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Check exact open PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$(gh pr view 188 --json state,headRefOid --jq '.state + " " + .headRefOid')" = "OPEN $EXPECTED_HEAD"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+      - name: Test existing-resource safety guards
+        run: node --test scripts/preview-update-existing.test.mjs
+      - name: Read-only existing-resource preflight
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "73cf43cd7ec224111282832dc96b90e2"
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/preview-update-existing.mjs --preflight --head="$EXPECTED_HEAD"
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - run: pnpm install --frozen-lockfile
+      # No Cloudflare, Slack or model credentials are present during build.
+      - run: pnpm build
+      - name: Recheck exact open PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: test "$(gh pr view 188 --json state,headRefOid --jq '.state + " " + .headRefOid')" = "OPEN $EXPECTED_HEAD"
+      - name: Update only the existing preview Worker and assets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "73cf43cd7ec224111282832dc96b90e2"
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          WRANGLER_SEND_METRICS: "false"
+        run: node scripts/preview-update-existing.mjs --apply --head="$EXPECTED_HEAD"
+      # No PR comment, Alchemy bootstrap, model secrets, app/image writes,
+      # secret administration, or persistent credential creation in this job.
   deploy-preview:
-    if: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' && github.event.pull_request.state == 'open' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'preview:deploy' && github.event.pull_request.state == 'open' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     env:
       STAGE: pr-${{ github.event.pull_request.number }}
       WORKERS_SUBDOMAIN: ${{ secrets.WORKERS_SUBDOMAIN }}
+      # Runner-local state cannot support cleanup on a later close event.
+      # Reuse an existing remote backend; missing bootstrap must fail closed.
+      ALCHEMY_STATE_BACKEND: cloudflare
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -54,12 +113,14 @@ jobs:
           DASHBOARD_APPROVERS: ${{ secrets.DASHBOARD_APPROVERS }}
           SLACK_CHANNEL_REPOS: ${{ secrets.SLACK_CHANNEL_REPOS }}
           SLACK_APPROVALS_CHANNEL: ${{ secrets.SLACK_APPROVALS_CHANNEL }}
+          SLACK_CANVAS_OWNERS: ${{ vars.SLACK_CANVAS_OWNERS || '[]' }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
           CLAUDE_SUBSCRIPTION_TOKEN: ${{ secrets.CLAUDE_SUBSCRIPTION_TOKEN }}
           CODEX_SUBSCRIPTION_AUTH_JSON: ${{ secrets.CODEX_SUBSCRIPTION_AUTH_JSON }}
           LOCAL_ADAPTER_TOKEN: ${{ secrets.LOCAL_ADAPTER_TOKEN }}
           INTERNAL_SIGNING_KEY: ${{ secrets.INTERNAL_SIGNING_KEY }}
+          ARTIFACT_SIGNING_KEY: ${{ secrets.ARTIFACT_SIGNING_KEY }}
         # alchemy reads stage from ALCHEMY_STAGE at module level — never
         # pass --stage. Preview stages skip the custom domain entirely and
         # serve on <worker>.<subdomain>.workers.dev instead.
@@ -87,6 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       STAGE: pr-${{ github.event.pull_request.number }}
+      ALCHEMY_STATE_BACKEND: cloudflare
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

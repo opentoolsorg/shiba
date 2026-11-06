@@ -1,5 +1,6 @@
 import type { Env } from "./env.js";
-import { resolveOrgForApiRequest } from "./org-request-auth.js";
+import { resolveOrgForApiRequest, type ResolvedOrgAuth } from "./org-request-auth.js";
+import { skillTeamGrant, withCurrentSkillAuthority } from "./team-skill-authority.js";
 import { resolveUserId } from "./request-auth.js";
 import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
@@ -75,21 +76,27 @@ function parseSkillContent(body: Record<string, unknown>): { name: string; instr
 }
 
 export async function handleSkills(request: Request, env: Env): Promise<Response | null> {
+  if (!new URL(request.url).pathname.startsWith("/api/skills")) return null;
+  const auth = await resolveOrgForApiRequest(request, env);
+  if (auth instanceof Response) return auth;
+  return withCurrentSkillAuthority(request, env, auth, () => handleSkillRoutes(request, env, auth));
+}
+
+async function handleSkillRoutes(request: Request, env: Env, auth: ResolvedOrgAuth): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/skills")) return null;
   const match = url.pathname.match(/^\/api\/skills(?:\/([^/]+)(?:\/(versions|review|activate|disable))?)?\/?$/);
   if (!match) return Response.json({ ok: false, error: "not_found" }, { status: 404 });
   if (!env.AGENT_AUDIT) return Response.json({ ok: false, error: "skill_storage_unavailable" }, { status: 503 });
 
-  const auth = await resolveOrgForApiRequest(request, env);
-  if (auth instanceof Response) return auth;
   const isRead = request.method === "GET";
   if (auth.principal) {
     if (isRead ? !requireV1Read(auth.principal) : !requireV1Write(auth.principal)) return v1Forbidden();
   }
-  const ownerId = auth.principal?.principal ?? await resolveUserId(request, env);
+  const ownerId = auth.workspace?.userId ?? auth.principal?.principal ?? await resolveUserId(request, env);
   if (!ownerId) return Response.json({ ok: false, error: "authentication_required" }, { status: 401 });
 
+  const mutationOptions = { teamGrant: skillTeamGrant(auth) };
   let id: string | null = null;
   if (match[1]) {
     try { id = decodeURIComponent(match[1]); } catch { return Response.json({ ok: false, error: "invalid_skill_id" }, { status: 400 }); }
@@ -113,7 +120,7 @@ export async function handleSkills(request: Request, env: Env): Promise<Response
     const body = await parseJson(request);
     const content = body && parseSkillContent(body);
     if (!content) return Response.json({ ok: false, error: "invalid_skill" }, { status: 400 });
-    const skill = await createSkill(env, auth.orgId, ownerId, content);
+    const skill = await createSkill(env, auth.orgId, ownerId, content, Date.now(), mutationOptions);
     return Response.json({ ok: true, skill: publicSkill(skill, ownerId) }, { status: 201, headers: { "cache-control": "no-store" } });
   }
 
@@ -156,7 +163,7 @@ export async function handleSkills(request: Request, env: Env): Promise<Response
       return Response.json({ ok: false, error: "invalid_skill" }, { status: 400 });
     }
     try {
-      const skill = await updateSkill(env, auth.orgId, ownerId, id, Number(expectedVersion), content);
+      const skill = await updateSkill(env, auth.orgId, ownerId, id, Number(expectedVersion), content, Date.now(), mutationOptions);
       return skill
         ? Response.json({ ok: true, skill: publicSkill(skill, ownerId) }, { headers: { "cache-control": "no-store" } })
         : Response.json({ ok: false, error: "not_found" }, { status: 404 });
@@ -176,8 +183,8 @@ export async function handleSkills(request: Request, env: Env): Promise<Response
     }
     try {
       const skill = subroute === "review"
-        ? await reviewSkill(env, auth.orgId, ownerId, id, Number(version), reviewedInstructions)
-        : await activateSkill(env, auth.orgId, ownerId, id, Number(version), reviewedInstructions);
+        ? await reviewSkill(env, auth.orgId, ownerId, id, Number(version), reviewedInstructions, Date.now(), mutationOptions)
+        : await activateSkill(env, auth.orgId, ownerId, id, Number(version), reviewedInstructions, Date.now(), mutationOptions);
       return skill
         ? Response.json({ ok: true, skill: publicSkill(skill, ownerId) }, { headers: { "cache-control": "no-store" } })
         : Response.json({ ok: false, error: "not_found" }, { status: 404 });
@@ -189,7 +196,7 @@ export async function handleSkills(request: Request, env: Env): Promise<Response
   }
 
   if (subroute === "disable" && request.method === "POST" || !subroute && request.method === "DELETE") {
-    const skill = await disableSkill(env, auth.orgId, ownerId, id);
+    const skill = await disableSkill(env, auth.orgId, ownerId, id, Date.now(), mutationOptions);
     return skill
       ? Response.json({ ok: true, skill: publicSkill(skill, ownerId) }, { headers: { "cache-control": "no-store" } })
       : Response.json({ ok: false, error: "not_found" }, { status: 404 });

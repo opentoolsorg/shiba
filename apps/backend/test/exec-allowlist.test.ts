@@ -6,6 +6,7 @@
  * enforced; a run's receipts show the exec trail in order; a declared
  * testCommand feeds verify — refused or nonzero is not "completed".
  */
+import { repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { describe, expect, it } from "vitest";
 import type { RunSignal } from "@shiba/shared";
 import {
@@ -124,12 +125,15 @@ describe("adapter integration", () => {
 
   function runOps(testExit = 0): SandboxOps & { commands: string[] } {
     const commands: string[] = [];
+    const snapshot = repositorySnapshotFixture({ status: " M src/a.ts\n" });
     return {
       commands,
       async gitCheckout() {},
       async writeFile() {},
       async exec(command, opts) {
         commands.push(command);
+        const captured = await snapshot(command);
+        if (captured) return captured;
         if (command.includes("'pnpm' 'test'")) {
           return { stdout: "tests", stderr: "", exitCode: testExit };
         }
@@ -224,8 +228,8 @@ describe("adapter integration", () => {
       () => {},
     );
     expect(result.status).toBe("error");
-    // `node -e` never reached the sandbox — the refusal was receipted.
-    expect(ops.commands.some((c) => c.includes("'-e'"))).toBe(false);
+    // The unapproved test command never reached the sandbox; its refusal was receipted.
+    expect(ops.commands).not.toContain("'node' '-e' '1'");
     expect(
       (result.signals ?? []).find(
         (s) => s.detail?.includes('"refused":true') && s.detail.includes("'-e'"),
@@ -252,7 +256,7 @@ describe("adapter integration", () => {
     const result = await new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {});
     expect(result.status).toBe("completed");
     const invoked = (result.signals ?? []).filter((s) => s.kind === "exec.invoked").map((s) => s.detail);
-    // harness exec, git status, git add, git diff — all receipted.
+    // Harness execution and immutable Git capture commands are receipted.
     expect(invoked.some((d) => d?.includes("'opencode'"))).toBe(true);
     expect(invoked.filter((d) => d?.includes("git")).length).toBeGreaterThanOrEqual(2);
   });

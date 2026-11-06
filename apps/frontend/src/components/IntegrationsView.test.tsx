@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { INTEGRATION_CATALOG } from "@shiba/shared";
 import { IntegrationsView } from "./IntegrationsView";
+import { META_ACTOR, META_WORKSPACE, metaScope } from "../founder-meta-fixtures";
 
 afterEach(() => {
   cleanup();
@@ -91,12 +92,25 @@ function stubIntegrationsFetch(setup = defaultSetup()) {
 }
 
 describe("IntegrationsView native catalog", () => {
+  it("opens private Meta reads only on request and clears setup on workspace change", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/founder-meta-reads"
+      ? Response.json({ ...metaScope, available: false, grants: [] }) : Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(<IntegrationsView actorId={META_ACTOR} workspaceId={META_WORKSPACE} workspaceRole="owner" />);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("founder-meta"))).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Review private Meta Ads reads" }));
+    expect(await screen.findByText(/Meta reads are disabled or unavailable/)).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/founder-meta-reads")).toBe(true);
+    view.rerender(<IntegrationsView actorId={META_ACTOR} workspaceId={`ws_${"b".repeat(24)}`} workspaceRole="owner" />);
+    expect(screen.queryByText(/Meta reads are disabled or unavailable/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Review private Meta Ads reads" }).getAttribute("aria-expanded")).toBe("false");
+  });
   it("renders Connected and Available sections with search and domain filter", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView />);
-    expect(await screen.findByRole("heading", { name: "Connected" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Available" })).toBeTruthy();
-    expect(screen.getByText(new RegExp(`of ${INTEGRATION_CATALOG.length} catalog rows`))).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Configured connections" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Discover and set up" })).toBeTruthy();
+    expect(screen.getByText(new RegExp(`${INTEGRATION_CATALOG.length} reference catalog entries`))).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "hubspot" } });
     expect(await screen.findByTestId("integration-catalog-row-hubspot")).toBeTruthy();
@@ -116,7 +130,7 @@ describe("IntegrationsView native catalog", () => {
     render(<IntegrationsView />);
     await screen.findByTestId("integration-catalog-row-github");
     const githubRow = screen.getByTestId("integration-catalog-row-github");
-    expect(githubRow.textContent).toMatch(/Connected/);
+    expect(githubRow.textContent).toMatch(/Configured/);
     fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "hubspot" } });
     const hubspotRow = await screen.findByTestId("integration-catalog-row-hubspot");
     expect(hubspotRow.textContent).toMatch(/Available|Catalog/i);
@@ -126,7 +140,7 @@ describe("IntegrationsView native catalog", () => {
   it("preserves setup detail panels behind Show setup details", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView />);
-    await screen.findByRole("heading", { name: "Connected" });
+    await screen.findByRole("heading", { name: "Configured connections" });
     fireEvent.click(screen.getByRole("button", { name: "Show setup details" }));
     expect(await screen.findByTestId("integration-linear")).toBeTruthy();
     expect(screen.getAllByText("GitHub").length).toBeGreaterThan(0);
@@ -281,10 +295,20 @@ describe("IntegrationsView capability catalog", () => {
 
     // Switch to MCP servers tab
     fireEvent.click(screen.getByRole("tab", { name: "MCP servers" }));
-    expect(await screen.findByLabelText("Search servers")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Custom MCP servers" })).toBeTruthy();
 
     // Switch back to Connectors tab
     fireEvent.click(screen.getByRole("tab", { name: "Connectors" }));
-    expect(await screen.findByRole("heading", { name: "Connected" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Configured connections" })).toBeTruthy();
+  });
+
+  it("renders breadcrumbs and Search connectors header action", async () => {
+    stubIntegrationsFetch();
+    render(<IntegrationsView scope="workspace" />);
+    const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(nav.textContent).toContain("Workspace");
+    expect(nav.textContent).toContain("Extensions");
+    expect(nav.textContent).toContain("Connectors");
+    expect(screen.getByRole("button", { name: /Search connectors/i })).toBeTruthy();
   });
 });

@@ -137,6 +137,36 @@ describe("thread controls", () => {
 });
 
 describe("gatherSlackContext", () => {
+  it("keeps only the verified incoming mention under mute and still excludes aside messages", () => {
+    const context = gatherSlackContext({
+      verifiedMentionEventId: "Ev-incoming",
+      threadMessages: [
+        { ...msg("U1", "mute", 1), eventId: "Ev-mute" },
+        { ...msg("U1", "ordinary muted history", 2), eventId: "Ev-other" },
+        { ...msg("U2", "<@BOT> verified current request", 3), eventId: "Ev-incoming" },
+        { ...msg("U2", "aside <@BOT> excluded even with matching identity", 4), eventId: "Ev-incoming" },
+      ],
+    });
+    expect(context).toContain("verified current request");
+    expect(context).toContain("mute");
+    expect(context).not.toContain("ordinary muted history");
+    expect(context).not.toContain("excluded even with matching identity");
+    expect(gatherSlackContext({ threadMessages: [
+      msg("U1", "mute", 1), { ...msg("U2", "<@BOT> unverified history", 2), eventId: "Ev-other" },
+    ] })).not.toContain("unverified history");
+  });
+
+  it("preserves exact Slack timestamps for every message in a burst and keeps legacy numeric timestamps", () => {
+    const first = "1758217392.00010000000000000001", second = "1758217392.00010000000000000002";
+    const context = gatherSlackContext({ threadMessages: [
+      { user: "U1", text: "first", ts: Number(first), messageTs: first },
+      { user: "U1", text: "second", ts: Number(second), messageTs: second },
+      { user: "U2", text: "legacy", ts: 1758217393 },
+    ] });
+    expect(context).toContain(`[U1 ${first} +1] first ⋮ [${second}] second`);
+    expect(context).toContain("[U2 1758217393] legacy");
+  });
+
   it("excludes aside messages from gathered context", () => {
     const context = gatherSlackContext({
       threadMessages: [msg("U1", "aside secret plan", 0), msg("U1", "fix the login bug", 1)],

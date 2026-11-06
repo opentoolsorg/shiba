@@ -1,0 +1,174 @@
+{
+  "startedAt": "2026-11-04T16:17:39.311Z",
+  "status": "passed",
+  "scope": "Actual AppNavRail source and production stylesheet compiled with Vite production build; static fixture props and a disposable local component host. No backend routes are mocked or contacted.",
+  "limitations": [
+    "This is component-level Chromium acceptance, not the authenticated full application.",
+    "Fixture host owns keyboard shortcut and mobile sheet mount/close state; production app integration is separately covered by local unit tests.",
+    "No deployed-site, Cloudflare, provider, Slack, email, account, container or remote-computer verification."
+  ],
+  "base": "http://127.0.0.1:9327",
+  "headAtStart": "6c83cf9af9a3ea280769170172fcdf8459c1db8d",
+  "sourceSha256AtStart": {
+    "apps/frontend/src/components/AppNavRail.tsx": "f37a99674c176df0ffdf7160a91d4eb725180768c02c632e4efd15042cbcaae1",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "checks": [
+    {
+      "name": "light: expanded desktop shows the 248px full sidebar and no icon rail",
+      "expandedWidth": 248
+    },
+    {
+      "name": "light: closing shows only the accessible 56px rail and 44px reopen control; Enter transfers focus",
+      "compactWidth": 56,
+      "expandHit": {
+        "x": 5.5,
+        "y": 64,
+        "width": 44,
+        "height": 44
+      }
+    },
+    {
+      "name": "light: keyboard tab stays among active compact controls"
+    },
+    {
+      "name": "light: clicking reopen restores only the full sidebar and moves focus to its toggle"
+    },
+    {
+      "name": "light: host shortcut changes the actual component mode and transfers navigation focus both ways"
+    },
+    {
+      "name": "light: host editable-target shortcut guard leaves task input focus and sidebar mode intact"
+    },
+    {
+      "name": "light: compact navigation still invokes the selected destination"
+    },
+    {
+      "name": "light: desktop breakpoint retains the compact rail at 1024px"
+    },
+    {
+      "name": "light: 768px mobile/tablet shows only the full sheet despite collapsed desktop preference; close and Escape work without overflow",
+      "sheetWidth": 280,
+      "closeHit": {
+        "x": 219,
+        "y": 12,
+        "width": 44,
+        "height": 44
+      }
+    },
+    {
+      "name": "light: 390px mobile/tablet shows only the full sheet despite collapsed desktop preference; close and Escape work without overflow",
+      "sheetWidth": 280,
+      "closeHit": {
+        "x": 219,
+        "y": 12,
+        "width": 44,
+        "height": 44
+      }
+    },
+    {
+      "name": "dark: expanded desktop shows the 248px full sidebar and no icon rail",
+      "expandedWidth": 248
+    },
+    {
+      "name": "dark: closing shows only the accessible 56px rail and 44px reopen control; Enter transfers focus",
+      "compactWidth": 56,
+      "expandHit": {
+        "x": 5.5,
+        "y": 64,
+        "width": 44,
+        "height": 44
+      }
+    },
+    {
+      "name": "dark: keyboard tab stays among active compact controls"
+    },
+    {
+      "name": "dark: clicking reopen restores only the full sidebar and moves focus to its toggle"
+    },
+    {
+      "name": "dark: host shortcut changes the actual component mode and transfers navigation focus both ways"
+    },
+    {
+      "name": "dark: host editable-target shortcut guard leaves task input focus and sidebar mode intact"
+    },
+    {
+      "name": "dark: compact navigation still invokes the selected destination"
+    },
+    {
+      "name": "dark: desktop breakpoint retains the compact rail at 1024px"
+    },
+    {
+      "name": "dark: 768px mobile/tablet shows only the full sheet despite collapsed desktop preference; close and Escape work without overflow",
+      "sheetWidth": 280,
+      "closeHit": {
+        "x": 219,
+        "y": 12,
+        "width": 44,
+        "height": 44
+      }
+    },
+    {
+      "name": "dark: 390px mobile/tablet shows only the full sheet despite collapsed desktop preference; close and Escape work without overflow",
+      "sheetWidth": 280,
+      "closeHit": {
+        "x": 219,
+        "y": 12,
+        "width": 44,
+        "height": 44
+      }
+    },
+    {
+      "name": "No runtime/console errors, failed network requests, backend requests or external requests during component acceptance"
+    }
+  ],
+  "screenshots": [
+    "sidebar-expanded-1440-light.png",
+    "sidebar-compact-1440-light.png"
+  ],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "failedRequests": [],
+  "apiRequests": [],
+  "externalRequests": [],
+  "widths": [
+    {
+      "theme": "light",
+      "width": 768,
+      "viewport": 768,
+      "document": 768,
+      "body": 768
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    },
+    {
+      "theme": "dark",
+      "width": 768,
+      "viewport": 768,
+      "document": 768,
+      "body": 768
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    }
+  ],
+  "sourceSha256AtEnd": {
+    "apps/frontend/src/components/AppNavRail.tsx": "f37a99674c176df0ffdf7160a91d4eb725180768c02c632e4efd15042cbcaae1",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "finishedAt": "2026-11-04T16:17:48.984Z",
+  "cleanup": {
+    "temporaryHarnessRemoved": true,
+    "ownedServerStopped": true
+  },
+  "additionalInternalCaptures": 6
+}

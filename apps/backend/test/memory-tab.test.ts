@@ -39,15 +39,15 @@ const mockSession: MemorySession = {
 describe("MemoryTab helpers", () => {
   it("sourceChipClass assigns distinct tokens for run, email, and fallback sources", () => {
     const runClass = sourceChipClass("run");
-    expect(runClass).toContain("text-[var(--primary)]");
-    expect(runClass).toContain("bg-[var(--primary-soft)]");
+    expect(runClass).toContain("text-blue-700");
+    expect(runClass).toContain("bg-blue-50");
 
     const emailClass = sourceChipClass("email");
-    expect(emailClass).toContain("text-[var(--warning-fg)]");
-    expect(emailClass).toContain("bg-[var(--warning-subtle)]");
+    expect(emailClass).toContain("text-amber-700");
+    expect(emailClass).toContain("bg-amber-50");
 
     const otherClass = sourceChipClass("manual");
-    expect(otherClass).toContain("text-[var(--muted-foreground-2)]");
+    expect(otherClass).toContain("text-[#71717a]");
   });
 
   it("formatRecallScore formats floating-point similarity scores", () => {
@@ -79,7 +79,7 @@ describe("MemoryTab helpers", () => {
 describe("MemoryTab component rendering", () => {
   it("renders the loading state on mount when no initial state is provided", () => {
     const html = renderToStaticMarkup(React.createElement(MemoryTab));
-    expect(html).toContain("Durable Agent Memory");
+    expect(html).toContain("Banked Facts");
     expect(html).toContain("Loading memory…");
   });
 
@@ -89,13 +89,12 @@ describe("MemoryTab component rendering", () => {
       initialSessions: [mockSession],
     };
     const html = renderToStaticMarkup(React.createElement(MemoryTab, props));
-    expect(html).toContain("Durable Agent Memory");
+    expect(html).toContain("Banked Facts");
     expect(html).toContain("2");
-    expect(html).toContain("facts banked");
     expect(html).toContain("Prefers pnpm over npm");
     expect(html).toContain("Production deployment approval required");
-    expect(html).toContain("RUN");
-    expect(html).toContain("EMAIL");
+    expect(html).toContain(">run</span>");
+    expect(html).toContain(">email</span>");
     expect(html).toContain("@intern");
     expect(html).toContain("@operator");
     expect(html).toContain("Score 0.94");
@@ -109,9 +108,8 @@ describe("MemoryTab component rendering", () => {
       initialSessions: [],
     };
     const html = renderToStaticMarkup(React.createElement(MemoryTab, props));
-    expect(html).toContain("No facts banked yet.");
+    expect(html).toContain("No banked facts yet");
     expect(html).toContain("0");
-    expect(html).toContain("facts banked");
   });
 
   it("renders accessible navigation tabs for Facts and Sessions", () => {

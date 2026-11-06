@@ -48,6 +48,7 @@ function env(extra: Record<string, unknown> = {}, kv: FakeKV = new FakeKV()): En
 
 function request(path: string, init?: RequestInit, email?: string): Request {
   const headers = new Headers(init?.headers);
+  if (init?.method === "POST" && !headers.has("Origin")) headers.set("Origin", "http://localhost");
   if (init?.body !== undefined && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
@@ -750,7 +751,7 @@ describe("Providers page states", () => {
       }),
     );
     expect(html).toContain("Org default · Claude Code");
-    expect(html).toContain("Ready");
+    expect(html).toContain("Configuration checked");
     expect(html).toContain("Open ChatGPT sign-in");
     expect(html).toContain("Callback URL (optional if loopback is running)");
     expect(html).not.toContain("https://chatgpt.com/");
@@ -758,7 +759,7 @@ describe("Providers page states", () => {
     expect(html).toContain("Sign-in pending");
     expect(html).toContain("Connection failed");
     expect(html).toContain("Finish sign-in");
-    expect(html).toContain("Test connection");
+    expect(html).toContain("Check saved configuration");
     expect(html).toContain("Use API credential");
     expect(html).not.toContain("Connect with sign-in</button>");
   });
@@ -821,7 +822,7 @@ describe("Providers page states", () => {
         onDefault: () => {},
       }),
     );
-    expect(html).toContain("Connect with sign-in");
+    expect(html).toContain("Review Claude connection options");
     expect(html).toContain("Working…");
     expect(html).not.toContain("Use API credential");
   });
@@ -846,7 +847,7 @@ describe("Providers page states", () => {
     );
     expect(html).toContain("Providers request failed: 503");
     expect(html).toContain("Model connections");
-    expect(html).not.toContain(">Sandbox adapters<");
+    expect(html).not.toContain(">Coding connections<");
     expect(html).not.toContain("provider-card-");
   });
 });

@@ -12,9 +12,11 @@
  * Everything in this file is pure — shared between the Worker's envelope
  * builder, the dispatch DO's records, and (mirrored in JS) the daemon.
  */
+import { artifactWorkspaceExecutionTargetSchema, type ArtifactWorkspaceExecutionTarget } from "./execution-target.js";
 import { expectedDeliverablesSchema } from "./deliverables.js";
 import { z } from "zod";
 import { REASONING_EFFORTS } from "./model.js";
+import { personalExecutionClaimSchema, type PersonalExecutionClaim } from "./personal-execution.js";
 
 /** Runtimes an intake surface may ask for. "computer" stays env-only. */
 export const RUNTIME_SELECTIONS = ["sandbox", "local"] as const;
@@ -57,7 +59,8 @@ const PATH_MAX = 4_096;
 export const localRunEnvelopeSchema = z.object({
   version: z.literal(1),
   sandboxId: z.string().min(1).max(128),
-  repoUrl: z.string().min(1).max(2048),
+  repoUrl: z.string().max(2048),
+  executionTarget: artifactWorkspaceExecutionTargetSchema.optional(),
   baseBranch: z.string().min(1).max(256),
   task: z.string().min(1).max(TASK_MAX),
   customAgentId: z.string().min(1).max(128).optional(),
@@ -69,6 +72,7 @@ export const localRunEnvelopeSchema = z.object({
     sourceUrl: z.string().url().startsWith("https://").optional(),
   }).strict()).max(5).optional(),
   orgId: z.string().min(1).max(128).optional(),
+  personalExecution: personalExecutionClaimSchema.optional(),
   harness: z.string().min(1).max(64),
   /** Root-tokenized absolute paths the daemon resolves before use. */
   cloneDir: z.string().min(1).max(PATH_MAX),
@@ -80,7 +84,7 @@ export const localRunEnvelopeSchema = z.object({
       contents: z.string().max(500_000),
     }),
   ).max(16),
-  argv: z.array(z.string().min(1).max(PATH_MAX)).min(1).max(64),
+  argv: z.array(z.string().min(1).max(PATH_MAX)).max(64),
   env: z.record(z.string().min(1).max(128), z.string().max(ENV_VALUE_MAX)),
   testCommand: z.array(z.string().min(1).max(PATH_MAX)).max(8).optional(),
   expectedDeliverables: expectedDeliverablesSchema.optional(),
@@ -112,7 +116,10 @@ export const localRunEnvelopeSchema = z.object({
       resumeThreadId: z.string().min(1).max(256).optional(),
     })
     .optional(),
-});
+}).refine((value) => value.executionTarget
+  ? !value.personalExecution && value.repoUrl === "" && value.executionTarget.expectedDeliverables.length > 0
+    && JSON.stringify(value.executionTarget.expectedDeliverables) === JSON.stringify(value.expectedDeliverables)
+  : value.repoUrl.length > 0, { message: "Local artifacts require an explicit target and matching nonempty approved deliverables, with no repository or personal grant." }).refine((value) => value.personalExecution ? value.argv.length === 0 : value.argv.length > 0, { message: "Personal execution cannot adopt harness argv; operator execution requires it." });
 export type LocalRunEnvelope = z.infer<typeof localRunEnvelopeSchema>;
 
 /** The daemon's report — what the adapter hands the verify gate. */
@@ -122,6 +129,8 @@ export const localRunResultSchema = z.object({
   summary: z.string().max(16_384),
   stderrTail: z.string().max(16_384),
   stdoutTail: z.string().max(64_000).optional(),
+  /** Original cloned commit, frozen before the harness; absent on older daemons. */
+  baseRevision: z.string().regex(/^[a-f0-9]{40}$/).optional(),
   changedFiles: z.array(z.string().max(1024)).max(512),
   diff: z.string().max(2_000_000),
   files: z.array(
@@ -171,7 +180,11 @@ export interface LocalDispatchRecord {
     title: string;
     detail: string;
     createdAt: number;
+    /** Personal execution binds a single complete provider permission request. */
+    actionHash?: string;
+    expiresAt?: number;
     decision?: "allow" | "deny";
+    consumedAt?: number;
   }[];
   /** One-shot interrupt flag the daemon consumes. */
   interrupt?: boolean;
@@ -216,6 +229,8 @@ export function buildLocalRunEnvelope(args: {
     customAgentVersion?: number;
     skillPins?: Array<{ skillId: string; version: number; name: string; sourceUrl?: string }>;
     orgId?: string;
+    personalExecution?: PersonalExecutionClaim;
+    executionTarget?: ArtifactWorkspaceExecutionTarget;
     testCommand?: string[];
     expectedDeliverables?: string[];
   };
@@ -254,12 +269,14 @@ export function buildLocalRunEnvelope(args: {
     version: 1,
     sandboxId: input.sandboxId,
     repoUrl: input.repoUrl,
+    ...(input.executionTarget ? { executionTarget: input.executionTarget } : {}),
     baseBranch: input.baseBranch,
     task: input.task,
     ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
     ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
     ...(input.skillPins !== undefined ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
     ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
+    ...(input.personalExecution !== undefined ? { personalExecution: input.personalExecution } : {}),
     ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: [...input.expectedDeliverables] } : {}),
     harness: args.harnessName,
     cloneDir: `${LOCAL_RUN_ROOT_TOKEN}/${LOCAL_WORK_SUBDIR}`,

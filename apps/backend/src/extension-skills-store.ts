@@ -8,8 +8,15 @@ import type {
 import { randomHex } from "./mailbox-store.js";
 import type { AuditEnv } from "./audit.js";
 import { initAudit } from "./audit.js";
+import { teamSkillWriteGuard, type SkillMutationOptions, type TeamSkillGrant } from "./team-skill-grant.js";
 
 export interface ExtensionSkillsEnv extends AuditEnv {}
+
+export type ExtensionSkillTeamGrant = TeamSkillGrant;
+interface MutationOptions extends SkillMutationOptions {
+  canManageWorkspace?: boolean;
+  expectedVersion?: number;
+}
 
 export interface ExtensionSkillRow extends ExtensionSkillRecord {
   orgId: string;
@@ -151,7 +158,7 @@ export async function listExtensionSkillDirectory(
       : (row.workspaceId === options.workspaceId || (!row.workspaceId && row.userId === userId)) && readableBy(row, userId))
     .filter((row) => !options.workspaceOnly || effectiveScope(row) === "workspace")
     .filter((row) => options.scope === undefined || (effectiveScope(row) === options.scope && (options.scope !== "personal" || row.userId === userId)))
-    .map((row) => ({ _id: row._id, name: row.name, description: row.description, enabled: row.enabled }));
+    .map((row) => ({ _id: row._id, name: row.name, description: row.description, enabled: row.enabled, version: row.version }));
 }
 
 export async function getExtensionSkill(
@@ -172,10 +179,13 @@ export async function getExtensionSkillInstructions(
   orgId: string,
   userId: string,
   id: string,
+  options: { workspaceId?: string; expectedVersion?: number } = {},
 ): Promise<ExtensionSkillInstructions | null> {
   const skill = await readById(env, orgId, id);
-  if (!skill || !readableBy(skill, userId)) return null;
-  return { _id: skill._id, name: skill.name, instructions: skill.instructions };
+  if (!skill || !skill.enabled || skill.archivedAt !== undefined || !readableBy(skill, userId)) return null;
+  if (options.workspaceId !== undefined && skill.workspaceId !== options.workspaceId && (skill.workspaceId || skill.userId !== userId)) return null;
+  if (options.expectedVersion !== undefined && skill.version !== options.expectedVersion) return null;
+  return { _id: skill._id, name: skill.name, instructions: skill.instructions, version: skill.version };
 }
 
 export async function createExtensionSkill(
@@ -184,18 +194,21 @@ export async function createExtensionSkill(
   userId: string,
   input: { name: string; description: string; instructions: string; enabled?: boolean; workspaceId?: string; scope?: ExtensionSkillScope },
   now = Date.now(),
+  options: MutationOptions = {},
 ): Promise<string> {
   await ensureTables(env);
   if (input.scope === "workspace" && !input.workspaceId) throw new Error("workspace_required");
   const id = `skill_${randomHex(12)}`;
-  await env.AGENT_AUDIT.prepare(
+  const guard = teamSkillWriteGuard(orgId, userId, options.teamGrant);
+  const result = await env.AGENT_AUDIT.prepare(
     `INSERT INTO org_extension_skills
       (id, org_id, owner_id, workspace_id, scope, name, description, instructions, enabled, version, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ? WHERE 1 = 1${guard.sql}`,
   ).bind(
     id, orgId, userId, input.workspaceId ?? null, input.scope ?? "personal", input.name, input.description,
-    input.instructions, input.enabled === undefined ? null : input.enabled ? 1 : 0, now, now,
+    input.instructions, input.enabled === undefined ? null : input.enabled ? 1 : 0, now, now, ...guard.values,
   ).run();
+  if (result.meta?.changes !== 1) throw new Error("workspace_authority_changed");
   return id;
 }
 
@@ -206,24 +219,28 @@ export async function updateExtensionSkill(
   id: string,
   updates: { name?: string; description?: string; instructions?: string; enabled?: boolean },
   now = Date.now(),
-  options: { canManageWorkspace?: boolean } = {},
-): Promise<"updated" | "not_found" | "forbidden"> {
+  options: MutationOptions = {},
+): Promise<"updated" | "not_found" | "forbidden" | "conflict"> {
   const current = await readById(env, orgId, id);
   if (!current || !readableBy(current, userId)) return "not_found";
   const canManageWorkspace = options.canManageWorkspace === true;
   if (!canEditSkill(current, userId, canManageWorkspace)) return "forbidden";
+  if (options.expectedVersion !== undefined && current.version !== options.expectedVersion) return "conflict";
   const textChanged = updates.name !== undefined || updates.description !== undefined || updates.instructions !== undefined;
+  const guard = teamSkillWriteGuard(orgId, userId, options.teamGrant);
   const assignments = ["updated_at = ?"];
   const values: unknown[] = [now];
   if (updates.name !== undefined) { assignments.push("name = ?"); values.push(updates.name); }
   if (updates.description !== undefined) { assignments.push("description = ?"); values.push(updates.description); }
   if (updates.instructions !== undefined) { assignments.push("instructions = ?"); values.push(updates.instructions); }
   if (updates.enabled !== undefined) { assignments.push("enabled = ?"); values.push(updates.enabled ? 1 : 0); }
-  if (textChanged) { assignments.push("version = ?"); values.push(current.version + 1); }
+  if (textChanged || options.expectedVersion !== undefined) { assignments.push("version = ?"); values.push(current.version + 1); }
   values.push(orgId, id, userId, canManageWorkspace ? 1 : 0);
-  await env.AGENT_AUDIT.prepare(
-    `UPDATE org_extension_skills SET ${assignments.join(", ")} WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace'))`,
+  values.push(current.version, current.scope ?? "personal", current.archivedAt ?? null, ...guard.values);
+  const result = await env.AGENT_AUDIT.prepare(
+    `UPDATE org_extension_skills SET ${assignments.join(", ")} WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace')) AND version = ? AND scope = ? AND archived_at IS ?${guard.sql}`,
   ).bind(...values).run();
+  if (result.meta?.changes !== 1) return "conflict";
   return "updated";
 }
 
@@ -232,14 +249,16 @@ export async function removeExtensionSkill(
   orgId: string,
   userId: string,
   id: string,
-  options: { canManageWorkspace?: boolean } = {},
+  options: MutationOptions = {},
 ): Promise<"removed" | "not_found" | "forbidden"> {
   const current = await readById(env, orgId, id);
   if (!current || !readableBy(current, userId)) return "not_found";
   const canManageWorkspace = options.canManageWorkspace === true;
   if (!canEditSkill(current, userId, canManageWorkspace)) return "forbidden";
-  await env.AGENT_AUDIT.prepare("DELETE FROM org_extension_skills WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace'))")
-    .bind(orgId, id, userId, canManageWorkspace ? 1 : 0).run();
+  const guard = teamSkillWriteGuard(orgId, userId, options.teamGrant);
+  const result = await env.AGENT_AUDIT.prepare(`DELETE FROM org_extension_skills WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace')) AND version = ? AND scope = ? AND archived_at IS ?${guard.sql}`)
+    .bind(orgId, id, userId, canManageWorkspace ? 1 : 0, current.version, current.scope ?? "personal", current.archivedAt ?? null, ...guard.values).run();
+  if (result.meta?.changes !== 1) return "forbidden";
   return "removed";
 }
 
@@ -253,6 +272,7 @@ export async function setExtensionSkillScope(
   userId: string,
   id: string,
   to: ExtensionSkillScope,
+  options: MutationOptions = {},
 ): Promise<ExtensionSkillScopeAction> {
   const current = await readById(env, orgId, id);
   if (!current || !readableBy(current, userId)) return { ok: false, reason: "not_found" };
@@ -260,8 +280,10 @@ export async function setExtensionSkillScope(
   if (current.archivedAt !== undefined) return { ok: false, reason: "archived" };
   if (effectiveScope(current) === to) return { ok: false, reason: "same_scope" };
   if (to === "workspace" && !current.workspaceId) return { ok: false, reason: "workspace_required" };
-  await env.AGENT_AUDIT.prepare("UPDATE org_extension_skills SET scope = ? WHERE org_id = ? AND id = ? AND owner_id = ?")
-    .bind(to, orgId, id, userId).run();
+  const guard = teamSkillWriteGuard(orgId, userId, options.teamGrant);
+  const result = await env.AGENT_AUDIT.prepare(`UPDATE org_extension_skills SET scope = ? WHERE org_id = ? AND id = ? AND owner_id = ? AND version = ? AND scope = ? AND archived_at IS ?${guard.sql}`)
+    .bind(to, orgId, id, userId, current.version, current.scope ?? "personal", current.archivedAt ?? null, ...guard.values).run();
+  if (result.meta?.changes !== 1) return { ok: false, reason: "forbidden" };
   return { ok: true };
 }
 
@@ -271,17 +293,19 @@ export async function archiveExtensionSkill(
   userId: string,
   id: string,
   now = Date.now(),
-  options: { canManageWorkspace?: boolean } = {},
+  options: MutationOptions = {},
 ): Promise<ExtensionSkillScopeAction> {
   const current = await readById(env, orgId, id);
   if (!current || !readableBy(current, userId)) return { ok: false, reason: "not_found" };
   const canManageWorkspace = options.canManageWorkspace === true;
   if (!canEditSkill(current, userId, canManageWorkspace)) return { ok: false, reason: "forbidden" };
   if (current.archivedAt !== undefined) return { ok: false, reason: "already_archived" };
-  await env.AGENT_AUDIT.prepare(
+  const guard = teamSkillWriteGuard(orgId, userId, options.teamGrant);
+  const result = await env.AGENT_AUDIT.prepare(
     `UPDATE org_extension_skills SET archived_at = ?, archived_by = ?, archived_from_scope = ?
-     WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace'))`,
-  ).bind(now, userId, effectiveScope(current), orgId, id, userId, canManageWorkspace ? 1 : 0).run();
+     WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace')) AND version = ? AND scope = ? AND archived_at IS ?${guard.sql}`,
+  ).bind(now, userId, effectiveScope(current), orgId, id, userId, canManageWorkspace ? 1 : 0, current.version, current.scope ?? "personal", current.archivedAt ?? null, ...guard.values).run();
+  if (result.meta?.changes !== 1) return { ok: false, reason: "forbidden" };
   return { ok: true };
 }
 
@@ -290,16 +314,18 @@ export async function restoreExtensionSkill(
   orgId: string,
   userId: string,
   id: string,
-  options: { canManageWorkspace?: boolean } = {},
+  options: MutationOptions = {},
 ): Promise<ExtensionSkillScopeAction> {
   const current = await readById(env, orgId, id);
   if (!current || !readableBy(current, userId)) return { ok: false, reason: "not_found" };
   const canManageWorkspace = options.canManageWorkspace === true;
   if (!canEditSkill(current, userId, canManageWorkspace)) return { ok: false, reason: "forbidden" };
   if (current.archivedAt === undefined) return { ok: false, reason: "not_archived" };
-  await env.AGENT_AUDIT.prepare(
+  const guard = teamSkillWriteGuard(orgId, userId, options.teamGrant);
+  const result = await env.AGENT_AUDIT.prepare(
     `UPDATE org_extension_skills SET scope = ?, archived_at = NULL, archived_by = NULL, archived_from_scope = NULL
-     WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace'))`,
-  ).bind(current.archivedFromScope ?? current.scope ?? "personal", orgId, id, userId, canManageWorkspace ? 1 : 0).run();
+     WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace')) AND version = ? AND scope = ? AND archived_at IS ?${guard.sql}`,
+  ).bind(current.archivedFromScope ?? current.scope ?? "personal", orgId, id, userId, canManageWorkspace ? 1 : 0, current.version, current.scope ?? "personal", current.archivedAt ?? null, ...guard.values).run();
+  if (result.meta?.changes !== 1) return { ok: false, reason: "forbidden" };
   return { ok: true };
 }

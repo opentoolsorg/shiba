@@ -102,6 +102,10 @@ export function isAuthenticated(request: Request, env: Env): boolean {
   // `/api/local` self-authenticates with a bearer token — same shape as
   // /mcp, exempt from the Access gate.
   if (isLocalRuntimePath(pathname)) return true;
+  // Anonymous previews may expose only the static shell and its assets.
+  // This flag never grants API identity, private data, or execution authority.
+  if (env.OPEN_DASHBOARD === "1" && (request.method === "GET" || request.method === "HEAD") &&
+      (pathname === "/" || pathname === "/app" || pathname.startsWith("/app/") || pathname.startsWith("/assets/"))) return true;
   // `/api/auth/*` self-authenticates: sign-in/sign-up/session verbs are how
   // a caller proves identity in the first place. The subscription-connect
   // paths under /api/auth are NOT exempted here — they stay gated below.

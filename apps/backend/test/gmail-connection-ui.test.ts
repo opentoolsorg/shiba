@@ -20,7 +20,7 @@ describe("Gmail connection panel SSR", () => {
     expect(html).not.toContain("Connect Gmail");
   });
 
-  it("is mounted in the Integrations Email group when setup details are shown", () => {
+  it("renders the integrations overview and setup details control without browser globals", () => {
     const html = renderToStaticMarkup(React.createElement(IntegrationsView, {}));
     expect(html).toContain("Show setup details");
     expect(html).toContain("HubSpot");

@@ -1,0 +1,54 @@
+{
+  "kind": "actual-local-Docker-offline-desktop",
+  "startedAt": "2026-11-05T08:42:32.255Z",
+  "boundary": "Real local Docker/Xvfb/Openbox/Chromium/xdotool/scrot only. No Cloudflare start, native app authentication, funding grant, multiplayer transport, provider, model, account login, credentials, external send or deployment.",
+  "checks": [
+    "Existing image resolved to immutable local ID with no ports/volumes/credential environment",
+    "Runtime has zero external network, host bind mounts, published ports or proxy credentials and fixed resource/PID bounds",
+    "Real X display and visible Chromium window pass readiness",
+    "Real xdotool literal input completes and bounded JPEG changes; artifacts retained for visual verification",
+    "Installed package manifest and actual bundled license notices exist",
+    "Fixed expiry watchdog stops the actual desktop without a heartbeat extension"
+  ],
+  "input": {
+    "fixtureOnly": true,
+    "attemptedUtf8Bytes": 672,
+    "cliAcknowledged": true,
+    "jpegChanged": true,
+    "domTextVerified": false
+  },
+  "files": [
+    {
+      "filename": "computer-offline-local-20261105-before.jpg",
+      "bytes": 50198,
+      "sha256": "e7964cd396127c67f911b9fcfd9b743939963248df201c4a41ba7898ddc769fe"
+    },
+    {
+      "filename": "computer-offline-local-20261105-after.jpg",
+      "bytes": 70593,
+      "sha256": "fe22078d6ab2b331a9efba90edf0cda5240165b158d566c9f182ab5e9066d9ae"
+    }
+  ],
+  "result": "pass",
+  "imageId": "sha256:15f0101f6733b9229645df8c9fc8dd186a3b9170185f62a6668eba2deae79ce5",
+  "dockerfileSha256": "87bc60a3db4d31fd28cc549633ac8efd10691b778fadca0fe235362a09339808",
+  "expiresAt": 1793868212350,
+  "runtime": {
+    "network": "none",
+    "cpus": 0.5,
+    "memoryBytes": 1073741824,
+    "pids": 256,
+    "readOnly": true,
+    "hostMounts": 0,
+    "publishedPorts": 0,
+    "proxyEnvironmentEmpty": true
+  },
+  "packageManifestSha256": "11f710f766e1a3b8bf8f5dacad452300ba9d2310170bb2db5a7aaa9099db825d",
+  "cleanup": "owned-container-removed",
+  "finishedAt": "2026-11-05T08:43:35.413Z",
+  "visualReview": {
+    "reviewer": "Codex lead",
+    "observed": "Actual after.jpg shows literal fixture text in shared notes; no programmatic DOM text assertion.",
+    "screenshot": "computer-offline-local-20261105-after.jpg"
+  }
+}

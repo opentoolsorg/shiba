@@ -3,10 +3,9 @@
  * when /api/whoami 401s with `code: "better-auth"`, i.e. the deployment has
  * no Cloudflare Access app but does have BETTER_AUTH_SECRET.
  *
- * Two modes share one form: sign in, and create the first account.
- * Sign-up closes server-side once a user exists. A public host also
- * refuses that first account until a setup token or an allowlisted
- * owner email is configured.
+ * Sign-in, first-owner bootstrap and explicitly enabled invitation enrollment
+ * share the form. Invited users must independently verify their email before
+ * any dashboard identity resolves; their invitation is accepted separately.
  */
 import { useEffect, useState, type FormEvent, type JSX } from "react";
 import { authClient } from "../auth-client";
@@ -15,6 +14,12 @@ import { AUTH_CLIENT_TIMEOUT_MS, AuthTimeoutError, withAuthTimeout } from "../au
 import { ShibaMark } from "./ShibaMark";
 
 const BOOTSTRAP_HEADER = "x-shiba-bootstrap-token";
+const INVITATION_HEADER = "x-shiba-workspace-invitation";
+function invitationFromHash(): string {
+  if (typeof window === "undefined") return "";
+  const token = new URLSearchParams(window.location.hash.slice(1)).get("invite") ?? "";
+  return /^[a-f0-9]{64}$/.test(token) ? token : "";
+}
 
 interface BootstrapPolicy {
   requiresToken: boolean;
@@ -49,7 +54,7 @@ export function SessionProblem({
         <button
           type="button"
           onClick={onRetry}
-          className="w-full min-h-11 bg-[var(--primary)] text-white text-sm font-semibold"
+          className="w-full min-h-11 bg-[var(--primary)] text-[var(--primary-text)] text-sm font-semibold"
         >
           Retry
         </button>
@@ -58,8 +63,9 @@ export function SessionProblem({
   );
 }
 
-export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Element {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: { onSignedIn: () => void; invitationToken?: string }): JSX.Element {
+  const initialInvitation = suppliedInvitation && /^[a-f0-9]{64}$/.test(suppliedInvitation) ? suppliedInvitation : invitationFromHash();
+  const [mode, setMode] = useState<"signin" | "signup" | "invite">(() => initialInvitation ? "invite" : "signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,14 +73,22 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
   const [policy, setPolicy] = useState<BootstrapPolicy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [invitationToken, setInvitationToken] = useState(initialInvitation);
+  const [invitationPolicy, setInvitationPolicy] = useState<{ enabled: boolean; reason?: string } | null>(null);
+  const [verificationPending, setVerificationPending] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    if (invitationFromHash()) window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
     void fetch("/api/auth/bootstrap", { cache: "no-store" })
       .then(async (response) => (response.ok ? ((await response.json()) as BootstrapPolicy) : null))
       .then((body) => {
         if (!cancelled && body && typeof body.locked === "boolean") setPolicy(body);
       })
+      .catch(() => {});
+    void fetch("/api/auth/invitation-policy", { cache: "no-store" })
+      .then(async (response) => response.ok ? await response.json() as { enabled: boolean; reason?: string } : null)
+      .then((body) => { if (!cancelled && body && typeof body.enabled === "boolean") setInvitationPolicy(body); })
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -89,14 +103,23 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
     if (mode === "signup" && setupToken.trim() !== "") {
       headers[BOOTSTRAP_HEADER] = setupToken.trim();
     }
+    if (mode === "invite") {
+      if (!invitationPolicy?.enabled || !/^[a-f0-9]{64}$/.test(invitationToken.trim())) {
+        setError(invitationPolicy?.reason ?? "A valid invitation and configured email verification are required.");
+        setPending(false);
+        return;
+      }
+      headers[INVITATION_HEADER] = invitationToken.trim();
+    }
     try {
       const result = await withAuthTimeout(
-        mode === "signup"
+        mode !== "signin"
           ? authClient.signUp.email(
               {
                 name: name.trim() || email.trim(),
                 email: email.trim(),
                 password,
+                ...(mode === "invite" ? { callbackURL: "/app/?email_verified=1" } : {}),
               },
               { timeout: AUTH_CLIENT_TIMEOUT_MS, headers },
             )
@@ -116,6 +139,16 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
               : "Sign-in failed. Check the email and password."),
         );
         return;
+      }
+      if (mode === "invite") {
+        setVerificationPending(true);
+        return;
+      }
+      if (mode === "signin") {
+        const statusResponse = await withAuthTimeout(fetch("/api/auth/enrollment-status", { cache: "no-store" }));
+        if (!statusResponse.ok) { setError("Your session could not be verified. Please sign in again."); return; }
+        const status = await statusResponse.json() as { restricted?: boolean; emailVerified?: boolean };
+        if (status.restricted && !status.emailVerified) { setVerificationPending(true); return; }
       }
       // Back to the OAuth consent screen that sent us here, if any.
       const next = signInReturnPath(window.location.search);
@@ -140,17 +173,19 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
       <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-center gap-3">
         <ShibaMark />
         <h1 className="text-xl">
-          {mode === "signup" ? "Create the dashboard account" : "Sign in to continue"}
+          {mode === "invite" ? "Join your team" : mode === "signup" ? "Create the dashboard account" : "Sign in to continue"}
         </h1>
         <p className="text-sm text-[var(--muted-foreground-2)] leading-relaxed">
-          {mode === "signup"
+          {mode === "invite"
+            ? "Use your invitation and verify its exact email address. Team membership does not grant deployment administration."
+            : mode === "signup"
             ? policy?.locked
-              ? "Sign-up is locked on this public deployment. The operator must set a setup token or an allowlisted owner email before the first account can be created."
-              : "The first account becomes the dashboard owner. Sign-up closes after it."
+              ? "Owner sign-up is locked. The operator must configure a setup token before the first account can be created."
+              : "The first account becomes the dashboard owner. Additional accounts require a workspace invitation and verified email setup."
             : "Sign in with your dashboard email and password."}
         </p>
         <form onSubmit={submit} className="w-full flex flex-col gap-2.5 mt-1 text-left">
-          {mode === "signup" ? (
+          {mode !== "signin" ? (
             <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
               Name
               <input
@@ -173,6 +208,19 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
               className="w-full min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--input)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]"
             />
           </label>
+          {mode === "invite" ? (
+            <>
+              <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
+                Invitation token
+                <input type="password" required autoComplete="off" value={invitationToken}
+                  onChange={(event) => setInvitationToken(event.target.value)}
+                  className="w-full min-h-11 border border-[var(--border-1)] bg-[var(--input)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]" />
+              </label>
+              {!invitationPolicy?.enabled ? <p role="status" className="text-sm text-[var(--muted-foreground-2)]">
+                {invitationPolicy?.reason ?? "Checking invitation enrollment availability…"}
+              </p> : null}
+            </>
+          ) : null}
           {mode === "signup" && (policy === null || policy.requiresToken || policy.locked) ? (
             <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
               Setup token
@@ -191,7 +239,7 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
               type="password"
               required
               minLength={8}
-              autoComplete={mode === "signup" ? "new-password" : "current-password"}
+              autoComplete={mode !== "signin" ? "new-password" : "current-password"}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               className="w-full min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--input)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]"
@@ -202,13 +250,26 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
               {error}
             </p>
           ) : null}
+          {verificationPending ? <p role="status" className="text-sm text-[var(--muted-foreground-2)]">
+            Check your email and open the verification link. Keep this invitation tab open and return here to sign in after verifying. If you close it, sign in and reopen the original invitation link. You will still review and accept the workspace invitation yourself.
+          </p> : null}
+          {verificationPending ? <button type="button" disabled={pending} className="min-h-11 border border-[var(--border-1)] text-sm text-[var(--primary)] disabled:opacity-60"
+            onClick={() => {
+              setPending(true); setError(null);
+              void withAuthTimeout(fetch("/api/auth/send-verification-email", { method: "POST",
+                headers: { "content-type": "application/json" }, body: JSON.stringify({ email: email.trim(), callbackURL: "/app/?email_verified=1" }) }))
+                .then((response) => { if (!response.ok) setError("Verification could not be sent. Ask your workspace owner to check the invitation and email setup."); })
+                .catch(() => setError("The verification service did not answer. Try again."))
+                .finally(() => setPending(false));
+            }}>Resend verification email</button> : null}
           <button
             type="submit"
-            disabled={pending || (mode === "signup" && policy?.locked === true)}
-            className="w-full min-h-11 rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] disabled:opacity-60 text-white text-sm font-semibold transition-colors shadow-[var(--sh-card)] active:scale-[0.98]"
+            disabled={pending || (mode === "signup" && policy?.locked === true) || (mode === "invite" && !invitationPolicy?.enabled)}
+            className="w-full min-h-11 rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] disabled:opacity-60 text-[var(--primary-text)] text-sm font-semibold transition-colors shadow-[var(--sh-card)] active:scale-[0.98]"
           >
             {pending
               ? "Working…"
+              : mode === "invite" ? "Create team account"
               : mode === "signup"
                 ? "Create account"
                 : "Sign in"}
@@ -217,15 +278,18 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
         <button
           type="button"
           onClick={() => {
-            setMode(mode === "signup" ? "signin" : "signup");
+            setMode(mode === "signin" ? "signup" : "signin");
             setError(null);
+            setVerificationPending(false);
           }}
           className="text-xs text-[var(--primary)] hover:underline"
         >
-          {mode === "signup"
+          {mode !== "signin"
             ? "Have an account? Sign in"
             : "First sign-in? Create the account"}
         </button>
+        {mode !== "invite" ? <button type="button" className="min-h-11 text-xs text-[var(--primary)] hover:underline"
+          onClick={() => { setMode("invite"); setError(null); setVerificationPending(false); }}>Have a team invitation?</button> : null}
       </div>
     </div>
   );

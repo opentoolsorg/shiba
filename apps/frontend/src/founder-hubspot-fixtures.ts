@@ -1,0 +1,4 @@
+import type { FounderHubSpotGrant } from "@shiba/shared";
+export const HUBSPOT_WORKSPACE = `ws_${"a".repeat(24)}`, HUBSPOT_ACTOR = "founder@example.test";
+export const hubspotScope = { workspaceId: HUBSPOT_WORKSPACE, actorId: HUBSPOT_ACTOR };
+export function hubspotGrant(): FounderHubSpotGrant { return { id: `fhc_${"b".repeat(32)}`, accountId: "123456789", revision: 1, expiresAt: Date.now() + 86400000, fingerprint: "c".repeat(64), digest: "d".repeat(64), selection: { dealIds: ["1", "2"], invoiceIdProperty: "invoice_id", paidAmountProperty: "paid_amount", currencyProperty: "currency" }, maxCalls: 3, usedCalls: 0, state: "draft", nextDueAt: null, executorDigest: "f".repeat(64), apiVersion: "crm-v3", schedule: "daily-fixed-interval", maxBytes: 32768, maxDurationMs: 5000, maxPages: 1, currency: null, timezoneName: null }; }

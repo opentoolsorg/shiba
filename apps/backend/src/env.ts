@@ -9,6 +9,8 @@ import type { Sandbox } from "./sandbox.js";
 import type { ConversationRoom } from "./conversation-room-do.js";
 
 export interface Env {
+  /** Cloudflare-provided immutable version metadata, never supplied by a caller. */
+  CF_VERSION_METADATA?: { id: string; tag: string; timestamp: string };
   AI: Ai;
   /**
    * Dynamic Worker Loader for Code Mode (`worker_loaders` in wrangler.jsonc)
@@ -21,6 +23,33 @@ export interface Env {
   ConversationRoom: DurableObjectNamespace<ConversationRoom>;
   OpenCodeAgent: DurableObjectNamespace<OpenCodeAgent>;
   Sandbox: DurableObjectNamespace<Sandbox>;
+  /** Optional isolated offline desktop namespace; absent means unavailable. */
+  ComputerSession?: DurableObjectNamespace<import("./computer-session.js").ComputerSession>;
+  SHIBA_SHARED_COMPUTER?: string;
+  SHIBA_SHARED_COMPUTER_IMAGE?: string;
+  /** Default-off bounded standing reads through an operator-pinned service. */
+  FOUNDER_AUTOMATIC_READS_ENABLED?: string;
+  /** Separate opt-in native-owner restricted Stripe read lane. */
+  FOUNDER_STRIPE_READS_ENABLED?: string;
+  /** Worker-only purpose-separated encryption key; never a Stripe account key. */
+  FOUNDER_STRIPE_CREDENTIAL_KEY?: string;
+  /** Separate default-off Meta account reads; private Worker encryption only. */
+  FOUNDER_META_READS_ENABLED?: string;
+  FOUNDER_META_CREDENTIAL_KEY?: string;
+  /** Default-off native-owner HubSpot fixed capture and private encryption. */
+  FOUNDER_HUBSPOT_READS_ENABLED?: string;
+  /** Separate standing consent for bounded private future comparisons. */
+  FOUNDER_RECONCILIATION_SCHEDULES_ENABLED?: string;
+  /** Separate two-human consent for combined scheduled-result Slack disclosure. */
+  FOUNDER_RECONCILIATION_SLACK_ENABLED?: string;
+  FOUNDER_HUBSPOT_CREDENTIAL_KEY?: string;
+  OPEN_CONNECTOR_READ_GATEWAY?: Fetcher;
+  /** Separate least-privilege read-lane runtime key; never the manual runtime key. */
+  OPEN_CONNECTOR_READ_RUNTIME_TOKEN?: string;
+  /** Reviewed one-operation keys selected by exact workspace and connection. */
+  OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS?: string;
+  OPEN_CONNECTOR_READ_VERSION_ID?: string;
+  OPEN_CONNECTOR_READ_MANIFEST_SHA256?: string;
   /** Bound to the Automations Durable Object class in wrangler.jsonc. */
   Automations: DurableObjectNamespace;
   /**
@@ -72,6 +101,10 @@ export interface Env {
    * (`wrangler r2 bucket create`).
    */
   ATTACHMENTS: R2Bucket;
+  /** Private ZIP bundles produced by ephemeral workspaces. */
+  ARTIFACTS?: R2Bucket;
+  /** Worker-only HMAC key for bounded artifact download capabilities. */
+  ARTIFACT_SIGNING_KEY?: string;
   /**
    * KV namespace of agent bearer-token records keyed `tok_<sha256(raw)>` —
    * the raw token is never stored (megaplan T4, see `agent-tokens.ts`).
@@ -93,6 +126,13 @@ export interface Env {
   MCP_RATE_LIMIT?: RateLimit;
   /** Comma-separated exact HTTPS destination hostnames trusted for outbound MCP. Empty means disabled. */
   MCP_TRUSTED_HOSTS?: string;
+  /** Optional vendor-registered client IDs for curated remote MCP OAuth. */
+  MCP_OAUTH_CLIENT_STRIPE?: string;
+  MCP_OAUTH_CLIENT_NOTION?: string;
+  MCP_OAUTH_CLIENT_SENTRY?: string;
+  MCP_OAUTH_CLIENT_POSTHOG?: string;
+  MCP_OAUTH_CLIENT_FIGMA?: string;
+  MCP_OAUTH_CLIENT_JIRA_ATLASSIAN?: string;
   /**
    * Optional. Workers Browser Rendering endpoint (wrangler `browser` binding,
    * megaplan T33). `puppeteer.launch()` accepts the Fetcher shape directly;
@@ -183,6 +223,12 @@ export interface Env {
    * local-runtime request refuses 403 before any approval exists.
    */
   SHIBA_LOCAL_RUNTIME?: string;
+  /** Opt-in owner-bound personal machines; no deployment provider or account fallback. */
+  SHIBA_PERSONAL_LOCAL_EXECUTION?: string;
+  /** Explicit operator-funded, bounded native team text turns. Default off. */
+  SHIBA_TEAM_MODEL_SESSIONS?: string;
+  /** Exact supported Workers AI model; changes invalidate prior funding grants. */
+  SHIBA_TEAM_MODEL_MODEL?: string;
   /** Reason Network local companion dispatch is explicitly disabled unless set to "1". */
   REASON_NETWORK_ENABLED?: string;
   /** verify-shiba: "1" runs deterministic publish/review without containers. */
@@ -258,8 +304,25 @@ export interface Env {
   SLACK_SIGNING_SECRET?: string;
   /** Optional. Comma-separated Slack user ids allowed to approve; unset = nobody. */
   SLACK_APPROVERS?: string;
-  /** Optional. Bot token used only to post approval cards (chat.postMessage). */
+  /** Optional. Worker-only bot token for verified Slack replies, cards and opt-in session status. */
   SLACK_BOT_TOKEN?: string;
+  /** Managed installations are opt-in; credentials stay in encrypted Worker storage. */
+  SLACK_INSTALLATIONS_ENABLED?: string;
+  /** Explicit operator opt-in for separately consented private coworker notices. */
+  SLACK_COWORKER_PRIVATE_STATUS_ENABLED?: string;
+  SLACK_OAUTH_APP_ID?: string;
+  SLACK_OAUTH_CLIENT_ID?: string;
+  SLACK_OAUTH_REDIRECT_URI?: string;
+  SLACK_OAUTH_PKCE_ENABLED?: string;
+  SLACK_OAUTH_QUERY_REDACTION_VERIFIED?: string;
+  SLACK_INSTALLATION_KEYRING?: string;
+  SLACK_LEGACY_MODE_ENABLED?: string;
+  SLACK_LEGACY_TEAM_ID?: string;
+  SLACK_LEGACY_APP_ID?: string;
+  /** Native agent sessions are dark unless exactly `true`; requires an agent-enabled Slack installation. */
+  SLACK_AGENT_SESSIONS_ENABLED?: string;
+  /** Exact single Slack workspace allowed for optional native session status. */
+  SLACK_AGENT_SESSIONS_TEAM_ID?: string;
   /**
    * Optional. Channel id email-kind approval cards post to. Run approvals
    * mint inside a Slack thread and post their card there; email approvals
@@ -269,6 +332,8 @@ export interface Env {
   SLACK_APPROVALS_CHANNEL?: string;
   /** Optional. Must be exactly `true` to enable approved collaboration-room outbox delivery. */
   SLACK_ROOM_OUTBOX_ENABLED?: string;
+  /** Exact Slack team/channel to Access owner/viewer policy for canvas and collaboration imports. Empty or invalid fails closed. */
+  SLACK_CANVAS_OWNERS?: string;
   /** Optional. Daily USD budget for the /api/usage report's budget line. */
   USAGE_BUDGET_USD?: string;
   /** Optional. JSON map `{channelId: "https://github.com/owner/repo"}` for bare mentions. */
@@ -437,6 +502,8 @@ export interface Env {
    * only loopback requests bypass identity checks.
    */
   REQUIRE_ACCESS?: string;
+  /** Preview-only public static shell; never grants API identity or execution. */
+  OPEN_DASHBOARD?: string;
   /**
    * Optional. Access application AUD tag. When set, identity comes only from a
    * verified `Cf-Access-Jwt-Assertion`, and Access is required as with REQUIRE_ACCESS.
@@ -468,6 +535,8 @@ export interface Env {
    * case-insensitively. Public hosts refuse every other address.
    */
   BETTER_AUTH_OWNER_EMAIL?: string;
+  /** Verified email sender for invitation enrollment; absent keeps enrollment unavailable. */
+  BETTER_AUTH_VERIFICATION_FROM?: string;
   /** Gmail read-only OAuth. Absent/invalid config fails closed; no generic auth accounts. */
   GMAIL_CLIENT_ID?: string;
   GMAIL_CLIENT_SECRET?: string;

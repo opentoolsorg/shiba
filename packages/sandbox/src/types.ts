@@ -17,6 +17,8 @@ export interface SandboxCapabilities {
   rawProviderHandle: boolean;
   /** Durable attachable storage beyond the container filesystem (optional). */
   persistentVolumes?: boolean;
+  /** A surviving container can retain and reread one supervised execution. */
+  journaledExec?: boolean;
 }
 
 export type BuiltinSandboxProviderId = "cloudflare" | "docker-local" | "e2b" | "computesdk";
@@ -46,6 +48,41 @@ export interface ExecResult {
   exitCode: number;
 }
 
+export type JournalState = "starting" | "running" | "exited" | "cancelled" | "timed_out" | "limited" | "lost";
+
+export interface JournalExecutionInput {
+  jobId: string;
+  command: string;
+  cwd: string;
+  env?: Record<string, string>;
+  deadline: number;
+}
+
+export interface JournalFrame {
+  sequence: number;
+  stream: "stdout" | "stderr";
+  dataBase64: string;
+}
+
+export interface JournalPage {
+  jobId: string;
+  state: JournalState;
+  frames: JournalFrame[];
+  cursor: number;
+  done: boolean;
+  exitCode?: number;
+  error?: string;
+}
+
+export interface JournalExecutionOptions {
+  jobId: string;
+  deadline: number;
+  /** Attach only reads an existing claim and never launches, even if the claim is absent. */
+  mode?: "start" | "attach";
+  /** Original approved run expiry. Attach may observe an already completed CLI after its deadline. */
+  observationDeadline?: number;
+}
+
 export type ReadFileResult =
   | { kind: "utf8"; content: string }
   | { kind: "base64"; content: string };
@@ -72,6 +109,7 @@ export interface SandboxInstance {
 
   gitCheckout(repoUrl: string, opts: { branch: string; targetDir: string }): Promise<void>;
   writeFile(path: string, content: string): Promise<void>;
+  writeFileStream?(path: string, body: ReadableStream<Uint8Array>): Promise<void>;
   readFile(path: string, opts?: { maxBytes?: number; signal?: AbortSignal }): Promise<ReadFileResult>;
   readFileStream?(path: string): Promise<ReadableStream<Uint8Array>>;
 
@@ -83,6 +121,11 @@ export interface SandboxInstance {
       env?: Record<string, string>;
       signal?: AbortSignal;
       onOutput?: (stream: "stdout" | "stderr", chunk: string) => void;
+      onJournalFrame?: (frame: JournalFrame) => Promise<void>;
+      /** Refuse generic execution unless this completed journal still owns the same native container. */
+      requiredJournalJobId?: string;
+      /** Other providers retain their ordinary single-attempt execution behavior. */
+      journal?: JournalExecutionOptions;
     },
   ): Promise<ExecResult>;
 

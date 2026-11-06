@@ -20,8 +20,20 @@ export const repositoryExecutionTargetSchema = z.object({
 export const artifactWorkspaceExecutionTargetSchema = z.object({
   kind: z.literal("artifact-workspace"),
   workspaceName: z.string().trim().min(1).max(100).optional(),
-  expectedDeliverables: expectedDeliverablesSchema.min(1),
-}).strict();
+  workspaceId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/).optional(),
+  template: z.string().trim().min(1).max(100).optional(),
+  expectedDeliverables: expectedDeliverablesSchema,
+}).strict().superRefine((target, ctx) => {
+  if (target.workspaceId === undefined && target.expectedDeliverables.length === 0) {
+    ctx.addIssue({ code: "custom", message: "Artifact workspaces require expected deliverables or an ephemeral workspace identity." });
+  }
+  if (target.template !== undefined && target.workspaceId === undefined) {
+    ctx.addIssue({ code: "custom", message: "Workspace templates require an ephemeral workspace identity." });
+  }
+  if (target.workspaceId !== undefined && target.expectedDeliverables.some((path) => !path.startsWith("out/"))) {
+    ctx.addIssue({ code: "custom", message: "Ephemeral workspace deliverables must be inside out/." });
+  }
+});
 
 /**
  * Schema for future connected-app work. This describes a requested action;

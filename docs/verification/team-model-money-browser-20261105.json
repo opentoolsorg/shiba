@@ -1,0 +1,123 @@
+{
+  "kind": "local-Chromium-Money-v2-component-fixture",
+  "startedAt": "2026-11-05T06:55:32.516Z",
+  "boundary": "Actual product React components and CSS; intercepted deterministic HTTP fixtures only. No real authentication, funding, Workers AI, model, billing, bank transaction, vendor connection, sandbox, Slack, credential or deployment.",
+  "sourceAtStart": {
+    "apps/frontend/src/team-model-client.ts": "d7ef2bd4d8f950fc4fd16735a3b019103000add261d8b4f8f6e7c425ce59700c",
+    "apps/frontend/src/components/TeamModelFundingForm.tsx": "1fbad977dbd7f52613db19e11120a2621f4b731af0d62cb086500a95838a59de",
+    "apps/frontend/src/components/TeamModelMoneyDetails.tsx": "c3f761040d38eddfa23c403223448a87904448494dcb1c956fca8c03ec6d2e1a",
+    "apps/frontend/src/components/TeamModelSessions.tsx": "ac276fee729708f0edd5d3460b2d9706c897b3c5d48f8a67fa4a91d085165686",
+    "packages/shared/src/team-model-money.ts": "77a94d3b718ea7587a14efb7c0d336e7486631db63ea9f929b022dbfc9860640",
+    "packages/shared/src/team-model-sessions.ts": "a19892fc50d463ea13d478bfbaa8eb42c6d9cdd024d1d93c682a72197a9e92ff",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "checks": [
+    "Money budget, employee, member and model remain explicit; mounting sends no effects",
+    "Invalid USD precision/cap cannot prepare; valid integer microUSD opens an inert exact price review",
+    "Operator reviews budget, full-context quote and invoice exclusions before separate activation",
+    "Requester separately freezes, reviews and executes one cost-bound fixture turn without automatic billing actions",
+    "Quote expiry prevents new inference controls while currently authorized completed output survives",
+    "390px money, quote hashes and disclosures fit in both themes without horizontal overflow",
+    "Legacy protected output parses while amountless grants cannot start new work",
+    "Access denial removes cached source-protected output and funding controls",
+    "No page errors, external requests, source drift, live provider calls or real transactions"
+  ],
+  "requests": [
+    {
+      "path": "/api/team-model-sessions/state",
+      "method": "GET",
+      "actor": "operator@example.test",
+      "workspace": "ws_aaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "path": "/api/team-model-sessions/funding/prepare",
+      "method": "POST",
+      "actor": "operator@example.test",
+      "workspace": "ws_aaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "path": "/api/team-model-sessions/funding/tmf_cccccccccccccccccccccccccccccccc/activate",
+      "method": "POST",
+      "actor": "operator@example.test",
+      "workspace": "ws_aaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "path": "/api/team-model-sessions/state",
+      "method": "GET",
+      "actor": "member@example.test",
+      "workspace": "ws_aaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "path": "/api/team-model-sessions/turns/prepare",
+      "method": "POST",
+      "actor": "member@example.test",
+      "workspace": "ws_aaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "path": "/api/team-model-sessions/turns/tmt_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/approve",
+      "method": "POST",
+      "actor": "member@example.test",
+      "workspace": "ws_aaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "path": "/api/team-model-sessions/turns/tmt_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/execute",
+      "method": "POST",
+      "actor": "member@example.test",
+      "workspace": "ws_aaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "path": "/api/team-model-sessions/state",
+      "method": "GET",
+      "actor": "member@example.test",
+      "workspace": "ws_aaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "path": "/api/team-model-sessions/state",
+      "method": "GET",
+      "actor": "member@example.test",
+      "workspace": "ws_aaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "path": "/api/team-model-sessions/state",
+      "method": "GET",
+      "actor": "member@example.test",
+      "workspace": "ws_aaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "externalRequests": [],
+  "screenshots": [
+    "team-model-money-browser-20261105-operator-desktop.png",
+    "team-model-money-browser-20261105-member-390.png",
+    "team-model-money-browser-20261105-member-390-dark.png"
+  ],
+  "quoteClock": {
+    "browser": 1793862637905,
+    "quote": 1793862635352,
+    "options": [
+      {
+        "value": "",
+        "disabled": false,
+        "attr": null
+      },
+      {
+        "value": "tmf_cccccccccccccccccccccccccccccccc",
+        "disabled": true,
+        "attr": ""
+      }
+    ]
+  },
+  "sourceAtEnd": {
+    "apps/frontend/src/team-model-client.ts": "d7ef2bd4d8f950fc4fd16735a3b019103000add261d8b4f8f6e7c425ce59700c",
+    "apps/frontend/src/components/TeamModelFundingForm.tsx": "1fbad977dbd7f52613db19e11120a2621f4b731af0d62cb086500a95838a59de",
+    "apps/frontend/src/components/TeamModelMoneyDetails.tsx": "c3f761040d38eddfa23c403223448a87904448494dcb1c956fca8c03ec6d2e1a",
+    "apps/frontend/src/components/TeamModelSessions.tsx": "ac276fee729708f0edd5d3460b2d9706c897b3c5d48f8a67fa4a91d085165686",
+    "packages/shared/src/team-model-money.ts": "77a94d3b718ea7587a14efb7c0d336e7486631db63ea9f929b022dbfc9860640",
+    "packages/shared/src/team-model-sessions.ts": "a19892fc50d463ea13d478bfbaa8eb42c6d9cdd024d1d93c682a72197a9e92ff",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "status": "passed",
+  "finishedAt": "2026-11-05T06:55:37.636Z",
+  "testScope": "Browser component fixture only; independent route/store/runtime/SQLite + fakeAI tests are separate evidence. No live model usage or invoice was verified."
+}

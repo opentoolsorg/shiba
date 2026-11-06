@@ -15,6 +15,11 @@ import {
   type OutboundConfig,
 } from "./outbound-config.js";
 import { SandboxOutbound } from "./outbound-entrypoint.js";
+import type { JournalExecutionInput, JournalPage, JournalState } from "@shiba/sandbox";
+import {
+  assertJournalJobId, emptyJournalPage, executionInputDigest, EXECUTION_EPOCH_LABEL, EXECUTION_JOURNAL_SOURCE,
+  JOURNAL_MAX_REPLY_BYTES, JOURNAL_START_GRACE_MS, JournalIntegrityError, type JournalClaim,
+} from "./execution-journal.js";
 import {
   loadPortTokens,
   mintPreviewToken,
@@ -26,6 +31,9 @@ import {
 
 const INACTIVITY_TIMEOUT_MS = 60_000;
 const KEEPALIVE_ALARM_MS = 30_000;
+const JOURNAL_DEADLINES_KEY = "execution-journal-deadlines:v1";
+const JOURNAL_DRAIN_GRACE_MS = 1_500;
+const RETIRED_KEY = "sandbox-retired:v1";
 /** Max stdout/stderr retained in the DO while a process runs (before scopedExec caps). */
 const EXEC_COLLECT_CAP = 512_000;
 
@@ -148,8 +156,20 @@ export class Sandbox extends DurableObject<Env> {
   }
 
   async destroy(): Promise<void> {
-    if (this.#container.running) await this.#container.destroy();
-    await this.ctx.storage.deleteAll();
+    // Per-attempt IDs are never reused. Retirement precedes the destructive
+    // effect and survives failure, RPC response loss and a fresh DO instance.
+    this.ctx.storage.kv.put(RETIRED_KEY, { version: 1, retiredAt: Date.now() });
+    const claims = await this.ctx.storage.list<JournalClaim>({ prefix: "execution-journal:" });
+    for (const [key, claim] of claims) this.ctx.storage.kv.put(key, { ...claim, state: "lost" });
+    let failure: unknown;
+    try { if (this.#container.running) await this.#container.destroy(); }
+    catch (error) { failure = error; }
+    // Never deleteAll then recreate the tombstone: another event could see an
+    // unclaimed old ID in that window. Keep only nonsecret one-shot identity.
+    const entries = await this.ctx.storage.list();
+    const discard = [...entries.keys()].filter((key) => key !== RETIRED_KEY && !key.startsWith("execution-journal:"));
+    if (discard.length) await this.ctx.storage.delete(discard);
+    if (failure) throw failure;
   }
 
   async snapshotContainer(name?: string): Promise<{ id: string; size: number } | null> {
@@ -174,7 +194,8 @@ export class Sandbox extends DurableObject<Env> {
     }
   }
 
-  async writeFile(path: string, content: string): Promise<void> {
+  // T69: a stream is an R2 body going straight into the container, no base64 round-trip.
+  async writeFile(path: string, content: string | ReadableStream<Uint8Array>): Promise<void> {
     await this.#ensureRunning();
     const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "/";
     await this.#files.mkdir(dir, { recursive: true }).catch(() => undefined);
@@ -189,9 +210,22 @@ export class Sandbox extends DurableObject<Env> {
       env?: Record<string, string>;
       stream?: boolean;
       onOutput?: (stream: "stdout" | "stderr", chunk: string) => void;
+      requiredJournalJobId?: string;
     },
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    await this.#ensureRunning();
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) throw new Error("This sandbox attempt was retired; execution is refused.");
+    let settlementClaim: JournalClaim | undefined;
+    if (options?.requiredJournalJobId !== undefined) {
+      const jobId = options.requiredJournalJobId;
+      assertJournalJobId(jobId);
+      const claim = this.ctx.storage.kv.get<JournalClaim>(`execution-journal:${jobId}`);
+      if (!claim?.epoch || claim.state !== "exited" || await this.#journalEpoch() !== claim.epoch || !this.#container.running) {
+        throw new Error("The completed execution container is unavailable. Settlement was not restarted.");
+      }
+      settlementClaim = claim;
+    } else {
+      await this.#ensureRunning();
+    }
     const cwd = options?.cwd ?? "/workspace";
     const env = { ...TRUST_ENV, ...options?.env };
     const abort = new AbortController();
@@ -200,16 +234,20 @@ export class Sandbox extends DurableObject<Env> {
         ? setTimeout(() => abort.abort(), options.timeout)
         : undefined;
     try {
-      const proc = await this.#container.exec(["sh", "-c", command], {
-        cwd,
-        env,
+      if (this.ctx.storage.kv.get(RETIRED_KEY)) throw new Error("This sandbox attempt was retired before dispatch.");
+      const proc = await this.#container.exec(settlementClaim
+        ? ["node", "-e", EXECUTION_JOURNAL_SOURCE, "--", "settle", options!.requiredJournalJobId!, "0", settlementClaim.digest!, String(settlementClaim.deadline)]
+        : ["sh", "-c", command], {
+        cwd: settlementClaim ? "/workspace" : cwd,
+        env: settlementClaim ? TRUST_ENV : env,
+        ...(settlementClaim ? { stdin: new Blob([JSON.stringify({ command, cwd, env })]).stream() } : {}),
         signal: abort.signal,
       });
       let stdout = "";
       let stderr = "";
       const readStream = async (
         stream: ReadableStream<Uint8Array> | undefined,
-        onChunk: (t: string) => void,
+        onChunk: (t: string) => void | Promise<void>,
       ) => {
         const decoder = new TextDecoder();
         const reader = (stream ?? new ReadableStream({ start(controller) { controller.close(); } })).getReader();
@@ -217,22 +255,22 @@ export class Sandbox extends DurableObject<Env> {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            onChunk(decoder.decode(value, { stream: true }));
+            await onChunk(decoder.decode(value, { stream: true }));
           }
           const tail = decoder.decode();
-          if (tail) onChunk(tail);
+          if (tail) await onChunk(tail);
         } finally {
           reader.releaseLock();
         }
       };
       await Promise.all([
-        readStream(proc.stdout ?? undefined, (chunk) => {
+        readStream(proc.stdout ?? undefined, async (chunk) => {
           stdout = appendExecOutput(stdout, chunk);
-          options?.onOutput?.("stdout", chunk);
+          await options?.onOutput?.("stdout", chunk);
         }),
-        readStream(proc.stderr ?? undefined, (chunk) => {
+        readStream(proc.stderr ?? undefined, async (chunk) => {
           stderr = appendExecOutput(stderr, chunk);
-          options?.onOutput?.("stderr", chunk);
+          await options?.onOutput?.("stderr", chunk);
         }),
       ]);
       const out = await proc.output();
@@ -244,6 +282,153 @@ export class Sandbox extends DurableObject<Env> {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  /** Claims one prepared CLI execution before its first launch. */
+  async startExecution(input: JournalExecutionInput): Promise<{ jobId: string; state: JournalState }> {
+    assertJournalJobId(input.jobId);
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId: input.jobId, state: "lost" };
+    const digest = await executionInputDigest(input);
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId: input.jobId, state: "lost" };
+    const key = `execution-journal:${input.jobId}`;
+    const retained = this.ctx.storage.kv.get<JournalClaim>(key);
+    if (retained) {
+      if (retained.digest !== null && retained.digest !== digest) throw new Error("Execution identity was already claimed with different inputs.");
+      return { jobId: input.jobId, state: retained.state };
+    }
+    let claim: JournalClaim = { digest, deadline: input.deadline, createdAt: Date.now(), epoch: null, state: "starting" };
+    this.ctx.storage.kv.put(key, claim);
+    const state = (next: JournalState) => {
+      const current = this.ctx.storage.kv.get<JournalClaim>(key);
+      if (!current) return { jobId: input.jobId, state: "lost" as const };
+      claim = { ...current, state: current.state === "cancelled" ? "cancelled" : next };
+      this.ctx.storage.kv.put(key, claim);
+      return { jobId: input.jobId, state: claim.state };
+    };
+    if (input.deadline <= Date.now()) return state("timed_out");
+    const epoch = await this.#journalEpoch();
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId: input.jobId, state: "lost" };
+    if (!this.ctx.storage.kv.get<JournalClaim>(key)) return { jobId: input.jobId, state: "lost" };
+    if (this.ctx.storage.kv.get<JournalClaim>(key)?.state === "cancelled") return state("cancelled");
+    if (!epoch) return state("lost");
+    claim = { ...claim, epoch };
+    this.ctx.storage.kv.put(key, claim);
+    const deadlines = this.ctx.storage.kv.get<Record<string, { deadline: number; epoch: string }>>(JOURNAL_DEADLINES_KEY) ?? {};
+    deadlines[input.jobId] = { deadline: input.deadline, epoch };
+    this.ctx.storage.kv.put(JOURNAL_DEADLINES_KEY, deadlines);
+    await this.#armKeepalive();
+    // The helper sees only trusted startup variables. Approved application
+    // variables are carried on stdin and supplied to the CLI child only.
+    const spec = JSON.stringify({ command: input.command, cwd: input.cwd, env: { ...TRUST_ENV, ...input.env }, deadline: input.deadline, digest });
+    if (this.ctx.storage.kv.get(RETIRED_KEY) || !this.ctx.storage.kv.get<JournalClaim>(key)) return { jobId: input.jobId, state: "lost" };
+    if (this.ctx.storage.kv.get<JournalClaim>(key)?.state === "cancelled") return state("cancelled");
+    await this.#container.exec(["node", "-e", EXECUTION_JOURNAL_SOURCE, "--", "start", input.jobId], {
+      env: TRUST_ENV,
+      stdin: new Blob([spec]).stream(),
+      stdout: "ignore", stderr: "ignore",
+    });
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId: input.jobId, state: "lost" };
+    if (!this.ctx.storage.kv.get<JournalClaim>(key)) return { jobId: input.jobId, state: "lost" };
+    if (this.ctx.storage.kv.get<JournalClaim>(key)?.state === "cancelled") {
+      await this.#journalControl("cancel", input.jobId).catch(() => undefined);
+      return state("cancelled");
+    }
+    return { jobId: input.jobId, state: "starting" };
+  }
+
+  /** Reading a journal never starts or restores a container. */
+  async getExecutionClaim(jobId: string): Promise<{ jobId: string; digest: string; epoch: string; currentEpoch: string | null; deadline: number; state: string } | null> {
+    assertJournalJobId(jobId);
+    const claim = this.ctx.storage.kv.get<JournalClaim>(`execution-journal:${jobId}`);
+    if (!claim?.digest || !claim.epoch) return null;
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId, digest: claim.digest, epoch: claim.epoch, currentEpoch: null, deadline: claim.deadline, state: "lost" };
+    const currentEpoch = await this.#journalEpoch();
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId, digest: claim.digest, epoch: claim.epoch, currentEpoch: null, deadline: claim.deadline, state: "lost" };
+    const current = this.ctx.storage.kv.get<JournalClaim>(`execution-journal:${jobId}`);
+    if (!current || current.digest !== claim.digest || current.epoch !== claim.epoch || current.deadline !== claim.deadline) return null;
+    return { jobId, digest: current.digest!, epoch: current.epoch!, currentEpoch, deadline: current.deadline, state: current.state };
+  }
+
+  /** Reading a journal never starts or restores a container. */
+  async readExecution(jobId: string, after: number): Promise<JournalPage> {
+    assertJournalJobId(jobId);
+    if (!Number.isSafeInteger(after) || after < 0 || after > 4096) throw new Error("Invalid execution journal cursor.");
+    const key = `execution-journal:${jobId}`;
+    const claim = this.ctx.storage.kv.get<JournalClaim>(key);
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return emptyJournalPage(jobId, "lost", after, "Original sandbox was retired; no replacement command was started.");
+    if (!claim) return emptyJournalPage(jobId, "lost", after, "No retained execution claim exists.");
+    if (claim.state === "cancelled") return emptyJournalPage(jobId, "cancelled", after);
+    if (!claim.epoch || await this.#journalEpoch() !== claim.epoch) {
+      return emptyJournalPage(jobId, "lost", after, "Execution container was stopped or replaced.");
+    }
+    if (this.ctx.storage.kv.get(RETIRED_KEY) || !this.ctx.storage.kv.get<JournalClaim>(key)) return emptyJournalPage(jobId, "lost", after, "Execution claim was removed or retired.");
+    if (this.ctx.storage.kv.get<JournalClaim>(key)?.state === "cancelled") return emptyJournalPage(jobId, "cancelled", after);
+    let page: JournalPage;
+    try {
+      page = await this.#journalControl("read", jobId, after, claim);
+      if (page.state === "starting" && Date.now() - claim.createdAt > JOURNAL_START_GRACE_MS) {
+        page = emptyJournalPage(jobId, "lost", after, "Execution launch could not be confirmed.");
+      }
+    } catch (error) {
+      if (!(error instanceof JournalIntegrityError)) throw new Error("Execution journal transport is unavailable.");
+      page = emptyJournalPage(jobId, "lost", after, "Execution journal could not be read safely.");
+    }
+    if (this.ctx.storage.kv.get(RETIRED_KEY) || !this.ctx.storage.kv.get<JournalClaim>(key)) return emptyJournalPage(jobId, "lost", after, "Execution claim was removed or retired.");
+    if (this.ctx.storage.kv.get<JournalClaim>(key)?.state === "cancelled") return emptyJournalPage(jobId, "cancelled", after);
+    this.ctx.storage.kv.put(key, { ...claim, state: page.state });
+    if (page.state === "exited") {
+      const deadlines = this.ctx.storage.kv.get<Record<string, { deadline: number; epoch: string }>>(JOURNAL_DEADLINES_KEY) ?? {};
+      delete deadlines[jobId];
+      this.ctx.storage.kv.put(JOURNAL_DEADLINES_KEY, deadlines);
+    }
+    return page;
+  }
+
+  /** A sticky cancellation also fences a launch whose response was lost. */
+  async cancelExecution(jobId: string): Promise<{ jobId: string; state: JournalState }> {
+    assertJournalJobId(jobId);
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) return { jobId, state: "lost" };
+    const key = `execution-journal:${jobId}`;
+    const previous = this.ctx.storage.kv.get<JournalClaim>(key);
+    if (previous && !["starting", "running", "cancelled"].includes(previous.state)) return { jobId, state: previous.state };
+    const claim: JournalClaim = previous ?? { digest: null, deadline: Date.now(), createdAt: Date.now(), epoch: null, state: "cancelled" };
+    this.ctx.storage.kv.put(key, { ...claim, state: "cancelled" });
+    const epoch = await this.#journalEpoch();
+    if (!this.ctx.storage.kv.get<JournalClaim>(key)) return { jobId, state: "lost" };
+    if (epoch && (!claim.epoch || epoch === claim.epoch)) {
+      await this.#journalControl("cancel", jobId).catch(() => undefined);
+    }
+    return { jobId, state: "cancelled" };
+  }
+
+  async #journalEpoch(): Promise<string | null> {
+    if (!this.#container.running) return null;
+    const info = await this.#container.inspect();
+    const epoch = info?.labels?.[EXECUTION_EPOCH_LABEL];
+    return typeof epoch === "string" && /^[a-f0-9-]{36}$/.test(epoch) ? epoch : null;
+  }
+
+  async #journalControl(action: "read" | "cancel", jobId: string, after = 0, claim?: JournalClaim): Promise<JournalPage> {
+    const process = await this.#container.exec(["node", "-e", EXECUTION_JOURNAL_SOURCE, "--", action, jobId, String(after),
+      ...(claim?.digest ? [claim.digest, String(claim.deadline)] : []),
+    ], { env: TRUST_ENV });
+    const output = await process.output();
+    if (output.exitCode !== 0 || output.stdout.byteLength > JOURNAL_MAX_REPLY_BYTES) throw new JournalIntegrityError("Journal response is invalid or exceeds its limit.");
+    let data: JournalPage;
+    try { data = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(output.stdout)) as JournalPage; }
+    catch { throw new JournalIntegrityError("Journal response is invalid."); }
+    if (action === "cancel") return data;
+    if (!data || typeof data !== "object" || data.jobId !== jobId || !["starting", "running", "exited", "cancelled", "timed_out", "limited", "lost"].includes(data.state) ||
+        !Array.isArray(data.frames) || data.frames.length > 64 || !Number.isSafeInteger(data.cursor) || data.cursor < after || data.cursor > 4096 ||
+        typeof data.done !== "boolean" || (data.exitCode !== undefined && !Number.isSafeInteger(data.exitCode)) ||
+        (data.state === "exited" && data.exitCode === undefined) ||
+        ((data.state === "starting" || data.state === "running") && data.done) ||
+        (data.error !== undefined && (typeof data.error !== "string" || data.error.length > 512))) throw new JournalIntegrityError("Invalid execution journal response.");
+    if (data.frames.some((frame, index) => !frame || frame.sequence !== after + index + 1 || !["stdout", "stderr"].includes(frame.stream) ||
+        typeof frame.dataBase64 !== "string" || frame.dataBase64.length > 5464) || data.cursor !== after + data.frames.length) {
+      throw new JournalIntegrityError("Execution journal sequence changed.");
+    }
+    return data;
   }
 
   async readFileStream(path: string): Promise<ReadableStream<Uint8Array>> {
@@ -353,6 +538,53 @@ export class Sandbox extends DurableObject<Env> {
   override async alarm(): Promise<void> {
     if (!this.#container.running) return;
     try {
+      const deadlines = this.ctx.storage.kv.get<Record<string, { deadline: number; epoch: string }>>(JOURNAL_DEADLINES_KEY) ?? {};
+      const overdue = Object.entries(deadlines).filter(([, job]) => job.deadline + JOURNAL_DRAIN_GRACE_MS <= Date.now());
+      if (overdue.length > 0) {
+        const epoch = await this.#journalEpoch();
+        if (overdue.some(([, job]) => job.epoch === epoch)) {
+          // A vanished reader may never have copied the final receipt into KV.
+          // Reconcile the surviving instance before treating its deadline as unfinished.
+          for (const [jobId, job] of overdue) {
+            if (job.epoch === epoch && this.ctx.storage.kv.get<JournalClaim>(`execution-journal:${jobId}`)?.state !== "exited") {
+              let timer: ReturnType<typeof setTimeout> | undefined;
+              try {
+                await Promise.race([this.readExecution(jobId, 0), new Promise<never>((_, reject) => {
+                  timer = setTimeout(() => reject(new Error("Execution receipt reconciliation timed out.")), 2_000);
+                })]);
+              } finally {
+                if (timer) clearTimeout(timer);
+              }
+            }
+          }
+          if (await this.#journalEpoch() !== epoch) {
+            const retained = this.ctx.storage.kv.get<Record<string, { deadline: number; epoch: string }>>(JOURNAL_DEADLINES_KEY) ?? {};
+            for (const [jobId, job] of overdue) if (job.epoch === epoch) delete retained[jobId];
+            this.ctx.storage.kv.put(JOURNAL_DEADLINES_KEY, retained);
+            await this.#armKeepalive();
+            return;
+          }
+          const stillActive = overdue.some(([jobId, job]) => job.epoch === epoch && this.ctx.storage.kv.get<JournalClaim>(`execution-journal:${jobId}`)?.state !== "exited");
+          if (!stillActive) {
+            const retained = this.ctx.storage.kv.get<Record<string, { deadline: number; epoch: string }>>(JOURNAL_DEADLINES_KEY) ?? {};
+            for (const [jobId] of overdue) delete retained[jobId];
+            this.ctx.storage.kv.put(JOURNAL_DEADLINES_KEY, retained);
+            await this.#armKeepalive();
+            return;
+          }
+          await this.#container.destroy();
+          for (const [jobId, job] of overdue) {
+            if (job.epoch !== epoch) continue;
+            const key = `execution-journal:${jobId}`;
+            const claim = this.ctx.storage.kv.get<JournalClaim>(key);
+            if (claim && claim.state !== "exited") this.ctx.storage.kv.put(key, { ...claim, state: claim.state === "cancelled" ? "cancelled" : "timed_out" });
+          }
+          return;
+        }
+        const retained = this.ctx.storage.kv.get<Record<string, { deadline: number; epoch: string }>>(JOURNAL_DEADLINES_KEY) ?? {};
+        for (const [jobId] of overdue) delete retained[jobId];
+        this.ctx.storage.kv.put(JOURNAL_DEADLINES_KEY, retained);
+      }
       await this.#container.setInactivityTimeout(INACTIVITY_TIMEOUT_MS);
       await this.#container.getTcpPort(8080).fetch("http://127.0.0.1/", { method: "HEAD" }).catch(() => undefined);
     } catch {
@@ -362,8 +594,10 @@ export class Sandbox extends DurableObject<Env> {
   }
 
   async #ensureRunning(): Promise<void> {
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) throw new Error("This sandbox attempt was retired. A new human-approved attempt requires a different sandbox ID.");
     if (this.#container.running) {
       await this.#container.setInactivityTimeout(INACTIVITY_TIMEOUT_MS);
+      if (this.ctx.storage.kv.get(RETIRED_KEY)) throw new Error("This sandbox attempt was retired.");
       return;
     }
     const instanceType = (this.env.INSTANCE_TYPE?.trim() || "standard-1") as
@@ -373,17 +607,21 @@ export class Sandbox extends DurableObject<Env> {
       | "standard-3"
       | "standard-4";
     const snapshotId = await this.ctx.storage.get<string>("container-snapshot-id");
+    if (this.ctx.storage.kv.get(RETIRED_KEY)) throw new Error("This sandbox attempt was retired.");
+    this.ctx.storage.kv.put(JOURNAL_DEADLINES_KEY, {});
     if (snapshotId) {
       this.#container.start({
         containerSnapshot: { id: snapshotId },
         enableInternet: false,
         instance: instanceType,
+        labels: { [EXECUTION_EPOCH_LABEL]: crypto.randomUUID() },
       });
     } else {
       this.#container.start({
         image: this.#container.images.sandbox,
         enableInternet: false,
         instance: instanceType,
+        labels: { [EXECUTION_EPOCH_LABEL]: crypto.randomUUID() },
       });
     }
     const outbound = (this.ctx as SandboxCtx).exports.SandboxOutbound({
@@ -397,7 +635,11 @@ export class Sandbox extends DurableObject<Env> {
   }
 
   async #armKeepalive(): Promise<void> {
-    await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_ALARM_MS);
+    const deadlines = this.ctx.storage.kv?.get<Record<string, { deadline: number }>>(JOURNAL_DEADLINES_KEY) ?? {};
+    const nextDeadline = Math.min(...Object.values(deadlines).map((job) => job.deadline + JOURNAL_DRAIN_GRACE_MS));
+    const now = Date.now();
+    const next = nextDeadline <= now ? now + 5_000 : Math.min(now + KEEPALIVE_ALARM_MS, nextDeadline);
+    await this.ctx.storage.setAlarm(next);
   }
 }
 

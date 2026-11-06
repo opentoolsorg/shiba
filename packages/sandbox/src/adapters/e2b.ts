@@ -43,7 +43,8 @@ function mockInstance(instanceId: string): SandboxInstance {
       }
       return { kind: "utf8", content };
     },
-    async exec(command) {
+    async exec(command, opts) {
+      if (opts?.journal?.mode === "attach" || opts?.requiredJournalJobId !== undefined) throw new SandboxError("capability_unsupported", "This provider cannot attach to a native execution journal. No command was launched.");
       return { stdout: `mock:${command}`, stderr: "", exitCode: 0 };
     },
     async exposePort(port) {

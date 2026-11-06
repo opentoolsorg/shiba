@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveHarness, sandboxHarnessNames, SANDBOX_HARNESS_NAMES } from "../src/harness/index.js";
 import { codexSubscriptionHarness } from "../src/harness/codex-subscription.js";
-import { claudeLoginConfigDir } from "../src/harness/claude-login.js";
+import { claudeLoginConfigDir, claudeLoginHarness, claudeLoginVolumeForUser } from "../src/harness/claude-login.js";
 import { resolveCodingRoute } from "../src/model-policy.js";
 import type { Connection } from "../src/model-connections.js";
 import { redactSecrets } from "../src/security.js";
@@ -170,9 +170,24 @@ describe("A7 claude-subscription default off", () => {
   });
 });
 
-describe("A8 claude-login per-user config dir", () => {
-  it("isolates CLAUDE_CONFIG_DIR per initiator", () => {
-    expect(claudeLoginConfigDir({ initiatorUserId: "alice" })).not.toBe(claudeLoginConfigDir({ initiatorUserId: "bob" }));
+describe("A8 native cloud Claude login remains unavailable", () => {
+  it.each(["", "alice", "bob", "a/b", "a_b", "../alice"])("does not invent a credential mount for %j", (userId) => {
+    expect(claudeLoginVolumeForUser(userId)).toBeNull();
+    expect(claudeLoginConfigDir({ initiatorUserId: userId })).toBe("/root/.shiba/claude-login/unprovisioned");
+  });
+
+  it("advertises no runtime and refuses direct configuration or launch", () => {
+    const input = { initiatorUserId: "alice", codingModel: "anthropic-subscription/claude-sonnet-4-6" } as never;
+    expect(claudeLoginHarness.capabilities().supportedRuntimes).toEqual([]);
+    expect(sandboxHarnessNames({})).not.toContain("claude-login");
+    expect(() => claudeLoginHarness.env(input)).toThrow("unavailable");
+    expect(() => claudeLoginHarness.buildArgv(input, "/workspace/run")).toThrow("credentials must not enter a sandbox");
+  });
+
+  it("cannot verify a successful-looking result as native cloud login", async () => {
+    const result = { status: "completed", exitCode: 0 } as never;
+    expect(await claudeLoginHarness.verify({ initiatorUserId: "alice" } as never, result)).toMatchObject({ ok: false, reason: expect.stringContaining("not available") });
+    expect(await claudeLoginHarness.verify({} as never, result)).toMatchObject({ ok: false, reason: expect.stringContaining("signed-in user") });
   });
 });
 

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import { onboardingRunFields } from "@shiba/shared";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -11,6 +12,8 @@ beforeAll(async () => {
 import { DEFAULT_ALLOWED_HOSTS } from "../src/sandbox/outbound-config.js";
 import { INACTIVITY_TIMEOUT_MS, outboundByHost, outboundHandlers } from "../src/sandbox.js";
 import { claudeCodeHarness } from "../src/harness/claude-code.js";
+import { codexHarness } from "../src/harness/codex.js";
+import { runEnvScrubber } from "../src/run-env-seal.js";
 import { ClaudeUsageLimitError } from "../src/harness/claude-subscription.js";
 import { CodexUsageLimitError } from "../src/harness/codex-subscription.js";
 import { grokHarness } from "../src/harness/grok.js";
@@ -73,12 +76,15 @@ interface RecordedExec {
 
 function makeFakeOps(overrides: Partial<SandboxOps> = {}): SandboxOps & { execs: RecordedExec[] } {
   const execs: RecordedExec[] = [];
+  const snapshot = repositorySnapshotFixture({ status: " M src/a.ts\n?? new.txt\n", files: { "src/a.ts": "file content", "new.txt": "file content" } });
   return {
     execs,
     async gitCheckout() {},
     async writeFile() {},
     async exec(command, opts) {
       execs.push({ command, cwd: opts?.cwd, env: opts?.env });
+      const gitResult = await snapshot(command);
+      if (gitResult) return gitResult;
       if (command.includes("opencode")) {
         return { stdout: "run output", stderr: "", exitCode: 0 };
       }
@@ -186,6 +192,43 @@ describe("SandboxRuntimeAdapter", () => {
     expect(ops.execs.some((entry) => entry.command.includes("'git' 'init'"))).toBe(false);
   });
 
+  it.each(["init", "baseline"] as const)("sanitizes artifact workspace %s stderr before its diagnostic bound", async (stage) => {
+    const secret = "approvedValue987654321-private-tail";
+    const ops = makeFakeOps({ pinEgress: async () => {} }), originalExec = ops.exec;
+    let failed = false;
+    ops.exec = async (command, options) => {
+      const matches = stage === "init" ? command.startsWith("'git' 'init'") : command.includes("shiba artifact workspace baseline");
+      if (!matches) return originalExec(command, options);
+      failed = true;
+      return { stdout: "", stderr: `${"x".repeat(100)}${secret}${"y".repeat(985)}`, exitCode: 7 };
+    };
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, { ...INPUT, repoUrl: "", executionTarget: { kind: "artifact-workspace", expectedDeliverables: [] } }, () => {}, {
+      scrub: runEnvScrubber({ APP_SECRET: secret }),
+    });
+    expect(failed).toBe(true);
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("Artifact workspace initialization failed");
+    expect(JSON.stringify(result)).not.toContain("private-tail");
+    expect(JSON.stringify(result)).not.toContain("987654321");
+  });
+
+  it("reports a generic git diff diagnostic without a pre-truncated stderr secret", async () => {
+    const secret = "approvedValue987654321-private-tail";
+    const ops = makeFakeOps(), originalExec = ops.exec;
+    let failed = false;
+    ops.exec = async (command, options) => {
+      if (!command.includes("'diff' '--no-ext-diff'")) return originalExec(command, options);
+      failed = true;
+      return { stdout: "", stderr: `${"x".repeat(100)}${secret}${"y".repeat(985)}`, exitCode: 7 };
+    };
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {}, { scrub: runEnvScrubber({ APP_SECRET: secret }) });
+    expect(failed).toBe(true);
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("git diff failed with exit code 7");
+    expect(JSON.stringify(result)).not.toContain("private-tail");
+    expect(JSON.stringify(result)).not.toContain("987654321");
+  });
+
   it("quotes the task so shell metacharacters cannot escape", async () => {
     const ops = makeFakeOps();
     const adapter = new SandboxRuntimeAdapter();
@@ -228,12 +271,7 @@ describe("SandboxRuntimeAdapter", () => {
       async exec(command, opts) {
         // T44: checkpoint git commands still need real-ish answers — only
         // the harness exec itself is the nonzero exit under test.
-        if (!command.includes("opencode")) {
-          if (command.includes("rev-parse")) return { stdout: ".git\n", stderr: "", exitCode: 0 };
-          if (command.includes("write-tree")) return { stdout: "tree\n", stderr: "", exitCode: 0 };
-          if (command.includes("commit-tree")) return { stdout: "commit\n", stderr: "", exitCode: 0 };
-          return baseExec(command, opts);
-        }
+        if (!command.includes("opencode")) return baseExec(command, opts);
         return { stdout: "", stderr: `x\n${"e".repeat(50_000)}`, exitCode: 3 };
       },
     });
@@ -553,7 +591,9 @@ describe("streamed opencode progress", () => {
 
   it("surfaces an opencode error event instead of pretending success", async () => {
     const ops = makeFakeOps();
-    ops.exec = async (_command, opts) => {
+    const baseExec = ops.exec;
+    ops.exec = async (command, opts) => {
+      if (!command.includes("opencode")) return baseExec(command, opts);
       opts?.onOutput?.("stdout", `${JSON.stringify({ type: "error", message: "quota exhausted" })}\n`);
       return { stdout: "", stderr: "", exitCode: 0 };
     };
@@ -597,61 +637,48 @@ describe("streamed opencode progress", () => {
 });
 
 describe("complete file collection bounds", () => {
-  it("passes per-file maxBytes and cancellation signal to readFile", async () => {
+  it("passes fixed-blob timeouts and cancellation signal without reading mutable files", async () => {
     const ops = makeFakeOps();
-    const calls: Array<{ path: string; opts?: { maxBytes?: number; signal?: AbortSignal } }> = [];
-    ops.readFile = async (path, opts) => {
-      calls.push({ path, opts });
-      return { kind: "utf8", content: "file content" };
+    const reads = vi.fn(async () => ({ kind: "utf8" as const, content: "late mutable content" }));
+    ops.readFile = reads;
+    const calls: Array<Parameters<SandboxOps["exec"]>[1]> = [];
+    const execute = ops.exec;
+    ops.exec = async (command, options) => {
+      if (command.includes("maxBuffer:100001")) calls.push(options);
+      return execute(command, options);
     };
     const controller = new AbortController();
-    const adapter = new SandboxRuntimeAdapter();
-    const result = await adapter.runCodingTask(ops, INPUT, () => {}, { signal: controller.signal });
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {}, { signal: controller.signal });
     expect(result.status).toBe("completed");
+    expect(reads).not.toHaveBeenCalled();
     expect(calls).toHaveLength(2);
-    for (const call of calls) {
-      expect(call.opts?.maxBytes).toBe(MAX_FILE_CHARS);
-      expect(call.opts?.signal).toBe(controller.signal);
+    for (const options of calls) {
+      expect(options?.timeoutMs).toBe(5 * 60 * 1000);
+      expect(options?.signal).toBe(controller.signal);
     }
   });
 
-  it("fails the whole run when a file exceeds its bound instead of truncating", async () => {
-    const ops = makeFakeOps({
-      async readFile(_path, opts) {
-        if ((opts?.maxBytes ?? 0) < 1_000_000) {
-          throw new Error("readFile exceeded maxBytes: never truncating captured file content.");
-        }
-        return { kind: "utf8", content: "file content" };
-      },
-    });
-    const adapter = new SandboxRuntimeAdapter();
-    const result = await adapter.runCodingTask(ops, INPUT, () => {});
+  it("fails the whole run when an immutable file exceeds its bound instead of truncating", async () => {
+    const ops = makeFakeOps();
+    const execute = ops.exec;
+    const snapshot = repositorySnapshotFixture({ status: " M src/a.ts\n", files: { "src/a.ts": "x".repeat(MAX_FILE_CHARS + 1) } });
+    ops.exec = async (command, options) => await snapshot(command) ?? execute(command, options);
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {});
     expect(result.status).toBe("error");
-    expect(result.summary).toContain("maxBytes");
+    expect(result.summary).toContain("MAX_FILE_CHARS");
     expect(result.files).toHaveLength(0);
   });
 
-  it("records deleted files as null content without reading them", async () => {
+  it("records checkpoint deletions as null content without reading mutable files", async () => {
     const ops = makeFakeOps();
-    const reads: string[] = [];
-    ops.exec = async (command, opts) => {
-      if (command.includes("opencode")) {
-        opts?.onOutput?.("stdout", "");
-        return { stdout: "", stderr: "", exitCode: 0 };
-      }
-      if (command.includes("status")) {
-        return { stdout: " D src/deleted.ts\n M src/a.ts\n", stderr: "", exitCode: 0 };
-      }
-      return { stdout: "", stderr: "", exitCode: 0 };
-    };
-    ops.readFile = async (path) => {
-      reads.push(path);
-      return { kind: "utf8", content: "content" };
-    };
-    const adapter = new SandboxRuntimeAdapter();
-    const result = await adapter.runCodingTask(ops, INPUT, () => {});
+    const execute = ops.exec;
+    const reads = vi.fn(async () => ({ kind: "utf8" as const, content: "late recreated deleted file" }));
+    ops.readFile = reads;
+    const snapshot = repositorySnapshotFixture({ status: " D src/deleted.ts\n M src/a.ts\n", files: { "src/a.ts": "content" } });
+    ops.exec = async (command, options) => await snapshot(command) ?? execute(command, options);
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {});
     expect(result.changedFiles).toEqual(["src/deleted.ts", "src/a.ts"]);
-    expect(reads).toEqual(["/workspace/run-abcdef12345678/src/a.ts"]);
+    expect(reads).not.toHaveBeenCalled();
     expect(result.files).toEqual([
       { path: "src/a.ts", content: "content", encoding: "utf8" },
       { path: "src/deleted.ts", content: null, encoding: "utf8" },
@@ -775,6 +802,37 @@ describe("worker authentication gate (T7)", () => {
     const res = await worker.fetch(new Request("https://example.com/api/runs"), makeAccessEnv());
     expect(res.status).toBe(401);
     expect(getAgentByName).not.toHaveBeenCalled();
+  });
+
+  it("authenticates exact artifact downloads by capability while sibling routes still require identity", async () => {
+    const { createArtifactDownloadUrl } = await import("../src/artifact-download.js");
+    const { workspaceArtifactArchive } = await import("../src/run-deliverables.js");
+    const worker = (await import("../src/index.js")).default;
+    const archive = workspaceArtifactArchive([]);
+    const digest = await crypto.subtle.digest("SHA-256", archive.bytes);
+    const sha256 = Buffer.from(digest).toString("hex");
+    const scope = "a".repeat(64);
+    const get = vi.fn(async () => ({ size: archive.bytes.byteLength, body: new Response(archive.bytes).body,
+      checksums: { sha256: digest }, customMetadata: { scope, sha256, bytes: String(archive.bytes.byteLength), fileCount: "0" } }));
+    const env = makeAccessEnv({ ACCESS_AUD: "test-audience", WORKER_HOSTNAME: "example.com",
+      ARTIFACT_SIGNING_KEY: "test-only-artifact-signing-key-at-least-32-bytes", ARTIFACTS: { get } });
+    const now = Date.now();
+    const url = await createArtifactDownloadUrl(env, { version: 1, scope, sha256, bytes: archive.bytes.byteLength,
+      fileCount: 0, issuedAt: now, expiresAt: now + 60_000 });
+    const link = new URL(url);
+    const landing = await worker.fetch(new Request(link), env);
+    expect(landing.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(get).not.toHaveBeenCalled();
+    const response = await worker.fetch(new Request(new URL(link.pathname, link), {
+      method: "POST", body: new URLSearchParams(link.hash.slice(1)), headers: { origin: link.origin, "sec-fetch-site": "same-origin" },
+    }), env);
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(archive.bytes);
+    expect(get).toHaveBeenCalledExactlyOnceWith(`run-archives/${scope}/${sha256}.zip`);
+    expect((await worker.fetch(new Request("https://example.com/api/artifacts/download"), env)).status).toBe(403);
+    expect((await worker.fetch(new Request("https://example.com/api/artifacts/download/other"), env)).status).toBe(401);
+    expect((await worker.fetch(new Request("https://example.com/api/slack-canvas?origin=x&approval=y"), env)).status).toBe(401);
+    expect(get).toHaveBeenCalledOnce();
   });
 
   it("with REQUIRE_ACCESS and no ACCESS_AUD, a forged identity header → 401", async () => {
@@ -913,7 +971,13 @@ describe("worker authentication gate (T7)", () => {
         .setProtectedHeader({ alg: "RS256", kid: "routing-key" })
         .setIssuer(`https://routing-test-${name.startsWith("web") ? "session" : "base"}.cloudflareaccess.com`)
         .setAudience("routing-aud").setIssuedAt().setExpirationTime("5m").sign(privateKey);
-      const stubFetch = vi.fn(async (_request: Request) => new Response("agent"));
+      const stubFetch = vi.fn(async (request: Request | string) => {
+        const path = new URL(typeof request === "string" ? request : request.url).pathname;
+        if (path.startsWith("/internal/web-sessions/")) return Response.json({ session: {
+          id: decodeURIComponent(path.split("/").at(-1)!), userId: "alice@example.com", metadata: {},
+        } });
+        return new Response("agent");
+      });
       vi.mocked(getAgentByName).mockClear();
       vi.mocked(getAgentByName).mockResolvedValue({ fetch: stubFetch } as never);
       const worker = (await import("../src/index.js")).default;
@@ -926,7 +990,8 @@ describe("worker authentication gate (T7)", () => {
       expect(await res.text()).toBe("agent");
       expect(getAgentByName).toHaveBeenCalledWith(env.CodingOrchestrator, name);
       expect(stubFetch).toHaveBeenCalledTimes(name.startsWith("web:") ? 2 : 1);
-      expect(new URL(stubFetch.mock.calls.at(-1)![0]!.url).pathname).toBe(
+      const forwarded = stubFetch.mock.calls.at(-1)![0]!;
+      expect(new URL(typeof forwarded === "string" ? forwarded : forwarded.url).pathname).toBe(
         `/agents/coding-orchestrator/${encodeURIComponent(name)}/ws`,
       );
     },
@@ -962,6 +1027,63 @@ describe("unescapePorcelainPath", () => {
 });
 
 describe("streamed output buffering", () => {
+  it("preserves raw protocol usage and scrubs split escaped content before display bounds", async () => {
+    const secret = 'private-"quote\\slash\ncredential-tail-987654321';
+    const ops = makeFakeOps(), baseExec = ops.exec;
+    const line = `${JSON.stringify({ type: "text", text: `${"x".repeat(490)}${secret}${"y".repeat(490)}` })}\n`;
+    ops.exec = async (command, options) => {
+      if (!options?.journal) return baseExec(command, options);
+      const output = `${JSON.stringify({ type: "turn.completed", usage: { input_tokens: 7, output_tokens: 3 } })}\n${line}`;
+      for (let offset = 0; offset < output.length; offset += 13) options?.onOutput?.("stdout", output.slice(offset, offset + 13));
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    const events: ProgressEvent[] = [];
+    const result = await new SandboxRuntimeAdapter(codexHarness).runCodingTask(ops, { ...INPUT, codingModel: "openai/gpt-5.4" }, (event) => { events.push(event); }, {
+      scrub: runEnvScrubber({ APP_STATE: "completed", APP_SECRET: secret }),
+    });
+    expect(result.status).toBe("completed");
+    expect(result.usage).toMatchObject({ inputTokens: 7, outputTokens: 3 });
+    expect(events.some((event) => event.message.includes("yyyy"))).toBe(true);
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain("credential-tail-987654321");
+    expect(serialized).not.toContain("987654321");
+  });
+
+  it("keeps split provider errors fatal while scrubbing their full content before bounds", async () => {
+    const secret = 'private-"quote\\slash\ncredential-tail-987654321';
+    const ops = makeFakeOps(), baseExec = ops.exec;
+    const line = `${JSON.stringify({ type: "error", message: `${"x".repeat(490)}${secret}${"y".repeat(490)}` })}\n`;
+    ops.exec = async (command, options) => {
+      if (!options?.journal) return baseExec(command, options);
+      for (let offset = 0; offset < line.length; offset += 17) options?.onOutput?.("stdout", line.slice(offset, offset + 17));
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    const result = await new SandboxRuntimeAdapter(codexHarness).runCodingTask(ops, { ...INPUT, codingModel: "openai/gpt-5.4" }, () => {}, {
+      scrub: runEnvScrubber({ APP_SECRET: secret }),
+    });
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("yyyy");
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(JSON.stringify(result)).not.toContain("987654321");
+  });
+
+  it("sanitizes generic transport exceptions before shortening their message", async () => {
+    const secret = "approvedValue987654321-private-tail";
+    const ops = makeFakeOps(), baseExec = ops.exec;
+    ops.exec = async (command, options) => {
+      if (!options?.journal) return baseExec(command, options);
+      throw new Error(`${"x".repeat(100)}${secret}${"y".repeat(1985)}`);
+    };
+    const result = await new SandboxRuntimeAdapter(codexHarness).runCodingTask(ops, { ...INPUT, codingModel: "openai/gpt-5.4" }, () => {}, {
+      scrub: runEnvScrubber({ APP_SECRET: secret }),
+    });
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("uncertain");
+    expect(JSON.stringify(result)).not.toContain("private-tail");
+    expect(JSON.stringify(result)).not.toContain("987654321");
+  });
+
   it("parses an event line split across arbitrary chunk boundaries", async () => {
     const ops = makeFakeOps();
     const baseExec = ops.exec;

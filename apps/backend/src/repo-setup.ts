@@ -40,7 +40,7 @@ export function parseRepoSetup(text: string): RepoSetup {
   } catch {
     throw new Error("not valid JSON");
   }
-  // refresh and entries are accepted so a file with those keys loads; they aren't run yet (T74).
+  // refresh and entries are accepted so a file with those fields loads; they aren't run yet (T74).
   const file = section(raw, "the file", ["$schema", "format_version", "scripts", "timeouts", "entries"]);
   if (file.format_version !== 1) throw new Error("format_version must be 1");
   const scripts = section(file.scripts, "scripts", ["initialize", "refresh"]);
@@ -64,7 +64,7 @@ export interface RepoSetupOutcome {
 }
 
 // Hooks and fsmonitor off on every set-aside call: this is bookkeeping, never the repo's own logic.
-const QUIET_GIT = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"];
+const QUIET_GIT = ["--no-replace-objects", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"];
 const SET_ASIDE_TIMEOUT_MS = 120_000;
 
 /** Paths among `paths` that the setup commit changed. Throws if git can't answer — never assume none. */

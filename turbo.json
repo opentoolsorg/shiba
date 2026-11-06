@@ -23,6 +23,16 @@
       ]
 
     },
+    // These checks do not emit application bundles. Restoring dist here can
+    // replace a fresh build with unrelated files left by an earlier build.
+    "@shiba/web#typecheck": {
+      "dependsOn": ["^typecheck"],
+      "outputs": []
+    },
+    "@shiba/frontend#typecheck": {
+      "dependsOn": ["^typecheck"],
+      "outputs": []
+    },
     // `test` stays uncached by decision: a stale green result is worse than a
     // slow one. If a live-suite escape hatch is ever needed, keep it here.
     "test": {

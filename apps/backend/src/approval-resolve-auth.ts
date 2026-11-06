@@ -26,7 +26,7 @@ export function approvalResolveForbidden(
   }
 
   if (input.decidedBy.startsWith("automation:")) {
-    return input.approved ? null : "Not authorized to resolve shared approvals.";
+    return "Automations cannot decide approvals. Explicit human approval is required.";
   }
 
   if (input.source === "slack") {

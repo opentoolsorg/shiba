@@ -1,0 +1,727 @@
+{
+  "verifiedAt": "2026-11-04",
+  "mode": "Actual public-site Chromium with TLS verification; anonymous read-only acceptance. This is not an exact-PR preview or authenticated cloud/Slack acceptance.",
+  "candidateSourceCommit": "78c7235dc4248b4962e1482d8bb50c0f4e6e602c",
+  "deployedSourceCommit": null,
+  "website": {
+    "startedAt": "2026-11-04T08:26:09.736Z",
+    "finishedAt": "2026-11-04T08:26:34.855Z",
+    "transport": {
+      "managedProxy": true,
+      "isolatedPublicCaTrust": true,
+      "ignoreHTTPSErrors": false,
+      "tlsBypass": false
+    },
+    "browser": {
+      "version": "154.0.8037.57",
+      "executable": "/usr/bin/chromium",
+      "browserSandboxVerified": false
+    },
+    "mobileHome": {
+      "url": "https://tryshiba.dev/",
+      "lang": "en",
+      "title": "Shiba \u2014 self-hosted AI coworker on Cloudflare",
+      "h1": "It asks beforeit writes code.",
+      "mainCount": 1,
+      "viewport": 390,
+      "scrollWidth": 574,
+      "overflow": true,
+      "imagesMissingAlt": []
+    },
+    "totals": {
+      "passed": 10,
+      "failed": 4
+    },
+    "pageErrors": [],
+    "overflowElements": [
+      {
+        "tag": "DIV",
+        "classes": "reach-col reach-col-channels astro-tfoflh7i",
+        "right": 497.828125,
+        "width": 462.828125,
+        "text": "Web/app/ \u00b7 DASHBOARDLIVESlack@shiba \u00b7 CHATOPSLIVETelegram/shiba \u00b7 WEBHOOKBOTMobi"
+      },
+      {
+        "tag": "DIV",
+        "classes": "channel-card astro-lcdefpme",
+        "right": 418.1875,
+        "width": 126.46875,
+        "text": "IN CODETelegram/shiba deploy staging hotfix --branch main\u21b3 Webhook dispatch & in"
+      },
+      {
+        "tag": "DIV",
+        "classes": "channel-card astro-lcdefpme",
+        "right": 574.390625,
+        "width": 155.203125,
+        "text": "IN CODEDiscord/shiba task repo:backend issue:#142\u21b3 Threaded run logs & diff prev"
+      }
+    ],
+    "resultsFile": ".verify/web-acceptance-20261104/live-browser-results.json",
+    "sourceComparison": "The older reach-card demo and layout are absent from the branch. The original local run passed18checks with fallbackfonts. A separate9-check focused rerun loaded actualGoogleFonts oververifiedTLS and passed desktop1440px/mobile390px fit, allfourroleselectors and directory search/category/empty/reset. Local and live are separate results.",
+    "tests": [
+      {
+        "name": "live desktop HTTPS home renders with TLS verification",
+        "status": "pass",
+        "detail": {
+          "status": 200,
+          "url": "https://tryshiba.dev/",
+          "lang": "en",
+          "title": "Shiba \u2014 self-hosted AI coworker on Cloudflare",
+          "h1": "It asks beforeit writes code.",
+          "mainCount": 1,
+          "viewport": 1440,
+          "scrollWidth": 1440,
+          "overflow": false,
+          "imagesMissingAlt": []
+        }
+      },
+      {
+        "name": "live desktop home basic landmarks/alt and no overflow",
+        "status": "pass",
+        "detail": {
+          "url": "https://tryshiba.dev/",
+          "lang": "en",
+          "title": "Shiba \u2014 self-hosted AI coworker on Cloudflare",
+          "h1": "It asks beforeit writes code.",
+          "mainCount": 1,
+          "viewport": 1440,
+          "scrollWidth": 1440,
+          "overflow": false,
+          "imagesMissingAlt": []
+        }
+      },
+      {
+        "name": "live #harnesses Mobile web flow matches selected channel and Sandbox",
+        "status": "fail",
+        "error": "Confirmed live mismatch: {\"clicked\":\"Channel: Mobile web\",\"activeChannel\":\"Mobile web\",\"activeCapability\":\"Sandbox\",\"narrative\":\"FLOW: DISCORD (/SHIBA) \u2192 GEMINI 3.8 FLASH (MEMORY DO) \u2192 MEMORY (RECALL)\"}",
+        "page": {
+          "url": "https://tryshiba.dev/#harnesses",
+          "lang": "en",
+          "title": "Shiba \u2014 self-hosted AI coworker on Cloudflare",
+          "h1": "It asks beforeit writes code.",
+          "mainCount": 1,
+          "viewport": 1440,
+          "scrollWidth": 1440,
+          "overflow": false,
+          "imagesMissingAlt": []
+        },
+        "inputs": []
+      },
+      {
+        "name": "live #harnesses Sandbox flow matches selected channel and capability",
+        "status": "fail",
+        "error": "Confirmed live mismatch: {\"clicked\":\"Capability: Sandbox\",\"activeChannel\":\"Mobile web\",\"activeCapability\":\"Sandbox\",\"narrative\":\"FLOW: DISCORD (/SHIBA) \u2192 GEMINI 3.8 FLASH (MEMORY DO) \u2192 MEMORY (RECALL)\"}",
+        "page": {
+          "url": "https://tryshiba.dev/#harnesses",
+          "lang": "en",
+          "title": "Shiba \u2014 self-hosted AI coworker on Cloudflare",
+          "h1": "It asks beforeit writes code.",
+          "mainCount": 1,
+          "viewport": 1440,
+          "scrollWidth": 1440,
+          "overflow": false,
+          "imagesMissingAlt": []
+        },
+        "inputs": []
+      },
+      {
+        "name": "live header Docs opens visible Overview",
+        "status": "pass",
+        "detail": {
+          "url": "https://tryshiba.dev/docs/overview/",
+          "lang": "en",
+          "title": "Overview | Shiba",
+          "h1": "Overview",
+          "mainCount": 1,
+          "viewport": 1440,
+          "scrollWidth": 1440,
+          "overflow": false,
+          "imagesMissingAlt": []
+        }
+      },
+      {
+        "name": "live docs search finds approval results and opens the selected site-wide result",
+        "status": "pass",
+        "detail": {
+          "results": 20,
+          "resultHref": "/welcome/",
+          "url": "https://tryshiba.dev/welcome/",
+          "heading": "Explore an approval-gated coding prototype.",
+          "searchScope": "site-wide"
+        }
+      },
+      {
+        "name": "live footer Privacy and Terms navigation",
+        "status": "pass",
+        "detail": {
+          "privacy": "Privacy, written by the person who holds the data.",
+          "terms": "Terms, at the same altitude as the code."
+        }
+      },
+      {
+        "name": "live Journal navigation opens article",
+        "status": "pass",
+        "detail": {
+          "url": "https://tryshiba.dev/blog/open-source-coding-agent-alternative/",
+          "heading": "An open-source coding agent alternative: a guide to Shiba"
+        }
+      },
+      {
+        "name": "live missing path displays404 and recovery link",
+        "status": "pass",
+        "detail": {
+          "status": 404,
+          "title": "404: Page not found | Shiba",
+          "body": "Skip to content\nShiba\nSearch\nCtrl\nK\nGitHub\nSelect theme\nDark\nLight\nAuto\n404\nPage not found. Check the URL or return home.\nReturn Home"
+        }
+      },
+      {
+        "name": "live mobile home fits viewport",
+        "status": "fail",
+        "error": "mobile home overflows: 574px content at390px viewport",
+        "page": {
+          "url": "https://tryshiba.dev/",
+          "lang": "en",
+          "title": "Shiba \u2014 self-hosted AI coworker on Cloudflare",
+          "h1": "It asks beforeit writes code.",
+          "mainCount": 1,
+          "viewport": 390,
+          "scrollWidth": 574,
+          "overflow": true,
+          "imagesMissingAlt": []
+        },
+        "inputs": []
+      },
+      {
+        "name": "live mobile menu opens and Escape restores focus",
+        "status": "pass",
+        "detail": {
+          "openCloseAndFocus": true
+        }
+      },
+      {
+        "name": "live mobile menu Docs navigation works",
+        "status": "pass",
+        "detail": {
+          "url": "https://tryshiba.dev/docs/overview/",
+          "lang": "en",
+          "title": "Overview | Shiba",
+          "h1": "Overview",
+          "mainCount": 1,
+          "viewport": 390,
+          "scrollWidth": 390,
+          "overflow": false,
+          "imagesMissingAlt": []
+        }
+      },
+      {
+        "name": "live mobile docs search works",
+        "status": "pass",
+        "detail": {
+          "results": 20
+        }
+      },
+      {
+        "name": "live branch integration directory parity",
+        "status": "fail",
+        "error": "Current live /integrations/ returns404; tested branch directory is not deployed here",
+        "page": {
+          "url": "https://tryshiba.dev/integrations/",
+          "lang": "en",
+          "title": "404: Page not found | Shiba",
+          "h1": "404",
+          "mainCount": 1,
+          "viewport": 390,
+          "scrollWidth": 390,
+          "overflow": false,
+          "imagesMissingAlt": []
+        },
+        "inputs": [
+          {
+            "type": "text",
+            "placeholder": "Search",
+            "visible": false,
+            "classes": "pagefind-ui__search-input svelte-e9gkc3"
+          }
+        ]
+      }
+    ],
+    "network": {
+      "consoleErrors": 14,
+      "requestFailures": 12,
+      "deliberatelyBlockedCloudflareRumPosts": 12,
+      "certificateErrors": 0,
+      "pageErrors": 0,
+      "otherConsoleErrors": "Two expected requested404responses"
+    },
+    "reproduction": [
+      {
+        "url": "https://tryshiba.dev/",
+        "viewport": {
+          "width": 390
+        },
+        "steps": [
+          "Open home in Chromium at390px width.",
+          "Scroll to the reach and channel-card sections.",
+          "Compare document.documentElement.scrollWidth with innerWidth."
+        ],
+        "observed": "574px content at390px viewport; Discord channel card right edge574.390625px.",
+        "expected": "No page-level horizontal overflow."
+      },
+      {
+        "url": "https://tryshiba.dev/integrations/",
+        "steps": [
+          "Navigate directly to the URL."
+        ],
+        "observed": "HTTP404 with custom Page not found page.",
+        "expected": "Current branch directory page."
+      },
+      {
+        "url": "https://tryshiba.dev/#harnesses",
+        "viewport": {
+          "width": 1440
+        },
+        "steps": [
+          "Select Channel: Mobile web.",
+          "Repeat by selecting Capability: Sandbox."
+        ],
+        "observed": "Both controls activate Mobile web and Sandbox while the narrative describes Discord and Memory.",
+        "expected": "Narrative matches the selected channel and capability."
+      }
+    ]
+  },
+  "app": {
+    "startedAt": "2026-11-04T08:15:30.791Z",
+    "finishedAt": "2026-11-04T08:16:02.690Z",
+    "target": "https://app.tryshiba.dev",
+    "sourceRevisionVerified": false,
+    "checks": [
+      {
+        "check": "Live public app shell and email/password sign-in rendering",
+        "status": "PASS",
+        "urls": [
+          "https://app.tryshiba.dev/app/",
+          "https://app.tryshiba.dev/"
+        ],
+        "evidence": [
+          "app-desktop.png",
+          "root.png"
+        ]
+      },
+      {
+        "check": "Mobile sign-in rendering at390px without horizontal overflow",
+        "status": "PASS",
+        "evidence": [
+          "app-mobile.png"
+        ]
+      },
+      {
+        "check": "Anonymous read API protection",
+        "status": "PASS",
+        "urls": [
+          "https://app.tryshiba.dev/api/whoami",
+          "https://app.tryshiba.dev/api/setup/status",
+          "https://app.tryshiba.dev/api/sessions",
+          "https://app.tryshiba.dev/api/runs",
+          "https://app.tryshiba.dev/api/approvals"
+        ],
+        "expectedStatus": 401
+      },
+      {
+        "check": "Current-branch public /work/ shell route contract on deployed host",
+        "status": "FAIL",
+        "url": "https://app.tryshiba.dev/work/",
+        "observedStatus": 401,
+        "expectedFromBranchContract": 200,
+        "note": "The live host returns authentication JSON rather than the sign-in shell; deployed revision is not verified.",
+        "evidence": [
+          "work.png"
+        ]
+      },
+      {
+        "check": "Private Slack canvas remains inaccessible anonymously",
+        "status": "PASS",
+        "url": "https://app.tryshiba.dev/slack-canvas/",
+        "observedStatus": 401,
+        "evidence": [
+          "slack-canvas.png"
+        ]
+      },
+      {
+        "check": "Authenticated bots, runs, live rooms, approvals, artifacts and Slack flows",
+        "status": "BLOCKED",
+        "reason": "No authorized authenticated dashboard session is available in the fresh cloud browser. Login/signup/credential creation and production mutations were not attempted."
+      }
+    ],
+    "findings": [
+      {
+        "severity": "UI issue",
+        "description": "Some signed-out pages show Sessions request failed:401.",
+        "evidence": [
+          "app-desktop.png",
+          "app-mobile.png",
+          "agents.png"
+        ]
+      },
+      {
+        "severity": "Verification limit",
+        "description": "The current live deployment revision is unknown; these observations do not prove the PR implementation is deployed."
+      }
+    ],
+    "network": {
+      "statusCounts": {
+        "200": 55,
+        "401": 63
+      },
+      "consoleErrors": 68,
+      "expectedAnonymous401ConsoleErrors": 63,
+      "pageErrors": 0,
+      "readOnlyGuardBlockedPostCount": 5,
+      "allBlockedPostsWereCloudflareRUM": true,
+      "unexpectedHttpFailures": []
+    },
+    "accessRequirements": "An existing authorized dashboard email/password session. The observed host uses built-in Better Auth; no Cloudflare Access redirect was observed.",
+    "productionSafety": {
+      "accountsCreated": false,
+      "credentialsCreated": false,
+      "loginsAttempted": false,
+      "modelTasksStarted": false,
+      "approvalsResolved": false,
+      "externalMessagesSent": false,
+      "productionWritesExecuted": false,
+      "mutationMethodsBlocked": true,
+      "temporaryBrowserProfileRemoved": true
+    },
+    "sourceComparison": {
+      "readOnly": true,
+      "branchCommit": "78c7235dc4248b4962e1482d8bb50c0f4e6e602c",
+      "baselineCommit": "be13d0bbb752dce6bf5b645bfb0fa33676804ad1",
+      "session401": {
+        "path": "apps/frontend/src/app.tsx:1006",
+        "behavior": "Returns on401 before throwing or showing a session request error.",
+        "introducedBy": "a2a45b0c",
+        "alreadyInBaseline": true
+      },
+      "workShell": {
+        "path": "apps/backend/src/index.ts:135",
+        "behavior": "work is in DASHBOARD_VIEWS, served through ASSETS before authentication gate.",
+        "introducedBy": "696255e1",
+        "alreadyInBaseline": true
+      },
+      "localComparison": {
+        "evidence": "local-comparison.json",
+        "screenshot": "local-anonymous-work.png",
+        "status": "PASS_LOCAL_COMPARISON",
+        "checksPassed": 5,
+        "actualLocalWorker": true,
+        "builtDashboard": true,
+        "accountsCreated": false,
+        "loginsAttempted": false,
+        "remoteBindings": false,
+        "containersEnabled": false,
+        "source": "Current working tree based on the recorded branch commit; unrelated Slack changes were in progress. Compared app.tsx and index.ts are unchanged."
+      },
+      "conclusion": "The observed live toast and /work routing do not reproduce in the current branch. No matching source defect was found; deployed revision/configuration remains unverified. Local comparison does not change live acceptance limits."
+    }
+  },
+  "localAnonymousWorkerComparison": {
+    "sourceCommit": "78c7235dc4248b4962e1482d8bb50c0f4e6e602c",
+    "source": {
+      "session401Ignored": "apps/frontend/src/app.tsx:1006",
+      "publicWorkShell": "apps/backend/src/index.ts:135"
+    },
+    "checks": [
+      {
+        "check": "anonymous HTTP /api/whoami",
+        "status": 401,
+        "html": false,
+        "passed": true
+      },
+      {
+        "check": "anonymous HTTP /api/sessions",
+        "status": 401,
+        "html": false,
+        "passed": true
+      },
+      {
+        "check": "anonymous HTTP /work/",
+        "status": 200,
+        "html": true,
+        "passed": true
+      },
+      {
+        "check": "anonymous /work/ renders built sign-in shell",
+        "status": 200,
+        "finalUrl": "http://127.0.0.1:45475/",
+        "passed": true
+      },
+      {
+        "check": "no Sessions request failed:401 toast on signed-out page",
+        "passed": true
+      }
+    ],
+    "status": "PASS_LOCAL_COMPARISON",
+    "accountsCreated": false,
+    "loginsAttempted": false,
+    "remoteBindings": false,
+    "containersEnabled": false,
+    "pageErrors": []
+  },
+  "remainingBlocked": [
+    "Authenticated app workflows require an existing authorized session.",
+    "Cloudflare preview state setup/account confirmation pending.",
+    "Cloudflare container/R2/provider and installed Slack acceptance not performed."
+  ],
+  "screenshots": [
+    "live-public-mobile-overflow-20261104.png",
+    "live-public-demo-mismatch-20261104.png",
+    "live-app-signin-20261104.png",
+    "live-app-work-401-20261104.png"
+  ],
+  "localWebsiteActualFonts": {
+    "startedAt": "2026-11-04T08:43:43.040Z",
+    "finishedAt": "2026-11-04T08:44:01.132Z",
+    "commit": "ba5440787c7326d913f93e281dddcde7fa0e0983",
+    "mode": "Current built branch served locally; actual Google Fonts through managed proxy with verified TLS; no cloud preview or deployed-branch proof",
+    "transport": {
+      "isolatedNssManagedPublicCa": true,
+      "ignoreHTTPSErrors": false,
+      "tlsBypass": false,
+      "proxyBypassOnly": [
+        "127.0.0.1",
+        "localhost"
+      ]
+    },
+    "browser": {
+      "version": "154.0.8037.57",
+      "sandboxVerified": false
+    },
+    "fontEvidence": {
+      "status": "loaded",
+      "faces": [
+        {
+          "family": "Bebas Neue",
+          "weight": "400",
+          "status": "loaded"
+        },
+        {
+          "family": "Geist",
+          "weight": "400",
+          "status": "loaded"
+        },
+        {
+          "family": "Geist",
+          "weight": "500",
+          "status": "loaded"
+        },
+        {
+          "family": "Geist Mono",
+          "weight": "400",
+          "status": "loaded"
+        },
+        {
+          "family": "Geist Mono",
+          "weight": "500",
+          "status": "loaded"
+        },
+        {
+          "family": "Geist Mono",
+          "weight": "600",
+          "status": "loaded"
+        },
+        {
+          "family": "Instrument Serif",
+          "weight": "400",
+          "status": "loaded"
+        },
+        {
+          "family": "Instrument Serif",
+          "weight": "400",
+          "status": "loaded"
+        }
+      ],
+      "body": "Geist, ui-sans-serif, system-ui, -apple-system, sans-serif",
+      "heading": "\"Bebas Neue\", Geist, sans-serif"
+    },
+    "totals": {
+      "passed": 9,
+      "failed": 0
+    },
+    "tests": [
+      {
+        "name": "local desktop home loads actual Google Fonts with verified TLS",
+        "status": "pass",
+        "detail": {
+          "fonts": {
+            "status": "loaded",
+            "faces": [
+              {
+                "family": "Bebas Neue",
+                "weight": "400",
+                "status": "loaded"
+              },
+              {
+                "family": "Geist",
+                "weight": "400",
+                "status": "loaded"
+              },
+              {
+                "family": "Geist",
+                "weight": "500",
+                "status": "loaded"
+              },
+              {
+                "family": "Geist Mono",
+                "weight": "400",
+                "status": "loaded"
+              },
+              {
+                "family": "Geist Mono",
+                "weight": "500",
+                "status": "loaded"
+              },
+              {
+                "family": "Geist Mono",
+                "weight": "600",
+                "status": "loaded"
+              },
+              {
+                "family": "Instrument Serif",
+                "weight": "400",
+                "status": "loaded"
+              },
+              {
+                "family": "Instrument Serif",
+                "weight": "400",
+                "status": "loaded"
+              }
+            ],
+            "body": "Geist, ui-sans-serif, system-ui, -apple-system, sans-serif",
+            "heading": "\"Bebas Neue\", Geist, sans-serif"
+          },
+          "externalResponses": 6
+        }
+      },
+      {
+        "name": "local desktop home nooverflow with actualfonts",
+        "status": "pass",
+        "detail": {
+          "width": 1440,
+          "scrollWidth": 1440,
+          "overflow": false
+        }
+      },
+      {
+        "name": "local all4rolepreviewbuttons switch bykeyboard with actualfonts",
+        "status": "pass",
+        "detail": [
+          {
+            "role": "marketing",
+            "width": 1440,
+            "scrollWidth": 1440,
+            "overflow": false
+          },
+          {
+            "role": "coding",
+            "width": 1440,
+            "scrollWidth": 1440,
+            "overflow": false
+          },
+          {
+            "role": "design",
+            "width": 1440,
+            "scrollWidth": 1440,
+            "overflow": false
+          },
+          {
+            "role": "qa",
+            "width": 1440,
+            "scrollWidth": 1440,
+            "overflow": false
+          }
+        ]
+      },
+      {
+        "name": "local desktop integrationfilters/search/empty/reset with actualfonts",
+        "status": "pass",
+        "detail": {
+          "total": 14,
+          "searchMatches": 1,
+          "width": 1440,
+          "scrollWidth": 1440,
+          "overflow": false
+        }
+      },
+      {
+        "name": "local mobile home nooverflow with actualfonts",
+        "status": "pass",
+        "detail": {
+          "width": 390,
+          "scrollWidth": 390,
+          "overflow": false
+        }
+      },
+      {
+        "name": "local mobile all4rolepreviewbuttons switch without overflow",
+        "status": "pass",
+        "detail": [
+          {
+            "role": "marketing",
+            "width": 390,
+            "scrollWidth": 390,
+            "overflow": false
+          },
+          {
+            "role": "coding",
+            "width": 390,
+            "scrollWidth": 390,
+            "overflow": false
+          },
+          {
+            "role": "design",
+            "width": 390,
+            "scrollWidth": 390,
+            "overflow": false
+          },
+          {
+            "role": "qa",
+            "width": 390,
+            "scrollWidth": 390,
+            "overflow": false
+          }
+        ]
+      },
+      {
+        "name": "local mobile menu opens/Escape restoresfocus",
+        "status": "pass",
+        "detail": {
+          "openCloseAndFocus": true
+        }
+      },
+      {
+        "name": "local mobile menu navigates tointegrationdirectory",
+        "status": "pass",
+        "detail": {
+          "url": "http://127.0.0.1:8842/integrations/",
+          "width": 390,
+          "scrollWidth": 390,
+          "overflow": false
+        }
+      },
+      {
+        "name": "local mobile integrationfilters/search/empty/reset nooverflow with actualfonts",
+        "status": "pass",
+        "detail": {
+          "total": 14,
+          "searchMatches": 1,
+          "width": 390,
+          "scrollWidth": 390,
+          "overflow": false
+        }
+      }
+    ],
+    "pageErrors": [],
+    "temporaryProfileRemoved": true,
+    "webSourceUnchangedFromOriginalBuiltSiteCommit": true
+  }
+}

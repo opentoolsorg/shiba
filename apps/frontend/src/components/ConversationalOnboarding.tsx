@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from "react";
-import { EMPLOYEE_TEMPLATES, type EmployeeTemplate } from "../employee-templates";
+import { EMPLOYEE_TEMPLATES, recommendEmployeeTemplate, type EmployeeTemplate } from "../employee-templates";
 import { EMPTY_ONBOARDING_DRAFT, OUTCOME_STEPS, type OnboardingDraft, type OnboardingDraftPatch, type OutcomeStepId, type SelectedOnboardingDraft } from "../onboarding-draft";
 import { OnboardingConflictError, type FirstRunProgressUpdate } from "../onboarding-progress-client";
 import { readDraft, writeDraft } from "../saved";
@@ -12,7 +12,7 @@ const QUESTIONS: Record<OutcomeStepId, { label: string; question: string; field?
   goal: { label: "Goal", question: "What should be ready when this is done?", field: "goal", choices: ["A reply draft grounded in a selected email", "A research brief with sources", "A campaign brief for review"] },
   audience: { label: "Audience", question: "Who is this for?", field: "audience", choices: ["My team", "A customer", "Leadership"] },
   acceptance: { label: "Acceptance", question: "What would make this useful enough to accept?", field: "acceptance", choices: ["A clear draft with sources and open questions", "A concise recommendation with next steps", "An editable draft ready for my review"] },
-  role: { label: "Your role", question: "What kind of work do you do? You can skip this.", field: "roleAnswer", choices: ["Founder or operator", "Marketing", "Engineering", "Research"] },
+  role: { label: "Your role", question: "What kind of work do you do? You can skip this.", field: "roleAnswer", choices: ["Founder or operator", "Marketing", "Engineering", "Design", "Sales", "HR", "Finance"] },
   help: { label: "Help", question: "Where would a coworker help most?", field: "helpAnswer", choices: ["Research and synthesis", "Writing and editing", "Planning and follow-through"] },
   employee: { label: "Employee", question: "Choose a starting role, an existing employee, or describe another need.", field: "employeeAnswer", choices: [] },
   context: { label: "Context", question: "What facts or background should the first task use?", field: "contextAnswer", choices: ["I will supply context in the task", "Use only the context I provide; flag gaps"] },
@@ -20,7 +20,7 @@ const QUESTIONS: Record<OutcomeStepId, { label: string; question: string; field?
   review: { label: "Review", question: "Review your first task draft. Creating it will not start work.", choices: [] },
 };
 const REQUIRED = new Set<OutcomeStepId>(["goal", "audience", "acceptance"]);
-const BUTTON = "rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs text-[var(--fg)] hover:bg-[var(--secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)] disabled:opacity-40";
+const BUTTON = "min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs text-[var(--fg)] hover:bg-[var(--secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)] disabled:opacity-40";
 
 function answerFor(draft: OnboardingDraft, step: OutcomeStepId): string {
   const field = QUESTIONS[step].field;
@@ -49,6 +49,7 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
   const current = QUESTIONS[step];
   const scope = draftScope ? `onboarding:${draftScope}:${step}` : null;
   const [input, setInput] = useState("");
+  const [roleQuery, setRoleQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<{ update: FirstRunProgressUpdate; summary: string; scope: string | null } | null>(null);
@@ -80,6 +81,7 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
 
   useEffect(() => {
     setInput((scope ? readDraft(scope) : "") || answerFor(latestDraft.current, step));
+    setRoleQuery("");
     inputRef.current?.focus();
     endRef.current?.scrollIntoView?.({ block: "end", behavior: "auto" });
   // Saved answer changes must not replace unsent input on a background refresh.
@@ -157,11 +159,12 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
   const submit = (event: FormEvent) => { event.preventDefault(); if (!pending && !busy) saveAnswer(input); };
   const selectedTemplate = EMPLOYEE_TEMPLATES.find((template) => template.id === draft.employeeTemplateId);
   const selectedEmployee = employees.find((employee) => employee.id === draft.employeeId);
-  const recommendationText = `${draft.goal} ${draft.roleAnswer} ${draft.helpAnswer}`.toLowerCase();
-  const suggestedId = EMPLOYEE_TEMPLATES.find((template) => recommendationText.includes(template.label.toLowerCase()))?.id ?? "research";
-  const suggestedTemplates = [...EMPLOYEE_TEMPLATES.filter((item) => item.id === suggestedId), ...EMPLOYEE_TEMPLATES.filter((item) => item.id !== suggestedId)];
+  const recommendation = recommendEmployeeTemplate({ role: draft.roleAnswer, goal: draft.goal, help: draft.helpAnswer });
+  const orderedTemplates = recommendation
+    ? [recommendation, ...EMPLOYEE_TEMPLATES.filter((item) => item.id !== recommendation.id)]
+    : EMPLOYEE_TEMPLATES;
+  const matchingTemplates = orderedTemplates.filter((template) => `${template.id} ${template.label} ${template.description}`.toLowerCase().includes(roleQuery.trim().toLowerCase()));
   const templateCard = (template: EmployeeTemplate) => <button key={template.id} type="button" disabled={busy || Boolean(pending)} onClick={() => saveAnswer(template.label, { employeeTemplateId: template.id, employeeTemplateVersion: 1, employeeId: null, employeeVersion: null })} className={`${BUTTON} text-left`}><strong className="block">{template.label}</strong><span className="mt-1 block">{template.description}</span></button>;
-  const suggestionLabel = EMPLOYEE_TEMPLATES.find((item) => item.id === suggestedId)?.label ?? "Research";
   const readyToPrepare = Boolean(draft.goal.trim() && draft.audience.trim() && draft.acceptance.trim());
   const prepared = Boolean(draft.preparedAt && progress?.draftTaskId);
   const preparedId = progress?.draftTaskId;
@@ -193,9 +196,11 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
               {current.choices.map((choice) => <button key={choice} type="button" disabled={busy || Boolean(pending)} onClick={() => saveAnswer(choice)} className={BUTTON}>{choice}</button>)}
             </div> : null}
             {step === "employee" ? <>
-              <p className="text-xs text-[var(--muted-foreground-2)]">Suggested starting point: {suggestionLabel}. A template is not a configured employee or an access grant.</p>
-              <div role="group" aria-label="Suggested roles" className="grid gap-2 sm:grid-cols-2">{suggestedTemplates.slice(0, 2).map(templateCard)}</div>
-              <details><summary className="cursor-pointer text-sm text-[var(--primary)]">Other roles</summary><div className="mt-2 grid gap-2 sm:grid-cols-2">{suggestedTemplates.slice(2).map(templateCard)}</div></details>
+              <p className="text-xs text-[var(--muted-foreground-2)]">{recommendation ? `Suggested starting point: ${recommendation.label}. ` : "Choose the role that fits your goal. "}Every role is optional. A template is not a configured employee or an access grant.</p>
+              <label className="flex flex-col gap-1 text-xs text-[var(--muted-foreground-2)]">Find an employee role<input type="search" value={roleQuery} maxLength={100} onChange={(event) => setRoleQuery(event.target.value)} placeholder="Search engineering, GTM, HR, finance…" className="min-h-11 w-full border border-[var(--border-1)] bg-[var(--card)] px-3 text-sm text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]" /></label>
+              <div role="group" aria-label="Optional employee roles" className="grid gap-2 sm:grid-cols-2">{matchingTemplates.map(templateCard)}</div>
+              {!matchingTemplates.length ? <p role="status" className="text-xs text-[var(--muted-foreground-2)]">No matching built-in role. Describe a custom role below or clear the search.</p> : null}
+              <button type="button" disabled={busy || Boolean(pending)} onClick={() => { setRoleQuery(""); inputRef.current?.focus(); }} className={`${BUTTON} self-start`}>Describe a custom role</button>
               {employees.filter((employee) => employee.archivedAt === undefined).length ? <details><summary className="cursor-pointer text-sm text-[var(--primary)]">Use an existing employee</summary><div className="mt-2 flex flex-wrap gap-2">{employees.filter((employee) => employee.archivedAt === undefined).map((employee) => <button key={employee.id} type="button" disabled={busy || Boolean(pending)} className={BUTTON} onClick={() => saveAnswer(employee.config.name, { employeeId: employee.id, employeeVersion: employee.version, employeeTemplateId: null, employeeTemplateVersion: null })}>{employee.config.name} · v{employee.version}</button>)}</div></details> : null}
             </> : null}
             {step === "context" ? <section aria-label="Private task sources" className="flex flex-col gap-2 text-xs text-[var(--muted-foreground-2)]">
@@ -209,7 +214,12 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
             </section> : null}
             {step === "connections" ? <>
               <p className="text-xs text-[var(--muted-foreground-2)]">Your saved brief waits here while you review available connections. No connection or resource permission is created by an answer.</p>
-              <button type="button" disabled={busy || Boolean(pending)} onClick={() => { void leave("integrations"); }} className={BUTTON}>Review connections, then return</button>
+              <section aria-label="Employee setup choices" className="grid gap-3 border border-[var(--border-1)] bg-[var(--card)] p-3 text-xs sm:grid-cols-2">
+                <div className="flex flex-col gap-2"><h3 className="font-semibold text-[var(--fg)]">Choose a coding tool</h3><p className="text-[var(--muted-foreground-2)]">Configure Claude Code or Codex through a supported provider connection, or pair a computer for an installed CLI. A role selection does not connect an account or verify a runtime.</p><button type="button" disabled={busy || Boolean(pending)} onClick={() => { void leave("providers"); }} className={`${BUTTON} mt-auto`}>Review Claude and Codex, then return</button></div>
+                <div className="flex flex-col gap-2"><h3 className="font-semibold text-[var(--fg)]">Choose apps and MCP servers</h3><p className="text-[var(--muted-foreground-2)]">Browse what {selectedTemplate ? `the ${selectedTemplate.label} role` : "your employee"} needs. Catalog entries can require configuration or be unavailable. Install and connect only what you choose.</p><button type="button" disabled={busy || Boolean(pending)} onClick={() => { void leave("integrations"); }} className={`${BUTTON} mt-auto`}>Review connections, then return</button></div>
+                <div className="flex flex-col gap-2"><h3 className="font-semibold text-[var(--fg)]">Choose skills</h3><p className="text-[var(--muted-foreground-2)]">Review saved instructions and their provenance before attaching a skill. A skill does not grant access to connected apps or shared data.</p><button type="button" disabled={busy || Boolean(pending)} onClick={() => { void leave("skills"); }} className={`${BUTTON} mt-auto`}>Review skills, then return</button></div>
+                <div className="flex flex-col gap-2"><h3 className="font-semibold text-[var(--fg)]">Set employee permissions</h3><p className="text-[var(--muted-foreground-2)]">Select the employee's app tools and allowed resources separately. Source sharing and external actions keep their own approval requirements.</p><button type="button" disabled={busy || Boolean(pending)} onClick={() => { void leave("employee-tools"); }} className={`${BUTTON} mt-auto`}>Review employee permissions, then return</button></div>
+              </section>
             </> : null}
             {step === "review" ? <section aria-label="First task draft review" className="rounded-[var(--radius-panel)] border border-[var(--border-1)] bg-[var(--card)] p-4 text-sm text-[var(--fg)]">
               <h3 className="font-semibold">{prepared ? "First task draft saved" : "Your first task draft"}</h3>

@@ -1,3 +1,4 @@
+import type { PersonalExecutionSnapshot } from "./personal-execution.js";
 import { onboardingRunFields, type OnboardingRunFields } from "./onboarding.js";
 /**
  * Durable pending-approval records: the wire shape `/api/approvals` serves
@@ -7,6 +8,7 @@ import type { RuntimeSelection } from "./local-runtime.js";
 import type { ExecutionTarget } from "./execution-target.js";
 import type { ApprovedRoute } from "./model.js";
 import type { AgentRole } from "./roles.js";
+import type { RunAttachment } from "./run-attachments.js";
 import type { ForkLineage } from "./runs.js";
 import { MAX_PENDING_APPROVALS } from "./steering.js";
 
@@ -45,7 +47,7 @@ export interface JsonObject {
  * written before email approvals existed carry no `kind` — readers treat
  * absent as `"run"`.
  */
-export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge";
+export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge" | "pr_publish";
 
 /** Stable provenance pointer for reviewed skill text frozen into an approval. */
 export interface SkillExecutionPin {
@@ -82,6 +84,8 @@ export function isJsonObject(value: unknown): value is Record<string, JsonValue>
 }
 
 export interface PendingApproval extends OnboardingRunFields {
+  /** Explicit bounded sanitized-output retention reviewed with this exact run. */
+  outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   threadKey: string;
   approvalId: string;
   repoUrl: string;
@@ -118,6 +122,8 @@ export interface PendingApproval extends OnboardingRunFields {
   runtime?: RuntimeSelection;
   /** T51: the machine a local run is pinned to ("Run on: This computer"); hashed. */
   targetMachineId?: string;
+  /** Server-resolved personal account and machine consent, included in approval hashing. */
+  personalExecution?: PersonalExecutionSnapshot;
   /** The test command the human approved, as argv. */
   testCommand?: string[];
   /** Exact workspace outputs required by this approval. */
@@ -152,6 +158,8 @@ export interface PendingApproval extends OnboardingRunFields {
   collaborationHandoffId?: string;
   /** Reviewed skill versions resolved by the authenticated Worker at intake. */
   skillPins?: SkillExecutionPin[];
+  /** T69: files copied into `.shiba/attachments/` before the first turn. */
+  attachments?: RunAttachment[];
   orgId?: string;
   /**
    * T52: the delegation role this run was queued under. The role pin
@@ -183,13 +191,14 @@ export interface PendingApproval extends OnboardingRunFields {
 
 /** What the email executor did with an approved payload. */
 export interface ApprovalExecution {
-  status: "executed" | "failed";
+  status: "executing" | "executed" | "failed" | "unknown";
   /** Redacted error text when `status` is `"failed"`. */
   error?: string;
   executedAt: number;
 }
 
 export interface CreateApprovalInput extends OnboardingRunFields {
+  outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   threadKey: string;
   approvalId: string;
   repoUrl: string;
@@ -203,6 +212,8 @@ export interface CreateApprovalInput extends OnboardingRunFields {
   authAccount?: string;
   runtime?: RuntimeSelection;
   targetMachineId?: string;
+  /** Server-resolved personal account and machine consent, included in approval hashing. */
+  personalExecution?: PersonalExecutionSnapshot;
   testCommand?: string[];
   /** Exact workspace outputs required by this approval. */
   expectedDeliverables?: string[];
@@ -225,6 +236,7 @@ export interface CreateApprovalInput extends OnboardingRunFields {
   employeeToolPolicyVersion?: number;
   collaborationHandoffId?: string;
   skillPins?: SkillExecutionPin[];
+  attachments?: RunAttachment[];
   orgId?: string;
   role?: AgentRole;
   kind?: ApprovalKind;
@@ -251,6 +263,7 @@ export function createPendingApproval(
       approvalId: input.approvalId,
       repoUrl: input.repoUrl,
       ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget } : {}),
+      ...(input.outputArchive !== undefined ? { outputArchive: { ...input.outputArchive } } : {}),
       task: input.task,
       ...(input.baseBranch !== undefined ? { baseBranch: input.baseBranch } : {}),
       ...(input.publishPullRequest !== undefined ? { publishPullRequest: input.publishPullRequest } : {}),
@@ -260,6 +273,7 @@ export function createPendingApproval(
       ...(input.authAccount !== undefined ? { authAccount: input.authAccount } : {}),
       ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
       ...(input.targetMachineId !== undefined ? { targetMachineId: input.targetMachineId } : {}),
+      ...(input.personalExecution !== undefined ? { personalExecution: structuredClone(input.personalExecution) } : {}),
       ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
       ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: [...input.expectedDeliverables] } : {}),
       ...(input.forkedFrom !== undefined ? { forkedFrom: input.forkedFrom } : {}),
@@ -279,6 +293,7 @@ export function createPendingApproval(
       ...(input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion } : {}),
       ...(input.collaborationHandoffId !== undefined ? { collaborationHandoffId: input.collaborationHandoffId } : {}),
       ...(input.skillPins !== undefined ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
@@ -402,6 +417,7 @@ export interface ApprovalEvidence {
 
 /** The fields the human approves — the input-hash surface. */
 export interface RunInputFields extends OnboardingRunFields {
+  outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   repoUrl: string;
   /** Included in the approval hash; absent on legacy repository runs. */
   executionTarget?: ExecutionTarget;
@@ -418,6 +434,8 @@ export interface RunInputFields extends OnboardingRunFields {
   runtime?: RuntimeSelection;
   /** T51: which machine a local run may be claimed by — part of what the human approved. */
   targetMachineId?: string;
+  /** Server-resolved personal account and machine consent, included in approval hashing. */
+  personalExecution?: PersonalExecutionSnapshot;
   /** The test command — part of what the human approved. */
   testCommand?: string[];
   /** Exact workspace outputs required by this approval. */
@@ -445,6 +463,8 @@ export interface RunInputFields extends OnboardingRunFields {
   /** Room handoff whose live membership/cancellation state fences this run. */
   collaborationHandoffId?: string;
   skillPins?: SkillExecutionPin[];
+  /** T69: each file's sha256 is approved, so the sandbox copy must be byte-identical. */
+  attachments?: RunAttachment[];
   role?: AgentRole;
 }
 
@@ -538,6 +558,7 @@ export function runInputHash(input: RunInputFields): string {
     ...onboardingRunFields(input) as unknown as JsonObject,
     repoUrl: input.repoUrl,
     ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget as unknown as JsonValue } : {}),
+    ...(input.outputArchive !== undefined ? { outputArchive: input.outputArchive as unknown as JsonValue } : {}),
     task: input.task,
     baseBranch: input.baseBranch,
     publishPullRequest: input.publishPullRequest,
@@ -547,6 +568,7 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.authAccount !== undefined ? { authAccount: input.authAccount } : {}),
     ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
     ...(input.targetMachineId !== undefined ? { targetMachineId: input.targetMachineId } : {}),
+    ...(input.personalExecution !== undefined ? { personalExecution: input.personalExecution as unknown as JsonValue } : {}),
     ...(tc !== undefined && tc.length > 0 ? { testCommand: tc } : {}),
     ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: input.expectedDeliverables } : {}),
     ...(input.forkedFrom !== undefined
@@ -566,6 +588,9 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion } : {}),
     ...(input.collaborationHandoffId !== undefined ? { collaborationHandoffId: input.collaborationHandoffId } : {}),
     ...(input.skillPins !== undefined ? { skillPins: input.skillPins as unknown as JsonValue } : {}),
+    ...(input.attachments?.length
+      ? { attachments: input.attachments.map(({ name, sha256, size }) => ({ name, sha256, size })) }
+      : {}),
     ...(input.role !== undefined ? { role: input.role } : {}),
     ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
   });

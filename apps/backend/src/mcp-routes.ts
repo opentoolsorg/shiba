@@ -73,7 +73,7 @@ export async function handleMcp(request: Request, env: Env, _ctx: ExecutionConte
   // Stateless serving: the handler builds a fresh server per request (env
   // is closed over). `route` is an exact-pathname match, so pass this
   // request's own pathname to keep authenticated /mcp/* subpaths served.
-  return createShibaMcpHandler(env, url.pathname).fetch(
+  return (await createShibaMcpHandler(env, url.pathname)).fetch(
     new Request(request, { headers }),
   );
 }

@@ -38,19 +38,16 @@ describe("openconnector runtime and routes", () => {
     expect(getIntegrationProvider(second)).not.toBe(getIntegrationProvider(first));
   });
 
-  it("dispatches execute through the selected provider with authenticated identity", async () => {
+  it("rejects direct execution without an exact employee action approval", async () => {
     const env = { INTEGRATIONS_PROVIDER: "openconnector" } as Env;
     const provider = getIntegrationProvider(env);
     const execute = vi.spyOn(provider, "executeTool").mockResolvedValue({ ok: true, status: "completed", output: { count: 1 } });
     const response = await handleIntegrationProviderRoutes(post("execute", {
       userId: "forged-owner", toolSlug: "github/list-issues", toolkitSlug: "github", arguments: { limit: 1 },
     }), env);
-    expect(response?.status).toBe(200);
-    expect(await response?.json()).toEqual({ ok: true, status: "completed", output: { count: 1 } });
-    expect(execute).toHaveBeenCalledWith({
-      userId: "authenticated-owner", toolSlug: "github/list-issues", toolkitSlug: "github", arguments: { limit: 1 },
-      sessionId: undefined, connectedAccountId: undefined,
-    });
+    expect(response?.status).toBe(403);
+    expect(await response?.json()).toMatchObject({ ok: false, code: "employee_action_approval_required" });
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("reports unsupported sessions and rejects cross-origin execute", async () => {

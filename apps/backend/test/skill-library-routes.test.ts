@@ -3,6 +3,7 @@ import type { Env } from "../src/env.js";
 import { handleSkillLibrary } from "../src/skill-library-routes.js";
 import { handleSkills } from "../src/skills-routes.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { activateSkill, disableSkill, getSkill, reviewSkill } from "../src/skills-store.js";
 
 const authState = vi.hoisted(() => ({
   dashboard: false,
@@ -39,6 +40,22 @@ beforeEach(() => {
 });
 
 describe("skill library routes", () => {
+  it.each(["disabled", "missing"])("reports current readiness instead of showing %s drafts as installed", async (state) => {
+    const db = customAgentD1();
+    const bindings = env(db.database);
+    const installed = await handleSkillLibrary(libraryRequest("/pr-review-checklist/install", "POST"), bindings);
+    const { skillId } = await installed!.json() as { skillId: string };
+    const skill = await getSkill(bindings, "self-hosted", "owner@example.test", skillId);
+    if (!skill) throw new Error("Missing installed draft");
+    await reviewSkill(bindings, "self-hosted", "owner@example.test", skillId, 1, skill.content.instructions);
+    await activateSkill(bindings, "self-hosted", "owner@example.test", skillId, 1, skill.content.instructions);
+    const catalog = async () => (await (await handleSkillLibrary(libraryRequest(""), bindings))!.json() as { skills: Array<{ slug: string; installed: boolean; installedStatus?: string; installedSkillId?: string }> }).skills.find((entry) => entry.slug === "pr-review-checklist");
+    expect(await catalog()).toMatchObject({ installed: true, installedStatus: "active", installedSkillId: skillId });
+    if (state === "disabled") await disableSkill(bindings, "self-hosted", "owner@example.test", skillId);
+    else db.sqlite.prepare("DELETE FROM skills WHERE id=?").run(skillId);
+    expect(await catalog()).toEqual(expect.objectContaining({ installed: false }));
+    expect((await catalog())?.installedSkillId).toBeUndefined();
+  });
   it("requires authentication for library reads", async () => {
     authState.dashboard = false;
     authState.principal = null;

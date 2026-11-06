@@ -1,0 +1,78 @@
+{
+  "format": "shiba.computer.pinned-debs.v1",
+  "snapshot": "20261105T000000Z",
+  "archive": "debian",
+  "suite": "bookworm",
+  "architecture": "amd64",
+  "provenance": {
+    "inReleaseSha256": "77737fa4b34f2693e982cc9ee35736816c35a7778fc2d326cc1bbf5b301fe1aa",
+    "packagesSha256": "9e0b5aabb2465b3d2e7a7fe27f9913846277833f7a2826e7767acccff5b588c5",
+    "packagesSize": 8790396,
+    "packagesPath": "main/binary-amd64/Packages.xz"
+  },
+  "packages": [
+    {
+      "name": "libasyncns0",
+      "version": "0.8-6+b3",
+      "architecture": "amd64",
+      "filename": "libasyncns0_0.8-6+b3_amd64.deb",
+      "url": "https://snapshot.debian.org/file/283631016e24519ea7dfcb7bc7f71a0abf767be0",
+      "size": 12920,
+      "sha256": "cadaff99f4178b1f580331045621b363abaaefc994e78eecba1857774a3cead2"
+    },
+    {
+      "name": "libdrm-radeon1",
+      "version": "2.4.114-1+b1",
+      "architecture": "amd64",
+      "filename": "libdrm-radeon1_2.4.114-1+b1_amd64.deb",
+      "url": "https://snapshot.debian.org/file/564de20a2f9599276d00c58bb9d5f524e5d39e2b",
+      "size": 21848,
+      "sha256": "2da3a9233187f995ad5a3e6db3d37252ea7209f0ca9605484d03478ebcc15feb"
+    },
+    {
+      "name": "libpaper1",
+      "version": "1.1.29",
+      "architecture": "amd64",
+      "filename": "libpaper1_1.1.29_amd64.deb",
+      "url": "https://snapshot.debian.org/file/a5269ff45bbb4b4e2c7ef7dd5bbf1a7178440e93",
+      "size": 12536,
+      "sha256": "4735ccb9e891f6ac7d91254e929213786ed0835536a930a8ff36a50c6a291a1d"
+    },
+    {
+      "name": "libpciaccess0",
+      "version": "0.17-2",
+      "architecture": "amd64",
+      "filename": "libpciaccess0_0.17-2_amd64.deb",
+      "url": "https://snapshot.debian.org/file/a81fea19c37510996ff6e8c1f5832163fbfc37f7",
+      "size": 51384,
+      "sha256": "4025f3608cf431c163efb94fdc553e7b93e16b8f0d741ea87762e19025ffc80e"
+    },
+    {
+      "name": "libopenjp2-7",
+      "version": "2.5.0-2+deb12u3",
+      "architecture": "amd64",
+      "filename": "libopenjp2-7_2.5.0-2+deb12u3_amd64.deb",
+      "url": "https://snapshot.debian.org/file/3c66153b12c86c4510459a47c551d52bde7687e2",
+      "size": 189312,
+      "sha256": "a127e2f1741d66bdddb6393a718e3cbec327d53f88c89b859b1f8d73f64cf635"
+    },
+    {
+      "name": "libwayland-egl1",
+      "version": "1.21.0-1",
+      "architecture": "amd64",
+      "filename": "libwayland-egl1_1.21.0-1_amd64.deb",
+      "url": "https://snapshot.debian.org/file/3778a148b2e67e38bc09f71705cb8c873682f6d9",
+      "size": 8640,
+      "sha256": "cb4225f0e15e00a3570d4cbc288c87ff477d73e741c3f1c5a6d47cf350d45378"
+    },
+    {
+      "name": "libxcb-util1",
+      "version": "0.4.0-1+b1",
+      "architecture": "amd64",
+      "filename": "libxcb-util1_0.4.0-1+b1_amd64.deb",
+      "url": "https://snapshot.debian.org/file/4049f832a1452632f6d3694fe1fbc2d10a7d15cb",
+      "size": 23248,
+      "sha256": "4c48af51fb2ac1be0490067e7450aeda27bf6c6c395165de02199eee4835336f"
+    }
+  ]
+}

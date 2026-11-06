@@ -33,6 +33,7 @@ function env(overrides: Partial<Env> = {}): Env {
 
 function agent(overrides: Partial<Env> = {}) {
   const instance = Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
+    name: "default", messages: [],
     env: env(overrides), state: { runs: [] } as OrchestratorState,
     setState(state: OrchestratorState) { setStateLikeProduction(this, state); },
   });
@@ -253,7 +254,7 @@ describe("role routing in delegation", () => {
   });
 
   it("threads the queued role through the approval record into the dispatched envelope", async () => {
-    const instance = agent({ ROLE_MODEL__FIXER: "opencode/opencode-go/deepseek-v3.2" });
+    const instance = agent({ ROLE_MODEL__FIXER: "opencode/opencode-go/deepseek-v3.2", DASHBOARD_APPROVERS: "reviewer@example.test" });
     mocks.execute.mockResolvedValue("ok");
     const queued = await instance.onRequest(new Request("https://internal/api/runs", {
       method: "POST",
@@ -267,7 +268,7 @@ describe("role routing in delegation", () => {
     const approved = await instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test", source: "dashboard" }),
     }));
     expect(approved.status).toBe(200);
     await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledOnce());

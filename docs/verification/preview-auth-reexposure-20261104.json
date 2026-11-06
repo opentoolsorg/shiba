@@ -1,0 +1,34 @@
+{
+  "observedAtUtc": "2026-11-04T17:42:00Z",
+  "timePrecision": "minute",
+  "origin": "https://shiba-ai-coworker-pr-188.opentoolsorg.workers.dev",
+  "cloudflareRead": {
+    "accountId": "73cf43cd7ec224111282832dc96b90e2",
+    "worker": "shiba-ai-coworker-pr-188",
+    "activeVersionId": "4fd5d263-00d8-4d0e-ae82-844092656fe9",
+    "deploymentId": "e0c4eed0-5229-4daf-bb88-061624f46492",
+    "deployedAtUtc": "2026-11-04T17:27:57.968114Z",
+    "openDashboard": "1",
+    "bindingCount": 47,
+    "gitRevision": null
+  },
+  "browser": {
+    "engine": "actual Chromium through Playwright",
+    "authenticated": false,
+    "managedProxyCertificateAccepted": true,
+    "tlsValidationClaimed": false,
+    "observations": [
+      { "path": "/app/", "status": 200 },
+      { "path": "/api/whoami", "status": 200, "json": { "agent": "default", "auth": "none" } }
+    ]
+  },
+  "sourceProtectionCommit": "c1c2e3086f2709046be5582e0fa966e610c6d90d",
+  "sourceProtectionDeployed": false,
+  "limits": [
+    "Read-only public-shell and identity probes only; no private payload or write route was probed.",
+    "Earlier API-key issuance and credential cleanup were not assessed.",
+    "The earlier version 101b11ea mitigation record is historical, not the current live state.",
+    "The guarded updater must reject version drift before upload; its previous CI credential read failed with 401.",
+    "No preview settings, code, credentials or resources were changed during this verification."
+  ]
+}

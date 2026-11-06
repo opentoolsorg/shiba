@@ -1,0 +1,63 @@
+{
+  "observedAt": "2026-11-04T16:05:08.928143Z",
+  "accountId": "73cf43cd7ec224111282832dc96b90e2",
+  "worker": "shiba-ai-coworker-pr-188",
+  "previewUrl": "https://shiba-ai-coworker-pr-188.opentoolsorg.workers.dev/app/",
+  "operation": "PATCH existing Worker settings: OPEN_DASHBOARD from 1 to 0",
+  "previousVersionId": "4890183b-5ee4-4582-95b1-eb5848bfad24",
+  "activeVersionId": "101b11ea-f116-4504-8416-fd34db9d9586",
+  "deploymentId": "d1bbe5d2-5c75-4f01-8a37-9caafc35779e",
+  "trafficPercent": 100,
+  "bindingCountBefore": 47,
+  "bindingCountAfter": 47,
+  "bindingNamesPreserved": true,
+  "storageBindingIdentifiersRecheckedUnchanged": true,
+  "codeUploadPerformed": false,
+  "assetUploadPerformed": false,
+  "credentialsCreated": false,
+  "newStorageResourcesCreated": false,
+  "productionChanged": false,
+  "deployedGitSha": null,
+  "checks": [
+    {
+      "path": "/api/whoami",
+      "anonymousStatus": 401,
+      "code": "access_not_configured"
+    },
+    {
+      "path": "/api/runs",
+      "anonymousStatus": 401
+    },
+    {
+      "path": "/api/approvals",
+      "anonymousStatus": 401
+    },
+    {
+      "path": "/app/",
+      "anonymousStatus": 200
+    }
+  ],
+  "limits": [
+    "This is an authentication mitigation, not deployment of the branch upgrade.",
+    "Authenticated application testing is unavailable without a configured identity lane.",
+    "Private payloads and write operations were not probed.",
+    "A settings update changed the Cloudflare version/script ETag; no code upload was requested.",
+    "The settings-only version omitted the historical Sandbox linkage flag. The existing app, image and namespace remain; guarded restoration is implemented but has not run because the CI read was rejected."
+  ],
+  "workflowBlocker": "Existing-resource update code and 37 safety tests are available; the corrected CI job is blocked by Cloudflare 401 using its existing token. No unchanged retry or credential creation is authorized.",
+  "githubPermissionLimit": "Repository Actions secret-name listing returned HTTP403 Resource not accessible by integration; no retry or secret-value access was attempted.",
+  "existingUpdateAttempts": [
+    {
+      "head": "2a449c03e3fbea9962f8242d7d4f1c5ca97401c0",
+      "run": "https://github.com/opentoolsorg/shiba/actions/runs/41871744370",
+      "outcome": "failed before remote API calls: existing CI account did not match fixed preview account",
+      "uploadAttempted": false
+    },
+    {
+      "head": "66729d2ac3af528fbb935f739f57f82887806014",
+      "run": "https://github.com/opentoolsorg/shiba/actions/runs/41872722873",
+      "outcome": "Cloudflare read returned 401 for the verified account and existing Worker service; upload was not attempted",
+      "uploadAttempted": false
+    }
+  ]
+}

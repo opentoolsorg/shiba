@@ -12,7 +12,7 @@
 import type { RunUsage } from "@shiba/shared";
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import { DUMMY_PROVIDER_KEY } from "../provider-gateway.js";
-import { boundTail } from "../security.js";
+import { sanitizedEventText, type HarnessTextSanitizer } from "./event-sanitizer.js";
 import { classifySessionLine } from "./session-events.js";
 import {
   type AgentHarness,
@@ -31,10 +31,13 @@ export const CLAUDE_CODE_PROVIDERS = ["anthropic"] as const;
 /** Thrown when Claude Code reports an error in its stream-json output. */
 export class ClaudeCodeErrorEvent extends Error {
   readonly detail: string;
-  constructor(detail: string) {
-    super(detail);
+  readonly usageLimited: boolean;
+  constructor(detail: string, sanitize?: HarnessTextSanitizer, usageLimited = /usage|rate.?limit|quota/i.test(detail)) {
+    const safe = sanitizedEventText(detail, sanitize);
+    super(safe);
     this.name = "ClaudeCodeErrorEvent";
-    this.detail = detail;
+    this.detail = safe;
+    this.usageLimited = usageLimited;
   }
 }
 
@@ -45,9 +48,9 @@ export class ClaudeCodeEventError extends Error {}
  * newline-delimited JSON envelopes; `is_error` marks a failed result, which
  * throws so the run fails honestly rather than reporting success.
  */
-export function parseClaudeCodeEvent(line: string): HarnessEvent | null {
-  const session = classifySessionLine(line);
-  if (session.kind === "error") throw new ClaudeCodeErrorEvent(session.detail);
+export function parseClaudeCodeEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
+  const session = classifySessionLine(line, sanitize);
+  if (session.kind === "error") throw new ClaudeCodeErrorEvent(session.detail, undefined, session.usageLimited);
   if (session.kind === "skip") return null;
   if (session.kind === "event") return session.event;
   const trimmed = line.trim();
@@ -56,7 +59,7 @@ export function parseClaudeCodeEvent(line: string): HarnessEvent | null {
   try {
     event = JSON.parse(trimmed);
   } catch {
-    throw new ClaudeCodeEventError(`Unparseable Claude Code event: ${boundTail(trimmed, 200)}`);
+    throw new ClaudeCodeEventError("Unparseable Claude Code event.");
   }
   if (event === null || typeof event !== "object" || Array.isArray(event)) {
     throw new ClaudeCodeEventError("Claude Code event is not an object.");
@@ -69,12 +72,12 @@ export function parseClaudeCodeEvent(line: string): HarnessEvent | null {
         : typeof record.error === "string"
           ? record.error
           : JSON.stringify(record);
-    throw new ClaudeCodeErrorEvent(boundTail(detail, 500));
+    throw new ClaudeCodeErrorEvent(detail, sanitize);
   }
-  return claudeCodeEvent(record);
+  return claudeCodeEvent(record, sanitize);
 }
 
-function claudeCodeEvent(record: Record<string, unknown>): HarnessEvent {
+function claudeCodeEvent(record: Record<string, unknown>, sanitize?: HarnessTextSanitizer): HarnessEvent {
   const message = record.message;
   if (typeof message === "object" && message !== null) {
     const content = (message as { content?: unknown }).content;
@@ -98,18 +101,18 @@ function claudeCodeEvent(record: Record<string, unknown>): HarnessEvent {
           kind: "usage",
           cumulative: false,
           usage: delta,
-          text: boundTail(parts.join(" ").trim(), 500),
+          text: sanitizedEventText(parts.join(" "), sanitize, 500, true),
         };
       }
       if (tools.length > 0) {
         return {
           kind: "tool",
-          name: tools.join(", "),
-          text: boundTail(parts.join(" ").trim(), 500),
+          name: sanitizedEventText(tools.join(", "), sanitize),
+          text: sanitizedEventText(parts.join(" "), sanitize, 500, true),
         };
       }
       if (parts.length > 0) {
-        return { kind: "text", text: boundTail(parts.join(" ").trim(), 500) };
+        return { kind: "text", text: sanitizedEventText(parts.join(" "), sanitize, 500, true) };
       }
     } else if (delta !== undefined) {
       return { kind: "usage", cumulative: false, usage: delta, text: describeUsage(delta) };
@@ -119,7 +122,7 @@ function claudeCodeEvent(record: Record<string, unknown>): HarnessEvent {
     // The result envelope's usage block is the run's authoritative
     // cumulative total — it supersedes the summed assistant deltas.
     const usage = resultUsage(record);
-    const text = boundTail(record.result.trim(), 500);
+    const text = sanitizedEventText(record.result, sanitize, 500, true);
     return usage !== undefined
       ? { kind: "usage", cumulative: true, usage, text }
       : { kind: "result", text };
@@ -130,7 +133,7 @@ function claudeCodeEvent(record: Record<string, unknown>): HarnessEvent {
     .slice(0, 6);
   return {
     kind: "progress",
-    text: boundTail(keys.length ? `${type} (${keys.join(", ")})` : type, 500),
+    text: sanitizedEventText(keys.length ? `${type} (${keys.join(", ")})` : type, sanitize),
   };
 }
 
@@ -215,8 +218,8 @@ export class ClaudeCodeHarness implements AgentHarness {
     ];
   }
 
-  parseEvent(line: string): HarnessEvent | null {
-    return parseClaudeCodeEvent(line);
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
+    return parseClaudeCodeEvent(line, sanitize);
   }
   /** T43 declared capabilities — the gates read this, not the name. */
   capabilities(_model?: string): HarnessCapabilities {

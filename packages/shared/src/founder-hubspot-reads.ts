@@ -1,0 +1,11 @@
+import { z } from "zod";
+const hash=z.string().regex(/^[a-f0-9]{64}$/), id=z.string().regex(/^fhc_[a-f0-9]{32}$/);
+const property=z.string().regex(/^[a-z][a-z0-9_]{0,99}$/).refine(v=>!["constructor","prototype","__proto__"].includes(v));
+export const founderHubSpotSelectionSchema=z.strictObject({dealIds:z.array(z.string().regex(/^[0-9]{1,30}$/)).min(1).max(25).refine(v=>new Set(v).size===v.length),invoiceIdProperty:property,paidAmountProperty:property,currencyProperty:property}).refine(v=>new Set([v.invoiceIdProperty,v.paidAmountProperty,v.currencyProperty]).size===3);
+export const founderHubSpotDraftSchema=z.strictObject({accountId:z.string().regex(/^(?:0|[1-9][0-9]{0,15})$/).refine(v=>Number.isSafeInteger(Number(v))),accessToken:z.string().min(16).max(2048),expiresAt:z.number().int().positive(),maxCalls:z.number().int().min(2).max(8),selection:founderHubSpotSelectionSchema,credentialAttestation:z.literal("creator-attests-token-appropriate-for-hubspot-deals-read")});
+export const founderHubSpotDecisionSchema=z.strictObject({digest:hash,reviewed:z.literal(true),readConsent:z.literal("allow-exact-daily-hubspot-reads-and-quota"),credentialAttestation:z.literal("creator-attests-token-appropriate-for-hubspot-deals-read")});
+export const founderHubSpotGrantSchema=z.object({id,accountId:z.string(),revision:z.number().int().positive(),expiresAt:z.number().int(),fingerprint:hash,digest:hash,selection:founderHubSpotSelectionSchema,maxCalls:z.number().int(),usedCalls:z.number().int(),state:z.enum(["draft","verifying","verified","enabled","running","blocked","exhausted","revoked"]),nextDueAt:z.number().int().nullable(),executorDigest:hash,apiVersion:z.literal("crm-v3"),schedule:z.literal("daily-fixed-interval"),maxBytes:z.literal(32768),maxDurationMs:z.literal(5000),maxPages:z.literal(1),currency:z.string().nullable(),timezoneName:z.string().nullable()});
+export const founderHubSpotReceiptSchema=z.object({id:z.string().regex(/^fhr_[a-f0-9]{32}$/),state:z.enum(["dispatching","completed","unknown"]),createdAt:z.number().int(),expiresAt:z.number().int()});
+export type FounderHubSpotDraft=z.infer<typeof founderHubSpotDraftSchema>;
+export type FounderHubSpotGrant=z.infer<typeof founderHubSpotGrantSchema>;
+export type FounderHubSpotReceipt=z.infer<typeof founderHubSpotReceiptSchema>;

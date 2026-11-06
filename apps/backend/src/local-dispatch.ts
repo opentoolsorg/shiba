@@ -30,11 +30,21 @@ import {
   type LocalDispatchStatus,
   localRunEnvelopeSchema,
   localRunResultSchema,
+  personalPairingScopeSchema,
+  personalAccountReceiptSchema,
+  personalExecutionContextDigest,
+  PERSONAL_ACCOUNT_MAX_AGE_MS,
+  type PersonalPairingScope,
+  type LocalRunEnvelope,
+  redactSecrets,
 } from "@shiba/shared";
 import { DurableObject } from "cloudflare:workers";
 import { sha256Hex } from "./agent-tokens.js";
 import { decodeOrNull, HeartbeatRequestSchema, PairRequestSchema } from "./local-fleet-schema.js";
 import { randomHex } from "./mailbox-store.js";
+import type { Env } from "./env.js";
+import { isPersonalOwnerCurrent, personalComputerMatches, personalGrantFence, isPublicPersonalRepository } from "./personal-execution-store.js";
+import { validatePersonalExecutionClaim } from "./personal-execution-claim.js";
 
 const RECORD_PREFIX = "run:";
 const MAX_LOCAL_EVENT_BATCH = 64;
@@ -50,6 +60,7 @@ const LOCAL_DAEMON_HARNESSES: Readonly<Record<string, string>> = {
 const PAIR_PREFIX = "pair:";
 /** Worker-vouched calling machine on /claim; local-routes strips any inbound copy. */
 export const LOCAL_MACHINE_HEADER = "X-Shiba-Machine-Id";
+export const LOCAL_ADAPTER_CALLER_HEADER = "X-Shiba-Adapter-Caller";
 /** Dashboard harness routes stamp the authenticated owner for run-scoped control. */
 export const LOCAL_DASHBOARD_OWNER_HEADER = "X-Shiba-Dashboard-Owner";
 /** Set when the caller may operate shared harness approvals (DASHBOARD_APPROVERS). */
@@ -71,7 +82,7 @@ function toConnectedComputer(
   return { ...record, status };
 }
 
-export class LocalDispatch extends DurableObject {
+export class LocalDispatch extends DurableObject<Env> {
   private async getRecord(sandboxId: string): Promise<LocalDispatchRecord | null> {
     return (
       (await this.ctx.storage.get<LocalDispatchRecord>(`${RECORD_PREFIX}${sandboxId}`)) ?? null
@@ -91,6 +102,7 @@ export class LocalDispatch extends DurableObject {
     record: LocalDispatchRecord,
     request: Request,
   ): boolean {
+    if (record.envelope.personalExecution) return false;
     const owner = record.dashboardOwnerId;
     if (owner === undefined) return true;
     const caller = request.headers.get(LOCAL_DASHBOARD_OWNER_HEADER)?.trim() ?? "";
@@ -147,10 +159,47 @@ export class LocalDispatch extends DurableObject {
       if (now - computer.lastHeartbeat > LOCAL_COMPUTER_PRUNE_MS)
         await this.ctx.storage.delete(key);
     }
-    const nonces = await this.ctx.storage.list<number>({ prefix: PAIR_PREFIX });
-    for (const [key, expiresAt] of nonces) {
+    const nonces = await this.ctx.storage.list<number | { expiresAt: number }>({ prefix: PAIR_PREFIX });
+    for (const [key, value] of nonces) {
+      const expiresAt = typeof value === "number" ? value : value.expiresAt;
       if (now > expiresAt) await this.ctx.storage.delete(key);
     }
+  }
+
+  private async personalDispatchCurrent(envelope: LocalRunEnvelope, computer: ComputerRecord, target: string): Promise<boolean> {
+    try {
+      const proof = envelope.personalExecution, binding = computer.personalExecution;
+      if (!proof || !binding || target !== proof.snapshot.machineId || envelope.harness !== proof.snapshot.harness ||
+        envelope.repoUrl !== proof.snapshot.repoUrl || envelope.orgId !== `team:${proof.snapshot.workspaceId}` ||
+        !envelope.customAgentId || !envelope.customAgentVersion || envelope.setupCommands.length || envelope.configFiles.length || Object.keys(envelope.env).length || envelope.testCommand?.length ||
+        !envelope.session || envelope.session.permissionMode !== "approval-required" || envelope.session.bin || envelope.session.binArgs?.length || envelope.session.resumeThreadId || envelope.session.reasoningEffort ||
+        proof.contextDigest !== personalExecutionContextDigest({ ...envelope, handoffId: proof.handoffId }) ||
+        envelope.session.provider !== (proof.snapshot.harness === "claude-code" ? "claude" : "codex") || envelope.session.model !== proof.snapshot.codingModel.split("/")[1] ||
+        proof.approvedUntil <= Date.now() || proof.snapshot.expiresAt <= Date.now() || !personalComputerMatches(toConnectedComputer(computer, Date.now()), binding.scope, proof.snapshot)) return false;
+      if (!await isPublicPersonalRepository(proof.snapshot.repoUrl) || !await validatePersonalExecutionClaim(this.env, proof)) return false;
+      const current = await this.ctx.storage.get<ComputerRecord>(`${COMPUTER_PREFIX}${target}`);
+      return Boolean(current?.personalExecution && personalComputerMatches(toConnectedComputer(current, Date.now()), binding.scope, proof.snapshot) &&
+        await personalGrantFence(this.env, binding.scope, proof.snapshot) && proof.approvedUntil > Date.now() && proof.snapshot.expiresAt > Date.now());
+    } catch { return false; }
+  }
+
+  private personalStopOwnerMatches(value: unknown, ownerAccountId: string, workspaceId: string): boolean {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const owner = value as Record<string, unknown>;
+    return owner.ownerAccountId === ownerAccountId && owner.workspaceId === workspaceId && typeof owner.origin === "string" && owner.origin.startsWith("https://");
+  }
+
+  private async exactPersonalPermission(detail: string, actionHash: string, harness: string): Promise<boolean> {
+    if (await sha256Hex(detail) !== actionHash) return false;
+    try {
+      const review = JSON.parse(detail) as Record<string, unknown>;
+      if (!review || typeof review !== "object" || Array.isArray(review) || Object.keys(review).sort().join(",") !== "method,payload,provider,version" ||
+        review.version !== 1 || !review.payload || typeof review.payload !== "object" || Array.isArray(review.payload)) return false;
+      if (harness === "codex") return review.provider === "codex" && ["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "execCommandApproval", "applyPatchApproval"].includes(String(review.method));
+      const payload = review.payload as { request?: { subtype?: unknown; tool_name?: unknown } };
+      return harness === "claude-code" && review.provider === "claude" && review.method === "can_use_tool" && payload.request?.subtype === "can_use_tool" &&
+        ["Bash", "Read", "Grep", "Glob", "Edit", "Write", "NotebookEdit"].includes(String(payload.request.tool_name));
+    } catch { return false; }
   }
 
   private async json(request: Request): Promise<Record<string, unknown> | Response> {
@@ -170,6 +219,149 @@ export class LocalDispatch extends DurableObject {
     const url = new URL(request.url);
     const now = Date.now();
     await this.reapStaleClaims(now);
+    const machineId = request.headers.get(LOCAL_MACHINE_HEADER) ?? undefined;
+    const machine = machineId ? await this.ctx.storage.get<ComputerRecord>(`${COMPUTER_PREFIX}${machineId}`) : undefined;
+    if (request.headers.get(LOCAL_ADAPTER_CALLER_HEADER) === "1" && ["/status", "/result", "/events", "/approval", "/control"].includes(url.pathname)) {
+      const sandboxId = request.method === "GET" ? url.searchParams.get("sandboxId") : (await request.clone().json().catch(() => ({})) as { sandboxId?: unknown }).sandboxId;
+      const record = typeof sandboxId === "string" ? await this.getRecord(sandboxId) : null;
+      if ((record?.envelope.personalExecution && (!machine?.personalExecution || record.targetMachineId !== machineId)) ||
+          (machine?.personalExecution && (!record?.envelope.personalExecution || record.targetMachineId !== machineId))) {
+        return Response.json({ error: "Run not found." }, { status: 404 });
+      }
+      if (record?.envelope.personalExecution && machine?.personalExecution) {
+        const proof = record.envelope.personalExecution;
+        const current = personalComputerMatches(toConnectedComputer(machine, now), machine.personalExecution.scope, proof.snapshot) &&
+          await validatePersonalExecutionClaim(this.env, proof) && await personalGrantFence(this.env, machine.personalExecution.scope, proof.snapshot) && proof.approvedUntil > Date.now();
+        if (!current) {
+          if (["pending", "claimed"].includes(record.status)) await this.putRecord({ ...record, status: "cancelled", claimToken: undefined, settledAt: now });
+          return url.pathname === "/control" ? Response.json({ interrupt: true, reason: "Personal execution authority changed." }) : Response.json({ error: "Personal execution authority changed." }, { status: 409 });
+        }
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/personal-computers") {
+      const body = await this.json(request);
+      if (body instanceof Response || !await isPersonalOwnerCurrent(this.env, body.scope)) return Response.json({ error: "Workspace unavailable." }, { status: 404 });
+      const scope = personalPairingScopeSchema.parse(body.scope);
+      const computers = await this.ctx.storage.list<ComputerRecord>({ prefix: COMPUTER_PREFIX });
+      return Response.json({ computers: [...computers.values()].map((row) => toConnectedComputer(row, now)).filter((row) => personalComputerMatches(row, scope)) });
+    }
+    if (request.method === "POST" && url.pathname === "/personal-account") {
+      const body = await this.json(request);
+      const parsed = body instanceof Response ? null : personalAccountReceiptSchema.safeParse(body.account);
+      if (!machine?.personalExecution || !parsed?.success || !await isPersonalOwnerCurrent(this.env, machine.personalExecution.scope) || !this.ctx.storage.transaction) return Response.json({ error: "Personal machine unavailable." }, { status: 403 });
+      if (Math.abs(now - parsed.data.probedAt) > PERSONAL_ACCOUNT_MAX_AGE_MS) return Response.json({ error: "Account observation is stale." }, { status: 409 });
+      const updated = await this.ctx.storage.transaction(async (tx) => {
+        const current = await tx.get<ComputerRecord>(`${COMPUTER_PREFIX}${machineId}`);
+        if (!current?.personalExecution || current.tokenHash !== machine.tokenHash || !await isPersonalOwnerCurrent(this.env, current.personalExecution.scope)) return null;
+        const prior = current.personalExecution.accounts.find((item) => item.harness === parsed.data.harness);
+        if (prior && parsed.data.probedAt < prior.probedAt) return null;
+        const changed = !prior || ["accountFingerprint", "authVersion", "cliVersion", "billingMode"].some((key) => prior[key as keyof typeof prior] !== parsed.data[key as keyof typeof parsed.data]);
+        const revision = current.personalExecution.revision + (changed ? 1 : 0), receivedAt = Date.now();
+        if (Math.abs(receivedAt - parsed.data.probedAt) > PERSONAL_ACCOUNT_MAX_AGE_MS) return null;
+        await tx.put(`${COMPUTER_PREFIX}${machineId}`, { ...current, personalExecution: { ...current.personalExecution, revision,
+          accounts: [...current.personalExecution.accounts.filter((item) => item.harness !== parsed.data.harness), { ...parsed.data, receivedAt }] } });
+        if (changed) {
+          const records = await tx.list<LocalDispatchRecord>({ prefix: RECORD_PREFIX });
+          for (const record of records.values()) {
+            if (record.targetMachineId === machineId && record.envelope.personalExecution && ["pending", "claimed"].includes(record.status)) {
+              await tx.put(`${RECORD_PREFIX}${record.envelope.sandboxId}`, { ...record, status: "cancelled", claimToken: undefined, settledAt: receivedAt });
+            }
+          }
+        }
+        return { observed: true, revision, receivedAt };
+      });
+      return updated ? Response.json(updated) : Response.json({ error: "Personal account observation changed." }, { status: 409 });
+    }
+    if (request.method === "POST" && ["/revoke-personal-computer", "/revoke-personal-grant"].includes(url.pathname)) {
+      const body = await this.json(request);
+      if (body instanceof Response) return body;
+      let scope: PersonalPairingScope;
+      if (url.pathname === "/revoke-personal-computer") {
+        if (!this.ctx.storage.transaction) return Response.json({ error: "Computer unavailable." }, { status: 503 });
+        const removed = await this.ctx.storage.transaction(async (tx) => {
+          const target = typeof body.machineId === "string" ? await tx.get<ComputerRecord>(`${COMPUTER_PREFIX}${body.machineId}`) : undefined;
+          if (!target?.personalExecution || !this.personalStopOwnerMatches(body.stopOwner, target.personalExecution.scope.ownerAccountId, target.personalExecution.scope.workspaceId) ||
+            target.personalExecution.scope.origin !== (body.stopOwner as { origin: string }).origin || !Number.isSafeInteger(body.expectedRevision) || Number(body.expectedRevision) < 1) return null;
+          await tx.delete(`${COMPUTER_PREFIX}${body.machineId}`);
+          const records = await tx.list<LocalDispatchRecord>({ prefix: RECORD_PREFIX });
+          for (const record of records.values()) {
+            if (record.targetMachineId === body.machineId && record.envelope.personalExecution && ["pending", "claimed"].includes(record.status))
+              await tx.put(`${RECORD_PREFIX}${record.envelope.sandboxId}`, { ...record, status: "cancelled", claimToken: undefined, settledAt: Date.now() });
+          }
+          return true;
+        });
+        return removed ? Response.json({ revoked: true }) : Response.json({ error: "Computer unavailable." }, { status: 404 });
+      } else {
+        if (!await isPersonalOwnerCurrent(this.env, body.scope)) return Response.json({ error: "Workspace unavailable." }, { status: 404 });
+        scope = personalPairingScopeSchema.parse(body.scope);
+      }
+      const records = await this.ctx.storage.list<LocalDispatchRecord>({ prefix: RECORD_PREFIX });
+      for (const record of records.values()) {
+        const snapshot = record.envelope.personalExecution?.snapshot;
+        if (snapshot?.ownerAccountId === scope.ownerAccountId && snapshot.workspaceId === scope.workspaceId &&
+          snapshot.grantId === body.grantId && ["pending", "claimed"].includes(record.status)) {
+          await this.putRecord({ ...record, status: "cancelled", claimToken: undefined, settledAt: now });
+        }
+      }
+      return Response.json({ revoked: true });
+    }
+
+    if (request.method === "POST" && url.pathname === "/personal-harness-control") {
+      const body = await this.json(request);
+      if (body instanceof Response) return body;
+      if (!this.ctx.storage.transaction || typeof body.sandboxId !== "string" || body.interrupt !== true) return Response.json({ error: "Stop unavailable." }, { status: 400 });
+      const stopped = await this.ctx.storage.transaction(async (tx) => {
+        const record = await tx.get<LocalDispatchRecord>(`${RECORD_PREFIX}${body.sandboxId}`), proof = record?.envelope.personalExecution;
+        const computer = record ? await tx.get<ComputerRecord>(`${COMPUTER_PREFIX}${record.targetMachineId}`) : undefined;
+        if (!record || !proof || !["pending", "claimed"].includes(record.status) || !this.personalStopOwnerMatches(body.stopOwner, proof.snapshot.ownerAccountId, proof.snapshot.workspaceId) ||
+          !computer?.personalExecution || computer.personalExecution.scope.ownerAccountId !== proof.snapshot.ownerAccountId ||
+          computer.personalExecution.scope.workspaceId !== proof.snapshot.workspaceId || computer.personalExecution.scope.origin !== (body.stopOwner as { origin: string }).origin ||
+          proof.snapshot.grantVersion !== body.grantVersion || proof.snapshot.machineRevision !== body.machineRevision) return false;
+        await tx.put(`${RECORD_PREFIX}${body.sandboxId}`, { ...record, status: "cancelled", interrupt: true, claimToken: undefined, settledAt: Date.now() });
+        return true;
+      });
+      return stopped ? Response.json({ ok: true }) : Response.json({ error: "Run unavailable." }, { status: 404 });
+    }
+
+    if (request.method === "POST" && ["/personal-harness", "/personal-harness-decide"].includes(url.pathname)) {
+      const body = await this.json(request);
+      if (body instanceof Response || !await isPersonalOwnerCurrent(this.env, body.scope)) return Response.json({ error: "Workspace unavailable." }, { status: 404 });
+      const scope = personalPairingScopeSchema.parse(body.scope);
+      if (url.pathname === "/personal-harness") {
+        const records = await this.ctx.storage.list<LocalDispatchRecord>({ prefix: RECORD_PREFIX }), runs = [];
+        for (const record of records.values()) {
+          const proof = record.envelope.personalExecution;
+          if (record.status !== "claimed" || !proof || proof.snapshot.ownerAccountId !== scope.ownerAccountId || proof.snapshot.workspaceId !== scope.workspaceId) continue;
+          const computer = await this.ctx.storage.get<ComputerRecord>(`${COMPUTER_PREFIX}${record.targetMachineId}`);
+          if (!computer || !await this.personalDispatchCurrent(record.envelope, computer, record.targetMachineId ?? "")) {
+            runs.push({ sandboxId: record.envelope.sandboxId, events: [], diff: "", approvals: [], grantVersion: proof.snapshot.grantVersion,
+              machineRevision: proof.snapshot.machineRevision, canInterrupt: true, canAllow: false, canDeny: false });
+            continue;
+          }
+          runs.push({ sandboxId: record.envelope.sandboxId, events: record.sessionEvents ?? [], diff: record.liveDiff ?? "", approvals: (record.harnessApprovals ?? []).map((item) => ({ ...item, reviewIncomplete: false })),
+            grantVersion: proof.snapshot.grantVersion, machineRevision: proof.snapshot.machineRevision, canInterrupt: true, canAllow: body.canDecide === true, canDeny: body.canDecide === true });
+        }
+        return Response.json({ runs });
+      }
+      const record = typeof body.sandboxId === "string" ? await this.getRecord(body.sandboxId) : null, proof = record?.envelope.personalExecution;
+      const computer = record ? await this.ctx.storage.get<ComputerRecord>(`${COMPUTER_PREFIX}${record.targetMachineId}`) : undefined;
+      if (!record || !proof || !computer || proof.snapshot.ownerAccountId !== scope.ownerAccountId || proof.snapshot.workspaceId !== scope.workspaceId ||
+        !await this.personalDispatchCurrent(record.envelope, computer, record.targetMachineId ?? "") || !this.ctx.storage.transaction) return Response.json({ error: "Permission unavailable." }, { status: 404 });
+      const decided = await this.ctx.storage.transaction(async (tx) => {
+        const current = await tx.get<LocalDispatchRecord>(`${RECORD_PREFIX}${body.sandboxId}`), currentProof = current?.envelope.personalExecution;
+        const currentComputer = current ? await tx.get<ComputerRecord>(`${COMPUTER_PREFIX}${current.targetMachineId}`) : undefined;
+        const item = current?.harnessApprovals?.find((item) => item.requestId === body.requestId);
+        if (!current || current.status !== "claimed" || !currentProof || !currentComputer?.personalExecution || !item || item.decision || item.consumedAt ||
+          !item.actionHash || item.actionHash !== body.actionHash || item.expiresAt !== body.expiresAt || !item.expiresAt || item.expiresAt <= Date.now() ||
+          currentProof.snapshot.grantVersion !== body.grantVersion || currentProof.snapshot.machineRevision !== body.machineRevision ||
+          !personalComputerMatches(toConnectedComputer(currentComputer, Date.now()), scope, currentProof.snapshot) || !await personalGrantFence(this.env, scope, currentProof.snapshot) ||
+          currentProof.approvedUntil <= Date.now() || item.expiresAt <= Date.now() || (body.decision !== "allow" && body.decision !== "deny")) return false;
+        await tx.put(`${RECORD_PREFIX}${body.sandboxId}`, { ...current, harnessApprovals: current.harnessApprovals!.map((item) => item.requestId === body.requestId ? { ...item, decision: body.decision } : item) });
+        return true;
+      });
+      return decided ? Response.json({ ok: true, actionHash: body.actionHash, expiresAt: body.expiresAt }) : Response.json({ error: "Permission changed or already decided." }, { status: 409 });
+    }
 
     if (request.method === "POST" && url.pathname === "/dispatch") {
       const body = await this.json(request);
@@ -179,6 +371,7 @@ export class LocalDispatch extends DurableObject {
         return Response.json({ error: "Invalid run envelope." }, { status: 400 });
       }
       const existing = await this.getRecord(parsed.data.sandboxId);
+      if (existing && parsed.data.personalExecution) return Response.json({ error: "Personal execution was already dispatched." }, { status: 409 });
       if (existing !== null && existing.status !== "settled" && existing.status !== "cancelled") {
         return Response.json(
           { error: `Run ${parsed.data.sandboxId} is already ${existing.status}.` },
@@ -198,6 +391,9 @@ export class LocalDispatch extends DurableObject {
         if (!computer || typeof computer.tokenHash !== "string" || !computer.tokenHash.trim()) {
           return Response.json({ error: "Target computer is not paired or was revoked." }, { status: 404 });
         }
+        const proof = parsed.data.personalExecution;
+        if (Boolean(computer.personalExecution) !== Boolean(proof)) return Response.json({ error: "Personal and operator execution cannot share a computer." }, { status: 403 });
+        if (proof && (!await this.personalDispatchCurrent(parsed.data, computer, target) || body.dashboardOwnerId !== proof.snapshot.actorId)) return Response.json({ error: "Personal execution authority is unavailable." }, { status: 403 });
         if (!Number.isFinite(computer.lastHeartbeat) || Math.abs(now - computer.lastHeartbeat) > LOCAL_HEARTBEAT_STALE_MS) {
           return Response.json({ error: "Target computer is offline. Reconnect it before dispatching." }, { status: 409 });
         }
@@ -208,6 +404,7 @@ export class LocalDispatch extends DurableObject {
         // A live busy machine can claim this pending run after its current
         // run settles. Only availability and compatibility gate dispatch.
       }
+      if (parsed.data.personalExecution && !target) return Response.json({ error: "Personal execution requires its exact computer." }, { status: 403 });
       const dashboardOwnerId =
         typeof body.dashboardOwnerId === "string" && body.dashboardOwnerId.trim() !== ""
           ? body.dashboardOwnerId.trim().slice(0, 200)
@@ -218,6 +415,18 @@ export class LocalDispatch extends DurableObject {
         ...(target !== "" ? { targetMachineId: target } : {}),
         ...(dashboardOwnerId !== undefined ? { dashboardOwnerId } : {}),
       };
+      if (parsed.data.personalExecution) {
+        if (!this.ctx.storage.transaction) return Response.json({ error: "Personal dispatch storage unavailable." }, { status: 503 });
+        const inserted = await this.ctx.storage.transaction(async (tx) => {
+          if (await tx.get(`${RECORD_PREFIX}${parsed.data.sandboxId}`)) return false;
+          const current = await tx.get<ComputerRecord>(`${COMPUTER_PREFIX}${target}`), proof = parsed.data.personalExecution!;
+          if (!current?.personalExecution || !personalComputerMatches(toConnectedComputer(current, Date.now()), current.personalExecution.scope, proof.snapshot) ||
+            !await personalGrantFence(this.env, current.personalExecution.scope, proof.snapshot) || proof.approvedUntil <= Date.now()) return false;
+          await tx.put(`${RECORD_PREFIX}${parsed.data.sandboxId}`, record);
+          return true;
+        });
+        return inserted ? Response.json({ ok: true }) : Response.json({ error: "Personal dispatch changed or already exists." }, { status: 409 });
+      }
       await this.putRecord(record);
       return Response.json({ ok: true });
     }
@@ -227,10 +436,12 @@ export class LocalDispatch extends DurableObject {
       if (body instanceof Response) return body;
       const operator = typeof body.operator === "string" ? body.operator.slice(0, 200) : undefined;
       // Shared-token callers carry no machine identity and keep claiming anything.
-      const machineId = request.headers.get(LOCAL_MACHINE_HEADER) ?? undefined;
       const records = await this.ctx.storage.list<LocalDispatchRecord>({ prefix: RECORD_PREFIX });
       const pending = [...records.values()]
         .filter((record) => record.status === "pending")
+        .filter((record) => machine?.personalExecution
+          ? Boolean(record.envelope.personalExecution && record.targetMachineId === machineId)
+          : !record.envelope.personalExecution)
         // Pinned runs need a per-machine token: no vouched id means unpinned only.
         .filter(
           (record) => record.targetMachineId === undefined || record.targetMachineId === machineId,
@@ -238,6 +449,28 @@ export class LocalDispatch extends DurableObject {
         .sort((a, b) => a.envelope.createdAt - b.envelope.createdAt)[0];
       if (pending === undefined) {
         return Response.json({ envelope: null });
+      }
+      if (pending.envelope.personalExecution) {
+        if (!machine || !await this.personalDispatchCurrent(pending.envelope, machine, machineId ?? "") || !this.ctx.storage.transaction) return Response.json({ error: "Personal execution authority changed." }, { status: 409 });
+        const claimed = await this.ctx.storage.transaction(async (tx) => {
+          const current = await tx.get<LocalDispatchRecord>(`${RECORD_PREFIX}${pending.envelope.sandboxId}`);
+          const computer = await tx.get<ComputerRecord>(`${COMPUTER_PREFIX}${machineId}`);
+          const proof = current?.envelope.personalExecution;
+          if (!current || current.status !== "pending" || JSON.stringify(current.envelope) !== JSON.stringify(pending.envelope) || !proof || !computer?.personalExecution || current.targetMachineId !== machineId ||
+            !personalComputerMatches(toConnectedComputer(computer, Date.now()), computer.personalExecution.scope, proof.snapshot) ||
+            !await personalGrantFence(this.env, computer.personalExecution.scope, proof.snapshot) || proof.approvedUntil <= Date.now()) return null;
+          // Recheck the retained Slack source in D1 after mailbox reads. D1 and
+          // this DO are separate stores, so this narrows the revocation window
+          // without claiming atomicity. The signed approval was checked above.
+          // Request auth imports this mailbox; keep the Slack/auth graph lazy
+          // and load its retained-source authority only for Slack-backed claims.
+          if (proof.handoffId.startsWith("scx_") && !await (await import("./slack-coworker-store.js")).isSlackCoworkerClaimSourceCurrent(this.env, proof, current.envelope.task)) return null;
+          if (proof.approvedUntil <= Date.now() || proof.snapshot.expiresAt <= Date.now()) return null;
+          const claimToken = crypto.randomUUID();
+          await tx.put(`${RECORD_PREFIX}${current.envelope.sandboxId}`, { ...current, status: "claimed", claimToken, claimedAt: Date.now() });
+          return { envelope: current.envelope, claimToken };
+        });
+        return claimed ? Response.json(claimed) : Response.json({ error: "Personal execution claim changed." }, { status: 409 });
       }
       // Minted here, never accepted from the caller — the token is the
       // proof the settle side holds that this claim won the race.
@@ -313,6 +546,7 @@ export class LocalDispatch extends DurableObject {
       const records = await this.ctx.storage.list<LocalDispatchRecord>({ prefix: RECORD_PREFIX });
       const pending = [...records.values()]
         .filter((record) => record.status === "pending" || record.status === "claimed")
+        .filter((record) => machine?.personalExecution ? Boolean(record.envelope.personalExecution && record.targetMachineId === machineId) : !record.envelope.personalExecution)
         .map((record) => ({
           sandboxId: record.envelope.sandboxId,
           status: record.status,
@@ -336,7 +570,8 @@ export class LocalDispatch extends DurableObject {
       ) {
         return Response.json({ error: "Invalid pairing nonce." }, { status: 400 });
       }
-      await this.ctx.storage.put(`${PAIR_PREFIX}${body.nonce}`, body.expiresAt);
+      if (body.personalScope !== undefined && !await isPersonalOwnerCurrent(this.env, body.personalScope)) return Response.json({ error: "Personal ownership unavailable." }, { status: 403 });
+      await this.ctx.storage.put(`${PAIR_PREFIX}${body.nonce}`, body.personalScope ? { expiresAt: body.expiresAt, personalScope: personalPairingScopeSchema.parse(body.personalScope) } : body.expiresAt);
       return Response.json({ ok: true });
     }
 
@@ -344,8 +579,8 @@ export class LocalDispatch extends DurableObject {
       const body = await this.json(request);
       if (body instanceof Response) return body;
       const nonce = typeof body.nonce === "string" ? body.nonce : "";
-      const expiresAt =
-        nonce === "" ? undefined : await this.ctx.storage.get<number>(`${PAIR_PREFIX}${nonce}`);
+      const saved = nonce === "" ? undefined : await this.ctx.storage.get<number | { expiresAt: number; personalScope: PersonalPairingScope }>(`${PAIR_PREFIX}${nonce}`);
+      const expiresAt = typeof saved === "number" ? saved : saved?.expiresAt;
       if (expiresAt === undefined || now > expiresAt) {
         return Response.json(
           { error: "Pairing token is expired or already used." },
@@ -354,6 +589,23 @@ export class LocalDispatch extends DurableObject {
       }
       const pair = decodeOrNull(PairRequestSchema, body.pair);
       if (pair === null) return Response.json({ error: "Invalid pair request." }, { status: 400 });
+      if (typeof saved === "object") {
+        if (JSON.stringify(saved.personalScope) !== JSON.stringify(body.personalScope) || !await isPersonalOwnerCurrent(this.env, saved.personalScope) || !this.ctx.storage.transaction) return Response.json({ error: "Personal ownership changed." }, { status: 403 });
+        const machineId = crypto.randomUUID(), adapterToken = randomHex(32);
+        const tokenHash = await sha256Hex(adapterToken);
+        const paired = await this.ctx.storage.transaction(async (tx) => {
+          const current = await tx.get(`${PAIR_PREFIX}${nonce}`);
+          if (JSON.stringify(current) !== JSON.stringify(saved) || !await isPersonalOwnerCurrent(this.env, saved.personalScope) || saved.expiresAt <= Date.now()) return false;
+          await tx.delete(`${PAIR_PREFIX}${nonce}`);
+          await tx.put(`${COMPUTER_PREFIX}${machineId}`, { machineId, hostname: pair.hostname, platform: pair.platform, daemonVersion: pair.daemonVersion,
+            harnesses: [...pair.harnesses], lastHeartbeat: now, pairedAt: now, tokenHash,
+            personalExecution: { version: 1, revision: 1, scope: saved.personalScope, accounts: [] } });
+          return true;
+        });
+        if (!paired) return Response.json({ error: "Pairing token already used." }, { status: 401 });
+        return Response.json({ adapterToken, machineId, personalExecution: { version: 1, scope: saved.personalScope } });
+      }
+      if (body.personalScope !== undefined) return Response.json({ error: "Invalid pairing scope." }, { status: 401 });
       await this.ctx.storage.delete(`${PAIR_PREFIX}${nonce}`);
       const machineId = crypto.randomUUID();
       const adapterToken = randomHex(32);
@@ -381,7 +633,8 @@ export class LocalDispatch extends DurableObject {
         (computer) => tokenHash !== "" && computer.tokenHash === tokenHash,
       );
       if (match === undefined) return Response.json({ error: "Unauthorized." }, { status: 401 });
-      return Response.json({ machineId: match.machineId });
+      if (match.personalExecution && !await isPersonalOwnerCurrent(this.env, match.personalExecution.scope)) return Response.json({ error: "Personal workspace access changed." }, { status: 401 });
+      return Response.json({ machineId: match.machineId, ...(match.personalExecution ? { personalExecution: true } : {}) });
     }
 
     if (request.method === "POST" && url.pathname === "/heartbeat") {
@@ -393,6 +646,20 @@ export class LocalDispatch extends DurableObject {
       const existing = await this.ctx.storage.get<ComputerRecord>(
         `${COMPUTER_PREFIX}${heartbeat.machineId}`,
       );
+      if (machineId && !existing) return Response.json({ error: "Computer was revoked." }, { status: 409 });
+      if (existing?.personalExecution && request.headers.get(LOCAL_MACHINE_HEADER) !== heartbeat.machineId) return Response.json({ error: "Personal computer token required." }, { status: 403 });
+      if (existing?.personalExecution) {
+        if (!this.ctx.storage.transaction) return Response.json({ error: "Computer storage unavailable." }, { status: 503 });
+        const updated = await this.ctx.storage.transaction(async (tx) => {
+          const current = await tx.get<ComputerRecord>(`${COMPUTER_PREFIX}${heartbeat.machineId}`);
+          if (!current?.personalExecution || current.tokenHash !== existing.tokenHash || !await isPersonalOwnerCurrent(this.env, current.personalExecution.scope)) return false;
+          await tx.put(`${COMPUTER_PREFIX}${heartbeat.machineId}`, { ...current,
+            hostname: heartbeat.hostname, platform: heartbeat.platform, daemonVersion: heartbeat.daemonVersion, harnesses: [...heartbeat.harnesses],
+            lastHeartbeat: Date.now(), activeRunId: heartbeat.activeRunId });
+          return true;
+        });
+        return updated ? Response.json({ ok: true }) : Response.json({ error: "Computer authority changed." }, { status: 409 });
+      }
       const record: ComputerRecord = {
         machineId: heartbeat.machineId,
         hostname: heartbeat.hostname,
@@ -404,6 +671,7 @@ export class LocalDispatch extends DurableObject {
         ...(heartbeat.activeRunId !== undefined ? { activeRunId: heartbeat.activeRunId } : {}),
         ...(heartbeat.reasonNetworkCompanion !== undefined ? { reasonNetworkCompanion: heartbeat.reasonNetworkCompanion } : {}),
         ...(existing?.tokenHash !== undefined ? { tokenHash: existing.tokenHash } : {}),
+        ...(existing?.personalExecution ? { personalExecution: existing.personalExecution } : {}),
       };
       await this.ctx.storage.put(`${COMPUTER_PREFIX}${heartbeat.machineId}`, record);
       return Response.json({ ok: true });
@@ -412,6 +680,7 @@ export class LocalDispatch extends DurableObject {
     if (request.method === "GET" && url.pathname === "/computers") {
       const computers = await this.ctx.storage.list<ComputerRecord>({ prefix: COMPUTER_PREFIX });
       const list = [...computers.values()]
+        .filter((computer) => !computer.personalExecution)
         .map((computer) => toConnectedComputer(computer, now))
         .sort((a, b) => b.lastHeartbeat - a.lastHeartbeat);
       return Response.json({ computers: list });
@@ -465,6 +734,40 @@ export class LocalDispatch extends DurableObject {
       if (body instanceof Response) return body;
       const held = await this.claimedRecord(body);
       if (held instanceof Response) return held;
+      if (held.envelope.personalExecution) {
+        if (!this.ctx.storage.transaction) return Response.json({ error: "Permission storage unavailable." }, { status: 503 });
+        const proof = held.envelope.personalExecution;
+        const answer = await this.ctx.storage.transaction(async (tx) => {
+          const record = await tx.get<LocalDispatchRecord>(`${RECORD_PREFIX}${held.envelope.sandboxId}`);
+          const computer = await tx.get<ComputerRecord>(`${COMPUTER_PREFIX}${held.targetMachineId}`);
+          if (!record || record.status !== "claimed" || record.claimToken !== body.claimToken || !computer?.personalExecution ||
+            !personalComputerMatches(toConnectedComputer(computer, Date.now()), computer.personalExecution.scope, proof.snapshot) ||
+            !await personalGrantFence(this.env, computer.personalExecution.scope, proof.snapshot) || proof.approvedUntil <= Date.now()) return null;
+          const approvals = [...(record.harnessApprovals ?? [])];
+          if (body.request && typeof body.request === "object" && !Array.isArray(body.request)) {
+            const row = body.request as Record<string, unknown>;
+            if (typeof row.requestId !== "string" || !row.requestId || row.requestId.length > 128 || typeof row.kind !== "string" || row.kind.length > 64 ||
+              typeof row.title !== "string" || row.title.length > 200 || typeof row.detail !== "string" || row.detail.length > 2000 ||
+              [row.title, row.detail].some((value) => redactSecrets(value as string) !== value) || typeof row.actionHash !== "string" || !/^[a-f0-9]{64}$/.test(row.actionHash) ||
+              !await this.exactPersonalPermission(row.detail, row.actionHash, proof.snapshot.harness) ||
+              !Number.isSafeInteger(row.expiresAt) || Number(row.expiresAt) <= Date.now() || Number(row.expiresAt) > Math.min(proof.approvedUntil, proof.snapshot.expiresAt, record.envelope.deadlineAt, Date.now() + 600_000)) return null;
+            const existing = approvals.find((item) => item.requestId === row.requestId);
+            if (existing && (existing.actionHash !== row.actionHash || existing.expiresAt !== row.expiresAt || existing.detail !== row.detail || existing.title !== row.title || existing.kind !== row.kind || existing.consumedAt)) return null;
+            if (!existing) {
+              if (approvals.length >= 128) return null;
+              approvals.push({ requestId: row.requestId, kind: row.kind, title: row.title, detail: row.detail, actionHash: row.actionHash, expiresAt: Number(row.expiresAt), createdAt: Date.now() });
+              await tx.put(`${RECORD_PREFIX}${record.envelope.sandboxId}`, { ...record, harnessApprovals: approvals });
+            }
+            return { ok: true, actionHash: row.actionHash, expiresAt: row.expiresAt };
+          }
+          const permission = approvals.find((item) => item.requestId === body.requestId);
+          if (!permission || !permission.actionHash || permission.actionHash !== body.actionHash || permission.expiresAt !== body.expiresAt || !permission.expiresAt || permission.expiresAt <= Date.now() || permission.consumedAt) return null;
+          if (!permission.decision) return { pending: true, actionHash: permission.actionHash, expiresAt: permission.expiresAt };
+          await tx.put(`${RECORD_PREFIX}${record.envelope.sandboxId}`, { ...record, harnessApprovals: approvals.map((item) => item.requestId === permission.requestId ? { ...item, consumedAt: Date.now() } : item) });
+          return { decision: permission.decision, actionHash: permission.actionHash, expiresAt: permission.expiresAt };
+        });
+        return answer ? Response.json(answer) : Response.json({ error: "Permission changed, expired or consumed." }, { status: 409 });
+      }
       const approvals = [...(held.harnessApprovals ?? [])];
       const approvalRequest = body.request;
       if (
@@ -576,6 +879,8 @@ export class LocalDispatch extends DurableObject {
       if (typeof body.machineId !== "string" || body.machineId === "") {
         return Response.json({ error: "machineId is required." }, { status: 400 });
       }
+      const existing = await this.ctx.storage.get<ComputerRecord>(`${COMPUTER_PREFIX}${body.machineId}`);
+      if (existing?.personalExecution) return Response.json({ error: "Computer not found." }, { status: 404 });
       // Dropping the record drops the token hash with it: the next /authorize misses → 401.
       await this.ctx.storage.delete(`${COMPUTER_PREFIX}${body.machineId}`);
       return Response.json({ ok: true });

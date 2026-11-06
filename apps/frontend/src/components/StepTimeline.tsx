@@ -165,13 +165,15 @@ const UserMessageRow = memo(function UserMessageRow({
 }: {
   message: UIMessage;
 }) {
+  const peerChat = typeof message.metadata === "object" && message.metadata !== null &&
+    (message.metadata as Record<string, unknown>).shibaPeerChat === true;
   return (
     <li className="flex flex-col items-end">
       <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--muted-foreground-2)] uppercase tracking-wider mb-1 px-1">
-        <span>You</span>
+        <span>{peerChat ? "Peer chat" : "You"}</span>
         <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)]" />
       </div>
-      <div className="flex flex-col gap-2 max-w-[92%] md:max-w-[85%] bg-[var(--primary)] text-white rounded-[var(--radius-button)] p-4 font-medium shadow-[var(--sh-card)]">
+      <div className="flex flex-col gap-2 max-w-[92%] md:max-w-[85%] bg-[var(--primary)] text-[var(--primary-text)] rounded-[var(--radius-button)] p-4 font-medium shadow-[var(--sh-card)]">
         {message.parts.map((part, index) => {
           const text = partText(part);
           if (text === null) return null;

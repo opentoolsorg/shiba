@@ -1,0 +1,326 @@
+{
+  "kind": "local Vite fixture with intercepted fake HTTP; no real account, provider, Slack, model, or computer",
+  "sourceHashes": {
+    "apps/frontend/src/components/FounderStripeReads.tsx": "90c913a7b8ae58991ddbf79f29c6f71c6db651eae7a6d5191cc83c3abda80538",
+    "apps/frontend/src/founder-stripe-client.ts": "0b4d895a1da4d5ac8ca10dd67b9f2fa12e82bb29c94e760d344f57d30134b5d3",
+    "apps/frontend/src/components/SlackCoworkerPanel.tsx": "e5e259dfd524375a916325a30f18cd2832ce392c17bd1ef514b1c10aa1be53f5",
+    "apps/frontend/src/slack-coworker-client.ts": "dbbfaf436a411a93a2d3d60e3461271dec4d10c47c9adf16b9292e01e2fc0610",
+    "apps/frontend/src/components/TeamModelFundingForm.tsx": "1bc5afa85ee4f5f78f71d30e0ca50368da6fa6e7f9ace8165bc15db0b59be37a",
+    "apps/frontend/src/components/SharedComputerSessions.tsx": "09575936dbd3bbb23afe9c944dd892fef98c1befc761dc59c977d65b83185323",
+    "apps/frontend/src/shared-computer-client.ts": "0632aec1382af0f916f213d9d9b99b0dab07f75d7676546cb36429885bb05699"
+  },
+  "checks": [
+    {
+      "name": "Stripe explicit verify and two consents; no automatic provider call",
+      "result": "pass"
+    },
+    {
+      "name": "Stripe uncertain draft clears key and never retries",
+      "result": "pass"
+    },
+    {
+      "name": "Slack adoption held response discarded after actor/workspace switch",
+      "result": "pass"
+    },
+    {
+      "name": "Model quote changes on model switch with explicit reselection and no fallback",
+      "result": "pass"
+    },
+    {
+      "name": "Computer two-second capture ceiling and stop clears frame",
+      "result": "pass"
+    },
+    {
+      "name": "Keyboard can focus a visible control",
+      "result": "pass"
+    },
+    {
+      "name": "layout stripe 320 light",
+      "result": "pass",
+      "body": 320,
+      "viewport": 320
+    },
+    {
+      "name": "targets stripe 320 light",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout slack 320 light",
+      "result": "pass",
+      "body": 320,
+      "viewport": 320
+    },
+    {
+      "name": "targets slack 320 light",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout model 320 light",
+      "result": "pass",
+      "body": 320,
+      "viewport": 320
+    },
+    {
+      "name": "targets model 320 light",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout computer 320 light",
+      "result": "pass",
+      "body": 320,
+      "viewport": 320
+    },
+    {
+      "name": "targets computer 320 light",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout stripe 320 dark",
+      "result": "pass",
+      "body": 320,
+      "viewport": 320
+    },
+    {
+      "name": "targets stripe 320 dark",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout slack 320 dark",
+      "result": "pass",
+      "body": 320,
+      "viewport": 320
+    },
+    {
+      "name": "targets slack 320 dark",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout model 320 dark",
+      "result": "pass",
+      "body": 320,
+      "viewport": 320
+    },
+    {
+      "name": "targets model 320 dark",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout computer 320 dark",
+      "result": "pass",
+      "body": 320,
+      "viewport": 320
+    },
+    {
+      "name": "targets computer 320 dark",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout stripe 390 light",
+      "result": "pass",
+      "body": 390,
+      "viewport": 390
+    },
+    {
+      "name": "targets stripe 390 light",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout slack 390 light",
+      "result": "pass",
+      "body": 390,
+      "viewport": 390
+    },
+    {
+      "name": "targets slack 390 light",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout model 390 light",
+      "result": "pass",
+      "body": 390,
+      "viewport": 390
+    },
+    {
+      "name": "targets model 390 light",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout computer 390 light",
+      "result": "pass",
+      "body": 390,
+      "viewport": 390
+    },
+    {
+      "name": "targets computer 390 light",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout stripe 390 dark",
+      "result": "pass",
+      "body": 390,
+      "viewport": 390
+    },
+    {
+      "name": "targets stripe 390 dark",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout slack 390 dark",
+      "result": "pass",
+      "body": 390,
+      "viewport": 390
+    },
+    {
+      "name": "targets slack 390 dark",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout model 390 dark",
+      "result": "pass",
+      "body": 390,
+      "viewport": 390
+    },
+    {
+      "name": "targets model 390 dark",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout computer 390 dark",
+      "result": "pass",
+      "body": 390,
+      "viewport": 390
+    },
+    {
+      "name": "targets computer 390 dark",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout stripe 1280 light",
+      "result": "pass",
+      "body": 1280,
+      "viewport": 1280
+    },
+    {
+      "name": "targets stripe 1280 light",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout slack 1280 light",
+      "result": "pass",
+      "body": 1280,
+      "viewport": 1280
+    },
+    {
+      "name": "targets slack 1280 light",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout model 1280 light",
+      "result": "pass",
+      "body": 1280,
+      "viewport": 1280
+    },
+    {
+      "name": "targets model 1280 light",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout computer 1280 light",
+      "result": "pass",
+      "body": 1280,
+      "viewport": 1280
+    },
+    {
+      "name": "targets computer 1280 light",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout stripe 1280 dark",
+      "result": "pass",
+      "body": 1280,
+      "viewport": 1280
+    },
+    {
+      "name": "targets stripe 1280 dark",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout slack 1280 dark",
+      "result": "pass",
+      "body": 1280,
+      "viewport": 1280
+    },
+    {
+      "name": "targets slack 1280 dark",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout model 1280 dark",
+      "result": "pass",
+      "body": 1280,
+      "viewport": 1280
+    },
+    {
+      "name": "targets model 1280 dark",
+      "result": "pass",
+      "undersized": []
+    },
+    {
+      "name": "layout computer 1280 dark",
+      "result": "pass",
+      "body": 1280,
+      "viewport": 1280
+    },
+    {
+      "name": "targets computer 1280 dark",
+      "result": "pass",
+      "undersized": []
+    }
+  ],
+  "requestCounts": {
+    "GET /api/founder-stripe-reads": 8,
+    "GET /api/founder-stripe-reads/fsc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": 2,
+    "POST /api/founder-stripe-reads/fsc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/verify": 1,
+    "POST /api/founder-stripe-reads/fsc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/enable": 1,
+    "GET /api/founder-stripe-reads/fsc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/reports/fsr_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee": 1,
+    "POST /api/founder-stripe-reads": 1,
+    "GET /api/slack/coworker": 8,
+    "GET /api/slack/coworker/drafts": 8,
+    "POST /api/slack/coworker/drafts/adopt": 1,
+    "GET /api/shared-computers/state": 11,
+    "POST /api/shared-computers/sessions/scs_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/capture": 3,
+    "POST /api/shared-computers/sessions/scs_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/stop": 1
+  },
+  "captureIntervalsMs": [
+    2001,
+    2035
+  ],
+  "limitations": [
+    "Native auth/backend/provider/Slack are HTTP fixtures.",
+    "Room-sharing confirmation and integrated app task composer are not mounted.",
+    "Model check covers local displayed reservation and reselection, not server-issued quote verification.",
+    "Screenshots contain a synthetic empty JPEG and no real secret."
+  ]
+}

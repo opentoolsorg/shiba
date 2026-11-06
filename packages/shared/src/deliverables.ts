@@ -53,3 +53,14 @@ export interface ArtifactReview {
 export interface RunResultArtifact extends RunDeliverable {
   content: string;
 }
+
+/** Immutable archive of the explicitly selected ephemeral workspace output directory. */
+export interface RunArtifactBundle {
+  path: "artifacts.zip";
+  mediaType: "application/zip";
+  bytes: number;
+  sha256: string;
+  fileCount: number;
+  downloadUrl: string;
+  expiresAt: number;
+}

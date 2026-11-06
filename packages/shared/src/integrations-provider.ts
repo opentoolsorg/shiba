@@ -34,6 +34,8 @@ export const integrationProviderCatalogItemSchema = z.object({
   connectionId: z.string().nullable().optional(),
   source: z.enum(["static", "native", "openconnector"]),
   connectable: z.boolean(),
+  /** Verified provider OAuth application setup, independently of account consent. */
+  setupState: z.enum(["ready", "needs_configuration", "unverified", "unsupported"]).optional(),
 });
 export type IntegrationProviderCatalogItem = z.infer<typeof integrationProviderCatalogItemSchema>;
 
@@ -52,6 +54,11 @@ export const integrationProviderConnectionSchema = z.object({
   providerKey: z.string().min(1),
   provider: integrationsProviderIdSchema,
   identityLabel: z.string().nullable().optional(),
+  /** Opaque consent-generation proof; never contains the upstream authorization state. */
+  authorizationFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  executionReady: z.boolean().optional(),
+  connectionState: z.enum(["active", "reauth_required", "unavailable"]).optional(),
+  unavailableReason: z.string().optional(),
 });
 export type IntegrationProviderConnection = z.infer<typeof integrationProviderConnectionSchema>;
 
@@ -76,6 +83,7 @@ export const integrationProviderBeginConnectResponseSchema = z.object({
   provider: integrationsProviderIdSchema,
   redirectUrl: z.string().url().nullable().optional(),
   connectionId: z.string().nullable().optional(),
+  authorizationFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   error: z.string().optional(),
 });
 export type IntegrationProviderBeginConnectResponse = z.infer<

@@ -1,0 +1,2849 @@
+{
+  "startedAt": "2026-11-04T17:53:27.073Z",
+  "status": "passed",
+  "scope": "Actual production-built AppNavRail/IntegrationsView/SkillsView and stylesheet; mocked read-only metadata only. Visual component acceptance, no Worker/auth/accounts/credentials/vendor/model/container activity.",
+  "sourceSha256AtStart": {
+    "apps/frontend/src/components/IntegrationsView.tsx": "2883f48a8117da63422d1574ca6ea4c4683b2f7e8f3315ad87e4de1168f4ca66",
+    "apps/frontend/src/components/SkillsView.tsx": "b5f680be9c2c23bfcfb146a0f8574c4da0013f37198374c8bad2d45d213ee4f5",
+    "apps/frontend/src/components/SkillLibraryCards.tsx": "aef048b484d6d515ce36b3808f29cfdafad346aac259a05fc546707100359086",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "checks": [
+    "Integrations header actions/copy/accounts fit390px light without clipping",
+    "Run skills cards/Install/Remove/founder actions/saved instructions fit390px light; no mutations",
+    "Integrations header actions/copy/accounts fit390px dark without clipping",
+    "Run skills cards/Install/Remove/founder actions/saved instructions fit390px dark; no mutations",
+    "Integrations header actions/copy/accounts fit768px light without clipping",
+    "Run skills cards/Install/Remove/founder actions/saved instructions fit768px light; no mutations",
+    "Integrations header actions/copy/accounts fit768px dark without clipping",
+    "Run skills cards/Install/Remove/founder actions/saved instructions fit768px dark; no mutations",
+    "Integrations header actions/copy/accounts fit1440px light without clipping",
+    "Run skills cards/Install/Remove/founder actions/saved instructions fit1440px light; no mutations",
+    "Integrations header actions/copy/accounts fit1440px dark without clipping",
+    "Run skills cards/Install/Remove/founder actions/saved instructions fit1440px dark; no mutations"
+  ],
+  "screenshots": [
+    "integrations-layout-app-390-light-20261104.png",
+    "integrations-layout-skills-390-light-20261104.png",
+    "integrations-layout-app-390-dark-20261104.png",
+    "integrations-layout-skills-390-dark-20261104.png"
+  ],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "requests": [
+    {
+      "path": "/api/v1/extensions/skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/skills/library",
+      "method": "GET"
+    },
+    {
+      "path": "/api/founder-skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/v1/extensions/skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/skills/library",
+      "method": "GET"
+    },
+    {
+      "path": "/api/founder-skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/v1/extensions/skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/skills/library",
+      "method": "GET"
+    },
+    {
+      "path": "/api/founder-skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/v1/extensions/skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/skills/library",
+      "method": "GET"
+    },
+    {
+      "path": "/api/founder-skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/v1/extensions/skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/skills/library",
+      "method": "GET"
+    },
+    {
+      "path": "/api/founder-skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/v1/extensions/skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/skills",
+      "method": "GET"
+    },
+    {
+      "path": "/api/skills/library",
+      "method": "GET"
+    },
+    {
+      "path": "/api/founder-skills",
+      "method": "GET"
+    }
+  ],
+  "bounds": [
+    {
+      "label": "Integrations setup action",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Show setup details",
+          "x": 16,
+          "right": 150.6875,
+          "width": 134.6875,
+          "clientWidth": 133,
+          "scrollWidth": 133,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations catalog action",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Browse capability catalog",
+          "x": 158.6875,
+          "right": 332.078125,
+          "width": 173.390625,
+          "clientWidth": 171,
+          "scrollWidth": 171,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations description",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Third-party apps and channels your agents can reach \u2014 connect once, use everywhere.",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 358,
+          "scrollWidth": 358,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Owned account panel",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Your app accounts",
+          "x": 0,
+          "right": 390,
+          "width": 390,
+          "clientWidth": 390,
+          "scrollWidth": 390,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Run skills heading copy",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Versioned instruction bundles scoped to your signed-in account or workspace. Review a draf",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 358,
+          "scrollWidth": 358,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Skill library region",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Skill libraryCurated templates install as drafts \u2014 review and activate before runs use the",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 358,
+          "scrollWidth": 358,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Skill library cards",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "PR review checklistv1.0.0Installed \u00b7 draftRemoveReviewed reusable instructions for safe sc",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 356,
+          "scrollWidth": 356,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Write tests firstv1.0.0InstallReviewed reusable instructions for safe scoped work. This is",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 356,
+          "scrollWidth": 356,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Fix CI failurev1.0.0InstallReviewed reusable instructions for safe scoped work. This is st",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 356,
+          "scrollWidth": 356,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Dependency upgradev1.0.0InstallReviewed reusable instructions for safe scoped work. This i",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 356,
+          "scrollWidth": 356,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "AGENTS.md conventionsv1.0.0InstallReviewed reusable instructions for safe scoped work. Thi",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 356,
+          "scrollWidth": 356,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Install controls",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Install",
+          "x": 304.875,
+          "right": 357,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 304.875,
+          "right": 357,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 304.875,
+          "right": 357,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 304.875,
+          "right": 357,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Remove control",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Remove",
+          "x": 319.75,
+          "right": 357,
+          "width": 37.25,
+          "clientWidth": 37,
+          "scrollWidth": 37,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder region",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Founder skill librarySix setup templates. Install instructions as a draft, or review an em",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 356,
+          "scrollWidth": 356,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder cards",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Weekly ads report (Meta + Google)Pull last-week spend, CPA, and ROAS from connected ad ser",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 322,
+          "scrollWidth": 322,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Stripe revenue pulse (MRR / churn)Daily Stripe metrics from connected accounts: MRR, net n",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 322,
+          "scrollWidth": 322,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "HubSpot \u2194 Stripe reconcileFind paid Stripe customers missing HubSpot deals (or mismatched ",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 322,
+          "scrollWidth": 322,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Linear triage digestSummarize urgent Linear issues for the week; uses Shiba's native Linea",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 322,
+          "scrollWidth": 322,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "PR digestWeekly open-PR summary from GitHub (native) with risk notes for founders.Suggeste",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 322,
+          "scrollWidth": 322,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Figma \u2192 ticketTurn flagged Figma comments into Linear/Jira-ready ticket drafts via authori",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 322,
+          "scrollWidth": 322,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder actions",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Weekly ads report (Meta + Google)",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Stripe revenue pulse (MRR / churn)",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: HubSpot \u2194 Stripe reconcile",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Linear triage digest",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: PR digest",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Figma \u2192 ticket",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Saved instruction blocks",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Read the diff, inspect security boundaries, and describe uncertainty. Mocked read-only lay",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 324,
+          "scrollWidth": 324,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Keep clear paragraphs. This fixture contains no private account data. Keep clear paragraph",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 324,
+          "scrollWidth": 324,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations setup action",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Show setup details",
+          "x": 16,
+          "right": 150.6875,
+          "width": 134.6875,
+          "clientWidth": 133,
+          "scrollWidth": 133,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations catalog action",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Browse capability catalog",
+          "x": 158.6875,
+          "right": 332.078125,
+          "width": 173.390625,
+          "clientWidth": 171,
+          "scrollWidth": 171,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations description",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Third-party apps and channels your agents can reach \u2014 connect once, use everywhere.",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 358,
+          "scrollWidth": 358,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Owned account panel",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Your app accounts",
+          "x": 0,
+          "right": 390,
+          "width": 390,
+          "clientWidth": 390,
+          "scrollWidth": 390,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Run skills heading copy",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Versioned instruction bundles scoped to your signed-in account or workspace. Review a draf",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 358,
+          "scrollWidth": 358,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Skill library region",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Skill libraryCurated templates install as drafts \u2014 review and activate before runs use the",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 358,
+          "scrollWidth": 358,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Skill library cards",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "PR review checklistv1.0.0Installed \u00b7 draftRemoveReviewed reusable instructions for safe sc",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 356,
+          "scrollWidth": 356,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Write tests firstv1.0.0InstallReviewed reusable instructions for safe scoped work. This is",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 356,
+          "scrollWidth": 356,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Fix CI failurev1.0.0InstallReviewed reusable instructions for safe scoped work. This is st",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 356,
+          "scrollWidth": 356,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Dependency upgradev1.0.0InstallReviewed reusable instructions for safe scoped work. This i",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 356,
+          "scrollWidth": 356,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "AGENTS.md conventionsv1.0.0InstallReviewed reusable instructions for safe scoped work. Thi",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 356,
+          "scrollWidth": 356,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Install controls",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Install",
+          "x": 304.875,
+          "right": 357,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 304.875,
+          "right": 357,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 304.875,
+          "right": 357,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 304.875,
+          "right": 357,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Remove control",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Remove",
+          "x": 319.75,
+          "right": 357,
+          "width": 37.25,
+          "clientWidth": 37,
+          "scrollWidth": 37,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder region",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Founder skill librarySix setup templates. Install instructions as a draft, or review an em",
+          "x": 16,
+          "right": 374,
+          "width": 358,
+          "clientWidth": 356,
+          "scrollWidth": 356,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder cards",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Weekly ads report (Meta + Google)Pull last-week spend, CPA, and ROAS from connected ad ser",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 322,
+          "scrollWidth": 322,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Stripe revenue pulse (MRR / churn)Daily Stripe metrics from connected accounts: MRR, net n",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 322,
+          "scrollWidth": 322,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "HubSpot \u2194 Stripe reconcileFind paid Stripe customers missing HubSpot deals (or mismatched ",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 322,
+          "scrollWidth": 322,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Linear triage digestSummarize urgent Linear issues for the week; uses Shiba's native Linea",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 322,
+          "scrollWidth": 322,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "PR digestWeekly open-PR summary from GitHub (native) with risk notes for founders.Suggeste",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 322,
+          "scrollWidth": 322,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Figma \u2192 ticketTurn flagged Figma comments into Linear/Jira-ready ticket drafts via authori",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 322,
+          "scrollWidth": 322,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder actions",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Weekly ads report (Meta + Google)",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Stripe revenue pulse (MRR / churn)",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: HubSpot \u2194 Stripe reconcile",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Linear triage digest",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: PR digest",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Figma \u2192 ticket",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Saved instruction blocks",
+      "viewport": 390,
+      "boxes": [
+        {
+          "text": "Read the diff, inspect security boundaries, and describe uncertainty. Mocked read-only lay",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 324,
+          "scrollWidth": 324,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Keep clear paragraphs. This fixture contains no private account data. Keep clear paragraph",
+          "x": 33,
+          "right": 357,
+          "width": 324,
+          "clientWidth": 324,
+          "scrollWidth": 324,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations setup action",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Show setup details",
+          "x": 16,
+          "right": 150.6875,
+          "width": 134.6875,
+          "clientWidth": 133,
+          "scrollWidth": 133,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations catalog action",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Browse capability catalog",
+          "x": 158.6875,
+          "right": 332.078125,
+          "width": 173.390625,
+          "clientWidth": 171,
+          "scrollWidth": 171,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations description",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Third-party apps and channels your agents can reach \u2014 connect once, use everywhere.",
+          "x": 16,
+          "right": 484.9375,
+          "width": 468.9375,
+          "clientWidth": 469,
+          "scrollWidth": 469,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Owned account panel",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Your app accounts",
+          "x": 0,
+          "right": 768,
+          "width": 768,
+          "clientWidth": 768,
+          "scrollWidth": 768,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Run skills heading copy",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Versioned instruction bundles scoped to your signed-in account or workspace. Review a draf",
+          "x": 16,
+          "right": 624.859375,
+          "width": 608.859375,
+          "clientWidth": 609,
+          "scrollWidth": 609,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Skill library region",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Skill libraryCurated templates install as drafts \u2014 review and activate before runs use the",
+          "x": 16,
+          "right": 752,
+          "width": 736,
+          "clientWidth": 736,
+          "scrollWidth": 736,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Skill library cards",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "PR review checklistv1.0.0Installed \u00b7 draftRemoveReviewed reusable instructions for safe sc",
+          "x": 16,
+          "right": 378,
+          "width": 362,
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Write tests firstv1.0.0InstallReviewed reusable instructions for safe scoped work. This is",
+          "x": 390,
+          "right": 752,
+          "width": 362,
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Fix CI failurev1.0.0InstallReviewed reusable instructions for safe scoped work. This is st",
+          "x": 16,
+          "right": 378,
+          "width": 362,
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Dependency upgradev1.0.0InstallReviewed reusable instructions for safe scoped work. This i",
+          "x": 390,
+          "right": 752,
+          "width": 362,
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "AGENTS.md conventionsv1.0.0InstallReviewed reusable instructions for safe scoped work. Thi",
+          "x": 16,
+          "right": 378,
+          "width": 362,
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Install controls",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Install",
+          "x": 682.875,
+          "right": 735,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 308.875,
+          "right": 361,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 682.875,
+          "right": 735,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 308.875,
+          "right": 361,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Remove control",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Remove",
+          "x": 323.75,
+          "right": 361,
+          "width": 37.25,
+          "clientWidth": 37,
+          "scrollWidth": 37,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder region",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Founder skill librarySix setup templates. Install instructions as a draft, or review an em",
+          "x": 16,
+          "right": 752,
+          "width": 736,
+          "clientWidth": 734,
+          "scrollWidth": 734,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder cards",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Weekly ads report (Meta + Google)Pull last-week spend, CPA, and ROAS from connected ad ser",
+          "x": 33,
+          "right": 380,
+          "width": 347,
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Stripe revenue pulse (MRR / churn)Daily Stripe metrics from connected accounts: MRR, net n",
+          "x": 388,
+          "right": 735,
+          "width": 347,
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "HubSpot \u2194 Stripe reconcileFind paid Stripe customers missing HubSpot deals (or mismatched ",
+          "x": 33,
+          "right": 380,
+          "width": 347,
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Linear triage digestSummarize urgent Linear issues for the week; uses Shiba's native Linea",
+          "x": 388,
+          "right": 735,
+          "width": 347,
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "PR digestWeekly open-PR summary from GitHub (native) with risk notes for founders.Suggeste",
+          "x": 33,
+          "right": 380,
+          "width": 347,
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Figma \u2192 ticketTurn flagged Figma comments into Linear/Jira-ready ticket drafts via authori",
+          "x": 388,
+          "right": 735,
+          "width": 347,
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder actions",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Weekly ads report (Meta + Google)",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 401,
+          "right": 485.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Stripe revenue pulse (MRR / churn)",
+          "x": 493.703125,
+          "right": 647.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: HubSpot \u2194 Stripe reconcile",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 401,
+          "right": 485.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Linear triage digest",
+          "x": 493.703125,
+          "right": 647.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: PR digest",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 401,
+          "right": 485.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Figma \u2192 ticket",
+          "x": 493.703125,
+          "right": 647.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Saved instruction blocks",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Read the diff, inspect security boundaries, and describe uncertainty. Mocked read-only lay",
+          "x": 33,
+          "right": 735,
+          "width": 702,
+          "clientWidth": 702,
+          "scrollWidth": 702,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Keep clear paragraphs. This fixture contains no private account data. Keep clear paragraph",
+          "x": 33,
+          "right": 735,
+          "width": 702,
+          "clientWidth": 702,
+          "scrollWidth": 702,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations setup action",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Show setup details",
+          "x": 16,
+          "right": 150.6875,
+          "width": 134.6875,
+          "clientWidth": 133,
+          "scrollWidth": 133,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations catalog action",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Browse capability catalog",
+          "x": 158.6875,
+          "right": 332.078125,
+          "width": 173.390625,
+          "clientWidth": 171,
+          "scrollWidth": 171,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations description",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Third-party apps and channels your agents can reach \u2014 connect once, use everywhere.",
+          "x": 16,
+          "right": 484.9375,
+          "width": 468.9375,
+          "clientWidth": 469,
+          "scrollWidth": 469,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Owned account panel",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Your app accounts",
+          "x": 0,
+          "right": 768,
+          "width": 768,
+          "clientWidth": 768,
+          "scrollWidth": 768,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Run skills heading copy",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Versioned instruction bundles scoped to your signed-in account or workspace. Review a draf",
+          "x": 16,
+          "right": 624.859375,
+          "width": 608.859375,
+          "clientWidth": 609,
+          "scrollWidth": 609,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Skill library region",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Skill libraryCurated templates install as drafts \u2014 review and activate before runs use the",
+          "x": 16,
+          "right": 752,
+          "width": 736,
+          "clientWidth": 736,
+          "scrollWidth": 736,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Skill library cards",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "PR review checklistv1.0.0Installed \u00b7 draftRemoveReviewed reusable instructions for safe sc",
+          "x": 16,
+          "right": 378,
+          "width": 362,
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Write tests firstv1.0.0InstallReviewed reusable instructions for safe scoped work. This is",
+          "x": 390,
+          "right": 752,
+          "width": 362,
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Fix CI failurev1.0.0InstallReviewed reusable instructions for safe scoped work. This is st",
+          "x": 16,
+          "right": 378,
+          "width": 362,
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Dependency upgradev1.0.0InstallReviewed reusable instructions for safe scoped work. This i",
+          "x": 390,
+          "right": 752,
+          "width": 362,
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "AGENTS.md conventionsv1.0.0InstallReviewed reusable instructions for safe scoped work. Thi",
+          "x": 16,
+          "right": 378,
+          "width": 362,
+          "clientWidth": 360,
+          "scrollWidth": 360,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Install controls",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Install",
+          "x": 682.875,
+          "right": 735,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 308.875,
+          "right": 361,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 682.875,
+          "right": 735,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 308.875,
+          "right": 361,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Remove control",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Remove",
+          "x": 323.75,
+          "right": 361,
+          "width": 37.25,
+          "clientWidth": 37,
+          "scrollWidth": 37,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder region",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Founder skill librarySix setup templates. Install instructions as a draft, or review an em",
+          "x": 16,
+          "right": 752,
+          "width": 736,
+          "clientWidth": 734,
+          "scrollWidth": 734,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder cards",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Weekly ads report (Meta + Google)Pull last-week spend, CPA, and ROAS from connected ad ser",
+          "x": 33,
+          "right": 380,
+          "width": 347,
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Stripe revenue pulse (MRR / churn)Daily Stripe metrics from connected accounts: MRR, net n",
+          "x": 388,
+          "right": 735,
+          "width": 347,
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "HubSpot \u2194 Stripe reconcileFind paid Stripe customers missing HubSpot deals (or mismatched ",
+          "x": 33,
+          "right": 380,
+          "width": 347,
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Linear triage digestSummarize urgent Linear issues for the week; uses Shiba's native Linea",
+          "x": 388,
+          "right": 735,
+          "width": 347,
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "PR digestWeekly open-PR summary from GitHub (native) with risk notes for founders.Suggeste",
+          "x": 33,
+          "right": 380,
+          "width": 347,
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Figma \u2192 ticketTurn flagged Figma comments into Linear/Jira-ready ticket drafts via authori",
+          "x": 388,
+          "right": 735,
+          "width": 347,
+          "clientWidth": 345,
+          "scrollWidth": 345,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder actions",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Weekly ads report (Meta + Google)",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 401,
+          "right": 485.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Stripe revenue pulse (MRR / churn)",
+          "x": 493.703125,
+          "right": 647.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: HubSpot \u2194 Stripe reconcile",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 401,
+          "right": 485.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Linear triage digest",
+          "x": 493.703125,
+          "right": 647.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 46,
+          "right": 130.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: PR digest",
+          "x": 138.703125,
+          "right": 292.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 401,
+          "right": 485.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Figma \u2192 ticket",
+          "x": 493.703125,
+          "right": 647.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Saved instruction blocks",
+      "viewport": 768,
+      "boxes": [
+        {
+          "text": "Read the diff, inspect security boundaries, and describe uncertainty. Mocked read-only lay",
+          "x": 33,
+          "right": 735,
+          "width": 702,
+          "clientWidth": 702,
+          "scrollWidth": 702,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Keep clear paragraphs. This fixture contains no private account data. Keep clear paragraph",
+          "x": 33,
+          "right": 735,
+          "width": 702,
+          "clientWidth": 702,
+          "scrollWidth": 702,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations setup action",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Show setup details",
+          "x": 1091.921875,
+          "right": 1226.609375,
+          "width": 134.6875,
+          "clientWidth": 133,
+          "scrollWidth": 133,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations catalog action",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Browse capability catalog",
+          "x": 1234.609375,
+          "right": 1408,
+          "width": 173.390625,
+          "clientWidth": 171,
+          "scrollWidth": 171,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations description",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Third-party apps and channels your agents can reach \u2014 connect once, use everywhere.",
+          "x": 280,
+          "right": 1075.921875,
+          "width": 795.921875,
+          "clientWidth": 796,
+          "scrollWidth": 796,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Owned account panel",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Your app accounts",
+          "x": 248,
+          "right": 1440,
+          "width": 1192,
+          "clientWidth": 1192,
+          "scrollWidth": 1192,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Run skills heading copy",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Versioned instruction bundles scoped to your signed-in account or workspace. Review a draf",
+          "x": 280,
+          "right": 1280.859375,
+          "width": 1000.859375,
+          "clientWidth": 1001,
+          "scrollWidth": 1001,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Skill library region",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Skill libraryCurated templates install as drafts \u2014 review and activate before runs use the",
+          "x": 460,
+          "right": 1228,
+          "width": 768,
+          "clientWidth": 768,
+          "scrollWidth": 768,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Skill library cards",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "PR review checklistv1.0.0Installed \u00b7 draftRemoveReviewed reusable instructions for safe sc",
+          "x": 460,
+          "right": 838,
+          "width": 378,
+          "clientWidth": 376,
+          "scrollWidth": 376,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Write tests firstv1.0.0InstallReviewed reusable instructions for safe scoped work. This is",
+          "x": 850,
+          "right": 1228,
+          "width": 378,
+          "clientWidth": 376,
+          "scrollWidth": 376,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Fix CI failurev1.0.0InstallReviewed reusable instructions for safe scoped work. This is st",
+          "x": 460,
+          "right": 838,
+          "width": 378,
+          "clientWidth": 376,
+          "scrollWidth": 376,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Dependency upgradev1.0.0InstallReviewed reusable instructions for safe scoped work. This i",
+          "x": 850,
+          "right": 1228,
+          "width": 378,
+          "clientWidth": 376,
+          "scrollWidth": 376,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "AGENTS.md conventionsv1.0.0InstallReviewed reusable instructions for safe scoped work. Thi",
+          "x": 460,
+          "right": 838,
+          "width": 378,
+          "clientWidth": 376,
+          "scrollWidth": 376,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Install controls",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Install",
+          "x": 1158.875,
+          "right": 1211,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 768.875,
+          "right": 821,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 1158.875,
+          "right": 1211,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 768.875,
+          "right": 821,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Remove control",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Remove",
+          "x": 783.75,
+          "right": 821,
+          "width": 37.25,
+          "clientWidth": 37,
+          "scrollWidth": 37,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder region",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Founder skill librarySix setup templates. Install instructions as a draft, or review an em",
+          "x": 460,
+          "right": 1228,
+          "width": 768,
+          "clientWidth": 766,
+          "scrollWidth": 766,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder cards",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Weekly ads report (Meta + Google)Pull last-week spend, CPA, and ROAS from connected ad ser",
+          "x": 477,
+          "right": 840,
+          "width": 363,
+          "clientWidth": 361,
+          "scrollWidth": 361,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Stripe revenue pulse (MRR / churn)Daily Stripe metrics from connected accounts: MRR, net n",
+          "x": 848,
+          "right": 1211,
+          "width": 363,
+          "clientWidth": 361,
+          "scrollWidth": 361,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "HubSpot \u2194 Stripe reconcileFind paid Stripe customers missing HubSpot deals (or mismatched ",
+          "x": 477,
+          "right": 840,
+          "width": 363,
+          "clientWidth": 361,
+          "scrollWidth": 361,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Linear triage digestSummarize urgent Linear issues for the week; uses Shiba's native Linea",
+          "x": 848,
+          "right": 1211,
+          "width": 363,
+          "clientWidth": 361,
+          "scrollWidth": 361,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "PR digestWeekly open-PR summary from GitHub (native) with risk notes for founders.Suggeste",
+          "x": 477,
+          "right": 840,
+          "width": 363,
+          "clientWidth": 361,
+          "scrollWidth": 361,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Figma \u2192 ticketTurn flagged Figma comments into Linear/Jira-ready ticket drafts via authori",
+          "x": 848,
+          "right": 1211,
+          "width": 363,
+          "clientWidth": 361,
+          "scrollWidth": 361,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder actions",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Install draft",
+          "x": 490,
+          "right": 574.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Weekly ads report (Meta + Google)",
+          "x": 582.703125,
+          "right": 736.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 861,
+          "right": 945.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Stripe revenue pulse (MRR / churn)",
+          "x": 953.703125,
+          "right": 1107.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 490,
+          "right": 574.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: HubSpot \u2194 Stripe reconcile",
+          "x": 582.703125,
+          "right": 736.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 861,
+          "right": 945.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Linear triage digest",
+          "x": 953.703125,
+          "right": 1107.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 490,
+          "right": 574.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: PR digest",
+          "x": 582.703125,
+          "right": 736.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 861,
+          "right": 945.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Figma \u2192 ticket",
+          "x": 953.703125,
+          "right": 1107.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Saved instruction blocks",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Read the diff, inspect security boundaries, and describe uncertainty. Mocked read-only lay",
+          "x": 477,
+          "right": 1211,
+          "width": 734,
+          "clientWidth": 734,
+          "scrollWidth": 734,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Keep clear paragraphs. This fixture contains no private account data. Keep clear paragraph",
+          "x": 477,
+          "right": 1211,
+          "width": 734,
+          "clientWidth": 734,
+          "scrollWidth": 734,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations setup action",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Show setup details",
+          "x": 1091.921875,
+          "right": 1226.609375,
+          "width": 134.6875,
+          "clientWidth": 133,
+          "scrollWidth": 133,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations catalog action",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Browse capability catalog",
+          "x": 1234.609375,
+          "right": 1408,
+          "width": 173.390625,
+          "clientWidth": 171,
+          "scrollWidth": 171,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Integrations description",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Third-party apps and channels your agents can reach \u2014 connect once, use everywhere.",
+          "x": 280,
+          "right": 1075.921875,
+          "width": 795.921875,
+          "clientWidth": 796,
+          "scrollWidth": 796,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Owned account panel",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Your app accounts",
+          "x": 248,
+          "right": 1440,
+          "width": 1192,
+          "clientWidth": 1192,
+          "scrollWidth": 1192,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Run skills heading copy",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Versioned instruction bundles scoped to your signed-in account or workspace. Review a draf",
+          "x": 280,
+          "right": 1280.859375,
+          "width": 1000.859375,
+          "clientWidth": 1001,
+          "scrollWidth": 1001,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Skill library region",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Skill libraryCurated templates install as drafts \u2014 review and activate before runs use the",
+          "x": 460,
+          "right": 1228,
+          "width": 768,
+          "clientWidth": 768,
+          "scrollWidth": 768,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Skill library cards",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "PR review checklistv1.0.0Installed \u00b7 draftRemoveReviewed reusable instructions for safe sc",
+          "x": 460,
+          "right": 838,
+          "width": 378,
+          "clientWidth": 376,
+          "scrollWidth": 376,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Write tests firstv1.0.0InstallReviewed reusable instructions for safe scoped work. This is",
+          "x": 850,
+          "right": 1228,
+          "width": 378,
+          "clientWidth": 376,
+          "scrollWidth": 376,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Fix CI failurev1.0.0InstallReviewed reusable instructions for safe scoped work. This is st",
+          "x": 460,
+          "right": 838,
+          "width": 378,
+          "clientWidth": 376,
+          "scrollWidth": 376,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Dependency upgradev1.0.0InstallReviewed reusable instructions for safe scoped work. This i",
+          "x": 850,
+          "right": 1228,
+          "width": 378,
+          "clientWidth": 376,
+          "scrollWidth": 376,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "AGENTS.md conventionsv1.0.0InstallReviewed reusable instructions for safe scoped work. Thi",
+          "x": 460,
+          "right": 838,
+          "width": 378,
+          "clientWidth": 376,
+          "scrollWidth": 376,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Install controls",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Install",
+          "x": 1158.875,
+          "right": 1211,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 768.875,
+          "right": 821,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 1158.875,
+          "right": 1211,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install",
+          "x": 768.875,
+          "right": 821,
+          "width": 52.125,
+          "clientWidth": 50,
+          "scrollWidth": 50,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Remove control",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Remove",
+          "x": 783.75,
+          "right": 821,
+          "width": 37.25,
+          "clientWidth": 37,
+          "scrollWidth": 37,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder region",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Founder skill librarySix setup templates. Install instructions as a draft, or review an em",
+          "x": 460,
+          "right": 1228,
+          "width": 768,
+          "clientWidth": 766,
+          "scrollWidth": 766,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder cards",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Weekly ads report (Meta + Google)Pull last-week spend, CPA, and ROAS from connected ad ser",
+          "x": 477,
+          "right": 840,
+          "width": 363,
+          "clientWidth": 361,
+          "scrollWidth": 361,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Stripe revenue pulse (MRR / churn)Daily Stripe metrics from connected accounts: MRR, net n",
+          "x": 848,
+          "right": 1211,
+          "width": 363,
+          "clientWidth": 361,
+          "scrollWidth": 361,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "HubSpot \u2194 Stripe reconcileFind paid Stripe customers missing HubSpot deals (or mismatched ",
+          "x": 477,
+          "right": 840,
+          "width": 363,
+          "clientWidth": 361,
+          "scrollWidth": 361,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Linear triage digestSummarize urgent Linear issues for the week; uses Shiba's native Linea",
+          "x": 848,
+          "right": 1211,
+          "width": 363,
+          "clientWidth": 361,
+          "scrollWidth": 361,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "PR digestWeekly open-PR summary from GitHub (native) with risk notes for founders.Suggeste",
+          "x": 477,
+          "right": 840,
+          "width": 363,
+          "clientWidth": 361,
+          "scrollWidth": 361,
+          "display": "flex",
+          "visibility": "visible"
+        },
+        {
+          "text": "Figma \u2192 ticketTurn flagged Figma comments into Linear/Jira-ready ticket drafts via authori",
+          "x": 848,
+          "right": 1211,
+          "width": 363,
+          "clientWidth": 361,
+          "scrollWidth": 361,
+          "display": "flex",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Founder actions",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Install draft",
+          "x": 490,
+          "right": 574.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Weekly ads report (Meta + Google)",
+          "x": 582.703125,
+          "right": 736.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 861,
+          "right": 945.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Stripe revenue pulse (MRR / churn)",
+          "x": 953.703125,
+          "right": 1107.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 490,
+          "right": 574.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: HubSpot \u2194 Stripe reconcile",
+          "x": 582.703125,
+          "right": 736.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 861,
+          "right": 945.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Linear triage digest",
+          "x": 953.703125,
+          "right": 1107.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 490,
+          "right": 574.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: PR digest",
+          "x": 582.703125,
+          "right": 736.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Install draft",
+          "x": 861,
+          "right": 945.703125,
+          "width": 84.703125,
+          "clientWidth": 83,
+          "scrollWidth": 83,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Review employee setup: Figma \u2192 ticket",
+          "x": 953.703125,
+          "right": 1107.109375,
+          "width": 153.40625,
+          "clientWidth": 151,
+          "scrollWidth": 151,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    },
+    {
+      "label": "Saved instruction blocks",
+      "viewport": 1440,
+      "boxes": [
+        {
+          "text": "Read the diff, inspect security boundaries, and describe uncertainty. Mocked read-only lay",
+          "x": 477,
+          "right": 1211,
+          "width": 734,
+          "clientWidth": 734,
+          "scrollWidth": 734,
+          "display": "block",
+          "visibility": "visible"
+        },
+        {
+          "text": "Keep clear paragraphs. This fixture contains no private account data. Keep clear paragraph",
+          "x": 477,
+          "right": 1211,
+          "width": 734,
+          "clientWidth": 734,
+          "scrollWidth": 734,
+          "display": "block",
+          "visibility": "visible"
+        }
+      ]
+    }
+  ],
+  "sourceSha256AtEnd": {
+    "apps/frontend/src/components/IntegrationsView.tsx": "2883f48a8117da63422d1574ca6ea4c4683b2f7e8f3315ad87e4de1168f4ca66",
+    "apps/frontend/src/components/SkillsView.tsx": "b5f680be9c2c23bfcfb146a0f8574c4da0013f37198374c8bad2d45d213ee4f5",
+    "apps/frontend/src/components/SkillLibraryCards.tsx": "aef048b484d6d515ce36b3808f29cfdafad346aac259a05fc546707100359086",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "finishedAt": "2026-11-04T17:53:59.719Z",
+  "sourceCommit": "b79020b8365d714c76b923b9987ddeb88a54eb5f",
+  "fixtureCorrections": [
+    "Initial read-only metadata lacked setup github fields; corrected fixture data only before final pass. No product change."
+  ],
+  "cleanup": {
+    "ownedVisualServerStopped": true,
+    "ownedServerPidsTerminated": [
+      528273
+    ],
+    "temporaryHarnessRemoved": true,
+    "newAccounts": 0,
+    "newCredentials": 0,
+    "backendOrVendorCalls": 0
+  },
+  "retainedScreenshotMap": {
+    "integrations-390-light.png": "integrations-layout-app-390-light-20261104.png",
+    "integrations-390-dark.png": "integrations-layout-app-390-dark-20261104.png",
+    "skills-390-light.png": "integrations-layout-skills-390-light-20261104.png",
+    "skills-390-dark.png": "integrations-layout-skills-390-dark-20261104.png"
+  },
+  "head": "b79020b8365d714c76b923b9987ddeb88a54eb5f"
+}

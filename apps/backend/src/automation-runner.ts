@@ -2,7 +2,7 @@
  * Production fire path for automations (PLAN T18–T20).
  *
  * Match → optional TypeSafe/Workers AI `run_when` → T20 safety → queue a
- * pending approval (or auto-approve when unattended is granted). Skips are
+ * pending human approval. Skips are
  * recorded; nothing fires silently.
  */
 import {
@@ -279,7 +279,7 @@ async function evaluateFirePredicate(
 /**
  * Phase 2, the ordered commit. Rechecks the match/burst ordering gates
  * against the freshest automation state, then the T20 authorization, before
- * any side effect (queue plus optional unattended resolve). Called
+ * any side effect (queueing a human approval). Called
  * sequentially so mutating calls never overlap.
  */
 async function commitAutomationFire(
@@ -383,33 +383,6 @@ async function commitAutomationFire(
     });
     const scheduleKey = recheck.trigger.kind === "schedule" ? `t${recheck.triggerIndex}` : undefined;
     const next = recordTrigger(automation, nowMs, scheduleKey);
-    if (!auth.requiresApproval) {
-      if (!deps.resolveApproval) {
-        const skipped = recordSkip(
-          automation,
-          "Unattended run granted but no resolveApproval seam.",
-          nowMs,
-        );
-        return { fired: false, automation: skipped, reason: skipped.lastSkip?.reason ?? "unattended missing seam" };
-      }
-      try {
-        await deps.resolveApproval({
-          threadKey,
-          approvalId: queued.approvalId,
-          approved: true,
-          decidedBy: `automation:${automation.id}`,
-        });
-      } catch (resolveError) {
-        const detail = resolveError instanceof Error ? resolveError.message : String(resolveError);
-        const skipped = recordSkip(automation, `Approval resolution failed: ${detail}`, nowMs);
-        return {
-          fired: false,
-          automation: next,
-          reason: skipped.lastSkip?.reason ?? detail,
-          approvalId: queued.approvalId,
-        };
-      }
-    }
     const queuedOccurrence = occurrence("queued", "approval-pending", nowMs, queued.approvalId);
     return {
       fired: true,
@@ -431,7 +404,7 @@ async function commitAutomationFire(
 
 /**
  * One automation, one event. Match, gate, authorize, then queue (and
- * auto-approve only when T20 unattended is granted).
+ * require explicit human approval).
  */
 export async function fireAutomation(
   automation: Automation,
@@ -499,7 +472,7 @@ export async function fireMatchingAutomations(
     },
   );
   // Phase 2: commit in input order, ordering recheck then authorization,
-  // queue, optional unattended resolve, so mutating calls stay sequential.
+  // queue, so mutating calls stay sequential.
   const next = new Map(automations.map((item) => [item.id, item]));
   const results: FireAutomationResult[] = [];
   for (let index = 0; index < automations.length; index++) {

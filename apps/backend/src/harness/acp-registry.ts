@@ -20,6 +20,7 @@
  * snapshot lists one version per id, so a mismatched pin refuses rather
  * than silently running a different release.
  */
+import type { HarnessTextSanitizer } from "./event-sanitizer.js";
 import { z } from "zod";
 import { AcpHarness, parseAcpDriverEvent, type AcpHarnessSpec } from "./acp.js";
 import {
@@ -334,8 +335,8 @@ export class AcpRegistryHarness implements AgentHarness {
     return this.delegateFor(input.codingModel).harness.buildArgv(input, workdir);
   }
 
-  parseEvent(line: string) {
-    return parseAcpDriverEvent(line, "ACP registry agent");
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer) {
+    return parseAcpDriverEvent(line, "ACP registry agent", sanitize);
   }
 
   capabilities() {

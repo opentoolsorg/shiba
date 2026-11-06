@@ -4,10 +4,12 @@
  * parseAgentToolInput. The child never scrapes arbitrary prose.
  */
 import { z } from "zod";
-import { AGENT_ROLES, HARNESS_IDS, RUN_SIGNAL_KINDS, runtimeSelectionSchema, testCommandSchema, expectedDeliverablesSchema, executionTargetSchema, isSafeDeliverablePath } from "@shiba/shared";
+import { personalExecutionSnapshotSchema, personalExecutionClaimSchema, runOutputArchivePolicySchema } from "@shiba/shared";
+import { AGENT_ROLES, HARNESS_IDS, MAX_RUN_ATTACHMENTS, RUN_ATTACHMENT_NAME, RUN_SIGNAL_KINDS, runtimeSelectionSchema, testCommandSchema, expectedDeliverablesSchema, executionTargetSchema, isSafeDeliverablePath } from "@shiba/shared";
 import { isApprovedRoute, type ApprovedRoute } from "./model-connections.js";
 import { parseGitHubRepoUrl } from "./security.js";
 import { onboardingSourceSnapshotSchema, draftTaskReferenceSchema } from "@shiba/shared";
+import { prPublicationProposalSchema } from "./pr-publish-approval.js";
 
 export const TOOL_INPUT_MARKER = "SHIBA_AI_COWORKER_CODING_TASK_JSON";
 export const RESULT_MARKER = "SHIBA_AI_COWORKER_CODING_RESULT_JSON";
@@ -22,6 +24,9 @@ const codingTaskInputSchema = z.object({
   task: z.string().min(1),
   baseBranch: z.string().min(1),
   publishPullRequest: z.boolean(),
+  outputArchive: runOutputArchivePolicySchema.optional(),
+  /** Worker-authored. Publishing proposes a separate human action after the sandbox settles. */
+  deferPullRequestPublish: z.boolean().optional(),
   sandboxId: z.string().min(1),
   /** Org context for per-org sandbox settings and model keys. */
   orgId: z.string().min(1).max(128).optional(),
@@ -52,7 +57,7 @@ const codingTaskInputSchema = z.object({
    */
   authAccount: z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/).optional(),
   /** Dashboard user whose ChatGPT subscription credential egress may use. */
-  initiatorUserId: z.string().min(1).max(128).optional(),
+  initiatorUserId: z.string().min(1).max(254).optional(),
   /** Worker-only: short-lived ChatGPT plan access token for codex-subscription runs. */
   chatgptAccessToken: z.string().min(1).optional(),
   chatgptThreadId: z.string().min(1).optional(),
@@ -96,13 +101,25 @@ const codingTaskInputSchema = z.object({
    * bound to `envDigest`. This envelope is persisted in the child's chat
    * history, so the values only ever appear here sealed.
    */
-  /** T72: the human opted in to running the repo's `.shiba/setup.json` initialize. */
-  runSetup: z.boolean().optional(),
   envSealed: z.string().min(1).optional(),
   envDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   /** Orchestrator that owns every artifact, including runs without sealed env. */
-  accessAgent: z.string().min(1).max(200).optional(),
-  envOwner: z.string().min(1).max(200).optional(),
+  accessAgent: z.string().min(1).max(320).optional(),
+  approvalThreadKey: z.string().min(1).max(512).optional(),
+  runRoom: z.object({
+    ownerId: z.string().min(1).max(320),
+    sessionId: z.string().min(1).max(128),
+    runId: z.string().min(1).max(512),
+  }).strict().optional(),
+  envOwner: z.string().min(1).max(320).optional(),
+  /** T72: the human opted in to running the repo's `.shiba/setup.json` initialize. */
+  runSetup: z.boolean().optional(),
+  /** T69: approved files, read from R2 under `attachmentOwner` (the orchestrator name). */
+  attachments: z
+    .array(z.object({ name: z.string().regex(RUN_ATTACHMENT_NAME), sha256: z.string().regex(/^[a-f0-9]{64}$/), size: z.number().int().nonnegative() }))
+    .max(MAX_RUN_ATTACHMENTS)
+    .optional(),
+  attachmentOwner: z.string().min(1).max(320).optional(),
   /**
    * T51: the approved runtime. `"local"` runs on the operator's machine
    * via the dispatch mailbox — admissible only from a dashboard intake
@@ -111,9 +128,14 @@ const codingTaskInputSchema = z.object({
   runtime: runtimeSelectionSchema.optional(),
   /** Pins a local run to one paired machine (hashed into the approved run). */
   targetMachineId: z.string().min(1).max(128).optional(),
+  personalExecution: personalExecutionSnapshotSchema.optional(),
+  personalExecutionClaim: personalExecutionClaimSchema.optional(),
   /** HMAC seal proving the orchestrator parent dispatched this envelope. */
   dispatchApprovalId: z.string().min(1).max(512).optional(),
   dispatchInputHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  dispatchEnvelopeHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  dispatchIssuedAt: z.number().int().nonnegative().optional(),
+  dispatchExpiresAt: z.number().int().positive().optional(),
   dispatchSig: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 
@@ -125,6 +147,16 @@ const codingTaskInputWithRouteSchema = codingTaskInputSchema.superRefine((input,
   if (input.route !== undefined && !isApprovedRoute(input.route)) {
     ctx.addIssue({ code: "custom", message: "route must be an ApprovedRoute (connection/model/harness ids only)." });
   }
+  if (input.personalExecution) {
+    const personal = input.personalExecution;
+    if (input.runtime !== "local" || input.targetMachineId !== personal.machineId || input.harness !== personal.harness ||
+      input.codingModel !== personal.codingModel || input.repoUrl !== personal.repoUrl || input.publishPullRequest ||
+      input.outputArchive || input.runSetup || input.envSealed || input.authAccount || input.chatgptAccessToken || input.forkCheckpointRef || input.testCommand?.length ||
+      input.personalExecutionClaim?.snapshot.grantId !== personal.grantId ||
+      JSON.stringify(input.personalExecutionClaim.snapshot) !== JSON.stringify(personal)) {
+      ctx.addIssue({ code: "custom", message: "Personal execution requires its exact approved local account, machine and claim proof." });
+    }
+  } else if (input.personalExecutionClaim) ctx.addIssue({ code: "custom", message: "Personal claim proof requires an approved personal execution snapshot." });
   const target = input.executionTarget;
   if (target?.kind === "repository") {
     if (input.repoUrl !== target.repoUrl || input.baseBranch !== target.baseBranch) {
@@ -133,8 +165,8 @@ const codingTaskInputWithRouteSchema = codingTaskInputSchema.superRefine((input,
   } else if (target?.kind === "artifact-workspace") {
     if (input.repoUrl !== "") ctx.addIssue({ code: "custom", message: "Artifact-workspace runs must not name a repository." });
     if (input.publishPullRequest) ctx.addIssue({ code: "custom", message: "Artifact-workspace runs cannot publish a pull request." });
-    if (input.runtime !== undefined && input.runtime !== "sandbox") {
-      ctx.addIssue({ code: "custom", message: "Artifact-workspace runs require the isolated sandbox runtime." });
+    if (input.runtime === "local" && target.expectedDeliverables.length === 0) {
+      ctx.addIssue({ code: "custom", message: "Local artifact work requires explicit nonempty deliverables; directory discovery is not supported." });
     }
     if (JSON.stringify(input.expectedDeliverables ?? []) !== JSON.stringify(target.expectedDeliverables)) {
       ctx.addIssue({ code: "custom", message: "Artifact-workspace deliverables must match the frozen execution target." });
@@ -158,6 +190,10 @@ const changedFileSchema = z.object({
 
 const codingTaskResultSchema = z.object({
   status: z.enum(["completed", "error"]),
+  /** Runtime uncertainty survives the structured child boundary without parsing prose. */
+  errorCode: z.enum(["outcome_unknown", "container_lost"]).optional(),
+  /** Worker-captured repository commit before setup or harness mutations. */
+  baseRevision: z.string().regex(/^[a-f0-9]{40}$/).optional(),
   exitCode: z.number(),
   stderrTail: z.string(),
   changedFiles: z.array(z.string()),
@@ -169,6 +205,16 @@ const codingTaskResultSchema = z.object({
     bytes: z.number().int().positive().max(16_384),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
   })).max(8).refine((items) => items.reduce((sum, item) => sum + item.bytes, 0) <= 65_536).optional(),
+  artifactBundle: z.object({
+    path: z.literal("artifacts.zip"),
+    mediaType: z.literal("application/zip"),
+    bytes: z.number().int().min(22).max(8_500_000),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    fileCount: z.number().int().min(0).max(64),
+    downloadUrl: z.string().url().startsWith("https://").max(4096),
+    expiresAt: z.number().int().positive(),
+  }).strict().optional(),
+  publicationProposal: prPublicationProposalSchema.optional(),
   summary: z.string(),
   /**
    * The PR the child published, when it did. Carried on the envelope so the

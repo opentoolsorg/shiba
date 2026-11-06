@@ -41,7 +41,7 @@ function oauthCallbackPage(origin: string, ok: boolean, nonce: string): string {
 <html lang="en">
 <head><meta charset="utf-8"><title>Shiba integrations</title></head>
 <body>
-<p>${ok ? "Connection complete. Returning to Shiba…" : "Connection did not complete. Returning to Shiba…"}</p>
+<p>${ok ? "Sign-in returned. Shiba must verify the owned account before confirming a connection." : "Sign-in did not report completion. Return to Shiba to check the account."}</p>
 <script nonce="${nonce}">
 (function () {
   var payload = ${payload};
@@ -138,7 +138,7 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
 
   if (suffix === "/connections" && request.method === "GET") {
     try {
-      const connections = await provider.listConnections({ userId: owner });
+      const connections = await provider.listConnections({ userId: owner, ...(url.searchParams.get("includeUnavailable") === "1" ? { includeUnavailable: true } : {}) });
       return json({ ok: true, provider: selectedId, connections });
     } catch {
       return json({ ok: false, error: "Integration connections unavailable." }, 503);
@@ -175,22 +175,9 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
   if (suffix === "/execute" && request.method === "POST") {
     const sameOrigin = requireSameOrigin(request);
     if (sameOrigin) return sameOrigin;
-    const body = await readJsonBody(request, 64 * 1024);
-    const toolSlug = typeof body?.toolSlug === "string" ? body.toolSlug.trim() : "";
-    if (!toolSlug) return json({ ok: false, status: "failed", error: "toolSlug is required." }, 400);
-    const args =
-      body?.arguments && typeof body.arguments === "object" && !Array.isArray(body.arguments)
-        ? (body.arguments as Record<string, unknown>)
-        : {};
-    const result = await provider.executeTool({
-      userId: owner,
-      toolSlug,
-      arguments: args,
-      toolkitSlug: typeof body?.toolkitSlug === "string" ? body.toolkitSlug : undefined,
-      sessionId: typeof body?.sessionId === "string" ? body.sessionId : undefined,
-      connectedAccountId: typeof body?.connectedAccountId === "string" ? body.connectedAccountId : undefined,
-    });
-    return json(result, result.ok ? 200 : 503);
+    // An authenticated browser is not an exact-action approval receipt. The
+    // registered employee route owns grants, frozen arguments and consumption.
+    return json({ ok: false, status: "failed", code: "employee_action_approval_required", error: "Use an employee with current app grants and approve the exact action arguments before execution." }, 403);
   }
 
   if (suffix === "/connect" && request.method === "POST") {

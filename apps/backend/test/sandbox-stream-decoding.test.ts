@@ -24,12 +24,51 @@ describe("sandbox output decoding", () => {
     const ctx = {
       container,
       blockConcurrencyWhile: (run: () => Promise<unknown>) => run(),
-      storage: { setAlarm: vi.fn(async () => undefined) },
+      storage: { kv: { get: () => undefined }, setAlarm: vi.fn(async () => undefined) },
     };
     const sandbox = new Sandbox(ctx as unknown as ConstructorParameters<typeof Sandbox>[0], {} as Env);
     const output = vi.fn();
     const result = await sandbox.exec("test", { onOutput: output });
     expect(result).toEqual({ stdout: "€�", stderr: "é", exitCode: 0 });
     expect(output).toHaveBeenCalledWith("stdout", "�");
+  });
+
+  it("drains asynchronous RPC output callbacks before settling the process", async () => {
+    let release: (() => void) | undefined;
+    let started: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const callbackStarted = new Promise<void>((resolve) => { started = resolve; });
+    const processOutput = vi.fn(async () => ({ exitCode: 0 }));
+    const container = {
+      running: true,
+      setInactivityTimeout: vi.fn(async () => undefined),
+      exec: vi.fn(async () => ({
+        stdout: new ReadableStream<Uint8Array>({ start(controller) {
+          controller.enqueue(new TextEncoder().encode("first"));
+          controller.enqueue(new TextEncoder().encode("last"));
+          controller.close();
+        } }),
+        output: processOutput,
+      })),
+    };
+    const ctx = {
+      container,
+      blockConcurrencyWhile: (run: () => Promise<unknown>) => run(),
+      storage: { kv: { get: () => undefined }, setAlarm: vi.fn(async () => undefined) },
+    };
+    const sandbox = new Sandbox(ctx as unknown as ConstructorParameters<typeof Sandbox>[0], {} as Env);
+    const seen: string[] = [];
+    const running = sandbox.exec("test", { onOutput: async (_stream, data) => {
+      started?.();
+      await gate;
+      seen.push(data);
+    } });
+    await callbackStarted;
+    expect(processOutput).not.toHaveBeenCalled();
+    expect(seen).toEqual([]);
+    release?.();
+    expect(await running).toEqual({ stdout: "firstlast", stderr: "", exitCode: 0 });
+    expect(seen).toEqual(["first", "last"]);
+    expect(processOutput).toHaveBeenCalledOnce();
   });
 });

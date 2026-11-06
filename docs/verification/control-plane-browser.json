@@ -1,0 +1,35 @@
+{
+  "verificationDate": "2026-11-03",
+  "surface": "Actual RunLivePanel and room hook in Chromium. Synthetic server WebSocket frames.",
+  "liveCloudflareAuthenticationVerified": false,
+  "liveContainerTransportRecoveryVerified": false,
+  "initial": {
+    "presence": "2 viewers hereAnother viewer is typing",
+    "specialists": "Explorer: completed",
+    "sessionSpecialists": "Reviewer session: completed",
+    "separateSessionSpecialistLabel": true,
+    "diffVisible": true,
+    "xterm": true,
+    "sameTabViewerIdentity": true
+  },
+  "reconnect": {
+    "cursor": 7,
+    "orderedOutput": "BEFORE_DISCONNECT\nDIAGNOSTIC_STDERR\nDURING_DISCONNECT\nAFTER_RECONNECT\n",
+    "duplicateFramesApplied": 0
+  },
+  "navigation": {
+    "sessionBOnly": true,
+    "lateSessionAIgnored": true,
+    "oldDiffAndChildrenCleared": true,
+    "sessionSpecialistsCleared": true,
+    "lateSessionSpecialistIgnored": true
+  },
+  "mobile": {
+    "width": 375,
+    "scrollWidth": 375,
+    "diffVisible": true,
+    "specialistsVisible": true,
+    "sessionSpecialistsVisible": true
+  },
+  "consoleErrors": []
+}

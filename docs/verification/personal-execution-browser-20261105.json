@@ -1,0 +1,275 @@
+{
+  "schemaVersion": 1,
+  "kind": "local-Chromium-personal-component-fixture",
+  "capturedAt": "2026-11-05T04:18:48.164Z",
+  "baseCommit": "95097cd1a18f58c4d78a2f02a42a84aabce35662",
+  "boundary": "Actual personal setup, permission and frozen-approval React components with product CSS and deterministic intercepted HTTP. No actual Worker/authentication/account, pairing token, CLI execution, provider, model, container, Slack, OAuth or external effect. Room queue selector/no-fallback has separate component tests; this browser harness is not the full app.",
+  "sourceAtStart": {
+    "apps/frontend/src/personal-execution-client.ts": "d2c280933552746e884661aab82e91171655eba300001fcb9e7f4533972cc252",
+    "apps/frontend/src/components/PersonalExecutionSetup.tsx": "10129cc947e1e54ca8c828da345532ba77bf468f60aebaf09aafc1f913c1df48",
+    "apps/frontend/src/components/PersonalExecutionControls.tsx": "f34f04292150a22471905bca36ebef79c82423483284c79e23b2e8143a304c24",
+    "apps/frontend/src/components/RoomApprovalReview.tsx": "8202a65622091404cfd8323c2e1206698437d32f2bb4507ac6a8bc54f9ea5195",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df",
+    "packages/shared/src/personal-execution.ts": "68e0b0988a4c9708ce3ef3d42eaa72fa820a8fec4de97fc26efc3e2366ef6cf3"
+  },
+  "assertions": [
+    {
+      "name": "Grant and local account are default-none; mounting starts no action",
+      "status": "passed"
+    },
+    {
+      "name": "Both account/host and hosting consents plus exact model are required; creation does not select or execute",
+      "status": "passed"
+    },
+    {
+      "name": "Pairing requires explicit local CLI/fingerprint and user click; only a fixture code was displayed",
+      "status": "passed"
+    },
+    {
+      "name": "Expired selected grant clears and becomes unavailable without any provider/run call",
+      "status": "passed"
+    },
+    {
+      "name": "Desktop setup fits viewport",
+      "status": "passed"
+    },
+    {
+      "name": "390px setup dark fits viewport",
+      "status": "passed"
+    },
+    {
+      "name": "390px setup light fits viewport",
+      "status": "passed"
+    },
+    {
+      "name": "Frozen approval displays native account, machine/revision, grant/expiry, model/repository and host access without deployment fallback",
+      "status": "passed"
+    },
+    {
+      "name": "390px frozen approval light fits viewport",
+      "status": "passed"
+    },
+    {
+      "name": "Frozen task requires explicit human review and exact-hash rejection; no automatic task approval",
+      "status": "passed"
+    },
+    {
+      "name": "Local permission deny binds full action hash/expiry/versions and consumes the first click",
+      "status": "passed"
+    },
+    {
+      "name": "Minimal stale-grant own-process projection permits Stop without allowing a tool request",
+      "status": "passed"
+    },
+    {
+      "name": "390px permission control light fits viewport",
+      "status": "passed"
+    },
+    {
+      "name": "No fixture pairing code/account selection is persisted in browser storage",
+      "status": "passed"
+    },
+    {
+      "name": "All API traffic is confined to fixture personal controls and exact room approval",
+      "status": "passed"
+    },
+    {
+      "name": "Reviewed frontend and shared personal source bytes remain unchanged during the browser run",
+      "status": "passed"
+    }
+  ],
+  "api": [
+    {
+      "path": "/api/personal-execution/harness",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/computers",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/grants",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/grants",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "machineId": "machine-personal",
+        "machineRevision": 3,
+        "harness": "codex",
+        "accountFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "authVersion": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "codingModel": "openai/fixture-model",
+        "repoUrl": "https://github.com/owner/public-repo",
+        "expiresAt": 1793855936948,
+        "consent": true,
+        "hostingConsent": true
+      }
+    },
+    {
+      "path": "/api/personal-execution/computers",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/grants",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/pairing-token",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "harness": "codex",
+        "accountFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "path": "/api/personal-execution/computers",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/grants",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/harness",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/computers",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/grants",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/harness",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/computers",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/grants",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/collaboration/rooms/room-fixture/handoffs/handoff-fixture/approval",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/collaboration/rooms/room-fixture/handoffs/handoff-fixture/approval",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "expectedInputHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "reviewed": true,
+        "approved": false
+      }
+    },
+    {
+      "path": "/api/personal-execution/harness",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/harness/decide",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "sandboxId": "personal-fixture-run",
+        "requestId": "permission-fixture",
+        "actionHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "expiresAt": 1793852628168,
+        "grantVersion": 1,
+        "machineRevision": 3,
+        "decision": "deny"
+      }
+    },
+    {
+      "path": "/api/personal-execution/harness",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/harness",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    },
+    {
+      "path": "/api/personal-execution/harness/control",
+      "method": "POST",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "sandboxId": "personal-fixture-run",
+        "grantVersion": 1,
+        "machineRevision": 3,
+        "interrupt": true
+      }
+    },
+    {
+      "path": "/api/personal-execution/harness",
+      "method": "GET",
+      "workspaceId": "ws_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": null
+    }
+  ],
+  "blockedExternal": [],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "screenshots": [
+    "personal-execution-browser-20261105-setup-desktop-dark.png",
+    "personal-execution-browser-20261105-setup-390-light.png",
+    "personal-execution-browser-20261105-approval-390-light.png",
+    "personal-execution-browser-20261105-permissions-390-light.png"
+  ],
+  "fontBoundary": "System font fallback. External network blocked. No external TLS or live account acceptance.",
+  "sourceAtEnd": {
+    "apps/frontend/src/personal-execution-client.ts": "d2c280933552746e884661aab82e91171655eba300001fcb9e7f4533972cc252",
+    "apps/frontend/src/components/PersonalExecutionSetup.tsx": "10129cc947e1e54ca8c828da345532ba77bf468f60aebaf09aafc1f913c1df48",
+    "apps/frontend/src/components/PersonalExecutionControls.tsx": "f34f04292150a22471905bca36ebef79c82423483284c79e23b2e8143a304c24",
+    "apps/frontend/src/components/RoomApprovalReview.tsx": "8202a65622091404cfd8323c2e1206698437d32f2bb4507ac6a8bc54f9ea5195",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df",
+    "packages/shared/src/personal-execution.ts": "68e0b0988a4c9708ce3ef3d42eaa72fa820a8fec4de97fc26efc3e2366ef6cf3"
+  },
+  "status": "passed",
+  "browser": "154.0.8037.57",
+  "completedAt": "2026-11-05T04:19:09.003Z",
+  "browserDetectedDefect": "Actual Chromium initially reproduced an unbound native fetch receiver failure. The default client now binds globalThis.fetch to globalThis; a unit regression preserves that contract. Fixture-only select locators were corrected before the passing run.",
+  "fixtureDriver": "Disposable intercepted-HTTP harness at /tmp/shiba-personal-ui-qa-20261105; not a deployed app or real-account test."
+}

@@ -9,6 +9,10 @@ const accessories: Record<EmployeeRole, ReactNode> = {
   design: <><path d="m35 50 13-18 4 3-13 18-5 2zM46 35l4 3" /><path d="M48 44h10v12H48zM48 48h10M53 48v8" /></>,
   research: <><circle cx="47" cy="39" r="9" /><path d="m53 46 7 9M43 39a4 4 0 0 1 4-4" /></>,
   operations: <><path d="M12 32v-5a20 20 0 0 1 40 0v8M12 30h5v9h-5zM47 30h5v9h-5zM50 39v4h-9" /><rect x="36" y="43" width="19" height="15" rx="2" /><path d="m40 49 2 2 4-4M48 49h3M40 55h11" /></>,
+  gtm: <><path d="m39 52 5-15 11-6-2 13-12 10zM47 38l4 4M39 48l-5 1 5-7M47 51l-1 7 6-8M35 54l-3 4M39 57l-1 3" /><circle cx="49" cy="38" r="2" /></>,
+  hr: <><circle cx="44" cy="39" r="4" /><circle cx="55" cy="43" r="3" /><path d="M37 54v-4a7 7 0 0 1 14 0v4zM51 48a6 6 0 0 1 10 5v1h-7M27 45l3 3 5-6" /></>,
+  finance: <><rect x="37" y="34" width="21" height="24" rx="2" /><path d="M41 38h13v5H41zM41 48h2M48 48h2M55 48h0M41 53h2M48 53h2M55 53h0" /></>,
+  qa: <><rect x="37" y="35" width="20" height="20" rx="3" /><path d="M43 35v-3h8v3" /><path d="m42 45 3 3 7-7M42 51h10" /></>,
   custom: <><path d="m25 43 7 7 7-7" /><rect x="22" y="48" width="20" height="10" rx="2" /><path d="M27 53h10" /></>,
 };
 

@@ -12,6 +12,7 @@ const authState = vi.hoisted(() => ({
 
 vi.mock("../src/request-auth.js", () => ({
   isAuthorizedRequest: vi.fn(async () => authState.dashboard),
+  resolveUserId: vi.fn(async () => authState.dashboard ? "owner@example.test" : null),
 }));
 
 vi.mock("../src/v1-auth.js", async (importOriginal) => {
@@ -27,6 +28,23 @@ describe("custom agent archive and version HTTP contracts", () => {
   const request = (path: string, method = "GET", body?: unknown) => new Request(`https://x/api/custom-agents${path}`, {
     method, headers: { "content-type": "application/json", ...(authState.principal ? { authorization: "Bearer api-key" } : { origin: "https://x" }) },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+
+  it.each(["gtm", "hr", "finance"])("persists optional %s provenance through creation and a renamed profile", async (roleTemplateId) => {
+    authState.dashboard = true;
+    const bindings = env();
+    const profile = { ...config, name: "My helper", roleTemplateId, mascotPreset: "climbing" };
+    const createdResponse = await handleCustomAgents(request("", "POST", { slug: "my-custom-helper", config: profile }), bindings);
+    expect(createdResponse?.status).toBe(201);
+    const { agent } = await createdResponse!.json() as { agent: { id: string; config: Record<string, unknown> } };
+    expect(agent.config).toEqual(profile);
+    const edited = { ...profile, name: "Renamed helper", mascotPreset: "riding" };
+    expect((await handleCustomAgents(request(`/${agent.id}`, "PATCH", { config: edited, expectedVersion: 1 }), bindings))?.status).toBe(200);
+    const stored = await getCustomAgentById(bindings, "self-hosted", agent.id);
+    expect(stored).toMatchObject({ slug: "my-custom-helper", version: 2, config: edited });
+    expect(stored?.config).not.toHaveProperty("connectionId");
+    expect(stored?.config).not.toHaveProperty("toolScopes");
+    expect(stored?.config).not.toHaveProperty("approvalPolicy");
   });
 
   it("allows API-key writes without Origin but requires Origin for ambient sessions", async () => {

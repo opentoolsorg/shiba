@@ -21,7 +21,7 @@ export const CURATED_MCP_VENDORS: CuratedMcpVendor[] = curatedMcpVendorSchema.ar
     endpoint: "https://mcp.stripe.com",
     trustedHost: "mcp.stripe.com",
     docsUrl: "https://docs.stripe.com/mcp",
-    sensitiveToolPatterns: ["^create_", "^update_", "^cancel_", "^refund_", "^delete_"],
+    sensitiveToolPatterns: ["^create_", "^update_", "^cancel_", "^refund_", "^delete_", "^stripe_api_write$", "^convert_currency$", "^send_money$", "^setup_recipient$", "^transfer_money$", "^atlas_company_formation$", "^send_stripe_feedback$"],
   },
   {
     catalogId: "notion",
@@ -58,9 +58,9 @@ export const CURATED_MCP_VENDORS: CuratedMcpVendor[] = curatedMcpVendorSchema.ar
   {
     catalogId: "jira-atlassian",
     name: "Atlassian",
-    endpoint: "https://mcp.atlassian.com/mcp",
+    endpoint: "https://mcp.atlassian.com/v2/mcp",
     trustedHost: "mcp.atlassian.com",
-    docsUrl: "https://developer.atlassian.com/cloud/mcp/",
+    docsUrl: "https://github.com/atlassian/atlassian-mcp-server",
     sensitiveToolPatterns: ["^create_", "^update_", "^delete_", "^transition_"],
   },
 ]);

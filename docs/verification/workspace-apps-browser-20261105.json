@@ -1,0 +1,84 @@
+{
+  "kind": "local-Chromium-workspace-app-component-fixture",
+  "startedAt": "2026-11-05T04:03:07.180Z",
+  "base": "http://127.0.0.1:5204",
+  "boundary": "Actual React components and stylesheet in Chromium with deterministic intercepted HTTP and a stub popup. No real authentication, Cloudflare, OAuth account, OpenConnector service, provider action, model, Slack or external execution.",
+  "sourceAtStart": {
+    "apps/frontend/src/workspace-integrations-client.ts": "2257f110ba08dcb242f2e472c8e73e2fa242bfc78118d9754f69b2cc1a5de56c",
+    "apps/frontend/src/workspace-integration-oauth.ts": "f87c6fd588c0ed31077a42682a180f87302d32d1439a860d5a9b3e5d878a7a7f",
+    "apps/frontend/src/components/WorkspaceConnectorsPanel.tsx": "a2eacfd66311b4f2031a9359d2645159033e2b098e35ba7e6a1989a444abc3a0",
+    "apps/frontend/src/components/WorkspaceSharedAppAccounts.tsx": "30d0bdefb02811aed8135b3b1f97eaade22db3fbc76614e3ffc91b8f84d35576",
+    "apps/frontend/src/components/WorkspaceAppGrantEditor.tsx": "684b6e0579759192828239c04e483a942086253ee8e576fc25bc2fc608d70d9d",
+    "apps/frontend/src/components/WorkspaceAppActions.tsx": "c2122d951e32963eb4556d8d822c23bc1e6b851f1496037020bee5991e35dd24",
+    "apps/frontend/src/components/IntegrationsBrowseCatalogDialog.tsx": "68cdaf52c55df3f31175a03c0d0ca120d7a3792626dd3993f6241a306768328b",
+    "apps/frontend/src/components/IntegrationsView.tsx": "c08b361bf585e5ada70a53e5d2d6482168f4b32644c7e2e65f9eb17a32cd7136",
+    "packages/shared/src/workspace-integrations.ts": "19d53cc56179b8a9705245170fdca63f67a664cb4101bd32f97e6a23b601f541"
+  },
+  "checks": [
+    "Workspace branch mounts with zero personal integration/setup/mailbox API calls",
+    "Catalog keyboard focus wraps in both directions; Escape restores opener",
+    "Explicit audience checkbox is required before the isolated fixture sign-in popup opens",
+    "Popup return reconciles exact pending receipt/version/fingerprint with workspace header",
+    "Account configuration, upstream authorization, unknown action health and explicit grants remain distinct",
+    "Manager explicitly grants exact employee version and member grant version; Finance label does not confer authority",
+    "Member sees only fixture-granted account and cannot manage consent, grants or personal setup",
+    "Member requests exact registered action/arguments without execution or self-approval",
+    "Manager approval records a decision and cannot execute as a different requester",
+    "Original member requester explicitly executes exactly once in fixture; no model or provider endpoint is contacted",
+    "Unknown execution outcome blocks new requests and execution retries",
+    "Lost execute response blocks both approved cards and new work on the account until explicit terminal reconciliation",
+    "Held workspace A consent response cannot navigate or reconcile a retained popup in workspace B",
+    "390px accounts and grant editor have no horizontal document overflow",
+    "Denied scoped catalog access closes the dialog and clears cached accounts and action data",
+    "Revocation removes cached account, grants and action results without personal fallback",
+    "No unexpected API, external network, browser console or page errors",
+    "Reviewed frontend and shared wire sources remained frozen throughout Chromium test"
+  ],
+  "screenshots": [
+    "workspace-apps-browser-20261105-manager-desktop.png",
+    "workspace-apps-browser-20261105-accounts-390.png",
+    "workspace-apps-browser-20261105-permissions-390.png"
+  ],
+  "unexpectedApi": [],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "blockedExternal": [],
+  "expectedNetworkFailures": [
+    "Fixture execute response deliberately lost after committed receipt"
+  ],
+  "sourceAtEnd": {
+    "apps/frontend/src/workspace-integrations-client.ts": "2257f110ba08dcb242f2e472c8e73e2fa242bfc78118d9754f69b2cc1a5de56c",
+    "apps/frontend/src/workspace-integration-oauth.ts": "f87c6fd588c0ed31077a42682a180f87302d32d1439a860d5a9b3e5d878a7a7f",
+    "apps/frontend/src/components/WorkspaceConnectorsPanel.tsx": "a2eacfd66311b4f2031a9359d2645159033e2b098e35ba7e6a1989a444abc3a0",
+    "apps/frontend/src/components/WorkspaceSharedAppAccounts.tsx": "30d0bdefb02811aed8135b3b1f97eaade22db3fbc76614e3ffc91b8f84d35576",
+    "apps/frontend/src/components/WorkspaceAppGrantEditor.tsx": "684b6e0579759192828239c04e483a942086253ee8e576fc25bc2fc608d70d9d",
+    "apps/frontend/src/components/WorkspaceAppActions.tsx": "c2122d951e32963eb4556d8d822c23bc1e6b851f1496037020bee5991e35dd24",
+    "apps/frontend/src/components/IntegrationsBrowseCatalogDialog.tsx": "68cdaf52c55df3f31175a03c0d0ca120d7a3792626dd3993f6241a306768328b",
+    "apps/frontend/src/components/IntegrationsView.tsx": "c08b361bf585e5ada70a53e5d2d6482168f4b32644c7e2e65f9eb17a32cd7136",
+    "packages/shared/src/workspace-integrations.ts": "19d53cc56179b8a9705245170fdca63f67a664cb4101bd32f97e6a23b601f541"
+  },
+  "finishedAt": "2026-11-05T04:03:36.914Z",
+  "status": "passed",
+  "requestSummary": {
+    "total": 44,
+    "allWorkspaceScoped": true,
+    "paths": [
+      "/api/custom-agents",
+      "/api/workspace-integrations/approvals",
+      "/api/workspace-integrations/approvals/wca_22222222222222222222222222222222/decision",
+      "/api/workspace-integrations/approvals/wca_22222222222222222222222222222222/execute",
+      "/api/workspace-integrations/catalog",
+      "/api/workspace-integrations/connect",
+      "/api/workspace-integrations/connections",
+      "/api/workspace-integrations/connections/wci_11111111111111111111111111111111/actions",
+      "/api/workspace-integrations/connections/wci_11111111111111111111111111111111/actions/request",
+      "/api/workspace-integrations/connections/wci_11111111111111111111111111111111/grants",
+      "/api/workspace-integrations/connections/wci_11111111111111111111111111111111/reconcile"
+    ],
+    "methods": [
+      "GET",
+      "POST",
+      "PUT"
+    ]
+  }
+}
