@@ -1,4 +1,5 @@
 import { randomHex } from "./mailbox-store.js";
+import { sha256Hex } from "./agent-tokens.js";
 import type { AuditEnv } from "./audit.js";
 import { initAudit } from "./audit.js";
 import { teamSkillWriteGuard, type SkillMutationOptions } from "./team-skill-grant.js";
@@ -35,6 +36,7 @@ export interface SkillPin {
   version: number;
   name: string;
   sourceUrl?: string;
+  contentSha256: string;
 }
 
 const TABLES = [
@@ -332,6 +334,7 @@ export async function resolveSkillPins(
       version: skill.version,
       name: skill.content.name,
       ...(skill.content.sourceUrl ? { sourceUrl: skill.content.sourceUrl } : {}),
+      contentSha256: await sha256Hex(skill.content.instructions),
     };
     pins.push(pin);
     sections.push([
@@ -344,21 +347,26 @@ export async function resolveSkillPins(
   return { pins, instructions: sections.length ? `Skills:\n${sections.join("\n\n")}` : "" };
 }
 
-/** Revalidate approved pins immediately before a queued run starts execution. */
+/**
+ * Revalidate approved pins immediately before a queued run starts execution.
+ * A digest, when the approval recorded one, must still match the immutable
+ * version row so the run executes exactly the text the human approved.
+ */
 export async function areSkillPinsActive(
   env: AuditEnv,
   orgId: string,
-  pins: readonly { skillId: string; version: number }[],
+  pins: readonly { skillId: string; version: number; contentSha256?: string }[],
 ): Promise<boolean> {
   if (pins.length > 5 || new Set(pins.map((pin) => pin.skillId)).size !== pins.length) return false;
   if (pins.length === 0) return true;
   await ensureTables(env);
   for (const pin of pins) {
     const row = await env.AGENT_AUDIT.prepare(
-      `SELECT 1 AS active FROM skills
-       WHERE id = ? AND org_id = ? AND status = 'active' AND version = ? AND active_version = ?`,
-    ).bind(pin.skillId, orgId, pin.version, pin.version).first();
+      `SELECT v.instructions FROM skills s JOIN skill_versions v ON v.skill_id = s.id AND v.version = s.active_version
+       WHERE s.id = ? AND s.org_id = ? AND s.status = 'active' AND s.version = ? AND s.active_version = ?`,
+    ).bind(pin.skillId, orgId, pin.version, pin.version).first<{ instructions: string }>();
     if (!row) return false;
+    if (pin.contentSha256 !== undefined && await sha256Hex(row.instructions) !== pin.contentSha256) return false;
   }
   return true;
 }
