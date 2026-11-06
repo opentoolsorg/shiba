@@ -111,6 +111,7 @@ function requireSameOrigin(request: Request): Response | null {
   return null;
 }
 
+/** Authenticate and dispatch provider catalog, connection, OAuth, and action routes. */
 export async function handleIntegrationProviderRoutes(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== PROVIDER_BASE && !url.pathname.startsWith(`${PROVIDER_BASE}/`)) {

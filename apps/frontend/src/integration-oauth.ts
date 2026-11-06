@@ -152,6 +152,7 @@ export function useIntegrationOAuth(options: {
       window.removeEventListener("focus", focus);
     };
   }, [options.actorId]);
+  /** Start OAuth while preventing an existing active account from confirming new consent. */
   const beginConnect = useCallback(
     async (item: IntegrationProviderCatalogItem, options: { reconnect?: boolean } = {}) => {
       if (pending.current || latest.current.actorId === null) return;

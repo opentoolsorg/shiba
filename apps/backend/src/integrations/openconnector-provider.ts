@@ -135,6 +135,7 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     return parsed.data;
   }
 
+  /** Classify OAuth setup from authenticated metadata; failures remain unverified, never connectable. */
   private async oauthSetup(service: string): Promise<IntegrationProviderSetupState> {
     if (!SERVICE.test(service)) return "unsupported";
     try {
@@ -197,6 +198,7 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     }));
   }
 
+  /** Return a searchable catalog, probing only bounded metadata for readiness-filtered pages. */
   async listCatalog(query: IntegrationCatalogQuery): Promise<IntegrationCatalogPage> {
     const providers = this.parse(providersSchema, await this.request("/api/providers", "admin"));
     const connected = new Map((await this.listConnections({ userId: query.userId, ...(query.workspaceId !== undefined ? { workspaceId: query.workspaceId } : {}) })).map((row) => [row.providerKey, row]));
