@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
-import type { IntegrationProviderCatalogItem } from "@shiba/shared";
+import type { IntegrationProviderCatalogItem, IntegrationProviderSetupState } from "@shiba/shared";
 import { ToneChip } from "./ToneChip";
 import { RoleCapabilityFilter } from "./RoleCapabilityFilter";
 import { integrationRecommendedForRole, type CapabilityRoleFilter } from "../role-capability-recommendations";
@@ -14,6 +14,24 @@ function safeLogoUrl(value: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+const READINESS_OPTIONS: readonly [IntegrationProviderSetupState | "all", string][] = [
+  ["all", "All services"],
+  ["ready", "Ready to connect"],
+  ["needs_configuration", "Needs OAuth configuration"],
+  ["unsupported", "No OAuth sign-in"],
+  ["unverified", "Readiness unverified"],
+];
+
+/** Labels come from provider setup metadata only; a listing is never shown as live. */
+export function catalogReadinessLabel(item: IntegrationProviderCatalogItem): string {
+  if (item.isConnected) return "Account configured";
+  if (item.connectable) return "Sign-in available";
+  if (item.setupState === "needs_configuration") return "OAuth app setup required";
+  if (item.setupState === "unverified") return "Readiness unverified";
+  if (item.setupState === "unsupported") return item.authTypes?.length ? `No OAuth sign-in (${item.authTypes.join(", ")})` : "No OAuth sign-in";
+  return "Operator setup required";
 }
 
 type BrowseProps = { open: boolean; actorId?: string | null; workspaceId?: string; onClose: () => void; onAccessLost?: () => void; onConnect?: (item: IntegrationProviderCatalogItem) => void; connectingKey?: string | null; linkedConnectorKeys?: ReadonlySet<string>; onLinkExisting?: (item: IntegrationProviderCatalogItem) => void; linkingKey?: string | null; linkActionLabel?: string; roleFilter?: CapabilityRoleFilter };
@@ -42,6 +60,8 @@ function ScopedBrowseCatalog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<CapabilityRoleFilter>(roleFilter);
+  const [readiness, setReadiness] = useState<IntegrationProviderSetupState | "all">("all");
+  const [totals, setTotals] = useState<{ total: number; oauthCapable: number } | null>(null);
   const controller = useRef<AbortController | null>(null), epoch = useRef(0), mounted = useRef(true), visible = useRef(open);
   const dialog = useRef<HTMLDivElement>(null), close = useRef(onClose), accessLost = useRef(onAccessLost); close.current = onClose; accessLost.current = onAccessLost;
   visible.current = open;
@@ -85,6 +105,7 @@ function ScopedBrowseCatalog({
         params.set("limit", "20");
         if (opts.query.trim()) params.set("query", opts.query.trim());
         if (!opts.reset && opts.nextCursor) params.set("cursor", opts.nextCursor);
+        if (readiness !== "all") params.set("readiness", readiness);
         const response = await fetch(`${workspaceId ? "/api/workspace-integrations/catalog" : "/api/integrations/provider/catalog"}?${params.toString()}`, {
           credentials: "same-origin",
           cache: "no-store",
@@ -101,6 +122,8 @@ function ScopedBrowseCatalog({
           nextCursor?: string | null;
           hasMore?: boolean;
           workspaceId?: string;
+          total?: number;
+          oauthCapable?: number;
         };
         if (!active() || generation !== epoch.current || abort.signal.aborted) return;
         if (!Array.isArray(body.items)) throw new Error("Invalid provider catalog response.");
@@ -109,13 +132,14 @@ function ScopedBrowseCatalog({
         setItems((prev) => [...new Map((opts.reset ? pageItems : [...prev, ...pageItems]).map((item) => [item.providerKey, item])).values()]);
         setCursor(body.nextCursor ?? null);
         setHasMore(Boolean(body.hasMore));
+        setTotals(typeof body.total === "number" && typeof body.oauthCapable === "number" ? { total: body.total, oauthCapable: body.oauthCapable } : null);
       } catch (loadError) {
         if (active() && generation === epoch.current && !abort.signal.aborted) { setItems([]); setHasMore(false); setError(loadError instanceof Error ? loadError.message : String(loadError)); }
       } finally {
         if (active() && generation === epoch.current && !abort.signal.aborted) setLoading(false);
       }
     },
-    [active, actorId, workspaceId],
+    [active, actorId, workspaceId, readiness],
   );
 
   useEffect(() => {
@@ -162,7 +186,13 @@ function ScopedBrowseCatalog({
             aria-label="Search connector catalog"
             className="w-full rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-sm"
           />
-          <div className="mt-2"><RoleCapabilityFilter value={role} onChange={setRole} label="Catalog recommendations for role" /></div>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <RoleCapabilityFilter value={role} onChange={setRole} label="Catalog recommendations for role" />
+            <select aria-label="Filter by readiness" value={readiness} onChange={(event) => setReadiness(event.target.value as IntegrationProviderSetupState | "all")} className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-2 py-1 text-xs">
+              {READINESS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </div>
+          {totals ? <p className="mt-2 text-[11px] text-[var(--muted-foreground-2)]">{totals.total} provider services match · {totals.oauthCapable} declare OAuth sign-in. OAuth client readiness is checked per loaded page.</p> : null}
           {error ? <p className="mt-2 text-xs text-[var(--warning-fg)]">{error}</p> : null}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -186,7 +216,7 @@ function ScopedBrowseCatalog({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[13px] font-semibold">{item.name}</span>
-                      <ToneChip tone={item.isConnected ? "ok" : "neutral"} label={item.isConnected ? "Account configured" : item.connectable ? "Sign-in available" : item.setupState === "needs_configuration" ? "OAuth app setup required" : item.setupState === "unverified" ? "Readiness unverified" : "Operator setup required"} />
+                      <ToneChip tone={item.isConnected ? "ok" : "neutral"} label={catalogReadinessLabel(item)} />
                       {item.priority === "P0" ? (
                         <span className="font-mono text-[10px] text-[var(--muted-foreground-2)]">P0</span>
                       ) : null}
