@@ -85,6 +85,9 @@ import { MemoryPanel, type MemoryCounts } from "./components/MemoryPanel";
 import { InsightsPanel } from "./components/InsightsPanel";
 import { AutomationsPanel, type AutomationRecord } from "./components/AutomationsView";
 import { TaskComposer } from "./components/TaskComposer";
+import { BotLaunchPanel } from "./components/BotLaunchPanel";
+import { BotRunWorkspace } from "./components/BotRunWorkspace";
+import { useBotReadiness } from "./bot-readiness";
 import { TaskHistory, type TaskHistoryItem } from "./components/TaskHistory";
 import { PullRequestCard } from "./components/PullRequestCard";
 import { ReviewFindings } from "./components/ReviewFindings";
@@ -1189,6 +1192,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     setCodingModel(profile.config.codingModel ?? "");
     setConnectionId(profile.config.connectionId ?? "");
     setRepoUrl(profile.config.defaultRepoUrl ?? "");
+    // A bot without a repository works in an artifact workspace by default.
+    const artifactOnly = !profile.config.defaultRepoUrl?.trim();
+    setExecutionTargetKind(artifactOnly ? "artifact-workspace" : "repository");
+    if (artifactOnly && profile.config.expectedDeliverables?.length) {
+      setArtifactDeliverables(profile.config.expectedDeliverables.join("\n"));
+    }
     setPublishPullRequest(false);
     setRunTarget("sandbox");
   }, []);
@@ -2565,6 +2574,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setSelectedRunId(null);
       setCustomAgentId(profile.id);
       applyThreadProfile(profile);
+      setConversationMode("work");
       setNotice(null);
       refreshCustomAgents();
       setMainView("threads");
@@ -2576,7 +2586,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     } finally {
       threadCreationPending.current = false;
     }
-  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, teamWorkspaceId, privateDataEnabled]);
+  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, setConversationMode, teamWorkspaceId, privateDataEnabled]);
 
   const startSidebarAgentThread = async (profile?: CustomAgentWire) => {
     const creationScope = activeSurfaceScopeRef.current;
@@ -2606,6 +2616,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     }
   };
   const activeEmployee = customAgentRecords.find((profile) => profile.id === customAgentId);
+  const [readinessRefresh, setReadinessRefresh] = useState(0);
+  const botReadiness = useBotReadiness(
+    conversationMode === "work" && mainView === "threads" ? activeEmployee?.id ?? "" : "",
+    activeEmployee?.version,
+    teamWorkspaceId || undefined,
+    readinessRefresh,
+  );
   useEffect(() => {
     if (mainView !== "tasks" || customAgentId || customAgentRecords.length === 0) return;
     applyThreadProfile(customAgentRecords[0]!);
@@ -3506,6 +3523,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   ) : null}
                   {reviewThreadId ? (
                     <div className="mt-4 flex flex-col gap-3">
+                      <BotRunWorkspace run={reviewRun} botName={activeEmployee?.config.name}>
                       <RunProgressCard
                         run={reviewRun}
                         sessionId={selectedSessionId}
@@ -3528,6 +3546,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         sessionId={selectedSessionId}
                         reviewAfterPublish={reviewRun?.reviewAfterPublish === true}
                       />
+                      </BotRunWorkspace>
                     </div>
                   ) : null}
                 </div>
@@ -3594,6 +3613,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       />
                     </div>
                   ) : (
+                  <>
+                  {activeEmployee ? (
+                    <BotLaunchPanel
+                      botName={activeEmployee.config.name}
+                      state={botReadiness}
+                      onFix={(view) => openView(view)}
+                      onRecheck={() => setReadinessRefresh((value) => value + 1)}
+                    />
+                  ) : null}
                   <TaskComposer
                     blockedReason={onboardingExecutionIssue}
                     appToolsWork={appToolsWork}
@@ -3684,6 +3712,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     onSubmit={submitTask}
                     onClear={() => setShowClearModal(true)}
                   />
+                  </>
                   )}
                 </div>
               </main>
