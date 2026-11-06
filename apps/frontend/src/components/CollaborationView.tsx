@@ -1622,7 +1622,6 @@ function ScopedCollaborationView({
                             const next = event.target.value as "repository" | "artifact-workspace";
                             setWorkDestination(next);
                             setHandoffRequestId("");
-                            if (next === "artifact-workspace") setExecutionTarget("sandbox");
                           }}
                           className="min-h-11 rounded-none border border-[var(--line)] bg-[var(--card)] px-2 py-2 text-xs"
                         >
@@ -1647,8 +1646,8 @@ function ScopedCollaborationView({
                               className="min-h-11 rounded-none border border-[var(--line)] bg-[var(--card)] px-2 py-2 text-xs"
                             />
                             <p className="text-[10px] text-[var(--ink-2)]">
-                              Repo-free work runs in the cloud sandbox and must produce the listed
-                              files.
+                              Repo-free work runs on the selected execution target and must produce
+                              the listed files.
                             </p>
                           </>
                         ) : (
@@ -1664,24 +1663,29 @@ function ScopedCollaborationView({
                               placeholder="Repository URL (uses employee default when blank)"
                               className="min-h-11 rounded-none border border-[var(--line)] bg-[var(--card)] px-2 py-2 text-xs"
                             />
-                            <select
-                              aria-label="Employee execution target"
-                              value={executionTarget}
-                              onChange={(event) => setExecutionTarget(event.target.value)}
-                              className="min-h-11 rounded-none border border-[var(--line)] bg-[var(--card)] px-2 py-2 text-xs"
-                            >
-                              <option value="sandbox">Cloud sandbox</option>
-                              {computers.map((computer) => (
-                                <option
-                                  key={computer.machineId}
-                                  value={`local:${computer.machineId}`}
-                                >
-                                  Local · {computer.hostname}
-                                  {computer.status === "busy" ? " (busy)" : ""}
-                                </option>
-                              ))}
-                            </select>
                           </>
+                        )}
+                        {!personalExecutionMode && (
+                          <select
+                            aria-label="Employee execution target"
+                            value={executionTarget}
+                            onChange={(event) => {
+                              setExecutionTarget(event.target.value);
+                              setHandoffRequestId("");
+                            }}
+                            className="min-h-11 rounded-none border border-[var(--line)] bg-[var(--card)] px-2 py-2 text-xs"
+                          >
+                            <option value="sandbox">Cloud sandbox</option>
+                            {computers.map((computer) => (
+                              <option
+                                key={computer.machineId}
+                                value={`local:${computer.machineId}`}
+                              >
+                                Local · {computer.hostname}
+                                {computer.status === "busy" ? " (busy)" : ""}
+                              </option>
+                            ))}
+                          </select>
                         )}
                         <p className="text-[10px] text-[var(--ink-2)]">
                           Employee app-tool grants cover only supported Shiba Worker actions. Coding

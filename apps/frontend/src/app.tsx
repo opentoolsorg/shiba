@@ -589,7 +589,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // Only these harnesses run locally; anything else would show as a
   // deployment pin the backend then refuses.
   useEffect(() => {
-    if (executionTargetKind === "artifact-workspace" && runTarget === "local") setRunTarget("sandbox");
     if (runTarget === "local" && executionTargetKind === "repository" && !customAgentId && !["opencode", "claude-code", "codex"].includes(harness))
       setHarness("opencode");
   }, [runTarget, harness, customAgentId, executionTargetKind]);
@@ -3624,7 +3623,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     onExecutionTargetKindChange={(value) => {
                       setExecutionTargetKind(value);
                       if (value === "artifact-workspace") {
-                        setRunTarget("sandbox");
                         setPublishPullRequest(false);
                         setRunSetup(false);
                       }

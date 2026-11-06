@@ -134,6 +134,7 @@ import { sealChildDispatch } from "../child-dispatch.js";
 import { openRunEnv } from "../run-env-seal.js";
 import { verifyRunAttachments } from "../run-attachments.js";
 import { COMPUTER_PREVIEW_MESSAGE, resolveRuntimeName } from "../runtime.js";
+import { freezeRuntimeForApproval } from "../runtime-intake.js";
 import { assertRunPreflight } from "../run-preflight.js";
 import { readModelConfig, resolveCodingRoute, revalidateCodingRoute } from "../model-policy.js";
 import { initiatorUserIdFromOrchestratorName } from "../subscription-routing.js";
@@ -3107,13 +3108,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         { status: 400 },
       );
     }
-    if (executionTarget?.kind === "artifact-workspace" && runtimeRawEarly === "local") {
-      return Response.json({ error: "Artifact-workspace runs require the isolated sandbox runtime." }, { status: 400 });
+    if (executionTarget?.kind === "artifact-workspace" && runtimeRawEarly === "local" && !expectedDeliverables?.length) {
+      return Response.json({ error: "Local artifact work requires nonempty approved deliverables." }, { status: 400 });
     }
     const runtimeForPreflight = runtimeRawEarly === "local"
       ? ("local" as const)
       : executionTarget?.kind === "artifact-workspace"
-        ? ("sandbox" as const)
+        ? freezeRuntimeForApproval(this.env, { runtime: runtimeRawEarly, executionTarget })
         : undefined;
     try {
       const resolved = await this.resolveRoute({
@@ -4046,7 +4047,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (input.executionTarget?.kind === "artifact-workspace") {
       if (input.repoUrl || input.publishPullRequest) throw new Error("Ephemeral workspaces cannot publish repository changes.");
-      input = { ...input, repoUrl: "", expectedDeliverables: input.executionTarget.expectedDeliverables, runtime: "sandbox" };
+      if (input.runtime === "local" && !input.executionTarget.expectedDeliverables.length) throw new Error("Local artifact work requires nonempty approved deliverables.");
+      input = { ...input, repoUrl: "", expectedDeliverables: input.executionTarget.expectedDeliverables,
+        runtime: freezeRuntimeForApproval(this.env, { runtime: input.runtime, executionTarget: input.executionTarget }) };
     }
     if (this.approvals.some((a) => a.approvalId === toolCallId)) return;
     // Same flood bound as /api/approvals intake — pending records persist.
@@ -4118,6 +4121,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         `The complete task and selected skill instructions exceed the ${MAX_APPROVED_TASK_CHARS}-character limit. Shorten the task or deselect skills.`,
       );
     }
+    if (input.runtime === "local" && input.executionTarget?.kind === "artifact-workspace" &&
+        (this.env[LOCAL_RUNTIME_FLAG] !== "1" || !isDashboardAgentName(this.name))) {
+      throw new Error('runtime "local" requires SHIBA_LOCAL_RUNTIME=1 and a dashboard session.');
+    }
     const { route } = await this.resolveRoute({
       ...input,
       repoUrl,
@@ -4127,8 +4134,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       connectionId,
       ...(sandboxProvider ? { sandboxProvider } : {}),
     });
+    if (input.runtime === "local" && input.executionTarget?.kind === "artifact-workspace" && !harnessRunsOn(resolveHarness(route.harness, this.env), "local")) {
+      throw new Error(`Harness "${route.harness}" does not run on the local runtime.`);
+    }
     const runSetup = this.composerRunSetup();
-    const deploymentRuntime = input.executionTarget?.kind === "artifact-workspace" ? "sandbox" : resolveRuntimeName(this.env.RUNTIME);
+    const deploymentRuntime = input.executionTarget?.kind === "artifact-workspace" ? input.runtime ?? "sandbox" : resolveRuntimeName(this.env.RUNTIME);
     if (deploymentRuntime === "computer") throw new Error(COMPUTER_PREVIEW_MESSAGE);
     const chatFrozenRuntime =
       deploymentRuntime === "local" && isDashboardAgentName(this.name) ? ("local" as const) : ("sandbox" as const);

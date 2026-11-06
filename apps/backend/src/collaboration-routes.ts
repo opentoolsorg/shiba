@@ -1246,9 +1246,9 @@ export async function handleCollaboration(
           return invalidBody("Connected-app room work is not supported yet.");
         }
         const runtime = personalExecution || body.runtime === "local" ? "local" : "sandbox";
-        if (requestedTarget?.kind === "artifact-workspace" && runtime === "local") {
+        if (requestedTarget?.kind === "artifact-workspace" && runtime === "local" && (personalExecution || !requestedTarget.expectedDeliverables.length)) {
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
-          return invalidBody("Artifact-workspace employee work currently requires the cloud sandbox.");
+          return invalidBody("Local artifact work requires nonempty approved deliverables and cannot use a personal repository grant.");
         }
         const repoUrl = personalExecution ? personalExecution.repoUrl : requestedTarget?.kind === "artifact-workspace"
           ? ""

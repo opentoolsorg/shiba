@@ -25,8 +25,6 @@ export function describeTaskRoute(input: {
     blockedReason = "Native cloud Claude login is unavailable: per-user persistent auth volumes are not implemented. Choose the API route or paired local Claude Code explicitly.";
   } else if (input.workType === "connected-app") {
     blockedReason = "Connected-app execution is unavailable on CLI routes. Use the separate granted app-tools work target.";
-  } else if (local && input.workType === "artifact-workspace") {
-    blockedReason = "Repository-free artifacts require Cloud (Sandbox). Choose Cloud explicitly or select a repository for Local.";
   } else if (local && !["opencode", "claude-code", "codex"].includes(input.harness)) {
     blockedReason = "This harness cannot run on a paired computer. Choose a supported local harness or Cloud explicitly.";
   } else if (!local && input.connectionId && !connection) {
@@ -70,9 +68,9 @@ export function describeProviderRoute(card: AcpProviderCard) {
   if (card.id === "claude" && connection.signInKind === "claude-daemon") {
     return {
       harness: "claude-code",
-      runtime: "Paired local computer · repository work",
+      runtime: "Paired local computer · repositories and bounded artifacts",
       account: "Selected computer's CLI account; identity and billing are not reported.",
-      note: "Select Local and Claude Code on the task. CLI presence does not verify login or quota. Repository-free artifacts require a sandbox API route.",
+      note: "Select Local and Claude Code on the task. CLI presence does not verify login or quota. Local artifacts require explicit complete output paths; only approved files are exported.",
     };
   }
   if (card.id === "claude" && connection.signInKind === "claude-setup-token") {

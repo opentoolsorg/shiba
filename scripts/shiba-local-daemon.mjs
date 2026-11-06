@@ -855,7 +855,8 @@ async function execute(envelope, claimToken) {
         ...(personalBinding ? personalSessionOptions(envelope.harness) : {}),
         ...(personalBinding ? { exactApprovalReview: true,
           validateApprovalReview: detail => isSafePersonalApprovalReview(detail, process.env.HOME, envelope.harness) } : {}),
-        checkpoints: true,
+        // Artifact workspaces have no Git history; capture only approved outputs.
+        checkpoints: !artifact,
         emitStdout: false,
         detached: process.platform !== "win32",
         // Session close, abort and deadlines share one bounded group cleanup.

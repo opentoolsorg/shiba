@@ -33,14 +33,33 @@ it("shows the actual task selection and scope instead of an organization default
   expect(route.textContent).toContain("ChatGPT plan; requires an attributed human initiator");
 });
 
-it("blocks a local artifact task with an online computer without switching to cloud", () => {
-  const input = props({ repoUrl: "", executionTargetKind: "artifact-workspace", runTarget: "local", localRunAvailable: true, targetMachineId: "paired", onRunTargetChange: vi.fn() });
+it("admits explicit bounded local artifacts without switching to cloud", () => {
+  const input = props({ repoUrl: "", executionTargetKind: "artifact-workspace", artifactDeliverables: "out/brief.md", runTarget: "local", localRunAvailable: true, targetMachineId: "paired", onRunTargetChange: vi.fn() });
   render(<TaskComposer {...input} />);
-  expect(screen.getByText(/Repository-free artifacts require Cloud/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(false);
+  expect(screen.getByText(/Only approved paths are captured after approval/)).toBeTruthy();
+  fireEvent.submit(screen.getByRole("form", { name: "Task composer" }));
+  expect(input.onSubmit).toHaveBeenCalledOnce();
+  expect(input.onRunTargetChange).not.toHaveBeenCalled();
+});
+
+it.each(["", "../escape.md"])("blocks missing or unsafe local artifact output paths: %s", (artifactDeliverables) => {
+  const input = props({ repoUrl: "", executionTargetKind: "artifact-workspace", artifactDeliverables, runTarget: "local", localRunAvailable: true, targetMachineId: "paired" });
+  render(<TaskComposer {...input} />);
   expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(true);
   fireEvent.submit(screen.getByRole("form", { name: "Task composer" }));
   expect(input.onSubmit).not.toHaveBeenCalled();
+});
+
+it("offers a paired local computer for artifact work without selecting it implicitly", () => {
+  const input = props({ repoUrl: "", executionTargetKind: "artifact-workspace", localRunAvailable: true, onRunTargetChange: vi.fn() });
+  render(<TaskComposer {...input} />);
+  fireEvent.click(screen.getByRole("button", { name: "Run on: Cloud" }));
+  const local = screen.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ });
+  expect(local.hasAttribute("disabled")).toBe(false);
   expect(input.onRunTargetChange).not.toHaveBeenCalled();
+  fireEvent.click(local);
+  expect(input.onRunTargetChange).toHaveBeenCalledWith("local");
 });
 
 it("blocks a revoked selected connection on rerender and preserves all explicit selections", () => {

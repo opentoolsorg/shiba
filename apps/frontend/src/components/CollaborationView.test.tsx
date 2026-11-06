@@ -584,7 +584,7 @@ describe("CollaborationView room access polling", () => {
     expect(messages).toHaveLength(1);
   });
 
-  it("submits an explicit repo-free artifact workspace for a room employee request", async () => {
+  it.each(["sandbox", "local-before-switch", "local-after-switch"])("submits an explicit repo-free artifact workspace with %s execution", async (selection) => {
     let submitted: Record<string, unknown> | null = null;
     const detail = {
       ...roomDetail,
@@ -597,7 +597,7 @@ describe("CollaborationView room access polling", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/custom-agents") return jsonResponse({ agents: [{ id: "writer-profile", version: 2, slug: "report-writer", config: { name: "Report Writer" } }] });
-      if (path === "/api/computers") return jsonResponse({ computers: [] });
+      if (path === "/api/computers") return jsonResponse({ computers: [{ machineId: "machine-1", hostname: "dev-laptop", status: "online" }] });
       if (path === "/api/collaboration/rooms") return jsonResponse({ rooms: [{ roomId: "room-1", title: "Shared room", visibility: "private" }] });
       if (path === "/api/collaboration/rooms/room-1/handoffs" && init?.method === "POST") {
         submitted = JSON.parse(String(init.body)) as Record<string, unknown>;
@@ -612,7 +612,18 @@ describe("CollaborationView room access polling", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Work" }));
     fireEvent.change(screen.getByLabelText("Task ID"), { target: { value: "meeting-summary" } });
     fireEvent.change(screen.getByLabelText("Employee task request"), { target: { value: "Summarize these meeting notes." } });
+    await screen.findByRole("option", { name: "Local · dev-laptop" });
+    expect((screen.getByLabelText("Employee execution target") as HTMLSelectElement).value).toBe("sandbox");
+    if (selection === "local-before-switch") {
+      fireEvent.change(screen.getByLabelText("Employee execution target"), { target: { value: "local:machine-1" } });
+    }
     fireEvent.change(screen.getByLabelText("Employee work destination"), { target: { value: "artifact-workspace" } });
+    if (selection === "local-after-switch") {
+      fireEvent.change(screen.getByLabelText("Employee execution target"), { target: { value: "local:machine-1" } });
+    }
+    expect((screen.getByLabelText("Employee execution target") as HTMLSelectElement).value)
+      .toBe(selection === "sandbox" ? "sandbox" : "local:machine-1");
+    expect(screen.getByText(/Repo-free work runs on the selected execution target/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Expected deliverable paths"), { target: { value: "reports/meeting-summary.md" } });
     fireEvent.change(screen.getByLabelText("Handoff recipient"), { target: { value: "agent:writer-profile" } });
     fireEvent.click(screen.getByRole("button", { name: "Request / create handoff" }));
@@ -621,11 +632,12 @@ describe("CollaborationView room access polling", () => {
       taskId: "meeting-summary",
       task: "Summarize these meeting notes.",
       executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["reports/meeting-summary.md"] },
-      runtime: "sandbox",
+      runtime: selection === "sandbox" ? "sandbox" : "local",
       recipientActorId: "agent:writer-profile",
     }));
     const submittedBody = submitted as Record<string, unknown> | null;
     expect(submittedBody?.repoUrl).toBeUndefined();
+    expect(submittedBody?.targetMachineId).toBe(selection === "sandbox" ? undefined : "machine-1");
   });
 
   it("renders a persisted employee reply with its completed run and artifact references", async () => {

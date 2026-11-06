@@ -14,7 +14,8 @@ import { tokenizeCommand } from "../src/exec-allowlist.js";
 import { OpenCodeHarness } from "../src/harness/opencode.js";
 import type { Env } from "../src/env.js";
 import { parseAgentResultText, parseAgentToolInput, type CodingTaskResult } from "../src/opencode-input.js";
-import { SandboxRuntimeAdapter, type SandboxOps } from "../src/runtime.js";
+import { LOCAL_INTAKE_HEADER, LOCAL_INTAKE_DASHBOARD } from "@shiba/shared";
+import { LocalRuntimeAdapter, SandboxRuntimeAdapter, type SandboxOps } from "../src/runtime.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), acquire: vi.fn(), adapter: vi.fn(), destroy: vi.fn() }));
@@ -76,7 +77,7 @@ function sandboxFixture(root: string, empty: boolean): SandboxOps {
   };
 }
 
-function fixture(mode: "outputs" | "empty" | "storage-failure" | "storage-rejection" | "cancel-storage" | "missing-config") {
+function fixture(mode: "local-outputs" | "outputs" | "empty" | "storage-failure" | "storage-rejection" | "cancel-storage" | "missing-config") {
   const root = mkdtempSync(join(tmpdir(), "shiba-ephemeral-completion-"));
   roots.push(root);
   const ops = sandboxFixture(root, mode === "empty");
@@ -101,11 +102,13 @@ function fixture(mode: "outputs" | "empty" | "storage-failure" | "storage-reject
   });
   const env = { ...productionEnvStubs(), Sandbox: {}, DASHBOARD_APPROVERS: "U_PHASE1", SLACK_APPROVERS: "U_PHASE1",
     SLACK_BOT_TOKEN: "test-slack-fixture-token", WORKER_HOSTNAME: "shiba.test",
+    ...(mode === "local-outputs" ? { SHIBA_LOCAL_RUNTIME: "1", AI_GATEWAY_TOKEN: "",
+      ATTACHMENTS: { put: vi.fn(async () => ({ key: "fixture-deliverable" })) } } : {}),
     ...(mode === "missing-config" ? {} : { ARTIFACT_SIGNING_KEY: "test-ephemeral-signing-key-32-bytes", ARTIFACTS: { put, get } }),
   } as unknown as Env;
   const storage = { get: async () => undefined, put: async () => {}, delete: async () => {}, list: async () => new Map() };
   const instance = Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
-    name: THREAD, env, messages: [], state: { runs: [] } as OrchestratorState,
+    name: mode === "local-outputs" ? "U_PHASE1" : THREAD, env, messages: [], state: { runs: [] } as OrchestratorState,
     ctx: { storage, waitUntil: (promise: Promise<unknown>) => held.push(promise) },
     setState(next: OrchestratorState) {
       setStateLikeProduction(this, next);
@@ -113,7 +116,17 @@ function fixture(mode: "outputs" | "empty" | "storage-failure" | "storage-reject
     },
   });
   mocks.acquire.mockResolvedValue(ops);
-  mocks.adapter.mockImplementation(() => new SandboxRuntimeAdapter(new FixtureHarness()));
+  const dispatch = vi.fn(async () => {});
+  mocks.adapter.mockImplementation((runtime: string) => {
+    if (mode !== "local-outputs") return new SandboxRuntimeAdapter(new FixtureHarness());
+    expect(runtime).toBe("local");
+    return new LocalRuntimeAdapter(new FixtureHarness(), { pollIntervalMs: 0, client: {
+      dispatch,
+      cancel: async () => {},
+      status: async () => ({ status: "settled", result: { status: "completed", exitCode: 0, summary: "Local fixture produced the approved brief.",
+        stderrTail: "", diff: "", changedFiles: ["out/brief.md"], files: [{ path: "out/brief.md", content: "# Approved local brief\n", encoding: "utf8" }], signals: [] } }),
+    } });
+  });
   mocks.execute.mockImplementation(async (envelope: string) => {
     const input = parseAgentToolInput([{ role: "user", text: envelope }]);
     expect(input.executionTarget).toMatchObject({ kind: "artifact-workspace", workspaceId: "phase1-report" });
@@ -137,7 +150,7 @@ function fixture(mode: "outputs" | "empty" | "storage-failure" | "storage-reject
     slackMessages.push(body);
     return Response.json({ ok: true, channel: "C_PHASE1", ts: "123.789" });
   }));
-  return { instance, env, ops, writes, slackMessages, objects, put, get, childResult: () => childResult,
+  return { instance, env, ops, writes, dispatch, slackMessages, objects, put, get, childResult: () => childResult,
     drain: async () => { for (let index = 0; index < held.length; index++) await held[index]; } };
 }
 
@@ -145,11 +158,14 @@ function post(path: string, body: unknown) {
   return new Request(`https://internal${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
 
-async function approvedRun(context: ReturnType<typeof fixture>) {
-  const queued = await context.instance.onRequest(post("/api/runs", { repoUrl: "", task: "Produce the phase one report.",
+async function approvedRun(context: ReturnType<typeof fixture>, local = false) {
+  const request = post("/api/runs", { repoUrl: "", task: "Produce the phase one report.",
     workspaceTarget: { type: "ephemeral", workspaceId: "phase1-report", template: "report" }, publishPullRequest: false,
     reviewAfterPublish: false, threadKey: THREAD,
-  }));
+    ...(local ? { runtime: "local", expectedDeliverables: ["out/brief.md"] } : {}),
+  });
+  if (local) request.headers.set(LOCAL_INTAKE_HEADER, LOCAL_INTAKE_DASHBOARD);
+  const queued = await context.instance.onRequest(request);
   expect(queued.status, await queued.clone().text()).toBe(200);
   const { approvalId } = await queued.json() as { approvalId: string };
   expect(context.instance.state.pendingApprovals?.find((approval) => approval.approvalId === approvalId)?.status).toBe("pending");
@@ -172,6 +188,27 @@ beforeEach(() => { vi.resetAllMocks(); mocks.destroy.mockResolvedValue(undefined
 afterEach(() => { vi.unstubAllGlobals(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("local new-ephemeral approval to archive completion integration", () => {
+  it("exports approved local adapter results only after approval without starting a sandbox", async () => {
+    const context = fixture("local-outputs");
+    const run = await approvedRun(context, true);
+    expect(run.status, run.summary).toBe("completed");
+    expect(context.dispatch).toHaveBeenCalledOnce();
+    expect(context.dispatch).toHaveBeenCalledWith(expect.objectContaining({ repoUrl: "", expectedDeliverables: ["out/brief.md"],
+      executionTarget: expect.objectContaining({ kind: "artifact-workspace", expectedDeliverables: ["out/brief.md"] }) }), undefined, "U_PHASE1");
+    expect(context.ops.gitCheckout).not.toHaveBeenCalled();
+    expect(run.artifactBundle).toBeDefined();
+    expect(run.deliverables?.map((item) => item.path)).toEqual(["out/brief.md"]);
+    const bundle = run.artifactBundle!;
+    const link = new URL(bundle.downloadUrl);
+    const response = await handleArtifactDownload(new Request(new URL(link.pathname, link), {
+      method: "POST", body: new URLSearchParams(link.hash.slice(1)), headers: { origin: link.origin, "sec-fetch-site": "same-origin" },
+    }), context.env);
+    expect(response?.status).toBe(200);
+    const zip = unzipSync(new Uint8Array(await response!.arrayBuffer()));
+    expect(Object.keys(zip)).toEqual(["brief.md"]);
+    expect(new TextDecoder().decode(zip["brief.md"])).toBe("# Approved local brief\n");
+  }, 30_000);
+
   it.each(["outputs", "empty"] as const)("retains one signed bundle in child metadata, completion event, run and Slack for %s", async (mode) => {
     const context = fixture(mode);
     const run = await approvedRun(context);
