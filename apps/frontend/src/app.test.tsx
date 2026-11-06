@@ -348,6 +348,32 @@ describe("app Work and Threads routing", () => {
     expect(fetch).toHaveBeenCalledWith("/api/collaboration/rooms", expect.objectContaining({ headers: expect.objectContaining({ "X-Shiba-Workspace": id }) }));
   });
 
+  it("replaces a loaded room with verification after popstate selects invalid selectors", async () => {
+    const workspaceId = `ws_${"a".repeat(24)}`, roomId = `room_${"b".repeat(24)}`;
+    const actor = "owner@example.com";
+    localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actor)}`, workspaceId);
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
+      if (path === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId, name: "Design team", version: 1, createdAt: 1, membership: { workspaceId, userId: actor, role: "owner", version: 1, joinedAt: 1 } }] });
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [{ roomId, title: "Loaded fixture room", visibility: "shared" }] });
+      if (path === `/api/collaboration/rooms/${roomId}`) return Response.json({ room: { roomId, title: "Loaded fixture room", visibility: "shared" }, currentUserId: actor, members: [], messages: [], handoffs: [] });
+      return originalFetch(url, options);
+    }));
+    window.history.replaceState(null, "", `/threads/?workspace=${workspaceId}&room=${roomId}`);
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Loaded fixture room" })).toBeTruthy();
+    window.history.pushState(null, "", `/threads/?workspace=${workspaceId}&room=invalid`);
+    await act(async () => { window.dispatchEvent(new PopStateEvent("popstate")); });
+
+    expect(await screen.findByRole("region", { name: "Workspace verification" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Loaded fixture room" })).toBeNull();
+    expect(window.location.search).toBe(`?workspace=${workspaceId}&room=invalid`);
+  });
+
   it("does not render personal session titles in the Work panel when a team workspace is selected", async () => {
     const id = `ws_${"a".repeat(24)}`;
     const actor = "owner@example.com";
