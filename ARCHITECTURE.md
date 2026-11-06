@@ -5,8 +5,13 @@ reader can navigate it without reading 80 files. Derived from the deployed
 configuration (`apps/backend/wrangler.jsonc`, `alchemy.run.ts`) and the Worker
 entry (`apps/backend/src/index.ts`) — as-built, not aspirational.
 
-**Status:** see `PLAN.md` §2.0 for what is verified. Plan and gaps live in
-`PLAN.md`; evidence in `VERIFICATION.md`.
+**Status:** see `PLAN.md` §2.0 for earlier verification. The current control plane upgrade and its live acceptance limits are documented in [control-plane-upgrade.md](docs/control-plane-upgrade.md). Plan and gaps live in `PLAN.md`; evidence in `VERIFICATION.md`.
+
+The November 4 [shared-context and employee report](docs/shared-context-employees-acceptance.md) describes explicit collaboration-room realtime, selected shared notes, revoked-source output guards and optional role setup. Room notes live in D1 under existing membership and Slack-origin audience checks. Private Memory DO facts stay scoped to their owner or exact Slack thread; there is no shared JavaScript heap or automatic private-transcript merge.
+
+The [November 5 contract index](docs/verification/team-contracts-completion-20261105.md) tracks native member execution, workspace app accounts and founder schedules. Their authority and receipts live in D1; they do not inherit the deployment operator's credentials or billing. Optional funded text sessions use a separate default-off Workers AI service with explicit operator consent, per-member limits and human-reviewed input. A founder connector timer creates an occurrence; the original native requester and a current manager still perform the existing action review and execution steps. Neither path exposes an approval tool to an agent.
+
+The [v3 product extension](docs/verification/four-priorities-v3-20261105.md) adds source-attested fixed Ads reads and a separate native restricted-key Stripe read lane, rather than widening OAuth credentials. Managed Slack identity grants only private self-authored draft intake; native room sharing and execution still require human actions. Funded model adapters retain permanent requester/workspace reservations. Computer refresh and archive export retain their separate display/control and native read authorities.
 
 **Companions:** `spec/GOAL.md` (product contract — *currently contradicted by
 the tree*, see `PLAN.md` §17.2 T27) · `design.md` (visual design system, not
@@ -21,9 +26,7 @@ React dashboard. **Durable Objects** hold coordinated state — the orchestrator
 conversation, coding sub-agent, per-run sandbox control, automations, mailbox,
 memory, model config, session chat rooms, and other per-user services. The MCP
 gateway is stateless (`createMcpHandler` per request), not a DO. Work happens in an
-**ephemeral Sandbox container** (one per run, destroyed at the end) that clones
-a GitHub repo and executes one of six agent binaries. Nothing starts until a human
-approves it, and the container's outbound network is allowlisted per run.
+**ephemeral Sandbox container** (one per run, destroyed at the end) that either clones a GitHub repository or initializes an empty artifact workspace. It executes one selected harness. Nothing starts until a human approves it, and the container's outbound network is allowlisted per run. Read-only Explorer and Reviewer facets inspect explicit snapshots without starting a sandbox. Publication requires a separate human approval of the completed immutable file snapshot.
 
 ---
 
@@ -73,7 +76,7 @@ approves it, and the container's outbound network is allowlisted per run.
 | **Orchestration** | `agents/orchestrator.ts`, `automation-runner.ts` | Plans, exposes `delegate_coding_task`, queues approvals. Never touches a repo. |
 | **Execution** | `agents/opencode-agent.ts`, `harness/*`, `sandbox.ts`, `sandbox/lifecycle.ts` | Clone → exec harness → collect. Exactly one harness per run. |
 | **Egress control** | `egress.ts`, `sandbox.ts` (`allowedHosts`) | Deny-by-default; per-harness host list; TLS interception; scoped GitHub token. |
-| **State** | the nine DO classes | All durable state. No other store is authoritative. |
+| **State** | DO classes, D1 stores, private R2 objects | DOs coordinate agent/runtime state. D1 owns native membership, versioned policy, source bindings and action receipts. R2 holds private artifacts. |
 | **Presentation** | `apps/frontend` (dashboard), `apps/web` (docs/marketing) | React dashboard; Astro docs. Both served via the Worker's `ASSETS` binding. |
 | **Deploy** | `alchemy.run.ts` (primary), `wrangler.jsonc` (rollback) | Both declare the same stack; wrangler remains a working rollback path. |
 
@@ -101,7 +104,15 @@ the authenticated owner ID; request-supplied account IDs cannot select another
 owner's connection. The sibling owns its own D1 and temporary-file R2 bucket or KV namespace.
 Its source and upstream license stay outside Shiba's AGPL source tree.
 See [the deployment guide](docs/OPENCONNECTOR.md) for the separate migration,
-secrets, and deployment sequence.
+secrets, and deployment sequence. The [integration package boundaries](docs/integrations-architecture.md) describe shared contracts, backend adapters, canonical registries and the separate provisioning boundary.
+
+### Bounded automatic reads and isolated computers
+
+`packages/openconnector-read-gateway` is a Worker-only policy/transport package with no external runtime dependencies. The backend owns native authorization, standing consent, quotas and durable receipts. The optional pinned upstream entry owns its existing encrypted OAuth database and fixed read executors. A separate least-privilege `OPEN_CONNECTOR_READ_RUNTIME_TOKEN` authenticates only the read service binding; it never replaces the existing manual integration runtime token. The reverse binding receives one-purpose signed permits and cannot read Shiba's auth/audit database or signing key. Shared browser-safe contracts stay in `packages/shared`. See [the adapter boundaries and setup](docs/openconnector-read-adapter.md).
+
+The optional `ComputerSession` class owns a separately approved, offline human desktop; it never attaches to a coding sandbox. Its resource reservation, native audience, scoped one-shot RPC operations and private frames are independent of employee/provider billing. The default stack does not provision its optional namespace/image. [Computer limits and verification](docs/shared-computers.md) distinguish source/fixture checks from an actual image and Cloudflare run.
+
+[Output archives](docs/container-replacement-journal-proposal.md) retain an approved native owner's sanitized, externally acknowledged output in room SQLite, with a separate D1 quota/lease reservation. They do not restore destroyed processes, unacknowledged output or uncommitted files, and do not authorize replacement execution.
 
 ## 4. Durable Objects — the state map
 
@@ -140,7 +151,7 @@ once). `GET /api/spine` on the DO serves events + owed outbox for the
 dashboard's Activity feed; agent principals see only events on runs
 they queued.
 
-**Supporting stores** (not DOs): **R2** `ATTACHMENTS` (email bodies >256KB) ·
+**Supporting stores** (not DOs): **R2** `ARTIFACTS` (private ZIP bundles), `ATTACHMENTS` (email bodies, text deliverables, and private publication staging) ·
 **KV** `AGENT_TOKENS` (bearer tokens, keyed `tok_<sha256(raw)>`) · **D1**
 `AGENT_AUDIT` (MCP call audit) · **Vectorize** `MEMORY_VECTORS` (768-dim recall).
 
@@ -202,14 +213,14 @@ invariants as non-negotiable acceptance criteria, not as context.
 1  ingress    dashboard / Slack / cron / webhook → auth per surface
 2  intent     orchestrator plans; prose → structured delegate_coding_task
 3  gate       approval card with the exact frozen arguments; human approves
-              (automations: approval by default, narrow opt-in unattended)
+              (automations always wait for human approval)
 4  dispatch   approved input frozen; route revalidated at dispatch
 5  sandbox    ephemeral container: clone (scoped) → run the harness CLI
 6  egress     AI Gateway swaps the dummy key for the real provider key (or injects org-configured provider API key)
 7  collect    diff, exit code, structured result envelope (error ≠ completed)
-8  publish    branch + PR; optional screenshot (T33, shipped — needs
-              WORKER_HOSTNAME for the public asset URL)
-9  cleanup    container destroyed; short sleep tail; result + receipts recorded
+8  propose    stage immutable publication files in private R2
+9  gate       separate human approval permits the branch and PR action
+10 cleanup    container destroyed; short sleep tail; result + receipts recorded
 ```
 
 **Per-org sandbox runners and model keys**: Orgs can bring their own sandbox runners (ComputeSDK remote runner URL and token encrypted at rest via AES-GCM in D1) and paste raw provider API keys (`anthropic`, `openai`, `google`, `xai`, stored encrypted in D1 write-only). At edge egress, `orgId` resolves decrypted keys and injects native auth headers (`x-api-key`, `Authorization: Bearer`, `x-goog-api-key`) through Cloudflare AI Gateway, falling back to deployment BYOK aliases when unconfigured. Runner URLs are HTTPS-only and SSRF-validated against private, loopback, link-local, and CGNAT networks.
@@ -336,8 +347,7 @@ Not bugs — deliberate or inherited, recorded so they are not rediscovered:
   (S256 only), `token` exchange with rotating refresh, and `revoke` —
   static bearer tokens still work. The consent surface is new code, so
   treat its edge cases as under-probed rather than settled.
-- **No interactive web chat.** The dashboard submits a task and polls; there is
-  no conversational steering surface (§17.4).
+- **Live output has bounded replay.** Rooms persist accepted terminal, status, diff, and child frames. Expired cursors and lost container transport produce explicit gap or uncertainty indicators. Browser reconnect does not resume a lost CLI process.
 - **GitHub is the only repo provider — by decision.** The approval gate is
   already provider-agnostic, so adding one later is a provider layer, not a
   redesign. Deferred until GitHub itself is proven live (`PLAN.md` §17.6).

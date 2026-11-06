@@ -1,0 +1,10 @@
+import { z } from "zod";
+const hash=z.string().regex(/^[a-f0-9]{64}$/), id=z.string().regex(/^fmc_[a-f0-9]{32}$/);
+export const founderMetaSelectionSchema=z.strictObject({since:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),until:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),limit:z.number().int().min(1).max(25)});
+export const founderMetaDraftSchema=z.strictObject({accountId:z.string().regex(/^[0-9]{1,30}$/),accessToken:z.string().min(16).max(2048),expiresAt:z.number().int().positive(),maxCalls:z.number().int().min(2).max(8),selection:founderMetaSelectionSchema,credentialAttestation:z.literal("creator-attests-token-appropriate-for-ads-read")});
+export const founderMetaDecisionSchema=z.strictObject({digest:hash,reviewed:z.literal(true),readConsent:z.literal("allow-exact-daily-meta-reads-and-quota"),credentialAttestation:z.literal("creator-attests-token-appropriate-for-ads-read")});
+export const founderMetaGrantSchema=z.object({id,accountId:z.string(),revision:z.number().int().positive(),expiresAt:z.number().int(),fingerprint:hash,digest:hash,selection:founderMetaSelectionSchema,maxCalls:z.number().int(),usedCalls:z.number().int(),state:z.enum(["draft","verifying","verified","enabled","running","blocked","exhausted","revoked"]),nextDueAt:z.number().int().nullable(),executorDigest:hash,apiVersion:z.literal("v25.0"),schedule:z.literal("daily-fixed-interval"),maxBytes:z.literal(32768),maxDurationMs:z.literal(5000),maxPages:z.literal(1),currency:z.string().nullable(),timezoneName:z.string().nullable()});
+export const founderMetaReceiptSchema=z.object({id:z.string().regex(/^fmr_[a-f0-9]{32}$/),state:z.enum(["dispatching","completed","unknown"]),createdAt:z.number().int(),expiresAt:z.number().int()});
+export type FounderMetaDraft=z.infer<typeof founderMetaDraftSchema>;
+export type FounderMetaGrant=z.infer<typeof founderMetaGrantSchema>;
+export type FounderMetaReceipt=z.infer<typeof founderMetaReceiptSchema>;

@@ -8,7 +8,9 @@ import { expect, it } from "vitest";
 
 const exec = promisify(execFile);
 
-it.each([false, true])("executes a local run (session=%s) without exposing daemon or unrelated shell secrets to repository children", async (session) => {
+it.each([false, true, "artifact" as const])("executes a local run (session=%s) without exposing daemon or unrelated shell secrets to repository children", async (mode) => {
+  const artifact = mode === "artifact";
+  const session = mode === true;
   const root = await mkdtemp(path.join(os.tmpdir(), "shiba-daemon-env-"));
   const repo = path.join(root, "repo");
   const bin = path.join(root, "bin");
@@ -18,6 +20,7 @@ it.each([false, true])("executes a local run (session=%s) without exposing daemo
   await writeFile(path.join(repo, "README.md"), "test\n");
   await exec("git", ["-C", repo, "add", "."]);
   await exec("git", ["-C", repo, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
+  if (artifact) await writeFile(path.join(bin, "git"), "#!/bin/sh\necho unexpected-git >&2\nexit 90\n", { mode: 0o755 });
   const forbidden = ["LOCAL_ADAPTER_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "AWS_SECRET_ACCESS_KEY", "UNRELATED_SECRET"];
   // The same repo-controlled executable runs during discovery and execution.
   await writeFile(path.join(bin, "codex"), [
@@ -26,6 +29,7 @@ it.each([false, true])("executes a local run (session=%s) without exposing daemo
     '[ "$1" = "--version" ] && exit 0',
     '[ "$OPENAI_API_KEY" = "local-provider-key" ] || exit 43',
     '[ "$RUN_SETTING" = "approved-setting" ] || exit 44',
+    ...(artifact ? ['mkdir -p out', 'printf "# Complete private artifact\\n" > out/brief.md', 'printf "not approved" > unrequested.txt'] : []),
     'echo "secret isolation passed"',
   ].join("\n"), { mode: 0o755 });
 
@@ -40,7 +44,7 @@ it.each([false, true])("executes a local run (session=%s) without exposing daemo
     });
   `);
 
-  let result: { status: string; summary: string } | undefined;
+  let result: { status: string; summary: string; files?: unknown[]; baseRevision?: string } | undefined;
   const server = createServer(async (request, response) => {
     expect(request.headers.authorization).toBe("Bearer daemon-control-secret");
     let raw = "";
@@ -49,7 +53,8 @@ it.each([false, true])("executes a local run (session=%s) without exposing daemo
     response.setHeader("content-type", "application/json");
     if (request.url === "/api/local/claim") {
       response.end(JSON.stringify({ claimToken: "claim", envelope: {
-        sandboxId: "env-test", harness: "codex", repoUrl: repo, baseBranch: "main",
+        sandboxId: "env-test", harness: "codex", repoUrl: artifact ? "" : repo, baseBranch: "main",
+        ...(artifact ? { executionTarget: { kind: "artifact-workspace", workspaceId: "fixture", expectedDeliverables: ["out/brief.md"] }, expectedDeliverables: ["out/brief.md"] } : {}),
         cloneDir: "${SHIBA_LOCAL_RUN_ROOT}/work", homeDir: "${SHIBA_LOCAL_RUN_ROOT}/home",
         env: { RUN_SETTING: "approved-setting", LOCAL_ADAPTER_TOKEN: "envelope-forgery", GITHUB_TOKEN: "envelope-github" },
         configFiles: [], setupCommands: [], setupAllowlist: [], execAllowlist: [],
@@ -87,6 +92,11 @@ it.each([false, true])("executes a local run (session=%s) without exposing daemo
     expect(output).not.toContain("daemon-control-secret");
     expect(exitCode, output).toBe(0);
     expect(result).toMatchObject({ status: "completed", summary: session ? expect.stringContaining("secret isolation passed") : "secret isolation passed" });
+    if (artifact) {
+      expect(result?.files).toEqual([{ path: "out/brief.md", content: "# Complete private artifact\n", encoding: "utf8" }]);
+      expect(result?.baseRevision).toBeUndefined();
+      expect(output).not.toContain("unexpected-git");
+    }
   } finally {
     clearTimeout(timer);
     daemon.kill();

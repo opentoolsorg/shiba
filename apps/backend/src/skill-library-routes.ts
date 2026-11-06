@@ -3,22 +3,29 @@ import { listLibrarySkills } from "./skill-library/index.js";
 import { installLibrarySkill, uninstallLibrarySkill } from "./skill-library/install.js";
 import { listSkillInstalls } from "./skill-library-store.js";
 import { getSkill } from "./skills-store.js";
-import { resolveOrgForApiRequest } from "./org-request-auth.js";
+import { resolveOrgForApiRequest, type ResolvedOrgAuth } from "./org-request-auth.js";
+import { skillTeamGrant, withCurrentSkillAuthority } from "./team-skill-authority.js";
 import { resolveUserId } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
 
 /** Curated skill library under `/api/skills/library/*` — must run before `handleSkills`. */
 export async function handleSkillLibrary(request: Request, env: Env): Promise<Response | null> {
+  if (!new URL(request.url).pathname.startsWith("/api/skills/library")) return null;
+  const auth = await resolveOrgForApiRequest(request, env);
+  if (auth instanceof Response) return auth;
+  return withCurrentSkillAuthority(request, env, auth, () => handleLibraryRoutes(request, env, auth));
+}
+
+async function handleLibraryRoutes(request: Request, env: Env, auth: ResolvedOrgAuth): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/skills/library")) return null;
   if (!env.AGENT_AUDIT) return Response.json({ ok: false, error: "skill_storage_unavailable" }, { status: 503 });
 
-  const auth = await resolveOrgForApiRequest(request, env);
-  if (auth instanceof Response) return auth;
-  const ownerId = auth.principal?.principal ?? await resolveUserId(request, env);
+  const ownerId = auth.workspace?.userId ?? auth.principal?.principal ?? await resolveUserId(request, env);
   if (!ownerId) return Response.json({ ok: false, error: "authentication_required" }, { status: 401 });
 
+  const mutationOptions = { teamGrant: skillTeamGrant(auth) };
   const isRead = request.method === "GET";
   if (auth.principal) {
     if (isRead ? !requireV1Read(auth.principal) : !requireV1Write(auth.principal)) return v1Forbidden();
@@ -29,20 +36,22 @@ export async function handleSkillLibrary(request: Request, env: Env): Promise<Re
     if (request.method !== "GET") return methodNotAllowed();
     const installs = await listSkillInstalls(env, auth.orgId, ownerId);
     const installBySlug = new Map(installs.map((row) => [row.librarySlug, row]));
-    const skills = listLibrarySkills().map((entry) => {
+    const skills = await Promise.all(listLibrarySkills().map(async (entry) => {
       const install = installBySlug.get(entry.slug);
-      const updateAvailable = install ? install.libraryVersion !== entry.version : false;
+      const skill = install ? await getSkill(env, auth.orgId, ownerId, install.skillId) : null;
+      const installed = Boolean(skill && skill.status !== "disabled");
+      const updateAvailable = installed && install ? install.libraryVersion !== entry.version : false;
       return {
         slug: entry.slug,
         name: entry.name,
         summary: entry.summary,
         tags: entry.tags,
         version: entry.version,
-        installed: install !== undefined,
-        ...(install ? { installedSkillId: install.skillId } : {}),
+        installed,
+        ...(installed && skill ? { installedSkillId: skill.id, installedStatus: skill.status, installedVersion: skill.version } : {}),
         updateAvailable,
       };
-    });
+    }));
     return Response.json({ ok: true, skills }, { headers: { "cache-control": "no-store" } });
   }
 
@@ -56,7 +65,7 @@ export async function handleSkillLibrary(request: Request, env: Env): Promise<Re
     }
     if (request.method === "POST") {
       try {
-        const result = await installLibrarySkill(env, auth.orgId, ownerId, slug);
+        const result = await installLibrarySkill(env, auth.orgId, ownerId, slug, mutationOptions);
         const skill = await getSkill(env, auth.orgId, ownerId, result.skillId);
         return Response.json(
           {
@@ -83,7 +92,7 @@ export async function handleSkillLibrary(request: Request, env: Env): Promise<Re
       }
     }
     if (request.method === "DELETE") {
-      const removed = await uninstallLibrarySkill(env, auth.orgId, ownerId, slug);
+      const removed = await uninstallLibrarySkill(env, auth.orgId, ownerId, slug, mutationOptions);
       return removed
         ? Response.json({ ok: true, slug, installed: false }, { headers: { "cache-control": "no-store" } })
         : Response.json({ ok: false, error: "not_found" }, { status: 404 });

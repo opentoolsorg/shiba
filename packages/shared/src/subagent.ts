@@ -1,11 +1,12 @@
 /**
- * Subagent tree vocabulary (Phase 2b). Pure helpers — no I/O.
- * Dotted path, depth cap, fresh vs shared sandbox.
+ * Bounded subagent tree vocabulary. Pure helpers with no I/O.
+ * Existing shared-mode records remain readable. New children require isolation.
  */
 import type { DelegatedRun } from "./runs.js";
 
-/** Maximum nesting depth (root = 0, first child = 1, …). */
-export const MAX_SUBAGENT_DEPTH = 3;
+/** The coordinator is depth zero. Children cannot delegate. */
+export const MAX_SUBAGENT_DEPTH = 1;
+export const MAX_SUBAGENT_CHILDREN = 3;
 
 export type SubagentSandboxMode = "fresh" | "shared";
 
@@ -16,7 +17,7 @@ export interface SubagentLineage {
   sandboxMode: SubagentSandboxMode;
 }
 
-/** Depth of a dotted path (segments minus one). Root spawns use depth 1. */
+/** Depth is the number of dotted path segments. Root spawns use depth one. */
 export function subagentDepth(path: string): number {
   const trimmed = path.trim();
   if (!trimmed) return 0;
@@ -63,14 +64,16 @@ export function directChildPaths(parentPath: string | undefined, runs: Delegated
 
 /**
  * Resolve the sandbox id a subagent run should use.
- * Shared mode reuses the parent's container; fresh mints a new id via the caller's nonce.
+ * Historical shared mode is refused. A child always gets a fresh container.
  */
 export function resolveSubagentSandboxId(
   parent: Pick<DelegatedRun, "sandboxId" | "runId">,
   mode: SubagentSandboxMode,
   freshSandboxId: string,
 ): string {
-  return mode === "shared" ? parent.sandboxId : freshSandboxId;
+  if (mode !== "fresh") throw new Error("Child agents require an isolated workspace.");
+  if (freshSandboxId === parent.sandboxId) throw new Error("Child workspace must differ from the parent workspace.");
+  return freshSandboxId;
 }
 
 /** True when the run is a subagent (has lineage). */

@@ -1,0 +1,65 @@
+{
+  "kind": "local-Chromium-team-model-component-fixture",
+  "startedAt": "2026-11-05T05:19:11.734Z",
+  "boundary": "Actual React funded text-session components and product CSS with deterministic intercepted HTTP. No native authentication, real billing grant, Worker/provider/model call, CLI, sandbox, Slack, OAuth, credential creation or external effect.",
+  "sourceAtStart": {
+    "apps/frontend/src/team-model-client.ts": "d3805867bd5efcdcfd9de078632fc1568a6351b27e815ffad5de139483ea6dd7",
+    "apps/frontend/src/components/TeamModelFundingForm.tsx": "b6f0ecb455d9ae8136a12ce532c999a70e716c5d9cf6709e67f99e52d70d77dd",
+    "apps/frontend/src/components/TeamModelSessions.tsx": "2f3659e11598fa1deab64959d472b383c54b614da7e98bc4034e339ed2c9e800",
+    "packages/shared/src/team-model-sessions.ts": "4a3787dc48cbb4fbcf50aec92ddc922029981ac046eb9471c03387278b358a68",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "checks": [
+    "Operator mounting selects no member, employee, model or funding and starts no effect",
+    "Preparing exact funding shows frozen contract without activation or model execution",
+    "Explicit billing consent separately enables server-bound funding; limits are not represented as a dollar cap",
+    "Member has no operator funding controls and must explicitly select the current grant",
+    "Room sources are independently selected and complete frozen model input is reviewed before a billed call",
+    "Requester approval and explicit execution are separate single-effect fixture actions",
+    "Removing a frozen source immediately removes cached model input and output",
+    "Completed output survives the dispatch deadline but hides at exact funding expiry before the10-second poll; Stop metadata remains",
+    "Stop remains available during pending execution, refreshes exact version and suppresses late output while retaining unknown billing outcome",
+    "390px session controls and long model/hash content fit without horizontal document overflow",
+    "390px operator funding form fits and issuer does not receive private member turns",
+    "390px operator funding controls also fit the existing dark theme",
+    "Server access denial clears cached input, output, grants and execution controls",
+    "No browser errors, external requests or source drift; all model responses are explicit fixtures"
+  ],
+  "screenshots": [
+    "team-model-browser-20261105-operator-desktop.png",
+    "team-model-browser-20261105-member-frozen-desktop.png",
+    "team-model-browser-20261105-member-390.png",
+    "team-model-browser-20261105-funding-390.png",
+    "team-model-browser-20261105-funding-390-dark.png"
+  ],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "blockedExternal": [],
+  "sourceAtEnd": {
+    "apps/frontend/src/team-model-client.ts": "d3805867bd5efcdcfd9de078632fc1568a6351b27e815ffad5de139483ea6dd7",
+    "apps/frontend/src/components/TeamModelFundingForm.tsx": "b6f0ecb455d9ae8136a12ce532c999a70e716c5d9cf6709e67f99e52d70d77dd",
+    "apps/frontend/src/components/TeamModelSessions.tsx": "2f3659e11598fa1deab64959d472b383c54b614da7e98bc4034e339ed2c9e800",
+    "packages/shared/src/team-model-sessions.ts": "4a3787dc48cbb4fbcf50aec92ddc922029981ac046eb9471c03387278b358a68",
+    "apps/frontend/src/styles.css": "500f627425c83c84a540a9d32c3c678d026d2c5eb1b317303d20d7bd70ce46df"
+  },
+  "status": "passed",
+  "finishedAt": "2026-11-05T05:19:23.749Z",
+  "requestSummary": {
+    "total": 14,
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "paths": [
+      "/api/team-model-sessions/funding/prepare",
+      "/api/team-model-sessions/funding/tmf_cccccccccccccccccccccccccccccccc/activate",
+      "/api/team-model-sessions/state",
+      "/api/team-model-sessions/turns/prepare",
+      "/api/team-model-sessions/turns/tmt_77777777777777777777777777777777/cancel",
+      "/api/team-model-sessions/turns/tmt_77777777777777777777777777777777/execute",
+      "/api/team-model-sessions/turns/tmt_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/approve",
+      "/api/team-model-sessions/turns/tmt_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/execute"
+    ],
+    "allWorkspaceScoped": true
+  }
+}

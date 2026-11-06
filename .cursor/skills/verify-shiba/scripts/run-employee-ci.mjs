@@ -8,7 +8,7 @@
  * No live model, provider credentials, publication or external marketing action.
  */
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {execFileSync, spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import {createWriteStream} from 'node:fs';
 import {access, chmod, mkdir, mkdtemp, readFile, stat, writeFile} from 'node:fs/promises';
@@ -39,6 +39,85 @@ export function fixtureChildEnv(parent,fixture){
     XDG_CONFIG_HOME:path.join(fixture,'home','.config'),XDG_CACHE_HOME:path.join(fixture,'home','.cache'),XDG_DATA_HOME:path.join(fixture,'home','.local','share'),
     CI:'1',NO_COLOR:'1',FORCE_COLOR:'0',WRANGLER_SEND_METRICS:'false',WRANGLER_LOG_SANITIZE:'true',CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV:'true',CLOUDFLARE_INCLUDE_PROCESS_ENV:'false',
     GIT_CONFIG_NOSYSTEM:'1'};
+}
+
+export function createFixtureAuth(){
+  return {name:'Employee CI fixture operator',email:`employee-fixture-${randomBytes(12).toString('hex')}@example.test`,
+    password:randomBytes(32).toString('base64url'),bootstrapToken:randomBytes(32).toString('hex')};
+}
+
+/** Use the real bootstrap header only for the disposable account's first sign-up. */
+export function fixtureAuthRequest(auth){
+  const created=auth.created===true;
+  return {route:`/api/auth/${created?'sign-in':'sign-up'}/email`,
+    body:{email:auth.email,password:auth.password,...(!created?{name:auth.name}:{})},
+    headers:!created&&auth.bootstrapToken?{'x-shiba-bootstrap-token':auth.bootstrapToken}:{}};
+}
+
+export function fixtureWorkerVars(origin,auth,keys){
+  return {SHIBA_LOCAL_RUNTIME:'1',BETTER_AUTH_URL:origin,BETTER_AUTH_OWNER_EMAIL:auth.email,
+    BETTER_AUTH_BOOTSTRAP_TOKEN:auth.bootstrapToken,PAIRING_SECRET:keys.pairing,
+    BETTER_AUTH_SECRET:keys.auth,INTERNAL_SIGNING_KEY:keys.signing,MEMORY_ENABLED:'0',TYPESAFE_API_KEY:''};
+}
+
+const psOptions={encoding:'utf8',timeout:2000,maxBuffer:4*1024*1024,env:{PATH:'/usr/bin:/bin',LANG:'C',LC_ALL:'C'}};
+const listProcessGroups=()=>execFileSync('/bin/ps',['-A','-o','pgid=,stat='],psOptions);
+function currentProcessGroup(){
+  const output=execFileSync('/bin/ps',['-o','pgid=','-p',String(process.pid)],psOptions).trim();
+  assert(/^\d+$/.test(output),'Cannot determine the runner process group.');
+  const pgid=Number(output);assert(Number.isSafeInteger(pgid)&&pgid>1,'Cannot determine the runner process group.');return pgid;
+}
+function validateFixtureGroup(pgid,ownGroup){
+  assert(Number.isSafeInteger(pgid)&&pgid>1,'Fixture process group must be an integer greater than one.');
+  assert(Number.isSafeInteger(ownGroup)&&ownGroup>1,'Cannot determine the runner process group.');
+  assert(pgid!==ownGroup,'Refusing to signal the runner process group.');
+}
+function hasLiveFixtureGroup(pgid,listProcesses){
+  const rows=listProcesses().trim().split('\n').filter(Boolean);
+  assert(rows.length>0,'Cannot confirm fixture process-group exit from an empty process list.');
+  let live=false;
+  for(const row of rows){
+    const match=row.trim().match(/^(\d+)\s+(\S+)$/);
+    assert(match,'Cannot parse fixture process-group state.');
+    if(Number(match[1])===pgid&&!match[2].startsWith('Z'))live=true;
+  }
+  return live;
+}
+/** Fail closed after the bounded KILL wait if any live or uncertain group remains. */
+export function assertFixtureGroupGone(pgid,{listProcesses=listProcessGroups,ownGroup=currentProcessGroup()}={}){
+  validateFixtureGroup(pgid,ownGroup);
+  assert(!hasLiveFixtureGroup(pgid,listProcesses),`Fixture process group ${pgid} still has live or unverified members.`);
+}
+export function signalFixtureGroup(pgid,signal,{kill=process.kill,platform=process.platform,listProcesses=listProcessGroups,ownGroup=currentProcessGroup(),leaderExited=false}={}){
+  validateFixtureGroup(pgid,ownGroup);
+  if(leaderExited&&(signal==='SIGTERM'||signal==='SIGKILL')){
+    assertFixtureGroupGone(pgid,{listProcesses,ownGroup});
+    return false;
+  }
+  try{kill(-pgid,signal);return true;}catch(error){
+    if(error.code==='ESRCH')return false;
+    if(error.code!=='EPERM'||platform!=='darwin')throw error;
+    // Darwin can return EPERM for a zombie-only group; live members still fail cleanup.
+    if(hasLiveFixtureGroup(pgid,listProcesses))throw error;
+    return false;
+  }
+}
+
+/** Keep both grace periods bounded and prove no live group remains after KILL. */
+export async function stopOwned(entry,{signalGroup=signalFixtureGroup,confirmGone=assertFixtureGroupGone,now=Date.now,wait=delay}={}){
+  if(entry.stopped||!entry.child.pid)return;
+  const signal=kind=>signalGroup(entry.child.pid,kind,{leaderExited:entry.closed||entry.child.exitCode!==null||entry.child.signalCode!==null});
+  // Never signal a numeric group after the leader has exited: it may be reused.
+  if(!signal('SIGTERM')){entry.stopped=true;return;}
+  const deadline=now()+4000;
+  while(now()<deadline){
+    if(!signal(0)){entry.stopped=true;return;}
+    await wait(100);
+  }
+  signal('SIGKILL');
+  await Promise.race([entry.done,wait(1000)]);
+  confirmGone(entry.child.pid);
+  entry.stopped=true;
 }
 
 async function assertFreePort(port){
@@ -110,28 +189,15 @@ export async function main(){
       await stopOwned(entry);
     }finally{clearTimeout(timer);}
   }
-  async function stopOwned(entry){
-    if(entry.stopped||!entry.child.pid)return;
-    const signalGroup=signal=>{try{process.kill(-entry.child.pid,signal);}catch(error){if(error.code!=='ESRCH')throw error;}};
-    // Signal the owned group even after its leader exits: descendants may remain.
-    signalGroup('SIGTERM');
-    const deadline=Date.now()+4000;
-    while(Date.now()<deadline){
-      try{process.kill(-entry.child.pid,0);}catch(error){if(error.code==='ESRCH'){entry.stopped=true;return;}throw error;}
-      await delay(100);
-    }
-    signalGroup('SIGKILL');
-    await Promise.race([entry.done,delay(1000)]);
-    entry.stopped=true;
-  }
   try{
     await Promise.all([mkdir(env.HOME,{recursive:true}),mkdir(env.TMPDIR,{recursive:true}),mkdir(path.join(fixture,'state'))]);
     // Use the supported first-owner bootstrap policy, with exactly one disposable identity.
-    const fixtureAuth={name:'Employee CI fixture operator',email:`employee-fixture-${randomBytes(12).toString('hex')}@example.test`,password:randomBytes(32).toString('base64url')};
-    secrets.push(fixtureAuth.email,fixtureAuth.password);
+    const fixtureAuth=createFixtureAuth();
+    secrets.push(fixtureAuth.email,fixtureAuth.password,fixtureAuth.bootstrapToken);
     await writeFile(path.join(fixture,'auth.json'),JSON.stringify(fixtureAuth)+'\n',{mode:0o600});
     const envFile=path.join(fixture,'worker.env');
-    await writeFile(envFile,`SHIBA_LOCAL_RUNTIME=1\nBETTER_AUTH_URL=${origin}\nBETTER_AUTH_OWNER_EMAIL=${fixtureAuth.email}\nPAIRING_SECRET=${secrets[0]}\nBETTER_AUTH_SECRET=${secrets[1]}\nINTERNAL_SIGNING_KEY=${secrets[2]}\n`,{mode:0o600});
+    const workerVars=fixtureWorkerVars(origin,fixtureAuth,{pairing:secrets[0],auth:secrets[1],signing:secrets[2]});
+    await writeFile(envFile,Object.entries(workerVars).map(([name,value])=>`${name}=${value}`).join('\n')+'\n',{mode:0o600});
     const pkg=JSON.parse(await readFile(path.join(ROOT,'package.json'),'utf8'));
     const expectedPnpm=pkg.packageManager.match(/^pnpm@([^+]+)/)?.[1];assert(expectedPnpm,'Repository must pin pnpm.');
     const version=owned('pnpm',['--version'],result.migrationLog);

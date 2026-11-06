@@ -6,13 +6,15 @@ Cloudflare account. A private `OPEN_CONNECTOR` service binding takes precedence
 over the `OPEN_CONNECTOR_URL` HTTP fallback. `INTEGRATIONS_PROVIDER` accepts only
 `openconnector`; there is no provider switcher. The legacy
 integrations `/session` route returns HTTP 503 with an `unsupported` error;
-connect through the provider connection flow instead. Generic `/execute` uses
-the openconnector tool executor.
+connect through the provider connection flow instead. Direct
+`POST /api/integrations/provider/execute` returns HTTP 403 with
+`employee_action_approval_required`. Use the registered employee action tools
+described below, with current resource grants and exact-action human approval.
 
 No upstream application source is vendored, imported, or linked into Shiba. The
 helper clones upstream release **v1.9.4**, pinned to commit
 `d89dc9f24f5a057bb500272d7dbf333837c77c68`, into gitignored `.openconnector/`.
-The pinned upstream [Apache license](https://github.com/oomol-lab/open-connector/blob/v1.9.4/LICENSE)
+The pinned upstream [Apache license](https://github.com/oomol-lab/open-connector/blob/v1.9.4/LICENSE.txt)
 and Shiba AGPL-3.0-only license apply to their respective distributions. Keeping the
 applications separate preserves their separate distributions and license terms;
 review upstream's license before distributing or offering the sibling service.
@@ -157,10 +159,22 @@ list. Upstream does not send a Shiba popup completion message or accept a Shiba
 callback URL in this flow. Named connections are isolated by Shiba's adapter;
 trusted operators with the upstream administrator token can access all names.
 
+The catalog checks the upstream runtime provider-setup metadata before enabling
+OAuth sign-in. Only `ready` entries are connectable; `needs_configuration`,
+`unsupported` and `unverified` identify setup that still needs attention. A
+provider's declaration that it supports OAuth does not mean its OAuth client is
+configured. Saved connections requiring reauthorization are omitted from the
+usable connection list.
+
 ## Verify and upgrade
 
-Check `<sibling origin>/health` returns `{"ok":true}`, then verify authenticated
-catalog, connect, list, execute and disconnect in Shiba with two distinct users.
+Check `<sibling origin>/health` returns `{"ok":true}`. Shiba's provider health
+probe additionally authenticates bounded admin/runtime metadata reads. A
+`healthy` result establishes service and metadata authentication; a `degraded`
+result means those authenticated reads failed despite a reachable service.
+Neither result proves vendor consent, an action's runtime-token permission or
+employee grants. Then verify authenticated catalog, connect, list, approved
+employee action execution and disconnect in Shiba with two distinct users.
 Check Cloudflare scheduled invocations and D1 cleanup progress: HTTP traffic does
 not substitute for the minute cron. Live operation still needs account resources,
 provider OAuth clients and the secrets above; local mocked tests do not prove
@@ -195,6 +209,21 @@ its scheduled handler/cron, and the minified deploy script.
 
 `integrations.search_actions` discovers action IDs and input schemas for one
 connected service. `integrations.execute` executes an action after human review.
+Discovery also preserves advisory provider-reported `operationType` metadata.
+Missing or unknown upstream values are `unclassified`. A `read` label is not an
+audited read-only guarantee: arbitrary query actions can forward mutation text.
+It does not change approvals, grants, execution policy or scheduled authority.
+
+The pinned Google Ads provider has an action-schema compatibility limitation:
+some definitions expose `developerToken` as ordinary action input even though
+the provider also treats it as a protected OAuth client credential. Shiba hides
+these definitions from discovery and rejects exact requests before saving an
+approval or sending an action. Supplying that credential key is also rejected.
+Configure credentials only in protected provider setup; do not paste them into
+action arguments. A Google Ads definition without that input remains subject to
+the ordinary connection, grant and exact human approval checks. This guard does
+not establish that such a definition works against a live Google Ads account.
+
 Both use the existing employee tool policy: grant
 `mcp:shiba:integrations.search_actions` and/or `mcp:shiba:integrations.execute`
 with the exact upstream service ID (for example `github`) as the resource.

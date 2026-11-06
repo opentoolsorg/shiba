@@ -34,6 +34,18 @@ function Harness({ binding = context, sendMessage, submitting = false }: {
 const chooseAppTools = () => fireEvent.change(screen.getByRole("combobox", { name: "Work target" }), { target: { value: "app-tools" } });
 
 describe("explicit Worker app-tools Work path", () => {
+  it("copies exact selected skill versions into the human turn and rejects invalid attachments", async () => {
+    const sendMessage = vi.fn<Parameters<typeof sendAppToolsWork>[2]>(async () => {});
+    const selected = [{ skillId: "skill_selected", version: 3 }];
+    await sendAppToolsWork(context, "Draft with selected guidance", sendMessage, undefined, selected);
+    expect(sendMessage).toHaveBeenCalledWith({ text: "Draft with selected guidance", metadata: { shibaMode: "work", shibaWorkTarget: "app-tools", shibaSkillPins: selected } });
+    selected[0]!.version = 4;
+    expect(sendMessage.mock.calls[0]?.[0]).toEqual({ text: "Draft with selected guidance", metadata: { shibaMode: "work", shibaWorkTarget: "app-tools", shibaSkillPins: [{ skillId: "skill_selected", version: 3 }] } });
+    for (const pins of [[...selected, ...selected], [{ skillId: "", version: 1 }], [{ skillId: "skill_selected", version: 0 }], Array.from({ length: 6 }, (_, i) => ({ skillId: `skill_${i}`, version: 1 }))]) {
+      await expect(sendAppToolsWork(context, "Draft", sendMessage, undefined, pins)).rejects.toMatchObject({ message: "Review the selected skill versions before sending." });
+    }
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
   it("carries only a validated goal reference beside the exact app-tools marker", async () => {
     const sendMessage = vi.fn(async () => {});
     const reference = { draftTaskId: "draft_00000000-0000-4000-8000-000000000001", version: 2 };

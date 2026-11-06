@@ -52,18 +52,29 @@ fi
 DEV_VARS_SRC=${VERIFY_DEV_VARS:-apps/backend/.dev.vars}
 [ -f "$DEV_VARS_SRC" ] || DEV_VARS_SRC=apps/backend/.dev.vars.example
 RUN_ENV="$VERIFY_DIR/run.env"
+ENV_EXCLUDE='^(GITHUB_API_BASE|SHIBA_VERIFY_STANDIN)='
+[ "$GITHUB_MODE" != mock ] || ENV_EXCLUDE='^(GITHUB_API_BASE|GITHUB_TOKEN|SHIBA_VERIFY_STANDIN)='
+if [ "$STANDIN" = 1 ]; then
+  # Mock execution uses a fresh Worker-only seal and must not call model services.
+  ENV_EXCLUDE="$ENV_EXCLUDE|^[[:space:]]*(export[[:space:]]+)?(INTERNAL_SIGNING_KEY|MEMORY_ENABLED|TYPESAFE_API_KEY)[[:space:]]*="
+fi
 (
   umask 077
+  RUN_ENV_TMP=$(mktemp "$VERIFY_DIR/run.env.XXXXXX")
+  trap 'rm -f "$RUN_ENV_TMP"' EXIT
   {
+    grep -Ev "$ENV_EXCLUDE" "$DEV_VARS_SRC" || true
     if [ "$GITHUB_MODE" = mock ]; then
-      grep -Ev '^(GITHUB_API_BASE|GITHUB_TOKEN|SHIBA_VERIFY_STANDIN)=' "$DEV_VARS_SRC" || true
       printf 'GITHUB_API_BASE=http://127.0.0.1:%s\nGITHUB_TOKEN=mock-github-token\n' "$GITHUB_STUB_PORT"
       grep -q '^DASHBOARD_APPROVERS=.\+' "$DEV_VARS_SRC" || printf 'DASHBOARD_APPROVERS=default\n'
-    else
-      grep -Ev '^(GITHUB_API_BASE|SHIBA_VERIFY_STANDIN)=' "$DEV_VARS_SRC" || true
+    fi
+    if [ "$STANDIN" = 1 ]; then
+      node -e 'process.stdout.write(`INTERNAL_SIGNING_KEY=${require("node:crypto").randomBytes(32).toString("hex")}\n`)'
+      printf 'MEMORY_ENABLED=0\nTYPESAFE_API_KEY=\n'
     fi
     printf 'SHIBA_VERIFY_STANDIN=%s\n' "$STANDIN"
-  } > "$RUN_ENV"
+  } > "$RUN_ENV_TMP"
+  mv -f "$RUN_ENV_TMP" "$RUN_ENV"
 )
 if [ -n "${VERIFY_PLAN_ONLY:-}" ]; then
   echo plan-only

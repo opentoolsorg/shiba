@@ -31,6 +31,30 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 const env = { CodingOrchestrator: {} } as unknown as Env;
 
 describe("handleRuns voucher hygiene", () => {
+  it.each([undefined, "00000000-0000-4000-8000-000000000001"])("stores attachments under the authenticated session %s without forwarding the upload", async (session) => {
+    forwarded.requests.length = 0;
+    const put = vi.fn();
+    const response = await handleRuns(new Request(`https://shiba.test/api/runs/attachments?name=notes.txt${session ? `&session=${session}` : ""}`, {
+      method: "POST", headers: { origin: "https://shiba.test", "content-length": "5" }, body: "hello",
+    }), { ...env, ATTACHMENTS: { put } } as unknown as Env);
+    expect(response?.status).toBe(200);
+    const file = await response?.json() as { name: string; sha256: string; size: number };
+    expect(file).toMatchObject({ name: "notes.txt", size: 5 });
+    const owner = session ? `web:devin:${session}` : "devin";
+    expect(put).toHaveBeenCalledWith(`run-attachments/${owner}/${file.sha256}`, expect.any(ArrayBuffer), { sha256: file.sha256 });
+    expect(forwarded.requests).toHaveLength(0);
+  });
+
+  it("refuses attachment uploads from another origin and non-POST methods", async () => {
+    const put = vi.fn();
+    const bindings = { ...env, ATTACHMENTS: { put } } as unknown as Env;
+    const badOrigin = await handleRuns(new Request("https://shiba.test/api/runs/attachments?name=a", {
+      method: "POST", headers: { origin: "https://other.test", "content-length": "1" }, body: "x",
+    }), bindings);
+    expect(badOrigin?.status).toBe(403);
+    expect((await handleRuns(new Request("https://shiba.test/api/runs/attachments"), bindings))?.status).toBe(405);
+    expect(put).not.toHaveBeenCalled();
+  });
   it("forwards a repo-free room handoff through the normal Worker approval intake with a trusted handoff fence", async () => {
     forwarded.requests.length = 0;
     const executionTarget = {

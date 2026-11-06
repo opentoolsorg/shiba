@@ -41,7 +41,9 @@ export function renderRunTranscript(args: {
 }): string[] {
   const lines = [
     `Task: ${args.input.task}`,
-    `Repository: ${args.input.repoUrl} (${args.input.baseBranch})`,
+    args.input.executionTarget?.kind === "artifact-workspace"
+      ? `Workspace: ${args.input.executionTarget.workspaceName ?? args.input.executionTarget.workspaceId ?? args.input.sandboxId}`
+      : `Repository: ${args.input.repoUrl} (${args.input.baseBranch})`,
     `Sandbox: ${args.input.sandboxId}`,
   ];
   for (const event of args.progress) {

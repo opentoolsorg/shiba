@@ -98,7 +98,7 @@ if (!/^[a-z][a-z0-9-]{0,62}$/.test(workerName) || !/^[a-z][a-z0-9-]{0,62}$/.test
 
 // Cloudflare Access: hostname apps, not the Worker `access` prop — Worker-level
 // Access 403s WebSocket upgrades, and the dashboard runs on one.
-const { workerHost, accessEnabled, accessEmails } = deploymentConfig(process.env, {
+const { workerHost, accessEnabled, accessEmails, openDashboard } = deploymentConfig(process.env, {
   isLiveStage, workerName, liveHost: "app.tryshiba.dev",
 });
 const workerOrigin = `https://${workerHost}`;
@@ -122,6 +122,8 @@ export const ACCESS_BYPASS_PATHS = [
   "/api/automations/*/trigger",
   "/api/waitlist",
   "/api/trigger",
+  // Downloads authenticate the exact archive with a short-lived signed capability.
+  "/api/artifacts/download",
 ];
 const DashboardAccess = accessEnabled
   ? Cloudflare.Access.Application("DashboardAccess", {
@@ -172,6 +174,32 @@ export const Worker = Cloudflare.Worker("Worker", {
   env: {
     GATEWAY_ID: "default",
     INTEGRATIONS_PROVIDER: "openconnector",
+    SHIBA_PERSONAL_LOCAL_EXECUTION: "0",
+    SHIBA_TEAM_MODEL_SESSIONS: "0",
+    SHIBA_SHARED_COMPUTER: "0",
+    SHIBA_SHARED_COMPUTER_IMAGE: "",
+    FOUNDER_AUTOMATIC_READS_ENABLED: "false",
+    FOUNDER_STRIPE_READS_ENABLED: "false",
+    FOUNDER_META_READS_ENABLED: "false",
+    FOUNDER_HUBSPOT_READS_ENABLED: "false",
+    FOUNDER_RECONCILIATION_SCHEDULES_ENABLED: "false",
+    FOUNDER_RECONCILIATION_SLACK_ENABLED: "false",
+    OPEN_CONNECTOR_READ_VERSION_ID: "",
+    OPEN_CONNECTOR_READ_MANIFEST_SHA256: "",
+    SLACK_INSTALLATIONS_ENABLED: "false",
+    SLACK_COWORKER_PRIVATE_STATUS_ENABLED: "false",
+    SLACK_OAUTH_APP_ID: "",
+    SLACK_OAUTH_CLIENT_ID: "",
+    SLACK_OAUTH_REDIRECT_URI: "",
+    SLACK_OAUTH_PKCE_ENABLED: "false",
+    SLACK_OAUTH_QUERY_REDACTION_VERIFIED: "false",
+    SLACK_LEGACY_MODE_ENABLED: "false",
+    SLACK_LEGACY_TEAM_ID: "",
+    SLACK_LEGACY_APP_ID: "",
+    SHIBA_TEAM_MODEL_MODEL: "@cf/zai-org/glm-4.7-flash",
+    SLACK_CANVAS_OWNERS: "[]",
+    SLACK_AGENT_SESSIONS_ENABLED: "false",
+    SLACK_AGENT_SESSIONS_TEAM_ID: "",
     ORCHESTRATOR_MODEL: "@cf/zai-org/glm-4.7-flash",
     CODING_MODEL: "google/gemini-3.5-flash-lite",
     RUNTIME: "sandbox",
@@ -188,8 +216,10 @@ export const Worker = Cloudflare.Worker("Worker", {
     // Preview stages use their validated workers.dev host, never the live origin.
     WORKER_HOSTNAME: isLiveStage ? "app.tryshiba.dev" : workerHost,
     BETTER_AUTH_URL: isLiveStage ? "https://app.tryshiba.dev" : workerOrigin,
+    ...(openDashboard ? { OPEN_DASHBOARD: "1" } : {}),
 
     AI: Cloudflare.Workers.AI(),
+    CF_VERSION_METADATA: Cloudflare.Workers.VersionMetadata(),
 
     // Code Mode (`worker_loaders` in wrangler.jsonc) — dynamic isolate loader.
     LOADER: Cloudflare.WorkerLoader("LOADER"),
@@ -244,6 +274,12 @@ export const Worker = Cloudflare.Worker("Worker", {
     ATTACHMENTS: Cloudflare.R2.Bucket("ATTACHMENTS", {
       name: `shiba-attachments${resSuffix}`,
     }),
+    ARTIFACTS: Cloudflare.R2.Bucket("ARTIFACTS", {
+      name: `shiba-artifacts${resSuffix}`,
+      // Eligibility starts after the seven-day download capability window.
+      lifecycleRules: [{ id: "expire-run-archives", prefix: "run-archives/", enabled: true,
+        deleteObjectsTransition: { condition: { type: "Age", maxAge: 8 * 24 * 60 * 60 } } }],
+    }),
     AGENT_AUDIT: Cloudflare.D1.Database("AGENT_AUDIT", {
       name: `shiba-audit${resSuffix}`,
     }),
@@ -286,6 +322,10 @@ export const Worker = Cloudflare.Worker("Worker", {
       "LINEAR_OAUTH_ACCESS_TOKEN",
       "LINEAR_DEFAULT_REPO_URL",
       "SLACK_SIGNING_SECRET",
+      "SLACK_INSTALLATION_KEYRING",
+      "FOUNDER_STRIPE_CREDENTIAL_KEY",
+      "FOUNDER_META_CREDENTIAL_KEY",
+      "FOUNDER_HUBSPOT_CREDENTIAL_KEY",
       "SLACK_APPROVERS",
       // Dashboard emails allowed to resolve shared ("default" DO) approvals:
       // automations, review lane, Sentry, email. Unset = nobody.
@@ -317,7 +357,17 @@ export const Worker = Cloudflare.Worker("Worker", {
       "GMAIL_TOKEN_KEY",
       "OPEN_CONNECTOR_ADMIN_TOKEN",
       "OPEN_CONNECTOR_RUNTIME_TOKEN",
+      "OPEN_CONNECTOR_READ_RUNTIME_TOKEN",
+      "OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS",
       "MODEL_CREDENTIAL_KEY",
+      // Optional OAuth client IDs registered by the operator for curated MCP vendors.
+      // Unset IDs keep that vendor's OAuth connect path unavailable.
+      "MCP_OAUTH_CLIENT_STRIPE",
+      "MCP_OAUTH_CLIENT_NOTION",
+      "MCP_OAUTH_CLIENT_SENTRY",
+      "MCP_OAUTH_CLIENT_POSTHOG",
+      "MCP_OAUTH_CLIENT_FIGMA",
+      "MCP_OAUTH_CLIENT_JIRA_ATLASSIAN",
       // Telegram + Discord webhook lanes.
       "TELEGRAM_BOT_TOKEN",
       "TELEGRAM_WEBHOOK_SECRET",
@@ -327,6 +377,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "PAIRING_SECRET",
       // Edge vouched-header signing (optional; unset = header-trust fallback).
       "INTERNAL_SIGNING_KEY",
+      "ARTIFACT_SIGNING_KEY",
       // Automation trigger lane (`/api/trigger`).
       "TRIGGER_TOKEN",
     ]),
@@ -371,6 +422,29 @@ export const Worker = Cloudflare.Worker("Worker", {
       "ACP_MODEL",
       // T51 opt-in (§18.13): absent = the local runtime is dark.
       "SHIBA_LOCAL_RUNTIME",
+      "SHIBA_PERSONAL_LOCAL_EXECUTION",
+      "SHIBA_TEAM_MODEL_SESSIONS",
+      "SHIBA_SHARED_COMPUTER",
+      "SHIBA_SHARED_COMPUTER_IMAGE",
+      "FOUNDER_AUTOMATIC_READS_ENABLED",
+      "FOUNDER_STRIPE_READS_ENABLED",
+      "FOUNDER_META_READS_ENABLED",
+      "FOUNDER_HUBSPOT_READS_ENABLED",
+      "FOUNDER_RECONCILIATION_SCHEDULES_ENABLED",
+      "FOUNDER_RECONCILIATION_SLACK_ENABLED",
+      "OPEN_CONNECTOR_READ_VERSION_ID",
+      "OPEN_CONNECTOR_READ_MANIFEST_SHA256",
+      "SLACK_INSTALLATIONS_ENABLED",
+      "SLACK_COWORKER_PRIVATE_STATUS_ENABLED",
+      "SLACK_OAUTH_APP_ID",
+      "SLACK_OAUTH_CLIENT_ID",
+      "SLACK_OAUTH_REDIRECT_URI",
+      "SLACK_OAUTH_PKCE_ENABLED",
+      "SLACK_OAUTH_QUERY_REDACTION_VERIFIED",
+      "SLACK_LEGACY_MODE_ENABLED",
+      "SLACK_LEGACY_TEAM_ID",
+      "SLACK_LEGACY_APP_ID",
+      "SHIBA_TEAM_MODEL_MODEL",
       "CODEX_MODEL",
       "GROK_MODEL",
       "PI_MODEL",
@@ -384,6 +458,9 @@ export const Worker = Cloudflare.Worker("Worker", {
       "ROLE_MODEL__DESIGNER",
       "SLACK_APPROVALS_CHANNEL",
       "SLACK_ROOM_OUTBOX_ENABLED",
+      "SLACK_CANVAS_OWNERS",
+      "SLACK_AGENT_SESSIONS_ENABLED",
+      "SLACK_AGENT_SESSIONS_TEAM_ID",
       // Agent mailbox identity (default dev@tryshiba.dev).
       "AGENT_MAILBOX",
       "MEMORY_ENABLED",
@@ -394,6 +471,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "DISCORD_CHANNEL_REPOS",
       "DISCORD_AGENT_HARNESS",
       "GMAIL_CLIENT_ID",
+      "BETTER_AUTH_VERIFICATION_FROM",
       "GMAIL_REDIRECT_URI",
       "INTEGRATIONS_PROVIDER",
       "OPEN_CONNECTOR_URL",
@@ -439,6 +517,12 @@ export default Alchemy.Stack(
     if (process.env.OPEN_CONNECTOR_WORKER) {
       yield* worker.bind`OPEN_CONNECTOR`({
         bindings: [{ type: "service", name: "OPEN_CONNECTOR", service: process.env.OPEN_CONNECTOR_WORKER }],
+      });
+    }
+    // Optional reviewed read-gateway service; this binding creates no sibling or credential.
+    if (process.env.OPEN_CONNECTOR_READ_WORKER) {
+      yield* worker.bind`OPEN_CONNECTOR_READ_GATEWAY`({
+        bindings: [{ type: "service", name: "OPEN_CONNECTOR_READ_GATEWAY", service: process.env.OPEN_CONNECTOR_READ_WORKER }],
       });
     }
     // Scoped memory recall filters on `agent`; Vectorize ignores unindexed metadata.

@@ -1,3 +1,4 @@
+import type { PersonalExecutionSnapshot } from "@shiba/shared";
 import { onboardingRunFields, type OnboardingRunFields } from "@shiba/shared";
 /**
  * Durable run registry helpers. The orchestrator keeps these records in
@@ -53,6 +54,7 @@ export {
 } from "@shiba/shared";
 
 export function createRun(args: OnboardingRunFields & {
+  outputArchive?: import("@shiba/shared").RunOutputArchivePolicy;
   runId: string;
   sandboxId: string;
   repoUrl: string;
@@ -81,6 +83,7 @@ export function createRun(args: OnboardingRunFields & {
   /** T51: the approved runtime — "local" dispatches to the operator daemon. */
   runtime?: RuntimeSelection;
   targetMachineId?: string;
+  personalExecution?: PersonalExecutionSnapshot;
   testCommand?: string[];
   /** Exact workspace outputs required by this approval. */
   expectedDeliverables?: string[];
@@ -95,6 +98,7 @@ export function createRun(args: OnboardingRunFields & {
   envDigest?: string;
   envSealed?: string;
   runSetup?: boolean;
+  attachments?: import("@shiba/shared").RunAttachment[];
   subagentBudgetRemaining?: number;
   /** T40: approval evidence stamped at queue time (the resolve path). */
   approval?: ApprovalEvidence;
@@ -112,6 +116,7 @@ export function createRun(args: OnboardingRunFields & {
       sandboxId: args.sandboxId,
       repoUrl: args.repoUrl,
       ...(args.executionTarget !== undefined ? { executionTarget: args.executionTarget } : {}),
+      ...(args.outputArchive !== undefined ? { outputArchive: { ...args.outputArchive } } : {}),
       task: args.task,
       baseBranch: args.baseBranch,
       publishPullRequest: args.publishPullRequest,
@@ -132,6 +137,7 @@ export function createRun(args: OnboardingRunFields & {
       ...(args.authAccount !== undefined ? { authAccount: args.authAccount } : {}),
       ...(args.runtime !== undefined ? { runtime: args.runtime } : {}),
       ...(args.targetMachineId !== undefined ? { targetMachineId: args.targetMachineId } : {}),
+      ...(args.personalExecution !== undefined ? { personalExecution: structuredClone(args.personalExecution) } : {}),
       ...(args.testCommand !== undefined ? { testCommand: args.testCommand } : {}),
       ...(args.expectedDeliverables !== undefined ? { expectedDeliverables: [...args.expectedDeliverables] } : {}),
       ...(args.forkedFrom !== undefined ? { forkedFrom: args.forkedFrom } : {}),
@@ -144,6 +150,7 @@ export function createRun(args: OnboardingRunFields & {
       ...(args.envDigest !== undefined ? { envDigest: args.envDigest } : {}),
       ...(args.envSealed !== undefined ? { envSealed: args.envSealed } : {}),
       ...(args.runSetup === true ? { runSetup: true } : {}),
+      ...(args.attachments?.length ? { attachments: args.attachments } : {}),
     },
     ...(args.approval !== undefined ? { approval: args.approval } : {}),
     at: now,
@@ -185,6 +192,7 @@ function commandForStatus(
           sandboxId: run.sandboxId,
           repoUrl: run.repoUrl,
           ...(run.executionTarget !== undefined ? { executionTarget: structuredClone(run.executionTarget) } : {}),
+          ...(run.outputArchive !== undefined ? { outputArchive: { ...run.outputArchive } } : {}),
           task: run.task,
           baseBranch: run.baseBranch,
           publishPullRequest: run.publishPullRequest,
@@ -204,6 +212,7 @@ function commandForStatus(
           ...(run.authAccount !== undefined ? { authAccount: run.authAccount } : {}),
           ...(run.runtime !== undefined ? { runtime: run.runtime } : {}),
           ...(run.targetMachineId !== undefined ? { targetMachineId: run.targetMachineId } : {}),
+      ...(run.personalExecution !== undefined ? { personalExecution: structuredClone(run.personalExecution) } : {}),
           ...(run.testCommand !== undefined ? { testCommand: [...run.testCommand] } : {}),
           ...(run.expectedDeliverables !== undefined ? { expectedDeliverables: [...run.expectedDeliverables] } : {}),
           ...(run.forkedFrom !== undefined ? { forkedFrom: { ...run.forkedFrom } } : {}),

@@ -1,0 +1,958 @@
+diff --git a/packages/shared/src/index.ts b/packages/shared/src/index.ts
+index f6c9c27304e7e6350eba5bafd91129dc52f7b35d..147f6af3c302039845854aa5adf0f157e04c8641 100644
+--- a/packages/shared/src/index.ts
++++ b/packages/shared/src/index.ts
+@@ -73,3 +73,4 @@ export * from "./run-output-archive.js";
+ export * from "./founder-automatic-slack.js";
+ export * from "./founder-stripe-reads.js";
+ export * from "./founder-meta-reads.js";
++export * from "./founder-reconciliation.js";
+diff --git a/apps/backend/migrations/0030_founder_reconciliation.sql b/apps/backend/migrations/0030_founder_reconciliation.sql
+new file mode 100644
+index 0000000000000000000000000000000000000000..09d2960fe8aab8a58d57d19b27da41281d6998ee
+--- /dev/null
++++ b/apps/backend/migrations/0030_founder_reconciliation.sql
+@@ -0,0 +1,8 @@
++-- Private, explicitly reviewed composition of exact authorized source receipts.
++CREATE TABLE IF NOT EXISTS founder_reconciliation_reports (
++ id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, owner_id TEXT NOT NULL, owner_account_id TEXT NOT NULL,
++ owner_json TEXT NOT NULL, input_json TEXT NOT NULL, sources_json TEXT NOT NULL, digest TEXT NOT NULL, executor_digest TEXT NOT NULL,
++ state TEXT NOT NULL CHECK(state IN ('draft','completed','revoked')), expires_at INTEGER NOT NULL,
++ report_json TEXT, report_hash TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
++);
++CREATE INDEX IF NOT EXISTS founder_reconciliation_owner ON founder_reconciliation_reports(workspace_id,owner_account_id,created_at);
+diff --git a/apps/backend/migrations/0031_founder_slack_sources.sql b/apps/backend/migrations/0031_founder_slack_sources.sql
+new file mode 100644
+index 0000000000000000000000000000000000000000..3360720a792fd2751cfdbb6f4984c6eeb72b5bbd
+--- /dev/null
++++ b/apps/backend/migrations/0031_founder_slack_sources.sql
+@@ -0,0 +1,21 @@
++-- Separate Stripe standing-disclosure authority. The original delivery ledger remains shared.
++CREATE TABLE IF NOT EXISTS founder_stripe_slack_grants (
++ id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL,owner_id TEXT NOT NULL,owner_account_id TEXT NOT NULL,owner_json TEXT NOT NULL,
++ request_id TEXT NOT NULL,input_hash TEXT NOT NULL,digest TEXT NOT NULL,version INTEGER NOT NULL CHECK(version=1),
++ source_kind TEXT NOT NULL CHECK(source_kind='stripe-read.v1'),family_json TEXT NOT NULL,sample_receipt_id TEXT NOT NULL,sample_digest TEXT NOT NULL,
++ destination_json TEXT NOT NULL,audience_json TEXT NOT NULL,policy_json TEXT NOT NULL,link_created_at INTEGER NOT NULL,room_id TEXT NOT NULL,link_id TEXT NOT NULL,destination_key TEXT NOT NULL,
++ max_sends INTEGER NOT NULL CHECK(max_sends BETWEEN 1 AND 10),used_sends INTEGER NOT NULL DEFAULT 0,
++ state TEXT NOT NULL CHECK(state IN ('draft','disclosed','enabled','paused','revoked','blocked','exhausted')),
++ created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,review_expires_at INTEGER NOT NULL,approved_at INTEGER,approver_json TEXT,error_code TEXT,
++ UNIQUE(workspace_id,owner_account_id,request_id)
++);
++CREATE INDEX IF NOT EXISTS founder_stripe_slack_scope ON founder_stripe_slack_grants(workspace_id,owner_account_id,created_at);
++CREATE TRIGGER IF NOT EXISTS founder_stripe_slack_member_update AFTER UPDATE ON team_workspace_memberships BEGIN UPDATE founder_stripe_slack_grants SET state='blocked',error_code='membership_changed' WHERE workspace_id=OLD.workspace_id AND state IN ('draft','disclosed','enabled','paused'); END;
++CREATE TRIGGER IF NOT EXISTS founder_stripe_slack_member_delete AFTER DELETE ON team_workspace_memberships BEGIN UPDATE founder_stripe_slack_grants SET state='blocked',error_code='membership_changed' WHERE workspace_id=OLD.workspace_id AND state IN ('draft','disclosed','enabled','paused'); END;
++CREATE TRIGGER IF NOT EXISTS founder_stripe_slack_room_member_update AFTER UPDATE ON collaboration_memberships BEGIN UPDATE founder_stripe_slack_grants SET state='blocked',error_code='audience_changed' WHERE workspace_id=OLD.workspace_id AND room_id=OLD.room_id AND state IN ('draft','disclosed','enabled','paused'); END;
++CREATE TRIGGER IF NOT EXISTS founder_stripe_slack_room_member_insert AFTER INSERT ON collaboration_memberships BEGIN UPDATE founder_stripe_slack_grants SET state='blocked',error_code='audience_changed' WHERE workspace_id=NEW.workspace_id AND room_id=NEW.room_id AND state IN ('draft','disclosed','enabled','paused'); END;
++CREATE TRIGGER IF NOT EXISTS founder_stripe_slack_room_member_delete AFTER DELETE ON collaboration_memberships BEGIN UPDATE founder_stripe_slack_grants SET state='blocked',error_code='audience_changed' WHERE workspace_id=OLD.workspace_id AND room_id=OLD.room_id AND state IN ('draft','disclosed','enabled','paused'); END;
++CREATE TRIGGER IF NOT EXISTS founder_stripe_slack_link_update AFTER UPDATE ON collaboration_slack_room_links BEGIN UPDATE founder_stripe_slack_grants SET state='blocked',error_code='destination_changed' WHERE workspace_id=OLD.workspace_id AND room_id=OLD.room_id AND state IN ('draft','disclosed','enabled','paused'); END;
++CREATE TRIGGER IF NOT EXISTS founder_stripe_slack_link_delete AFTER DELETE ON collaboration_slack_room_links BEGIN UPDATE founder_stripe_slack_grants SET state='blocked',error_code='destination_changed' WHERE workspace_id=OLD.workspace_id AND room_id=OLD.room_id AND state IN ('draft','disclosed','enabled','paused'); END;
++CREATE TRIGGER IF NOT EXISTS founder_stripe_slack_room_update AFTER UPDATE ON collaboration_rooms BEGIN UPDATE founder_stripe_slack_grants SET state='blocked',error_code='destination_changed' WHERE workspace_id=OLD.workspace_id AND room_id=OLD.room_id AND state IN ('draft','disclosed','enabled','paused'); END;
++CREATE TRIGGER IF NOT EXISTS founder_stripe_slack_room_delete AFTER DELETE ON collaboration_rooms BEGIN UPDATE founder_stripe_slack_grants SET state='blocked',error_code='destination_changed' WHERE workspace_id=OLD.workspace_id AND room_id=OLD.room_id AND state IN ('draft','disclosed','enabled','paused'); END;
+diff --git a/apps/backend/src/founder-automatic-slack-stripe-source.ts b/apps/backend/src/founder-automatic-slack-stripe-source.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..960fbedce73696037ae48040fe89be8e4b2ad646
+--- /dev/null
++++ b/apps/backend/src/founder-automatic-slack-stripe-source.ts
+@@ -0,0 +1,39 @@
++import { z } from "zod";
++import { FOUNDER_SQL_NOW } from "./founder-connector-context.js";
++import { membershipSql, WorkspaceIntegrationError } from "./workspace-integrations-store.js";
++import { stripeAvailable, stripeDigest, validStripeContract, type StripeEnv, type StripeGrantRow } from "./founder-stripe-store.js";
++import type { WorkspaceNativeMember } from "./workspace-native-authority.js";
++import { renderAutomaticSlackReport, type AutomaticSlackGuard } from "./founder-automatic-slack-store.js";
++
++const id=z.string().regex(/^[A-Za-z0-9_]{1,200}$/),hash=z.string().regex(/^[a-f0-9]{64}$/),integer=z.number().int().safe();
++const balance=z.strictObject({id:id.regex(/^txn_/),created:integer,currency:z.string().regex(/^[a-z]{3}$/),amount:integer,fee:integer,net:integer,type:z.string().regex(/^[a-z_]{1,100}$/),source:id.nullable()});
++const invoice=z.strictObject({id:id.regex(/^in_/),created:integer,currency:z.string().regex(/^[a-z]{3}$/),amountPaid:integer,status:z.enum(['draft','open','paid','uncollectible','void']).nullable(),livemode:z.boolean()});
++const reportSchema=z.strictObject({format:z.literal('shiba.stripe-read-report.v1'),principal:z.strictObject({kind:z.literal('schedule'),id:z.string()}),accountId:id.regex(/^acct_/),mode:z.enum(['test','live']),grantId:id,revision:integer,contractDigest:hash,executorDigest:hash,apiVersion:z.literal('2025-10-29.clover'),capturedAt:integer,capturedBytes:integer,notice:z.string().max(1000),capture:z.strictObject({kind:z.enum(['invoices','balance_transactions']),interval:z.strictObject({createdGte:integer,createdLt:integer}),hasMore:z.boolean(),rows:z.array(z.union([balance,invoice])).max(25),captureCompleteness:z.literal('bounded-response'),datasetCompleteness:z.literal('unknown'),businessSuccess:z.literal('unverified')}),summary:z.unknown()});
++export interface StripeSlackReceipt { id:string;grant_id:string;grant_revision:number;state:string;selection_json:string;report_json:string;result_digest:string;created_at:number;expires_at:number }
++export interface StripeSlackSource {grant:StripeGrantRow;receipt:StripeSlackReceipt;content:string}
++const deny=():never=>{throw new WorkspaceIntegrationError('automatic_slack_stripe_source_unavailable',403);};
++/** One completed, requester-private receipt; source identity and bytes are rechecked by the SQL guard. */
++export async function loadStripeSlackSource(env:StripeEnv,owner:WorkspaceNativeMember,grantId:string,receiptId:string):Promise<StripeSlackSource> {
++ stripeAvailable(env);const g=membershipSql(owner,true);
++ const grant=await env.AGENT_AUDIT.prepare(`SELECT * FROM founder_stripe_read_grants WHERE id=? AND workspace_id=? AND owner_id=? AND owner_account_id=? AND state IN ('enabled','exhausted') AND expires_at>${FOUNDER_SQL_NOW} AND ${g.sql}`).bind(grantId,owner.workspaceId,owner.userId,owner.accountId,...g.values).first<StripeGrantRow>();
++ if(!grant||!await validStripeContract(grant))return deny();
++ const original=JSON.parse(grant.owner_json) as WorkspaceNativeMember;if(original.accountId!==owner.accountId||original.userId!==owner.userId||original.workspaceId!==owner.workspaceId||original.version!==owner.version||original.role!==owner.role)return deny();
++ const receipt=await env.AGENT_AUDIT.prepare(`SELECT * FROM founder_stripe_read_receipts WHERE id=? AND grant_id=? AND grant_revision=? AND state='completed' AND expires_at>${FOUNDER_SQL_NOW}`).bind(receiptId,grant.id,grant.revision).first<StripeSlackReceipt>();
++ if(!receipt||typeof receipt.report_json!=='string'||receipt.report_json.length>100000||await stripeDigest(receipt.report_json)!==receipt.result_digest)return deny();
++ const report=reportSchema.parse(JSON.parse(receipt.report_json)),selection=JSON.parse(grant.selection_json) as {kind:string;createdGte:number;createdLt:number;limit:number};
++ if(report.grantId!==grant.id||report.revision!==grant.revision||report.contractDigest!==grant.contract_digest||report.executorDigest!==grant.executor_digest||report.accountId!==grant.account_id||report.mode!==grant.mode||report.principal.id!==`schedule:${grant.id}`||receipt.selection_json!==grant.selection_json||report.capture.kind!==selection.kind||report.capture.interval.createdGte!==selection.createdGte||report.capture.interval.createdLt!==selection.createdLt||report.capture.rows.length>selection.limit||report.capturedAt<receipt.created_at||report.capturedAt>=receipt.expires_at)return deny();
++ const seen=new Set<string>();
++ const rows=report.capture.rows.map(row=>{
++  if(seen.has(row.id)||row.created<selection.createdGte||row.created>=selection.createdLt)return deny();seen.add(row.id);
++  if(report.capture.kind==='invoices') {if(!('amountPaid'in row)||row.livemode!==(grant.mode==='live'))return deny();return `${row.id} created=${row.created} ${row.currency} amount_paid_minor=${row.amountPaid} status=${row.status??'unknown'}`;}
++  if(!('amount'in row)||BigInt(row.amount)-BigInt(row.fee)!==BigInt(row.net))return deny();return `${row.id} created=${row.created} ${row.currency} amount_minor=${row.amount} fee_minor=${row.fee} net_minor=${row.net} type=${row.type} source=${row.source??'unknown'}`;
++ });
++ const text=[`Stripe scheduled captured evidence (fixed qualified row summary v1).`,`Grant ${grant.id} revision ${grant.revision} contract ${grant.contract_digest}. Executor ${grant.executor_digest}.`,`Receipt ${receipt.id} digest ${receipt.result_digest}. Account ${grant.account_id} mode ${grant.mode}.`,`Captured ${new Date(report.capturedAt).toISOString()}; window [${selection.createdGte}, ${selection.createdLt}) UTC epoch seconds; ${report.capture.kind}; page has_more=${report.capture.hasMore}.`,`Captured rows=${rows.length}; bounded response, dataset completeness unknown, business success unverified. This is not a payment, revenue, MRR, churn or full-ledger reconciliation claim.`,`Currency amounts are integer minor units per row.`,...rows].join('\n');
++ const content=renderAutomaticSlackReport(text),source={grant,receipt,content},guard=stripeSlackSourceGuard(source);
++ if(!await env.AGENT_AUDIT.prepare(`SELECT 1 AS current WHERE ${guard.sql}`).bind(...guard.values).first())return deny();stripeAvailable(env);if(Date.now()>=Math.min(grant.expires_at,receipt.expires_at))return deny();return source;
++}
++/** Compose only trusted fixed fields; no source content or caller SQL is executable. */
++export function stripeSlackSourceGuard(source:StripeSlackSource):AutomaticSlackGuard {
++ const {grant:g,receipt:r}=source,original=membershipSql(JSON.parse(g.owner_json) as WorkspaceNativeMember,true);
++ return {sql:`${original.sql} AND EXISTS(SELECT 1 FROM founder_stripe_read_grants g JOIN founder_stripe_read_receipts r ON r.grant_id=g.id AND r.grant_revision=g.revision WHERE g.id=? AND g.workspace_id=? AND g.owner_id=? AND g.owner_account_id=? AND g.owner_json=? AND g.revision=? AND g.contract_digest=? AND g.executor_digest=? AND g.selection_json=? AND g.account_id=? AND g.mode=? AND g.expires_at=? AND g.max_calls=? AND g.state IN ('enabled','exhausted') AND g.expires_at>${FOUNDER_SQL_NOW} AND r.id=? AND r.state='completed' AND r.selection_json=? AND r.report_json=? AND r.result_digest=? AND r.created_at=? AND r.expires_at=? AND r.expires_at>${FOUNDER_SQL_NOW})`,values:[...original.values,g.id,g.workspace_id,g.owner_id,g.owner_account_id,g.owner_json,g.revision,g.contract_digest,g.executor_digest,g.selection_json,g.account_id,g.mode,g.expires_at,g.max_calls,r.id,r.selection_json,r.report_json,r.result_digest,r.created_at,r.expires_at]};
++}
+diff --git a/apps/backend/src/founder-automatic-slack-stripe-store.ts b/apps/backend/src/founder-automatic-slack-stripe-store.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..bd7831c84dabbd6026452ef8a9733ccc9762507c
+--- /dev/null
++++ b/apps/backend/src/founder-automatic-slack-stripe-store.ts
+@@ -0,0 +1,67 @@
++import { z } from 'zod';
++import { AUTOMATIC_SLACK_AUDIENCE_CONSENT, AUTOMATIC_SLACK_MAX_TTL_MS } from '@shiba/shared';
++import { membershipSql, WorkspaceIntegrationError, insertGuarded } from './workspace-integrations-store.js';
++import { ensureAutomaticSlackSchema, automaticSlackApprover, packAutomaticSlackGuard, type AutomaticSlackGuard } from './founder-automatic-slack-store.js';
++import { listReportSlackDestinations, reportSlackDestinationGuard, type ReportSlackLinkSnapshot } from './report-slack-store.js';
++import { slackOAuthConfiguration } from './slack-installations-store.js';
++import { parseApproverAllowlist } from './slack-approval.js';
++import { hashToolArgs } from './mcp-gateway.js';
++import { FOUNDER_SQL_NOW } from './founder-connector-context.js';
++import { loadStripeSlackSource, stripeSlackSourceGuard, type StripeSlackSource } from './founder-automatic-slack-stripe-source.js';
++import { stripeAvailable, validStripeContract, type StripeEnv, type StripeGrantRow } from './founder-stripe-store.js';
++import type { WorkspaceNativeMember } from './workspace-native-authority.js';
++const id=z.string().regex(/^[A-Za-z0-9_-]{1,200}$/),hash=z.string().regex(/^[a-f0-9]{64}$/);
++export const stripeSlackPrepareSchema=z.strictObject({requestId:z.string().uuid(),grantId:id,grantRevision:z.number().int().positive(),grantDigest:hash,sampleReceiptId:id,sampleDigest:hash,roomId:id,linkId:id,maxSends:z.number().int().min(1).max(10),expiresAt:z.number().int().positive()});
++export const stripeSlackDecisionSchema=z.strictObject({expectedVersion:z.literal(1),digest:hash,expiresAt:z.number().int().positive(),reviewed:z.literal(true)});
++export const stripeSlackDisclosureSchema=stripeSlackDecisionSchema.extend({futureReportConsent:z.literal('share-future-completed-stripe-receipts-from-this-exact-grant'),audienceConsent:z.literal(AUTOMATIC_SLACK_AUDIENCE_CONSENT)});
++type Prepare=z.infer<typeof stripeSlackPrepareSchema>;type Decision=z.infer<typeof stripeSlackDecisionSchema>;
++type StripePin=Pick<StripeGrantRow,'id'|'workspace_id'|'owner_id'|'owner_account_id'|'owner_json'|'account_id'|'mode'|'revision'|'expires_at'|'fingerprint'|'selection_json'|'contract_digest'|'executor_digest'|'max_calls'>;
++export interface StripeSlackGrantRow { id:string;workspace_id:string;owner_id:string;owner_account_id:string;owner_json:string;request_id:string;input_hash:string;digest:string;version:1;source_kind:'stripe-read.v1';family_json:string;sample_receipt_id:string;sample_digest:string;destination_json:string;audience_json:string;policy_json:string;link_created_at:number;room_id:string;link_id:string;destination_key:string;max_sends:number;used_sends:number;state:string;created_at:number;expires_at:number;review_expires_at:number;approved_at:number|null;approver_json:string|null;error_code:string|null }
++export function stripeSlackLink(row:StripeSlackGrantRow):ReportSlackLinkSnapshot{return {destination:JSON.parse(row.destination_json),audienceJson:row.audience_json,policyJson:row.policy_json,createdAt:row.link_created_at};}
++export function stripeSlackPin(row:StripeSlackGrantRow):StripePin{return JSON.parse(row.family_json).grant as StripePin;}
++const fail=(code:string,status=409):never=>{throw new WorkspaceIntegrationError(code,status);};
++export function stripeSlackAvailable(env:StripeEnv){try{stripeAvailable(env);slackOAuthConfiguration(env);if(env.SLACK_ROOM_OUTBOX_ENABLED!=='true'||parseApproverAllowlist(env.DASHBOARD_APPROVERS).length===0)throw new Error();return true;}catch{return false;}}
++function pin(g:StripeGrantRow):StripePin {return {id:g.id,workspace_id:g.workspace_id,owner_id:g.owner_id,owner_account_id:g.owner_account_id,owner_json:g.owner_json,account_id:g.account_id,mode:g.mode,revision:g.revision,expires_at:g.expires_at,fingerprint:g.fingerprint,selection_json:g.selection_json,contract_digest:g.contract_digest,executor_digest:g.executor_digest,max_calls:g.max_calls};}
++export function stripeSlackFamilyGuard(env:StripeEnv,row:StripeSlackGrantRow):AutomaticSlackGuard {
++ if(!stripeSlackAvailable(env))return {sql:'0=1',values:[]};const p=stripeSlackPin(row),owner=JSON.parse(row.owner_json) as WorkspaceNativeMember,member=membershipSql(owner,true);
++ if(p.owner_account_id!==owner.accountId||p.owner_id!==owner.userId||p.workspace_id!==owner.workspaceId||p.owner_json!==row.owner_json)return {sql:'0=1',values:[]};
++ return {sql:`${member.sql} AND EXISTS(SELECT 1 FROM founder_stripe_read_grants WHERE id=? AND workspace_id=? AND owner_id=? AND owner_account_id=? AND owner_json=? AND account_id=? AND mode=? AND revision=? AND expires_at=? AND fingerprint=? AND selection_json=? AND contract_digest=? AND executor_digest=? AND max_calls=? AND state IN ('enabled','exhausted') AND expires_at>${FOUNDER_SQL_NOW})`,values:[...member.values,p.id,p.workspace_id,p.owner_id,p.owner_account_id,p.owner_json,p.account_id,p.mode,p.revision,p.expires_at,p.fingerprint,p.selection_json,p.contract_digest,p.executor_digest,p.max_calls]};
++}
++export function stripeSlackGrantGuard(env:StripeEnv,row:StripeSlackGrantRow,reader?:WorkspaceNativeMember,approved=false):AutomaticSlackGuard {
++ const owner=JSON.parse(row.owner_json) as WorkspaceNativeMember,link=stripeSlackLink(row),source=stripeSlackFamilyGuard(env,row);
++ if(!link.destination.installation||link.destination.installation.ownerAccountId!==owner.accountId)return {sql:'0=1',values:[]};
++ const destination=reportSlackDestinationGuard(env,owner,link,reader);let extra='',values:unknown[]=[];
++ if(approved){const human=row.approver_json?JSON.parse(row.approver_json) as WorkspaceNativeMember:null;if(!human||human.accountId===owner.accountId||!automaticSlackApprover(env,human))return{sql:'0=1',values:[]};const h=membershipSql(human,true);extra=` AND ${h.sql} AND EXISTS(SELECT 1 FROM collaboration_memberships m WHERE m.workspace_id=? AND m.room_id=? AND m.actor_id=? AND m.user_id=? AND m.actor_kind='human' AND m.status='active' AND EXISTS(SELECT 1 FROM json_each(m.capabilities_json) WHERE value='room.read'))`;values=[...h.values,row.workspace_id,row.room_id,`human:${human.userId}`,human.userId];}
++ return {sql:`${source.sql} AND ${destination.sql} AND ?>${FOUNDER_SQL_NOW}${extra}`,values:[...source.values,...destination.values,row.expires_at,...values]};
++}
++export async function prepareStripeSlack(env:StripeEnv,member:WorkspaceNativeMember,input:Prepare,verify:()=>Promise<void>) {
++ await ensureAutomaticSlackSchema(env);if(!stripeSlackAvailable(env))return fail('automatic_slack_stripe_unavailable',503);
++ const inputHash=await hashToolArgs({sourceKind:'stripe-read.v1',...input}),prior=await env.AGENT_AUDIT.prepare('SELECT id,input_hash FROM founder_stripe_slack_grants WHERE workspace_id=? AND owner_account_id=? AND request_id=?').bind(member.workspaceId,member.accountId,input.requestId).first<{id:string;input_hash:string}>();
++ if(prior){if(prior.input_hash!==inputHash)return fail('automatic_slack_request_conflict');return prior.id;}
++ const source=await loadStripeSlackSource(env,member,input.grantId,input.sampleReceiptId);
++ if(source.grant.revision!==input.grantRevision||source.grant.contract_digest!==input.grantDigest||source.receipt.result_digest!==input.sampleDigest)return fail('automatic_slack_source_changed');
++ const now=Date.now();if(input.expiresAt<=now||input.expiresAt>Math.min(now+AUTOMATIC_SLACK_MAX_TTL_MS,source.grant.expires_at))return fail('automatic_slack_expiry_changed');
++ const link=(await listReportSlackDestinations(env,member)).find(s=>s.destination.roomId===input.roomId&&s.destination.linkId===input.linkId&&s.destination.installation?.ownerAccountId===member.accountId);
++ if(!link?.destination.installation||(link.destination.installation.expiresAt!==null&&input.expiresAt>link.destination.installation.expiresAt))return fail('automatic_slack_destination_required',403);
++ const destinationKey=await hashToolArgs({workspaceId:member.workspaceId,teamId:link.destination.teamId,channelId:link.destination.channelId,threadTs:link.destination.threadTs});
++ const row:StripeSlackGrantRow={id:`assg_${crypto.randomUUID().replaceAll('-','')}`,workspace_id:member.workspaceId,owner_id:member.userId,owner_account_id:member.accountId,owner_json:JSON.stringify(member),request_id:input.requestId,input_hash:inputHash,digest:'',version:1,source_kind:'stripe-read.v1',family_json:JSON.stringify({grant:pin(source.grant),renderPolicy:'stripe-qualified-rows.v1',maxBytes:3500}),sample_receipt_id:source.receipt.id,sample_digest:source.receipt.result_digest,destination_json:JSON.stringify(link.destination),audience_json:link.audienceJson,policy_json:link.policyJson,link_created_at:link.createdAt,room_id:input.roomId,link_id:input.linkId,destination_key:destinationKey,max_sends:input.maxSends,used_sends:0,state:'draft',created_at:now,expires_at:input.expiresAt,review_expires_at:Math.min(input.expiresAt,now+900000),approved_at:null,approver_json:null,error_code:null};
++ row.digest=await hashToolArgs({...row,digest:undefined,futureAudience:AUTOMATIC_SLACK_AUDIENCE_CONSENT});await verify();const family=stripeSlackGrantGuard(env,row),sample=stripeSlackSourceGuard(source),guard=packAutomaticSlackGuard({sql:`${family.sql} AND ${sample.sql}`,values:[...family.values,...sample.values]});
++ const inserted=await insertGuarded(env,'founder_stripe_slack_grants',{...row},{sql:`${guard.sql} AND (SELECT count(*) FROM founder_stripe_slack_grants WHERE workspace_id=? AND owner_account_id=?)<20 AND NOT EXISTS(SELECT 1 FROM founder_stripe_slack_grants WHERE destination_key=? AND state IN ('draft','disclosed','enabled','paused')) AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_grants WHERE destination_key=? AND state IN ('draft','disclosed','enabled','paused')) AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_deliveries WHERE destination_key=? AND state IN ('sending','unknown'))`,values:[...guard.values,member.workspaceId,member.accountId,destinationKey,destinationKey,destinationKey]}).run();if(inserted.meta.changes!==1)return fail('automatic_slack_source_or_destination_changed',403);return row.id;
++}
++export async function readStripeSlackGrant(env:StripeEnv,member:WorkspaceNativeMember,id:string):Promise<StripeSlackGrantRow> {const m=membershipSql(member,true),row=await env.AGENT_AUDIT.prepare(`SELECT * FROM founder_stripe_slack_grants WHERE id=? AND workspace_id=? AND ${m.sql}`).bind(id,member.workspaceId,...m.values).first<StripeSlackGrantRow>();if(!row)return fail('automatic_slack_unavailable',404);return row;}
++export async function transitionStripeSlack(env:StripeEnv,member:WorkspaceNativeMember,id:string,action:'disclose'|'approve'|'pause'|'revoke',decision:Decision,verify:()=>Promise<void>){
++ await ensureAutomaticSlackSchema(env);const row=await readStripeSlackGrant(env,member,id);if(row.version!==decision.expectedVersion||row.digest!==decision.digest||row.expires_at!==decision.expiresAt)return fail('automatic_slack_review_changed');const owner=row.owner_account_id===member.accountId;
++ if(action==='approve'?owner||!automaticSlackApprover(env,member):!owner)return fail('automatic_slack_human_authority_required',403);
++ const expected=action==='disclose'?'draft':action==='approve'?'disclosed':action==='pause'?'enabled':row.state;if(row.state!==expected||['revoked','blocked','exhausted'].includes(row.state))return fail('automatic_slack_state_changed');
++ let sample:StripeSlackSource|null=null;if(action==='disclose'||action==='approve'){sample=await loadStripeSlackSource(env,JSON.parse(row.owner_json),stripeSlackPin(row).id,row.sample_receipt_id);if(sample.receipt.result_digest!==row.sample_digest)return fail('automatic_slack_sample_changed');}
++ await verify();const actor=membershipSql(member,true),scope=action==='pause'||action==='revoke'?actor:stripeSlackGrantGuard(env,row,member),source=sample?stripeSlackSourceGuard(sample):null,guard=packAutomaticSlackGuard({sql:`${scope.sql} AND ${actor.sql}${source?` AND ${source.sql} AND ?>${FOUNDER_SQL_NOW}`:''}`,values:[...scope.values,...actor.values,...(source?[...source.values,row.review_expires_at]:[])]});
++ const next=action==='disclose'?'disclosed':action==='approve'?'enabled':action==='pause'?'paused':'revoked';const updated=await env.AGENT_AUDIT.prepare(`UPDATE founder_stripe_slack_grants SET state=?,approved_at=CASE WHEN ?='enabled' THEN ${FOUNDER_SQL_NOW} ELSE approved_at END,approver_json=CASE WHEN ?='enabled' THEN ? ELSE approver_json END WHERE id=? AND state=? AND digest=? AND ${guard.sql}`).bind(next,next,next,JSON.stringify(member),id,row.state,row.digest,...guard.values).run();if(updated.meta.changes!==1)return fail('automatic_slack_authority_changed',403);
++}
++/** Redacted grant DTO: never return the Stripe credential or raw receipt. */
++export async function stripeSlackView(env:StripeEnv,member:WorkspaceNativeMember,row:StripeSlackGrantRow,verify:()=>Promise<void>){
++ const scope=stripeSlackGrantGuard(env,row,member,row.approver_json!==null),selected=stripeSlackPin(row);let sample:StripeSlackSource|null=null;
++ try{sample=await loadStripeSlackSource(env,JSON.parse(row.owner_json),selected.id,row.sample_receipt_id);if(sample.receipt.result_digest!==row.sample_digest)sample=null;}catch{/* active contracts need not retain expired sample */}
++ await verify();const proof=sample?stripeSlackSourceGuard(sample):null,guard=packAutomaticSlackGuard({sql:`${scope.sql}${proof?` AND ${proof.sql}`:''}`,values:[...scope.values,...(proof?.values??[])]});
++ const current=await env.AGENT_AUDIT.prepare(`SELECT 1 AS current FROM founder_stripe_slack_grants WHERE id=? AND digest=? AND state=? AND ${guard.sql}`).bind(row.id,row.digest,row.state,...guard.values).first();if(!current)return fail('automatic_slack_unavailable',403);
++ return {id:row.id,sourceKind:row.source_kind,version:row.version,digest:row.digest,ownerId:row.owner_id,grantId:selected.id,grantRevision:selected.revision,grantDigest:selected.contract_digest,executorDigest:selected.executor_digest,accountId:selected.account_id,mode:selected.mode,selection:JSON.parse(selected.selection_json),destination:JSON.parse(row.destination_json),sampleReceiptId:row.sample_receipt_id,sampleDigest:row.sample_digest,sampleContent:sample?.content??null,sampleExpiresAt:sample?.receipt.expires_at??null,renderPolicy:'stripe-qualified-rows.v1',futureAudience:AUTOMATIC_SLACK_AUDIENCE_CONSENT,maxBytes:3500,state:row.state,createdAt:row.created_at,expiresAt:row.expires_at,reviewExpiresAt:row.review_expires_at,approvedAt:row.approved_at,approvedBy:row.approver_json?(JSON.parse(row.approver_json) as WorkspaceNativeMember).userId:null,maxSends:row.max_sends,usedSends:row.used_sends};
++}
+diff --git a/apps/backend/src/founder-automatic-slack-stripe-tick.ts b/apps/backend/src/founder-automatic-slack-stripe-tick.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ba8dbeb43e0fde5184ba7c2e127056e0fdc269ad
+--- /dev/null
++++ b/apps/backend/src/founder-automatic-slack-stripe-tick.ts
+@@ -0,0 +1,35 @@
++import { hashToolArgs } from './mcp-gateway.js';
++import { FOUNDER_SQL_NOW } from './founder-connector-context.js';
++import { ensureAutomaticSlackSchema, packAutomaticSlackGuard, automaticSlackContentHash, automaticSlackApprover, type AutomaticSlackDeliveryRow } from './founder-automatic-slack-store.js';
++import { loadStripeSlackSource, stripeSlackSourceGuard, type StripeSlackSource } from './founder-automatic-slack-stripe-source.js';
++import { stripeSlackAvailable, stripeSlackGrantGuard, stripeSlackLink, stripeSlackPin, type StripeSlackGrantRow } from './founder-automatic-slack-stripe-store.js';
++import { stripeAvailable, type StripeEnv } from './founder-stripe-store.js';
++import { readSlackInstallationCredential } from './slack-installations-store.js';
++import { verifySlackInstallationBot } from './slack-installations-oauth.js';
++import { postReportSlackMessage } from './report-slack-sender.js';
++import { SlackPostRejectedError } from './slack.js';
++import type { WorkspaceNativeMember } from './workspace-native-authority.js';
++export interface StripeSlackTickDeps { verifyInstallation?:typeof verifySlackInstallationBot;postMessage?:typeof postReportSlackMessage }
++function sourceGuard(env:StripeEnv,row:StripeSlackGrantRow,source:StripeSlackSource){const a=stripeSlackGrantGuard(env,row,undefined,true),b=stripeSlackSourceGuard(source);return packAutomaticSlackGuard({sql:`${a.sql} AND ${b.sql} AND ?>?`,values:[...a.values,...b.values,source.receipt.created_at,row.approved_at]});}
++function syncCurrent(env:StripeEnv,row:StripeSlackGrantRow,source:StripeSlackSource,deadline:number){try{stripeAvailable(env);const approver=row.approver_json?JSON.parse(row.approver_json) as WorkspaceNativeMember:null,installation=stripeSlackLink(row).destination.installation,now=Date.now();return stripeSlackAvailable(env)&&!!approver&&automaticSlackApprover(env,approver)&&!!installation&&now<deadline&&now<row.expires_at&&now<source.receipt.expires_at&&now<source.grant.expires_at&&(installation.expiresAt===null||now<installation.expiresAt);}catch{return false;}}
++/** No read or inference is started here; only previously completed future receipts can be delivered. */
++export async function tickFounderStripeAutomaticSlack(env:StripeEnv,deps:StripeSlackTickDeps={}){
++ if(!stripeSlackAvailable(env))return{sent:0,blocked:0,unknown:0,unavailable:true};await ensureAutomaticSlackSchema(env);
++ await env.AGENT_AUDIT.batch([env.AGENT_AUDIT.prepare(`UPDATE founder_automatic_slack_deliveries SET state='unknown',error_code='automatic_slack_receipt_unknown' WHERE state='sending' AND lease_expires_at<=${FOUNDER_SQL_NOW}`).bind(),env.AGENT_AUDIT.prepare(`UPDATE founder_stripe_slack_grants SET state='blocked',error_code='automatic_slack_delivery_requires_inspection' WHERE state IN ('enabled','exhausted') AND EXISTS(SELECT 1 FROM founder_automatic_slack_deliveries d WHERE d.destination_key=founder_stripe_slack_grants.destination_key AND d.state='unknown')`).bind()]);
++ const rows=await env.AGENT_AUDIT.prepare("SELECT * FROM founder_stripe_slack_grants WHERE state='enabled' ORDER BY created_at,id LIMIT 2").all<StripeSlackGrantRow>();let sent=0,blocked=0,unknown=0;
++ for(const row of rows.results){try{
++  if(row.approved_at===null)throw new Error();const p=stripeSlackPin(row),eligible=await env.AGENT_AUDIT.prepare(`SELECT id FROM founder_stripe_read_receipts r WHERE r.grant_id=? AND r.grant_revision=? AND r.state='completed' AND r.created_at>? AND r.expires_at>${FOUNDER_SQL_NOW} AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_deliveries d WHERE d.occurrence_id=r.id AND d.destination_key=?) ORDER BY r.created_at,r.id LIMIT 1`).bind(p.id,p.revision,row.approved_at,row.destination_key).first<{id:string}>();if(!eligible)continue;
++  const owner=JSON.parse(row.owner_json) as WorkspaceNativeMember,source=await loadStripeSlackSource(env,owner,p.id,eligible.id),content=source.content,contentHash=await automaticSlackContentHash(content),sourceKey=await hashToolArgs({occurrenceId:source.receipt.id,destinationKey:row.destination_key}),now=Date.now(),deadline=Math.min(now+30000,row.expires_at,source.receipt.expires_at),deliveryId=`asdl_${crypto.randomUUID().replaceAll('-','')}`,lease=crypto.randomUUID(),clientMsgId=crypto.randomUUID(),guard=sourceGuard(env,row,source);
++  if(!syncCurrent(env,row,source,deadline))throw new Error();
++  const claim=await env.AGENT_AUDIT.batch([env.AGENT_AUDIT.prepare(`UPDATE founder_stripe_slack_grants SET used_sends=used_sends+1,state=CASE WHEN used_sends+1>=max_sends THEN 'exhausted' ELSE 'enabled' END WHERE id=? AND digest=? AND state='enabled' AND used_sends=? AND used_sends<max_sends AND approver_json=? AND approved_at=? AND ${guard.sql} AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_deliveries WHERE destination_key=? AND (state IN ('sending','unknown') OR source_key=?))`).bind(row.id,row.digest,row.used_sends,row.approver_json,row.approved_at,...guard.values,row.destination_key,sourceKey),env.AGENT_AUDIT.prepare(`INSERT INTO founder_automatic_slack_deliveries(id,grant_id,workspace_id,occurrence_id,source_key,destination_key,report_hash,content,content_hash,client_msg_id,state,lease_id,lease_expires_at,created_at,expires_at) SELECT ?,?,?,?,?,?,?,?,?,?,'sending',?,?,?,? WHERE changes()=1`).bind(deliveryId,row.id,row.workspace_id,source.receipt.id,sourceKey,row.destination_key,source.receipt.result_digest,content,contentHash,clientMsgId,lease,deadline,now,Math.min(row.expires_at,source.receipt.expires_at))]);
++  if(claim[0]?.meta.changes!==1){const invalid=await env.AGENT_AUDIT.prepare(`UPDATE founder_stripe_slack_grants SET state='blocked',error_code='automatic_slack_source_or_destination_changed' WHERE id=? AND digest=? AND state='enabled' AND NOT (${guard.sql})`).bind(row.id,row.digest,...guard.values).run();if(invalid.meta.changes===1)blocked++;continue;}
++  let state:AutomaticSlackDeliveryRow['state']='blocked',receipt:string|null=null,error='automatic_slack_preflight_failed',dispatched=false;
++  try{const selected=stripeSlackLink(row).destination.installation;if(!selected)throw new Error();const {token}=await readSlackInstallationCredential(env,selected),verified=await (deps.verifyInstallation??verifySlackInstallationBot)(token);if(verified.teamId!==selected.teamId||verified.userId!==selected.botUserId||verified.botId!==selected.botId)throw new Error();
++   const fresh=await loadStripeSlackSource(env,owner,p.id,source.receipt.id);if(fresh.receipt.result_digest!==source.receipt.result_digest||fresh.content!==content)throw new Error();const finalGuard=sourceGuard(env,row,fresh);
++   const final=await env.AGENT_AUDIT.prepare(`SELECT 1 AS current FROM founder_automatic_slack_deliveries d WHERE d.id=? AND d.state='sending' AND d.lease_id=? AND d.content_hash=? AND d.content=? AND d.report_hash=? AND d.lease_expires_at>${FOUNDER_SQL_NOW} AND d.expires_at>${FOUNDER_SQL_NOW} AND ${finalGuard.sql} AND EXISTS(SELECT 1 FROM founder_stripe_slack_grants g WHERE g.id=? AND g.digest=? AND g.state IN ('enabled','exhausted') AND g.approver_json=? AND g.approved_at=? AND g.used_sends=? AND g.used_sends<=g.max_sends) AND NOT EXISTS(SELECT 1 FROM founder_automatic_slack_deliveries other WHERE other.destination_key=d.destination_key AND other.id<>d.id AND other.state IN ('sending','unknown'))`).bind(deliveryId,lease,contentHash,content,source.receipt.result_digest,...finalGuard.values,row.id,row.digest,row.approver_json,row.approved_at,row.used_sends+1).first();
++   if(!final||!syncCurrent(env,row,fresh,deadline))throw new Error();dispatched=true;const destination=stripeSlackLink(row).destination,response=await(deps.postMessage??postReportSlackMessage)(token,{channel:destination.channelId,threadTs:destination.threadTs,text:content,clientMsgId});if(response.channel!==destination.channelId||!/^\d{1,20}\.\d{1,20}$/.test(response.ts))throw new Error();state='sent';receipt=response.ts;error='';
++  }catch(caught){state=dispatched?(caught instanceof SlackPostRejectedError&&caught.outcomeKnown?'failed':'unknown'):'blocked';error=state==='unknown'?'automatic_slack_outcome_unknown':state==='failed'?'automatic_slack_rejected':'automatic_slack_preflight_failed';}
++  const saved=await env.AGENT_AUDIT.prepare("UPDATE founder_automatic_slack_deliveries SET state=?,receipt_ts=?,error_code=? WHERE id=? AND lease_id=? AND state='sending'").bind(state,receipt,error||null,deliveryId,lease).run();if(saved.meta.changes!==1){unknown++;continue;}if(state==='sent')sent++;else if(state==='unknown')unknown++;else blocked++;if(state!=='sent')await env.AGENT_AUDIT.prepare("UPDATE founder_stripe_slack_grants SET state='blocked',error_code=? WHERE id=? AND state IN ('enabled','exhausted')").bind(error,row.id).run();
++ }catch{await env.AGENT_AUDIT.prepare("UPDATE founder_stripe_slack_grants SET state='blocked',error_code='automatic_slack_source_or_render_changed' WHERE id=? AND state='enabled'").bind(row.id).run();blocked++;}}
++ return{sent,blocked,unknown,unavailable:false};
++}
+diff --git a/apps/backend/src/founder-reconciliation-compute.ts b/apps/backend/src/founder-reconciliation-compute.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9f0d235089f4f8ff5a602b8789de66c450045680
+--- /dev/null
++++ b/apps/backend/src/founder-reconciliation-compute.ts
+@@ -0,0 +1,28 @@
++type Mapping={invoiceIdProperty:string;paidAmountProperty:string;currencyProperty:string;amountUnit:"major-decimal"|"minor-integer";basisAttestation:"crm-property-represents-stripe-invoice-amount-paid"};
++type Row={status:"matched_equal"|"matched_difference"|"duplicate_key"|"missing_key"|"invalid_key"|"unmatched_in_capture"|"uncaptured_deal"|"non_comparable";dealId:string|null;invoiceId:string|null;stripeStatus:string|null;invoiceCreated:number|null;currency:string|null;crmMinor:string|null;stripeMinor:string|null;differenceMinor:string|null;reason:string|null};
++export interface CapturedDeal {dealId:string;properties:Record<string,string|null>}
++export interface CapturedInvoice {id:string;currency:string;amountPaid:number;status:string|null;created:number;livemode:boolean}
++const EXPS:Record<string,number>={USD:2,EUR:2,GBP:2,JPY:0};
++function minor(raw:string,unit:Mapping["amountUnit"],exp:number):bigint|null {if(raw.length>50)return null;const match=/^(-?)(0|[1-9][0-9]*)(?:\.([0-9]+))?$/.exec(raw);if(!match)return null;const fraction=match[3]??"";if(unit==="minor-integer"&&fraction||unit==="major-decimal"&&fraction.length>exp)return null;const digits=unit==="minor-integer"?match[2]!:match[2]!+fraction.padEnd(exp,"0");return BigInt((match[1]??"")+digits);}
++/** Only input from checked stored source receipts; this function never fetches or accepts a mapping expression. */
++export function computeFounderReconciliation(deals:CapturedDeal[],invoices:CapturedInvoice[],mapping:Mapping,selectedDealIds:string[]){
++ if(deals.length>25||invoices.length>25||new Set(deals.map(x=>x.dealId)).size!==deals.length)throw new Error("reconciliation_source_invalid");
++ const validId=(x:unknown):x is string=>typeof x==="string"&&/^in_[A-Za-z0-9]{1,200}$/.test(x),dealCounts=new Map<string,number>(),invoiceCounts=new Map<string,number>();
++ for(const deal of deals){const key=deal.properties[mapping.invoiceIdProperty];if(validId(key))dealCounts.set(key,(dealCounts.get(key)??0)+1);}
++ for(const invoice of invoices){if(!validId(invoice.id))throw new Error("reconciliation_source_invalid");invoiceCounts.set(invoice.id,(invoiceCounts.get(invoice.id)??0)+1);}
++ const rows:Row[]=[],seen=new Set<string>();const totals=new Map<string,{count:number;crm:bigint;stripe:bigint}>();
++ for(const deal of [...deals].sort((a,b)=>a.dealId.localeCompare(b.dealId))){const value=deal.properties[mapping.invoiceIdProperty],base={dealId:deal.dealId,invoiceId:validId(value)?value:null,stripeStatus:null,invoiceCreated:null,currency:null,crmMinor:null,stripeMinor:null,differenceMinor:null};
++  if(value===null||value===undefined||value===""){rows.push({...base,status:"missing_key",reason:"missing_invoice_id"});continue;}
++  if(!validId(value)){rows.push({...base,status:"invalid_key",reason:"invalid_invoice_id"});continue;}seen.add(value);
++  if((dealCounts.get(value)??0)>1||(invoiceCounts.get(value)??0)>1){rows.push({...base,status:"duplicate_key",reason:"ambiguous_captured_invoice_id"});continue;}
++  const invoice=invoices.find(v=>v.id===value);if(!invoice){rows.push({...base,status:"unmatched_in_capture",reason:"invoice_not_in_captured_page"});continue;}
++  const rawCurrency=deal.properties[mapping.currencyProperty],currency=typeof rawCurrency==="string"&&/^[A-Za-z]{3}$/.test(rawCurrency)?rawCurrency.toUpperCase():null,invoiceCurrency=/^[a-z]{3}$/.test(invoice.currency)?invoice.currency.toUpperCase():null,rawAmount=deal.properties[mapping.paidAmountProperty],exp=currency?EXPS[currency]:undefined;
++  const crm=typeof rawAmount==="string"&&exp!==undefined?minor(rawAmount,mapping.amountUnit,exp):null;
++  if(!currency||exp===undefined||currency!==invoiceCurrency||crm===null||!Number.isSafeInteger(invoice.amountPaid)){rows.push({...base,stripeStatus:invoice.status,invoiceCreated:invoice.created,currency,status:"non_comparable",reason:"currency_or_amount_not_comparable"});continue;}
++  const stripe=BigInt(invoice.amountPaid),difference=crm-stripe,group=totals.get(currency)??{count:0,crm:0n,stripe:0n};group.count++;group.crm+=crm;group.stripe+=stripe;totals.set(currency,group);
++  rows.push({...base,stripeStatus:invoice.status,invoiceCreated:invoice.created,currency,crmMinor:crm.toString(),stripeMinor:stripe.toString(),differenceMinor:difference.toString(),status:difference===0n?"matched_equal":"matched_difference",reason:null});
++ }
++ for(const invoice of [...invoices].sort((a,b)=>a.id.localeCompare(b.id))){if(seen.has(invoice.id))continue;rows.push({status:(invoiceCounts.get(invoice.id)??0)>1?"duplicate_key":"unmatched_in_capture",dealId:null,invoiceId:invoice.id,stripeStatus:invoice.status,invoiceCreated:invoice.created,currency:null,crmMinor:null,stripeMinor:null,differenceMinor:null,reason:(invoiceCounts.get(invoice.id)??0)>1?"ambiguous_captured_invoice_id":"deal_not_in_captured_page"});}
++ for(const dealId of [...selectedDealIds].sort()){if(!deals.some(v=>v.dealId===dealId))rows.push({status:"uncaptured_deal",dealId,invoiceId:null,stripeStatus:null,invoiceCreated:null,currency:null,crmMinor:null,stripeMinor:null,differenceMinor:null,reason:"selected_deal_not_returned"});}
++ const perCurrency=[...totals.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([currency,v])=>({currency,matchedCount:v.count,crmMinor:v.crm.toString(),stripeMinor:v.stripe.toString(),differenceMinor:(v.crm-v.stripe).toString()}));return{rows,perCurrency};
++}
+diff --git a/apps/backend/src/founder-reconciliation-generated.ts b/apps/backend/src/founder-reconciliation-generated.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..76f8a6c1e8d164ef5460b87034b65c4730a683a9
+--- /dev/null
++++ b/apps/backend/src/founder-reconciliation-generated.ts
+@@ -0,0 +1,2 @@
++/** Generated by founder-reconciliation-manifest.mjs; changes require a new reviewed draft. */
++export const FOUNDER_RECONCILIATION_EXECUTOR_DIGEST = "28d74e366943447f954941d29190df0cf1aa802b7e490479759e8cc331faddd7";
+diff --git a/apps/backend/src/founder-reconciliation-manifest.mjs b/apps/backend/src/founder-reconciliation-manifest.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..e77191e87a562e3ba2b50e428988526e59406257
+--- /dev/null
++++ b/apps/backend/src/founder-reconciliation-manifest.mjs
+@@ -0,0 +1,6 @@
++import { readFileSync,writeFileSync } from "node:fs";
++import { createHash } from "node:crypto";
++const files=["founder-reconciliation-compute.ts","founder-reconciliation-sources.ts","founder-reconciliation-session.ts","founder-reconciliation-store.ts","founder-reconciliation-routes.ts","../migrations/0030_founder_reconciliation.sql","../../../packages/shared/src/founder-reconciliation.ts"];
++const sha=value=>createHash("sha256").update(value).digest("hex"),sources=files.map(file=>({file,sha256:sha(readFileSync(new URL(file,import.meta.url)))}));
++const content=`/** Generated by founder-reconciliation-manifest.mjs; changes require a new reviewed draft. */\nexport const FOUNDER_RECONCILIATION_EXECUTOR_DIGEST = ${JSON.stringify(sha(JSON.stringify(sources)))};\n`,target=new URL("founder-reconciliation-generated.ts",import.meta.url);
++if(process.argv.includes("--check")){if(readFileSync(target,"utf8")!==content)throw new Error("Reconciliation executor pin is stale");}else writeFileSync(target,content);
+diff --git a/apps/backend/src/founder-reconciliation-routes.ts b/apps/backend/src/founder-reconciliation-routes.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..be467db59d0f052ea94aa72056d8c70fb5b80ed3
+--- /dev/null
++++ b/apps/backend/src/founder-reconciliation-routes.ts
+@@ -0,0 +1,36 @@
++import { z } from "zod";
++import { boundedBody } from "@shiba/openconnector-read-gateway";
++import { founderReconciliationDecisionSchema } from "@shiba/shared";
++import { resolveOrgForApiRequest } from "./org-request-auth.js";
++import { resolveWorkspaceNativeMember } from "./workspace-native-authority.js";
++import { rejectCrossOriginMutation, rejectNonJsonMutation } from "./dashboard-mutation.js";
++import { membershipSql, WorkspaceIntegrationError } from "./workspace-integrations-store.js";
++import { reconciliationSession, reconciliationSessionGuard, reconciliationSessionExpiry } from "./founder-reconciliation-session.js";
++import { stripeAvailable, type StripeEnv } from "./founder-stripe-store.js";
++import { automaticAvailability } from "./founder-auto-read-store.js";
++import { createFounderReconciliation,listFounderReconciliations,composeFounderReconciliation,readFounderReconciliation,revokeFounderReconciliation } from "./founder-reconciliation-store.js";
++const pattern=/^\/api\/founder-reconciliations(?:\/(frc_[a-f0-9]{32})(?:\/(compose|revoke|download))?)?\/?$/;
++const headers={"cache-control":"no-store","referrer-policy":"no-referrer","x-content-type-options":"nosniff"};
++const json=(v:unknown,status=200)=>Response.json(v,{status,headers});
++const revoke=z.strictObject({digest:z.string().regex(/^[a-f0-9]{64}$/)});
++/** Native manager privately composes reviewed, already-captured evidence. No provider or model calls. */
++export async function handleFounderReconciliations(request:Request,env:StripeEnv):Promise<Response|null>{const url=new URL(request.url),match=pattern.exec(url.pathname);if(!match)return null;if(!request.headers.has("X-Shiba-Workspace")||url.search)return json({error:"reconciliation_workspace_required"},400);if(request.method!=="GET"){const denied=rejectCrossOriginMutation(request)??rejectNonJsonMutation(request);if(denied)return denied;}
++ const auth=await resolveOrgForApiRequest(request,env);if(auth instanceof Response)return auth;if(auth.principal||!auth.workspace||auth.workspace.role==="member")return json({error:"reconciliation_native_manager_required"},403);const member=await resolveWorkspaceNativeMember(request,env,auth.workspace);if(!member)return json({error:"reconciliation_native_manager_required"},403);const scoped=(v:Record<string,unknown>,status=200)=>json({...v,workspaceId:member.workspaceId,actorId:member.userId},status);const session=await reconciliationSession(request,env,member);if(!session)return scoped({error:"reconciliation_native_session_required"},403);
++ try{const id=match[1],action=match[2],actor=membershipSql(member,true),sessionGuard=reconciliationSessionGuard(session,member);let proofSql=`SELECT s.expiresAt AS session_expires FROM "session" s WHERE s.id=? AND s.userId=? AND ${actor.sql} AND ${sessionGuard.sql}`,proofValues:unknown[]=[session.id,member.accountId,...actor.values,...sessionGuard.values],leaseExpiresAt=session.expiresAt,payload:Record<string,unknown>={},status=200,download:string|null=null,requiresSources=false,expectedRuntime:{versionId:string;manifestDigest:string}|null=null;
++  if(request.method==="GET"){
++   if(!id){if(action)return scoped({error:"method_not_allowed"},405);const listed=await listFounderReconciliations(env,member,session);payload={drafts:listed.drafts};leaseExpiresAt=Math.min(leaseExpiresAt,listed.leaseExpiresAt);}
++   else{if(action&&action!=="download")return scoped({error:"method_not_allowed"},405);const result=await readFounderReconciliation(env,member,id,session);({proofSql,proofValues}=result);leaseExpiresAt=Math.min(leaseExpiresAt,result.leaseExpiresAt);requiresSources=true;expectedRuntime={versionId:result.draft.sources.hubspot.runtimeVersionId,manifestDigest:result.draft.sources.hubspot.manifestDigest};if(action==="download"){if(!result.report)return scoped({error:"reconciliation_report_unavailable"},404);download=JSON.stringify(result.report);}else payload={draft:result.draft,report:result.report};}
++  }else if(request.method==="POST"){
++   let body:unknown;try{body=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(await boundedBody(request.body,8192)));}catch{return scoped({error:"reconciliation_request_invalid"},400);}
++   if(!id){const result=await createFounderReconciliation(env,member,body,session);({proofSql,proofValues}=result);leaseExpiresAt=Math.min(leaseExpiresAt,result.leaseExpiresAt);requiresSources=true;expectedRuntime={versionId:result.draft.sources.hubspot.runtimeVersionId,manifestDigest:result.draft.sources.hubspot.manifestDigest};payload={draft:result.draft};status=201;}
++   else if(action==="compose"){const input=founderReconciliationDecisionSchema.parse(body),result=await composeFounderReconciliation(env,member,id,input.digest,session);({proofSql,proofValues}=result);leaseExpiresAt=Math.min(leaseExpiresAt,result.leaseExpiresAt);requiresSources=true;expectedRuntime={versionId:result.draft.sources.hubspot.runtimeVersionId,manifestDigest:result.draft.sources.hubspot.manifestDigest};payload={draft:result.draft,report:result.report};}
++   else if(action==="revoke")payload={draft:await revokeFounderReconciliation(env,member,id,revoke.parse(body).digest,session)};
++   else return scoped({error:"method_not_allowed"},405);
++  }else return scoped({error:"method_not_allowed"},405);
++  // Final proof combines the exact requesting session and source/receipt snapshots in one query.
++  const current=await env.AGENT_AUDIT.prepare(proofSql).bind(...proofValues).first<{session_expires:string|number}>();const currentExpiry=current?reconciliationSessionExpiry(current.session_expires):NaN;
++  if(!current||!Number.isFinite(currentExpiry)||Date.now()>=Math.min(leaseExpiresAt,currentExpiry))return scoped({error:"reconciliation_authority_changed"},403);
++  if(requiresSources){stripeAvailable(env);if(automaticAvailability(env)||!expectedRuntime||env.OPEN_CONNECTOR_READ_VERSION_ID!==expectedRuntime.versionId||env.OPEN_CONNECTOR_READ_MANIFEST_SHA256!==expectedRuntime.manifestDigest)return scoped({error:"reconciliation_unavailable"},503);}
++  if(download!==null)return new Response(download,{headers:{...headers,"content-type":"application/json; charset=utf-8","content-disposition":`attachment; filename="${id}.json"`}});
++  return scoped(payload,status);
++ }catch(error){if(error instanceof z.ZodError)return scoped({error:"reconciliation_request_invalid"},400);if(error instanceof WorkspaceIntegrationError)return scoped({error:error.code},error.status);return scoped({error:"reconciliation_unavailable"},503);}}
+diff --git a/apps/backend/src/founder-reconciliation-session.ts b/apps/backend/src/founder-reconciliation-session.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1a658823933e44d74c1fa9e5853cb48c32d1e861
+--- /dev/null
++++ b/apps/backend/src/founder-reconciliation-session.ts
+@@ -0,0 +1,10 @@
++import { resolveBetterAuthSessionAccount } from "@shiba/auth/better-auth";
++import { redactSecrets } from "./security.js";
++import { FOUNDER_SQL_NOW } from "./founder-connector-context.js";
++import type { StripeEnv } from "./founder-stripe-store.js";
++import type { WorkspaceNativeMember } from "./workspace-native-authority.js";
++export interface ReconciliationSession {id:string;expiresAt:number}
++/** Only a real cookie-resolved native session, never a caller-supplied session selector. */
++export async function reconciliationSession(request:Request,env:StripeEnv,member:WorkspaceNativeMember):Promise<ReconciliationSession|null>{if(!request.headers.has("cookie")||request.headers.has("authorization"))return null;const session=await resolveBetterAuthSessionAccount(request,env,redactSecrets);if(!session?.emailVerified||!session.sessionId||!session.sessionExpiresAt||session.policy.accountId!==member.accountId||session.policy.email!==member.userId||session.sessionExpiresAt<=Date.now())return null;return{id:session.sessionId,expiresAt:session.sessionExpiresAt};}
++export function reconciliationSessionGuard(session:ReconciliationSession,member:WorkspaceNativeMember){return{sql:`EXISTS(SELECT 1 FROM "session" s WHERE s.id=? AND s.userId=? AND CASE WHEN typeof(s.expiresAt) IN ('integer','real') THEN s.expiresAt ELSE CAST((julianday(s.expiresAt)-2440587.5)*86400000 AS INTEGER) END>${FOUNDER_SQL_NOW}) AND ?>${FOUNDER_SQL_NOW}`,values:[session.id,member.accountId,session.expiresAt]};}
++export function reconciliationSessionExpiry(value:string|number){return typeof value==="number"?value:Date.parse(value);}
+diff --git a/apps/backend/src/founder-reconciliation-sources.ts b/apps/backend/src/founder-reconciliation-sources.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1bce6af06850a41d2ca4c18decc6687bce3136cd
+--- /dev/null
++++ b/apps/backend/src/founder-reconciliation-sources.ts
+@@ -0,0 +1,36 @@
++import { digest as wireDigest } from "@shiba/openconnector-read-gateway";
++import { loadAutomaticReadReportAuthority, automaticReadReportAuthorityGuard } from "./founder-auto-read-runtime.js";
++import { getStripeGrant, stripeAvailable, stripeDigest, validStripeContract, type StripeEnv, type StripeGrantRow } from "./founder-stripe-store.js";
++import { membershipSql, WorkspaceIntegrationError } from "./workspace-integrations-store.js";
++import type { WorkspaceNativeMember } from "./workspace-native-authority.js";
++import { FOUNDER_SQL_NOW } from "./founder-connector-context.js";
++import type { FounderReconciliationInput } from "@shiba/shared";
++import type { CapturedDeal, CapturedInvoice } from "./founder-reconciliation-compute.js";
++interface StripeReceipt {id:string;grant_id:string;grant_revision:number;state:string;selection_json:string;report_json:string;result_digest:string;created_at:number;expires_at:number}
++const fail=():never=>{throw new WorkspaceIntegrationError("reconciliation_sources_changed",409);};
++function record(v:unknown):Record<string,unknown>{if(!v||typeof v!=="object"||Array.isArray(v))return fail();return v as Record<string,unknown>;}
++function sameOwner(a:WorkspaceNativeMember,b:WorkspaceNativeMember){return a.workspaceId===b.workspaceId&&a.accountId===b.accountId&&a.userId===b.userId&&a.version===b.version&&a.role===b.role;}
++export interface ReconciliationSourceProof {sources:{hubspot:{grantId:string;grantVersion:number;occurrenceId:string;sourceOrdinal:number;dealIds:string[];reportHash:string;resultDigest:string;connectionId:string;connectionVersion:number;capturedAt:number;runtimeVersionId:string;manifestDigest:string;executorHash:string;expiresAt:number};stripe:{grantId:string;receiptId:string;resultDigest:string;grantRevision:number;accountId:string;mode:"live"|"test";executorDigest:string;capturedAt:number;createdGte:number;createdLt:number;hasMore:boolean;expiresAt:number}};deals:CapturedDeal[];invoices:CapturedInvoice[];sql:string;values:unknown[];expiresAt:number}
++/** Server-only: loads current authorized reports; caller input supplies references, never money or raw rows. */
++export async function loadReconciliationSources(env:StripeEnv,member:WorkspaceNativeMember,input:FounderReconciliationInput):Promise<ReconciliationSourceProof>{
++ stripeAvailable(env);
++ const hubspot=await loadAutomaticReadReportAuthority(env,{kind:"schedule",grantId:input.hubspot.grantId,grantVersion:input.hubspot.grantVersion,occurrenceId:input.hubspot.occurrenceId});
++ if(hubspot.readGrant.library_id!=="founder-hubspot-stripe-reconcile"||!sameOwner(member,hubspot.humanAuthorizer))return fail();
++ const report=record(JSON.parse(hubspot.report.json)),runtime=record(report.runtime),items=report.sources;if(!Array.isArray(items))return fail();const source=record(items[input.hubspot.sourceOrdinal]);
++ if(source.operationId!=="hubspot.deal_invoice_snapshot"||source.state!=="completed"||source.captureCompleteness!=="bounded-response"||source.datasetCompleteness!=="unknown"||source.businessSuccess!=="unverified"||typeof source.resultDigest!=="string"||!/^[a-f0-9]{64}$/.test(source.resultDigest)||typeof source.connectionId!=="string"||typeof source.connectionVersion!=="number"||!Number.isSafeInteger(source.connectionVersion)||typeof source.capturedAt!=="number"||!Number.isSafeInteger(source.capturedAt)||typeof source.executorHash!=="string"||!/^[a-f0-9]{64}$/.test(source.executorHash)||typeof runtime.versionId!=="string"||typeof runtime.manifestDigest!=="string"||!/^[a-f0-9]{64}$/.test(runtime.manifestDigest))return fail();
++ const args=record(source.arguments),mapping=input.mapping;
++ if(!Array.isArray(args.dealIds)||args.dealIds.length<1||args.dealIds.length>25||args.dealIds.some(v=>typeof v!=="string"||!/^[0-9]{1,30}$/.test(v))||new Set(args.dealIds).size!==args.dealIds.length||args.invoiceIdProperty!==mapping.invoiceIdProperty||args.paidAmountProperty!==mapping.paidAmountProperty||args.currencyProperty!==mapping.currencyProperty)return fail();
++ const body=record(source.result);if(Object.keys(body).join(",")!=="records"||await wireDigest(JSON.stringify(body))!==source.resultDigest||!Array.isArray(body.records)||body.records.length>25)return fail();
++ const deals:CapturedDeal[]=body.records.map(v=>{const r=record(v),props=record(r.properties);if(Object.keys(r).sort().join(",")!=="dealId,properties"||typeof r.dealId!=="string"||!/^[0-9]{1,30}$/.test(r.dealId)||Object.keys(props).sort().join(",")!==[mapping.invoiceIdProperty,mapping.paidAmountProperty,mapping.currencyProperty].sort().join(",")||Object.values(props).some(x=>x!==null&&(typeof x!=="string"||x.length>500)))return fail();return{dealId:r.dealId,properties:props as Record<string,string|null>};});
++ if(new Set(deals.map(v=>v.dealId)).size!==deals.length||deals.some(v=>!(args.dealIds as string[]).includes(v.dealId)))return fail();
++ const grant=await getStripeGrant(env,member,input.stripe.grantId);if(!grant||!await validStripeContract(grant)||!["enabled","exhausted"].includes(grant.state)||!sameOwner(member,JSON.parse(grant.owner_json)))return fail();
++ const receipt=await env.AGENT_AUDIT.prepare("SELECT * FROM founder_stripe_read_receipts WHERE id=? AND grant_id=? AND grant_revision=? AND state='completed'").bind(input.stripe.receiptId,grant.id,grant.revision).first<StripeReceipt>();
++ if(!receipt||receipt.selection_json!==grant.selection_json||!receipt.report_json||!receipt.result_digest||await stripeDigest(receipt.report_json)!==receipt.result_digest||receipt.expires_at<=Date.now())return fail();
++ const stripe=record(JSON.parse(receipt.report_json)),capture=record(stripe.capture),selection=record(JSON.parse(grant.selection_json));if(stripe.format!=="shiba.stripe-read-report.v1"||stripe.grantId!==grant.id||stripe.revision!==grant.revision||stripe.accountId!==grant.account_id||stripe.mode!==grant.mode||stripe.contractDigest!==grant.contract_digest||stripe.executorDigest!==grant.executor_digest||capture.kind!=="invoices"||selection.kind!=="invoices"||typeof capture.hasMore!=="boolean"||typeof stripe.capturedAt!=="number"||!Number.isSafeInteger(stripe.capturedAt)||!Array.isArray(capture.rows)||typeof selection.limit!=="number"||capture.rows.length>selection.limit||capture.rows.length>25||capture.datasetCompleteness!=="unknown"||capture.businessSuccess!=="unverified")return fail();
++ const invoices:CapturedInvoice[]=capture.rows.map(v=>{const r=record(v);if(typeof r.id!=="string"||!/^in_[A-Za-z0-9]{1,200}$/.test(r.id)||typeof r.currency!=="string"||!/^[a-z]{3}$/.test(r.currency)||typeof r.amountPaid!=="number"||!Number.isSafeInteger(r.amountPaid)||typeof r.created!=="number"||!Number.isSafeInteger(r.created)||typeof r.livemode!=="boolean"||r.livemode!==(grant.mode==="live")||!(r.status===null||typeof r.status==="string"&&["draft","open","paid","uncollectible","void"].includes(r.status)))return fail();return{id:r.id,currency:r.currency,amountPaid:r.amountPaid,created:r.created,livemode:r.livemode,status:r.status as string|null};});
++ const stripeGuard=stripeSourceGuard(member,grant,receipt),hubGuard=automaticReadReportAuthorityGuard(env,hubspot),expiresAt=Math.min(hubspot.report.expiresAt,grant.expires_at,receipt.expires_at);
++ if(expiresAt<=Date.now())return fail();const interval=record(capture.interval);if(typeof interval.createdGte!=="number"||typeof interval.createdLt!=="number"||!Number.isSafeInteger(interval.createdGte)||!Number.isSafeInteger(interval.createdLt)||interval.createdGte!==selection.createdGte||interval.createdLt!==selection.createdLt)return fail();
++ const sources={hubspot:{...input.hubspot,dealIds:args.dealIds as string[],reportHash:hubspot.report.reportHash,resultDigest:source.resultDigest as string,connectionId:source.connectionId as string,connectionVersion:source.connectionVersion as number,capturedAt:source.capturedAt as number,runtimeVersionId:runtime.versionId as string,manifestDigest:runtime.manifestDigest as string,executorHash:source.executorHash as string,expiresAt:hubspot.report.expiresAt},stripe:{...input.stripe,resultDigest:receipt.result_digest,grantRevision:grant.revision,accountId:grant.account_id,mode:grant.mode,executorDigest:grant.executor_digest,capturedAt:stripe.capturedAt as number,createdGte:interval.createdGte,createdLt:interval.createdLt,hasMore:capture.hasMore as boolean,expiresAt:Math.min(grant.expires_at,receipt.expires_at)}};
++ return{sources,deals,invoices,sql:`(${hubGuard.sql}) AND (${stripeGuard.sql})`,values:[...hubGuard.values,...stripeGuard.values],expiresAt};
++}
++function stripeSourceGuard(_member:WorkspaceNativeMember,grant:StripeGrantRow,receipt:StripeReceipt){const original=membershipSql(JSON.parse(grant.owner_json) as WorkspaceNativeMember,true);return{sql:`${original.sql} AND EXISTS(SELECT 1 FROM founder_stripe_read_grants g JOIN founder_stripe_read_receipts r ON r.grant_id=g.id AND r.grant_revision=g.revision WHERE g.id=? AND g.workspace_id=? AND g.owner_id=? AND g.owner_account_id=? AND g.owner_json=? AND g.revision=? AND g.state IN ('enabled','exhausted') AND g.contract_digest=? AND g.executor_digest=? AND g.selection_json=? AND g.account_id=? AND g.mode=? AND g.expires_at=? AND g.max_calls=? AND g.ciphertext=? AND g.expires_at>${FOUNDER_SQL_NOW} AND r.id=? AND r.state='completed' AND r.selection_json=? AND r.report_json=? AND r.result_digest=? AND r.expires_at=? AND r.expires_at>${FOUNDER_SQL_NOW})`,values:[...original.values,grant.id,grant.workspace_id,grant.owner_id,grant.owner_account_id,grant.owner_json,grant.revision,grant.contract_digest,grant.executor_digest,grant.selection_json,grant.account_id,grant.mode,grant.expires_at,grant.max_calls,grant.ciphertext,receipt.id,receipt.selection_json,receipt.report_json,receipt.result_digest,receipt.expires_at]};}
+diff --git a/apps/backend/src/founder-reconciliation-store.ts b/apps/backend/src/founder-reconciliation-store.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7397503a7b7dfa8c0c1de492231b84dd3cea02d
+--- /dev/null
++++ b/apps/backend/src/founder-reconciliation-store.ts
+@@ -0,0 +1,26 @@
++import { FOUNDER_RECONCILIATION_EXECUTOR_DIGEST } from "./founder-reconciliation-generated.js";
++import { founderReconciliationInputSchema, founderReconciliationReportSchema } from "@shiba/shared";
++import { membershipSql, WorkspaceIntegrationError } from "./workspace-integrations-store.js";
++import type { WorkspaceNativeMember } from "./workspace-native-authority.js";
++import { FOUNDER_SQL_NOW } from "./founder-connector-context.js";
++import { automaticAvailability } from "./founder-auto-read-store.js";
++import { stripeAvailable, stripeDigest, type StripeEnv } from "./founder-stripe-store.js";
++import { computeFounderReconciliation } from "./founder-reconciliation-compute.js";
++import { reconciliationSessionGuard, reconciliationSessionExpiry, type ReconciliationSession } from "./founder-reconciliation-session.js";
++import { loadReconciliationSources } from "./founder-reconciliation-sources.js";
++interface Row {id:string;workspace_id:string;owner_id:string;owner_account_id:string;owner_json:string;input_json:string;sources_json:string;digest:string;executor_digest:string;state:"draft"|"completed"|"revoked";expires_at:number;report_json:string|null;report_hash:string|null}
++function availability(env:StripeEnv){stripeAvailable(env);if(automaticAvailability(env))throw new WorkspaceIntegrationError("reconciliation_unavailable",503);}
++const fail=():never=>{throw new WorkspaceIntegrationError("reconciliation_authority_changed",409);};
++const bytes=(v:string)=>new TextEncoder().encode(v).length;
++function publicDraft(row:Row){const input=founderReconciliationInputSchema.parse(JSON.parse(row.input_json));return{id:row.id,digest:row.digest,executorDigest:row.executor_digest,state:row.state,expiresAt:row.expires_at,mapping:input.mapping,sources:JSON.parse(row.sources_json),reportHash:row.report_hash};}
++async function ownerRow(env:StripeEnv,member:WorkspaceNativeMember,id:string){const guard=membershipSql(member,true);return env.AGENT_AUDIT.prepare(`SELECT * FROM founder_reconciliation_reports WHERE id=? AND workspace_id=? AND owner_id=? AND owner_account_id=? AND ${guard.sql}`).bind(id,member.workspaceId,member.userId,member.accountId,...guard.values).first<Row>();}
++function sameOwner(row:Row,member:WorkspaceNativeMember){const m=JSON.parse(row.owner_json) as WorkspaceNativeMember;return m.workspaceId===member.workspaceId&&m.accountId===member.accountId&&m.userId===member.userId&&m.role===member.role&&m.version===member.version;}
++async function bound(row:Row,member:WorkspaceNativeMember,env:StripeEnv){if(row.executor_digest!==FOUNDER_RECONCILIATION_EXECUTOR_DIGEST||!sameOwner(row,member)||row.expires_at<=Date.now())return fail();const input=founderReconciliationInputSchema.parse(JSON.parse(row.input_json)),source=await loadReconciliationSources(env,member,input),expected=await stripeDigest(["shiba.founder-reconciliation.draft.v1",row.id,row.owner_json,row.input_json,row.sources_json,row.executor_digest]);if(expected!==row.digest||JSON.stringify(source.sources)!==row.sources_json||row.expires_at>source.expiresAt)return fail();return{input,source};}
++function guard(_row:Row,_member:WorkspaceNativeMember,source:Awaited<ReturnType<typeof loadReconciliationSources>>){return{sql:source.sql,values:source.values};}
++export async function createFounderReconciliation(env:StripeEnv,member:WorkspaceNativeMember,body:unknown,session:ReconciliationSession){availability(env);const input=founderReconciliationInputSchema.parse(body),source=await loadReconciliationSources(env,member,input),now=Date.now();if(input.expiresAt<=now||input.expiresAt>now+86400000||input.expiresAt>source.expiresAt)throw new WorkspaceIntegrationError("reconciliation_expiry_invalid",400);const id=`frc_${crypto.randomUUID().replaceAll("-","")}`,ownerJson=JSON.stringify(member),inputJson=JSON.stringify(input),sourcesJson=JSON.stringify(source.sources),digest=await stripeDigest(["shiba.founder-reconciliation.draft.v1",id,ownerJson,inputJson,sourcesJson,FOUNDER_RECONCILIATION_EXECUTOR_DIGEST]),sessionGuard=reconciliationSessionGuard(session,member);
++ if(Date.now()>=session.expiresAt)return fail();const result=await env.AGENT_AUDIT.prepare(`INSERT INTO founder_reconciliation_reports(id,workspace_id,owner_id,owner_account_id,owner_json,input_json,sources_json,digest,executor_digest,state,expires_at,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,?,'draft',?,?,? WHERE (${source.sql}) AND ${sessionGuard.sql} AND ?>${FOUNDER_SQL_NOW}`).bind(id,member.workspaceId,member.userId,member.accountId,ownerJson,inputJson,sourcesJson,digest,FOUNDER_RECONCILIATION_EXECUTOR_DIGEST,input.expiresAt,now,now,...source.values,...sessionGuard.values,input.expiresAt).run();if(result.meta.changes!==1) return fail();if(Date.now()>=Math.min(input.expiresAt,session.expiresAt))return fail();return readFounderReconciliation(env,member,id,session);}
++export async function listFounderReconciliations(env:StripeEnv,member:WorkspaceNativeMember,session:ReconciliationSession){const actor=membershipSql(member,true),rows=await env.AGENT_AUDIT.prepare(`SELECT * FROM founder_reconciliation_reports WHERE workspace_id=? AND owner_id=? AND owner_account_id=? AND ${actor.sql} ORDER BY created_at DESC LIMIT 50`).bind(member.workspaceId,member.userId,member.accountId,...actor.values).all<Row>();const sessionGuard=reconciliationSessionGuard(session,member),proof=await env.AGENT_AUDIT.prepare(`SELECT s.expiresAt AS session_expires FROM "session" s WHERE s.id=? AND s.userId=? AND ${actor.sql} AND ${sessionGuard.sql}`).bind(session.id,member.accountId,...actor.values,...sessionGuard.values).first<{session_expires:string|number}>();if(!proof||!Number.isFinite(reconciliationSessionExpiry(proof.session_expires))||Date.now()>=Math.min(session.expiresAt,reconciliationSessionExpiry(proof.session_expires)))return fail();return{drafts:rows.results.map(row=>({id:row.id,digest:row.digest,state:row.state,expiresAt:row.expires_at})),leaseExpiresAt:Math.min(session.expiresAt,reconciliationSessionExpiry(proof.session_expires))};}
++export async function composeFounderReconciliation(env:StripeEnv,member:WorkspaceNativeMember,id:string,digest:string,session:ReconciliationSession){availability(env);const row=await ownerRow(env,member,id);if(!row||row.state!=="draft"||row.digest!==digest)return fail();const {input,source}=await bound(row,member,env),computed=computeFounderReconciliation(source.deals,source.invoices,input.mapping,source.sources.hubspot.dealIds),report={format:"shiba.founder-reconciliation.report.v1",id:row.id,executorDigest:row.executor_digest,sources:source.sources,mapping:input.mapping,...computed,notice:"Exact ID comparisons of captured rows only. Sources are independently timed and bounded; unmatched means not in the captured subset. No FX, rounding, complete ledger, revenue, MRR, churn, or business-success conclusion.",datasetCompleteness:"unknown",businessSuccess:"unverified"},json=JSON.stringify(founderReconciliationReportSchema.parse(report));if(bytes(json)>65536)throw new WorkspaceIntegrationError("reconciliation_report_limit",413);const hash=await stripeDigest(["shiba.founder-reconciliation.report.v1",id,row.expires_at,json]),proof=guard(row,member,source),sessionGuard=reconciliationSessionGuard(session,member);
++ if(Date.now()>=session.expiresAt)return fail();const result=await env.AGENT_AUDIT.prepare(`UPDATE founder_reconciliation_reports SET state='completed',report_json=?,report_hash=?,updated_at=? WHERE id=? AND state='draft' AND digest=? AND executor_digest=? AND owner_json=? AND input_json=? AND sources_json=? AND expires_at=? AND expires_at>${FOUNDER_SQL_NOW} AND ${proof.sql} AND ${sessionGuard.sql}`).bind(json,hash,Date.now(),row.id,row.digest,row.executor_digest,row.owner_json,row.input_json,row.sources_json,row.expires_at,...proof.values,...sessionGuard.values).run();if(result.meta.changes!==1||Date.now()>=Math.min(row.expires_at,source.expiresAt,session.expiresAt))return fail();availability(env);return readFounderReconciliation(env,member,id,session);}
++export async function readFounderReconciliation(env:StripeEnv,member:WorkspaceNativeMember,id:string,session:ReconciliationSession){availability(env);const row=await ownerRow(env,member,id);if(!row||row.state==="revoked")return fail();const {source}=await bound(row,member,env);if(row.state==="completed"&&(!row.report_json||!row.report_hash||await stripeDigest(["shiba.founder-reconciliation.report.v1",id,row.expires_at,row.report_json])!==row.report_hash))return fail();const proof=guard(row,member,source),sessionGuard=reconciliationSessionGuard(session,member);const proofSql=`SELECT s.expiresAt AS session_expires FROM founder_reconciliation_reports JOIN "session" s ON s.id=? AND s.userId=? WHERE founder_reconciliation_reports.id=? AND state=? AND digest=? AND executor_digest=? AND owner_json=? AND input_json=? AND sources_json=? AND expires_at=? AND expires_at>${FOUNDER_SQL_NOW} AND report_json IS ? AND report_hash IS ? AND ${proof.sql} AND ${sessionGuard.sql}`,proofValues=[session.id,member.accountId,row.id,row.state,row.digest,row.executor_digest,row.owner_json,row.input_json,row.sources_json,row.expires_at,row.report_json,row.report_hash,...proof.values,...sessionGuard.values];const current=await env.AGENT_AUDIT.prepare(proofSql).bind(...proofValues).first<{session_expires:string|number}>();if(!current||!Number.isFinite(reconciliationSessionExpiry(current.session_expires))||Date.now()>=Math.min(row.expires_at,source.expiresAt,session.expiresAt,reconciliationSessionExpiry(current.session_expires)))return fail();availability(env);return{draft:publicDraft(row),report:row.report_json?JSON.parse(row.report_json):null,leaseExpiresAt:Math.min(row.expires_at,source.expiresAt,session.expiresAt,reconciliationSessionExpiry(current.session_expires)),proofSql,proofValues};}
++export async function revokeFounderReconciliation(env:StripeEnv,member:WorkspaceNativeMember,id:string,digest:string,session:ReconciliationSession){const actor=membershipSql(member,true),sessionGuard=reconciliationSessionGuard(session,member);if(Date.now()>=session.expiresAt)return fail();const result=await env.AGENT_AUDIT.prepare(`UPDATE founder_reconciliation_reports SET state='revoked',report_json=NULL,updated_at=? WHERE id=? AND workspace_id=? AND owner_id=? AND owner_account_id=? AND state<>'revoked' AND digest=? AND ${actor.sql} AND ${sessionGuard.sql}`).bind(Date.now(),id,member.workspaceId,member.userId,member.accountId,digest,...actor.values,...sessionGuard.values).run();if(result.meta.changes!==1||Date.now()>=session.expiresAt)return fail();return{id,digest,state:"revoked" as const};}
+diff --git a/apps/backend/test/founder-reconciliation-compute.test.ts b/apps/backend/test/founder-reconciliation-compute.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7595123b35e9a155d1f24e58f7d05c6f32dd9883
+--- /dev/null
++++ b/apps/backend/test/founder-reconciliation-compute.test.ts
+@@ -0,0 +1,15 @@
++import { describe,it,expect } from "vitest";
++import { computeFounderReconciliation, type CapturedDeal, type CapturedInvoice } from "../src/founder-reconciliation-compute.js";
++const mapping={invoiceIdProperty:"invoice_id",paidAmountProperty:"paid_amount",currencyProperty:"currency",amountUnit:"major-decimal" as const,basisAttestation:"crm-property-represents-stripe-invoice-amount-paid" as const};
++const deal=(dealId:string,key:string|null,amount:string|null,currency:string|null):CapturedDeal=>({dealId,properties:{invoice_id:key,paid_amount:amount,currency}});
++const invoice=(id:string,currency:string,amountPaid:number):CapturedInvoice=>({id,currency,amountPaid,status:"paid",created:10,livemode:false});
++describe("receipt-only deterministic amount comparisons",()=>{
++ it("compares unique captured keys by currency using exact integer minor units",()=>{const result=computeFounderReconciliation([deal("1","in_abc","10.25","USD"),deal("2","in_def","300","JPY")],[invoice("in_abc","usd",1025),invoice("in_def","jpy",200)],mapping,["1","2"]);expect(result.rows.map(v=>v.status)).toEqual(["matched_equal","matched_difference"]);expect(result.perCurrency).toEqual([{currency:"JPY",matchedCount:1,crmMinor:"300",stripeMinor:"200",differenceMinor:"100"},{currency:"USD",matchedCount:1,crmMinor:"1025",stripeMinor:"1025",differenceMinor:"0"}]);});
++ it("does not infer matches from missing, duplicate, invalid, unmatched or uncaptured IDs",()=>{const result=computeFounderReconciliation([deal("1","in_abc","1","USD"),deal("2","in_abc","1","USD"),deal("3",null,"1","USD"),deal("4","customer@example.test","1","USD")],[invoice("in_abc","usd",100),invoice("in_other","usd",100)],mapping,["1","2","3","4","5"]);expect(result.rows.map(v=>v.status)).toEqual(["duplicate_key","duplicate_key","missing_key","invalid_key","unmatched_in_capture","uncaptured_deal"]);expect(result.perCurrency).toEqual([]);expect(JSON.stringify(result)).not.toContain("customer@example.test");});
++ it("refuses excess precision, invalid units, currency mismatch and unsupported currencies without rounding",()=>{const result=computeFounderReconciliation([deal("1","in_a","1.001","USD"),deal("2","in_b","10.1","JPY"),deal("3","in_c","1","USD"),deal("4","in_d","1","ISK")],[invoice("in_a","usd",100),invoice("in_b","jpy",10),invoice("in_c","eur",100),invoice("in_d","isk",100)],mapping,["1","2","3","4"]);expect(result.rows.every(v=>v.status==="non_comparable")).toBe(true);expect(result.perCurrency).toEqual([]);});
++ it("does not double count duplicate Stripe ids and rejects duplicate deal records",()=>{const inv=invoice("in_a","usd",100);expect(computeFounderReconciliation([deal("1","in_a","1","USD")],[inv,inv],mapping,["1"]).rows[0]!.status).toBe("duplicate_key");expect(()=>computeFounderReconciliation([deal("1","in_a","1","USD"),deal("1","in_b","1","USD")],[inv],mapping,["1"])).toThrow();});
++ it("uses arbitrary precision and interprets minor integers exactly",()=>{const m={...mapping,amountUnit:"minor-integer" as const};const result=computeFounderReconciliation([deal("1","in_a","900719925474099100","GBP")],[invoice("in_a","gbp",10)],m,["1"]);expect(result.rows[0]).toMatchObject({crmMinor:"900719925474099100",differenceMinor:"900719925474099090"});});
++});
++
++import { execFileSync } from "node:child_process";
++it("keeps the reviewed reconciliation executor pin synchronized",()=>{execFileSync(process.execPath,[new URL("../src/founder-reconciliation-manifest.mjs",import.meta.url).pathname,"--check"]);});
+diff --git a/apps/backend/test/founder-reconciliation-limits.test.ts b/apps/backend/test/founder-reconciliation-limits.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1f468491d205fa2a0a6050ee5ac679074b37afc8
+--- /dev/null
++++ b/apps/backend/test/founder-reconciliation-limits.test.ts
+@@ -0,0 +1,4 @@
++import { describe,it,expect } from "vitest";
++import { automaticReadReportAuthorityGuard, type AutomaticReportAuthority } from "../src/founder-auto-read-runtime.js";
++import type { Env } from "../src/env.js";
++describe("reconciliation source proof budget",()=>{it("leaves D1 parameter capacity for both frozen source and native-session guards",()=>{const version="12345678-1234-1234-1234-123456789abc",manifest="a".repeat(64),id="far_fixture",member={workspaceId:`ws_${"a".repeat(24)}`,userId:"owner@example.test",accountId:"native-owner",role:"owner",version:1,joinedAt:0},pins={member,libraryId:"founder-hubspot-stripe-reconcile",recipeSha256:manifest,employeeId:"employee",employeeVersion:1,employeeConfig:"{}",skillId:"skill",skillVersion:1,skillInstructions:"x",skillSource:null,sources:[]},contract={runtime:{versionId:version,manifestDigest:manifest}},grant={id,version:1,digest:manifest,contract_json:JSON.stringify(contract),pins_json:JSON.stringify(pins)},occurrence={id:"occ",expires_at:Date.now()+10000,report_hash:manifest,markdown:"m",json:"{}",report_sources_json:"[]"},authority={principal:{kind:"schedule",id:`schedule:${id}`},readGrant:grant,pins,occurrence,recipeHashFromCode:manifest,report:{reportHash:manifest,markdown:"m",json:"{}"}} as unknown as AutomaticReportAuthority,env={FOUNDER_AUTOMATIC_READS_ENABLED:"true",OPEN_CONNECTOR_READ_GATEWAY:{},OPEN_CONNECTOR_READ_VERSION_ID:version,OPEN_CONNECTOR_READ_MANIFEST_SHA256:manifest,OPEN_CONNECTOR_READ_RUNTIME_TOKEN:`oct_${"r".repeat(43)}`,INTERNAL_SIGNING_KEY:"x".repeat(32)} as unknown as Env;const guard=automaticReadReportAuthorityGuard(env,authority);expect(guard.sql).not.toBe("0=1");expect(guard.values.length).toBeLessThanOrEqual(50);expect(guard.values.length+33+15).toBeLessThanOrEqual(100);});});
+diff --git a/apps/backend/test/founder-reconciliation-routes.test.ts b/apps/backend/test/founder-reconciliation-routes.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6295b6e07f917bf176bbef8b22513b38a21d31ec
+--- /dev/null
++++ b/apps/backend/test/founder-reconciliation-routes.test.ts
+@@ -0,0 +1,12 @@
++import { describe,it,expect,vi } from "vitest";
++import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
++import type { StripeEnv } from "../src/founder-stripe-store.js";
++import { handleFounderReconciliations } from "../src/founder-reconciliation-routes.js";
++const state=vi.hoisted(()=>({member:{workspaceId:`ws_${"a".repeat(24)}`,userId:"owner@example.test",accountId:"native-owner",version:1,role:"owner"},session:{id:"session-fixture",expiresAt:Date.now()+600000},afterRead:null as null|(()=>void)}));
++vi.mock("../src/org-request-auth.js",()=>({resolveOrgForApiRequest:async()=>({workspace:state.member,principal:null})}));
++vi.mock("../src/workspace-native-authority.js",async original=>({...await original<typeof import("../src/workspace-native-authority.js")>(),resolveWorkspaceNativeMember:async()=>state.member}));
++vi.mock("../src/founder-reconciliation-session.js",async original=>({...await original<typeof import("../src/founder-reconciliation-session.js")>(),reconciliationSession:async()=>state.session}));
++vi.mock("../src/founder-auto-read-store.js",async original=>({...await original<typeof import("../src/founder-auto-read-store.js")>(),automaticAvailability:()=>null}));
++vi.mock("../src/founder-stripe-store.js",async original=>({...await original<typeof import("../src/founder-stripe-store.js")>(),stripeAvailable:()=>{}}));
++vi.mock("../src/founder-reconciliation-store.js",()=>({readFounderReconciliation:async()=>{const result={draft:{sources:{hubspot:{runtimeVersionId:"v",manifestDigest:"digest"}}},report:{format:"fixture-private"},leaseExpiresAt:Date.now()+600000,proofSql:'SELECT s.expiresAt AS session_expires FROM "session" s WHERE s.id=? AND s.userId=? AND EXISTS(SELECT 1 FROM source_state WHERE current=1)',proofValues:[state.session.id,state.member.accountId]};state.afterRead?.();return result;},listFounderReconciliations:async()=>({drafts:[],leaseExpiresAt:Date.now()+600000}),createFounderReconciliation:async()=>{throw Error("unused");},composeFounderReconciliation:async()=>{throw Error("unused");},revokeFounderReconciliation:async()=>{throw Error("unused");}}));
++describe("private route's last source/session proof",()=>{it("returns the exact JSON download only while final source and session remain current",async()=>{const db=customAgentD1();db.sqlite.exec('CREATE TABLE "session"(id TEXT PRIMARY KEY,userId TEXT,expiresAt INTEGER);CREATE TABLE source_state(current INTEGER);INSERT INTO source_state VALUES(1)');db.sqlite.prepare('INSERT INTO "session" VALUES(?,?,?)').run(state.session.id,state.member.accountId,Date.now()+600000);state.afterRead=null;const env={AGENT_AUDIT:db.database,OPEN_CONNECTOR_READ_VERSION_ID:"v",OPEN_CONNECTOR_READ_MANIFEST_SHA256:"digest"} as unknown as StripeEnv;const response=await handleFounderReconciliations(new Request(`https://shiba.test/api/founder-reconciliations/frc_${"a".repeat(32)}/download`,{headers:{cookie:"better-auth.session_token=fixture","X-Shiba-Workspace":state.member.workspaceId}}),env);expect(response?.status).toBe(200);expect(await response!.text()).toBe('{"format":"fixture-private"}');});it.each(["", "/download"])("withholds %s output when source changes after the store read",async(suffix)=>{const db=customAgentD1();db.sqlite.exec('CREATE TABLE "session"(id TEXT PRIMARY KEY,userId TEXT,expiresAt INTEGER);CREATE TABLE source_state(current INTEGER);INSERT INTO source_state VALUES(1)');db.sqlite.prepare('INSERT INTO "session" VALUES(?,?,?)').run(state.session.id,state.member.accountId,Date.now()+600000);state.afterRead=()=>db.sqlite.exec("UPDATE source_state SET current=0");const env={AGENT_AUDIT:db.database,OPEN_CONNECTOR_READ_VERSION_ID:"v",OPEN_CONNECTOR_READ_MANIFEST_SHA256:"digest"} as unknown as StripeEnv;const response=await handleFounderReconciliations(new Request(`https://shiba.test/api/founder-reconciliations/frc_${"a".repeat(32)}${suffix}`,{headers:{cookie:"better-auth.session_token=fixture","X-Shiba-Workspace":state.member.workspaceId}}),env);expect(response?.status).toBe(403);expect(await response!.text()).not.toContain("fixture-private");state.afterRead=null;});});
+diff --git a/apps/backend/test/founder-reconciliation-source.security-v4.test.ts b/apps/backend/test/founder-reconciliation-source.security-v4.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ce687243ed93a1ff8f24789d19334d65865a85f3
+--- /dev/null
++++ b/apps/backend/test/founder-reconciliation-source.security-v4.test.ts
+@@ -0,0 +1,64 @@
++import { afterEach,describe,it,expect,vi } from "vitest";
++import { readFileSync } from "node:fs";
++import { digest } from "@shiba/openconnector-read-gateway";
++import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
++import { createTeamWorkspace,getTeamWorkspaceMembership } from "../src/team-workspaces-store.js";
++import { createStripeDraft,stripeDigest,type StripeEnv } from "../src/founder-stripe-store.js";
++import { loadReconciliationSources } from "../src/founder-reconciliation-sources.js";
++const source=vi.hoisted(()=>({authority:null as unknown,expiresAt:Date.now()+86400000}));
++vi.mock("../src/founder-auto-read-runtime.js",()=>({loadAutomaticReadReportAuthority:async()=>source.authority,automaticReadReportAuthorityGuard:()=>({sql:"EXISTS(SELECT 1 FROM hub_fixture WHERE current=1)",values:[]})}));
++import { createFounderReconciliation,composeFounderReconciliation,readFounderReconciliation } from "../src/founder-reconciliation-store.js";
++vi.mock("../src/founder-auto-read-store.js",async original=>({...await original<typeof import("../src/founder-auto-read-store.js")>(),automaticAvailability:()=>null}));
++import { handleFounderReconciliations } from "../src/founder-reconciliation-routes.js";
++vi.mock("../src/request-auth.js",async original=>({...await original<typeof import("../src/request-auth.js")>(),isAuthorizedRequest:async()=>true,resolveUserId:async()=>"fixture@example.test"}));
++vi.mock("@shiba/auth/better-auth",async original=>({...await original<typeof import("@shiba/auth/better-auth")>(),resolveBetterAuthSessionAccount:async()=>({policy:{accountId:"native-fixture",email:"fixture@example.test",kind:"invited"},emailVerified:true,sessionId:"fixture-session",sessionExpiresAt:source.expiresAt})}));
++afterEach(()=>vi.restoreAllMocks());
++async function fixture(){
++ const db=customAgentD1(),email="fixture@example.test",account="native-fixture";db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER);CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT);CREATE TABLE hub_fixture(current INTEGER);INSERT INTO hub_fixture VALUES(1)');db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(account,email);db.sqlite.prepare('INSERT INTO shiba_auth_account_policy VALUES(?,?)').run(account,email);db.sqlite.exec(readFileSync(new URL('../migrations/0027_founder_stripe_reads.sql',import.meta.url),'utf8'));
++ const env={AGENT_AUDIT:db.database,FOUNDER_STRIPE_READS_ENABLED:"true",FOUNDER_STRIPE_CREDENTIAL_KEY:"ab".repeat(32)} as StripeEnv,ws=await createTeamWorkspace(env,email,{name:"Fixture"}),member={...(await getTeamWorkspaceMembership(env,ws.workspaceId,email))!,accountId:account},expires=Date.now()+600000,selection={kind:"invoices",createdGte:100,createdLt:200,limit:5};
++ db.sqlite.exec('CREATE TABLE "session"(id TEXT PRIMARY KEY,userId TEXT,expiresAt INTEGER)');db.sqlite.prepare('INSERT INTO "session" VALUES(?,?,?)').run('fixture-session',account,expires);db.sqlite.exec(readFileSync(new URL('../migrations/0030_founder_reconciliation.sql',import.meta.url),'utf8'));
++ const grant=await createStripeDraft(env,member,{accountId:"acct_Fixture",mode:"test",restrictedKey:`rk_test_${"F".repeat(24)}`,expiresAt:expires,maxCalls:2,selection,readOnlyAttestation:"restricted-key-read-only-for-selected-resources"},{id:"fixture-session",expiresAt:expires});db.sqlite.prepare("UPDATE founder_stripe_read_grants SET state='enabled' WHERE id=?").run(grant.id);const pin=(db.sqlite.prepare("SELECT executor_digest FROM founder_stripe_read_grants WHERE id=?").get(grant.id) as {executor_digest:string}).executor_digest,receipt=`fsr_${"b".repeat(32)}`;
++ const stripe=JSON.stringify({format:"shiba.stripe-read-report.v1",grantId:grant.id,revision:1,accountId:"acct_Fixture",mode:"test",contractDigest:grant.digest,executorDigest:pin,capturedAt:Date.now(),capture:{kind:"invoices",interval:{createdGte:100,createdLt:200},hasMore:false,rows:[{id:"in_A",currency:"usd",amountPaid:1000,status:"paid",created:150,livemode:false}],datasetCompleteness:"unknown",businessSuccess:"unverified"}});db.sqlite.prepare("INSERT INTO founder_stripe_read_receipts VALUES(?,?,?,'completed',?,?,?,?,?)").run(receipt,grant.id,1,JSON.stringify(selection),stripe,await stripeDigest(stripe),Date.now(),expires);
++ const args={dealIds:["1","2"],invoiceIdProperty:"invoice_id",paidAmountProperty:"paid_amount",currencyProperty:"currency"},data={records:[{dealId:"1",properties:{invoice_id:"in_A",paid_amount:"10.00",currency:"USD"}}]},hash="c".repeat(64),hub={runtime:{versionId:"version",manifestDigest:hash},sources:[{operationId:"hubspot.deal_invoice_snapshot",state:"completed",captureCompleteness:"bounded-response",datasetCompleteness:"unknown",businessSuccess:"unverified",resultDigest:await digest(JSON.stringify(data)),connectionId:"connection",connectionVersion:1,capturedAt:Date.now(),executorHash:hash,arguments:args,result:data}]};source.authority={readGrant:{library_id:"founder-hubspot-stripe-reconcile"},humanAuthorizer:member,report:{json:JSON.stringify(hub),reportHash:hash,expiresAt:expires}};
++ const input={hubspot:{grantId:"far_example",grantVersion:1,occurrenceId:"occ_example",sourceOrdinal:0},stripe:{grantId:grant.id,receiptId:receipt},mapping:{invoiceIdProperty:"invoice_id",paidAmountProperty:"paid_amount",currencyProperty:"currency",amountUnit:"major-decimal" as const,basisAttestation:"crm-property-represents-stripe-invoice-amount-paid" as const},expiresAt:expires-1000};
++ Object.assign(env,{OPEN_CONNECTOR_READ_VERSION_ID:"version",OPEN_CONNECTOR_READ_MANIFEST_SHA256:hash});source.expiresAt=expires;return {db,env,member,input,grant,receipt,session:{id:"fixture-session",expiresAt:expires}};
++}
++function beforeStatement(env:StripeEnv,needle:string,method:"first"|"run",run:()=>void,after=false){const prepare=env.AGENT_AUDIT.prepare.bind(env.AGENT_AUDIT);let hit=false;const wrap=(statement:D1PreparedStatement,sql:string):D1PreparedStatement=>new Proxy(statement,{get(target,property){if(property==="bind")return(...values:unknown[])=>wrap(target.bind(...values),sql);if(property===method)return async()=>{const selected=!hit&&sql.includes(needle);if(selected){hit=true;if(!after)run();}const result=await(method==="first"?target.first():target.run());if(selected&&after)run();return result;};const value=Reflect.get(target,property);return typeof value==="function"?value.bind(target):value;}});env.AGENT_AUDIT.prepare=sql=>wrap(prepare(sql),sql);return()=>hit;}
++describe("independent reconciliation with real stored Stripe source and SQL proof",()=>{
++ it.each(["session","source"])("withholds route bytes after %s revocation between store proof and route output",async(kind)=>{
++  const f=await fixture(),draft=(await createFounderReconciliation(f.env,f.member,f.input,f.session)).draft;
++  await composeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session);
++  const request=()=>new Request(`https://shiba.test/api/founder-reconciliations/${draft.id}`,{headers:{"X-Shiba-Workspace":f.member.workspaceId,cookie:"better-auth.session_token=fixture"}});
++  expect((await handleFounderReconciliations(request(),f.env))?.status).toBe(200);
++  const hit=beforeStatement(f.env,"SELECT s.expiresAt AS session_expires FROM founder_reconciliation_reports","first",()=>{
++   if(kind==="session")f.db.sqlite.prepare('DELETE FROM "session" WHERE id=?').run(f.session.id);
++   else f.db.sqlite.prepare("UPDATE founder_stripe_read_grants SET state='revoked',ciphertext='' WHERE id=?").run(f.grant.id);
++  },true);
++  const response=await handleFounderReconciliations(request(),f.env);expect(hit()).toBe(true);expect(response?.status).toBe(403);expect(await response!.text()).not.toContain("crmMinor");
++ });
++
++ it("cannot commit composition after deciding session is removed just before its atomic write",async()=>{
++  const f=await fixture(),draft=(await createFounderReconciliation(f.env,f.member,f.input,f.session)).draft;
++  const hit=beforeStatement(f.env,"UPDATE founder_reconciliation_reports SET state='completed'","run",()=>{f.db.sqlite.prepare('DELETE FROM "session" WHERE id=?').run(f.session.id);});
++  await expect(composeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session)).rejects.toThrow();expect(hit()).toBe(true);
++  expect(f.db.sqlite.prepare("SELECT state,report_json FROM founder_reconciliation_reports").get()).toEqual({state:"draft",report_json:null});
++ });
++ it("rechecks actual Stripe revocation in its final combined private report proof",async()=>{
++  const f=await fixture(),draft=(await createFounderReconciliation(f.env,f.member,f.input,f.session)).draft;
++  const composed=await composeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session);expect(composed.report.rows[0]).toMatchObject({status:"matched_equal",crmMinor:"1000"});
++  const hit=beforeStatement(f.env,"SELECT s.expiresAt AS session_expires FROM founder_reconciliation_reports","first",()=>{f.db.sqlite.prepare("UPDATE founder_stripe_read_grants SET state='revoked',ciphertext='' WHERE id=?").run(f.grant.id);});
++  await expect(readFounderReconciliation(f.env,f.member,draft.id,f.session)).rejects.toThrow();expect(hit()).toBe(true);
++ });
++ it("does not revive original source authority after membership removal and re-add",async()=>{
++  const f=await fixture(),draft=(await createFounderReconciliation(f.env,f.member,f.input,f.session)).draft;
++  await composeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session);
++  f.db.sqlite.prepare("UPDATE team_workspace_memberships SET version=version+2 WHERE workspace_id=? AND user_id=?").run(f.member.workspaceId,f.member.userId);
++  await expect(readFounderReconciliation(f.env,{...f.member,version:f.member.version+2},draft.id,f.session)).rejects.toThrow();
++ });
++ it("rejects a changed stored invoice even if its replacement report has a valid new digest",async()=>{
++  const f=await fixture(),draft=(await createFounderReconciliation(f.env,f.member,f.input,f.session)).draft;
++  const row=f.db.sqlite.prepare("SELECT report_json FROM founder_stripe_read_receipts WHERE id=?").get(f.receipt) as {report_json:string};const report=JSON.parse(row.report_json);report.capture.rows[0].amountPaid=900;const changed=JSON.stringify(report);
++  f.db.sqlite.prepare("UPDATE founder_stripe_read_receipts SET report_json=?,result_digest=? WHERE id=?").run(changed,await stripeDigest(changed),f.receipt);
++  await expect(composeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session)).rejects.toThrow();
++ });
++});
+diff --git a/apps/backend/test/founder-reconciliation-sources.test.ts b/apps/backend/test/founder-reconciliation-sources.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..144c900f695479250e7d71354349f683947ea668
+--- /dev/null
++++ b/apps/backend/test/founder-reconciliation-sources.test.ts
+@@ -0,0 +1,18 @@
++import { describe,it,expect,vi } from "vitest";
++import { readFileSync } from "node:fs";
++import { digest } from "@shiba/openconnector-read-gateway";
++import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
++import { createTeamWorkspace,getTeamWorkspaceMembership } from "../src/team-workspaces-store.js";
++import { createStripeDraft,stripeDigest,type StripeEnv } from "../src/founder-stripe-store.js";
++import { loadReconciliationSources } from "../src/founder-reconciliation-sources.js";
++const source=vi.hoisted(()=>({authority:null as unknown}));
++vi.mock("../src/founder-auto-read-runtime.js",()=>({loadAutomaticReadReportAuthority:async()=>source.authority,automaticReadReportAuthorityGuard:()=>({sql:"EXISTS(SELECT 1 FROM hub_fixture WHERE current=1)",values:[]})}));
++describe("actual stored Stripe receipt source checks",()=>{it("requires exact native owner, mapping, digest and current source guard",async()=>{
++ const db=customAgentD1(),email="fixture@example.test",account="native-fixture";db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER);CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT);CREATE TABLE hub_fixture(current INTEGER);INSERT INTO hub_fixture VALUES(1)');db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(account,email);db.sqlite.prepare('INSERT INTO shiba_auth_account_policy VALUES(?,?)').run(account,email);db.sqlite.exec(readFileSync(new URL('../migrations/0027_founder_stripe_reads.sql',import.meta.url),'utf8'));
++ const env={AGENT_AUDIT:db.database,FOUNDER_STRIPE_READS_ENABLED:"true",FOUNDER_STRIPE_CREDENTIAL_KEY:"ab".repeat(32)} as StripeEnv,ws=await createTeamWorkspace(env,email,{name:"Fixture"}),member={...(await getTeamWorkspaceMembership(env,ws.workspaceId,email))!,accountId:account},expires=Date.now()+600000,selection={kind:"invoices",createdGte:100,createdLt:200,limit:5};
++ const grant=await createStripeDraft(env,member,{accountId:"acct_Fixture",mode:"test",restrictedKey:`rk_test_${"F".repeat(24)}`,expiresAt:expires,maxCalls:2,selection,readOnlyAttestation:"restricted-key-read-only-for-selected-resources"});db.sqlite.prepare("UPDATE founder_stripe_read_grants SET state='enabled' WHERE id=?").run(grant.id);const pin=(db.sqlite.prepare("SELECT executor_digest FROM founder_stripe_read_grants WHERE id=?").get(grant.id) as {executor_digest:string}).executor_digest,receipt=`fsr_${"b".repeat(32)}`;
++ const stripe=JSON.stringify({format:"shiba.stripe-read-report.v1",grantId:grant.id,revision:1,accountId:"acct_Fixture",mode:"test",contractDigest:grant.digest,executorDigest:pin,capturedAt:Date.now(),capture:{kind:"invoices",interval:{createdGte:100,createdLt:200},hasMore:false,rows:[{id:"in_A",currency:"usd",amountPaid:1000,status:"paid",created:150,livemode:false}],datasetCompleteness:"unknown",businessSuccess:"unverified"}});db.sqlite.prepare("INSERT INTO founder_stripe_read_receipts VALUES(?,?,?,'completed',?,?,?,?,?)").run(receipt,grant.id,1,JSON.stringify(selection),stripe,await stripeDigest(stripe),Date.now(),expires);
++ const args={dealIds:["1","2"],invoiceIdProperty:"invoice_id",paidAmountProperty:"paid_amount",currencyProperty:"currency"},data={records:[{dealId:"1",properties:{invoice_id:"in_A",paid_amount:"10.00",currency:"USD"}}]},hash="c".repeat(64),hub={runtime:{versionId:"version",manifestDigest:hash},sources:[{operationId:"hubspot.deal_invoice_snapshot",state:"completed",captureCompleteness:"bounded-response",datasetCompleteness:"unknown",businessSuccess:"unverified",resultDigest:await digest(JSON.stringify(data)),connectionId:"connection",connectionVersion:1,capturedAt:Date.now(),executorHash:hash,arguments:args,result:data}]};source.authority={readGrant:{library_id:"founder-hubspot-stripe-reconcile"},humanAuthorizer:member,report:{json:JSON.stringify(hub),reportHash:hash,expiresAt:expires}};
++ const input={hubspot:{grantId:"far_example",grantVersion:1,occurrenceId:"occ_example",sourceOrdinal:0},stripe:{grantId:grant.id,receiptId:receipt},mapping:{invoiceIdProperty:"invoice_id",paidAmountProperty:"paid_amount",currencyProperty:"currency",amountUnit:"major-decimal" as const,basisAttestation:"crm-property-represents-stripe-invoice-amount-paid" as const},expiresAt:expires-1000};
++ const proof=await loadReconciliationSources(env,member,input);expect(proof.sources.hubspot.dealIds).toEqual(["1","2"]);expect(proof.invoices[0]?.amountPaid).toBe(1000);expect(proof.values.length).toBeLessThan(90);expect(await env.AGENT_AUDIT.prepare(`SELECT 1 AS current WHERE ${proof.sql}`).bind(...proof.values).first()).toEqual({current:1});await expect(loadReconciliationSources(env,member,{...input,mapping:{...input.mapping,currencyProperty:"other"}})).rejects.toThrow();await expect(loadReconciliationSources(env,{...member,accountId:"other"},input)).rejects.toThrow();db.sqlite.exec("UPDATE founder_stripe_read_receipts SET report_json='{}'");expect(await env.AGENT_AUDIT.prepare(`SELECT 1 AS current WHERE ${proof.sql}`).bind(...proof.values).first()).toBeNull();await expect(loadReconciliationSources(env,member,input)).rejects.toThrow();
++});});
+diff --git a/apps/backend/test/founder-reconciliation-store.test.ts b/apps/backend/test/founder-reconciliation-store.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f34c560c39bfafed8d8d851d6445025e61385c78
+--- /dev/null
++++ b/apps/backend/test/founder-reconciliation-store.test.ts
+@@ -0,0 +1,22 @@
++import { afterEach,describe,expect,it,vi } from "vitest";
++import { readFileSync } from "node:fs";
++import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
++import { createTeamWorkspace,getTeamWorkspaceMembership } from "../src/team-workspaces-store.js";
++import type { StripeEnv } from "../src/founder-stripe-store.js";
++import { createFounderReconciliation,composeFounderReconciliation,readFounderReconciliation,revokeFounderReconciliation } from "../src/founder-reconciliation-store.js";
++const fixtureProof=vi.hoisted(()=>({value:null as unknown}));
++vi.mock("../src/founder-reconciliation-sources.js",()=>({loadReconciliationSources:async()=>fixtureProof.value}));
++vi.mock("../src/founder-auto-read-store.js",async original=>({...await original<typeof import("../src/founder-auto-read-store.js")>(),automaticAvailability:()=>null}));
++const email="reconciliation@example.test",account="native-recon-owner";
++afterEach(()=>vi.restoreAllMocks());
++async function fixture(){const db=customAgentD1();db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER);CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT);CREATE TABLE proof_state(current INTEGER NOT NULL);INSERT INTO proof_state VALUES(1);CREATE TABLE session(id TEXT PRIMARY KEY,userId TEXT,expiresAt INTEGER)');db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(account,email);db.sqlite.prepare('INSERT INTO shiba_auth_account_policy VALUES(?,?)').run(account,email);db.sqlite.prepare("INSERT INTO session VALUES(?,?,?)").run("fixture-session",account,Date.now()+86400000);db.sqlite.exec(readFileSync(new URL('../migrations/0030_founder_reconciliation.sql',import.meta.url),'utf8'));const env={AGENT_AUDIT:db.database,FOUNDER_STRIPE_READS_ENABLED:"true",FOUNDER_STRIPE_CREDENTIAL_KEY:"ab".repeat(32)} as StripeEnv;const ws=await createTeamWorkspace(env,email,{name:"Reconciliation fixture"}),member={...(await getTeamWorkspaceMembership(env,ws.workspaceId,email))!,accountId:account},expiresAt=Date.now()+600000;
++ const input={hubspot:{grantId:"far_example",grantVersion:1,occurrenceId:"occ_example",sourceOrdinal:0},stripe:{grantId:`fsc_${"a".repeat(32)}`,receiptId:`fsr_${"b".repeat(32)}`},mapping:{invoiceIdProperty:"stripe_invoice_id",paidAmountProperty:"paid_amount",currencyProperty:"currency",amountUnit:"major-decimal",basisAttestation:"crm-property-represents-stripe-invoice-amount-paid"},expiresAt};const hash="c".repeat(64),sources={hubspot:{...input.hubspot,dealIds:["1"],reportHash:hash,resultDigest:hash,connectionId:"connection",connectionVersion:1,capturedAt:Date.now(),runtimeVersionId:"version",manifestDigest:hash,executorHash:hash,expiresAt:expiresAt+1000},stripe:{...input.stripe,resultDigest:hash,grantRevision:1,accountId:"acct_Fixture",mode:"test",executorDigest:hash,capturedAt:Date.now(),createdGte:0,createdLt:100,hasMore:true,expiresAt:expiresAt+1000}};
++ fixtureProof.value={sources,deals:[{dealId:"1",properties:{stripe_invoice_id:"in_A",paid_amount:"10.00",currency:"USD"}}],invoices:[{id:"in_A",currency:"usd",amountPaid:1000,status:"paid",created:1,livemode:false}],sql:"EXISTS(SELECT 1 FROM proof_state WHERE current=1)",values:[],expiresAt:expiresAt+1000};return{db,env,member,input,session:{id:"fixture-session",expiresAt:Date.now()+86400000}};}
++describe("private reconciliation frozen-source workflow",()=>{
++ it("composes exact stored source snapshots only after a separate reviewed digest",async()=>{const f=await fixture(),draft=(await createFounderReconciliation(f.env,f.member,f.input,f.session)).draft;expect(draft.state).toBe("draft");await expect(composeFounderReconciliation(f.env,f.member,draft.id,"0".repeat(64),f.session)).rejects.toThrow();const result=await composeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session);expect(result.draft.state).toBe("completed");expect(result.report).toMatchObject({datasetCompleteness:"unknown",businessSuccess:"unverified",rows:[{status:"matched_equal",crmMinor:"1000"}]});expect(JSON.stringify(result.report)).toContain("independently timed and bounded");});
++ it("denies stale source at composition and private report read, without fabricating a new capture",async()=>{const f=await fixture(),draft=(await createFounderReconciliation(f.env,f.member,f.input,f.session)).draft;f.db.sqlite.exec("UPDATE proof_state SET current=0");await expect(composeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session)).rejects.toThrow();f.db.sqlite.exec("UPDATE proof_state SET current=1");await composeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session);f.db.sqlite.exec("UPDATE proof_state SET current=0");await expect(readFounderReconciliation(f.env,f.member,draft.id,f.session)).rejects.toThrow();await revokeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session);expect(f.db.sqlite.prepare("SELECT state,report_json FROM founder_reconciliation_reports").get()).toEqual({state:"revoked",report_json:null});});
++ it("withholds a private report when the exact native session disappears during source loading",async()=>{const f=await fixture(),draft=(await createFounderReconciliation(f.env,f.member,f.input,f.session)).draft;await composeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session);const original=f.env.AGENT_AUDIT.prepare.bind(f.env.AGENT_AUDIT);let deleted=false;const wrap=(statement:D1PreparedStatement,sql:string):D1PreparedStatement=>new Proxy(statement,{get(target,key){if(key==="bind")return(...values:unknown[])=>wrap(target.bind(...values),sql);if(key==="first")return async()=>{const result=await target.first();if(!deleted&&sql.includes("SELECT * FROM founder_reconciliation_reports WHERE id=")){deleted=true;f.db.sqlite.exec("DELETE FROM session WHERE id='fixture-session'");}return result;};const value=Reflect.get(target,key);return typeof value==="function"?value.bind(target):value;}});f.env.AGENT_AUDIT.prepare=(sql)=>wrap(original(sql),sql);await expect(readFounderReconciliation(f.env,f.member,draft.id,f.session)).rejects.toThrow();expect(deleted).toBe(true);});
++ it.each(["session","source"])("withholds report when %s expires after final positive SQL proof",async(which)=>{const f=await fixture(),draft=(await createFounderReconciliation(f.env,f.member,f.input,f.session)).draft;await composeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session);const original=f.env.AGENT_AUDIT.prepare.bind(f.env.AGENT_AUDIT);let held=false;const wrap=(statement:D1PreparedStatement,sql:string):D1PreparedStatement=>new Proxy(statement,{get(target,key){if(key==="bind")return(...values:unknown[])=>wrap(target.bind(...values),sql);if(key==="first")return async()=>{const result=await target.first();if(!held&&sql.includes("SELECT s.expiresAt AS session_expires FROM founder_reconciliation_reports")){held=true;vi.spyOn(Date,"now").mockReturnValue(which==="session"?f.session.expiresAt+1:f.input.expiresAt+1);}return result;};const value=Reflect.get(target,key);return typeof value==="function"?value.bind(target):value;}});f.env.AGENT_AUDIT.prepare=(sql)=>wrap(original(sql),sql);await expect(readFounderReconciliation(f.env,f.member,draft.id,f.session)).rejects.toThrow();expect(held).toBe(true);});
++ it("requires the exact live session atomically before any draft or reviewed composition write",async()=>{const f=await fixture();f.db.sqlite.exec("DELETE FROM session WHERE id='fixture-session'");await expect(createFounderReconciliation(f.env,f.member,f.input,f.session)).rejects.toThrow();expect(f.db.sqlite.prepare("SELECT COUNT(*) AS n FROM founder_reconciliation_reports").get()).toEqual({n:0});f.db.sqlite.prepare("INSERT INTO session VALUES(?,?,?)").run(f.session.id,f.member.accountId,f.session.expiresAt);const draft=(await createFounderReconciliation(f.env,f.member,f.input,f.session)).draft;f.db.sqlite.exec("DELETE FROM session WHERE id='fixture-session'");await expect(composeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session)).rejects.toThrow();expect(f.db.sqlite.prepare("SELECT state FROM founder_reconciliation_reports WHERE id=?").get(draft.id)).toEqual({state:"draft"});});
++ it("rejects caller-supplied money or modified receipt references before persistence",async()=>{const f=await fixture();await expect(createFounderReconciliation(f.env,f.member,{...f.input,amount:100},f.session)).rejects.toThrow();const draft=(await createFounderReconciliation(f.env,f.member,f.input,f.session)).draft;f.db.sqlite.prepare("UPDATE founder_reconciliation_reports SET input_json=? WHERE id=?").run(JSON.stringify({...f.input,mapping:{...f.input.mapping,amountUnit:"minor-integer"}}),draft.id);await expect(composeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session)).rejects.toThrow();});
++});
+diff --git a/apps/backend/test/founder-reconciliation.security-v4.test.ts b/apps/backend/test/founder-reconciliation.security-v4.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..02d9c0457b5c58ebf522e687e62c63ee6f00ac52
+--- /dev/null
++++ b/apps/backend/test/founder-reconciliation.security-v4.test.ts
+@@ -0,0 +1,38 @@
++import { describe, expect, it } from "vitest";
++import { computeFounderReconciliation, type CapturedDeal, type CapturedInvoice } from "../src/founder-reconciliation-compute.js";
++
++const mapping = { invoiceIdProperty: "invoice", paidAmountProperty: "paid", currencyProperty: "currency", amountUnit: "major-decimal" as const, basisAttestation: "crm-property-represents-stripe-invoice-amount-paid" as const };
++const deal = (id = "1", invoice = "in_One", paid = "1.20", currency = "USD"): CapturedDeal => ({ dealId: id, properties: { invoice, paid, currency } });
++const invoice = (id = "in_One", amountPaid = 120, currency = "usd"): CapturedInvoice => ({ id, amountPaid, currency, status: "paid", created: 100, livemode: false });
++
++describe("independent v4 captured financial arithmetic", () => {
++  it("excludes all ambiguous invoice IDs from matched totals", () => {
++    for (const [deals, invoices] of [ [[deal(), deal("2")], [invoice()]], [[deal()], [invoice(), invoice()]] ] as [CapturedDeal[], CapturedInvoice[]][]) {
++      const report = computeFounderReconciliation(deals, invoices, mapping, []);
++      expect(report.rows.every(row => row.status === "duplicate_key")).toBe(true);
++      expect(report.perCurrency).toEqual([]);
++    }
++    expect(() => computeFounderReconciliation([deal(), deal()], [invoice()], mapping, [])).toThrow();
++  });
++  it("keeps currencies separate and uses exact decimal arithmetic", () => {
++    const report = computeFounderReconciliation([deal(), deal("2", "in_Two", "2.31", "EUR")], [invoice(), invoice("in_Two", 230, "eur")], mapping, []);
++    expect(report.perCurrency).toEqual([{ currency: "EUR", matchedCount: 1, crmMinor: "231", stripeMinor: "230", differenceMinor: "1" }, { currency: "USD", matchedCount: 1, crmMinor: "120", stripeMinor: "120", differenceMinor: "0" }]);
++  });
++  it("does not coerce unsupported units, floating values, exponent syntax or absent money", () => {
++    for (const row of [deal("1", "in_One", "1e2"), deal("1", "in_One", "1.201"), deal("1", "in_One", ""), deal("1", "in_One", "1", "KWD")]) {
++      expect(computeFounderReconciliation([row], [invoice()], mapping, []).rows[0]?.status).toBe("non_comparable");
++    }
++    expect(computeFounderReconciliation([deal()], [invoice("in_One", 1.2)], mapping, []).perCurrency).toEqual([]);
++    expect(computeFounderReconciliation([deal()], [invoice()], { ...mapping, amountUnit: "minor-integer" }, []).perCurrency).toEqual([]);
++  });
++  it("reports absence only within the captured input and excludes absent keys from totals", () => {
++    const report = computeFounderReconciliation([deal("1", "in_Missing"), deal("2", ""), deal("3", "https://evil.test")], [invoice()], mapping, []);
++    expect(report.rows.map(row => row.status)).toEqual(["unmatched_in_capture", "missing_key", "invalid_key", "unmatched_in_capture"]);
++    expect(report.perCurrency).toEqual([]);
++  });
++  it("marks a selected but unreturned deal as uncaptured without assigning an invoice or money", () => {
++    const report = computeFounderReconciliation([deal()], [invoice()], mapping, ["1", "2"]);
++    expect(report.rows.find(row => row.dealId === "2")).toMatchObject({ status: "uncaptured_deal", invoiceId: null, crmMinor: null, stripeMinor: null, differenceMinor: null });
++    expect(report.perCurrency).toEqual([{ currency: "USD", matchedCount: 1, crmMinor: "120", stripeMinor: "120", differenceMinor: "0" }]);
++  });
++});
+diff --git a/apps/frontend/src/components/FounderReconciliation.test.tsx b/apps/frontend/src/components/FounderReconciliation.test.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..473946061e55c7f8b6f61cea0e07ff29fd004ea5
+--- /dev/null
++++ b/apps/frontend/src/components/FounderReconciliation.test.tsx
+@@ -0,0 +1,25 @@
++// @vitest-environment happy-dom
++import { StrictMode } from "react";
++import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { FounderReconciliation } from "./FounderReconciliation";
++import { RECON_ACTOR, RECON_WORKSPACE, reconScope, reconciliationDraft } from "../founder-reconciliation-fixtures";
++afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
++describe("private receipt comparison", () => {
++  it("shows missing HubSpot source honestly, while permitting metadata revocation", async () => {
++    const d = reconciliationDraft(); const send = vi.fn(async (path: RequestInfo | URL) => String(path) === "/api/founder-reconciliations" ? Response.json({ ...reconScope, drafts: [{ id: d.id, digest: d.digest, state: "draft", expiresAt: d.expiresAt }] }) : new Response("unavailable", { status: 503 })); vi.stubGlobal("fetch", send);
++    render(<StrictMode><FounderReconciliation workspaceId={RECON_WORKSPACE} actorId={RECON_ACTOR} onClose={() => {}} /></StrictMode>);
++    await screen.findByText(/eligible native HubSpot invoice snapshot is unavailable/); expect(screen.queryByText("Prepare an exact private comparison")).toBeNull(); expect(screen.getByRole("button", { name: `Revoke comparison ${d.id}` })).not.toHaveProperty("disabled", true);
++  });
++  it("requires an exact review before comparison and displays frozen source metadata", async () => {
++    const d = reconciliationDraft(); const send = vi.fn(async (path: RequestInfo | URL) => String(path) === "/api/founder-reconciliations" ? Response.json({ ...reconScope, drafts: [{ id: d.id, digest: d.digest, state: "draft", expiresAt: d.expiresAt }] }) : String(path).endsWith(d.id) ? Response.json({ ...reconScope, draft: d, report: null }) : new Response("unavailable", { status: 503 })); vi.stubGlobal("fetch", send);
++    render(<FounderReconciliation workspaceId={RECON_WORKSPACE} actorId={RECON_ACTOR} onClose={() => {}} />); fireEvent.click(await screen.findByRole("button", { name: "Review comparison" }));
++    const compose = await screen.findByRole("button", { name: "Compose private comparison" }); expect(compose).toHaveProperty("disabled", true); expect(screen.getByText(/"accountId": "acct_fixture"/)).toBeTruthy(); fireEvent.click(screen.getByLabelText(/I reviewed the exact captured sources/)); expect(compose).toHaveProperty("disabled", false);
++  });
++  it("discards a stale actor response after switching scopes", async () => {
++    let release!: (value: Response) => void; const held = new Promise<Response>((resolve) => { release = resolve; }); const next = "other@example.test"; let requests = 0;
++    vi.stubGlobal("fetch", vi.fn(async (path: RequestInfo | URL) => { if (String(path) !== "/api/founder-reconciliations") return new Response("unavailable", { status: 503 }); return ++requests === 1 ? held : Response.json({ ...reconScope, actorId: next, drafts: [] }); }));
++    const view = render(<FounderReconciliation workspaceId={RECON_WORKSPACE} actorId={RECON_ACTOR} onClose={() => {}} />); view.rerender(<FounderReconciliation workspaceId={RECON_WORKSPACE} actorId={next} onClose={() => {}} />);
++    await screen.findByText(/eligible native HubSpot invoice snapshot is unavailable/); await act(async () => { const d = reconciliationDraft(); release(Response.json({ ...reconScope, drafts: [{ id: d.id, digest: d.digest, state: "draft", expiresAt: d.expiresAt }] })); }); expect(screen.queryByRole("button", { name: "Review comparison" })).toBeNull();
++  });
++});
+diff --git a/apps/frontend/src/components/FounderReconciliation.tsx b/apps/frontend/src/components/FounderReconciliation.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..fff8c6fc560f5af2b0c5b7045c2c6a1d2ba566ed
+--- /dev/null
++++ b/apps/frontend/src/components/FounderReconciliation.tsx
+@@ -0,0 +1,68 @@
++import { useEffect, useRef, useState, type JSX } from "react";
++import type { FounderReconciliationDraft, FounderReconciliationReport, FounderStripeGrant, FounderStripeReceipt } from "@shiba/shared";
++import { FounderReconciliationClient, type ReconciliationMetadata } from "../founder-reconciliation-client";
++const BUTTON = "min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 py-2 text-xs disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
++const FIELD = "mt-1 min-h-11 min-w-0 w-full border border-[var(--input-line)] bg-[var(--paper)] px-3 py-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
++type Props = { workspaceId: string; actorId: string; onClose: () => void };
++type Directory = Awaited<ReturnType<FounderReconciliationClient["sources"]>>;
++export function FounderReconciliation(props: Props): JSX.Element { return <ReconciliationContent key={`${props.workspaceId}:${props.actorId}`} {...props} />; }
++function ReconciliationContent({ workspaceId, actorId, onClose }: Props): JSX.Element {
++  const [client] = useState(() => new FounderReconciliationClient(workspaceId, actorId));
++  const [directory, setDirectory] = useState<Directory | null>(null), [drafts, setDrafts] = useState<ReconciliationMetadata[] | null>(null), [draft, setDraft] = useState<FounderReconciliationDraft | null>(null), [report, setReport] = useState<FounderReconciliationReport | null>(null);
++  const [stripeGrant, setStripeGrant] = useState<FounderStripeGrant | null>(null), [receipts, setReceipts] = useState<FounderStripeReceipt[]>([]), [stripeReceipt, setStripeReceipt] = useState(""), [occurrence, setOccurrence] = useState(""), [ordinal, setOrdinal] = useState(""), [unit, setUnit] = useState<"" | "major-decimal" | "minor-integer">(""), [expiry, setExpiry] = useState(""), [basis, setBasis] = useState(false), [review, setReview] = useState("");
++  const [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null);
++  const controller = useRef<AbortController | null>(null), pending = useRef<AbortSignal | null>(null), contentEpoch = useRef(0);
++  const active = (s: AbortSignal) => controller.current?.signal === s && !s.aborted;
++  const clear = () => { contentEpoch.current++; setReport(null); setReview(""); };
++  const perform = async (fn: (s: AbortSignal) => Promise<void>) => { const s = controller.current?.signal; if (!s || !active(s) || pending.current) return; pending.current = s; setBusy(true); setError(null); setNotice(null);
++    try { await fn(s); } catch (e) { if (active(s)) { clear(); setDraft(null); setUncertain(true); setError(e instanceof Error ? e.message : "Private reconciliation state is unavailable."); } }
++    finally { if (pending.current === s) { pending.current = null; if (active(s)) setBusy(false); } }
++  };
++  const refresh = async (s: AbortSignal) => { const [items, sources] = await Promise.allSettled([client.list(s), client.sources(s)]); if (!active(s)) return;
++    setDraft(null); clear(); setStripeGrant(null); setReceipts([]); setStripeReceipt(""); setOccurrence(""); setOrdinal(""); setBasis(false);
++    if (items.status === "rejected") throw items.reason; setDrafts(items.value.drafts); setDirectory(sources.status === "fulfilled" ? sources.value : null); setUncertain(false);
++  };
++  useEffect(() => { const c = new AbortController(); controller.current = c; void perform(refresh); return () => { c.abort(); if (pending.current === c.signal) pending.current = null; }; }, []);
++  useEffect(() => { if (!draft || !report) return; const end = Math.min(draft.expiresAt, draft.sources.hubspot.expiresAt, draft.sources.stripe.expiresAt); const t = window.setTimeout(clear, Math.max(0, end - Date.now())); return () => window.clearTimeout(t); }, [draft, report]);
++  useEffect(() => { const hide = () => { if (document.visibilityState !== "visible") { contentEpoch.current++; setReport(null); if (pending.current) { setUncertain(true); setDraft(null); } } }; document.addEventListener("visibilitychange", hide); return () => document.removeEventListener("visibilitychange", hide); }, []);
++  const hub = directory?.hubspot.available ? directory.hubspot.grant : null, operations = hub?.contract.operations ?? [], eligible = operations.map((op, i) => ({ op, i })).filter(({ op }) => op.operationId === "hubspot.deal_invoice_snapshot");
++  const selectedOp = eligible.find((item) => String(item.i) === ordinal), args = selectedOp?.op.arguments;
++  const sourceOccurrence = directory?.hubspot.occurrences.find((item) => item.id === occurrence && item.grantId === hub?.id && item.grantVersion === hub?.version && item.state === "completed" && item.canReadReport && item.expiresAt > Date.now());
++  const selectedReceipt = receipts.find((item) => item.id === stripeReceipt && item.state === "completed" && item.expiresAt > Date.now());
++  const props = args && [args.invoiceIdProperty, args.paidAmountProperty, args.currencyProperty];
++  const validProps = Boolean(props && props.every((x) => typeof x === "string") && new Set(props).size === 3);
++  const reviewKey = draft ? `${draft.id}:${draft.digest}` : "";
++  const selectStripe = (id: string) => { setStripeGrant(null); setReceipts([]); setStripeReceipt(""); setBasis(false); clear(); if (!id) return; void perform(async (s) => { const value = await client.stripeReceipts(id, s); if (active(s) && value.grant.selection.kind === "invoices") { setStripeGrant(value.grant); setReceipts(value.receipts); } }); };
++  const prepare = () => { if (!hub || !sourceOccurrence || !selectedOp || !stripeGrant || !selectedReceipt || !props || !validProps || !unit || !basis || uncertain) return; const expiresAt = new Date(expiry).getTime();
++    if (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now() || expiresAt > Date.now() + 86400000 || expiresAt > sourceOccurrence.expiresAt || expiresAt > selectedReceipt.expiresAt || expiresAt > hub.contract.expiresAt || expiresAt > stripeGrant.expiresAt) { setError("Choose an expiry within 24 hours and no later than either source's authority."); return; }
++    clear(); void perform(async (s) => { const next = await client.draft({ hubspot: { grantId: hub.id, grantVersion: hub.version, occurrenceId: sourceOccurrence.id, sourceOrdinal: selectedOp.i }, stripe: { grantId: stripeGrant.id, receiptId: selectedReceipt.id }, mapping: { invoiceIdProperty: String(props[0]), paidAmountProperty: String(props[1]), currencyProperty: String(props[2]), amountUnit: unit, basisAttestation: "crm-property-represents-stripe-invoice-amount-paid" }, expiresAt }, s); if (active(s)) { setDraft(next); setNotice("Private draft created; review the frozen captures and mapping before comparison."); } });
++  };
++  const open = (id: string) => { clear(); const epoch = contentEpoch.current; void perform(async (s) => { const value = await client.detail(id, s); if (active(s) && epoch === contentEpoch.current) { setDraft(value.draft); setReport(value.report); } }); };
++  const compose = () => { if (!draft || uncertain || review !== reviewKey) return; clear(); const epoch = contentEpoch.current; void perform(async (s) => { const result = await client.compose(draft, s); if (active(s) && epoch === contentEpoch.current) { setDraft(result.draft); setReport(result.report); setNotice("Private comparison composed from the reviewed captures."); } }); };
++  const revoke = (entry: Pick<ReconciliationMetadata, "id" | "digest">) => { clear(); void perform(async (s) => { await client.revoke(entry, s); if (active(s)) { setDraft(null); setNotice("Comparison revoked."); const next = await client.list(s); if (active(s)) setDrafts(next.drafts); } }); };
++  return <section aria-label="Private invoice reconciliation" className="mt-3 min-w-0 border border-[var(--line)] bg-[var(--card)] p-4 text-xs">
++    <header className="flex flex-wrap justify-between gap-2"><h4 className="font-semibold">Private invoice reconciliation</h4><button type="button" className={BUTTON} disabled={busy} onClick={onClose}>Close reconciliation</button></header>
++    <p className="mt-3">Compare two explicitly selected captured receipts. Missing deals or invoices mean uncaptured data, not proof of absence. Pages and date windows may be incomplete; business success is unverified. No provider read, payment, sharing or Slack action occurs here.</p>
++    <button type="button" className={`${BUTTON} mt-3`} disabled={busy} onClick={() => { void perform(refresh); }}>Refresh reconciliation sources</button>
++    {error && <p role="alert" className="mt-3 text-[var(--danger)]">{error}</p>}{notice && <p role="status" className="mt-3">{notice}</p>}{uncertain && <p className="mt-2">Refresh before another action. An uncertain action is not retried automatically.</p>}
++    {(!directory || !hub || !eligible.length) && <p className="mt-3">An eligible native HubSpot invoice snapshot is unavailable. This flow requires a current owned, completed, explicitly configured source; live connector support is not assumed.</p>}
++    {directory && !directory.stripe.available && <p className="mt-2">Stripe captures are unavailable or disabled. Existing comparisons may still be revoked.</p>}
++    {directory && hub && eligible.length > 0 && !uncertain && <details className="mt-3 border border-[var(--line)] p-3"><summary className="min-h-11 cursor-pointer py-3">Prepare an exact private comparison</summary>
++      <label className="block">HubSpot snapshot operation<select className={FIELD} value={ordinal} disabled={busy} onChange={(e) => { setOrdinal(e.target.value); setBasis(false); clear(); }}><option value="">Choose the configured source</option>{eligible.map(({ i }) => <option key={i} value={i}>Source {i + 1} · {hub.id} · v{hub.version}</option>)}</select></label>
++      <label className="mt-2 block">Completed HubSpot occurrence<select className={FIELD} value={occurrence} disabled={busy} onChange={(e) => { setOccurrence(e.target.value); setBasis(false); clear(); }}><option value="">Choose a captured occurrence</option>{directory.hubspot.occurrences.filter((x) => x.grantId === hub.id && x.grantVersion === hub.version && x.state === "completed" && x.canReadReport && x.expiresAt > Date.now()).map((x) => <option key={x.id} value={x.id}>{x.id} · expires {new Date(x.expiresAt).toISOString()}</option>)}</select></label>
++      <label className="mt-2 block">Stripe invoice grant<select className={FIELD} value={stripeGrant?.id ?? ""} disabled={busy} onChange={(e) => selectStripe(e.target.value)}><option value="">Choose an owned invoice grant</option>{directory.stripe.grants.filter((g) => directory.stripe.available && g.selection.kind === "invoices" && ["enabled", "exhausted"].includes(g.state) && g.expiresAt > Date.now()).map((g) => <option key={g.id} value={g.id}>{g.accountId} · {g.mode} · {g.id}</option>)}</select></label>
++      <label className="mt-2 block">Completed Stripe invoice receipt<select className={FIELD} value={stripeReceipt} disabled={busy || !stripeGrant} onChange={(e) => { setStripeReceipt(e.target.value); setBasis(false); clear(); }}><option value="">Choose a captured receipt</option>{receipts.filter((r) => r.state === "completed" && r.expiresAt > Date.now()).map((r) => <option key={r.id} value={r.id}>{r.id} · expires {new Date(r.expiresAt).toISOString()}</option>)}</select></label>
++      {selectedOp && <p className="mt-2 break-words">Configured HubSpot fields: invoice ID {String(props?.[0] ?? "unavailable")}; paid amount {String(props?.[1] ?? "unavailable")}; currency {String(props?.[2] ?? "unavailable")}. These field names come from the selected captured operation.</p>}
++      <label className="mt-2 block">CRM paid amount unit<select className={FIELD} value={unit} disabled={busy} onChange={(e) => { setUnit(e.target.value as typeof unit); setBasis(false); clear(); }}><option value="">Choose the actual field unit</option><option value="major-decimal">Major currency decimal</option><option value="minor-integer">Minor currency integer</option></select></label>
++      <label className="mt-2 block">Comparison expiry (local time)<input className={FIELD} type="datetime-local" value={expiry} disabled={busy} onChange={(e) => { setExpiry(e.target.value); setBasis(false); clear(); }} /></label>
++      <label className="mt-3 flex min-h-11 gap-2"><input type="checkbox" checked={basis} disabled={busy} onChange={(e) => setBasis(e.target.checked)} />I attest the selected CRM field represents the Stripe invoice amount paid, in the selected unit and currency. A deal value alone is not assumed to be cash paid.</label>
++      <button type="button" className={BUTTON} disabled={busy || !sourceOccurrence || !selectedReceipt || !validProps || !unit || !basis || !expiry} onClick={prepare}>Prepare exact comparison review</button>
++    </details>}
++    {drafts && <ul className="mt-3 grid gap-2">{drafts.map((d) => <li key={d.id} className="border border-[var(--line)] p-3">{d.id} · {d.state}<button type="button" className={`${BUTTON} ml-2`} disabled={busy || uncertain} onClick={() => open(d.id)}>Review comparison</button>{d.state !== "revoked" && <button type="button" className={`${BUTTON} ml-2`} disabled={busy || uncertain} onClick={() => revoke(d)}>Revoke comparison {d.id}</button>}</li>)}</ul>}
++    {draft && <article className="mt-3 border-t border-[var(--line)] pt-3"><h5 className="font-semibold">Comparison: {draft.state}</h5><p className="mt-2 break-all">Digest {draft.digest} · expires {new Date(draft.expiresAt).toISOString()}</p><details open={draft.state === "draft"} className="mt-2"><summary className="min-h-11 cursor-pointer py-3">Review frozen sources, capture windows, pins and mapping</summary><pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words">{JSON.stringify({ sources: draft.sources, mapping: draft.mapping }, null, 2)}</pre></details>
++      {draft.state === "draft" && <><label className="mt-2 flex min-h-11 gap-2"><input type="checkbox" checked={review === reviewKey} disabled={busy} onChange={(e) => setReview(e.target.checked ? reviewKey : "")} />I reviewed the exact captured sources, IDs, selected CRM properties, amount unit and basis, time windows, expiry and uncertainty.</label><button type="button" className={BUTTON} disabled={busy || uncertain || review !== reviewKey || draft.expiresAt <= Date.now()} onClick={compose}>Compose private comparison</button></>}
++      {draft.state !== "revoked" && <button type="button" className={`${BUTTON} mt-3`} disabled={busy || uncertain} onClick={() => revoke(draft)}>Revoke comparison</button>}
++    </article>}
++    {draft && report && <div className="mt-3 border-t border-[var(--line)] pt-3"><p>Private bounded comparison · dataset completeness unknown · business success unverified. Unmatched means not found in the captured page; an uncaptured deal was not returned by the source.</p><p className="mt-2">Rows distinguish equal matches, differences, duplicate IDs, missing or invalid IDs, uncaptured deals, unmatched invoices and non-comparable amounts. Provider invoice status and creation time are shown where supplied; a numerical match does not prove payment or business success.</p><p className="mt-2 break-all">Report hash {draft.reportHash}</p><pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words">{JSON.stringify(report, null, 2)}</pre></div>}
++  </section>;
++}
+diff --git a/apps/frontend/src/founder-reconciliation-client.test.ts b/apps/frontend/src/founder-reconciliation-client.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f59741d20f552a51ecc6f62f021de90ac0660a63
+--- /dev/null
++++ b/apps/frontend/src/founder-reconciliation-client.test.ts
+@@ -0,0 +1,27 @@
++import { describe, expect, it, vi } from "vitest";
++import { FounderReconciliationClient } from "./founder-reconciliation-client";
++import { RECON_ACTOR, RECON_WORKSPACE, reconScope, reconciliationDraft } from "./founder-reconciliation-fixtures";
++const signal = () => new AbortController().signal;
++const failure = async (p: Promise<unknown>) => { try { await p; return "unexpected success"; } catch (e) { return e instanceof Error ? e.message : String(e); } };
++describe("native captured receipt reconciliation", () => {
++  it("fences the account and never retries an unknown decision", async () => {
++    const send = vi.fn(async () => Response.json({ ...reconScope, actorId: "other@example.test", drafts: [] }));
++    const client = new FounderReconciliationClient(RECON_WORKSPACE, RECON_ACTOR, send); expect(await failure(client.list(signal()))).toContain("another native"); expect(send).toHaveBeenCalledTimes(1);
++  });
++  it("rejects changed source and mapping after review", async () => {
++    const draft = reconciliationDraft(), changed = { ...draft, state: "completed", mapping: { ...draft.mapping, amountUnit: "minor-integer" } };
++    const client = new FounderReconciliationClient(RECON_WORKSPACE, RECON_ACTOR, async () => Response.json({ ...reconScope, draft: changed, report: null }));
++    expect(await failure(client.compose(draft, signal()))).toContain("not confirmed");
++  });
++  it("prevents use after source expiration and retains revoke access", async () => {
++    const draft = reconciliationDraft(); draft.sources.hubspot.expiresAt = Date.now() - 1;
++    const send = vi.fn(async () => Response.json({ ...reconScope, draft: { id: draft.id, digest: draft.digest, state: "revoked" } })); const client = new FounderReconciliationClient(RECON_WORKSPACE, RECON_ACTOR, send);
++    expect(await failure(client.compose(draft, signal()))).toContain("expired"); expect(send).not.toHaveBeenCalled(); expect((await client.revoke(draft, signal())).draft.state).toBe("revoked"); expect(send).toHaveBeenCalledTimes(1);
++  });
++  it("checks the exact report hash before returning data", async () => {
++    const draft = reconciliationDraft(); const report = { format: "shiba.founder-reconciliation.report.v1", id: draft.id, sources: draft.sources, mapping: draft.mapping, rows: [{ status: "matched_equal", dealId: "1", invoiceId: "in_fixture", stripeStatus: "paid", invoiceCreated: 42, currency: "USD", crmMinor: "100", stripeMinor: "100", differenceMinor: "0", reason: null }], perCurrency: [], notice: "bounded", datasetCompleteness: "unknown", businessSuccess: "unverified" };
++    const bytes = new TextEncoder().encode(JSON.stringify([report.format, draft.id, draft.expiresAt, JSON.stringify(report)])); const reportHash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (n) => n.toString(16).padStart(2, "0")).join("");
++    const value = { ...reconScope, draft: { ...draft, state: "completed", reportHash }, report }, client = new FounderReconciliationClient(RECON_WORKSPACE, RECON_ACTOR, async () => Response.json(value));
++    expect((await client.detail(draft.id, signal())).report?.rows[0]).toMatchObject({ status: "matched_equal", stripeStatus: "paid", invoiceCreated: 42 }); value.report.notice = "changed"; expect(await failure(client.detail(draft.id, signal()))).toContain("digest");
++  });
++});
+diff --git a/apps/frontend/src/founder-reconciliation-client.ts b/apps/frontend/src/founder-reconciliation-client.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..eeafa595381ac6afb2a5957e2c36d5734f1314eb
+--- /dev/null
++++ b/apps/frontend/src/founder-reconciliation-client.ts
+@@ -0,0 +1,56 @@
++import { z } from "zod";
++import { founderReconciliationDraftSchema, founderReconciliationInputSchema, founderReconciliationReportSchema, founderStripeGrantSchema, founderStripeReceiptSchema, type FounderReconciliationDraft, type FounderReconciliationInput } from "@shiba/shared";
++import { teamWorkspaceHeaders } from "./team-workspaces-client";
++const scope = { workspaceId: z.string(), actorId: z.string() };
++const base = "/api/founder-reconciliations";
++const automatic = z.object({ ...scope, available: z.boolean(), libraryId: z.literal("founder-hubspot-stripe-reconcile"), grant: z.object({ id: z.string(), version: z.number().int().positive(), state: z.string(), contract: z.object({ workspaceId: z.string(), ownerId: z.string(), expiresAt: z.number(), operations: z.array(z.object({ operationId: z.string(), arguments: z.record(z.string(), z.unknown()) })).max(8) }) }).nullable(), occurrences: z.array(z.object({ id: z.string(), grantId: z.string(), grantVersion: z.number().int(), state: z.string(), expiresAt: z.number(), canReadReport: z.boolean() })).max(50) });
++const stripeList = z.object({ ...scope, available: z.boolean(), grants: z.array(founderStripeGrantSchema).max(50) });
++const stripeDetail = z.object({ ...scope, grant: founderStripeGrantSchema, receipts: z.array(founderStripeReceiptSchema).max(50) });
++const metadata = z.object({ id: z.string().regex(/^frc_[a-f0-9]{32}$/), digest: z.string().regex(/^[a-f0-9]{64}$/), state: z.enum(["draft", "completed", "revoked"]), expiresAt: z.number().int() });
++export type ReconciliationMetadata = z.infer<typeof metadata>;
++const listSchema = z.object({ ...scope, drafts: z.array(metadata).max(50) });
++const revokeSchema = z.object({ ...scope, draft: metadata.omit({ expiresAt: true }) });
++const draftSchema = z.object({ ...scope, draft: founderReconciliationDraftSchema });
++const resultSchema = z.object({ ...scope, draft: founderReconciliationDraftSchema, report: z.unknown() });
++async function bounded(response: Response, signal: AbortSignal) { const reader = response.body?.getReader(); if (!reader) throw new Error("Private response unavailable."); const chunks: Uint8Array[] = []; let size = 0;
++  const abort = new Promise<never>((_, reject) => { if (signal.aborted) reject(signal.reason); else signal.addEventListener("abort", () => reject(signal.reason), { once: true }); });
++  try { for (;;) { const item = await Promise.race([reader.read(), abort]); if (item.done) break; size += item.value.byteLength; if (size > 1_048_576) throw new Error("Response exceeds bound."); chunks.push(item.value); }
++    const bytes = new Uint8Array(size); let at = 0; for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length; } return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
++  } finally { void reader.cancel().catch(() => {}); }
++}
++const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
++export class FounderReconciliationClient {
++  constructor(readonly workspaceId: string, readonly actorId: string, private readonly fetcher: typeof fetch = globalThis.fetch) { if (!/^ws_[a-f0-9]{24}$/.test(workspaceId) || !actorId) throw new Error("Select a native account and workspace."); }
++  private async request<T extends { workspaceId: string; actorId: string }>(path: string, schema: z.ZodType<T>, signal: AbortSignal, body?: unknown) {
++    signal.throwIfAborted(); const limited = AbortSignal.any([signal, AbortSignal.timeout(30_000)]); const abort = new Promise<never>((_, reject) => { if (limited.aborted) reject(limited.reason); else limited.addEventListener("abort", () => reject(limited.reason), { once: true }); });
++    const response = await Promise.race([this.fetcher.call(globalThis, path, { method: body === undefined ? "GET" : "POST", signal: limited, credentials: "same-origin", cache: "no-store", redirect: "error", headers: { ...teamWorkspaceHeaders(this.workspaceId), ...(body === undefined ? {} : { "Content-Type": "application/json" }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), abort]);
++    if (!response.ok) throw new Error("Private reconciliation source or action is unavailable. Refresh before another action; no request is retried automatically.");
++    let value: T; try { value = schema.parse(await bounded(response, limited)); } catch (cause) { if (limited.aborted) throw cause; throw new Error("Private reconciliation response could not be verified."); }
++    limited.throwIfAborted(); if (value.workspaceId !== this.workspaceId || value.actorId !== this.actorId) throw new Error("Response belongs to another native workspace or account."); return value;
++  }
++  async sources(signal: AbortSignal) { const [hubspot, stripe] = await Promise.all([this.request("/api/founder-skills/founder-hubspot-stripe-reconcile/automatic-reads", automatic, signal), this.request("/api/founder-stripe-reads", stripeList, signal)]);
++    if (hubspot.grant && (hubspot.grant.contract.ownerId !== this.actorId || hubspot.grant.contract.workspaceId !== this.workspaceId)) throw new Error("Source owner changed."); return { hubspot, stripe }; }
++  async stripeReceipts(id: string, signal: AbortSignal) { if (!/^fsc_[a-f0-9]{32}$/.test(id)) throw new Error("Invalid source grant."); const value = await this.request(`/api/founder-stripe-reads/${id}`, stripeDetail, signal); if (value.grant.id !== id) throw new Error("Source grant changed."); return value; }
++  async list(signal: AbortSignal) { const value = await this.request(base, listSchema, signal); if (new Set(value.drafts.map((d) => d.id)).size !== value.drafts.length) throw new Error("Duplicate comparison metadata."); return value; }
++  private async verifyReport(draft: FounderReconciliationDraft, raw: unknown, signal: AbortSignal) {
++    if (raw === null && draft.state !== "completed") return null;
++    const parsed = founderReconciliationReportSchema.safeParse(raw); if (!parsed.success) throw new Error("Comparison report shape could not be verified."); const report = parsed.data;
++    const data = JSON.stringify(["shiba.founder-reconciliation.report.v1", draft.id, draft.expiresAt, JSON.stringify(raw)]);
++    const actual = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data))), (n) => n.toString(16).padStart(2, "0")).join("");
++    signal.throwIfAborted(); if (draft.state !== "completed" || draft.expiresAt <= Date.now() || draft.sources.hubspot.expiresAt <= Date.now() || draft.sources.stripe.expiresAt <= Date.now() || actual !== draft.reportHash || report.id !== draft.id || !same(report.sources, draft.sources) || !same(report.mapping, draft.mapping)) throw new Error("Report identity, source authority or digest changed."); return report;
++  }
++  async detail(id: string, signal: AbortSignal) { if (!/^frc_[a-f0-9]{32}$/.test(id)) throw new Error("Invalid draft."); const value = await this.request(`${base}/${id}`, resultSchema, signal); if (value.draft.id !== id) throw new Error("Draft identity changed."); return { draft: value.draft, report: await this.verifyReport(value.draft, value.report, signal) }; }
++  async draft(input: FounderReconciliationInput, signal: AbortSignal) { const checked = founderReconciliationInputSchema.safeParse(input); if (!checked.success) throw new Error("Comparison mapping is unsupported."); const parsed = checked.data, value = await this.request(base, draftSchema, signal, parsed), d = value.draft;
++    if (d.state !== "draft" || d.expiresAt <= Date.now() || d.sources.hubspot.expiresAt <= Date.now() || d.sources.stripe.expiresAt <= Date.now() || d.expiresAt !== parsed.expiresAt || !same(d.mapping, parsed.mapping) || d.sources.hubspot.grantId !== parsed.hubspot.grantId || d.sources.hubspot.grantVersion !== parsed.hubspot.grantVersion || d.sources.hubspot.occurrenceId !== parsed.hubspot.occurrenceId || d.sources.hubspot.sourceOrdinal !== parsed.hubspot.sourceOrdinal || d.sources.stripe.grantId !== parsed.stripe.grantId || d.sources.stripe.receiptId !== parsed.stripe.receiptId || d.expiresAt > d.sources.hubspot.expiresAt || d.expiresAt > d.sources.stripe.expiresAt) throw new Error("Draft differs from selected sources or expires after them."); return d; }
++  async revoke(draft: Pick<ReconciliationMetadata, "id" | "digest">, signal: AbortSignal) {
++    if (!/^frc_[a-f0-9]{32}$/.test(draft.id)) throw new Error("Invalid draft.");
++    const value = await this.request(`${base}/${draft.id}/revoke`, revokeSchema, signal, { digest: draft.digest });
++    if (value.draft.id !== draft.id || value.draft.digest !== draft.digest || value.draft.state !== "revoked") throw new Error("Revocation was not confirmed."); return value;
++  }
++  async compose(draft: FounderReconciliationDraft, signal: AbortSignal) {
++    if (draft.expiresAt <= Date.now() || draft.sources.hubspot.expiresAt <= Date.now() || draft.sources.stripe.expiresAt <= Date.now()) throw new Error("Source or draft expired.");
++    const value = await this.request(`${base}/${draft.id}/compose`, resultSchema, signal, { digest: draft.digest, reviewed: true, consent: "compare-exact-captured-receipts" });
++    if (value.draft.id !== draft.id || value.draft.digest !== draft.digest || !same(value.draft.sources, draft.sources) || !same(value.draft.mapping, draft.mapping) || value.draft.expiresAt !== draft.expiresAt || value.draft.state !== "completed") throw new Error("Exact comparison decision was not confirmed.");
++    return { draft: value.draft, report: await this.verifyReport(value.draft, value.report, signal) };
++  }
++}
+diff --git a/apps/frontend/src/founder-reconciliation-fixtures.ts b/apps/frontend/src/founder-reconciliation-fixtures.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b6d16f5229719309da23a78a8635ab7a27930d1e
+--- /dev/null
++++ b/apps/frontend/src/founder-reconciliation-fixtures.ts
+@@ -0,0 +1,5 @@
++import type { FounderReconciliationDraft } from "@shiba/shared";
++export const RECON_WORKSPACE = `ws_${"a".repeat(24)}`, RECON_ACTOR = "founder@example.test", reconScope = { workspaceId: RECON_WORKSPACE, actorId: RECON_ACTOR };
++export function reconciliationDraft(): FounderReconciliationDraft { const expiresAt = Date.now() + 300000; return { id: `frc_${"1".repeat(32)}`, digest: "a".repeat(64), state: "draft", expiresAt, reportHash: null,
++  mapping: { invoiceIdProperty: "invoice_id", paidAmountProperty: "paid", currencyProperty: "currency", amountUnit: "major-decimal", basisAttestation: "crm-property-represents-stripe-invoice-amount-paid" },
++  sources: { hubspot: { grantId: "hub-grant", grantVersion: 1, occurrenceId: "occurrence", sourceOrdinal: 0, dealIds: ["1"], reportHash: "b".repeat(64), resultDigest: "c".repeat(64), connectionId: "conn", connectionVersion: 1, capturedAt: Date.now(), runtimeVersionId: "runtime", manifestDigest: "d".repeat(64), executorHash: "e".repeat(64), expiresAt: expiresAt + 100000 }, stripe: { grantId: `fsc_${"2".repeat(32)}`, receiptId: `fsr_${"3".repeat(32)}`, resultDigest: "f".repeat(64), grantRevision: 1, accountId: "acct_fixture", mode: "test", executorDigest: "1".repeat(64), capturedAt: Date.now(), createdGte: 1, createdLt: 2, hasMore: true, expiresAt: expiresAt + 100000 } } }; }
+diff --git a/docs/founder-reconciliation-design.md b/docs/founder-reconciliation-design.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..8e91df2a2c84dc258fd00ea0705dfd83c8990486
+--- /dev/null
++++ b/docs/founder-reconciliation-design.md
+@@ -0,0 +1,11 @@
++# Private receipt-bound reconciliation
++
++This one-shot composition compares two already-captured reports: one explicitly selected, completed `hubspot.deal_invoice_snapshot` source step and one completed Stripe invoice receipt. The original native owner must retain both exact source grants and their original membership. Creating a draft makes no provider, model, Slack or write request. The owner separately reviews and consents to the frozen receipt references and mapping before composing. Every route requires the original native owner’s real cookie session. Create and compose bind the exact current session and both source authorities in their atomic SQL writes; private reads combine those checks with immutable receipt/report hashes, exact grant and executor pins, and synchronous expiry checks after the final database proof. Revocation removes the stored comparison and requires no continuing source access.
++
++The mapping identifies three distinct selected HubSpot internal properties: Stripe invoice ID, paid amount, and currency. The creator explicitly attests that the CRM amount represents the Stripe invoice's `amount_paid` and selects either major decimal units or integer minor units. This attestation does not prove semantic equivalence; a HubSpot deal's ordinary amount should not be assumed to represent invoice payments. Only exact `in_...` IDs are compared. Names, email, fuzzy matching, inferred payment periods, foreign exchange and rounding are never used.
++
++Only USD, EUR and GBP at two decimal places and JPY at zero decimal places are comparable. More fractional digits than the permitted currency exponent are rejected, including extra trailing zeros. Decimal values are parsed to arbitrary-precision integers without binary floating-point conversion. Unsupported currencies, currency mismatch, invalid/missing money and excess precision are non-comparable. Per-currency totals include only uniquely matched comparable captured rows; they do not sum across currencies.
++
++Duplicate invoice IDs on either captured side are ambiguous and never summed. Missing, invalid and unmatched IDs are separately reported; `unmatched_in_capture` means only that a matching row was not present in the other captured subset. A selected deal not returned by HubSpot is `uncaptured_deal`, not an assertion of absence. Stripe invoice status and creation time are shown for context. Source capture timestamps, selected IDs and interval, Stripe `has_more`, account/revision, report/receipt hashes, manifest and executor pins are attached. Captures are independently timed, bounded, and may not be synchronized. Dataset completeness is unknown and business success unverified; there is no complete-ledger, revenue, MRR or churn claim.
++
++The HubSpot operation is a future audited dependency, not an available provider integration merely because its DTO exists. Its selected OAuth source, MCP audience and exact tool schema must be verified before enabling any provider call; a generic MCP or arbitrary REST proxy is not authorized. Until a correctly authorized and completed source receipt exists, this composer fails closed. The tests use synthetic receipts and do not establish live HubSpot or Stripe compatibility. No standing composition or Slack-delivery grant is created by this feature. Current local grant checks do not prove that a provider has not independently revoked access since capture.
+diff --git a/docs/verification/four-priorities-security-v4.md b/docs/verification/four-priorities-security-v4.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..ef2deaca04fbe24f9e63998e292cb6cdea1b61dd
+--- /dev/null
++++ b/docs/verification/four-priorities-security-v4.md
+@@ -0,0 +1,33 @@
++# Independent v4 security checkpoint
++
++This is a focused review of the isolated `/workspace/shiba-v4` worktree. Production files, Git operations, deployments, provider accounts, credentials, model calls and Slack sends were not changed or exercised by this reviewer. This is not whole-PR certification; the earlier whole-PR automated review was skipped for size.
++
++The latest independent checkpoint is **23 passing cases in four new files**, completed on 2026-11-05 by 11:07 UTC. These counts are separate from root's aggregate verification and overlap neither the earlier 50-case v3 independent checkpoint nor the owner-written tests. Source changes after this checkpoint require a fresh delta review.
++
++## Independent tests
++
++| Test file | Boundary and evidence |
++| --- | --- |
++| `apps/backend/test/founder-auto-read-keys.security-v4.test.ts` | Four passing cases against the actual scoped-key parser and WebCrypto HMAC. Duplicate JSON names, escaped names, nonstring earlier duplicate values, malformed same-source duplicates, unrelated tenant coexistence, exact source/tenant binding and key rotation. Initial duplicate-property acceptance reproduced; the first fix still accepted a nonstring earlier duplicate. The corrected parser counts every decoded property name regardless of value type; both regressions now pass. |
++| `apps/backend/test/founder-reconciliation.security-v4.test.ts` | Actual arithmetic implementation. Ambiguous invoice/deal IDs excluded from totals, exact decimal units, separate currencies, unsafe numeric inputs and unsupported currencies, absence qualified to captured inputs and selected-but-uncaptured deals. Five cases passed. This does not establish a live HubSpot source. |
++| `apps/backend/test/founder-reconciliation-source.security-v4.test.ts` | Six passing cases against the actual reconciliation source loader, store, routes and generated SQL with stored Stripe grant/receipt rows. Revoked deciding session prevents composition with zero report writes; Stripe revocation at final combined proof prevents disclosure; original membership version cannot revive; a replacement invoice with a valid new hash cannot replace a reviewed snapshot. Two route cases revoke the exact session or Stripe source after the store's successful proof: the final route proof withholds report bytes. HubSpot authority and availability are fixture seams because that provider operation is unregistered. |
++| `apps/backend/test/founder-meta.security-v4.test.ts` | Eight passing cases against actual routes, store, crypto, scheduler and SQLite-backed D1; fake provider and native-auth snapshot. Four report session/source/expiry cases, concurrent unknown-outcome reservation, revocation after reservation acknowledgement, native decision revocation and manual-verification lease expiry. The decision regression initially returned HTTP 403 while still enabling future calls; the owner's atomic exact-session mutation guards now prevent that effect. Manual verification also makes zero provider calls when its final positive proof returns after native-session expiry. |
++
++The D1 fixture executes production SQL and atomic batches in SQLite. Native authentication in these tests supplies a controlled authenticated-session snapshot; the final SQL uses an actual session row. These tests do not exercise browser cookie verification or deployed D1 transport.
++
++Executed focused commands used `pnpm --filter @shiba/backend exec vitest run ... --maxWorkers=1`, selecting the key/Meta pair, the Meta file after its final fence changes, and the reconciliation source/arithmetic pair. No workspace-wide suite was run by this reviewer during parallel edits.
++
++## Review observations and limits
++
++- Meta account verification freezes observed account currency/timezone and requires new explicit enable consent. Creator token attestation is not a claim that provider token permissions were independently established. The provider surface is fixed GET URLs with bounded bytes, one page and a clipped deadline.
++- A current-authority SQL proof establishes authority when that statement executes. Synchronous expiry checks cover a delayed result crossing its deadline. No finite sequence of reads can promise that a revocation occurring after the final proof has executed will erase already returned bytes.
++- Reconciliation reads server-held receipt references and mappings, not client-supplied financial rows. Its source proof includes exact stored receipt/report bytes, original owner membership and frozen contract details. HubSpot's snapshot helper is currently an unregistered pure contract; OAuth audience and executable transport remain unresolved. No live reconciliation workflow has been validated.
++- The new Stripe Slack standing-delivery lane is still under owner development. Shared unknown/duplicate ledger, both human consents, source pin/destination generation and final immutable digest checks require the completed route/SQLite fixture before acceptance.
++- Frontend private reports are cleared on expiry, scope changes and hidden-tab transitions. No live server push withdrawal of previously delivered content was tested.
++- This checkpoint does not establish exhaustive coverage of every metadata/list response, frontend effect or provider error shape. Root retains the integration, global type/lint/test, migration, branch-protection and final-head checks.
++
++## Related main-worktree hotfix review
++
++Root temporarily redirected this reviewer to `/workspace/shiba` for v3 blockers. Independent renderer checks passed (5 cases), and seven unresolved GitHub review threads were mapped to current source and existing tests (85 backend plus 48 frontend cases passed). Threads were read only, not resolved or approved. Legacy artifact query links intentionally retain their original expiry; new links use a fragment/POST flow.
++
++The v3 Stripe private-report session deletion race reproduced as HTTP 200 after session deletion during an earlier receipt await. A separate explicit enable probe also reproduced commitment after session deletion. The owner added exact native-session guards to human mutations and manual verification, plus combined private-report source/session SQL and synchronous expiry checks. Three new session regressions plus the original seven Stripe lifecycle/security cases passed (10 total): revoked-session verification consumes zero quota and makes zero provider calls, revoked-session enable does not commit, and private report bytes remain withheld. The scheduler retains its separate standing-grant authority. These main-worktree results are separate from v4 acceptance and from root's aggregate checks.
+diff --git a/packages/openconnector-read-gateway/src/hubspot-snapshot.ts b/packages/openconnector-read-gateway/src/hubspot-snapshot.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..4300773c5520e5977e98e083492e1d5550838756
+--- /dev/null
++++ b/packages/openconnector-read-gateway/src/hubspot-snapshot.ts
+@@ -0,0 +1,42 @@
++/** Pure contract only. No MCP transport, credential resolution or registered operation. */
++export interface HubSpotSnapshotSelection {
++  dealIds: string[];
++  invoiceIdProperty: string;
++  paidAmountProperty: string;
++  currencyProperty: string;
++}
++export interface HubSpotSnapshot {
++  records: Array<{ dealId: string; properties: Record<string, string | null> }>;
++}
++const object = (value: unknown): Record<string, unknown> => {
++  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("hubspot_snapshot_invalid");
++  return value as Record<string, unknown>;
++};
++const exact = (row: Record<string, unknown>, keys: string[]) => {
++  if (Object.keys(row).length !== keys.length || keys.some(key => !Object.hasOwn(row,key))) throw new Error("hubspot_snapshot_invalid");
++};
++const property = (value: unknown): string => {
++  if (typeof value !== "string" || !/^[a-z][a-z0-9_]{0,99}$/.test(value) || ["constructor","prototype","__proto__"].includes(value)) throw new Error("hubspot_snapshot_invalid");
++  return value;
++};
++/** Fixed, selected IDs and internal names; absent records are not synthesized. */
++export function validateHubSpotSnapshotSelection(value: unknown): HubSpotSnapshotSelection {
++  const row=object(value);exact(row,["dealIds","invoiceIdProperty","paidAmountProperty","currencyProperty"]);
++  if(!Array.isArray(row.dealIds)||row.dealIds.length<1||row.dealIds.length>25||row.dealIds.some(id=>typeof id!=="string"||!/^\d{1,30}$/.test(id))||new Set(row.dealIds).size!==row.dealIds.length)throw new Error("hubspot_snapshot_invalid");
++  const invoiceIdProperty=property(row.invoiceIdProperty),paidAmountProperty=property(row.paidAmountProperty),currencyProperty=property(row.currencyProperty);
++  if(new Set([invoiceIdProperty,paidAmountProperty,currencyProperty]).size!==3)throw new Error("hubspot_snapshot_invalid");
++  return {dealIds:[...row.dealIds] as string[],invoiceIdProperty,paidAmountProperty,currencyProperty};
++}
++/** Validate the already projected envelope; caller must redact secrets before durable persistence. */
++export function validateHubSpotSnapshot(selection:HubSpotSnapshotSelection,value:unknown):HubSpotSnapshot {
++  const chosen=validateHubSpotSnapshotSelection(selection),body=object(value);exact(body,["records"]);
++  if(!Array.isArray(body.records)||body.records.length>chosen.dealIds.length)throw new Error("hubspot_snapshot_invalid");
++  const keys=[chosen.invoiceIdProperty,chosen.paidAmountProperty,chosen.currencyProperty],seen=new Set<string>();
++  const records=body.records.map((value:unknown)=>{const row=object(value);exact(row,["dealId","properties"]);
++    if(typeof row.dealId!=="string"||!chosen.dealIds.includes(row.dealId)||seen.has(row.dealId))throw new Error("hubspot_snapshot_invalid");seen.add(row.dealId);
++    const props=object(row.properties);exact(props,keys);const pairs=keys.map(key=>{const item=props[key];if(item!==null&&(typeof item!=="string"||new TextEncoder().encode(item).length>2048))throw new Error("hubspot_snapshot_invalid");return[key,item] as const;});
++    return {dealId:row.dealId,properties:Object.fromEntries(pairs) as Record<string,string|null>};
++  });
++  if(new TextEncoder().encode(JSON.stringify({records})).length>32768)throw new Error("hubspot_snapshot_invalid");
++  return {records};
++}
+diff --git a/packages/openconnector-read-gateway/test/hubspot-snapshot.test.ts b/packages/openconnector-read-gateway/test/hubspot-snapshot.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6295bb5b9d20e49a8f5642aca37d7e76cf64a5ee
+--- /dev/null
++++ b/packages/openconnector-read-gateway/test/hubspot-snapshot.test.ts
+@@ -0,0 +1,9 @@
++import { describe,expect,it } from "vitest";
++import { validateHubSpotSnapshot,validateHubSpotSnapshotSelection } from "../src/hubspot-snapshot.js";
++const selection={dealIds:["1","2"],invoiceIdProperty:"invoice_ref",paidAmountProperty:"paid_amount",currencyProperty:"currency"};
++const record={dealId:"1",properties:{invoice_ref:"in_fixture",paid_amount:"123.450",currency:"USD"}};
++describe("unregistered HubSpot snapshot contract",()=>{
++ it("retains exact strings and does not fabricate an absent selected deal",()=>{expect(validateHubSpotSnapshot(selection,{records:[record]})).toEqual({records:[record]});});
++ it("rejects duplicate IDs and ambiguous property selections",()=>{expect(()=>validateHubSpotSnapshotSelection({...selection,dealIds:["1","1"]})).toThrow();expect(()=>validateHubSpotSnapshotSelection({...selection,currencyProperty:"paid_amount"})).toThrow();expect(()=>validateHubSpotSnapshotSelection({...selection,invoiceIdProperty:"__proto__"})).toThrow();});
++ it("rejects unselected, duplicate, overbroad or malformed projected records",()=>{for(const value of [{records:[{...record,dealId:"3"}]},{records:[record,record]},{records:[{...record,properties:{...record.properties,extra:"private"}}]},{records:[{...record,properties:{...record.properties,paid_amount:123}}]},{records:[{...record,properties:{...record.properties,paid_amount:"x".repeat(2049)}}]}])expect(()=>validateHubSpotSnapshot(selection,value)).toThrow();});
++});
+diff --git a/packages/shared/src/founder-reconciliation.ts b/packages/shared/src/founder-reconciliation.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c2ff78eb330dbd8ff2f364bd3c32ac7b7645c9e0
+--- /dev/null
++++ b/packages/shared/src/founder-reconciliation.ts
+@@ -0,0 +1,12 @@
++import { z } from "zod";
++const digest=z.string().regex(/^[a-f0-9]{64}$/),id=z.string().min(1).max(200),property=z.string().regex(/^[a-z][a-z0-9_]{0,99}$/).refine(v=>!["constructor","prototype","__proto__"].includes(v));
++export const founderReconciliationMappingSchema=z.strictObject({invoiceIdProperty:property,paidAmountProperty:property,currencyProperty:property,amountUnit:z.enum(["major-decimal","minor-integer"]),basisAttestation:z.literal("crm-property-represents-stripe-invoice-amount-paid")}).refine(v=>new Set([v.invoiceIdProperty,v.paidAmountProperty,v.currencyProperty]).size===3);
++export const founderReconciliationInputSchema=z.strictObject({hubspot:z.strictObject({grantId:id,grantVersion:z.number().int().positive(),occurrenceId:id,sourceOrdinal:z.number().int().min(0).max(7)}),stripe:z.strictObject({grantId:z.string().regex(/^fsc_[a-f0-9]{32}$/),receiptId:z.string().regex(/^fsr_[a-f0-9]{32}$/)}),mapping:founderReconciliationMappingSchema,expiresAt:z.number().int().positive()});
++export const founderReconciliationDecisionSchema=z.strictObject({digest,reviewed:z.literal(true),consent:z.literal("compare-exact-captured-receipts")});
++export const founderReconciliationSourceSchema=z.strictObject({hubspot:z.strictObject({grantId:id,grantVersion:z.number().int().positive(),occurrenceId:id,sourceOrdinal:z.number().int().nonnegative(),dealIds:z.array(z.string()).min(1).max(25),reportHash:digest,resultDigest:digest,connectionId:id,connectionVersion:z.number().int().positive(),capturedAt:z.number().int(),runtimeVersionId:z.string(),manifestDigest:digest,executorHash:digest,expiresAt:z.number().int()}),stripe:z.strictObject({grantId:id,receiptId:id,resultDigest:digest,grantRevision:z.number().int().positive(),accountId:z.string(),mode:z.enum(["live","test"]),executorDigest:digest,capturedAt:z.number().int(),createdGte:z.number().int(),createdLt:z.number().int(),hasMore:z.boolean(),expiresAt:z.number().int()})});
++export const founderReconciliationDraftSchema=z.strictObject({id:z.string().regex(/^frc_[a-f0-9]{32}$/),digest,executorDigest:digest,state:z.enum(["draft","completed","revoked"]),expiresAt:z.number().int(),mapping:founderReconciliationMappingSchema,sources:founderReconciliationSourceSchema,reportHash:digest.nullable()});
++export const founderReconciliationRowSchema=z.strictObject({status:z.enum(["matched_equal","matched_difference","duplicate_key","missing_key","invalid_key","unmatched_in_capture","uncaptured_deal","non_comparable"]),dealId:z.string().nullable(),invoiceId:z.string().nullable(),stripeStatus:z.string().nullable(),invoiceCreated:z.number().int().nullable(),currency:z.string().nullable(),crmMinor:z.string().nullable(),stripeMinor:z.string().nullable(),differenceMinor:z.string().nullable(),reason:z.string().nullable()});
++export const founderReconciliationReportSchema=z.strictObject({format:z.literal("shiba.founder-reconciliation.report.v1"),id:z.string(),executorDigest:digest,sources:founderReconciliationSourceSchema,mapping:founderReconciliationMappingSchema,rows:z.array(founderReconciliationRowSchema).max(100),perCurrency:z.array(z.strictObject({currency:z.string(),matchedCount:z.number().int().nonnegative(),crmMinor:z.string(),stripeMinor:z.string(),differenceMinor:z.string()})).max(4),notice:z.string(),datasetCompleteness:z.literal("unknown"),businessSuccess:z.literal("unverified")});
++export type FounderReconciliationInput=z.infer<typeof founderReconciliationInputSchema>;
++export type FounderReconciliationDraft=z.infer<typeof founderReconciliationDraftSchema>;
++export type FounderReconciliationReport=z.infer<typeof founderReconciliationReportSchema>;

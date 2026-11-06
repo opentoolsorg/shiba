@@ -19,7 +19,7 @@ import type { Env } from "./env.js";
 import type { ApprovalKind } from "./pending-approvals.js";
 import { redactSecrets } from "./security.js";
 import { verifySlackRequest } from "./slack.js";
-import { buildSlackThreadName } from "./slack-thread.js";
+import { buildSlackThreadName, parseSlackCommandScope, parseSlackThreadName, slackApprovalOrchestratorName } from "./slack-thread.js";
 
 export const SLACK_INTERACT_PATH = "/api/slack/interact";
 
@@ -105,6 +105,10 @@ export interface ApprovalCardInput extends ApprovalPointer {
   /** Repository URL for run approvals; the sending mailbox for email kinds. */
   repoUrl: string;
   task: string;
+  workspaceLabel?: string;
+  canvasUrl?: string;
+  liveCanvas?: boolean;
+  publishPullRequest?: boolean;
   /** PendingApproval kind — "email_send" / "email_delete" get email copy. */
   kind?: ApprovalKind;
   /** Saved employee profile label for run cards. */
@@ -118,6 +122,27 @@ export interface ApprovalCardInput extends ApprovalPointer {
   harness?: string;
   /** Test command as argv — shown so the human approves it too. */
   testCommand?: string[];
+}
+
+function safeCanvasUrl(value: string | undefined): value is string {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password && !url.hash;
+  } catch {
+    return false;
+  }
+}
+
+export function slackCanvasUrl(hostname: string | undefined): string | undefined {
+  if (!hostname) return undefined;
+  try {
+    const base = new URL(hostname.includes("://") ? hostname : `https://${hostname}`);
+    if (base.protocol !== "https:" || base.username || base.password || base.port) return undefined;
+    return new URL("/app/", base).toString();
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -136,11 +161,18 @@ export function escapeMrkdwn(text: string): string {
 }
 
 // Slack rejects a section over 3000 chars; the full task stays on the dashboard card.
-const CARD_TASK_LIMIT = 2500;
+const CARD_TASK_LIMIT = 2000;
 function clipTask(task: string): string {
-  return task.length <= CARD_TASK_LIMIT
-    ? task
-    : `${task.slice(0, CARD_TASK_LIMIT)}… (${task.length - CARD_TASK_LIMIT} more chars, full task on the dashboard)`;
+  if (escapeMrkdwn(task).length <= CARD_TASK_LIMIT) return task;
+  let length = 0;
+  let prefix = "";
+  for (const character of task) {
+    const size = escapeMrkdwn(character).length;
+    if (length + size > CARD_TASK_LIMIT) break;
+    prefix += character;
+    length += size;
+  }
+  return `${prefix}… (${task.length - prefix.length} more chars, full task on the dashboard)`;
 }
 
 /**
@@ -156,10 +188,12 @@ export function approvalCardText(input: ApprovalCardInput): string {
     : "";
   return isEmail
     ? `${escapeMrkdwn(input.agent ?? input.repoUrl)} requests ${escapeMrkdwn(input.task)}`
-    : `Approval requested\nRepo: ${escapeMrkdwn(input.repoUrl)}\nTask: ${escapeMrkdwn(clipTask(input.task))}` +
+    : `Approval requested\nTarget Workspace: ${escapeMrkdwn(input.workspaceLabel ?? input.repoUrl)}\nTask Summary: ${escapeMrkdwn(clipTask(input.task))}` +
         (input.employeeLabel ? `\nBot: ${escapeMrkdwn(input.employeeLabel)}` : "") +
         (input.harness ? `\nAgent: ${escapeMrkdwn(input.harness)}` : "") +
-        testCommand;
+        testCommand +
+        (input.kind === "pr_publish" ? "\nExternal Action: Push this frozen snapshot and publish its pull request." : input.publishPullRequest ? "\nPublication requested. A separate approval is required after the changes are ready." : "") +
+        (safeCanvasUrl(input.canvasUrl) ? `\n${input.liveCanvas ? "Live Web Canvas" : "Open Shiba"}: ${escapeMrkdwn(input.canvasUrl)}` : "");
 }
 
 /**
@@ -182,10 +216,12 @@ export function buildApprovalBlocks(input: ApprovalCardInput): unknown[] {
     : "";
   const headline = isEmail
     ? `*${escapeMrkdwn(input.agent ?? input.repoUrl)}* requests ${escapeMrkdwn(input.task)}`
-    : `*Approval requested*\n*Repo:* ${escapeMrkdwn(input.repoUrl)}\n*Task:* ${escapeMrkdwn(clipTask(input.task))}` +
+    : `*Approval requested*\n*Target Workspace:* ${escapeMrkdwn(input.workspaceLabel ?? input.repoUrl)}\n*Task Summary:* ${escapeMrkdwn(clipTask(input.task))}` +
         (input.employeeLabel ? `\n*Bot:* ${escapeMrkdwn(input.employeeLabel)}` : "") +
         (input.harness ? `\n*Agent:* ${escapeMrkdwn(input.harness)}` : "") +
-        testCommand;
+        testCommand +
+        (input.kind === "pr_publish" ? "\n*External Action:* Push this frozen snapshot and publish its pull request." : input.publishPullRequest ? "\nPublication requested. A separate approval is required after the changes are ready." : "") +
+        (safeCanvasUrl(input.canvasUrl) ? `\n<${escapeMrkdwn(input.canvasUrl)}|${input.liveCanvas ? "Live Web Canvas" : "Open Shiba"}>` : "");
   return [
     {
       type: "section",
@@ -204,7 +240,7 @@ export function buildApprovalBlocks(input: ApprovalCardInput): unknown[] {
     {
       type: "actions",
       elements: [
-        { type: "button", text: { type: "plain_text", text: "Approve" }, style: "primary", action_id: APPROVE_ACTION_ID, value },
+        { type: "button", text: { type: "plain_text", text: "Approve Action" }, style: "primary", action_id: APPROVE_ACTION_ID, value },
         { type: "button", text: { type: "plain_text", text: "Reject" }, style: "danger", action_id: REJECT_ACTION_ID, value },
       ],
     },
@@ -289,7 +325,7 @@ export function buildEmployeeToolApprovalBlocks(input: {
       elements: [
         {
           type: "button",
-          text: { type: "plain_text", text: "Approve" },
+          text: { type: "plain_text", text: "Approve Action" },
           style: "primary",
           action_id: EMPLOYEE_APPROVE_ACTION_ID,
           value,
@@ -331,14 +367,14 @@ function parseBlockActionsPayload(payloadParam: string | null): BlockActionPaylo
     throw new Error("Interaction payload has an unexpected shape.");
   }
   const record = payload as Record<string, unknown>;
-  const user = record["user"] as { id?: unknown } | undefined;
+  const user = record.user as { id?: unknown } | undefined;
   const userId = typeof user?.id === "string" ? user.id : "";
-  const actions = record["actions"];
+  const actions = record.actions;
   const first = Array.isArray(actions) ? (actions[0] as { action_id?: unknown; value?: unknown } | undefined) : undefined;
   const actionId = typeof first?.action_id === "string" ? first.action_id : "";
   const value = typeof first?.value === "string" ? first.value : "";
-  const responseUrl = typeof record["response_url"] === "string" ? (record["response_url"] as string) : "";
-  const message = record["message"] as { blocks?: unknown; thread_ts?: string; ts?: string } | undefined;
+  const responseUrl = typeof record.response_url === "string" ? (record.response_url as string) : "";
+  const message = record.message as { blocks?: unknown; thread_ts?: string; ts?: string } | undefined;
   const blocks = Array.isArray(message?.blocks) ? (message.blocks as unknown[]) : [];
   if (userId === "" || actionId === "" || value === "" || responseUrl === "") {
     throw new Error("Interaction payload is missing user, action, value, or response_url.");
@@ -348,8 +384,8 @@ function parseBlockActionsPayload(payloadParam: string | null): BlockActionPaylo
   }
   const employeeAction = actionId === EMPLOYEE_APPROVE_ACTION_ID || actionId === EMPLOYEE_REJECT_ACTION_ID;
   if (employeeAction) {
-    const team = record["team"] as { id?: string } | undefined;
-    const channel = record["channel"] as { id?: string } | undefined;
+    const team = record.team as { id?: string } | undefined;
+    const channel = record.channel as { id?: string } | undefined;
     const threadKey = buildSlackThreadName(team?.id ?? "", channel?.id ?? "", message?.thread_ts ?? message?.ts ?? "");
     const employeePointer = parseEmployeeToolApprovalValue(value);
     if (employeePointer.threadKey !== threadKey) throw new Error("Employee approval does not belong to this chat thread.");
@@ -362,7 +398,27 @@ function parseBlockActionsPayload(payloadParam: string | null): BlockActionPaylo
       blocks,
     };
   }
-  return { userId, actionId, pointer: parseApprovalValue(value), responseUrl, blocks };
+  const pointer = parseApprovalValue(value);
+  const thread = parseSlackThreadName(pointer.threadKey);
+  const command = parseSlackCommandScope(pointer.threadKey);
+  if (pointer.threadKey.startsWith("slack-command:") && !command) {
+    throw new Error("Invalid Slack command approval scope.");
+  }
+  if (command) {
+    const team = record.team as { id?: string } | undefined;
+    const channel = record.channel as { id?: string } | undefined;
+    if (team?.id !== command.teamId || channel?.id !== command.channelId) {
+      throw new Error("Approval does not belong to this Slack workspace and channel.");
+    }
+  }
+  if (thread) {
+    const team = record.team as { id?: string } | undefined;
+    const channel = record.channel as { id?: string } | undefined;
+    if (team?.id !== thread.teamId || channel?.id !== thread.channelId || (message?.thread_ts ?? message?.ts) !== thread.threadTs) {
+      throw new Error("Approval does not belong to this Slack workspace and thread.");
+    }
+  }
+  return { userId, actionId, pointer, responseUrl, blocks };
 }
 
 export function isSlackResponseUrl(value: string): boolean {
@@ -421,13 +477,13 @@ async function replaceCardWithDecision(
         : "approval expired";
   const body: Record<string, unknown> = {
     replace_original: true,
-    text: `${decision} by <@${interaction.userId}> — ${status}.`,
+    text: `${decision} by <@${interaction.userId}>. ${status}.`,
     blocks: [
       ...kept,
       {
         type: "context",
         elements: [
-          { type: "mrkdwn", text: `*${decision}* by <@${interaction.userId}> — ${status}` },
+          { type: "mrkdwn", text: `*${decision}* by <@${interaction.userId}>. ${status}` },
         ],
       },
     ],
@@ -528,7 +584,7 @@ export async function handleSlackInteract(
   if (!isApprover(interaction.userId, approvers)) {
     const refusal = respondEphemeral(
       interaction.responseUrl,
-      "You are not on the approver list.",
+      "Unauthorized. You cannot approve this run.",
       deps.respond,
     );
     if (ctx) {
@@ -536,7 +592,11 @@ export async function handleSlackInteract(
     } else {
       await refusal;
     }
-    return Response.json({ response_type: "ephemeral", text: "You are not on the approver list." });
+    return Response.json({ response_type: "ephemeral", text: "Unauthorized. You cannot approve this run." });
+  }
+
+  if (![APPROVE_ACTION_ID, REJECT_ACTION_ID, EMPLOYEE_APPROVE_ACTION_ID, EMPLOYEE_REJECT_ACTION_ID].includes(interaction.actionId)) {
+    return Response.json({ error: "Unknown approval action." }, { status: 400 });
   }
 
   const approved =
@@ -583,7 +643,7 @@ export async function handleSlackInteract(
   if (!(await isUnresolved(interaction.pointer))) {
     const stale = respondEphemeral(
       interaction.responseUrl,
-      "This approval is already resolved — nothing to do.",
+      "This approval is already resolved. Nothing to do.",
       deps.respond,
     );
     if (ctx) {
@@ -594,9 +654,10 @@ export async function handleSlackInteract(
     return Response.json({ response_type: "ephemeral", text: "This approval is already resolved." });
   }
 
+  const runPointer = interaction.pointer;
   const approvedRun = interaction.actionId === APPROVE_ACTION_ID;
   const stubFor = async (pointer: ApprovalPointer) => {
-    if (deps.resolveOrchestrator) return deps.resolveOrchestrator(pointer.threadKey);
+    if (deps.resolveOrchestrator) return deps.resolveOrchestrator(slackApprovalOrchestratorName(pointer.threadKey));
     if (deps.orchestratorStub) return deps.orchestratorStub;
     throw new Error("Approval dispatch is not configured.");
   };
@@ -608,7 +669,7 @@ export async function handleSlackInteract(
       dispatchToOrchestrator(await stubFor(pointer), pointer, false, userId));
   const work = (async () => {
     const dispatch = approvedRun ? dispatchApprove : dispatchReject;
-    const { result } = await dispatch(interaction.pointer!, interaction.userId);
+    const { result } = await dispatch(runPointer, interaction.userId);
     const outcome =
       result === "approved" || result === "rejected" || result === "expired" ? result : null;
     if (outcome === null) {

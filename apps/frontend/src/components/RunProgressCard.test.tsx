@@ -76,6 +76,27 @@ describe("RunProgressCard", () => {
     expect(screen.getByTestId("run-pull-link").getAttribute("href")).toBe("https://github.com/o/r/pull/3");
   });
 
+  it("offers the completed ZIP capability and preserves its expiry", () => {
+    render(<RunProgressCard run={baseRun({ status: "completed", artifactBundle: {
+      path: "artifacts.zip", mediaType: "application/zip", bytes: 22, sha256: "a".repeat(64), fileCount: 0,
+      downloadUrl: "https://shiba.example/api/artifacts/download?token=scoped", expiresAt: Date.now() + 60_000,
+    } })} />);
+    expect(screen.getByRole("link", { name: "Download artifacts ZIP" }).getAttribute("href"))
+      .toBe("https://shiba.example/api/artifacts/download?token=scoped");
+    expect(screen.getByText("0 files. Links expire after seven days.")).toBeTruthy();
+  });
+
+  it.each([
+    { downloadUrl: "https://shiba.example/api/artifacts/download?token=expired", expiresAt: 1 },
+    { downloadUrl: "javascript:alert(1)", expiresAt: Date.now() + 60_000 },
+  ])("withholds unavailable or unsafe artifact links %j", (link) => {
+    render(<RunProgressCard run={baseRun({ status: "completed", artifactBundle: {
+      path: "artifacts.zip", mediaType: "application/zip", bytes: 22, sha256: "a".repeat(64), fileCount: 0, ...link,
+    } })} />);
+    expect(screen.queryByRole("link", { name: "Download artifacts ZIP" })).toBeNull();
+    expect(screen.getByText("The artifact download link has expired or is unavailable.")).toBeTruthy();
+  });
+
   it("shows saved artifact-workspace outputs through the existing verified download surface", () => {
     render(<RunProgressCard run={{
       runId: "artifact-run",

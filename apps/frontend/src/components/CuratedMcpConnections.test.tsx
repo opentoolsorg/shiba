@@ -10,6 +10,55 @@ afterEach(() => {
 });
 
 describe("CuratedMcpConnections", () => {
+  it("offers an explicit OAuth continuation instead of claiming an asynchronously blocked popup opened", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith("/catalog-connections")) return Response.json({ connections: [] });
+      if (path === "/api/v1/mcp/servers") return Response.json({ server: { id: "oauth-draft" } });
+      if (path.endsWith("/oauth/begin")) return Response.json({ authorizationUrl: "https://auth.vendor.com/authorize?state=fixture" });
+      return Response.json({ error: "Unexpected" }, { status: 404 });
+    }));
+    render(<CuratedMcpConnections />);
+    fireEvent.change(screen.getAllByLabelText("Label")[0]!, { target: { value: "prod" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Connect with OAuth" })[0]!);
+    const link = await screen.findByRole("link", { name: "Continue Stripe sign-in" });
+    expect(link.getAttribute("href")).toBe("https://auth.vendor.com/authorize?state=fixture");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    expect(open).not.toHaveBeenCalled();
+    expect(screen.queryByText(/sign-in opened/)).toBeNull();
+    open.mockRestore();
+  });
+
+  it("rejects unsafe OAuth redirects before opening a vendor window", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/catalog-connections")) return Response.json({ connections: [] });
+      if (String(input).endsWith("/oauth/begin")) return Response.json({ authorizationUrl: "javascript:alert(1)" });
+      return Response.json({ server: { id: "draft" } });
+    }));
+    render(<CuratedMcpConnections />);
+    fireEvent.change(screen.getAllByLabelText("Label")[0]!, { target: { value: "personal" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Connect with OAuth" })[0]!);
+    expect(await screen.findByText("OAuth returned an unsafe redirect URL.")).toBeTruthy();
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
+  it("shows all six presets, filters by role and performs no connection mutation during discovery", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => Response.json({ connections: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CuratedMcpConnections />);
+    expect(screen.getByText("Figma")).toBeTruthy();
+    expect(screen.getByText("PostHog")).toBeTruthy();
+    expect(screen.getByText("Atlassian")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Connect with OAuth" })).toHaveLength(6);
+    fireEvent.change(screen.getByLabelText("MCP presets for role"), { target: { value: "design" } });
+    expect(screen.getByText("Figma")).toBeTruthy();
+    expect(screen.queryByText("Stripe")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Connect with OAuth" })).toHaveLength(2);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/mcp/catalog-connections");
+  });
   it.each(["OAuth", "bearer"])("keeps the original %s error when draft cleanup fails", async (failureMode) => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);

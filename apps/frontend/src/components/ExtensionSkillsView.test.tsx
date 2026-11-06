@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ExtensionSkillRecord } from "@shiba/shared";
 import { ExtensionSkillsView } from "./ExtensionSkillsView";
 
@@ -23,6 +23,46 @@ const makeSkill = (overrides: Partial<ExtensionSkillRecord> = {}): ExtensionSkil
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("ExtensionSkillsView", () => {
+  it("contains forward and reverse keyboard focus, then restores the opening control", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    render(<ExtensionSkillsView />);
+    await screen.findByText("No skills yet");
+    const opener = screen.getAllByRole("button", { name: "New Skill" })[0]!;
+    opener.focus(); fireEvent.click(opener);
+    const dialog = await screen.findByRole("dialog");
+    const close = within(dialog).getByRole("button", { name: "Close" });
+    const create = within(dialog).getByRole("button", { name: "Create" });
+    close.focus(); fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(create);
+    fireEvent.keyDown(create, { key: "Tab" }); expect(document.activeElement).toBe(close);
+    opener.focus(); fireEvent.keyDown(opener, { key: "Tab" }); expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(close, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(opener);
+  });
+  it("explains employee availability without implying skills grant apps or approvals", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    render(<ExtensionSkillsView />);
+    const guide = screen.getByRole("complementary", { name: "Using skills with employees" });
+    expect(guide.textContent).toContain("including connected app tasks");
+    expect(guide.textContent).toContain("Disabled and archived skills are unavailable");
+    expect(guide.textContent).toContain("tool grants and human approvals are configured separately");
+    await screen.findByText("No skills yet");
+  });
+
+  it("rolls back a failed enablement change instead of reporting an unavailable skill as enabled", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") return Response.json({ error: "Enablement denied" }, { status: 403 });
+      return Response.json([makeSkill({ enabled: false })]);
+    }));
+    render(<ExtensionSkillsView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Enable Writing" }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Enable Writing" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Disable Writing" })).toBeNull();
+    expect(screen.queryByText("Enabled “Writing”.")).toBeNull();
+  });
+
   it("creates, enables, shares, archives, and restores skills across scoped views", async () => {
     const skills: ExtensionSkillRecord[] = [];
     const calls: Array<{ url: string; method: string; body?: Record<string, unknown> }> = [];
@@ -156,5 +196,31 @@ describe("ExtensionSkillsView", () => {
     expect(screen.queryByRole("button", { name: "Share to Workspace" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
+  it("renders breadcrumbs and exact empty state contract", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    render(<ExtensionSkillsView scope="personal" />);
+    const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(nav).toBeTruthy();
+    expect(nav.textContent).toContain("Personal");
+    expect(nav.textContent).toContain("Extensions");
+    expect(nav.textContent).toContain("Skills");
+
+    await screen.findByText("No skills yet");
+    expect(
+      screen.getByText(
+        "Create reusable instructions that are automatically injected into every conversation"
+      )
+    ).toBeTruthy();
+
+    const newSkillBtns = screen.getAllByRole("button", { name: "New Skill" });
+    expect(newSkillBtns.length).toBeGreaterThan(0);
+    fireEvent.click(newSkillBtns[0]!);
+
+    expect(screen.getByText("Instructions your agents can use.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("Instructions your agents can use.")).toBeNull();
   });
 });

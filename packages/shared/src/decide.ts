@@ -1,3 +1,4 @@
+import type { PersonalExecutionSnapshot } from "./personal-execution.js";
 import { onboardingRunFields, type OnboardingRunFields } from "./onboarding.js";
 /**
  * Pure run-lifecycle decider (PLAN.md §18.1, T40). Transition legality is a
@@ -26,6 +27,7 @@ import type { ExecutionTarget } from "./execution-target.js";
 import type { ApprovedRoute } from "./model.js";
 import { MAX_RECEIPTS } from "./receipts.js";
 import type { Receipt, ReceiptKind } from "./receipts.js";
+import type { RunAttachment } from "./run-attachments.js";
 import type { RunErrorCode } from "./run-errors.js";
 import { terminalStatusForError } from "./run-errors.js";
 import type { DelegatedRun, ForkLineage, RunPatch } from "./runs.js";
@@ -33,6 +35,7 @@ import { isActiveStatus, isTerminalStatus, normalizeRun } from "./runs.js";
 
 /** The creation payload a `queue` command carries — createRun's args. */
 export interface QueuedRunInput extends OnboardingRunFields {
+  outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   sandboxId: string;
   repoUrl: string;
   executionTarget?: ExecutionTarget;
@@ -69,6 +72,7 @@ export interface QueuedRunInput extends OnboardingRunFields {
   runtime?: RuntimeSelection;
   /** T51: the machine a local run is pinned to — part of the approval-hashed input. */
   targetMachineId?: string;
+  personalExecution?: PersonalExecutionSnapshot;
   /** The test command — part of the approval-hashed input. */
   testCommand?: string[];
   /** Exact workspace outputs required by this approval. */
@@ -87,6 +91,7 @@ export interface QueuedRunInput extends OnboardingRunFields {
   envSealed?: string;
   /** T72: approval-hashed opt-in to the repo's setup script. */
   runSetup?: boolean;
+  attachments?: RunAttachment[];
 }
 
 export type RunCommand =
@@ -160,6 +165,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...onboardingRunFields(run),
       repoUrl: run.repoUrl,
       ...(run.executionTarget !== undefined ? { executionTarget: run.executionTarget } : {}),
+      ...(run.outputArchive !== undefined ? { outputArchive: { ...run.outputArchive } } : {}),
       task: run.task,
       baseBranch: run.baseBranch,
       publishPullRequest: run.publishPullRequest,
@@ -169,6 +175,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.authAccount !== undefined ? { authAccount: run.authAccount } : {}),
       ...(run.runtime !== undefined ? { runtime: run.runtime } : {}),
       ...(run.targetMachineId !== undefined ? { targetMachineId: run.targetMachineId } : {}),
+      ...(run.personalExecution !== undefined ? { personalExecution: structuredClone(run.personalExecution) } : {}),
       ...(run.testCommand !== undefined ? { testCommand: run.testCommand } : {}),
       ...(run.expectedDeliverables !== undefined ? { expectedDeliverables: [...run.expectedDeliverables] } : {}),
       ...(run.forkedFrom !== undefined ? { forkedFrom: run.forkedFrom } : {}),
@@ -186,6 +193,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.customAgentVersion !== undefined ? { customAgentVersion: run.customAgentVersion } : {}),
       ...(run.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: run.employeeToolPolicyVersion } : {}),
       ...(run.skillPins !== undefined ? { skillPins: run.skillPins } : {}),
+      ...(run.attachments?.length ? { attachments: run.attachments } : {}),
     })
   );
 }
@@ -230,6 +238,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...onboardingRunFields(command.input),
           repoUrl: command.input.repoUrl,
           ...(command.input.executionTarget !== undefined ? { executionTarget: command.input.executionTarget } : {}),
+          ...(command.input.outputArchive !== undefined ? { outputArchive: { ...command.input.outputArchive } } : {}),
           task: command.input.task,
           baseBranch: command.input.baseBranch,
           publishPullRequest: command.input.publishPullRequest,
@@ -249,6 +258,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.authAccount !== undefined ? { authAccount: command.input.authAccount } : {}),
           ...(command.input.runtime !== undefined ? { runtime: command.input.runtime } : {}),
           ...(command.input.targetMachineId !== undefined ? { targetMachineId: command.input.targetMachineId } : {}),
+      ...(command.input.personalExecution !== undefined ? { personalExecution: structuredClone(command.input.personalExecution) } : {}),
           ...(command.input.testCommand !== undefined ? { testCommand: command.input.testCommand } : {}),
           ...(command.input.expectedDeliverables !== undefined ? { expectedDeliverables: [...command.input.expectedDeliverables] } : {}),
           ...(command.input.forkedFrom !== undefined ? { forkedFrom: command.input.forkedFrom } : {}),
@@ -261,6 +271,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.envDigest !== undefined ? { envDigest: command.input.envDigest } : {}),
           ...(command.input.envSealed !== undefined ? { envSealed: command.input.envSealed } : {}),
           ...(command.input.runSetup === true ? { runSetup: true } : {}),
+          ...(command.input.attachments?.length ? { attachments: command.input.attachments } : {}),
           ...(approval !== undefined ? { approval } : {}),
           status: "pending",
           generation: 0,
@@ -292,6 +303,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.sandboxId === command.input.sandboxId &&
           run.repoUrl === command.input.repoUrl &&
           JSON.stringify(run.executionTarget) === JSON.stringify(command.input.executionTarget) &&
+          JSON.stringify(run.outputArchive) === JSON.stringify(command.input.outputArchive) &&
           run.task === command.input.task &&
           run.baseBranch === command.input.baseBranch &&
           run.publishPullRequest === command.input.publishPullRequest &&
@@ -314,6 +326,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.authAccount === command.input.authAccount &&
           run.runtime === command.input.runtime &&
           run.targetMachineId === command.input.targetMachineId &&
+          JSON.stringify(run.personalExecution) === JSON.stringify(command.input.personalExecution) &&
           JSON.stringify(run.testCommand ?? []) === JSON.stringify(command.input.testCommand ?? []) &&
           JSON.stringify(run.expectedDeliverables) === JSON.stringify(command.input.expectedDeliverables) &&
           JSON.stringify(run.forkedFrom ?? null) === JSON.stringify(command.input.forkedFrom ?? null) &&
@@ -323,7 +336,8 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.captainId === command.input.captainId &&
           run.role === command.input.role &&
           run.envDigest === command.input.envDigest &&
-          (run.runSetup === true) === (command.input.runSetup === true);
+          (run.runSetup === true) === (command.input.runSetup === true) &&
+          JSON.stringify(run.attachments ?? []) === JSON.stringify(command.input.attachments ?? []);
         if (sameInput) {
           return { events: [{ type: "run.queued", commandId: command.commandId, at, run, replayed: true }] };
         }
@@ -485,6 +499,7 @@ function applyPatch(run: DelegatedRun, patch: RunPatch | undefined): void {
   if (patch.error !== undefined) run.error = patch.error;
   if (patch.errorCode !== undefined) run.errorCode = patch.errorCode;
   if (patch.diff !== undefined) run.diff = patch.diff;
+  if (patch.artifactBundle !== undefined) run.artifactBundle = { ...patch.artifactBundle };
   if (patch.deliverables !== undefined) {
     run.deliverables = patch.deliverables.map((item) => ({
       path: item.path, mediaType: item.mediaType, bytes: item.bytes, sha256: item.sha256,

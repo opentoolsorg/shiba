@@ -16,9 +16,11 @@ import {
   leaseIsReclaimable,
   localReleaseDir,
   localizeContainerPath,
+  localRunResultSchema,
   resolveLocalRelease,
   type LocalRunEnvelope,
   type LocalRunResult,
+  type PersonalExecutionSnapshot,
 } from "@shiba/shared";
 import worker from "../src/index.js";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
@@ -28,6 +30,7 @@ import { LocalRuntimeAdapter, type LocalDispatchClient } from "../src/runtime.js
 import { resolveHarness } from "../src/harness/index.js";
 import { DUMMY_PROVIDER_KEY } from "../src/provider-gateway.js";
 import { approveDirect } from "./seeding.js";
+import { buildSessionAgentName } from "../src/web-sessions.js";
 
 const mocks = vi.hoisted(() => ({ getAgentByName: vi.fn() }));
 vi.mock("@cloudflare/sandbox", () => ({
@@ -114,6 +117,18 @@ describe("buildLocalRunEnvelope", () => {
     expect(envelope.createdAt).toBe(1_700_000);
   });
 
+  it("requires an explicit matching artifact target for an empty repository URL", () => {
+    const executionTarget = { kind: "artifact-workspace" as const, expectedDeliverables: ["brief.md"] };
+    const input = { ...base.input, repoUrl: "", expectedDeliverables: ["brief.md"], executionTarget };
+    expect(buildLocalRunEnvelope({ ...base, input })).toMatchObject({ repoUrl: "", executionTarget });
+    expect(() => buildLocalRunEnvelope({ ...base, input: { ...base.input, repoUrl: "" } })).toThrow();
+    expect(() => buildLocalRunEnvelope({ ...base, input: { ...input, expectedDeliverables: ["other.md"] } })).toThrow();
+    expect(() => buildLocalRunEnvelope({ ...base, input: { ...input, repoUrl: "https://github.com/o/r" } })).toThrow();
+    expect(() => buildLocalRunEnvelope({ ...base, input: { ...input,
+      expectedDeliverables: [], executionTarget: { ...executionTarget, workspaceId: "empty", expectedDeliverables: [] },
+    } })).toThrow();
+  });
+
   it("refuses malformed envelopes at the schema boundary", () => {
     expect(() =>
       buildLocalRunEnvelope({ ...base, input: { ...base.input, task: "" } }),
@@ -196,6 +211,17 @@ const RESULT: LocalRunResult = {
   files: [{ path: "a.ts", content: "x", encoding: "utf8" }],
   signals: [{ kind: "exec.settled", at: 1, detail: '{"command":"npm test","exit":0}' }],
 };
+
+describe("local immutable publication identity", () => {
+  it("preserves a frozen 40-hex base revision while accepting older daemon results", () => {
+    const baseRevision = "a".repeat(40);
+    expect(localRunResultSchema.parse({ ...RESULT, baseRevision }).baseRevision).toBe(baseRevision);
+    expect(localRunResultSchema.parse(RESULT).baseRevision).toBeUndefined();
+    for (const invalid of ["main", "a".repeat(39), "A".repeat(40), "a".repeat(64), "../../HEAD"]) {
+      expect(localRunResultSchema.safeParse({ ...RESULT, baseRevision: invalid }).success).toBe(false);
+    }
+  });
+});
 
 const post = (path: string, body: unknown) =>
   new Request(`https://local-dispatch${path}`, {
@@ -451,6 +477,34 @@ function queueRequest(body: unknown, headers: Record<string, string> = {}) {
 const RUN_BODY = { repoUrl: "https://github.com/o/r", task: "fix the tests" };
 
 describe("T51 intake boundary", () => {
+  const artifactInput = { repoUrl: "", task: "Write a brief", runtime: "local", harness: "opencode",
+    executionTarget: { kind: "artifact-workspace", workspaceId: "local-brief", expectedDeliverables: ["out/brief.md"] } };
+
+  it("freezes explicitly selected local artifacts without starting execution", async () => {
+    const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1", AI_GATEWAY_TOKEN: "" });
+    const response = await orchestrator.onRequest(queueRequest(artifactInput, { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }));
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(orchestrator.state.pendingApprovals?.[0]).toMatchObject({ status: "pending", runtime: "local", repoUrl: "",
+      expectedDeliverables: ["out/brief.md"], executionTarget: artifactInput.executionTarget });
+    expect(orchestrator.state.runs).toEqual([]);
+  });
+
+  it.each([
+    { headers: {}, env: { [LOCAL_RUNTIME_FLAG]: "1" }, status: 403 },
+    { headers: { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }, env: {}, status: 403 },
+  ])("retains local artifact authority gates: %j", async ({ headers, env, status }) => {
+    expect((await makeOrchestrator(env).onRequest(queueRequest(artifactInput, headers as Record<string, string>))).status).toBe(status);
+  });
+
+  it.each([
+    { executionTarget: { ...artifactInput.executionTarget, expectedDeliverables: [] } },
+    { publishPullRequest: true }, { runSetup: true }, { repoUrl: "https://github.com/o/r" },
+  ])("rejects conflicting local artifact authority: %j", async (extra) => {
+    const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" });
+    expect((await orchestrator.onRequest(queueRequest({ ...artifactInput, ...extra }, { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }))).status).toBe(400);
+    expect(orchestrator.state.pendingApprovals ?? []).toEqual([]);
+  });
+
   it("rejects an unknown runtime value", async () => {
     const res = await makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" }).onRequest(
       queueRequest({ ...RUN_BODY, runtime: "nonsense" }),
@@ -607,7 +661,10 @@ function workerEnv(orchestrator: { onRequest: (r: Request) => Promise<Response> 
       const req = typeof request === "string" ? new Request(request) : request;
       const url = new URL(req.url);
       if (url.pathname.startsWith("/internal/web-sessions/")) {
-        return Promise.resolve(new Response("{}", { status: 200 }));
+        const id = decodeURIComponent(url.pathname.split("/").pop()!);
+        return Promise.resolve(Response.json({ session: { id, userId: name,
+          agentName: buildSessionAgentName(name, id), name: "Local runtime fixture session",
+          createdAt: 1, updatedAt: 1, metadata: {} } }));
       }
       return orchestrator.onRequest(req);
     },
@@ -641,7 +698,7 @@ describe("Worker /api/runs intake stamping", () => {
       }),
       env as never,
     );
-    expect(res.status).toBe(200);
+    expect(res.status, await res.clone().text()).toBe(200);
     const approval = orchestrator.state.pendingApprovals?.[0];
     expect(approval?.runtime).toBe("local");
     // It routed to the dashboard session DO.
@@ -726,6 +783,103 @@ const NOOP_OPS = {} as never;
 const NOOP_EMIT = async () => {};
 
 describe("LocalRuntimeAdapter", () => {
+  it("dispatches approved bounded repository-free artifacts without a dummy repository", async () => {
+    const executionTarget = { kind: "artifact-workspace" as const, workspaceId: "artifact-fixture", expectedDeliverables: ["out/brief.md"] };
+    const { client, state } = makeClient({ status: async () => ({ status: "settled", result: {
+      ...RESULT, baseRevision: undefined, changedFiles: ["out/brief.md"], diff: "", files: [{ path: "out/brief.md", content: "# Complete brief\n", encoding: "utf8" }],
+    } }) as never });
+    const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, repoUrl: "", executionTarget,
+      expectedDeliverables: executionTarget.expectedDeliverables } as never, NOOP_EMIT, {});
+    expect(result.status).toBe("completed");
+    expect(state.dispatched[0]).toMatchObject({ repoUrl: "", executionTarget, expectedDeliverables: ["out/brief.md"] });
+    expect(state.dispatched[0]?.task).toContain("current working directory");
+    expect(result.files).toEqual([{ path: "out/brief.md", content: "# Complete brief\n", encoding: "utf8" }]);
+  });
+
+  it("rejects unapproved artifact bytes from a daemon response", async () => {
+    const executionTarget = { kind: "artifact-workspace" as const, expectedDeliverables: ["brief.md"] };
+    const { client } = makeClient({ status: async () => ({ status: "settled", result: {
+      ...RESULT, baseRevision: undefined, changedFiles: ["brief.md"], diff: "", files: [
+        { path: "brief.md", content: "Complete", encoding: "utf8" },
+        { path: "private.md", content: "not approved", encoding: "utf8" },
+      ],
+    } }) as never });
+    const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, repoUrl: "", executionTarget,
+      expectedDeliverables: ["brief.md"] } as never, NOOP_EMIT, {});
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("unapproved files");
+    expect(result.files).toEqual([]);
+  });
+
+  it.each([
+    { expectedDeliverables: [] },
+    { expectedDeliverables: ["other.md"] },
+    { expectedDeliverables: ["brief.md"], publishPullRequest: true },
+  ])("rejects incomplete or conflicting artifact authority: %j", async (fields) => {
+    const { client, state } = makeClient();
+    const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, repoUrl: "", ...fields,
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["brief.md"] } } as never, NOOP_EMIT, {});
+    expect(result.status).toBe("error");
+    expect(state.dispatched).toEqual([]);
+  });
+
+  it.each([
+    { kind: "artifact-workspace", expectedDeliverables: ["brief.md"] },
+    { kind: "connected-app", connectionId: "private-app", action: "read" },
+  ])("refuses a $kind target before config, credentials, dispatch or polling", async (executionTarget) => {
+    const forbidden = vi.fn(() => { throw new Error("Must not access provider configuration."); });
+    const harness = Object.assign(Object.create(resolveHarness("claude-code")), {
+      configFile: forbidden, env: forbidden, setupCommands: forbidden, buildArgv: forbidden,
+    });
+    const status = vi.fn();
+    const { client, state } = makeClient({ status });
+    const adapter = new LocalRuntimeAdapter(harness, { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, executionTarget } as never, NOOP_EMIT, {});
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("matching nonempty approved deliverables");
+    expect(forbidden).not.toHaveBeenCalled();
+    expect(state.dispatched).toEqual([]);
+    expect(status).not.toHaveBeenCalled();
+  });
+
+  it("dispatches only the personal native account envelope without reading deployment harness config or keys", async () => {
+    const snapshot: PersonalExecutionSnapshot = { version: 1, grantId: `plex_${"a".repeat(32)}`, grantVersion: 1,
+      ownerAccountId: "native-owner", actorId: "owner@example.test", workspaceId: `ws_${"a".repeat(24)}`, membershipVersion: 1,
+      machineId: "personal-machine", machineRevision: 1, harness: "claude-code", billingMode: "native-subscription",
+      accountFingerprint: "a".repeat(64), authVersion: "b".repeat(64), codingModel: "anthropic/claude-sonnet-4-6",
+      repoUrl: "https://github.com/o/r", expiresAt: Date.now() + 60_000, allowedPhases: ["local_repository_task"] };
+    const proof = { snapshot, approvalId: "personal-approval", inputHash: "c".repeat(64), contextDigest: "d".repeat(64),
+      executionOwner: "web:owner@example.test:11111111-1111-4111-8111-111111111111", handoffId: "personal-handoff", generation: 1, approvedUntil: Date.now() + 30_000 };
+    const forbiddenBuilder = vi.fn(() => { throw new Error("Deployment harness config is forbidden."); });
+    const harness = Object.assign(Object.create(resolveHarness("claude-code")), { configFile: forbiddenBuilder, env: forbiddenBuilder,
+      setupCommands: forbiddenBuilder, buildArgv: forbiddenBuilder, verify: vi.fn(async () => ({ ok: true as const })) });
+    const dispatch = vi.fn(async (_envelope: LocalRunEnvelope, _target?: string, _actor?: string) => {});
+    const { client } = makeClient({ dispatch, status: async () => ({ status: "settled", result: RESULT }) });
+    const adapter = new LocalRuntimeAdapter(harness, { client, pollIntervalMs: 0 });
+    const input = { ...TASK_INPUT, codingModel: snapshot.codingModel, harness: snapshot.harness, runtime: "local" as const,
+      initiatorUserId: snapshot.actorId, targetMachineId: snapshot.machineId, personalExecution: snapshot, personalExecutionClaim: proof };
+    expect((await adapter.runCodingTask(NOOP_OPS, input, NOOP_EMIT)).status).toBe("completed");
+    expect(forbiddenBuilder).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(dispatch.mock.calls[0]).toMatchObject([{ task: TASK_INPUT.task, personalExecution: proof, argv: [], env: {}, configFiles: [], setupCommands: [], setupAllowlist: [],
+      deadlineAt: proof.approvedUntil, session: { provider: "claude", model: "claude-sonnet-4-6", permissionMode: "approval-required" } }, snapshot.machineId, snapshot.actorId]);
+    expect((await adapter.runCodingTask(NOOP_OPS, { ...input, targetMachineId: "wrong" }, NOOP_EMIT)).status).toBe("error");
+    expect((await adapter.runCodingTask(NOOP_OPS, { ...input, codingModel: "anthropic/wrong" }, NOOP_EMIT)).status).toBe("error");
+    expect((await adapter.runCodingTask(NOOP_OPS, { ...input, personalExecutionClaim: undefined }, NOOP_EMIT)).status).toBe("error");
+    expect(dispatch).toHaveBeenCalledOnce();
+  });
+  it("passes the daemon's frozen base revision through to the publication result", async () => {
+    const baseRevision = "b".repeat(40);
+    const { client } = makeClient({ status: async () => ({ status: "settled", claimedAt: Date.now() - 10,
+      claimedBy: "fixture-laptop", result: { ...RESULT, baseRevision } }) });
+    const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, TASK_INPUT as never, NOOP_EMIT);
+    expect(result).toMatchObject({ status: "completed", baseRevision });
+  });
+
   it("sends the approved source snapshot to the daemon as framed reference data exactly once", async () => {
     const { client, state } = makeClient();
     const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });

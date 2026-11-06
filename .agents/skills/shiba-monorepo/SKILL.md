@@ -21,13 +21,20 @@ repo is laid out and the rules that keep it coherent.**
 ## Layout
 
 ```
-apps/backend     the Cloudflare Worker — ALL logic lives here
+apps/backend     Cloudflare Worker: authentication, policy, state and execution
   src/index.ts   router: authenticate per surface, then dispatch
   src/harness/   the six agent CLIs (one transport, per-harness shims)
-  test/          74 files, colocated as apps/backend/test
+  test/          backend unit, runtime and integration tests
 apps/frontend    React dashboard (Vite + TanStack Router)
   src/components/  25 views
 apps/web         docs + marketing (Astro Starlight)
+apps/desktop     Electron shell and paired local runtime
+apps/acp-server  ACP bridge
+packages/shared  pure TypeScript/Zod wire contracts
+packages/auth    server-side authentication helpers
+packages/sdk     generated public client and OpenAPI types
+packages/sandbox server sandbox transport
+packages/shiba-login  local sign-in CLI
 public/          BUILD OUTPUT — served by the Worker's ASSETS binding
 scripts/         ops: setup, docs check, token mint, drift check
 ```
@@ -36,20 +43,21 @@ scripts/         ops: setup, docs check, token mint, drift check
 
 ### 1. Apps do not import each other
 
-There is no cross-app import anywhere, and there should never be one. The three
-apps share dependencies through the registry, not through source. If two apps
-need the same code, it belongs in a fourth package under `packages/` — a
-directory that does not exist yet, so creating it is a deliberate decision, not
-a convenience.
+Production application source must not import another app's source. Reuse public
+workspace packages through `workspace:*` dependencies. `@shiba/shared` owns
+browser-safe wire contracts and validation; it must not import Worker bindings,
+provider clients, credentials or application source. Backend adapters and policy
+remain in `apps/backend`; do not create a package merely to relocate one caller.
 
-**Why:** the backend ships to the edge and has no bundler; a source import from
-the frontend would pull Worker-only code into the browser bundle.
+Build-time OpenAPI generation and explicit integration-test fixtures may read
+application inputs; those dependencies must not enter published SDK runtime or
+browser bundles. Keep the SDK's generated output synchronized with the API.
 
 ### 2. The backend has no `build` task
 
 `apps/backend/package.json` has `dev`, `lint`, `test`, `test:live` — and
-deliberately **no `build`**. It ships TypeScript source to the edge. Adding a
-build step would break the deploy. The root `build` runs turbo across the two
+deliberately **no `build`**. Wrangler bundles its TypeScript during deployment. A separate
+backend artifact build is not needed by the current deployment contract. The root `build` runs turbo across the two
 frontends only.
 
 ### 3. Turbo caches `typecheck` and `lint` — never `test`
@@ -74,14 +82,15 @@ CI runs the same checks in `.github/workflows/ci.yml`. Drift fails the build.
 ### 5. Migrations are append-only
 
 Durable Object classes get a new `new_sqlite_classes` tag per deploy
-(`v1`…`v7` in both files). Never edit an existing tag — a live deployment has
+(aligned in both deployment definitions). Never edit an existing tag — a live deployment has
 already applied it.
 
 ### 6. Patches are version-pinned
 
 `patches/brace-expansion@5.0.12.patch` and `patches/chat@4.40.0.patch`. Bumping
-either dependency without updating its patch silently drops the patch. The
-`overrides` block in `pnpm-workspace.yaml` exists for the same reason.
+either dependency without updating its patch silently drops the patch. Dependency overrides are authoritative in root `package.json`; pnpm ignores a
+workspace-file overrides map when the root package declares one. Keep patches
+and lockfile updates aligned with the exact dependency versions.
 
 ### 7. The design system is one vocabulary
 
@@ -95,7 +104,7 @@ adding any color.** Never introduce a third name for an existing color.
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm test && pnpm build   # the full gate
-pnpm -C apps/backend test          # 74 files
+pnpm -C apps/backend test          # backend tests
 pnpm -C apps/backend dev           # wrangler dev, port 8788
 pnpm -C apps/frontend dev          # dashboard only
 pnpm docs:dev                      # docs only

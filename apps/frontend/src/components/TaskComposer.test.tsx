@@ -40,6 +40,19 @@ function renderComposer(variant: "hero" | "docked", overrides: Partial<TaskCompo
 }
 
 describe("TaskComposer", () => {
+  it("closes the runtime menu on its trigger pointer/click sequence and on outside activation", () => {
+    renderComposer("docked", { repoUrl: "https://github.com/example/work", task: "Prepare a report", onRunTargetChange: vi.fn() });
+    const trigger = screen.getByRole("button", { name: "Run on: Cloud" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menuitemradio", { name: /Cloud \(Sandbox\)/ })).toBeTruthy();
+    fireEvent.pointerDown(trigger);
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("menuitemradio", { name: /Cloud \(Sandbox\)/ })).toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(trigger);
+    fireEvent.pointerDown(screen.getByRole("textbox", { name: "Task description" }));
+    expect(screen.queryByRole("menuitemradio", { name: /Cloud \(Sandbox\)/ })).toBeNull();
+  });
   it("places repository and execution target below the prompt and send controls", () => {
     const onSubmit = vi.fn();
     renderComposer("hero", { task: "Write a market report", onRunTargetChange: vi.fn(), onSubmit });
@@ -248,12 +261,12 @@ describe("TaskComposer", () => {
     expect((screen.getByRole("button", { name: "Send task" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it.each(["", " \n\t"])("blocks sending an artifact task with an empty output list (%j)", (artifactDeliverables) => {
+  it.each(["", " \n\t"])("submits an ephemeral artifact task with an automatic output bundle (%j)", (artifactDeliverables) => {
     const onSubmit = vi.fn();
     renderComposer("docked", { executionTargetKind: "artifact-workspace", artifactDeliverables, task: "Draft a brief", repoUrl: "", onSubmit });
-    expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(false);
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Task description" }), { key: "Enter", ctrlKey: true });
-    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSubmit).toHaveBeenCalledOnce();
   });
 
   it("submits valid artifact input with Ctrl+Enter without requiring a repository", () => {
@@ -493,5 +506,61 @@ describe("TaskComposer", () => {
     renderComposer("docked", { customAgentId: "pending-bot", customAgentsLoading: true });
     expect(screen.getByRole("status").textContent).toContain("Loading bot");
     expect(screen.queryByText(/Bot unavailable/)).toBeNull();
+  });
+
+  describe("attachments", () => {
+    it("paperclip hidden without onAttachFiles", () => {
+      renderComposer("docked");
+      expect(screen.queryByRole("button", { name: "Attach files" })).toBeNull();
+    });
+
+    it("picking files calls onAttachFiles with them and resets input", () => {
+      const onAttachFiles = vi.fn();
+      renderComposer("docked", { onAttachFiles });
+      const attachBtn = screen.getByRole("button", { name: "Attach files" });
+      expect(attachBtn).toBeTruthy();
+
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      expect(fileInput).toBeTruthy();
+
+      const testFile = new File(["test content"], "hello.txt", { type: "text/plain" });
+      fireEvent.change(fileInput, { target: { files: [testFile] } });
+
+      expect(onAttachFiles).toHaveBeenCalledWith([testFile]);
+      expect(fileInput.value).toBe("");
+    });
+
+    it("a chip renders name and size and its remove button calls onRemoveAttachment", () => {
+      const onRemoveAttachment = vi.fn();
+      renderComposer("docked", {
+        attachments: [{ name: "a.txt", size: 5 }],
+        onRemoveAttachment,
+      });
+      expect(screen.getByText("a.txt")).toBeTruthy();
+      expect(screen.getByText("(5 B)")).toBeTruthy();
+
+      const removeBtn = screen.getByRole("button", { name: "Remove a.txt" });
+      expect(removeBtn).toBeTruthy();
+      fireEvent.click(removeBtn);
+      expect(onRemoveAttachment).toHaveBeenCalledWith("a.txt");
+    });
+
+    it("blocks file picking, form submission and keyboard submission during uploads", () => {
+      const onSubmit = vi.fn();
+      renderComposer("docked", { task: "Read the attachment", repoUrl: "https://github.com/o/r", attachmentsUploading: true, onAttachFiles: vi.fn(), onSubmit });
+      const send = screen.getByRole("button", { name: "Send task" }) as HTMLButtonElement;
+      expect(send.disabled).toBe(true);
+      expect((screen.getByRole("button", { name: "Attach files" }) as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.submit(send.closest("form")!);
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "Task description" }), { key: "Enter", ctrlKey: true });
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it("renders Uploading… text while attachmentsUploading is true", () => {
+      renderComposer("docked", {
+        attachmentsUploading: true,
+      });
+      expect(screen.getByText("Uploading…")).toBeTruthy();
+    });
   });
 });

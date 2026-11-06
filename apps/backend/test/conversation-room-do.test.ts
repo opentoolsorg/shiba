@@ -5,11 +5,17 @@ import type { Env } from "../src/env.js";
 class RoomSql {
   messages = new Map<string, { message_id: string; viewer_id: string; body: string; created_at: number }>();
   streams = new Map<string, { stream_id: string; viewer_id: string; body: string; status: string; created_at: number; updated_at: number }>();
+  owners = new Map<string, { connection_id: string; resume_token: string }>();
 
   exec<T>(sql: string, ...values: unknown[]) {
     const statement = sql.replace(/\s+/g, " ").trim();
     let rows: unknown[] = [];
-    if (statement.startsWith("SELECT message_id FROM room_messages")) {
+    if (statement.startsWith("SELECT connection_id, resume_token FROM room_stream_owners")) {
+      const owner = this.owners.get(String(values[0]));
+      rows = owner ? [owner] : [];
+    } else if (statement.startsWith("INSERT INTO room_stream_owners")) {
+      this.owners.set(String(values[0]), { connection_id: String(values[1]), resume_token: String(values[2]) });
+    } else if (statement.startsWith("SELECT message_id FROM room_messages")) {
       const row = this.messages.get(String(values[0]));
       rows = row ? [{ message_id: row.message_id }] : [];
     } else if (statement.startsWith("SELECT message_id, viewer_id, body, created_at FROM room_messages")) {

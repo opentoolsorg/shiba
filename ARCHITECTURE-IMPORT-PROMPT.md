@@ -291,7 +291,7 @@ Hard requirements from CLAUDE.md and §17.3:
 
 --- PHASE 8: PROOF ATTACHMENT --- ---
 
-the reference agent's differentiator is a reviewer can verify without reading the diff line
+The reference agent's differentiator is a reviewer can verify without reading the diff line
 by line. This repo has screenshot capture in flight (commit 041947d, #23) and
 preview plumbing. Finish it: attach the screenshot, the test output tail, and a
 live preview URL where the project can serve one, into the PR body and the run

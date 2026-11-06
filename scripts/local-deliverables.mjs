@@ -47,18 +47,22 @@ async function checkedLeaf(root, realRoot, relativePath) {
   return { absolute: current, stat };
 }
 
-/**
- * Return complete requested UTF-8 bodies, or throw; never return a partial
- * successful artifact list. Unspecified deliverables leave legacy collection alone.
- */
-export async function captureExpectedDeliverables(cloneDir, requested) {
-  if (requested === undefined) return [];
+export function validateExpectedDeliverables(requested) {
   if (!Array.isArray(requested) || requested.length > MAX_FILES || requested.some((value) => !safePath(value))) {
     throw new Error("Expected deliverables must be at most 8 safe relative non-hidden md/txt/json/csv paths.");
   }
   if (new Set(requested.map((value) => value.toLowerCase())).size !== requested.length) {
     throw new Error("Expected deliverable paths must be unique.");
   }
+}
+
+/**
+ * Return complete requested UTF-8 bodies, or throw; never return a partial
+ * successful artifact list. Unspecified deliverables leave legacy collection alone.
+ */
+export async function captureExpectedDeliverables(cloneDir, requested) {
+  if (requested === undefined) return [];
+  validateExpectedDeliverables(requested);
   if (requested.length === 0) return [];
   const root = path.resolve(cloneDir);
   const rootStat = await fs.lstat(root);

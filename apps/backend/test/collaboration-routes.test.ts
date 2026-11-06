@@ -127,7 +127,7 @@ describe("authenticated collaboration rooms", () => {
     expect(crossTenant).toBeNull();
   });
 
-  it("prevents duplicate handoffs and enforces the aggregate child budget", async () => {
+  it("replays identical handoffs without resetting or spending the aggregate child budget twice", async () => {
     const f = fixture();
     const room = await json<{ room: { roomId: string } }>(
       await f.send("/rooms", "POST", { title: "Task" }),
@@ -144,7 +144,10 @@ describe("authenticated collaboration rooms", () => {
       budget: 2,
     };
     expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", root))?.status).toBe(201);
-    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", root))?.status).toBe(409);
+    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", root))?.status).toBe(201);
+    for (const changed of [{ ...root, budget: 3 }, { ...root, grantedCapabilities: ["room.read"] }, { ...root, recipientActorId: bob }]) {
+      expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", changed))?.status).toBe(409);
+    }
 
     authState.userId = "alice@example.test";
     const child = {
@@ -154,7 +157,8 @@ describe("authenticated collaboration rooms", () => {
       parentHandoffId: "handoff-root",
     };
     expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", child))?.status).toBe(201);
-    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", child))?.status).toBe(409);
+    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", child))?.status).toBe(201);
+    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", { ...child, grantedCapabilities: ["room.read"] }))?.status).toBe(409);
     expect(
       f.sqlite
         .prepare(
@@ -180,6 +184,8 @@ describe("authenticated collaboration rooms", () => {
       )?.status,
     ).toBe(409);
     authState.userId = "owner@example.test";
+    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", root))?.status).toBe(201);
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM collaboration_handoff_budgets WHERE root_handoff_id='handoff-root'").get()?.count).toBe(1);
     expect(
       await listCollaborationHandoffs(
         f.env,

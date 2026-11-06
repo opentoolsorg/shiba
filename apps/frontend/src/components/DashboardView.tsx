@@ -1,11 +1,11 @@
 /**
- * DashboardView — the "Dashboard" home: an at-a-glance overview of the whole
- * agent plane. Stat cards (runs, success rate, active sandboxes, approvals),
- * a pending-approvals queue, and a recent-activity feed. Purely presentational
- * — all data flows in from app.tsx; actions navigate to the owning view.
+ * DashboardView — the "Dashboard" home in Insights hub.
+ * Main card: 48px header with breadcrumb "Scope > Insights > Dashboard",
+ * neutral stat cards, capability cards, recent activity, and approvals queue.
+ * Purely presentational — all data flows in from app.tsx; actions navigate to owning views.
  */
 import { useMemo, type JSX } from "react";
-import { Check, Plus } from "lucide-react";
+import { Check, ChevronRight, PanelLeft, Plus } from "lucide-react";
 import {
   ERROR_FAMILY_STATUSES,
   formatTimeAgo,
@@ -16,6 +16,7 @@ import {
 import type { AgentPrincipal, RetainedRun, StoredApproval } from "../types";
 import type { PendingApproval } from "../ui-helpers";
 import type { AppNavView } from "./AppNavRail";
+import { MainCard, EmptyState, type Scope } from "./ui/ContextPanel";
 
 export interface DashboardViewProps {
   runs: RetainedRun[];
@@ -29,6 +30,10 @@ export interface DashboardViewProps {
   onNavigate: (view: AppNavView) => void;
   onNewTask: () => void;
   onInspectRun: (runId: string) => void;
+  scope?: Scope;
+  sidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
+  className?: string;
 }
 
 function formatDuration(ms: number): string {
@@ -41,9 +46,9 @@ function formatDuration(ms: number): string {
 }
 
 const TONE_DOT: Record<"ok" | "pending" | "error", string> = {
-  ok: "bg-[var(--success)]",
-  pending: "bg-[var(--warning-fg)]",
-  error: "bg-[var(--destructive)]",
+  ok: "bg-emerald-500",
+  pending: "bg-amber-500",
+  error: "bg-rose-500",
 };
 
 export function DashboardView({
@@ -58,8 +63,13 @@ export function DashboardView({
   onNavigate,
   onNewTask,
   onInspectRun,
+  scope = "personal",
+  sidebarCollapsed = false,
+  onToggleSidebar,
+  className = "",
 }: DashboardViewProps): JSX.Element {
   const approvalCount = pendingApprovals.length + storedApprovals.length;
+  const scopeLabel = scope === "workspace" ? "Workspace" : "Personal";
 
   const stats = useMemo(() => {
     const active = runs.filter((r) => r.status === "running" || r.status === "pending");
@@ -84,122 +94,157 @@ export function DashboardView({
   const liveAgents = agents.filter((a) => a.live).length;
 
   return (
-    <div className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-[var(--bg)] text-[var(--fg)]">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
-        {/* Header row */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold font-sans tracking-tight flex items-center gap-2.5">
-              Dashboard
-              <span className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-[0.1em] font-normal text-[var(--muted-foreground-2)]">
-                <span className={`size-1.5 rounded-full ${TONE_DOT[connectionTone]}`} aria-hidden="true" />
-                {connectionLabel}
-              </span>
-            </h2>
-            <p className="text-xs text-[var(--muted-foreground-2)] mt-0.5">
-              Everything your agent plane is doing, at a glance.
-            </p>
-            {launchBlocked ? (
-              <p
-                data-testid="launch-blocked-banner"
-                className="mt-2 border border-[var(--border-1)] bg-[var(--card)] px-2.5 py-1.5 font-mono text-[11px] text-[var(--fg)]"
-              >
-                Can't launch yet: connect a provider. Open Providers and finish Codex or Claude sign-in, or set AI_GATEWAY_TOKEN.
-              </p>
-            ) : null}
-          </div>
+    <MainCard className={className}>
+      {/* 48px Header */}
+      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {onToggleSidebar ? (
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!sidebarCollapsed}
+              className="flex size-7 items-center justify-center rounded-md text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            >
+              <PanelLeft className="size-4" strokeWidth={1.75} aria-hidden="true" />
+            </button>
+          ) : null}
+
+          <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
+            <ol className="flex items-center gap-1.5 min-w-0">
+              <li className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[14px] text-[#71717a] dark:text-zinc-400 truncate">{scopeLabel}</span>
+              </li>
+              <li className="flex items-center gap-1.5 min-w-0">
+                <ChevronRight className="size-3.5 text-[#71717a] dark:text-zinc-500 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+                <span className="text-[14px] text-[#71717a] dark:text-zinc-400 truncate">Insights</span>
+              </li>
+              <li className="flex items-center gap-1.5 min-w-0">
+                <ChevronRight className="size-3.5 text-[#71717a] dark:text-zinc-500 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+                <h1 className="text-[14px] font-medium text-[#0a0a0a] dark:text-zinc-100 truncate" aria-current="page">
+                  Dashboard
+                </h1>
+              </li>
+            </ol>
+            <span className="ml-2 flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-[0.1em] font-normal text-[#71717a] dark:text-zinc-400">
+              <span className={`size-1.5 rounded-full ${TONE_DOT[connectionTone]}`} aria-hidden="true" />
+              {connectionLabel}
+            </span>
+          </nav>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={onNewTask}
-            className="bg-[var(--primary)] text-[var(--primary-text)] hover:bg-[color-mix(in_oklch,var(--primary)_88%,black)] min-h-11 rounded-[var(--radius-button)] text-[13px] font-semibold px-4 flex items-center gap-2"
+            aria-label="New task"
+            className="flex h-8 items-center gap-1.5 rounded-lg bg-[#e4e4e7] px-2.5 text-[13px] font-medium text-[#0a0a0a] transition-colors hover:bg-[#d4d4d8] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
           >
-            <Plus aria-hidden="true" className="size-4" strokeWidth={2} />
-            New Task
+            <Plus className="size-3.5" strokeWidth={2} aria-hidden="true" />
+            <span>New Task</span>
           </button>
         </div>
+      </header>
+
+      {/* Main Body */}
+      <div className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain p-4 lg:p-6 flex flex-col gap-6 text-[#0a0a0a] dark:text-zinc-100">
+        {launchBlocked ? (
+          <p
+            data-testid="launch-blocked-banner"
+            className="rounded-lg border border-amber-300 bg-amber-50/80 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
+          >
+            Can&apos;t launch yet: connect a provider. Open Providers and finish Codex or Claude sign-in, or set AI_GATEWAY_TOKEN.
+          </p>
+        ) : null}
+
+        {runsError ? (
+          <p
+            role="alert"
+            className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300"
+          >
+            Run history is unavailable: {runsError}
+          </p>
+        ) : null}
 
         {/* Stat cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 paper-dots p-2 -m-2">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <button
             type="button"
             onClick={() => onNavigate("analytics")}
-            className="relative text-left bg-[var(--card)] border border-[var(--border-2)] rounded-[var(--radius-button)] p-4 hover:border-[var(--primary)]/30 hover:shadow-[var(--sh-card)] transition-all group"
+            className="relative flex flex-col rounded-xl border border-[#e4e4e7] bg-white p-4 text-left transition-colors hover:border-zinc-300 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:border-zinc-700"
           >
-            <span className="absolute top-2 right-2 text-[10px] font-mono text-[var(--muted-foreground-3)]">01</span>
-            <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+            <span className="absolute top-3 right-3 text-[10px] font-mono text-[#a1a1aa] dark:text-zinc-500">01</span>
+            <span className="text-[11px] font-medium text-[#71717a] dark:text-zinc-400 uppercase tracking-wider">
               Total runs
-            </div>
-            <div className="mt-1.5 text-xl font-bold font-sans tabular-nums">{runs.length}</div>
-            <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">
+            </span>
+            <span className="mt-2 text-2xl font-semibold tabular-nums text-[#0a0a0a] dark:text-zinc-100">{runs.length}</span>
+            <span className="mt-1 text-[12px] text-[#71717a] dark:text-zinc-400">
               {stats.prRequested} requested a PR
-            </div>
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => onNavigate("tasks")}
-            className="relative text-left bg-[var(--card)] border border-[var(--border-2)] rounded-[var(--radius-button)] p-4 hover:border-[var(--primary)]/30 hover:shadow-[var(--sh-card)] transition-all"
+            className="relative flex flex-col rounded-xl border border-[#e4e4e7] bg-white p-4 text-left transition-colors hover:border-zinc-300 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:border-zinc-700"
           >
-            <span className="absolute top-2 right-2 text-[10px] font-mono text-[var(--muted-foreground-3)]">02</span>
-            <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+            <span className="absolute top-3 right-3 text-[10px] font-mono text-[#a1a1aa] dark:text-zinc-500">02</span>
+            <span className="text-[11px] font-medium text-[#71717a] dark:text-zinc-400 uppercase tracking-wider">
               Active sandboxes
-            </div>
-            <div className="mt-1.5 text-xl font-bold font-sans tabular-nums text-[var(--primary)]">
+            </span>
+            <span className="mt-2 text-2xl font-semibold tabular-nums text-[#0a0a0a] dark:text-zinc-100">
               {stats.active.length}
-            </div>
-            <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">
+            </span>
+            <span className="mt-1 text-[12px] text-[#71717a] dark:text-zinc-400">
               {stats.active.length > 0 ? "running or pending now" : "nothing in flight"}
-            </div>
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => onNavigate("approvals")}
-            className="relative text-left bg-[var(--card)] border border-[var(--border-2)] rounded-[var(--radius-button)] p-4 hover:border-[color-mix(in_oklch,var(--warning)_40%,transparent)] hover:shadow-[var(--sh-card)] transition-all"
+            className="relative flex flex-col rounded-xl border border-[#e4e4e7] bg-white p-4 text-left transition-colors hover:border-zinc-300 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:border-zinc-700"
           >
-            <span className="absolute top-2 right-2 text-[10px] font-mono text-[var(--muted-foreground-3)]">03</span>
-            <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+            <span className="absolute top-3 right-3 text-[10px] font-mono text-[#a1a1aa] dark:text-zinc-500">03</span>
+            <span className="text-[11px] font-medium text-[#71717a] dark:text-zinc-400 uppercase tracking-wider">
               Pending approvals
-            </div>
-            <div className={`mt-1.5 text-xl font-bold font-sans tabular-nums ${approvalCount > 0 ? "text-[var(--warning-fg)]" : ""}`}>
+            </span>
+            <span className={`mt-2 text-2xl font-semibold tabular-nums ${approvalCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-[#0a0a0a] dark:text-zinc-100"}`}>
               {approvalCount}
-            </div>
-            <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">
+            </span>
+            <span className="mt-1 text-[12px] text-[#71717a] dark:text-zinc-400">
               {approvalCount > 0 ? "waiting on your decision" : "queue is clear"}
-            </div>
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => onNavigate("analytics")}
-            className="relative text-left bg-[var(--card)] border border-[var(--border-2)] rounded-[var(--radius-button)] p-4 hover:border-[color-mix(in_oklch,var(--success)_30%,transparent)] hover:shadow-[var(--sh-card)] transition-all"
+            className="relative flex flex-col rounded-xl border border-[#e4e4e7] bg-white p-4 text-left transition-colors hover:border-zinc-300 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:border-zinc-700"
           >
-            <span className="absolute top-2 right-2 text-[10px] font-mono text-[var(--muted-foreground-3)]">04</span>
-            <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+            <span className="absolute top-3 right-3 text-[10px] font-mono text-[#a1a1aa] dark:text-zinc-500">04</span>
+            <span className="text-[11px] font-medium text-[#71717a] dark:text-zinc-400 uppercase tracking-wider">
               Success rate
-            </div>
-            <div className="mt-1.5 text-xl font-bold font-sans tabular-nums text-[var(--success)]">
+            </span>
+            <span className="mt-2 text-2xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
               {stats.successRate !== null ? `${stats.successRate}%` : "—"}
-            </div>
-            <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">
+            </span>
+            <span className="mt-1 text-[12px] text-[#71717a] dark:text-zinc-400">
               {stats.medianMs !== null ? `median run ${formatDuration(stats.medianMs)}` : "no completed runs yet"}
-            </div>
+            </span>
           </button>
         </div>
 
-        {runsError ? (
-          <p role="alert" className="border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)] px-3 py-2 text-xs text-[var(--destructive)]">
-            Run history is unavailable: {runsError}
-          </p>
-        ) : null}
-
-        <section aria-labelledby="capability-plane-title">
-          <p className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-            One workspace · account-owned tools
-          </p>
-          <h3 id="capability-plane-title" className="mt-1 mb-3 text-lg font-sans">
-            Your agent plane
-          </h3>
+        {/* Capability plane */}
+        <section aria-labelledby="capability-plane-title" className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 id="capability-plane-title" className="text-sm font-semibold tracking-tight text-[#0a0a0a] dark:text-zinc-100">
+              Your agent plane
+            </h2>
+            <span className="text-[11px] text-[#71717a] dark:text-zinc-400 font-mono">
+              Account-owned tools
+            </span>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             {([
               { id: "agents", number: "01", title: "Agents & MCP", detail: `${agents.length} registered principal${agents.length === 1 ? "" : "s"} · scopes and gateway` },
@@ -211,62 +256,70 @@ export function DashboardView({
                 key={capability.id}
                 type="button"
                 onClick={() => onNavigate(capability.id)}
-                className="text-left border border-[var(--border-2)] bg-[var(--card)] p-4 hover:border-[var(--primary)]/35 hover:shadow-[var(--sh-card)] transition-all"
+                className="flex flex-col rounded-xl border border-[#e4e4e7] bg-white p-4 text-left transition-colors hover:border-zinc-300 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-zinc-700"
               >
-                <span className="block text-[10px] font-mono text-[var(--muted-foreground-2)]">{capability.number} / CAPABILITY</span>
-                <span className="block mt-2 font-sans text-lg text-[var(--fg)]">{capability.title}</span>
-                <span className="block mt-1 text-xs leading-relaxed text-[var(--muted-foreground-2)]">{capability.detail}</span>
-                <span className="block mt-3 text-[10px] font-mono uppercase tracking-wider text-[var(--primary)]">Open surface →</span>
+                <span className="text-[10px] font-mono text-[#a1a1aa] dark:text-zinc-500">{capability.number} / CAPABILITY</span>
+                <span className="mt-2 text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100">{capability.title}</span>
+                <span className="mt-1 text-[12px] leading-relaxed text-[#71717a] dark:text-zinc-400">{capability.detail}</span>
+                <span className="mt-3 text-[11px] font-medium text-zinc-900 dark:text-zinc-200">Open surface →</span>
               </button>
             ))}
           </div>
         </section>
 
+        {/* Recent activity & approvals */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
           {/* Recent activity */}
-          <section className="lg:col-span-3 paper-window rounded-[var(--radius-button)] overflow-hidden">
-            <header className="bez-titlebar">
-              <h3 className="text-[11px] font-mono tracking-[0.08em]">recent.activity</h3>
+          <section className="lg:col-span-3 rounded-xl border border-[#e4e4e7] bg-white overflow-hidden dark:border-zinc-800 dark:bg-zinc-900/40">
+            <header className="flex items-center justify-between border-b border-[#e4e4e7] px-4 py-3 dark:border-zinc-800">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#71717a] dark:text-zinc-400">
+                Recent Activity
+              </h3>
               <button
                 type="button"
                 onClick={() => onNavigate("analytics")}
-                className="text-[10px] font-mono uppercase tracking-[0.1em] text-white/90 hover:text-white transition-colors"
+                className="text-[12px] font-medium text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 transition-colors"
               >
                 View all runs →
               </button>
             </header>
             {recentRuns.length === 0 ? (
-              <div className="px-4 py-10 text-center">
-                <p className="text-sm text-[var(--muted-foreground-2)]">No runs yet.</p>
-                <button
-                  type="button"
-                  onClick={onNewTask}
-                  className="mt-3 text-[13px] font-semibold text-[var(--primary)] hover:text-[var(--primary)] transition-colors"
-                >
-                  Delegate your first task →
-                </button>
+              <div className="py-12 text-center">
+                <EmptyState
+                  title="No runs yet"
+                  description="Delegate your first task to see execution history."
+                  action={
+                    <button
+                      type="button"
+                      onClick={onNewTask}
+                      className="text-[13px] font-medium text-zinc-900 dark:text-zinc-100 hover:underline"
+                    >
+                      Delegate your first task →
+                    </button>
+                  }
+                />
               </div>
             ) : (
-              <ul className="divide-y divide-[var(--border-1)]">
+              <ul className="divide-y divide-[#e4e4e7] dark:divide-zinc-800">
                 {recentRuns.map((run) => (
                   <li key={run.runId}>
                     <button
                       type="button"
                       onClick={() => onInspectRun(run.runId)}
-                      className="w-full px-4 py-3 flex items-center gap-3 hover:bg-[var(--card)]/70 transition-colors text-left"
+                      className="w-full px-4 py-3 flex items-center gap-3 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800/40 transition-colors text-left"
                     >
                       <span
-                        className={`shrink-0 text-[10px] font-bold uppercase tracking-wider border rounded-[var(--radius-button)] px-2 py-0.5 ${statusChipClass(run.status)}`}
+                        className={`shrink-0 text-[10px] font-bold uppercase tracking-wider border rounded px-2 py-0.5 ${statusChipClass(run.status)}`}
                       >
                         {statusLabel(run.status)}
                       </span>
                       <span className="flex-1 min-w-0">
-                        <span className="block text-[13px] font-medium truncate">{run.task}</span>
-                        <span className="block text-[11px] font-mono text-[var(--muted-foreground-2)] truncate">
+                        <span className="block text-[13px] font-medium text-[#0a0a0a] dark:text-zinc-100 truncate">{run.task}</span>
+                        <span className="block text-[11px] font-mono text-[#71717a] dark:text-zinc-400 truncate">
                           {parseRepoName(run.repoUrl)} · {run.baseBranch}
                         </span>
                       </span>
-                      <span className="shrink-0 text-[11px] font-mono text-[var(--muted-foreground-2)]">
+                      <span className="shrink-0 text-[11px] font-mono text-[#71717a] dark:text-zinc-400">
                         {formatTimeAgo(run.updatedAt || run.createdAt)}
                       </span>
                     </button>
@@ -274,7 +327,7 @@ export function DashboardView({
                 ))}
               </ul>
             )}
-            <footer className="bez-statusbar">
+            <footer className="flex items-center justify-between border-t border-[#e4e4e7] px-4 py-2 text-[11px] text-[#71717a] dark:border-zinc-800 dark:text-zinc-400">
               <span>{recentRuns.length} shown</span>
               <span>{stats.active.length} in flight</span>
               <span>{stats.errors} errors</span>
@@ -283,34 +336,34 @@ export function DashboardView({
 
           {/* Right column: approvals queue + agents */}
           <div className="lg:col-span-2 flex flex-col gap-4">
-            <section className="paper-window rounded-[var(--radius-button)] overflow-hidden">
-              <header className="bez-titlebar">
-                <h3 className="text-[11px] font-mono tracking-[0.08em]">approvals.queue</h3>
+            <section className="rounded-xl border border-[#e4e4e7] bg-white overflow-hidden dark:border-zinc-800 dark:bg-zinc-900/40">
+              <header className="flex items-center justify-between border-b border-[#e4e4e7] px-4 py-3 dark:border-zinc-800">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#71717a] dark:text-zinc-400">
+                  Approvals queue
+                </h3>
                 {approvalCount > 0 ? (
-                  <span className="min-w-5 h-5 px-1.5 rounded-[var(--radius-button)] bg-[var(--warning-fg)] text-white text-[10px] font-mono flex items-center justify-center">
+                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-400/20 dark:text-amber-300 tabular-nums">
                     {approvalCount}
                   </span>
-                ) : (
-                  <span className="bez-marks" aria-hidden="true"><i /><i /><i /></span>
-                )}
+                ) : null}
               </header>
               {approvalCount === 0 ? (
-                <div className="px-4 py-6 flex items-center gap-2.5 text-[13px] text-[var(--success)]">
+                <div className="px-4 py-6 flex items-center gap-2.5 text-[13px] text-emerald-600 dark:text-emerald-400">
                   <Check aria-hidden="true" className="size-4 shrink-0" strokeWidth={2} />
                   Nothing waiting on you.
                 </div>
               ) : (
-                <ul className="divide-y divide-[var(--border-1)]">
+                <ul className="divide-y divide-[#e4e4e7] dark:divide-zinc-800">
                   {pendingApprovals.slice(0, 4).map((approval) => (
                     <li key={approval.approvalId} className="px-4 py-3">
-                      <div className="text-[13px] font-medium truncate">{approval.tool}</div>
-                      <div className="text-[11px] font-mono text-[var(--muted-foreground-2)]">chat session</div>
+                      <div className="text-[13px] font-medium text-[#0a0a0a] dark:text-zinc-100 truncate">{approval.tool}</div>
+                      <div className="text-[11px] font-mono text-[#71717a] dark:text-zinc-400">chat session</div>
                     </li>
                   ))}
                   {storedApprovals.slice(0, 4).map((approval) => (
                     <li key={approval.approvalId} className="px-4 py-3">
-                      <div className="text-[13px] font-medium truncate">{approval.task}</div>
-                      <div className="text-[11px] font-mono text-[var(--muted-foreground-2)] truncate">
+                      <div className="text-[13px] font-medium text-[#0a0a0a] dark:text-zinc-100 truncate">{approval.task}</div>
+                      <div className="text-[11px] font-mono text-[#71717a] dark:text-zinc-400 truncate">
                         {parseRepoName(approval.repoUrl)} · {approval.kind ?? "run"}
                       </div>
                     </li>
@@ -318,11 +371,11 @@ export function DashboardView({
                 </ul>
               )}
               {approvalCount > 0 ? (
-                <div className="px-4 py-3 border-t border-[var(--border-1)]">
+                <div className="px-4 py-3 border-t border-[#e4e4e7] dark:border-zinc-800">
                   <button
                     type="button"
                     onClick={() => onNavigate("approvals")}
-                    className="w-full min-h-9 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--warning-fg)_40%,transparent)] bg-[color-mix(in_oklch,var(--warning-fg)_10%,transparent)] hover:bg-[var(--warning-fg)]/15 text-[var(--warning-fg)] text-xs font-semibold transition-colors"
+                    className="w-full h-8 rounded-lg bg-amber-500/10 hover:bg-amber-500/15 text-amber-700 dark:text-amber-300 text-xs font-semibold transition-colors"
                   >
                     Review Approvals
                   </button>
@@ -330,27 +383,29 @@ export function DashboardView({
               ) : null}
             </section>
 
-            <section className="paper-window rounded-[var(--radius-button)] overflow-hidden">
-              <header className="bez-titlebar">
-                <h3 className="text-[11px] font-mono tracking-[0.08em]">agents</h3>
-                <span className="text-[10px] font-mono text-white/90">
+            <section className="rounded-xl border border-[#e4e4e7] bg-white overflow-hidden dark:border-zinc-800 dark:bg-zinc-900/40">
+              <header className="flex items-center justify-between border-b border-[#e4e4e7] px-4 py-3 dark:border-zinc-800">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#71717a] dark:text-zinc-400">
+                  Registered Agents
+                </h3>
+                <span className="text-[11px] font-mono text-[#71717a] dark:text-zinc-400">
                   {liveAgents}/{agents.length} live
                 </span>
               </header>
               {agents.length === 0 ? (
-                <div className="px-4 py-6 text-[13px] text-[var(--muted-foreground-2)]">
+                <div className="px-4 py-6 text-[13px] text-[#71717a] dark:text-zinc-400">
                   No MCP principals registered yet.
                 </div>
               ) : (
-                <ul className="divide-y divide-[var(--border-1)]">
+                <ul className="divide-y divide-[#e4e4e7] dark:divide-zinc-800">
                   {agents.slice(0, 5).map((agent) => (
                     <li key={agent.principal} className="px-4 py-2.5 flex items-center gap-2.5">
                       <span
-                        className={`size-1.5 rounded-full shrink-0 ${agent.live ? "bg-[var(--success)]" : "bg-[var(--muted-foreground-3)]/40"}`}
+                        className={`size-1.5 rounded-full shrink-0 ${agent.live ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"}`}
                         aria-hidden="true"
                       />
-                      <span className="flex-1 min-w-0 text-[13px] font-medium truncate">{agent.principal}</span>
-                      <span className="shrink-0 text-[10px] font-mono text-[var(--muted-foreground-2)]">
+                      <span className="flex-1 min-w-0 text-[13px] font-medium text-[#0a0a0a] dark:text-zinc-100 truncate">{agent.principal}</span>
+                      <span className="shrink-0 text-[10px] font-mono text-[#71717a] dark:text-zinc-400">
                         {agent.scopes.length} scope{agent.scopes.length === 1 ? "" : "s"}
                       </span>
                     </li>
@@ -361,6 +416,6 @@ export function DashboardView({
           </div>
         </div>
       </div>
-    </div>
+    </MainCard>
   );
 }

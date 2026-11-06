@@ -77,6 +77,7 @@ function wrapInstance(
     },
 
     async exec(command, opts) {
+      if (opts?.journal?.mode === "attach" || opts?.requiredJournalJobId !== undefined) throw new SandboxError("capability_unsupported", "This provider cannot attach to a native execution journal. No command was launched.");
       opts?.signal?.throwIfAborted();
       const result = await instance.runCommand(command, {
         cwd: opts?.cwd,

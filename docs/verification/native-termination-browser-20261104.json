@@ -1,0 +1,59 @@
+{
+  "recordedAt": "2026-11-04T20:21:50.432Z",
+  "sourceBase": "0138a49f8410ff9325171a7b03d5b6254c9c5c6c plus the reviewed termination repair",
+  "sourceHashes": {
+    "scripts/shiba-local-daemon.mjs": "aeee9836304cadba10275cded9fa8313c98fe41db63992153817bc8b75e524e1",
+    "scripts/agent-harness.mjs": "0eb14ab85f89e81b3c0f0a0afb1fda14e1aae2325287fc7df42dea086bb53e7a",
+    ".cursor/skills/verify-shiba/scripts/drive-local-runtime.mjs": "20762dd772e3e5438a319b9d9302835ce29247af9399db2c83fb0dbcb9b4dcd4"
+  },
+  "passed": true,
+  "status": "PASS",
+  "target": "web",
+  "modelBoundary": {
+    "cli": "deterministic fixture Claude CLI",
+    "liveInference": false
+  },
+  "externalMarketingActions": false,
+  "uiSteps": [
+    "Dismiss the disposable account setup through the real UI",
+    "Browse the authenticated registry-backed catalog, inspect required scope, search/filter MCP tools, and withhold unsupported actions",
+    "Marketing role template fills real required deliverables before creation",
+    "Create bot through the real directory UI",
+    "Launch bot opens a real bound conversation",
+    "Send task UI queues a frozen local bot approval",
+    "Human approval uses the real dashboard button",
+    "Allow tool UI releases this bot daemon CLI permission gate",
+    "Completed bot run and version render in the real conversation UI",
+    "Marketing deliverables survive refresh with exact native bytes, metadata, hashes and scoped downloads",
+    "Real diff UI renders the native Git patch with successful named-session review",
+    "Send task UI queues a frozen local bot approval",
+    "Human approval uses the real dashboard button",
+    "Missing required marketing file yields an error and no downloadable partial result",
+    "Send task UI queues a frozen local bot approval",
+    "Human approval uses the real dashboard button"
+  ],
+  "checks": [
+    "real Better Auth local identity",
+    "one-time daemon pairing",
+    "heartbeat and machine discovery",
+    "human task approval",
+    "native Git fixture clone",
+    "real daemon claim",
+    "native Claude protocol tool approval",
+    "frozen profile version/instructions/permissions",
+    "real file edit and persisted diff",
+    "dashboard cancellation terminates CLI",
+    "cancelled result remains fenced",
+    "run-owned CLI tool subprocess stopped",
+    "actual Marketing role UI template and persisted required paths",
+    "approved native marketing file writes",
+    "refreshed deliverable metadata and exact bytes/hash",
+    "private artifact bodies absent from run projections",
+    "download requires the owning named session",
+    "missing required file fails with no downloadable partial result"
+  ],
+  "runId": "agent-tool:e94923e6-6092-466d-a00a-10371565bf68",
+  "missingDeliverableRunId": "agent-tool:236eb9f1-6c08-4f62-989b-324b5ca5d557",
+  "cancelRunId": "agent-tool:d98e56f1-1419-49b6-ae1a-5a0debaf549c",
+  "scope": "Actual local Chromium, Worker/auth/storage, Git and daemon; deterministic model CLI. No cloud deployment, live vendor, provider inference or native macOS acceptance."
+}

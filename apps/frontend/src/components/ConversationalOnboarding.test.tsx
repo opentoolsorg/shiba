@@ -6,6 +6,7 @@ import { ConversationalOnboarding } from "./ConversationalOnboarding";
 import { EMPTY_ONBOARDING_DRAFT, type OnboardingDraft } from "../onboarding-draft";
 import { OnboardingConflictError, type FirstRunProgressUpdate } from "../onboarding-progress-client";
 import type { FirstRunProgressSnapshot } from "./FirstRunWizard";
+import { EMPLOYEE_TEMPLATES } from "../employee-templates";
 
 beforeEach(() => { vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ sources: [] }) }))); });
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
@@ -139,15 +140,65 @@ describe("conversational first task setup", () => {
     expect(h.updates.filter((body) => body.action === "prepare-task")).toHaveLength(1);
   });
 
-  it("starts with two roles and reveals alternatives through native details", async () => {
+  it("makes every optional role discoverable and filters without creating or configuring an employee", async () => {
     const h = harness({ draft: { ...reviewDraft, currentStep: "employee" } });
     render(<h.Harness />);
-    expect(within(screen.getByRole("group", { name: "Suggested roles" })).getAllByRole("button")).toHaveLength(2);
-    const details = screen.getByText("Other roles").closest("details");
-    expect(details?.open).toBe(false);
-    fireEvent.click(screen.getByText("Other roles"));
-    expect(details?.open).toBe(true);
-    expect(details?.querySelectorAll("button")).toHaveLength(5);
+    const roles = screen.getByRole("group", { name: "Optional employee roles" });
+    expect(within(roles).getAllByRole("button")).toHaveLength(EMPLOYEE_TEMPLATES.length);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find an employee role" }), { target: { value: "finance" } });
+    expect(within(roles).getAllByRole("button")).toHaveLength(1);
+    expect(within(roles).getByRole("button", { name: /Finance/ })).toBeTruthy();
+    expect(h.updates).toHaveLength(0);
+    expect(h.configure).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find an employee role" }), { target: { value: "no-such-role" } });
+    expect(within(roles).queryAllByRole("button")).toHaveLength(0);
+    expect(screen.getByText(/No matching built-in role/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Describe a custom role" }));
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Your answer: Employee" }));
+    expect(within(roles).getAllByRole("button")).toHaveLength(EMPLOYEE_TEMPLATES.length);
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it.each(["gtm", "hr", "finance"] as const)("saves %s as an optional template hint and leaves employee configuration explicit", async (roleId) => {
+    const h = harness({ draft: { ...reviewDraft, currentStep: "employee", employeeTemplateId: null, employeeTemplateVersion: null } });
+    render(<h.Harness />);
+    const template = EMPLOYEE_TEMPLATES.find((item) => item.id === roleId);
+    if (!template) throw new Error(`Missing ${roleId} test template`);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find an employee role" }), { target: { value: template.label } });
+    const choice = within(screen.getByRole("group", { name: "Optional employee roles" })).getAllByRole("button")[0];
+    if (!choice) throw new Error(`Missing ${roleId} role choice`);
+    fireEvent.click(choice);
+    await screen.findByRole("textbox", { name: "Your answer: Context" });
+    expect(h.server.draftTask).toMatchObject({ employeeTemplateId: roleId, employeeTemplateVersion: 1, employeeId: null, employeeVersion: null });
+    expect(h.configure).not.toHaveBeenCalled();
+    expect(h.useDraft).not.toHaveBeenCalled();
+    expect(h.updates).toHaveLength(1);
+    expect(h.updates[0]?.action).toBe("save-draft");
+  });
+
+  it("does not invent a role recommendation for an unmatched goal", () => {
+    const h = harness({ draft: { ...reviewDraft, currentStep: "employee", goal: "Organize my first task", roleAnswer: "", helpAnswer: "" } });
+    render(<h.Harness />);
+    expect(screen.queryByText(/Suggested starting point:/)).toBeNull();
+    expect(screen.getByText(/Choose the role that fits your goal/)).toBeTruthy();
+  });
+
+  it.each([
+    ["Review Claude and Codex, then return", "providers"],
+    ["Review connections, then return", "integrations"],
+    ["Review skills, then return", "skills"],
+    ["Review employee permissions, then return", "employee-tools"],
+  ])("saves the setup position before opening %s without connection or permission writes", async (label, view) => {
+    const h = harness({ draft: { ...reviewDraft, currentStep: "connections" } });
+    let finish: (() => void) | undefined;
+    h.dismiss.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    render(<h.Harness />);
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    expect(h.navigate).not.toHaveBeenCalled();
+    finish?.();
+    await waitFor(() => expect(h.navigate).toHaveBeenCalledWith(view));
+    expect(h.updates).toHaveLength(0);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("saves only ready source ids while preserving unsent facts and Memory return", async () => {

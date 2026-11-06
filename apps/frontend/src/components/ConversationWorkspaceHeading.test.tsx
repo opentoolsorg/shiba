@@ -1,11 +1,26 @@
 // @vitest-environment happy-dom
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { ConversationWorkspaceHeading } from "./ConversationWorkspaceHeading";
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("ConversationWorkspaceHeading", () => {
   it("labels app tools independently of stale repository or local runtime settings", () => {
-    render(<ConversationWorkspaceHeading title="Research helper" mode="work" appToolsWork executionTargetKind="repository" runTarget="local" repoUrl="https://github.com/acme/ignored" artifactWorkspaceName="Ignored" machineName="dev-laptop" />);
+    render(
+      <ConversationWorkspaceHeading
+        title="Research helper"
+        mode="work"
+        appToolsWork
+        executionTargetKind="repository"
+        runTarget="local"
+        repoUrl="https://github.com/acme/ignored"
+        artifactWorkspaceName="Ignored"
+        machineName="dev-laptop"
+      />,
+    );
     expect(screen.getByLabelText("Next task target: Connected app tools")).toBeTruthy();
     expect(screen.queryByText(/dev-laptop|acme\/ignored/)).toBeNull();
   });
@@ -40,6 +55,22 @@ describe("ConversationWorkspaceHeading", () => {
     expect(screen.getByLabelText("Next task target: Cloud sandbox, Artifact workspace, Launch notes")).toBeTruthy();
   });
 
+  it("labels local artifact execution without showing a repository or claiming cloud execution", () => {
+    render(
+      <ConversationWorkspaceHeading
+        title="Research brief"
+        executionTargetKind="artifact-workspace"
+        runTarget="local"
+        repoUrl="https://github.com/acme/ignored"
+        artifactWorkspaceName="Launch notes"
+        machineName="dev-laptop"
+      />,
+    );
+
+    expect(screen.getByLabelText("Next task target: Local computer, Artifact workspace, Launch notes")).toBeTruthy();
+    expect(screen.queryByText(/Cloud sandbox|acme\/ignored/)).toBeNull();
+  });
+
   it("identifies the paired local machine when local repository execution is selected", () => {
     render(
       <ConversationWorkspaceHeading
@@ -53,5 +84,26 @@ describe("ConversationWorkspaceHeading", () => {
     );
 
     expect(screen.getByLabelText("Next task target: Local computer, Repository, dev-laptop")).toBeTruthy();
+  });
+
+  it("renders breadcrumb bar with actions when crumbs are passed", () => {
+    render(
+      <ConversationWorkspaceHeading
+        title="Feature thread"
+        crumbs={["Personal", "Chats", "Feature thread"]}
+        executionTargetKind="repository"
+        runTarget="sandbox"
+        repoUrl="https://github.com/acme/shiba"
+        artifactWorkspaceName="My workspace"
+        actions={<button type="button">Action</button>}
+      />,
+    );
+
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeTruthy();
+    expect(screen.getByText("Personal")).toBeTruthy();
+    expect(screen.getByText("Chats")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Feature thread" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Action" })).toBeTruthy();
+    expect(screen.getByLabelText("Next task target: Cloud sandbox, Repository, acme/shiba")).toBeTruthy();
   });
 });

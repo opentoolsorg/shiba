@@ -11,6 +11,8 @@ import { MAILBOX_DIRECTORY_NAME } from "../src/mailbox-do.js";
 import { APPROVAL_TTL_MS, type PendingApproval } from "../src/pending-approvals.js";
 import { InputError } from "../src/security.js";
 
+const HUMAN_APPROVER = "reviewer@example.test";
+
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), getAgentByName: vi.fn(), destroy: vi.fn() }));
 vi.mock("@cloudflare/think", () => ({ Think: class {
   onStart() {}
@@ -162,6 +164,7 @@ function agentWithMailbox(opts: {
   const env = {
     Sandbox: {},
     GITHUB_TOKEN: "test-token",
+    DASHBOARD_APPROVERS: HUMAN_APPROVER,
     SEND_EMAIL: { send },
     Mailbox: {
       idFromName: (address: string) => address.trim().toLowerCase(),
@@ -193,7 +196,7 @@ function approve(instance: CodingOrchestrator, approvalId: string, approved: boo
     new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId, approved, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "default", approvalId, approved, decidedBy: HUMAN_APPROVER, source: "dashboard" }),
     }),
   );
 }
@@ -836,7 +839,7 @@ describe("email approval execution", () => {
         kind: "email_send",
         payload: { ...SEND_PAYLOAD, mailbox: "agent-a@shiba.dev" },
         createdAt: Date.now(),
-        decidedBy: "U1",
+        decidedBy: HUMAN_APPROVER,
       },
     ];
     (instance as unknown as { dispatchApprovedEmail(record: PendingApproval): void })
@@ -869,7 +872,7 @@ describe("email approval execution", () => {
           mailbox: "agent-a@shiba.dev",
         },
         createdAt: Date.now(),
-        decidedBy: "U1",
+        decidedBy: HUMAN_APPROVER,
       },
     ];
     (instance as unknown as { dispatchApprovedEmail(record: PendingApproval): void })
@@ -1271,7 +1274,7 @@ describe("GET /api/approvals", () => {
     expect(body.approvals.map((a) => a.approvalId)).not.toContain(approval_id);
     const decided = body.decided.find((a) => a.approvalId === approval_id);
     expect(decided?.status).toBe("approved");
-    expect(decided?.decidedBy).toBe("U1");
+    expect(decided?.decidedBy).toBe(HUMAN_APPROVER);
     expect(decided?.execution?.status).toBe("executed");
   });
 });
@@ -1284,7 +1287,7 @@ describe("orchestrator restart recovery", () => {
     task: "email send to person@example.com: Status update",
     status: "approved" as const,
     createdAt: 1,
-    decidedBy: "U1",
+    decidedBy: HUMAN_APPROVER,
     decidedAt: 2,
     ...over,
   });
@@ -1480,5 +1483,39 @@ describe("email approval Slack card", () => {
     });
     await settled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("email human approval authorization", () => {
+  it("refuses an unlisted dashboard user without sending, mutating drafts or consuming the approval", async () => {
+    const { instance, env, send, mailboxCalls, settled } = agentWithMailbox();
+    const { approval_id } = await queueEmailApproval(env as never, { kind: "email_send", mailbox: "agent-a@shiba.dev", payload: { ...SEND_PAYLOAD } });
+    const before = structuredClone(mailboxCalls);
+    const response = await instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "default", approvalId: approval_id, approved: true, decidedBy: "intruder@example.test", source: "dashboard" }),
+    }));
+    await settled();
+    expect(response.status).toBe(403);
+    expect(send).not.toHaveBeenCalled();
+    expect(mailboxCalls).toEqual(before);
+    expect(instance.state.pendingApprovals?.find((approval) => approval.approvalId === approval_id)?.status).toBe("pending");
+  });
+
+  it("refuses an automation principal even if its string is listed as a dashboard approver", async () => {
+    const { instance, env, send, mailboxCalls, settled } = agentWithMailbox();
+    env.DASHBOARD_APPROVERS = "automation:daily-mail";
+    const { approval_id } = await queueEmailApproval(env as never, { kind: "email_send", mailbox: "agent-a@shiba.dev", payload: { ...SEND_PAYLOAD } });
+    const before = structuredClone(mailboxCalls);
+    const response = await instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "default", approvalId: approval_id, approved: true, decidedBy: "automation:daily-mail", source: "dashboard" }),
+    }));
+    await settled();
+    expect(response.status).toBe(403);
+    expect(send).not.toHaveBeenCalled();
+    expect(mailboxCalls).toEqual(before);
+    expect(instance.state.pendingApprovals?.find((approval) => approval.approvalId === approval_id)?.status).toBe("pending");
   });
 });

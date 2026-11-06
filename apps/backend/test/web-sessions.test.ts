@@ -80,6 +80,7 @@ import {
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import worker from "../src/index.js";
 import type { Env } from "../src/env.js";
+import { resolveSlackCanvasBinding } from "../src/slack-canvas.js";
 import type { PendingApproval } from "../src/pending-approvals.js";
 
 describe("web-sessions module (T30/T32)", () => {
@@ -682,6 +683,7 @@ function makeMockEnv() {
     const orchestratorStubs = new Map<string, any>();
     const teardownCalls: string[] = [];
     const roomRequests: Array<{ name: string; request: Request }> = [];
+    const canvasSnapshots = new Map<string, unknown>();
 
     const getStub = (name: string) => {
       if (!orchestratorStubs.has(name)) {
@@ -693,6 +695,11 @@ function makeMockEnv() {
                 ? new Request(input, init)
                 : input;
             const url = new URL(req.url);
+
+            if (url.pathname === "/internal/slack-canvas") {
+              const snapshot = canvasSnapshots.get(name);
+              return snapshot ? Response.json(snapshot) : Response.json({ error: "Not found." }, { status: 404 });
+            }
 
             if (url.pathname.startsWith("/agents/coding-orchestrator/")) {
               return Response.json({ target: name });
@@ -825,10 +832,101 @@ function makeMockEnv() {
       ASSETS: { fetch: vi.fn() },
     } as unknown as Env;
 
-    return { env, sessionMap, runsMap, approvalsMap, activeRunsMap, teardownCalls, roomRequests };
+    return { env, sessionMap, runsMap, approvalsMap, activeRunsMap, teardownCalls, roomRequests, canvasSnapshots };
   }
 
 describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agents/", () => {
+
+  it.each([false, true])("refuses forged Slack canvas owner headers on socket %s without the matching Access JWT", async (socket) => {
+    const { env, roomRequests } = makeMockEnv();
+    env.SLACK_CANVAS_OWNERS = JSON.stringify([{ teamId: "T1", channelId: "C1", ownerId: "alice@example.com" }]);
+    env.INTERNAL_SIGNING_KEY = "slack-canvas-worker-test-signing-key-32";
+    const url = new URL(socket ? "https://example.com/api/slack-canvas/websocket" : "https://example.com/api/slack-canvas");
+    url.searchParams.set("origin", "slack:T1:C1:123.456");
+    url.searchParams.set("approval", "approval-one");
+    if (socket) url.searchParams.set("viewer", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    const headers = {
+      "CF-Access-Authenticated-User-Email": "alice@example.com",
+      "x-shiba-room-owner": "alice@example.com",
+      "x-shiba-room-session": "default",
+      ...(socket ? { Upgrade: "websocket", Origin: "https://example.com" } : {}),
+    };
+    expect((await worker.fetch(new Request(url, { headers }), env)).status).toBe(401);
+    expect((await worker.fetch(new Request(url, { headers: { ...headers, "Cf-Access-Jwt-Assertion": "forged" } }), env)).status).toBe(401);
+    expect((await worker.fetch(new Request(url, { headers: { ...headers, ...(await accessHeaders("bob@example.com")) } }), env)).status).toBe(404);
+    expect(roomRequests).toHaveLength(0);
+  });
+
+  it("authenticates Alice and an explicit Bob viewer without granting dashboard ownership or trusting labels", async () => {
+    const { env, canvasSnapshots, roomRequests, sessionMap } = makeMockEnv();
+    const owner = "alice@example.com";
+    const viewer = "bob@example.com";
+    const origin = "slack:T1:C1:123.456";
+    const approvalId = "approved-canvas";
+    env.SLACK_CANVAS_OWNERS = JSON.stringify([{ teamId: "T1", channelId: "C1", ownerId: owner, viewerIds: [viewer] }]);
+    env.INTERNAL_SIGNING_KEY = "slack-canvas-worker-test-signing-key-32";
+    const room = await resolveSlackCanvasBinding(env, origin, approvalId);
+    canvasSnapshots.set(origin, {
+      source: "slack", origin, runRoom: room,
+      approval: { approvalId, threadKey: origin, status: "approved", task: "Exact task", repoUrl: "https://github.com/o/r", createdAt: Date.now() },
+      run: { runId: room?.runId, status: "running", approval: { approvalId } },
+    });
+    const query = new URLSearchParams({ origin, approval: approvalId, viewer: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" });
+    for (const actor of [owner, viewer]) {
+      const response = await worker.fetch(new Request(`https://example.com/api/slack-canvas/websocket?${query}`, {
+        headers: { ...(await accessHeaders(actor)), Upgrade: "websocket", Origin: "https://example.com", "CF-Access-Authenticated-User-Email": owner, "x-shiba-room-actor": "mallory@example.com", "x-shiba-room-owner": viewer },
+      }), env);
+      expect(response.status).toBe(200);
+      expect(roomRequests.at(-1)?.request.headers.get("x-shiba-room-owner")).toBe(owner);
+      expect(roomRequests.at(-1)?.request.headers.get("x-shiba-room-actor")).toBe(actor);
+      expect(roomRequests.at(-1)?.request.headers.get("x-shiba-room-readonly")).toBe("true");
+      expect(roomRequests.at(-1)?.name).toBe(JSON.stringify([owner, room?.sessionId]));
+    }
+    expect(roomRequests[0]?.request.headers.get("x-shiba-room-viewer")).not.toBe(roomRequests[1]?.request.headers.get("x-shiba-room-viewer"));
+    expect((await worker.fetch(new Request(`https://example.com/api/slack-canvas?${query}`, { headers: await accessHeaders(viewer) }), env)).status).toBe(200);
+    expect((await worker.fetch(new Request(`https://example.com/api/slack-canvas?${query}`, { headers: await accessHeaders("mallory@example.com") }), env)).status).toBe(404);
+    const aliceSession = createWebSession(owner, { name: "Private dashboard session" });
+    sessionMap.set(owner, [aliceSession]);
+    expect((await worker.fetch(new Request(`https://example.com/api/sessions/${aliceSession.id}/realtime?viewer=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, {
+      headers: { ...(await accessHeaders(viewer)), Upgrade: "websocket", Origin: "https://example.com", "x-shiba-room-actor": owner },
+    }), env)).status).toBe(404);
+    expect((await worker.fetch(new Request(`https://example.com/agents/coding-orchestrator/${encodeURIComponent(owner)}`, { headers: await accessHeaders(viewer) }), env)).status).toBe(403);
+    env.SLACK_CANVAS_OWNERS = JSON.stringify([{ teamId: "T1", channelId: "C1", ownerId: owner }]);
+    expect((await worker.fetch(new Request(`https://example.com/api/slack-canvas?${query}`, { headers: await accessHeaders(viewer) }), env)).status).toBe(404);
+    expect((await worker.fetch(new Request(`https://example.com/api/slack-canvas/websocket?${query}`, { headers: { ...(await accessHeaders(viewer)), Upgrade: "websocket", Origin: "https://example.com" } }), env)).status).toBe(404);
+    expect(roomRequests).toHaveLength(2);
+  });
+
+  it("applies the same authenticated owner and origin gate to the room websocket alias", async () => {
+    const { env, sessionMap, roomRequests } = makeMockEnv();
+    const owner = "alice@example.com";
+    const session = createWebSession(owner, { name: "Run canvas" });
+    sessionMap.set(owner, [session]);
+    const viewer = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const url = `https://example.com/api/rooms/${session.id}/websocket?viewer=${viewer}`;
+    const approved = await worker.fetch(new Request(url, {
+      headers: {
+        ...(await accessHeaders(owner)), Upgrade: "websocket", Origin: "https://example.com",
+        "x-shiba-room-owner": "forged@example.com", "x-shiba-room-session": "default",
+        "x-shiba-room-readonly": "true", "x-shiba-room-run": "forged-run",
+        "x-shiba-room-actor": "forged@example.com",
+      },
+    }), env);
+    expect(approved.status).toBe(200);
+    expect(roomRequests[0]?.name).toBe(JSON.stringify([owner, session.id]));
+    expect(roomRequests[0]?.request.headers.get("x-shiba-room-owner")).toBe(owner);
+    expect(roomRequests[0]?.request.headers.get("x-shiba-room-session")).toBe(session.id);
+    expect(roomRequests[0]?.request.headers.get("x-shiba-room-actor")).toBe(owner);
+    expect(roomRequests[0]?.request.headers.has("x-shiba-room-readonly")).toBe(false);
+    expect(roomRequests[0]?.request.headers.has("x-shiba-room-run")).toBe(false);
+    const unauthed = await worker.fetch(new Request(url, { headers: { Upgrade: "websocket", Origin: "https://example.com" } }), env);
+    expect(unauthed.status).toBe(401);
+    const crossOrigin = await worker.fetch(new Request(url, {
+      headers: { ...(await accessHeaders(owner)), Upgrade: "websocket", Origin: "https://attacker.example" },
+    }), env);
+    expect(crossOrigin.status).toBe(403);
+    expect(roomRequests).toHaveLength(1);
+  });
 
   it("routes authenticated session room sockets only after the owner and session are verified", async () => {
     const { env, sessionMap, roomRequests } = makeMockEnv();

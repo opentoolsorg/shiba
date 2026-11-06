@@ -29,5 +29,7 @@ describe("template pack registry", () => {
     if (!template) throw new Error("Expected a registered template.");
     expect(() => validateAgentTemplate({ ...template, description: "x".repeat(221) })).toThrow();
     expect(() => validateAgentTemplate({ ...template, chat_lanes: ["discord"] })).toThrow();
+    expect(() => validateAgentTemplate({ ...template, roleTemplateId: "administrator" })).toThrow();
+    expect(() => validateAgentTemplate({ ...template, expectedDeliverables: ["../private.md"] })).toThrow();
   });
 });

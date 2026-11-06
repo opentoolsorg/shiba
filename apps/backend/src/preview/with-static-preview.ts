@@ -1,6 +1,5 @@
 import { getSandboxInstance } from "../sandbox/provider.js";
 import { instanceToPreviewSandbox } from "../sandbox/preview-bridge.js";
-import puppeteer from "@cloudflare/puppeteer";
 import type { Env } from "../env.js";
 import { isValidSandboxId } from "../sandbox-routes.js";
 import { createSandboxPortGateway, type SandboxPortForwardSource } from "./port-gateway.js";
@@ -66,7 +65,8 @@ export async function withStaticPreview<T>(
   });
   let previewUrl: string;
   const launch =
-    deps.launch ?? ((b: Fetcher) => puppeteer.launch(b) as unknown as Promise<PreviewPuppeteerBrowser>);
+    deps.launch ?? (async (b: Fetcher) =>
+      (await import("@cloudflare/puppeteer")).default.launch(b) as unknown as Promise<PreviewPuppeteerBrowser>);
   const browser = await launch(env.BROWSER);
   try {
     await proc.waitForPort(PREVIEW_PORT, { timeout: PORT_READY_TIMEOUT_MS });

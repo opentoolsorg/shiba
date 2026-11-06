@@ -137,6 +137,7 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
     if (!input || !knownKeys(input, ["redirectUri"]) || typeof input.redirectUri !== "string") {
       return response({ ok: false, error: "invalid_request" }, 400);
     }
+    if (input.redirectUri !== `${ctx.url.origin}/api/v1/mcp/oauth/callback` || server.status === "disabled") return response({ ok: false, error: "invalid_request" }, 400);
     if (!server.catalogId || server.authMode !== "oauth") return response({ ok: false, error: "invalid_request" }, 400);
     const vendor = curatedMcpVendorByCatalogId(server.catalogId);
     if (!vendor) return response({ ok: false, error: "invalid_catalog_id" }, 400);
@@ -151,7 +152,7 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
         catalogId: server.catalogId,
         redirectUri: input.redirectUri,
         clientId,
-        scopes: defaultOAuthScopes(server.catalogId),
+        scopes: discovery.scopes ?? defaultOAuthScopes(server.catalogId),
         discovery,
       });
       return response({ ok: true, ...begin, discovery: { resource: discovery.resource.resource, issuer: discovery.authorizationServer.issuer } });
@@ -163,7 +164,7 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
       return response({ ok: false, error: "invalid_request" }, 400);
     }
     try {
-      await saveExternalMcpBearerToken(ctx.env, server.orgId, server.ownerId, server.id, input.token);
+      await saveExternalMcpBearerToken(ctx.env, server.orgId, server.ownerId, server.id, input.token, server.generation);
       return response({ ok: true });
     } catch (error) { return safeError(error); }
   }

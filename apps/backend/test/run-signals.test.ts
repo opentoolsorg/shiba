@@ -4,6 +4,7 @@
  * orchestrator persists them on the run row. A waiter reads the signal
  * it needs — never a clock.
  */
+import { repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { hasRunSignal, runSignal, type RunSignal } from "@shiba/shared";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
@@ -49,10 +50,13 @@ const INPUT: CodingTaskInput = {
 };
 
 function fakeOps(overrides: Partial<SandboxOps> = {}): SandboxOps {
+  const snapshot = repositorySnapshotFixture();
   return {
     async gitCheckout() {},
     async writeFile() {},
     async exec(command): Promise<ExecResult> {
+      const captured = await snapshot(command);
+      if (captured) return captured;
       if (command.includes("opencode")) return { stdout: "done", stderr: "", exitCode: 0 };
       if (command.includes("status")) return { stdout: " M a.ts\n", stderr: "", exitCode: 0 };
       if (command.includes("diff")) return { stdout: "diff --git a/a.ts", stderr: "", exitCode: 0 };
@@ -104,12 +108,13 @@ describe("run-signal producer", () => {
   });
 
   it("a nonzero harness exit records harness.idle with the exit code", async () => {
+    const snapshot = repositorySnapshotFixture();
     const result = await new SandboxRuntimeAdapter().runCodingTask(
       fakeOps({
         exec: async (command) =>
-          command.includes("opencode")
+          (await snapshot(command)) ?? (command.includes("opencode")
             ? { stdout: "", stderr: "boom", exitCode: 3 }
-            : { stdout: "", stderr: "", exitCode: 0 },
+            : { stdout: "", stderr: "", exitCode: 0 }),
       }),
       INPUT, emit, {},
     );
@@ -119,10 +124,13 @@ describe("run-signal producer", () => {
   });
 
   it("a collection failure carries every signal through harness.idle", async () => {
+    const snapshot = repositorySnapshotFixture();
     const result = await new SandboxRuntimeAdapter().runCodingTask(
       fakeOps({
         exec: async (command) => {
-          if (command.includes("status")) throw new Error("git status failed");
+          if (command.includes("diff-tree")) throw new Error("git snapshot manifest failed");
+          const captured = await snapshot(command);
+          if (captured) return captured;
           if (command.includes("opencode")) return { stdout: "", stderr: "", exitCode: 0 };
           return { stdout: "", stderr: "", exitCode: 0 };
         },

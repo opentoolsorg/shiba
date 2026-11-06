@@ -17,6 +17,8 @@ export interface CapturedFile {
 export interface PublishRequest {
   repoUrl: string;
   baseBranch: string;
+  /** Exact repository commit used to produce the captured changes. */
+  baseRevision: string;
   newBranch: string;
   title: string;
   body: string;
@@ -35,6 +37,10 @@ export interface PublishResult {
 export interface GitHubDeps {
   fetchImpl?: typeof fetch;
   apiBase?: string;
+  /** Approval-gated publication uses one attempt when a write outcome may be uncertain. */
+  mutationAttempts?: 1 | 3;
+  /** Disable compensating writes after an uncertain pull request creation outcome. */
+  cleanupOnPullFailure?: boolean;
 }
 
 const API_BASE = "https://api.github.com";
@@ -72,7 +78,7 @@ async function api<T>(
     response = await fetchWithBackoff(`${deps.apiBase}${path}`, { ...init, signal: combined }, {
       fetchImpl: deps.fetchImpl,
       signal: combined,
-      attempts: 3,
+      attempts: (init?.method ?? "GET").toUpperCase() === "GET" ? 3 : deps.mutationAttempts,
       baseDelayMs: 200,
     });
   } catch (error) {
@@ -105,6 +111,9 @@ export async function publishFilesAsPullRequest(
   if (request.files.length === 0) {
     throw new Error("Nothing to publish: the coding run produced no changed files.");
   }
+  if (!/^[a-f0-9]{40}$/.test(request.baseRevision)) {
+    throw new Error("Publishing requires the exact captured base revision.");
+  }
   // Validate every path before any request so an unsafe entry fails the
   // publish before a single byte is uploaded.
   for (const file of request.files) {
@@ -117,6 +126,8 @@ export async function publishFilesAsPullRequest(
     // so the default must keep a bound call rather than the bare reference.
     fetchImpl: deps.fetchImpl ?? ((input, init) => fetch(input, init)),
     apiBase: deps.apiBase ?? API_BASE,
+    mutationAttempts: deps.mutationAttempts ?? 3,
+    cleanupOnPullFailure: deps.cleanupOnPullFailure ?? true,
   };
   const headers = authHeaders(request.token);
   const json = (body: unknown): RequestInit => ({
@@ -130,7 +141,12 @@ export async function publishFilesAsPullRequest(
     `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(request.baseBranch)}`,
     { headers },
   );
-  const baseSha = ref.object.sha;
+  if (ref.object.sha !== request.baseRevision) {
+    throw new Error("The base branch changed after the captured revision. Run the task again and approve the new publication.");
+  }
+  // Keep the immutable parent even if the branch advances after this read.
+  // Applying old file bodies to a newer tree could silently replace its edits.
+  const baseSha = request.baseRevision;
 
   const baseCommit = await api<{ tree: { sha: string } }>(resolved, `/repos/${owner}/${repo}/git/commits/${baseSha}`, {
     headers,
@@ -196,6 +212,7 @@ export async function publishFilesAsPullRequest(
       }),
     );
   } catch (error) {
+    if (!resolved.cleanupOnPullFailure) throw error;
     // Leave no orphaned branch behind when the PR cannot be opened.
     await api<unknown>(resolved, `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(request.newBranch)}`, {
       method: "DELETE",

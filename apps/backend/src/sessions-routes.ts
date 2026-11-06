@@ -7,9 +7,12 @@ import { getAgentByName } from "agents/routing";
 import { getCustomAgentById } from "./custom-agents-store.js";
 import type { Env } from "./env.js";
 import { resolveHarness } from "./harness/index.js";
-import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
+import { DASHBOARD_ORG_ID, resolveOrgForApiRequest, type ResolvedOrgAuth } from "./org-request-auth.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
+import { isRestrictedTeamMember } from "./team-member-auth.js";
 import { redactSecrets } from "./security.js";
+import { runRoomName } from "./run-room-events.js";
+import { revokeRoomOutputArchives } from "./run-output-archive-reservations.js";
 import {
   buildSessionAgentName,
   createWebSession,
@@ -25,6 +28,7 @@ import {
 async function validateThreadAgent(
   metadata: Record<string, unknown> | undefined,
   env: Env,
+  orgId = DASHBOARD_ORG_ID,
 ): Promise<Response | null> {
   if (!metadata || !Object.hasOwn(metadata, "customAgentId")) return null;
   const id = metadata.customAgentId;
@@ -35,9 +39,8 @@ async function validateThreadAgent(
     return Response.json({ error: "Bot registry is not configured." }, { status: 503 });
   }
   try {
-    // Web sessions are dashboard-owned. Resolve in the same dashboard org as
-    // CustomAgentsView rather than accepting an org from metadata or headers.
-    const agent = await getCustomAgentById(env, DASHBOARD_ORG_ID, id);
+    // orgId was resolved from current authenticated membership, never metadata.
+    const agent = await getCustomAgentById(env, orgId, id);
     if (!agent) {
       return Response.json({ error: "Bot not found." }, { status: 404 });
     }
@@ -54,24 +57,74 @@ async function validateThreadAgent(
   }
 }
 
+function sessionInScope(session: WebSessionRecord, auth: ResolvedOrgAuth): boolean {
+  if (auth.workspace) return session.id !== DEFAULT_SESSION_ID && session.metadata?.orgId === auth.orgId &&
+    session.metadata?.teamWorkspaceId === auth.workspace.workspaceId;
+  return !(typeof session.metadata?.orgId === "string" && session.metadata.orgId.startsWith("team:"));
+}
+
+function scopedMetadata(raw: Record<string, unknown> | undefined, auth: ResolvedOrgAuth): Record<string, unknown> | undefined {
+  const metadata = { ...raw };
+  for (const field of ["orgId", "teamWorkspaceId", "teamMembershipVersion"]) delete metadata[field];
+  if (auth.workspace) Object.assign(metadata, { orgId: auth.orgId, teamWorkspaceId: auth.workspace.workspaceId,
+    teamMembershipVersion: auth.workspace.version });
+  return Object.keys(metadata).length ? sanitizeSessionMetadata(metadata) : undefined;
+}
+
 /**
  * Safe per-user web-session listing, creation, inspection, and resume API (T30/T32).
  * Strictly Access-authenticated; server-mints all session IDs.
  */
 export async function handleWebSessions(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
-  if (!/^\/api\/sessions(?:\/[^/]+(?:\/resume|\/realtime)?)?$/.test(url.pathname)) {
+  const roomAlias = url.pathname.match(/^\/api\/rooms\/([^/]+)\/websocket$/);
+  if (!roomAlias && !/^\/api\/sessions(?:\/[^/]+(?:\/resume|\/realtime)?)?$/.test(url.pathname)) {
     return null;
   }
   if (!(await isAuthorizedRequest(request, env))) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
   }
+  const requiresOrgScope = request.headers.has("X-Shiba-Workspace") || request.method === "PATCH" ||
+    (request.method === "POST" && url.pathname === "/api/sessions");
+  let auth: ResolvedOrgAuth;
+  if (requiresOrgScope) {
+    const resolvedOrg = await resolveOrgForApiRequest(request, env, { allowMemberWrite: true });
+    if (resolvedOrg instanceof Response) return resolvedOrg;
+    auth = resolvedOrg;
+  } else {
+    if (request.headers.has("authorization"))
+      return Response.json({ error: "Human session required; API credentials cannot select private session ownership." }, { status: 403 });
+    if (env.BETTER_AUTH_SECRET && await isRestrictedTeamMember(request, env))
+      return Response.json({ error: "Select an active team workspace." }, { status: 403 });
+    auth = { orgId: DASHBOARD_ORG_ID, principal: null };
+  }
+  if (auth.principal) return Response.json({ error: "Human session required." }, { status: 403 });
 
   const userId = (await resolveUserId(request, env)) ?? "default";
   const stub = await getAgentByName(env.CodingOrchestrator, userId);
+  // Team selectors cannot expose the caller's legacy/base DO or another team's sessions.
+  {
+    const encodedId = roomAlias?.[1] ?? url.pathname.match(/^\/api\/sessions\/([^/]+)/)?.[1];
+    if (encodedId) {
+      let id: string;
+      try { id = decodeURIComponent(encodedId); } catch { return Response.json({ error: "Invalid session id." }, { status: 400 }); }
+      if (!isValidSessionId(id)) return Response.json({ error: "Invalid session id." }, { status: 400 });
+      if (id === DEFAULT_SESSION_ID) {
+        if (auth.workspace) return Response.json({ error: "Session not found." }, { status: 404 });
+      } else {
+        try {
+          const check = await stub.fetch(`https://internal/internal/web-sessions/${encodeURIComponent(id)}${request.method === "DELETE" ? "?includeDeleting=true" : ""}`);
+          if (!check.ok) return Response.json({ error: "Session not found." }, { status: 404 });
+          const body = await check.json().catch(() => null) as { session?: WebSessionRecord } | null;
+          if (!body?.session || !sessionInScope(body.session, auth)) return Response.json({ error: "Session not found." }, { status: 404 });
+        } catch { return Response.json({ error: "Session registry is unavailable." }, { status: 503 }); }
+      }
+    }
+  }
 
-  const realtimeMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/realtime$/);
+  const realtimeMatch = roomAlias ?? url.pathname.match(/^\/api\/sessions\/([^/]+)\/realtime$/);
   if (realtimeMatch) {
+    if (auth.workspace) return Response.json({ error: "Use the shared room live view for team employee work." }, { status: 403 });
     if (request.method !== "GET") {
       return Response.json({ error: "Method not allowed." }, { status: 405 });
     }
@@ -112,8 +165,10 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
     headers.set("x-shiba-room-owner", userId.trim().toLowerCase());
     headers.set("x-shiba-room-session", sessionId);
     headers.set("x-shiba-room-viewer", viewerId);
-    const roomName = JSON.stringify([userId.trim().toLowerCase(), sessionId]);
-    return env.ConversationRoom.getByName(roomName).fetch(new Request(request, { headers }));
+    headers.set("x-shiba-room-actor", userId.trim().toLowerCase());
+    headers.delete("x-shiba-room-readonly");
+    headers.delete("x-shiba-room-run");
+    return env.ConversationRoom.getByName(runRoomName(userId, sessionId)).fetch(new Request(request, { headers }));
   }
 
   // GET /api/sessions — list user's sessions (always includes base session)
@@ -126,9 +181,9 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
           return Response.json({ error: "Failed to list sessions." }, { status: response.status });
         }
         const body = (await response.json()) as { sessions?: WebSessionRecord[] };
-        const sessions = formatSessionList(userId, body.sessions ?? []);
+        const sessions = formatSessionList(userId, body.sessions ?? []).filter((session) => sessionInScope(session, auth));
         return Response.json(
-          { sessions, defaultSessionId: DEFAULT_SESSION_ID },
+          { sessions, defaultSessionId: auth.workspace ? null : DEFAULT_SESSION_ID },
           { headers: { "Cache-Control": "no-store" } },
         );
       } catch (error) {
@@ -161,7 +216,9 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
           );
         }
       }
-      const invalidAgent = await validateThreadAgent(opts.metadata as Record<string, unknown> | undefined, env);
+      try { opts.metadata = scopedMetadata(opts.metadata as Record<string, unknown> | undefined, auth); }
+      catch { return Response.json({ error: "Session metadata exceeds the available workspace scope limits." }, { status: 400 }); }
+      const invalidAgent = await validateThreadAgent(opts.metadata as Record<string, unknown> | undefined, env, auth.orgId);
       if (invalidAgent) return invalidAgent;
       let session: WebSessionRecord;
       try {
@@ -309,7 +366,9 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
           );
         }
       }
-      const invalidAgent = await validateThreadAgent(patch.metadata as Record<string, unknown> | undefined, env);
+      try { if (patch.metadata !== undefined) patch.metadata = scopedMetadata(patch.metadata as Record<string, unknown> | undefined, auth); }
+      catch { return Response.json({ error: "Session metadata exceeds the available workspace scope limits." }, { status: 400 }); }
+      const invalidAgent = await validateThreadAgent(patch.metadata as Record<string, unknown> | undefined, env, auth.orgId);
       if (invalidAgent) return invalidAgent;
       try {
         const response = await stub.fetch(
@@ -416,6 +475,9 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
 
       // 4. Remove from registry
       try {
+        // A deleted private session cannot leave a retained output read path.
+        // D1 is authoritative for every archive response, including in-flight reads.
+        await revokeRoomOutputArchives(env, userId.trim().toLowerCase(), sessionId);
         const response = await stub.fetch(
           `https://internal/internal/web-sessions/${encodeURIComponent(sessionId)}`,
           { method: "DELETE" },

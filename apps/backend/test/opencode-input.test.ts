@@ -19,6 +19,18 @@ const INPUT: CodingTaskInput = {
 };
 
 describe("agent tool input envelope", () => {
+  it("preserves an explicit local artifact target and its bounded output contract", () => {
+    const input: CodingTaskInput = { ...INPUT, repoUrl: "", runtime: "local", expectedDeliverables: ["out/brief.md"],
+      executionTarget: { kind: "artifact-workspace", workspaceId: "local-brief", expectedDeliverables: ["out/brief.md"] } };
+    expect(parseAgentToolInput([{ role: "user", text: formatAgentToolInput(input) }])).toEqual(input);
+    expect(() => formatAgentToolInput({ ...input, expectedDeliverables: ["other.md"] })).toThrow();
+    expect(() => formatAgentToolInput({ ...input, repoUrl: INPUT.repoUrl })).toThrow();
+    expect(() => formatAgentToolInput({ ...input, publishPullRequest: true })).toThrow();
+    expect(() => formatAgentToolInput({ ...input, expectedDeliverables: [], executionTarget: {
+      kind: "artifact-workspace", workspaceId: "unbounded", expectedDeliverables: [],
+    } })).toThrow("directory discovery is not supported");
+  });
+
   it("round-trips through format and parse", () => {
     const envelope = formatAgentToolInput(INPUT);
     expect(envelope.startsWith(`${TOOL_INPUT_MARKER}\n`)).toBe(true);
@@ -28,6 +40,23 @@ describe("agent tool input envelope", () => {
   it("preserves artifact ownership and long lifecycle approval IDs", () => {
     const input = { ...INPUT, accessAgent: "web::owner@example.com::session", dispatchApprovalId: `wake:pull_request:${"o".repeat(39)}/${"r".repeat(100)}:123:1234567890123` };
     expect(parseAgentToolInput([{ role: "user", text: formatAgentToolInput(input) }])).toEqual(input);
+  });
+
+  it("round-trips a server-only executor for a maximum-length human owner without truncation", () => {
+    const ownerId = `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(61)}`;
+    expect(ownerId.length).toBe(254);
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const address = `web:${ownerId}:${sessionId}`;
+    expect(address.length).toBe(295);
+    const input = { ...INPUT, accessAgent: address, envOwner: address, runRoom: { ownerId, sessionId, runId: "team-run" } };
+    expect(parseAgentToolInput([{ role: "user", text: formatAgentToolInput(input) }])).toEqual(input);
+  });
+
+  it.each(["accessAgent", "envOwner", "roomOwner"])("keeps the server identity width bounded for %s", (field) => {
+    const input = { ...INPUT, accessAgent: "x".repeat(field === "accessAgent" ? 321 : 320),
+      envOwner: "x".repeat(field === "envOwner" ? 321 : 320),
+      runRoom: { ownerId: "x".repeat(field === "roomOwner" ? 321 : 320), sessionId: "team-session", runId: "team-run" } };
+    expect(() => parseAgentToolInput([{ role: "user", text: formatAgentToolInput(input) }])).toThrow();
   });
 
   it("uses the latest envelope when several exist", () => {

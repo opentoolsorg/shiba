@@ -164,9 +164,18 @@ function parseArgs<S extends z.ZodType>(schema: S, args: Record<string, unknown>
 // registerMemoryTools
 // ---------------------------------------------------------------------------
 
-export function registerMemoryTools(registry: ToolRegistry, env: Env): void {
+export function registerMemoryTools(registry: ToolRegistry, env: Env, memoryPrincipal?: string): void {
   const READ: Scope = "memory:read";
   const WRITE: Scope = "memory:write";
+  // Optional scope comes only from the authenticated conversation router. It
+  // changes memory routing without changing the tool principal or its audit.
+  const ownPrincipal = (caller: string) => {
+    requireOwnMemoryPrincipal(caller);
+    const scope = memoryPrincipal ?? caller;
+    if (!scope.trim()) throw new InputError("Memory scope is unavailable.");
+    requireOwnMemoryPrincipal(scope);
+    return scope;
+  };
 
   const recallSchema = z.object({
     query: nonEmptyField("query"),
@@ -176,12 +185,12 @@ export function registerMemoryTools(registry: ToolRegistry, env: Env): void {
     "memory_recall",
     READ,
     async (args, ctx) => {
-      requireOwnMemoryPrincipal(ctx.principal.principal);
+      const principal = ownPrincipal(ctx.principal.principal);
       const { query, limit } = parseArgs(recallSchema, args);
       const params = new URLSearchParams({ q: query });
       if (limit !== undefined) params.set("limit", String(limit));
       const body = await stubJson<{ facts: Record<string, unknown>[] }>(
-        memoryStub(env, ctx.principal.principal),
+        memoryStub(env, principal),
         `/facts/search?${params.toString()}`,
       );
       // The DO already sorts score-descending; sort again so the tool's
@@ -210,12 +219,12 @@ export function registerMemoryTools(registry: ToolRegistry, env: Env): void {
     "memory_bank",
     WRITE,
     async (args, ctx) => {
-      requireOwnMemoryPrincipal(ctx.principal.principal);
+      const principal = ownPrincipal(ctx.principal.principal);
       const { fact, source, ttl } = parseArgs(bankSchema, args);
-      // The owning agent is the verified principal — a caller cannot
-      // bank into another agent's store by naming it.
+      // The partition comes from the verified caller or its server-derived
+      // conversation scope. A model cannot select another agent's store.
       const body = await stubJson<{ fact: FactRecord & { agent: string } }>(
-        memoryStub(env, ctx.principal.principal),
+        memoryStub(env, principal),
         "/facts",
         jsonPost({ fact, source, ...(ttl !== undefined ? { ttl } : {}) }),
       );
@@ -238,12 +247,12 @@ export function registerMemoryTools(registry: ToolRegistry, env: Env): void {
     "memory_forget",
     WRITE,
     async (args, ctx) => {
-      requireOwnMemoryPrincipal(ctx.principal.principal);
+      const principal = ownPrincipal(ctx.principal.principal);
       const { fact_id } = parseArgs(forgetSchema, args);
       // Own-stub delete: a foreign-owned fact ids to a 404 the same way a
       // missing one does — no cross-agent forgets and no owner disclosure.
       const body = await stubJson<{ ok: boolean; id: string }>(
-        memoryStub(env, ctx.principal.principal),
+        memoryStub(env, principal),
         `/facts/${encodeURIComponent(fact_id)}`,
         { method: "DELETE" },
       );
@@ -265,8 +274,7 @@ export function registerMemoryTools(registry: ToolRegistry, env: Env): void {
     READ,
     async (args, ctx) => {
       const { agent, limit } = parseArgs(sessionsSchema, args);
-      const principal = ctx.principal.principal;
-      requireOwnMemoryPrincipal(principal);
+      const principal = ownPrincipal(ctx.principal.principal);
       if (agent !== undefined && agent !== principal) {
         throw new InputError("memory_sessions can only read the verified caller's own sessions.");
       }

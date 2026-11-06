@@ -107,4 +107,14 @@ describe("SpacesView", () => {
     expect(screen.queryByText("Stale detail failure")).toBeNull();
     expect(screen.getByRole("heading", { name: "Spaces" })).toBeDefined();
   });
+
+  it("renders breadcrumbs in the header", async () => {
+    mockSpacesFetch({});
+    render(<SpacesView scope="workspace" />);
+    const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(nav.textContent).toContain("Workspace");
+    expect(nav.textContent).toContain("Extensions");
+    expect(nav.textContent).toContain("Apps");
+    expect(screen.getByRole("button", { name: /New Space/i })).toBeDefined();
+  });
 });

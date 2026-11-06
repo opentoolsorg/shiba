@@ -1,13 +1,9 @@
 /**
- * Compliant Claude subscription path: the unmodified `claude` binary runs in
- * the sandbox; the operator signs in via Anthropic's own `/login` flow.
- * Credentials live only under CLAUDE_CONFIG_DIR on a per-user persistent
- * volume — shiba never reads, copies, or exports them.
- *
- * Per-user persistent sandbox volumes are not wired yet (blocked on #119/#123).
- * This harness registers the env contract and documents the volume mount;
- * runs fail closed until the Sandbox SDK exposes user-scoped volumes.
+ * Reserved native cloud Claude lane. No auth volume is provisioned, and
+ * mounting native login credentials would violate container credential isolation.
+ * Keep direct execution unavailable as well as dashboard intake.
  */
+import type { HarnessTextSanitizer } from "./event-sanitizer.js";
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import {
   assertSupportedModel,
@@ -28,14 +24,9 @@ export interface ClaudeLoginVolumeMount {
   containerPath: string;
 }
 
-/** Stub until @shiba/sandbox exposes per-user persistent volumes (#119/#123). */
-export function claudeLoginVolumeForUser(userId: string): ClaudeLoginVolumeMount | null {
-  if (userId.trim() === "") return null;
-  return {
-    userId,
-    hostPath: `/var/shiba/claude-config/${userId.replace(/[^a-zA-Z0-9._-]/g, "_")}`,
-    containerPath: `/root/.shiba/claude-login/${userId.replace(/[^a-zA-Z0-9._-]/g, "_")}`,
-  };
+/** A derived pathname is not a provisioned or authorized credential volume. */
+export function claudeLoginVolumeForUser(_userId: string): ClaudeLoginVolumeMount | null {
+  return null;
 }
 
 export function claudeLoginConfigDir(input: Pick<CodingTaskInput, "initiatorUserId">): string {
@@ -53,25 +44,21 @@ export class ClaudeLoginHarness implements AgentHarness {
     return ["api.anthropic.com"];
   }
 
-  configFile(input: CodingTaskInput): HarnessConfigFile[] {
+  configFile(_input: CodingTaskInput): HarnessConfigFile[] {
     return [];
   }
 
   env(input: CodingTaskInput): Record<string, string> {
     assertSupportedModel(this.name, this.supportedProviders, input.codingModel);
-    return {
-      CLAUDE_CONFIG_DIR: claudeLoginConfigDir(input),
-    };
+    throw new Error("Native cloud Claude login is unavailable; choose API Claude Code or paired local Claude Code explicitly.");
   }
 
-  buildArgv(input: CodingTaskInput, workdir: string): string[] {
-    const model = input.codingModel.includes("/") ? input.codingModel.split("/").slice(1).join("/") : input.codingModel;
-    const effort = input.route?.reasoningEffort ? ["--effort", input.route.reasoningEffort] : [];
-    return ["claude", "--print", "--model", model, ...effort, "--add-dir", workdir, input.task];
+  buildArgv(_input: CodingTaskInput, _workdir: string): string[] {
+    throw new Error("Native cloud Claude login is unavailable; native credentials must not enter a sandbox.");
   }
 
-  parseEvent(line: string): HarnessEvent | null {
-    return parseClaudeCodeEvent(line);
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
+    return parseClaudeCodeEvent(line, sanitize);
   }
 
   capabilities(_model?: string): HarnessCapabilities {
@@ -84,7 +71,7 @@ export class ClaudeLoginHarness implements AgentHarness {
       canRunTests: true,
       supportsConversationRollback: false,
       execAllowlist: [["pnpm", "test"], ["npm", "test"], ["bun", "test"]],
-      supportedRuntimes: ["sandbox"],
+      supportedRuntimes: [],
     };
   }
 
@@ -96,7 +83,7 @@ export class ClaudeLoginHarness implements AgentHarness {
       return {
         ok: false,
         reason:
-          "Per-user Claude config volumes are not available on this deployment yet (#119/#123). Use API-key claude-code or run claude /login manually in your sandbox.",
+          "Per-user Claude config volumes are not available on this deployment yet (#119/#123). Native credentials must not enter a sandbox. Choose API claude-code or paired local Claude Code explicitly.",
       };
     }
     return verifyRunOutcome(input, result, this.capabilities(input.codingModel));

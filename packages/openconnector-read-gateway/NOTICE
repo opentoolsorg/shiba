@@ -1,0 +1,10 @@
+Shiba fixed-read gateway: independently authored Shiba code.
+
+Audited interoperability reference:
+OpenConnector v1.9.4, oomol-lab/open-connector
+commit d89dc9f24f5a057bb500272d7dbf333837c77c68
+Apache License, Version 2.0 (upstream LICENSE.txt).
+
+This gateway imports an operator-prepared, unmodified upstream Worker adapter.
+It does not grant rights to third-party provider services, credentials, brands,
+or infrastructure. Preserve upstream notices when distributing bundled upstream code.

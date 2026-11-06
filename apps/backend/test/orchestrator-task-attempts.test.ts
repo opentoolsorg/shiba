@@ -19,7 +19,7 @@ vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 function host(state: OrchestratorState = { runs: [] }, name = "task-owner") {
   return Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
     name,
-    env: { ...productionEnvStubs(), Sandbox: {} },
+    env: { ...productionEnvStubs(), Sandbox: {}, DASHBOARD_APPROVERS: "reviewer@example.test" },
     state,
     setState(next: OrchestratorState) { setStateLikeProduction(this, next); },
   });
@@ -110,7 +110,7 @@ describe("orchestrator durable task-attempt routes", () => {
       threadKey: secondStored?.frozen.threadKey,
       approvalId: retryBody.approvalId,
       approved: true,
-      decidedBy: "test-human",
+      decidedBy: "reviewer@example.test",
     }));
     expect(approved.status).toBe(200);
     expect(original.state.runs[0]?.approval?.inputHash).toBe(secondStored?.frozen.inputHash);
@@ -181,7 +181,7 @@ describe("orchestrator durable task-attempt routes", () => {
       threadKey: "default",
       approvalId: approvalA,
       approved: true,
-      decidedBy: "test-human",
+      decidedBy: "reviewer@example.test",
     }));
     expect(approvedA.status).toBe(200);
     const runAId = instance.state.runs[0]?.runId;

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { publishFilesAsPullRequest } from "../src/github.js";
 
 const SECRET = "ghp_testtoken12345678";
+const BASE_REVISION = "a".repeat(40);
 
 interface RecordedCall {
   url: string;
@@ -15,9 +16,9 @@ function makeFetch(calls: RecordedCall[]) {
     const json = (body: unknown, status = 200) =>
       new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
     if (url.endsWith("/git/ref/heads/main")) {
-      return json({ object: { sha: "base-sha" } });
+      return json({ object: { sha: BASE_REVISION } });
     }
-    if (url.endsWith("/git/commits/base-sha")) {
+    if (url.endsWith(`/git/commits/${BASE_REVISION}`)) {
       return json({ tree: { sha: "base-tree" } });
     }
     if (url.endsWith("/git/blobs")) {
@@ -40,12 +41,61 @@ function makeFetch(calls: RecordedCall[]) {
 }
 
 describe("publishFilesAsPullRequest", () => {
+  const request = {
+    repoUrl: "https://github.com/owner/repo", baseBranch: "main", baseRevision: BASE_REVISION,
+    newBranch: "shiba/captured", title: "Captured change", body: "Details", message: "Captured change",
+    files: [{ path: "source.ts", content: "approved body", encoding: "utf8" as const }], token: SECRET,
+  };
+
+  it("rejects an advanced base before uploading any stale file body", async () => {
+    const calls: RecordedCall[] = [];
+    const base = makeFetch(calls);
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/git/ref/heads/main")) {
+        calls.push({ url: String(input), init });
+        return Response.json({ object: { sha: "b".repeat(40) } });
+      }
+      return base(input, init);
+    });
+    await expect(publishFilesAsPullRequest(request, { fetchImpl })).rejects.toThrow("base branch changed");
+    expect(calls).toHaveLength(1);
+    expect(calls.some((call) => call.init?.method === "POST")).toBe(false);
+  });
+
+  it("keeps the frozen tree and parent when the branch advances during publication", async () => {
+    const calls: RecordedCall[] = [];
+    const base = makeFetch(calls);
+    let advanced = false;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/git/ref/heads/main") && advanced) return Response.json({ object: { sha: "b".repeat(40) } });
+      if (url.endsWith("/git/blobs")) advanced = true;
+      return base(input, init);
+    });
+    await publishFilesAsPullRequest(request, { fetchImpl });
+    expect(advanced).toBe(true);
+    expect(calls.filter((call) => call.url.endsWith("/git/ref/heads/main"))).toHaveLength(1);
+    expect(calls.some((call) => call.url.endsWith(`/git/commits/${BASE_REVISION}`))).toBe(true);
+    expect(calls.some((call) => call.url.endsWith(`/git/commits/${"b".repeat(40)}`))).toBe(false);
+    const tree = calls.find((call) => call.url.endsWith("/git/trees"));
+    const commit = calls.find((call) => call.url.endsWith("/git/commits"));
+    expect(JSON.parse(String(tree?.init?.body)).base_tree).toBe("base-tree");
+    expect(JSON.parse(String(commit?.init?.body)).parents).toEqual([BASE_REVISION]);
+  });
+
+  it.each(["", "main", "a".repeat(39), "A".repeat(40), "a".repeat(40) + "/main"])("rejects invalid captured revisions %j before any request", async (baseRevision) => {
+    const calls: RecordedCall[] = [];
+    await expect(publishFilesAsPullRequest({ ...request, baseRevision }, { fetchImpl: makeFetch(calls) })).rejects.toThrow("exact captured base revision");
+    expect(calls).toHaveLength(0);
+  });
+
   it("creates blobs, tree, commit, ref, and pull request in order", async () => {
     const calls: RecordedCall[] = [];
     const result = await publishFilesAsPullRequest(
       {
         repoUrl: "https://github.com/owner/repo",
         baseBranch: "main",
+        baseRevision: BASE_REVISION,
         newBranch: "shiba/run-abc",
         title: "AI Coworker: fix",
         body: "details",
@@ -67,7 +117,7 @@ describe("publishFilesAsPullRequest", () => {
     const paths = calls.map((call) => new URL(call.url).pathname);
     expect(paths).toEqual([
       "/repos/owner/repo/git/ref/heads/main",
-      "/repos/owner/repo/git/commits/base-sha",
+      `/repos/owner/repo/git/commits/${BASE_REVISION}`,
       "/repos/owner/repo/git/blobs",
       "/repos/owner/repo/git/blobs",
       "/repos/owner/repo/git/trees",
@@ -92,6 +142,7 @@ describe("publishFilesAsPullRequest", () => {
         {
           repoUrl: "https://github.com/owner/repo",
           baseBranch: "main",
+        baseRevision: BASE_REVISION,
           newBranch: "b",
           title: "t",
           body: "b",
@@ -107,6 +158,7 @@ describe("publishFilesAsPullRequest", () => {
         {
           repoUrl: "https://github.com/owner/repo",
           baseBranch: "main",
+        baseRevision: BASE_REVISION,
           newBranch: "b",
           title: "t",
           body: "b",
@@ -126,6 +178,7 @@ describe("publishFilesAsPullRequest", () => {
         {
           repoUrl: "https://github.com/owner/repo",
           baseBranch: "main",
+        baseRevision: BASE_REVISION,
           newBranch: "b",
           title: "t",
           body: "b",
@@ -146,6 +199,7 @@ describe("publishFilesAsPullRequest", () => {
         {
           repoUrl: "https://github.com/owner/repo",
           baseBranch: "main",
+        baseRevision: BASE_REVISION,
           newBranch: "b",
           title: "t",
           body: "b",
@@ -161,6 +215,7 @@ describe("publishFilesAsPullRequest", () => {
         {
           repoUrl: "https://github.com/owner/repo",
           baseBranch: "main",
+        baseRevision: BASE_REVISION,
           newBranch: "b",
           title: "t",
           body: "b",
@@ -182,6 +237,7 @@ describe("publishFilesAsPullRequest", () => {
       {
         repoUrl: "https://github.com/owner/repo",
         baseBranch: "main",
+        baseRevision: BASE_REVISION,
         newBranch: "shiba/run-abc",
         title: "AI Coworker: delete",
         body: "details",
@@ -222,6 +278,7 @@ describe("publishFilesAsPullRequest", () => {
         {
           repoUrl: "https://github.com/owner/repo",
           baseBranch: "main",
+        baseRevision: BASE_REVISION,
           newBranch: "shiba/run-abc",
           title: "t",
           body: "b",
@@ -247,6 +304,7 @@ describe("bounded blob uploads", () => {
         {
           repoUrl: "https://github.com/owner/repo",
           baseBranch: "main",
+        baseRevision: BASE_REVISION,
           newBranch: "b",
           title: "t",
           body: "b",
@@ -285,8 +343,8 @@ describe("bounded blob uploads", () => {
           });
         });
       }
-      if (url.endsWith("/git/ref/heads/main")) return Promise.resolve(json({ object: { sha: "base-sha" } }));
-      if (url.endsWith("/git/commits/base-sha")) return Promise.resolve(json({ tree: { sha: "base-tree" } }));
+      if (url.endsWith("/git/ref/heads/main")) return Promise.resolve(json({ object: { sha: BASE_REVISION } }));
+      if (url.endsWith(`/git/commits/${BASE_REVISION}`)) return Promise.resolve(json({ tree: { sha: "base-tree" } }));
       if (url.endsWith("/git/trees")) return Promise.resolve(json({ sha: "new-tree" }));
       if (url.endsWith("/git/commits")) return Promise.resolve(json({ sha: "new-commit" }));
       if (url.endsWith("/git/refs")) return Promise.resolve(json({}));
@@ -304,6 +362,7 @@ describe("bounded blob uploads", () => {
       {
         repoUrl: "https://github.com/owner/repo",
         baseBranch: "main",
+        baseRevision: BASE_REVISION,
         newBranch: "b",
         title: "t",
         body: "b",
@@ -347,8 +406,8 @@ describe("bounded blob uploads", () => {
         }
         return Promise.resolve(json({ sha: `sha-${body.content}` }));
       }
-      if (url.endsWith("/git/ref/heads/main")) return Promise.resolve(json({ object: { sha: "base-sha" } }));
-      if (url.endsWith("/git/commits/base-sha")) return Promise.resolve(json({ tree: { sha: "base-tree" } }));
+      if (url.endsWith("/git/ref/heads/main")) return Promise.resolve(json({ object: { sha: BASE_REVISION } }));
+      if (url.endsWith(`/git/commits/${BASE_REVISION}`)) return Promise.resolve(json({ tree: { sha: "base-tree" } }));
       if (url.endsWith("/git/trees")) return Promise.resolve(json({ sha: "new-tree" }));
       if (url.endsWith("/git/commits")) return Promise.resolve(json({ sha: "new-commit" }));
       if (url.endsWith("/git/refs")) return Promise.resolve(json({}));
@@ -362,6 +421,7 @@ describe("bounded blob uploads", () => {
         {
           repoUrl: "https://github.com/owner/repo",
           baseBranch: "main",
+        baseRevision: BASE_REVISION,
           newBranch: "b",
           title: "t",
           body: "b",

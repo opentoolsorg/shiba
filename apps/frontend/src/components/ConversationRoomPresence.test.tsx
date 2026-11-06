@@ -11,8 +11,8 @@ describe("conversation room status", () => {
           status="connected"
           viewerId="self"
           viewers={[
-            { viewerId: "self", joinedAt: 1, typing: false },
-            { viewerId: "other", joinedAt: 2, typing: true },
+            { viewerId: "self", joinedAt: 1, typing: false, label: "owner@example.test" },
+            { viewerId: "other", joinedAt: 2, typing: true, label: "owner@example.test", cursor: { x: 0.5, y: 0.25 } },
           ]}
         />
         <RemoteAgentStream stream={{ streamId: "stream-1", viewerId: "other", text: "Working through it" }} />
@@ -21,6 +21,8 @@ describe("conversation room status", () => {
 
     expect(screen.getAllByRole("status")[0]?.textContent).toContain("2 viewers here");
     expect(screen.getAllByRole("status")[0]?.textContent).toContain("Another viewer is typing");
+    expect(screen.getByRole("list", { name: "Room viewers" }).textContent).toContain("owner@example.test (this tab)");
+    expect(screen.getByRole("list", { name: "Room viewers" }).textContent).toContain("owner@example.test (another tab)");
     expect(screen.getByRole("status", { name: "Live agent response from another viewer" }).textContent)
       .toContain("Working through it");
   });

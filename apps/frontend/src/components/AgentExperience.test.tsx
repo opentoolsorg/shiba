@@ -37,6 +37,23 @@ describe("agent sidebar", () => {
 });
 
 describe("agent conversation", () => {
+  it("starts a shared conversation only after a click, without transferring private participants or history", () => {
+    const share = vi.fn();
+    render(<AgentPageHeader name="Research bot" detailsOpen={false} onToggleDetails={vi.fn()} onShareWithTeam={share} />);
+    expect(share).not.toHaveBeenCalled();
+    expect(screen.getByText(/Your private history is not automatically included/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Participants" }).textContent).toContain("You and agent");
+    fireEvent.click(screen.getByRole("button", { name: "Start shared conversation" }));
+    expect(share).toHaveBeenCalledWith(); expect(share).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Participants" }));
+    expect(screen.getByText("You")).toBeTruthy();
+    expect(screen.getAllByText("Research bot").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Team members")).toBeNull();
+  });
+  it("hides team sharing if no shared-conversation capability is supplied", () => {
+    render(<AgentPageHeader name="Shiba" detailsOpen={false} onToggleDetails={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Start shared conversation" })).toBeNull();
+  });
   it("uses the real Shiba brand for the built-in profile, not a custom employee label", () => {
     const { container } = render(<AgentDetailsPanel onClose={vi.fn()} onEdit={vi.fn()} />);
     expect(screen.getByText("Shiba · Runs on workspace default")).toBeTruthy();
@@ -54,17 +71,18 @@ describe("agent conversation", () => {
   });
 
   it("keeps renamed role identities consistent across sidebar, header, details and empty state", () => {
-    const renamed = { ...agent, config: { ...agent.config, name: "Evidence partner", harness: "codex" } };
+    const renamed = { ...agent, slug: "evidence-partner", config: { ...agent.config, name: "Evidence partner", harness: "codex" } };
     const { container } = render(<>
       <AgentSidebar agents={[renamed]} threads={threads} onOpenThread={vi.fn()} onNewThread={vi.fn()} onManage={vi.fn()} />
-      <AgentPageHeader name={renamed.config.name} slug={renamed.slug} detailsOpen onToggleDetails={vi.fn()} />
+      <AgentPageHeader name={renamed.config.name} slug={renamed.slug} role={renamed.config.roleTemplateId} detailsOpen onToggleDetails={vi.fn()} />
       <AgentDetailsPanel agent={renamed} onClose={vi.fn()} onEdit={vi.fn()} />
-      <AgentConversationEmpty name={renamed.config.name} slug={renamed.slug} onPrefill={vi.fn()} />
+      <AgentConversationEmpty name={renamed.config.name} slug={renamed.slug} role={renamed.config.roleTemplateId} onPrefill={vi.fn()} />
     </>);
     expect(container.querySelectorAll('[data-employee-role="research"]')).toHaveLength(4);
     expect(screen.getByRole("button", { name: "Evidence partner" })).toBeTruthy();
     expect(screen.getByText("Research · Runs on codex")).toBeTruthy();
     expect(renamed.config.name).toBe("Evidence partner");
+    expect(employeeExamples(renamed)).toEqual(employeeExamples(agent));
   });
 
   it("closes participants on Escape and outside pointer activation", () => {
@@ -107,7 +125,7 @@ describe("agent conversation", () => {
     expect(screen.getByText("Personal")).toBeTruthy();
     expect(screen.getByText("Agents")).toBeTruthy();
     expect(screen.getByText(/This is the beginning of your conversation/)).toBeTruthy();
-    expect(screen.getByText(/Planning can start now. Standard sandbox execution requires approval/)).toBeTruthy();
+    expect(screen.getByText(/Planning can start now. Every sandbox execution requires human approval/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Participants" }));
     expect(screen.getByText("You")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Toggle agent details" }));
@@ -116,9 +134,22 @@ describe("agent conversation", () => {
     expect(onPrefill).toHaveBeenCalledWith("Research my top three competitors and write a one-page brief");
   });
 
-  it("shows saved configuration without unsupported library or computer tabs", () => {
+  it("shows saved configuration with Details, Library, and Computer tabs", () => {
     const onClose = vi.fn();
-    render(<AgentDetailsPanel agent={agent} onClose={onClose} onEdit={vi.fn()} />);
+    render(
+      <AgentDetailsPanel
+        agent={{
+          ...agent,
+          config: {
+            ...agent.config,
+            expectedDeliverables: ["research/report.md"],
+            sandboxProvider: "docker-local",
+          },
+        }}
+        onClose={onClose}
+        onEdit={vi.fn()}
+      />
+    );
     const panel = screen.getByRole("complementary", { name: "Agent details" });
     expect(panel.className).not.toContain("absolute");
     expect(panel.className).toContain("w-full");
@@ -127,18 +158,52 @@ describe("agent conversation", () => {
     for (const label of ["Model", "Instructions", "Tools", "Advanced"]) expect(within(details).getByText(label)).toBeTruthy();
     expect(within(details).getAllByText("Workspace default").length).toBeGreaterThan(0);
     expect(details.textContent).toContain(agent.config.instructions);
-    expect(screen.queryByRole("tablist")).toBeNull();
-    expect(screen.queryByText("Library")).toBeNull();
-    expect(screen.queryByText("Computer")).toBeNull();
+    expect(screen.getByRole("tablist", { name: "Agent details tabs" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Details" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Library" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Computer" })).toBeTruthy();
     expect(screen.getByText("Research · Runs on opencode")).toBeTruthy();
     expect(panel.querySelector('[data-employee-role="research"]')).toBeTruthy();
+
+    // Check switching to Library tab
+    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    expect(screen.getByText("research/report.md")).toBeTruthy();
+
+    // Check switching to Computer tab
+    fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
+    expect(screen.getByText(/Sandbox: docker-local/)).toBeTruthy();
+
     fireEvent.click(screen.getByRole("button", { name: "Close agent details" }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("shows empty library and computer states when not configured", () => {
+    const emptyAgent: CustomAgentWire = {
+      ...agent,
+      config: {
+        ...agent.config,
+        expectedDeliverables: [],
+        sandboxProvider: undefined,
+      },
+    };
+    render(<AgentDetailsPanel agent={emptyAgent} onClose={vi.fn()} onEdit={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    expect(screen.getByText("No files yet")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
+    expect(screen.getByText("No computer")).toBeTruthy();
   });
 });
 
 describe("employee onboarding", () => {
-  it("renders seven selectable roles and skips without creating anything", () => {
+  it("forwards only an explicit team selector when creating the selected role", async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ agent })); vi.stubGlobal("fetch", fetcher);
+    const workspaceId = `ws_${"a".repeat(24)}`;
+    await createEmployeeAgent(research, workspaceId);
+    expect(fetcher).toHaveBeenCalledWith("/api/custom-agents", expect.objectContaining({ credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Shiba-Workspace": workspaceId } }));
+    expect(JSON.parse(fetcher.mock.calls[0]?.[1]?.body)).toEqual({ slug: research.slug, config: { ...research.config, harness: "opencode", approvalPolicy: "standard" } });
+  });
+  it("renders all ten optional roles and skips without creating anything", () => {
     const onSkip = vi.fn();
     const onSelect = vi.fn();
     render(<EmployeeOnboarding onSelect={onSelect} onSkip={onSkip} />);
@@ -150,6 +215,20 @@ describe("employee onboarding", () => {
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     expect(onSkip).toHaveBeenCalledOnce();
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it.each(EMPLOYEE_TEMPLATES.filter((template) => ["gtm", "hr", "finance"].includes(template.id)))("creates $label only when selected and grants no tools or connections", async (template) => {
+    const saved = { id: template.id, slug: `my-${template.id}`, version: 1, config: { ...template.config, harness: "opencode" } };
+    const request = vi.fn().mockResolvedValue(Response.json({ agent: saved }, { status: 201 }));
+    vi.stubGlobal("fetch", request);
+    render(<EmployeeOnboarding onSelect={async (choice) => { await createEmployeeAgent(choice); }} onSkip={vi.fn()} />);
+    expect(request).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${template.label}`) }));
+    await waitFor(() => expect(request).toHaveBeenCalledOnce());
+    const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body));
+    expect(body.config).toEqual({ ...template.config, harness: "opencode", approvalPolicy: "standard" });
+    expect(body.config).not.toHaveProperty("connectionId");
+    expect(body.config).not.toHaveProperty("toolScopes");
   });
 
   it("creates a real custom agent with the existing API payload and role instructions", async () => {

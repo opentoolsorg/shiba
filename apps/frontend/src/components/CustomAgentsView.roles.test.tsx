@@ -60,7 +60,7 @@ describe("role drafts in the Bots directory", () => {
   it("expands native advanced controls and restores their values from the account draft", () => {
     stubDirectory();
     const view = render(<CustomAgentsView draftScope="owner-a" connections={connections} />);
-    const summary = screen.getByText("Advanced settings");
+    const summary = screen.getByText("Advanced settings").closest("summary") as HTMLElement;
     expect(summary.tagName).toBe("SUMMARY");
     fireEvent.click(summary);
     expect(summary.closest("details")?.open).toBe(true);
@@ -174,13 +174,46 @@ describe("role drafts in the Bots directory", () => {
       body: {
         slug: template.slug,
         config: {
-          name: editedName, emoji: template.config.emoji, instructions: template.config.instructions, harness: "opencode",
+          name: editedName, emoji: template.config.emoji, roleTemplateId: template.id, instructions: template.config.instructions, harness: "opencode",
           ...(template.config.expectedDeliverables?.length ? { expectedDeliverables: template.config.expectedDeliverables } : {}),
         },
       },
     });
     expect(launch).not.toHaveBeenCalled();
     expect(server.request.mock.calls.every(([url]) => url === "/api/custom-agents")).toBe(true);
+  });
+
+  it("retains the chosen role when both its name and slug are customized and the draft is restored", async () => {
+    const server = stubDirectory();
+    const view = render(<CustomAgentsView draftScope="role-owner" />);
+    fireEvent.click(screen.getByRole("button", { name: "Finance" }));
+    change("Name", "Budget partner");
+    change("Slug", "budget-partner");
+    view.unmount();
+    render(<CustomAgentsView draftScope="role-owner" />);
+    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+    await screen.findByText("Bot created.");
+    expect(server.writes[0]?.body).toMatchObject({ slug: "budget-partner", config: { name: "Budget partner", roleTemplateId: "finance" } });
+    expect((await screen.findByText("Budget partner")).closest("li")?.querySelector('[data-employee-role="finance"]')).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));
+    change("Name", "Renamed budget partner");
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Bot updated.");
+    expect(server.writes[1]?.body.config.roleTemplateId).toBe("finance");
+    expect(server.writes.every((write) => !write.body.config.connectionId && !write.body.config.toolScopes)).toBe(true);
+  });
+
+  it("restores legacy drafts without adding a role or granting capabilities", async () => {
+    const server = stubDirectory();
+    localStorage.setItem("shiba-role-draft-v1:legacy-owner", JSON.stringify({
+      slug: "my-bot", name: "Existing draft", emoji: "", instructions: "Keep my draft", harness: "opencode",
+      codingModel: "", connectionId: "", sandboxProvider: "", defaultRepoUrl: "", expectedDeliverables: "",
+    }));
+    render(<CustomAgentsView draftScope="legacy-owner" />);
+    expect(value("Name")).toBe("Existing draft");
+    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+    await screen.findByText("Bot created.");
+    expect(server.writes[0]?.body.config).toEqual({ name: "Existing draft", instructions: "Keep my draft", harness: "opencode" });
   });
 
   it("keeps a nonempty draft on cancel or Escape and prevents saving an unresolved replacement", async () => {

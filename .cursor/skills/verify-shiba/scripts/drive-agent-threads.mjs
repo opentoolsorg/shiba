@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
+import { openAppView, selectRepositoryTask } from "./composer-target.mjs";
 
 const base = new URL(process.env.VERIFY_APP_URL ?? "http://localhost:5173");
 assert(["localhost", "127.0.0.1", "[::1]"].includes(base.hostname), "This smoke test writes local fixture records only.");
@@ -26,14 +27,16 @@ let fixtureAgentId;
 let fixtureSessionId;
 async function openAgentsDirectory() {
   await page.goto(new URL("/app/", base).href);
-  await page.getByRole("navigation", { name: "Main", exact: true }).getByRole("button", { name: "Agents", exact: true }).click();
+  await openAppView(page, "Agents");
 }
 async function assertThreadProfile(profileName, choiceText = profileName) {
-  await page.getByRole("main").locator("header").getByRole("heading", { name: profileName, exact: true }).waitFor();
-  const composer = page.getByRole("form", { name: "Task composer", exact: true });
+  const composer = await selectRepositoryTask(page);
   await composer.getByRole("button", { name: "Thread configuration", exact: true }).click();
   const config = composer.getByRole("menu", { name: "Thread configuration", exact: true });
   const choice = config.getByRole("menuitemradio").filter({ hasText: choiceText });
+  // Thread selection waits for its authenticated resume request. Attachment of
+  // the menu alone does not mean that asynchronous selection has completed.
+  await config.getByRole("menuitemradio", { checked: true }).filter({ hasText: choiceText }).waitFor({ state: "visible" });
   assert.equal(await choice.getAttribute("aria-checked"), "true", `Thread configuration did not select ${choiceText}`);
   await choice.press("Escape");
   await config.waitFor({ state: "hidden" });
@@ -41,6 +44,7 @@ async function assertThreadProfile(profileName, choiceText = profileName) {
 try {
   await openAgentsDirectory();
   await page.getByRole("button", { name: "Create bot", exact: true }).waitFor();
+  await page.getByText("Advanced settings", { exact: true }).click();
   await page.getByLabel("Slug", { exact: true }).fill(`browser-auditor-${stamp}`);
   await page.getByLabel("Name", { exact: true }).fill(name);
   await page.getByLabel("Instructions", { exact: true }).fill("Review locally and require approval before any execution.");
@@ -62,7 +66,7 @@ try {
   fixtureSessionId = session.id;
   assert.equal(session.metadata.customAgentId, agent.id);
   await assertThreadProfile(name);
-  await page.getByLabel("Task composer").waitFor();
+  await selectRepositoryTask(page);
   passed("Start a fresh bot-associated thread and select its profile in the composer");
 
   // A failed rename must remain retryable and must not silently change persisted state.
@@ -90,7 +94,7 @@ try {
   await page.screenshot({ path: resolve(output, "renamed-thread.png"), fullPage: true });
 
   await page.reload();
-  await page.getByRole("navigation", { name: "Main", exact: true }).getByRole("button", { name: "Agents", exact: true }).click();
+  await openAppView(page, "Agents");
   await page.getByRole("list", { name: `${name} threads`, exact: true }).getByRole("button").filter({ hasText: renamed }).click();
   await assertThreadProfile(name);
   await page.getByRole("button", { name: "Rename thread", exact: true }).waitFor();
@@ -98,12 +102,30 @@ try {
   assert(persisted.sessions.some((item) => item.id === session.id && item.name === renamed && item.metadata?.customAgentId === agent.id));
   passed("Refresh preserves the renamed thread and restores its bot profile on selection");
 
-  const threadList = page.getByRole("complementary", { name: "Primary Left Rail", exact: true }).getByRole("listbox", { name: "Threads", exact: true });
-  await threadList.getByRole("option").filter({ hasText: "Default Session" }).click();
+  await openAppView(page, "Chats");
+  const threadList = page.getByRole("complementary", { name: "Chats", exact: true }).getByRole("region", { name: "Recents", exact: true });
+  await threadList.getByRole("button").filter({ hasText: "Default Session" }).click();
   await assertThreadProfile("Shiba", "Default (no bot)");
   assert.equal(await page.getByRole("button", { name: "Rename thread", exact: true }).count(), 0);
-  await threadList.getByRole("option").filter({ hasText: renamed }).click();
-  await assertThreadProfile(name);
+  // Hold the real resume request until the old selection has been observed.
+  // The assertion must wait for the new profile, never accept the old one.
+  const resumePath = `**/api/sessions/${session.id}/resume`;
+  let releaseResume;
+  const resumeGate = new Promise((resolve) => { releaseResume = resolve; });
+  await page.route(resumePath, async (route) => { await resumeGate; await route.continue(); });
+  try {
+    const resumeSeen = page.waitForRequest(resumePath);
+    await threadList.getByRole("button").filter({ hasText: renamed }).click();
+    await resumeSeen;
+    const selection = assertThreadProfile(name).then(() => null, (error) => error);
+    const menu = page.getByRole("menu", { name: "Thread configuration", exact: true });
+    await menu.waitFor({ state: "visible" });
+    assert.equal(await menu.getByRole("menuitemradio").filter({ hasText: name }).getAttribute("aria-checked"), "false", "Pending resume must not pretend the new profile is selected.");
+    releaseResume();
+    const failure = await selection;
+    if (failure) throw failure;
+  } finally { releaseResume(); await page.unroute(resumePath); }
+  passed("A delayed resume preserves the old selection until the named thread and profile are ready");
   passed("Switching to the protected default session clears the bot; returning restores it");
 
   await openAgentsDirectory();
@@ -122,7 +144,7 @@ try {
   passed("The rename form focuses its field and closes with Escape");
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByLabel("Task composer").waitFor();
+  await selectRepositoryTask(page);
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "Mobile layout overflows horizontally");
   await page.screenshot({ path: resolve(output, "mobile-thread.png"), fullPage: true });
   passed("Thread composer renders at 390px without horizontal page overflow");
@@ -139,7 +161,7 @@ try {
   for (const [kind, id] of [["sessions", fixtureSessionId], ["custom-agents", fixtureAgentId]]) {
     if (!id) continue;
     try {
-      const response = await page.request.delete(new URL(`/api/${kind}/${encodeURIComponent(id)}`, base).href);
+      const response = await page.request.delete(new URL(`/api/${kind}/${encodeURIComponent(id)}`, base).href, { headers: { origin: base.origin } });
       report.cleanup.push({ kind, status: response.status() });
       assert(response.ok(), `Could not remove own ${kind} fixture (${response.status()})`);
     } catch (error) {

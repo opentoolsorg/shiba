@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  workspaceVerified: true,
   agent: {
     connectionError: null,
     identified: true,
@@ -22,6 +23,13 @@ const mocks = vi.hoisted(() => ({
 vi.mock("agents/react", () => ({
   useAgent: () => mocks.agent,
   useAgentToolEvents: () => ({ runsById: mocks.runsById }),
+}));
+// These static fixtures represent a fully verified personal workspace. Real
+// authentication and workspace resolution run asynchronously in the browser.
+vi.mock("../../frontend/src/team-workspaces-client", async (original) => ({
+  ...await original<typeof import("../../frontend/src/team-workspaces-client")>(),
+  useTeamWorkspaceDirectory: () => ({ verified: mocks.workspaceVerified, loading: !mocks.workspaceVerified,
+    error: null, selectedWorkspaceId: "", workspaces: [], selectWorkspace: vi.fn(), refresh: vi.fn(async () => {}) }),
 }));
 
 vi.mock("@cloudflare/ai-chat/react", () => ({
@@ -49,6 +57,7 @@ import { TaskForm } from "../../web/src/components/TaskForm";
 import { Tooltip } from "../../frontend/src/components/Tooltip";
 
 afterEach(() => {
+  mocks.workspaceVerified = true;
   delete (globalThis as { __shibaTestAgent?: string }).__shibaTestAgent;
   mocks.chat.messages = [];
   mocks.chat.error = null;
@@ -59,16 +68,24 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderApp(view?: "tasks") {
+function renderApp(view?: "threads", mode: "chat" | "work" = "chat") {
   (globalThis as { __shibaTestAgent?: string }).__shibaTestAgent = "ada@example.com";
   if (view) {
     vi.stubGlobal("window", { location: new URL(`https://app.tryshiba.dev/${view}/`) });
-    vi.stubGlobal("localStorage", { getItem: () => null });
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => key === "shiba:conversation-mode:default" ? mode : null,
+    });
   }
   return renderToStaticMarkup(React.createElement(App));
 }
 
 describe("dashboard rendering", () => {
+  it("does not render personal conversation data before workspace verification", () => {
+    mocks.workspaceVerified = false;
+    const markup = renderApp("threads", "work");
+    expect(markup).toContain("Checking workspace access");
+    expect(markup).not.toContain('data-testid="task-composer"');
+  });
   it("renders the dashboard overview and links to real capability surfaces", () => {
     const markup = renderToStaticMarkup(React.createElement(DashboardView, {
       runs: [],
@@ -88,23 +105,20 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("Mailbox");
     expect(markup).toContain("Memory");
     expect(markup).toContain("Sandbox");
-    expect(markup).toContain("No runs yet.");
+    expect(markup).toContain("No runs yet");
   });
 
   it("shows useful empty states when no task has started", () => {
     const markup = renderApp();
 
     expect(markup).toContain('aria-label="Work views"');
-    expect(markup).toContain('aria-label="Draft a task and press Enter"');
-    expect(markup).toContain("Nothing waiting");
-    expect(markup).toContain("No tasks in Running");
+    expect(markup).toContain("No tasks yet");
     expect(markup).toContain("New task");
-    expect(markup).toContain("New thread");
-    expect(markup).toContain("Threads");
+    expect(markup).toContain('aria-label="Chats"');
   });
 
-  it("shows the thread composer when opening Threads", () => {
-    const markup = renderApp("tasks");
+  it("shows the task composer when Threads has a saved Work mode preference", () => {
+    const markup = renderApp("threads", "work");
 
     expect(markup).toContain('data-testid="task-composer"');
     expect(markup).toContain('aria-label="Task description"');
@@ -133,7 +147,7 @@ describe("dashboard rendering", () => {
     expect(workMarkup).toContain("Approve tool: runSandbox");
     expect(workMarkup).toContain("Review");
 
-    const markup = renderApp("tasks");
+    const markup = renderApp("threads");
 
     expect(markup).toContain("Waiting for your approval");
     expect(markup).toContain("Needs approval");
@@ -157,7 +171,7 @@ describe("dashboard rendering", () => {
       },
     };
 
-    const markup = renderApp("tasks");
+    const markup = renderApp("threads");
 
     expect(markup).toContain("Chat error: stream failed");
     expect(markup).toContain("run-1");
@@ -174,7 +188,7 @@ describe("dashboard rendering", () => {
     expect(formMarkup).toContain('type="checkbox"');
     expect(formMarkup).toContain('value="main"');
 
-    const appMarkup = renderApp("tasks");
+    const appMarkup = renderApp("threads", "work");
 
     expect(appMarkup).toContain('data-testid="task-composer"');
     expect(appMarkup).toContain("<textarea");
@@ -215,13 +229,11 @@ describe("dashboard rendering", () => {
     expect(diffMarkup).toContain("<code");
   });
 
-  it("renders the top navigation bar without the retired Architecture view", () => {
+  it("renders the desktop navigation rail without the retired Architecture view", () => {
     const markup = renderApp();
-    expect(markup).toContain("New thread");
-    expect(markup).toContain("Threads");
-    expect(markup).toContain("Pull requests");
-    expect(markup).toContain("Automations");
-    expect(markup).toContain("More");
+    expect(markup).toContain('aria-label="Work"');
+    expect(markup).toContain('aria-label="Chats"');
+    expect(markup).toContain('aria-label="More"');
     expect(markup).not.toContain("Architecture");
     // Deduped surfaces stay deep-link reachable but are out of the nav.
     expect(markup).not.toContain("Missions &amp; Standing Goals");
@@ -237,7 +249,9 @@ describe("dashboard rendering", () => {
       })
     );
     expect(diffMarkup).toContain("Pull requests");
-    expect(diffMarkup).toContain("No changes to review");
+    expect(diffMarkup).toContain("No runs yet");
+    expect(diffMarkup).toContain("0 with diffs / 0 total");
+    expect(diffMarkup).not.toContain('aria-label="Select run for diff inspection"');
 
     const approvalsMarkup = renderToStaticMarkup(
       React.createElement(ApprovalsView, {
@@ -281,7 +295,7 @@ describe("dashboard rendering", () => {
       sessionId: "default",
       sessionApiAvailable: false,
     }));
-    expect(markup).toContain("Analytics");
+    expect(markup).toContain("Usage");
     expect(markup).toContain("Fix bug");
     expect(markup).toContain("owner/repo");
   });
@@ -294,7 +308,7 @@ describe("dashboard rendering", () => {
     expect(markup).toContain(">Triggers</button>");
     expect(markup).toContain("New automation");
     expect(markup).toContain('aria-label="Deployed automations"');
-    expect(markup).toContain("Runs still need your approval.");
+    expect(markup).toContain("All runs require your approval.");
   });
 
   it("renders OnboardingModal with steps from PLAN.md", () => {
@@ -311,12 +325,12 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("Operator &amp; Self-Hosting Setup");
     expect(markup).toContain('role="checkbox"');
   });
-  it("renders the sidebar toggle, search, and thread group controls", () => {
+  it("renders the sidebar toggle, task search, and chat control", () => {
     const markup = renderApp();
     expect(markup).toContain('aria-label="Collapse sidebar"');
     expect(markup).toContain('aria-expanded="true"');
-    expect(markup).toContain('aria-label="Search"');
-    expect(markup).toContain("Threads");
+    expect(markup).toContain('aria-label="Search tasks"');
+    expect(markup).toContain('aria-label="Chats"');
   });
 
   it("renders Tooltip component wrapping trigger elements", () => {

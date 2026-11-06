@@ -11,7 +11,9 @@ jobs:
   desktop-pr:
     if: ${{ ((github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate') || github.event_name == 'workflow_dispatch') && needs.changes.outputs.desktop == 'true' }}
 
-    runs-on: macos-latest
+    # Pin PR/Electron execution to the standard Intel pool. Native ARM
+    # execution remains a separate coverage limit; packaging still builds both.
+    runs-on: macos-15-intel
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -24,6 +26,8 @@ jobs:
       - run: pnpm --filter @shiba/desktop typecheck
       - run: pnpm --filter @shiba/desktop lint
       - run: pnpm --filter @shiba/desktop test
+      - name: Verify bounded local Worker readiness diagnostics
+        run: node --test apps/backend/test/acceptance/worker-fixture-startup.node-check.mjs
       # Electron smoke (T65/T66). The script builds dist/, downloads the Electron
       # binary once, then runs one e2e file at a time. macOS runners have a display.
       - run: pnpm --filter @shiba/desktop test:e2e
@@ -53,6 +57,10 @@ jobs:
       # Unsigned build: signing secrets are never present on PRs.
       # dist/ is gitignored — compile main.js before packaging (REVIEW3 F4).
       - run: pnpm --filter @shiba/desktop build
+      - name: Test pinned packaging preflight
+        run: node --test apps/desktop/scripts/prepare-packaging-tools.test.cjs
+      - name: Prepare checksum-verified packaging tools before parallel targets
+        run: node apps/desktop/scripts/prepare-packaging-tools.cjs
       - run: pnpm --filter @shiba/desktop exec electron-builder --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
@@ -65,17 +73,109 @@ jobs:
             apps/desktop/release/*.zip
             .verify/desktop-agent-lifecycle/**
             .verify/desktop-shell/**
+            .verify/native-onboarding/**
             .verify/local-daemon-e2e/ui-employee-desktop/**
             .verify/employee-ci-*/worker.log
             .verify/employee-ci-*/migrate.log
             .verify/employee-ci-*/result.json
             .verify/evidence/**
+            !.verify/**/auth.json
+            !.verify/**/run.env*
+            !.verify/**/worker.env
+            !.verify/**/state/**
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 3
     concurrency:
       group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-desktop-pr
       cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}
     needs: changes
+  sandbox-image:
+    if: ${{ ((github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate') || github.event_name == 'workflow_dispatch') && needs.changes.outputs.sandbox_image == 'true' }}
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the pinned sandbox image without credentials or publishing
+        run: |
+          docker build --pull --progress=plain --platform linux/amd64 \
+            --tag "shiba-sandbox-validation:${GITHUB_SHA}" \
+            --file apps/backend/Dockerfile apps/backend
+      - name: Verify installed tools without network access or coding execution
+        run: |
+          timeout 180s docker run --rm -i --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --cpus 2 --memory 1g --pids-limit 128 \
+            --tmpfs /tmp:rw,nosuid,nodev,size=256m \
+            --env HOME=/tmp/shiba-smoke --env XDG_CACHE_HOME=/tmp/shiba-smoke/cache \
+            --env XDG_CONFIG_HOME=/tmp/shiba-smoke/config \
+            --entrypoint /bin/sh "shiba-sandbox-validation:${GITHUB_SHA}" -eu <<'SMOKE'
+          mkdir -p "$HOME" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME"
+          for tool in git curl python3 node duckdb agent-reach opencode claude codex grok pi gemini claude-agent-acp codex-acp cursor-agent agy shiba-acp-install xdotool scrot procoder sandbox-shim; do
+            command -v "$tool"
+          done
+          node --version
+          python3 --version
+          duckdb -version
+          agent-reach help >/dev/null
+          opencode --version
+          claude --version
+          codex --version
+          grok --version
+          pi --version
+          gemini --version
+          cursor-agent --version
+          procoder version
+          test -x /opt/agy/agy_acp_server.par
+          test -x /opt/agy/localharness_external
+          SMOKE
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-sandbox-image
+      cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}
+  computer-image:
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' && needs.changes.outputs.computer_image == 'true' }}
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Test pinned public-package verification and bounded retries
+        run: node --test apps/backend/computer/precache-debs.test.mjs
+      - name: Prefetch exact verified public packages through immutable Snapshot endpoints
+        run: node --use-env-proxy apps/backend/computer/precache-debs.mjs
+      - name: Build the pinned offline desktop without credentials or publishing
+        run: |
+          imageDockerConfig=$(mktemp -d /tmp/shiba-computer-docker.XXXXXX)
+          trap 'rm -rf "$imageDockerConfig"' EXIT
+          timeout 900s docker --config "$imageDockerConfig" build --pull --progress=plain --platform linux/amd64 \
+            --secret id=proxy_ca,src=/etc/ssl/certs/ca-certificates.crt \
+            --tag shiba-computer-offline:ci --file apps/backend/Dockerfile.computer apps/backend
+      - name: Verify real offline display, human input, capture and watchdog
+        run: node apps/backend/computer/verify-offline.mjs --image shiba-computer-offline:ci --output /tmp/shiba-computer-evidence
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: shiba-offline-computer-evidence
+          path: |
+            /tmp/shiba-computer-evidence/report.json
+            /tmp/shiba-computer-evidence/*.jpg
+          if-no-files-found: warn
+          retention-days: 3
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-computer-image
+      cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}
   desktop-release:
     if: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/desktop-v') }}
 
@@ -117,11 +217,18 @@ jobs:
       pull-requests: read
     outputs:
       desktop: ${{ steps.files.outputs.desktop }}
+      sandbox_image: ${{ steps.files.outputs.sandbox_image }}
+      computer_image: ${{ steps.files.outputs.computer_image }}
     steps:
-    - name: Select desktop changes
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Test validation change selection
+      run: python3 -B -m unittest discover -s .github/scripts -p 'test_select_validation_changes.py'
+    - name: Select desktop and sandbox image changes
       id: files
       env:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
-      run: "python3 - <<'PYTHON'\nimport json, os, urllib.request\nfrom pathlib import PurePosixPath\n\ndef relevant(path):\n    if path.startswith(('apps/', 'packages/', 'scripts/', 'patches/', '.cursor/skills/verify-shiba/', '.github/')):\n        return True\n    if path.startswith(('docs/', 'screenshots/')):\n        return False\n    # Unknown files and root configuration select the full desktop checks.\n    return True\n\ndef select():\n    for page in range(1, 31):\n        url = f\"https://api.github.com/repos/{os.environ['GH_REPO']}/pulls/{int(os.environ['PR_NUMBER'])}/files?per_page=100&page={page}\"\n        request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})\n        with urllib.request.urlopen(request, timeout=30) as response:\n            files = json.load(response)\n        for item in files:\n            if relevant(item['filename']) or (item.get('previous_filename') and relevant(item['previous_filename'])):\n                return True\n        if len(files) < 100:\n            return False\n    return True  # GitHub limits the PR files endpoint to 3,000 files.\n\ntry:\n    desktop = select()\nexcept Exception:\n    desktop = True\nwith open(os.environ['GITHUB_OUTPUT'], 'a') as output:\n    output.write(f\"desktop={str(desktop).lower()}\\n\")\nPYTHON"
+      run: python3 -B .github/scripts/select_validation_changes.py

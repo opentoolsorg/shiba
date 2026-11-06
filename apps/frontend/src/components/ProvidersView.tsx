@@ -1,11 +1,14 @@
 import type { AcpProviderCard, AcpProvidersSnapshot } from "@shiba/shared";
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { desktopCanSignInClaude, desktopCodexAuthorizationUrl } from "../desktop-provider";
+import { describeProviderRoute } from "../supported-task-routes";
 import { LoadErrorState } from "./LoadErrorState";
 import { ConnectionsCard } from "./ModelRoutingSection";
 import { providerPhaseLabel } from "./provider-phase";
-import { EmptyState, PageHeader, StatusNotice } from "./surface";
+import { EmptyState, StatusNotice } from "./surface";
 import { ToneChip } from "./ToneChip";
+import { MainCard, type Scope } from "./ui/ContextPanel";
 
 type CardAction =
   | "oauth"
@@ -371,7 +374,7 @@ function DisconnectedActions({
             onClick={() => onConnectOauth(card.id)}
             className={PRIMARY}
           >
-            {actionLabel(busy, action, "oauth", "Connect with sign-in", "Working…")}
+            {actionLabel(busy, action, "oauth", card.id === "claude" ? "Review Claude connection options" : "Connect with sign-in", "Working…")}
           </button>
         ) : null}
         {claudeOnDesktop ? (
@@ -399,7 +402,7 @@ function DisconnectedActions({
             onClick={() => onConnectSetupToken(card.id)}
             className={SECONDARY}
           >
-            {actionLabel(busy, action, "setup-token", "Use setup-token (opt-in)", "Checking…")}
+            {actionLabel(busy, action, "setup-token", "Legacy setup-token (deployment opt-in)", "Checking…")}
           </button>
         ) : null}
         {card.capabilities.apiKey ? (
@@ -447,7 +450,7 @@ function ConnectedActions({
         onClick={() => onTest(card.id)}
         className={PRIMARY}
       >
-        {actionLabel(busy, action, "test", "Test connection", "Testing…")}
+        {actionLabel(busy, action, "test", "Check saved configuration", "Checking…")}
       </button>
       {card.isDefault ? null : (
         <button
@@ -547,6 +550,7 @@ function ProviderCard({
   onDefault: (id: string) => void;
 }): JSX.Element {
   const phase = providerPhaseLabel(card.connection);
+  const route = describeProviderRoute(card);
   const ordinal = String(index + 1).padStart(2, "0");
   return (
     <article
@@ -573,6 +577,12 @@ function ProviderCard({
 
       <div className="flex flex-1 flex-col px-3 py-3">
         <p className="text-xs leading-relaxed text-[var(--muted-foreground-2)]">{card.blurb}</p>
+        <dl data-testid={`provider-route-${card.id}`} className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 break-words text-[11px] text-[var(--muted-foreground-2)]">
+          <dt>Task harness</dt><dd>{route.harness}</dd>
+          <dt>Runtime</dt><dd>{route.runtime}</dd>
+          <dt>Account / billing</dt><dd>{route.account}</dd>
+        </dl>
+        <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">{route.note}</p>
         {card.connection.message ? (
           <p
             data-testid={`provider-signin-message-${card.id}`}
@@ -599,9 +609,9 @@ function ProviderCard({
       </div>
 
       <footer className="mt-auto flex min-w-0 flex-wrap gap-px border-t border-[var(--border-1)] bg-[var(--border-1)] font-mono text-[10px] text-[var(--muted-foreground-2)]">
-        <Fact label="Lane" value={card.capabilities.acp ? "ACP" : "CLI"} />
-        <Fact label="Harness" value={card.harness} />
-        <Fact label="Model" value={card.defaultModel} />
+        <Fact label="Registry protocol" value={card.protocol.toUpperCase()} />
+        <Fact label="Registry adapter" value={card.harness} />
+        <Fact label="Adapter default model" value={card.defaultModel} />
         <a
           href={card.docsUrl}
           target="_blank"
@@ -715,6 +725,7 @@ export function ProvidersBoard({
   onTest,
   onDisconnect,
   onDefault,
+  scope = "personal",
 }: {
   snapshot: AcpProvidersSnapshot | null;
   loading: boolean;
@@ -730,6 +741,7 @@ export function ProvidersBoard({
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
+  scope?: Scope;
 }): JSX.Element {
   const ready =
     snapshot?.providers.filter((provider) => provider.connection.phase === "connected").length ?? 0;
@@ -739,27 +751,50 @@ export function ProvidersBoard({
       snapshot.defaultProviderId)
     : null;
 
+  const scopeCrumb = scope === "workspace" ? "Workspace" : "Personal";
+  const crumbs = [scopeCrumb, "Extensions", "Providers"];
+
   return (
-    <div
+    <MainCard
       data-testid="providers-page"
-      className="flex h-full flex-1 flex-col overflow-hidden bg-[var(--bg)] text-[var(--fg)]"
+      className="bg-white dark:bg-zinc-900"
     >
-      <PageHeader
-        title="Providers"
-        detail="Codex uses your ChatGPT plan. Claude pairs a computer or takes a setup token. Gemini (Antigravity), Grok, and Cursor support Connect with sign-in; OpenCode and API-key lanes still accept a pasted key. Credentials stay encrypted and attach at egress."
-      >
-        {defaultLabel ? (
-          <span
-            data-testid="providers-org-default"
-            className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]"
-          >
-            Org default · {defaultLabel}
+      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
+          <ol className="flex items-center gap-1.5 min-w-0">
+            {crumbs.map((crumb, idx) => {
+              const isLast = idx === crumbs.length - 1;
+              return (
+                <li key={`${crumb}-${idx}`} className="flex items-center gap-1.5 min-w-0">
+                  {idx > 0 ? (
+                    <ChevronRight className="size-3.5 text-[#71717a] shrink-0 dark:text-zinc-500" strokeWidth={1.5} aria-hidden="true" />
+                  ) : null}
+                  <span
+                    className={isLast ? "truncate text-[14px] font-medium text-[#0a0a0a] dark:text-zinc-100" : "truncate text-[14px] text-[#71717a] dark:text-zinc-400"}
+                    aria-current={isLast ? "page" : undefined}
+                  >
+                    {crumb}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {defaultLabel ? (
+            <span
+              data-testid="providers-org-default"
+              className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#71717a] dark:text-zinc-400"
+            >
+              Org default · {defaultLabel}
+            </span>
+          ) : null}
+          <span className="border border-[#e4e4e7] bg-[#fafafa] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[#71717a] dark:border-zinc-800 dark:bg-zinc-800/50 dark:text-zinc-400">
+            {snapshot ? `${ready} of ${total} connected` : "—"}
           </span>
-        ) : null}
-        <span className="border border-[var(--border-1)] bg-[var(--card)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-          {snapshot ? `${ready} of ${total} connected` : "—"}
-        </span>
-      </PageHeader>
+        </div>
+      </header>
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="mx-auto flex max-w-6xl flex-col gap-8">
@@ -773,7 +808,7 @@ export function ProvidersBoard({
           {error && snapshot === null ? null : (
             <section className="flex flex-col gap-3">
               <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[var(--border-1)] pb-2">
-                <h3 className="text-sm font-semibold text-[var(--fg)]">Sandbox adapters</h3>
+                <h3 className="text-sm font-semibold text-[var(--fg)]">Coding connections</h3>
                 <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
                   Org default is recorded here. A run still uses the harness for that task.
                 </p>
@@ -805,11 +840,15 @@ export function ProvidersBoard({
           </section>
         </div>
       </div>
-    </div>
+    </MainCard>
   );
 }
 
-export function ProvidersView(): JSX.Element {
+export interface ProvidersViewProps {
+  scope?: Scope;
+}
+
+export function ProvidersView({ scope = "personal" }: ProvidersViewProps = {}): JSX.Element {
   const [snapshot, setSnapshot] = useState<AcpProvidersSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -900,6 +939,7 @@ export function ProvidersView(): JSX.Element {
       onDefault={(id) =>
         void run(id, "default", () => postProvider(`/api/providers/${id}/default`, {}))
       }
+      scope={scope}
     />
   );
 }

@@ -1,0 +1,448 @@
+{
+  "startedAt": "2026-11-04T17:44:17.896Z",
+  "status": "passed",
+  "head": "c1c2e3086f2709046be5582e0fa966e610c6d90d",
+  "runtime": "Actual production-built dashboard and local Worker/D1/DO/R2/KV; production OpenConnector HTTP adapter. No frontend extension stubs or backend HTTP interception.",
+  "fixtureScope": "Disposable synthetic OpenConnector metadata/OAuth account service only. Consent screens are fixture forms with no real vendor, account, credential, terms, purchase, message or action.",
+  "authentication": "One genuine disposable local first-owner signup in the initial run, followed by real sign-ins to the same account; no seeded or additional operator account.",
+  "limitations": [
+    "No deployed Cloudflare or real vendor acceptance.",
+    "No positive browser multi-owner proof; separate production-adapter real-HTTP test covers two-owner isolation.",
+    "Blocked-popup case deliberately injects window.open returning null; it tests the real UI failure path, not browser permission policy.",
+    "No provider inference, containers, MCP network success, external messages or purchases."
+  ],
+  "builtDashboardHtmlSha256": "209ca5c0988b1708f3d9d540687633daaaf5b948cf0220b12d7bbfee8ddc1342",
+  "sourceSha256AtStart": {
+    "apps/backend/src/index.ts": "b6c838f76c9b9e0679f0c8180a19d216e55682633f63252fe342eee4502a3aae",
+    "apps/backend/src/integrations/openconnector-provider.ts": "21198b9294918c03f7dce8f01b870f8ca9164b8abe53bc941fbe61f9e0dd6c11",
+    "apps/backend/src/integrations-provider-routes.ts": "8d9838c895c1f0cf5f9c72b2f0239ef13b2235dbe2cbfa506416f7dd9fc2badd",
+    "apps/frontend/src/integration-oauth.ts": "962d831454d300327879c8ce728064b74f057a5d6f97a37da9573e9712630934",
+    "apps/frontend/src/components/WorkspaceConnectorsPanel.tsx": "eb99a6911c05a3fbb9fd9d4c4b3dc8840ad0e9ce80e8d043aaa16f921f25f382",
+    "apps/frontend/src/components/IntegrationCatalogDirectory.tsx": "cd9a922bbc79895fa3ff270aed68e1a67cb90240e8fa5dc57131f1b8d784480b",
+    "apps/frontend/src/components/IntegrationsBrowseCatalogDialog.tsx": "cc62371932a9f620d533dd0d3bbcec72cb145f66d0bc80501cf66a7f58f8559a",
+    "apps/frontend/src/components/FounderSkillLibrary.tsx": "83b9a82b8dfcfbf41cfd460de59fdf82744da8d6102874bd78d2246e9f52e55f",
+    "apps/backend/src/founder-skills-routes.ts": "28ee49e43f84655830ad7055c8d50fbeabaa071f55a7a44c0f507cf9ab0d87b0",
+    "apps/backend/src/founder-skill-setup.ts": "47945de3a49d0cc202df59698c8c40fa0f1d17a33c8216d484bf42b6fde2a768"
+  },
+  "checks": [
+    {
+      "name": "Fresh auth-safe tree denies anonymous whoami, sessions, skills, workspaces and app accounts401; forged default identity headers gain no authority."
+    },
+    {
+      "name": "Fresh tree blocked-popup fault is actionable and produces no authorization call (controlled window.open(null) injection)."
+    },
+    {
+      "name": "Fresh tree synthetic authorization503 closes the popup and creates no app account."
+    },
+    {
+      "name": "Fresh tree explicit synthetic denial returns to retryable state with no account or employee permissions."
+    },
+    {
+      "name": "Fresh tree actual success-shaped callback and completion hints do not establish consent without the matching owned generation."
+    },
+    {
+      "name": "Fresh built UI: Disconnect -> Browse -> explicit synthetic Allow shows verified success rather than stale disconnected notice."
+    },
+    {
+      "name": "Fresh built UI: inline Connect app also clears stale notice and confirms only the new exact owned generation."
+    },
+    {
+      "name": "Fresh build preserves prior real skill activation/disable and reviewed founder import: disabled template reinstallable, founder bot archived, instructions draft, Deploy409."
+    },
+    {
+      "name": "Actual canonical MCP UI rejects local HTTP with403 destination_not_trusted and leaves registry empty; public HTTPS guard unchanged."
+    },
+    {
+      "name": "Actual sign-out removes session access: app accounts and skills401, with no cached account visible."
+    }
+  ],
+  "blocked": [],
+  "screenshots": [
+    "integrations-functional-app-1440-light-20261104.png",
+    "integrations-before-app-390-dark-20261104.png",
+    "integrations-before-skills-390-light-20261104.png"
+  ],
+  "runtimeErrors": [],
+  "console": [
+    {
+      "phase": "final-same-owner-login",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost \u2014 this usually means a stale socket reference is being used."
+    },
+    {
+      "phase": "final-same-owner-login",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost \u2014 this usually means a stale socket reference is being used."
+    },
+    {
+      "phase": "final-same-owner-login",
+      "type": "warning",
+      "text": "PartySocket: discarded 2 buffered message(s) while replacing the socket, because the connection destination changed. Pass transferEnqueuedMessages: true to deliver buffered messages to the new destination instead."
+    },
+    {
+      "phase": "final-consent-negative-baseline",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "phase": "final-upstream-error",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    },
+    {
+      "phase": "final-denied-consent",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "phase": "final-spoofed-completion",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "phase": "final-spoofed-completion",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "phase": "final-browse-reconnect",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "phase": "final-persisted-skills",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost \u2014 this usually means a stale socket reference is being used."
+    },
+    {
+      "phase": "final-persisted-skills",
+      "type": "warning",
+      "text": "PartySocket: discarded 2 buffered message(s) while replacing the socket, because the connection destination changed. Pass transferEnqueuedMessages: true to deliver buffered messages to the new destination instead."
+    },
+    {
+      "phase": "final-persisted-skills",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "phase": "final-persisted-skills",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+    },
+    {
+      "phase": "final-mcp-denial",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost \u2014 this usually means a stale socket reference is being used."
+    },
+    {
+      "phase": "final-mcp-denial",
+      "type": "warning",
+      "text": "PartySocket: discarded 2 buffered message(s) while replacing the socket, because the connection destination changed. Pass transferEnqueuedMessages: true to deliver buffered messages to the new destination instead."
+    },
+    {
+      "phase": "final-mcp-denial",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "phase": "final-mcp-denial",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "phase": "final-signout",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost \u2014 this usually means a stale socket reference is being used."
+    },
+    {
+      "phase": "final-signout",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "phase": "final-signout",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "phase": "final-signout",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    }
+  ],
+  "network": [
+    {
+      "phase": "final-same-owner-login",
+      "status": 401,
+      "path": "/api/whoami"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "status": 401,
+      "path": "/api/sessions"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "status": 401,
+      "path": "/api/skills"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "status": 401,
+      "path": "/api/workspaces"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "status": 401,
+      "path": "/api/integrations/provider/connections"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "status": 401,
+      "path": "/api/whoami"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "status": 401,
+      "path": "/api/whoami"
+    },
+    {
+      "phase": "final-same-owner-login",
+      "status": 401,
+      "path": "/api/whoami"
+    },
+    {
+      "phase": "final-consent-negative-baseline",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "phase": "final-upstream-error",
+      "status": 503,
+      "path": "/api/integrations/provider/connect"
+    },
+    {
+      "phase": "final-denied-consent",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "phase": "final-spoofed-completion",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "phase": "final-spoofed-completion",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "phase": "final-browse-reconnect",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "phase": "final-persisted-skills",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "phase": "final-persisted-skills",
+      "status": 409,
+      "path": "/api/founder-skills/founder-stripe-revenue-pulse/deploy"
+    },
+    {
+      "phase": "final-mcp-denial",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "phase": "final-mcp-denial",
+      "status": 403,
+      "path": "/api/v1/mcp/servers"
+    },
+    {
+      "phase": "final-signout",
+      "status": 401,
+      "path": "/api/whoami"
+    },
+    {
+      "phase": "final-signout",
+      "status": 401,
+      "path": "/api/integrations/provider/connections"
+    },
+    {
+      "phase": "final-signout",
+      "status": 401,
+      "path": "/api/skills"
+    }
+  ],
+  "overflows": [
+    {
+      "label": "final-connected-app",
+      "width": 1440,
+      "theme": "light",
+      "viewport": 1440,
+      "document": 1440,
+      "body": 1440
+    },
+    {
+      "label": "final-connected-app",
+      "width": 390,
+      "theme": "dark",
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    },
+    {
+      "label": "final-founder-state",
+      "width": 390,
+      "theme": "light",
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    }
+  ],
+  "phase": "final-signout",
+  "initialBrowserEvidence": "initial-selector-failure-report.json and reconnect-stale-notice-report.json",
+  "supplementalSkillsEvidence": "skills-mcp-selector-report.json",
+  "knownHarnessCorrections": [
+    "Revoked upstream state correctly displays Authorization unavailable, not Sign-in expired.",
+    "Canonical MCP denial is HTTP403 destination_not_trusted, not prose containing HTTPS/public."
+  ],
+  "productRegressionRetested": "Parent disconnected notice masked a fresh OAuth success; root rebuilt the fix before this retake.",
+  "upstreamActionCalls": 0,
+  "headAtEnd": "c1c2e3086f2709046be5582e0fa966e610c6d90d",
+  "sourceSha256AtEnd": {
+    "apps/backend/src/index.ts": "b6c838f76c9b9e0679f0c8180a19d216e55682633f63252fe342eee4502a3aae",
+    "apps/backend/src/integrations/openconnector-provider.ts": "21198b9294918c03f7dce8f01b870f8ca9164b8abe53bc941fbe61f9e0dd6c11",
+    "apps/backend/src/integrations-provider-routes.ts": "8d9838c895c1f0cf5f9c72b2f0239ef13b2235dbe2cbfa506416f7dd9fc2badd",
+    "apps/frontend/src/integration-oauth.ts": "962d831454d300327879c8ce728064b74f057a5d6f97a37da9573e9712630934",
+    "apps/frontend/src/components/WorkspaceConnectorsPanel.tsx": "eb99a6911c05a3fbb9fd9d4c4b3dc8840ad0e9ce80e8d043aaa16f921f25f382",
+    "apps/frontend/src/components/IntegrationCatalogDirectory.tsx": "cd9a922bbc79895fa3ff270aed68e1a67cb90240e8fa5dc57131f1b8d784480b",
+    "apps/frontend/src/components/IntegrationsBrowseCatalogDialog.tsx": "cc62371932a9f620d533dd0d3bbcec72cb145f66d0bc80501cf66a7f58f8559a",
+    "apps/frontend/src/components/FounderSkillLibrary.tsx": "83b9a82b8dfcfbf41cfd460de59fdf82744da8d6102874bd78d2246e9f52e55f",
+    "apps/backend/src/founder-skills-routes.ts": "28ee49e43f84655830ad7055c8d50fbeabaa071f55a7a44c0f507cf9ab0d87b0",
+    "apps/backend/src/founder-skill-setup.ts": "47945de3a49d0cc202df59698c8c40fa0f1d17a33c8216d484bf42b6fde2a768"
+  },
+  "finishedAt": "2026-11-04T17:45:14.785Z",
+  "authSourceSha256AfterAssertions": {
+    "apps/backend/src/request-auth.ts": "cf0f814211f155a0e5516867e11d283e07fe80025a5a38ba3476444bbbbbbcfa",
+    "apps/backend/src/env.ts": "244b6b5485d007697f5934ba353cbfd6bc0a0ac7f1e3a8d72bffa5bf1b99206f"
+  },
+  "priorStages": [
+    {
+      "report": "initial-selector-failure-report.json",
+      "scope": "Initial built dashboard actual signup, readiness, popup fault/error/cancel, callback-hint rejection and owned-consent proof.",
+      "ending": "Harness expected expired label for revoked record; product correctly showed unavailable."
+    },
+    {
+      "report": "reconnect-stale-notice-report.json",
+      "scope": "Same-owner continuation and revoked recovery.",
+      "ending": "Real stale disconnected notice found, subsequently fixed and retested."
+    },
+    {
+      "report": "skills-mcp-selector-report.json",
+      "scope": "Actual skill install/review/activate/disable and founder digest-reviewed archived import.",
+      "ending": "MCP correctly denied403 destination_not_trusted; harness expected prose."
+    },
+    {
+      "report": "mcp-passed-profile-selector-report.json",
+      "scope": "Persisted skills/founder state and exact MCP403 with empty registry.",
+      "ending": "Harness expected fallback profile label; actual account label includes fixture identity."
+    }
+  ],
+  "executionEvidence": {
+    "observedRunOrApprovalPosts": 0,
+    "openConnectorActionCalls": 0,
+    "observedProviderModelRuns": 0,
+    "sandboxContainerStarts": 0,
+    "externalSends": 0,
+    "basis": "No task/chat prompts or run approvals submitted. Containers explicitly disabled; AI, Browser, Vectorize, email, service and remote bindings removed. Synthetic connector action counter remained zero. This does not verify deployed/live integrations."
+  },
+  "diagnosticSummary": {
+    "runtimeErrors": 0,
+    "consoleErrors": 21,
+    "consoleWarnings": 8,
+    "expectedAnonymous401": 11,
+    "expectedSyntheticAuthorization503": 1,
+    "expectedMcp403": 1,
+    "unconfiguredComputers404": 7,
+    "notes": "Console/network are not globally clean: expected negative HTTP responses, unavailable paired-computer404 polls and SDK buffer/discard warnings during navigation are retained verbatim below."
+  },
+  "databaseProof": [
+    {
+      "user": 1,
+      "skills": 2,
+      "employee_bundle_imports": 1,
+      "employee_tool_grants": 0,
+      "automations": 0,
+      "external_mcp_servers": 0,
+      "archivedBots": 1
+    }
+  ],
+  "cleanup": {
+    "ownedPortsStopped": [
+      8791,
+      9391,
+      9392
+    ],
+    "protected1040Preserved": true,
+    "disposableDatabaseRemoved": true,
+    "localAuthKeysRemoved": true,
+    "fixtureCredentialFilesRemoved": true,
+    "noProductionChanges": true,
+    "completedAt": "2026-11-04T17:46:12.920Z"
+  },
+  "retainedScreenshotMap": {
+    "final-connected-app-1440-light.png": "integrations-functional-app-1440-light-20261104.png",
+    "final-connected-app-390-dark.png": "integrations-before-app-390-dark-20261104.png",
+    "final-founder-state-390-light.png": "integrations-before-skills-390-light-20261104.png"
+  },
+  "subsequentVisualReview": {
+    "initialStatus": "390px clipping found by image inspection despite document widths390",
+    "correctedSourceCommit": "b79020b8365d714c76b923b9987ddeb88a54eb5f",
+    "correctedReport": "integrations-layout-browser-20261104.json",
+    "scope": "12 read-only component layout checks; no repeat vendor/auth flow on CSS-only delta"
+  }
+}

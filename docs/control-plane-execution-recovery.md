@@ -1,0 +1,57 @@
+# Container execution recovery boundaries
+
+Cloudflare harness execution uses a container-local source journal. This reconnects a surviving runtime, or a recovered child and parent, to the same supervised process after transport failure or eviction within the prepared harness phase. It does not preserve a process across container replacement or replay interrupted setup and settlement.
+
+## Execution protocol
+
+Before dispatch, the runtime derives a stable job ID from the sandbox, approval, frozen input hash and harness. Its absolute execution deadline is the earlier of the original signed dispatch deadline and the fifteen minute harness limit. Before launch, a private Worker record freezes the original base revision, baseline and setup commits, approved envelope hash, command/config/environment digest, job identity and deadlines. Clone and setup are never repeated during recovery. After a verified CLI exit, checkpoint capture, tests and collection require the same retained native execution claim and container epoch. Other sandbox providers retain their existing single-attempt execution behavior and refuse native recovery options.
+
+The Cloudflare adapter calls `startExecution` once. A lost response causes it to read the retained claim; it never sends another launch. The Sandbox DO writes an immutable command/environment digest and deadline before launching the fixed supervisor. It stores no command body or environment values in that claim. The supervisor receives the approved environment on stdin and gives it only to the CLI child. Managed provider and subscription credentials remain in Worker egress.
+
+The supervisor uses a create-only job directory, a container epoch and Linux process identity. It writes sequenced stdout/stderr records and a final receipt after stream closure. Later reads are stateless and bounded. They require the same retained claim and container epoch and never start or restore a container. Replacing the container or restoring a filesystem snapshot produces a lost outcome rather than starting another CLI. Settlement also checks the original boot ID, PID namespace and PID 1 start identity inside the target container immediately before dispatching a command. This lane is Cloudflare only; its current [runtime architecture](https://developers.cloudflare.com/containers/concepts/architecture/#container-runtime) documents a separate microVM kernel per instance.
+
+The adapter validates page identity, contiguous sequences, canonical base64, output limits and the terminal receipt. It retains separate UTF-8 decoders for stdout and stderr. It advances its in-memory source cursor after each accepted page's callbacks complete. A failed callback stops that attempt. A replacement runtime rereads from source sequence zero for parser reconstruction; the independent durable room acknowledgment suppresses already committed terminal frames.
+
+Cancellation creates a sticky claim and a supervisor cancellation marker, including when launch acknowledgment is ambiguous. The supervisor owns the original deadline independently of the reader. Control requests never signal a later PID found in a file. An escaped descendant or incomplete shutdown is reported as lost, with a matching-instance lifecycle backstop. Recovery does not extend the approved deadline or grant publication permission.
+
+## Explicit bounds
+
+- Source output is limited to 4 MiB and 4,096 frames. Each raw frame is at most 4,096 bytes; a page contains at most 64 frames.
+- Returned stdout and stderr tails each retain at most 512,000 characters. Source records within the journal remain available until container cleanup.
+- Launch/read RPC waits are bounded to five seconds. Repeated read failures have a thirty second recovery budget. Initial observation ends at the original CLI deadline; attach-only observation can read a completed journal afterward but must end by the original signed dispatch expiry.
+- A cancellation RPC has a two second client wait. Supervisor deadline and native lifecycle fencing remain independent of that wait.
+- Output overflow, malformed data, changed boot identity, missing claims and unconfirmed launch fail closed. They never become a successful CLI result or an automatic relaunch.
+
+Raw source records stay in the private container and are excluded from artifact export. Existing Worker redaction still runs before room persistence. Source journaling does not make agent output trusted.
+
+## Recovery and failure boundaries
+
+| Failure boundary | Current result |
+| --- | --- |
+| Browser disconnect | Existing durable room cursor replay, with retention gaps. |
+| Sandbox transport failure while runtime and container survive | Attach/read the same supervised job without another CLI launch. Local failure tests cover this path. |
+| Sandbox DO recreation while the original container survives | Retained job claim plus matching container epoch permits reading the existing source journal. |
+| Child facet or parent runtime eviction during the prepared harness phase | The child validates its private capsule and reattaches without START. The parent validates the original sealed envelope, generation, approval and deadline, checks its existing SDK registry, probes the child phase and reattaches to that same tool run. Deterministic fixtures cover these boundaries. |
+| Eviction during setup or settlement | Unknown, followed by cleanup. These phases are fenced against automatic replay. A complete private result receipt can be replayed without repeating artifacts, staging, tests or CLI execution. |
+| Room delivery failure or accepted append with a lost response | Deterministic redacted event IDs and bounded receipts survive display-history pruning. Events, receipts and source acknowledgment commit atomically. Retries either recover the same receipt or fail the attempt without acknowledging missing output. |
+| Container instance loss | Running process and unsynchronized source bytes can be lost. A filesystem snapshot does not resume the process. |
+
+The child permits SDK recovery only for its unchanged signed envelope in the harness or complete phase. A private preparing record precedes sandbox work. An awaited settlement fence precedes checkpoint capture and tests. A committed safe result is split into bounded storage chunks with a digest receipt written last; partial or altered cache writes cannot become a successful result. Simultaneous child turns are refused. The parent stores its exact sealed dispatch privately before the first child call and never reseals it on restart. Parent attachment supports approved native sandbox runs with a frozen route and an executing checkpoint. Local runtimes, forked runs, other providers and legacy direct publication are excluded; deferred publication retains its separate human approval. Oversized parent snapshots remain nonrecoverable within the explicit private storage bound. Parent reattachment explicitly cancels the original SDK run on abort because the pinned SDK's existing-run path does not attach the supplied abort signal.
+
+The terminal publisher retains unfinished raw lines only in memory. Complete lines are scrubbed, including individual newline segments of approved environment values, before any room RPC. Incomplete lines hold the source watermark back. Already committed lines on the other stream use deterministic IDs and durable receipt hashes when replayed. Browser clients cannot append or acknowledge source frames. Display history remains bounded to 2,048 events; a browser whose cursor predates retention receives a gap.
+
+Recovery is deliberately limited to the original surviving container. A missing claim, changed epoch, unsupported provider, changed command or approval, expired original deadline, ambiguous setup or ambiguous settlement fails closed. Local source remains bounded to 4 MiB and 4,096 frames; output-limit notices and browser retention gaps are explicit. Per-job room receipts remain for the room lifetime and are bounded to 8,192 receipts and four million redacted characters. No universal lossless claim is made for container loss, output exceeding bounds, or unperformed live infrastructure tests.
+
+The pinned SDK's public [agents-as-tools API](https://developers.cloudflare.com/agents/runtime/execution/agent-tools/) is checked against installed `agents@0.23.0` and `@cloudflare/ai-chat@0.12.0`. Stable run IDs attach to existing child runs; this implementation separately verifies input identity, phase, generation and expiry. Result chunks are conservatively bounded below both current SQLite storage and legacy value limits documented in [Durable Object limits](https://developers.cloudflare.com/durable-objects/platform/limits/).
+
+Cloudflare documents application-owned [background process supervision](https://developers.cloudflare.com/sandbox/commands/run-background-processes/), [following output](https://developers.cloudflare.com/sandbox/commands/follow-a-background-process/) and the distinction between filesystem snapshots and processes in [sandbox lifetime](https://developers.cloudflare.com/sandbox/concepts/lifetime/). No live Cloudflare disconnect, eviction or installed Slack acceptance was performed for this change. The [acceptance matrix](control-plane-acceptance.md) keeps these gaps explicit.
+
+## Local verification
+
+The final serialized workspace gate passed 5,096 tests with three opt-in live tests skipped. It includes 30 real local supervisor tests, 37 native DO/controller tests, 43 provider journal regressions plus 16 prepared-runtime, 31 parent-recovery, 15 source-publisher and 55 child/cache regressions. These include runtime forwarding, approval-bound identity, interrupted setup and settlement, lost acknowledgment, history pruning, private cache integrity and existing-instance fences. Typecheck, lint, import lint, build, deployment checks and `check:ci` passed. The container controllers in these tests are simulated; their supervisor processes, files and Linux process identities are real local fixtures.
+
+The aggregate run caught two valid-transition races. Startup metadata now publishes once after the trusted anchor exists and before it receives CLI input. A reader also rechecks the atomic final receipt if the supervisor disappears between its first receipt read and liveness check. Deterministic regressions reproduced both false lost outcomes with the original behavior and passed with the fixes, including rejection of altered receipt bindings and counts. No filesystem guard was weakened.
+
+An existing daemon cancellation fixture also revoked its claim before its grandchild necessarily began writing. The fixture now arms the parent's signal handler and waits for the grandchild's output before revocation, preserving the real descendant-stop assertion. The production daemon was unchanged.
+
+The recovery aggregate also exposed a harness-environment preflight regression and a partial Slack storage fixture. Invalid harness configuration is again a known failure before any sandbox operation, and the Slack fixture now models direct private storage as well as transactions. The 2,050-frame retention stress test keeps its complete workload under an explicit fifteen-second test timeout. The existing daemon fixture now accepts both documented causes of unconfirmed SIGKILL termination while retaining mandatory EPERM checks for injected denial, one-claim behavior, stopped non-denied descendants and a healthy unrelated listener. Production daemon behavior is unchanged.

@@ -23,6 +23,7 @@ import {
   isAuthorizedRequest,
   resolveUserId,
 } from "../src/request-auth.js";
+import { resolveRunStoreTarget } from "../src/runs-routes.js";
 
 vi.mock("@cloudflare/sandbox", () => ({
   Sandbox: class {},
@@ -158,6 +159,35 @@ describe("gate composition", () => {
     expect(isAuthenticated(new Request("http://localhost/api/runs"), env)).toBe(true);
   });
 
+  it("limits anonymous previews to the static shell without inventing an owner", async () => {
+    const env = { ASSETS: {}, CodingOrchestrator: {}, Sandbox: {}, OPEN_DASHBOARD: "1" } as unknown as Env;
+    const request = new Request("https://example.com/api/runs");
+    expect(isAuthenticated(new Request("https://example.com/app/"), env)).toBe(true);
+    expect(isAuthenticated(request, env)).toBe(false);
+    expect(await isAuthorizedRequest(request, env)).toBe(false);
+    expect(await resolveUserId(request, env)).toBeNull();
+    const target = await resolveRunStoreTarget(request, env, new URL(request.url));
+    expect("error" in target).toBe(true);
+    if ("error" in target) expect(target.error.status).toBe(401);
+  });
+
+  it.each(["/api/api-keys", "/api/org/model-keys", "/api/workspaces", "/api/collaboration/rooms", "/api/providers", "/agents/coding-orchestrator/default"])("does not authorize %s through the preview flag", async (path) => {
+    const env = { OPEN_DASHBOARD: "1" } as unknown as Env;
+    for (const method of ["GET", "POST"]) {
+      const request = new Request(`https://example.com${path}`, { method });
+      expect(await isAuthorizedRequest(request, env)).toBe(false);
+      expect(await resolveUserId(request, env)).toBeNull();
+    }
+  });
+
+  it("does not let a stale preview flag bypass a configured identity lane", async () => {
+    const env = makeEnv({ OPEN_DASHBOARD: "1" });
+    const request = new Request("https://example.com/api/runs");
+    expect(isAuthenticated(request, env)).toBe(false);
+    expect(await isAuthorizedRequest(request, env)).toBe(false);
+    expect(await resolveUserId(request, env)).toBeNull();
+  });
+
   it("better-auth mode rejects non-loopback without a session", async () => {
     const env = makeEnv();
     const request = new Request("https://example.com/api/runs");
@@ -191,6 +221,24 @@ describe("worker-level 401 codes", () => {
   it("access_not_configured when no identity lane exists", async () => {
     const env = makeEnv({ AGENT_AUDIT: undefined, BETTER_AUTH_SECRET: undefined });
     expect(await statusFor("/api/runs", env)).toEqual({ status: 401, code: "access_not_configured" });
+  });
+
+  it.each(["/api/whoami", "/api/tasks", "/api/runs", "/api/approvals", "/api/api-keys", "/agents/coding-orchestrator/default"])("keeps anonymous preview %s behind the Worker identity gate", async (path) => {
+    const worker = (await import("../src/index.js")).default;
+    const env = makeEnv({ AGENT_AUDIT: undefined, BETTER_AUTH_SECRET: undefined, OPEN_DASHBOARD: "1" });
+    for (const method of ["GET", "POST"]) {
+      const response = await worker.fetch(new Request(`https://example.com${path}`, { method }), env);
+      expect(response.status).toBe(401);
+    }
+  });
+
+  it("does not grant anonymous preview access through the org API's separate gate", async () => {
+    const worker = (await import("../src/index.js")).default;
+    const env = makeEnv({ BETTER_AUTH_SECRET: undefined, OPEN_DASHBOARD: "1" });
+    for (const method of ["GET", "POST"]) {
+      const response = await worker.fetch(new Request("https://example.com/api/org/model-keys", { method }), env);
+      expect(response.status).toBe(401);
+    }
   });
 
   it("better_auth when only the built-in lane is configured", async () => {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodingOrchestrator, delegateInputSchema } from "../src/agents/orchestrator.js";
 import type { OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
-import { HARNESS_IDS } from "@shiba/shared";
+import { HARNESS_IDS, LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER, runInputHash } from "@shiba/shared";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { createCustomAgent, updateCustomAgent } from "../src/custom-agents-store.js";
 import { replaceEmployeeToolGrants } from "../src/employee-tool-store.js";
@@ -23,7 +23,16 @@ import {
   createRootCollaborationHandoff,
   humanActorId,
   linkCollaborationHandoffRun,
+  pinCollaborationHandoffExecutor,
 } from "../src/collaboration-store.js";
+import { mintCollaborationExecutor } from "../src/collaboration-executor.js";
+import * as collaborationRunScope from "../src/collaboration-run-scope.js";
+import * as personalExecutionStore from "../src/personal-execution-store.js";
+import { personalExecutionContextDigest, type PersonalExecutionSnapshot, type PersonalExecutionClaim } from "@shiba/shared";
+import { personalClaimPrincipal } from "../src/personal-execution-claim.js";
+import { signInternalRequest } from "../src/edge-identity.js";
+import { createTeamWorkspace } from "../src/team-workspaces-store.js";
+import { initiatorUserIdFromOrchestratorName } from "../src/subscription-routing.js";
 import {
   destroyManagedContainer,
   forgetLeaked,
@@ -57,7 +66,8 @@ setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 
 function agent() {
   const instance = Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
-    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token" }, state: { runs: [] } as OrchestratorState,
+    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", DASHBOARD_APPROVERS: "reviewer@example.test" }, state: { runs: [] } as OrchestratorState,
+    name: "default", messages: [],
     setState(state: OrchestratorState) { setStateLikeProduction(this, state); },
   });
   return instance;
@@ -1143,7 +1153,7 @@ describe("orchestrator run routes", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
-  it.each(["/api/runs/subagents/spawn", "/api/runs/r1/subagents"])("hides another principal's subagent parent at %s", async (path) => {
+  it.each(["/api/runs/subagents/spawn", "/api/runs/r1/subagents"])("blocks agent principals before resolving a subagent parent at %s", async (path) => {
     const instance = agent();
     instance.setState({ runs: [{ ...retained(), queuedBy: "owner", subagentBudgetRemaining: 2,
       approval: { approvalId: "parent-plan", decidedBy: "human", decidedAt: Date.now(), inputHash: "parent-input" } }] });
@@ -1151,7 +1161,7 @@ describe("orchestrator run routes", () => {
       method: "POST", headers: { "X-Agent-Principal": "intruder" },
       body: JSON.stringify({ parentRunId: "r1", task: "inspect", sandboxMode: "fresh" }),
     }));
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(403);
     expect(instance.state.runs).toHaveLength(1);
     expect(mocks.execute).not.toHaveBeenCalled();
   });
@@ -1176,7 +1186,7 @@ describe("orchestrator run routes", () => {
     expect(response.status).toBe(400);
   });
 
-  it("preserves the owning principal when spending an approved subagent budget", async () => {
+  it("refuses autonomous spawning even when the agent owns a parent budget", async () => {
     const instance = agent();
     const dispatch = vi.fn();
     Object.assign(instance, { dispatchApprovedRun: dispatch });
@@ -1186,12 +1196,10 @@ describe("orchestrator run routes", () => {
       method: "POST", headers: { "X-Agent-Principal": "owner" },
       body: JSON.stringify({ task: "inspect", sandboxMode: "fresh", queuedBy: "forged" }),
     }));
-    expect(response.status).toBe(200);
-    expect(instance.state.runs).toHaveLength(2);
-    expect(instance.state.runs[0]?.subagentBudgetRemaining).toBe(1);
-    expect(instance.state.runs[1]).toMatchObject({ queuedBy: "owner", parentRunId: "r1", subagentPath: "1",
-      approval: { approvalId: "parent-plan", decidedBy: "human" } });
-    expect(dispatch).toHaveBeenCalledOnce();
+    expect(response.status).toBe(403);
+    expect(instance.state.runs).toHaveLength(1);
+    expect(instance.state.runs[0]?.subagentBudgetRemaining).toBe(2);
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it("reclaims a stale run and aborts its child execution", async () => {
@@ -1288,7 +1296,7 @@ describe("orchestrator run routes", () => {
     const response = await instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }),
     }));
     expect(response.status).toBe(409);
     // Pointer survives: a later approve after a slot frees can still start it.
@@ -1365,7 +1373,7 @@ describe("orchestrator run routes", () => {
     const post = (approved: boolean) => instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...pointer, approved, decidedBy: "U1" }),
+      body: JSON.stringify({ ...pointer, approved, decidedBy: "reviewer@example.test" }),
     }));
 
     const rejected = await post(false);
@@ -1388,7 +1396,7 @@ describe("orchestrator run routes", () => {
     const approved = await instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId: freshId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "default", approvalId: freshId, approved: true, decidedBy: "reviewer@example.test" }),
     }));
     expect((await approved.json() as { result: string }).result).toBe("approved");
     // Dispatch rides keepAliveWhile — the approval response returns before the
@@ -1400,6 +1408,37 @@ describe("orchestrator run routes", () => {
 });
 
 describe("approval handoff recovery", () => {
+  it("rejects a mismatched approval input digest before asynchronous admission or execution", async () => {
+    const instance = agent();
+    const queued = await instance.onRequest(new Request("https://internal/api/runs", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: "https://github.com/o/r", task: "Frozen room work" }) }));
+    const { approvalId } = await queued.json() as { approvalId: string };
+    const reclaim = vi.spyOn(instance, "reclaimRuns");
+    const response = await instance.onRequest(new Request("https://internal/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test", expectedInputHash: "0".repeat(64) }) }));
+    expect(response.status).toBe(409);
+    expect(reclaim).not.toHaveBeenCalled();
+    expect(instance.state.pendingApprovals?.[0]?.status).toBe("pending");
+    expect(instance.state.runs).toEqual([]);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the frozen approval digest after asynchronous availability checks", async () => {
+    const instance = agent();
+    const queued = await instance.onRequest(new Request("https://internal/api/runs", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: "https://github.com/o/r", task: "Frozen room work" }) }));
+    const { approvalId, approvalInputHash } = await queued.json() as { approvalId: string; approvalInputHash: string };
+    vi.spyOn(instance, "reclaimRuns").mockImplementation(async () => {
+      instance.setState({ ...instance.state, pendingApprovals: instance.state.pendingApprovals!.map((record) => ({ ...record, task: "Changed during await" })) });
+    });
+    const response = await instance.onRequest(new Request("https://internal/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test", expectedInputHash: approvalInputHash }) }));
+    expect(response.status).toBe(409);
+    expect(instance.state.pendingApprovals?.[0]?.status).toBe("pending");
+    expect(instance.state.runs).toEqual([]);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
   it.each(["chat", "app-tools"])("dispatches a frozen API approval after the latest turn switches to %s", async (mode) => {
     const instance = agent();
     const queued = await instance.onRequest(new Request("https://internal/api/runs", {
@@ -1417,7 +1456,7 @@ describe("approval handoff recovery", () => {
     }));
     const approve = () => new Request("https://internal/api/approvals", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }),
     });
     expect((await instance.onRequest(approve())).status).toBe(200);
     await vi.waitFor(() => expect(instance.state.runs[0]?.status).toBe("completed"));
@@ -1455,7 +1494,7 @@ describe("approval handoff recovery", () => {
     const request = () => new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }),
     });
     expect((await instance.onRequest(request())).status).toBe(200);
     expect(writes[0]?.pendingApprovals?.[0]?.status).toBe("approved");
@@ -1495,7 +1534,7 @@ describe("approval handoff recovery", () => {
     const approvalId = "ap-exec";
     const approvals = resolvePendingApproval(createPendingApproval([], {
       threadKey: "default", approvalId, repoUrl: "https://github.com/o/r", task: "fix", createdAt: Date.now(),
-    }), { threadKey: "default", approvalId, approved: true, decidedBy: "U1" }, Date.now()).approvals;
+    }), { threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }, Date.now()).approvals;
     instance.setState({
       runs: [{
         ...createRun({
@@ -1515,6 +1554,288 @@ describe("approval handoff recovery", () => {
     expect(instance.state.runs[0]?.status).toBe("unknown");
     expect(instance.state.runs[0]?.error).toContain("orchestrator restart");
     expect(mocks.execute).not.toHaveBeenCalled();
+  });
+});
+
+describe("isolated team execution ownership", () => {
+  async function isolated(rawOwner = "Owner@Example.Test") {
+    const instance = agent();
+    const db = customAgentD1();
+    Object.assign(instance.env, { AGENT_AUDIT: db.database });
+    const owner = rawOwner.toLowerCase();
+    const workspace = await createTeamWorkspace(instance.env, owner, { name: "Isolated team" });
+    const scope = { tenantId: COLLAB_TENANT_ID, workspaceId: workspace.workspaceId, userId: owner };
+    const roomId = "room_eeeeeeeeeeeeeeeeeeeeeeee", handoffId = "isolated-team-handoff";
+    await createCollaborationRoom(instance.env, scope, { roomId, title: "Team work", visibility: "shared", createdAt: Date.now() });
+    const profile = await createCustomAgent(instance.env, `team:${workspace.workspaceId}`, "engineer", { name: "Engineer", harness: "opencode", instructions: "Use the approved room facts." });
+    await addCollaborationMember(instance.env, scope, roomId, { userId: owner, displayName: "Engineer", actorId: `agent:${profile.id}`, kind: "agent", profileVersion: 1, createdAt: Date.now() });
+    await createRootCollaborationHandoff(instance.env, scope, { ...scope, roomId, handoffId, taskId: "team-task",
+      senderUserId: owner, senderActorId: humanActorId(owner), recipientUserId: owner, recipientActorId: `agent:${profile.id}`,
+      parentHandoffId: null, rootHandoffId: handoffId, depth: 0, ancestorHandoffIds: [], remainingBudget: 0,
+      grantedCapabilities: ["room.read", "message.send"], profileVersion: 1, status: "active", createdAt: Date.now(), cancelledAt: null });
+    const executor = mintCollaborationExecutor(scope, rawOwner);
+    expect(await pinCollaborationHandoffExecutor(instance.env, scope, handoffId, executor)).toBe(true);
+    Object.assign(instance, { name: executor, messages: [] });
+    const dispatch = vi.fn();
+    Object.assign(instance, { dispatchApprovedRun: dispatch });
+    const input = { task: "Draft a report from the selected room facts.", repoUrl: "https://github.com/o/r", publishPullRequest: false,
+      orgId: `team:${workspace.workspaceId}`, customAgentId: profile.id, customAgentVersion: 1,
+      collaborationHandoffId: handoffId, threadKey: executor, commandId: handoffId };
+    const queue = (change: Record<string, unknown> = {}) => instance.onRequest(new Request("https://internal/api/runs", {
+      method: "POST", headers: { "Content-Type": "application/json", [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }, body: JSON.stringify({ ...input, ...change }),
+    }));
+    const link = (approvalId: string) => linkCollaborationHandoffRun(instance.env, scope, handoffId, approvalId, `agent-tool:${approvalId}`);
+    const decide = (approvalId: string, expectedInputHash: string, change: Record<string, unknown> = {}) => instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ threadKey: executor, approvalId, expectedInputHash, approved: true, decidedBy: owner, source: "dashboard", ...change }),
+    }));
+    return { instance, ...db, rawOwner, owner, scope, executor, dispatch, input, queue, link, decide };
+  }
+
+  it("freezes the isolated owner and team org, retries once, and keeps the actual human decider across email casing", async () => {
+    const f = await isolated();
+    const queued = await f.queue();
+    expect(queued.status).toBe(200);
+    const first = await queued.json() as { approvalId: string; approvalInputHash: string };
+    const retried = await f.queue();
+    expect(await retried.json()).toMatchObject({ approvalId: first.approvalId, approvalInputHash: first.approvalInputHash, deduped: true });
+    expect(f.instance.state.pendingApprovals).toHaveLength(1);
+    expect(f.instance.state.pendingApprovals?.[0]).toMatchObject({ threadKey: f.executor, orgId: `team:${f.scope.workspaceId}` });
+    expect(initiatorUserIdFromOrchestratorName(f.executor)).toBe(f.rawOwner);
+    expect(f.instance.messages).toEqual([]);
+    expect(f.instance.state.webSessions ?? []).toEqual([]);
+    expect(f.dispatch).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(await f.link(first.approvalId)).toBe(true);
+    const response = await f.decide(first.approvalId, first.approvalInputHash);
+    expect(response.status).toBe(200);
+    expect(f.instance.state.pendingApprovals?.[0]).toMatchObject({ status: "approved", decidedBy: f.owner, threadKey: f.executor });
+    expect(f.instance.state.runs[0]).toMatchObject({ orgId: `team:${f.scope.workspaceId}`,
+      approval: { decidedBy: f.owner, inputHash: first.approvalInputHash } });
+  });
+
+  it.each(["source", "actor", "revocation"])("refuses a team decision after changed %s without minting a run", async (kind) => {
+    const f = await isolated();
+    const queued = await f.queue();
+    const first = await queued.json() as { approvalId: string; approvalInputHash: string };
+    expect(await f.link(first.approvalId)).toBe(true);
+    if (kind === "revocation") f.sqlite.prepare("UPDATE team_workspace_memberships SET status='removed' WHERE workspace_id=? AND user_id=?").run(f.scope.workspaceId, f.owner);
+    const response = await f.decide(first.approvalId, first.approvalInputHash,
+      kind === "source" ? { source: "slack" } : kind === "actor" ? { decidedBy: "outsider@example.test" } : {});
+    expect(response.status).toBe(403);
+    expect(f.instance.state.pendingApprovals?.[0]?.status).toBe("pending");
+    expect(f.instance.state.runs).toEqual([]);
+    expect(f.dispatch).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])("preserves the committed team decision when a concurrent %s decision resumes its final authority check", async (secondApproved) => {
+    const f = await isolated();
+    const queued = await f.queue();
+    const first = await queued.json() as { approvalId: string; approvalInputHash: string };
+    expect(await f.link(first.approvalId)).toBe(true);
+    let releaseFirst = () => {};
+    let releaseSecond = () => {};
+    let firstReady = () => {};
+    let secondReady = () => {};
+    const firstHeld = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const secondHeld = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    const firstAtFinalCheck = new Promise<void>((resolve) => { firstReady = resolve; });
+    const secondAtFinalCheck = new Promise<void>((resolve) => { secondReady = resolve; });
+    const resolveScope = collaborationRunScope.resolveTeamHandoffRunScope;
+    let checks = 0;
+    const authority = vi.spyOn(collaborationRunScope, "resolveTeamHandoffRunScope").mockImplementation(async (...args) => {
+      const check = ++checks;
+      const current = await resolveScope(...args);
+      if (check === 2) {
+        firstReady();
+        await firstHeld;
+      } else if (check === 4) {
+        secondReady();
+        await secondHeld;
+      }
+      return current;
+    });
+    try {
+      const firstDecision = f.decide(first.approvalId, first.approvalInputHash);
+      await firstAtFinalCheck;
+      const secondDecision = f.decide(first.approvalId, first.approvalInputHash, { approved: secondApproved });
+      await secondAtFinalCheck;
+      releaseFirst();
+      const committed = await firstDecision;
+      expect(committed.status).toBe(200);
+      expect(await committed.json()).toEqual({ result: "approved" });
+      releaseSecond();
+      const resumed = await secondDecision;
+      expect(resumed.status).toBe(200);
+      expect(await resumed.json()).toEqual({ result: "approved" });
+      expect(f.instance.state.commandReceipts?.[`approval:${first.approvalId}`])
+        .toMatchObject({ outcome: "approved", runId: `agent-tool:${first.approvalId}`, dispatched: true });
+      expect(f.instance.state.pendingApprovals?.[0]).toMatchObject({ status: "approved", decidedBy: f.owner });
+      expect(f.instance.state.runs).toHaveLength(1);
+      expect(f.dispatch).toHaveBeenCalledOnce();
+      expect(mocks.execute).not.toHaveBeenCalled();
+    } finally {
+      releaseFirst();
+      releaseSecond();
+      authority.mockRestore();
+    }
+  });
+
+  it("preserves a 254-character human identity and 295-character executor through frozen approval", async () => {
+    const human = `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(61)}`;
+    const f = await isolated(human);
+    expect(f.executor.length).toBe(295);
+    const queued = await f.queue();
+    expect(queued.status).toBe(200);
+    const first = await queued.json() as { approvalId: string; approvalInputHash: string };
+    expect(await f.link(first.approvalId)).toBe(true);
+    expect((await f.decide(first.approvalId, first.approvalInputHash)).status).toBe(200);
+    expect(f.instance.state.pendingApprovals?.[0]?.decidedBy).toBe(human);
+    expect(f.instance.state.runs[0]?.approval?.decidedBy).toBe(human);
+  });
+
+  it("refuses parent approval pointers and private onboarding/project context before minting", async () => {
+    const f = await isolated();
+    for (const change of [{ threadKey: f.rawOwner }, { projectContextId: "memproj_aaaaaaaaaaaaaaaaaaaaaaaa" },
+      { draftTaskId: "draft_11111111-1111-4111-8111-111111111111", draftTaskVersion: 1 }]) {
+      expect((await f.queue(change)).status).toBe(403);
+    }
+    expect(f.instance.state.pendingApprovals ?? []).toEqual([]);
+    expect(f.instance.state.runs).toEqual([]);
+  });
+
+  async function personal() {
+    const f = await isolated("owner@example.test");
+    const revalidate = vi.spyOn(personalExecutionStore, "revalidatePersonalExecutionSnapshot").mockResolvedValue(true);
+    const deploymentRead = vi.fn(() => { throw new Error("Deployment provider access must never be used."); });
+    Object.assign(f.instance.env, { SHIBA_LOCAL_RUNTIME: "1", SHIBA_PERSONAL_LOCAL_EXECUTION: "1", GITHUB_TOKEN: undefined,
+      AI_GATEWAY_TOKEN: undefined, TYPESAFE_API_KEY: "fixture-must-not-be-called", ModelConfig: { idFromName: deploymentRead }, AI: { run: deploymentRead } });
+    const snapshot: PersonalExecutionSnapshot = { version: 1, grantId: `plex_${"a".repeat(32)}`, grantVersion: 1,
+      ownerAccountId: "native-owner-uuid", actorId: f.owner, workspaceId: f.scope.workspaceId, membershipVersion: 1,
+      machineId: "personal-machine", machineRevision: 1, harness: "claude-code", billingMode: "native-subscription",
+      accountFingerprint: "a".repeat(64), authVersion: "b".repeat(64), codingModel: "anthropic/claude-sonnet-4-6",
+      repoUrl: "https://github.com/o/r", expiresAt: Date.now() + 60_000, allowedPhases: ["local_repository_task"] };
+    const queue = (changes: Record<string, unknown> = {}) => f.queue({ runtime: "local", targetMachineId: snapshot.machineId, personalExecution: snapshot, ...changes });
+    const approve = async () => {
+      const response = await queue();
+      expect(response.status).toBe(200);
+      const receipt = await response.json() as { approvalId: string; approvalInputHash: string };
+      expect(await f.link(receipt.approvalId)).toBe(true);
+      expect((await f.decide(receipt.approvalId, receipt.approvalInputHash)).status).toBe(200);
+      return receipt;
+    };
+    return { ...f, snapshot, queue, approve, revalidate, deploymentRead };
+  }
+
+  it("queues and approves personal native work without deployment model access or any work before approval", async () => {
+    const f = await personal();
+    try {
+      const queued = await f.queue();
+      expect(queued.status).toBe(200);
+      const receipt = await queued.json() as { approvalId: string; approvalInputHash: string };
+      expect(f.instance.state.personalExecutionOnly).toBe(true);
+      expect(f.instance.state.pendingApprovals?.[0]).toMatchObject({ personalExecution: f.snapshot, runtime: "local",
+        route: { connectionId: null, harness: "claude-code", modelId: f.snapshot.codingModel } });
+      expect(f.instance.state.runs).toEqual([]);
+      expect(f.dispatch).not.toHaveBeenCalled();
+      expect(f.instance.getTools()).toEqual({});
+      expect(() => f.instance.getModel()).toThrow("deployment model inference");
+      expect(await f.link(receipt.approvalId)).toBe(true);
+      expect((await f.decide(receipt.approvalId, receipt.approvalInputHash)).status).toBe(200);
+      expect(f.instance.state.runs[0]).toMatchObject({ personalExecution: f.snapshot, approval: { inputHash: receipt.approvalInputHash } });
+      expect(f.deploymentRead).not.toHaveBeenCalled();
+      expect(mocks.triage).not.toHaveBeenCalled();
+    } finally { f.revalidate.mockRestore(); }
+  });
+
+  it("seals the complete personal child input without deployment inference, grading or substitution", async () => {
+    const f = await personal();
+    try {
+      const receipt = await f.approve();
+      f.instance.env.INTERNAL_SIGNING_KEY = "s".repeat(32);
+      mocks.execute.mockResolvedValue(formatAgentResult({ status: "completed", summary: "Fixture local result", exitCode: 0,
+        stderrTail: "", changedFiles: [], diff: "", files: [] }));
+      const delegate = (f.instance as unknown as { approvedRunDelegate(): { execute(input: unknown, options: unknown): Promise<unknown> } }).approvedRunDelegate();
+      await delegate.execute({ runtime: "local" }, { toolCallId: receipt.approvalId });
+      expect(mocks.execute).toHaveBeenCalledOnce();
+      const raw = mocks.execute.mock.calls[0]![0] as string;
+      const actual = parseAgentToolInput([{ role: "user", text: raw }]);
+      expect(actual).toMatchObject({ personalExecution: f.snapshot, targetMachineId: f.snapshot.machineId, harness: "claude-code",
+        codingModel: f.snapshot.codingModel, publishPullRequest: false, personalExecutionClaim: { inputHash: receipt.approvalInputHash, approvalId: receipt.approvalId, executionOwner: f.executor } });
+      expect(actual.personalExecutionClaim?.contextDigest).toBe(personalExecutionContextDigest({ ...f.instance.state.runs[0]!, handoffId: f.input.collaborationHandoffId }));
+      expect(f.deploymentRead).not.toHaveBeenCalled();
+      expect(mocks.triage).not.toHaveBeenCalled(); expect(mocks.quality).not.toHaveBeenCalled();
+      expect(f.instance.state.runs[0]?.status).toBe("completed");
+    } finally { f.revalidate.mockRestore(); }
+  });
+
+  it.each(["revoked", "machine", "model", "actor", "publish", "setup", "cloud"])("refuses personal %s changes without a deployment fallback", async (change) => {
+    const f = await personal();
+    try {
+      if (change === "revoked") f.revalidate.mockResolvedValue(false);
+      const override = change === "machine" ? { targetMachineId: "other-machine" } : change === "model" ? { personalExecution: { ...f.snapshot, codingModel: "openai/wrong" } }
+        : change === "actor" ? { personalExecution: { ...f.snapshot, actorId: "other@example.test" } } : change === "publish" ? { publishPullRequest: true }
+          : change === "setup" ? { runSetup: true } : change === "cloud" ? { runtime: "sandbox" } : {};
+      expect((await f.queue(override)).ok).toBe(false);
+      expect(f.instance.state.runs).toEqual([]); expect(f.instance.state.pendingApprovals ?? []).toEqual([]);
+      expect(f.deploymentRead).not.toHaveBeenCalled(); expect(mocks.execute).not.toHaveBeenCalled();
+    } finally { f.revalidate.mockRestore(); }
+  });
+
+  it("checks exact signed parent claim authority and denies changed task, generation, cancellation and revocation", async () => {
+    const f = await personal();
+    try {
+      const receipt = await f.approve(), run = f.instance.state.runs[0]!;
+      f.instance.env.INTERNAL_SIGNING_KEY = "s".repeat(32);
+      const proof: PersonalExecutionClaim = { snapshot: f.snapshot, approvalId: receipt.approvalId, inputHash: receipt.approvalInputHash,
+        generation: run.generation, executionOwner: f.executor, handoffId: f.input.collaborationHandoffId,
+        contextDigest: personalExecutionContextDigest({ ...run, handoffId: f.input.collaborationHandoffId }), approvedUntil: Date.now() + 20_000 };
+      const authority = async (candidate: PersonalExecutionClaim, signed = true) => {
+        const request = new Request("https://internal/internal/personal-execution/claim-authority", { method: "POST",
+          headers: { "content-type": "application/json", "X-Agent-Principal": personalClaimPrincipal(candidate) }, body: JSON.stringify(candidate) });
+        if (signed) await signInternalRequest(request, f.instance.env);
+        return f.instance.onRequest(request);
+      };
+      expect((await authority(proof)).status).toBe(200);
+      expect((await authority(proof, false)).ok).toBe(false);
+      const signedOriginal = new Request("https://internal/internal/personal-execution/claim-authority", { method: "POST",
+        headers: { "content-type": "application/json", "X-Agent-Principal": personalClaimPrincipal(proof) }, body: JSON.stringify(proof) });
+      await signInternalRequest(signedOriginal, f.instance.env);
+      const changedBody = new Request(signedOriginal.url, { method: "POST", headers: signedOriginal.headers,
+        body: JSON.stringify({ ...proof, approvedUntil: proof.approvedUntil + 1 }) });
+      expect((await f.instance.onRequest(changedBody)).status).toBe(403);
+      for (const candidate of [{ ...proof, generation: proof.generation + 1 }, { ...proof, inputHash: "f".repeat(64) },
+        { ...proof, approvedUntil: Date.now() - 1 }, { ...proof, snapshot: { ...f.snapshot, codingModel: "anthropic/other" } },
+        { ...proof, contextDigest: "f".repeat(64) }]) expect((await authority(candidate)).ok).toBe(false);
+      f.revalidate.mockResolvedValue(false); expect((await authority(proof)).ok).toBe(false);
+      f.revalidate.mockResolvedValue(true); run.task += " changed after review"; expect((await authority(proof)).ok).toBe(false);
+      run.task = f.instance.state.pendingApprovals![0]!.task;
+      run.status = "cancelled"; expect((await authority(proof)).ok).toBe(false);
+      expect(f.deploymentRead).not.toHaveBeenCalled();
+    } finally { f.revalidate.mockRestore(); }
+  });
+
+  it("denies fork, nested child, steering and publication APIs on an isolated personal host", async () => {
+    const f = await personal();
+    try {
+      await f.approve();
+      for (const path of ["/api/runs/anything/fork", "/api/runs/anything/subagents", "/api/runs/anything/steer", "/internal/pr-lifecycle"])
+        expect((await f.instance.onRequest(new Request(`https://internal${path}`, { method: "POST", body: "{}" }))).status).toBe(403);
+      f.revalidate.mockResolvedValue(false);
+      const response = await f.queue(); expect(response.ok).toBe(false);
+      expect(f.deploymentRead).not.toHaveBeenCalled(); expect(mocks.execute).not.toHaveBeenCalled();
+    } finally { f.revalidate.mockRestore(); }
+  });
+
+  it("keeps the exact-case rule for ordinary private sessions", async () => {
+    const instance = agent();
+    Object.assign(instance, { name: "web:Owner@Example.Test:11111111-1111-4111-8111-111111111111" });
+    const queued = await instance.onRequest(new Request("https://internal/api/runs", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: "https://github.com/o/r", task: "Private work", threadKey: instance.name }) }));
+    const first = await queued.json() as { approvalId: string; approvalInputHash: string };
+    const response = await instance.onRequest(new Request("https://internal/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: instance.name, approvalId: first.approvalId, expectedInputHash: first.approvalInputHash, approved: true, decidedBy: "owner@example.test", source: "dashboard" }) }));
+    expect(response.status).toBe(403);
+    expect(instance.state.runs).toEqual([]);
   });
 });
 
@@ -1572,7 +1893,7 @@ describe("slack thread wiring", () => {
     const approved = await instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "slack:T1:C1:1758217400.000100", approvalId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "slack:T1:C1:1758217400.000100", approvalId, approved: true, decidedBy: "reviewer@example.test" }),
     }));
     expect(approved.status).toBe(200);
     await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalled());
@@ -1617,7 +1938,7 @@ describe("run reliability", () => {
   const INPUT = { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false };
 
   /** Slack-thread orchestrator whose post-backs and waitUntil work are captured. */
-  function slackAgent(slackReply: Record<string, unknown> = { ok: true }) {
+  function slackAgent(slackReply: Record<string, unknown> = { ok: true, ts: "1700.0002" }) {
     const instance = agent();
     const pending: Promise<unknown>[] = [];
     const waitUntil = vi.fn((p: Promise<unknown>) => { pending.push(p); });
@@ -1651,7 +1972,7 @@ describe("run reliability", () => {
     const approved = await instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }),
     }));
     expect((await approved.json() as { result: string }).result).toBe("approved");
     await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledOnce());
@@ -1691,7 +2012,7 @@ describe("run reliability", () => {
     const approvalId = "ap-restart";
     const approvals = resolvePendingApproval(createPendingApproval([], {
       threadKey: "default", approvalId, repoUrl: "https://github.com/o/r", task: "fix", createdAt: Date.now(),
-    }), { threadKey: "default", approvalId, approved: true, decidedBy: "U1" }, Date.now()).approvals;
+    }), { threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }, Date.now()).approvals;
     instance.setState({
       runs: [{ ...createRun({ runId: `agent-tool:${approvalId}`, sandboxId: "s-restart", repoUrl: "https://github.com/o/r",
         task: "fix", baseBranch: "main", publishPullRequest: false }), status: "running" }],
@@ -1724,7 +2045,7 @@ describe("run reliability", () => {
     expect(run.status).toBe("completed");
     expect(run.pullUrl).toBe(pullUrl);
     expect(run.summary).not.toContain(pullUrl);
-    const completed = posts.find((post) => post.text.startsWith("done — here's what changed in o/r"));
+    const completed = posts.find((post) => post.text.startsWith("done. here's what changed in o/r"));
     expect(completed?.text).toContain(`PR: ${pullUrl}`);
     expect(completed?.text).toContain("1 changed files.");
     expect(completed!.text.length).toBeLessThan(1200);
@@ -1897,7 +2218,7 @@ describe("chat approval gate", () => {
           threadKey: "default",
           approvalId: "chat-1",
           approved: true,
-          decidedBy: "human",
+          decidedBy: "reviewer@example.test",
         }),
       }),
     );
@@ -1905,7 +2226,7 @@ describe("chat approval gate", () => {
     await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledOnce());
     const pointer = instance.state.pendingApprovals?.find((a) => a.approvalId === "chat-1");
     expect(pointer?.status).toBe("approved");
-    expect(pointer?.decidedBy).toBe("human");
+    expect(pointer?.decidedBy).toBe("reviewer@example.test");
     await vi.waitFor(() => {
       const r = instance.state.runs.find((run) => run.runId === "agent-tool:chat-1");
       expect(r?.status).toBe("completed");
@@ -1945,7 +2266,7 @@ describe("chat approval gate", () => {
     const resolved = await instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "owner@example.test", approvalId: "project-chat-1", approved: true, decidedBy: "human" }),
+      body: JSON.stringify({ threadKey: "owner@example.test", approvalId: "project-chat-1", approved: true, decidedBy: "owner@example.test" }),
     }));
     expect(resolved.status).toBe(200);
     await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledOnce());
@@ -1975,5 +2296,118 @@ describe("chat approval gate", () => {
       ),
     ).rejects.toThrow("Unknown model connection");
     expect(instance.state.pendingApprovals ?? []).toEqual([]);
+  });
+});
+
+
+describe("agent facet routing", () => {
+  it.each(["ExplorerAgent", "ReviewerAgent", "OpenCodeAgent"])("refuses guessed %s children before the SDK wakes them", async (className) => {
+    const instance = agent();
+    const hasAgentToolRun = vi.fn(() => false);
+    Object.assign(instance, { hasAgentToolRun });
+    const response = await instance.onBeforeSubAgent(new Request("https://internal/sub/guessed"), { className, name: "guessed" });
+    expect(response?.status).toBe(404);
+    expect(hasAgentToolRun).not.toHaveBeenCalled();
+  });
+
+  it("refuses external access even to retained runs and unknown facet classes", async () => {
+    const instance = agent();
+    Object.assign(instance, { hasAgentToolRun: () => true });
+    const request = new Request("https://internal/sub/retained");
+    expect((await instance.onBeforeSubAgent(request, { className: "ExplorerAgent", name: "retained" }))?.status).toBe(404);
+    expect((await instance.onBeforeSubAgent(request, { className: "UnknownAgent", name: "retained" }))?.status).toBe(404);
+  });
+});
+
+describe("bounded child approval queue", () => {
+  function childHost() {
+    const instance = agent();
+    Object.assign(instance, { name: "default", messages: [] });
+    const parent = { ...retained(), createdAt: Date.now(), updatedAt: Date.now(), queuedBy: "parent-principal", subagentBudgetRemaining: 9 };
+    instance.setState({ runs: [parent] });
+    return { instance, parent };
+  }
+
+  function requestChild(instance: CodingOrchestrator, body: Record<string, unknown> = {}) {
+    return instance.onRequest(new Request("https://internal/api/runs/r1/subagents", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task: "Implement the exact child goal", sandboxMode: "fresh", ...body }),
+    }));
+  }
+
+  it("queues the frozen child goal without starting a sandbox or spending the parent's budget", async () => {
+    const { instance, parent } = childHost();
+    const dispatch = vi.fn();
+    Object.assign(instance, { dispatchApprovedRun: dispatch });
+    const response = await requestChild(instance, { parentRunId: "forged-parent", subagentPath: "9.9", queuedBy: "forged-owner" });
+    expect(response.status).toBe(200);
+    const { approvalId } = await response.json() as { approvalId: string };
+    const pending = instance.state.pendingApprovals?.find((approval) => approval.approvalId === approvalId);
+    expect(pending).toMatchObject({ status: "pending", parentRunId: parent.runId, subagentPath: "1", subagentSandbox: "fresh", role: "fixer", publishPullRequest: false });
+    expect(pending?.queuedBy).not.toBe("forged-owner");
+    expect(instance.state.runs).toHaveLength(1);
+    expect(instance.state.runs[0]?.subagentBudgetRemaining).toBe(9);
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("mints an isolated child only after a human approves its exact frozen hash", async () => {
+    const { instance, parent } = childHost();
+    const dispatch = vi.fn();
+    Object.assign(instance, { dispatchApprovedRun: dispatch });
+    const queued = await requestChild(instance);
+    const { approvalId } = await queued.json() as { approvalId: string };
+    const frozen = instance.state.pendingApprovals?.find((approval) => approval.approvalId === approvalId);
+    if (!frozen) throw new Error("Child approval was not queued.");
+    const approved = await instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: frozen.threadKey, approvalId, approved: true, decidedBy: "reviewer@example.test", task: "forged replacement" }),
+    }));
+    expect(approved.status).toBe(200);
+    const child = instance.state.runs.find((run) => run.parentRunId === parent.runId);
+    expect(child).toMatchObject({ task: frozen.task, parentRunId: parent.runId, subagentPath: "1", subagentSandbox: "fresh", publishPullRequest: false });
+    expect(child?.sandboxId).not.toBe(parent.sandboxId);
+    expect(child?.approval).toMatchObject({ approvalId, decidedBy: "reviewer@example.test", inputHash: runInputHash({ ...frozen, baseBranch: frozen.baseBranch ?? "main", publishPullRequest: frozen.publishPullRequest ?? false }) });
+    expect(child?.subagentBudgetRemaining).toBeUndefined();
+    expect(dispatch).toHaveBeenCalledOnce();
+  });
+
+  it("serializes overlapping child approval requests and caps total direct children", async () => {
+    const { instance, parent } = childHost();
+    const responses = await Promise.all([requestChild(instance), requestChild(instance)]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 429]);
+    expect(instance.state.pendingApprovals?.filter((approval) => approval.status === "pending")).toHaveLength(1);
+    instance.setState({ runs: [parent, ...Array.from({ length: 3 }, (_, index) => ({ ...parent, runId: `old-child-${index}`, parentRunId: parent.runId, subagentPath: String(index + 1), status: "completed" as const }))] });
+    expect((await requestChild(instance)).status).toBe(429);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it.each(["completed", "cancelled"] as const)("keeps the child pending when its parent becomes %s before approval", async (status) => {
+    const { instance, parent } = childHost();
+    const dispatch = vi.fn();
+    Object.assign(instance, { dispatchApprovedRun: dispatch });
+    const queued = await requestChild(instance);
+    const { approvalId } = await queued.json() as { approvalId: string };
+    instance.setState({ ...instance.state, runs: [{ ...parent, status }] });
+    const approved = await instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }),
+    }));
+    expect(approved.status).toBe(409);
+    expect(instance.state.pendingApprovals?.find((approval) => approval.approvalId === approvalId)?.status).toBe("pending");
+    expect(instance.state.runs).toHaveLength(1);
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("refuses nested delegation, shared workspaces, and publication requests", async () => {
+    const { instance, parent } = childHost();
+    expect((await requestChild(instance, { sandboxMode: "shared" })).status).toBe(400);
+    expect((await requestChild(instance, { publishPullRequest: true })).status).toBe(403);
+    expect((await requestChild(instance, { reviewAfterPublish: true })).status).toBe(403);
+    instance.setState({ runs: [{ ...parent, parentRunId: "root-parent", subagentPath: "1" }] });
+    expect((await requestChild(instance)).status).toBe(403);
+    expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
+    expect(mocks.execute).not.toHaveBeenCalled();
   });
 });

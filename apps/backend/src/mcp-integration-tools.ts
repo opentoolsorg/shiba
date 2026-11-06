@@ -18,7 +18,7 @@ function result(payload: Record<string, unknown>): CallToolResult {
 }
 
 /** An owner is supplied only by employee dispatch after current grants and approval pass. */
-export function registerIntegrationTools(registry: ToolRegistry, env: Env, owner?: string, revalidate?: () => Promise<void>): void {
+export function registerIntegrationTools(registry: ToolRegistry, env: Env, owner?: string, revalidate?: () => Promise<void>, approvedConnectionId?: string, signal?: AbortSignal, approvedUntil?: number): void {
   for (const name of ["integrations.search_actions", "integrations.execute"] as const) {
     const isSearch = name === "integrations.search_actions";
     registry.registerTool(name, isSearch ? "integrations:read" : "integrations:execute", async (args, context) => {
@@ -42,7 +42,8 @@ export function registerIntegrationTools(registry: ToolRegistry, env: Env, owner
       const actions = await provider.searchActions({ userId: owner, toolkitSlug, actionId: String(args.toolSlug), limit: 50 });
       if (!actions.some((action) => action.id === args.toolSlug && action.service === toolkitSlug)) throw new Error("Action does not belong to the granted integration.");
       await revalidate?.();
-      const output = await provider.executeTool({ userId: owner, toolkitSlug, toolSlug: String(args.toolSlug), arguments: args.arguments as Record<string, unknown> });
+      const output = await provider.executeTool({ userId: owner, toolkitSlug, toolSlug: String(args.toolSlug), arguments: args.arguments as Record<string, unknown>, approvedConnectionId,
+        ...(revalidate ? { beforeDispatch: revalidate } : {}), ...(signal ? { signal } : {}), ...(approvedUntil !== undefined ? { approvedUntil } : {}) });
       return { ...result({ ...output }), ...(!output.ok ? { isError: true } : {}) };
     }, {
       description: isSearch ? "Search actions on an employee-authorized connected integration. Requires employeeId and toolkitSlug." : "Request an integration action using employee grants. Every execution requires human approval of these exact arguments; retry after approval. Never auto-approves.",

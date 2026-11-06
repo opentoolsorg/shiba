@@ -392,6 +392,39 @@ describe("registerMemoryTools — sessions", () => {
   });
 });
 
+describe("server-scoped Code Mode memory", () => {
+  it("isolates Slack thread memory while preserving the actual tool principal and audit", async () => {
+    const { env, d1 } = makeEnv();
+    const sharedCaller = { ...caller, principal: "orchestrator-agent" };
+    const firstScope = "slack:T1:C1:123.000001", secondScope = "slack:T1:D1:123.000001";
+    const first = createToolRegistry(env), second = createToolRegistry(env);
+    registerMemoryTools(first, env, firstScope);
+    registerMemoryTools(second, env, secondScope);
+    const banked = resultData(await first.invoke("memory_bank", { fact: "private thread decision", source: "run" }, sharedCaller));
+    expect(banked.fact.agent).toBe(firstScope);
+    expect(resultData(await first.invoke("memory_recall", { query: "private thread decision" }, sharedCaller)).facts).toEqual([
+      expect.objectContaining({ agent: firstScope, fact: "private thread decision" }),
+    ]);
+    expect(resultData(await second.invoke("memory_recall", { query: "private thread decision" }, sharedCaller)).facts).toEqual([]);
+    expect((await second.invoke("memory_forget", { fact_id: banked.fact.id }, sharedCaller)).isError).toBe(true);
+    await addSession(env, firstScope, "first thread session");
+    await addSession(env, secondScope, "second thread session");
+    expect(resultData(await first.invoke("memory_sessions", {}, sharedCaller)).sessions.map((session: { summary: string }) => session.summary)).toEqual(["first thread session"]);
+    expect((await first.invoke("memory_sessions", { agent: secondScope }, sharedCaller)).isError).toBe(true);
+    const audit = d1.calls.filter((call) => call.sql.startsWith("INSERT INTO audit_log"));
+    expect(audit.length).toBeGreaterThan(0);
+    expect(audit.every((call) => call.params[2] === "orchestrator-agent")).toBe(true);
+  });
+
+  it("does not inherit broader write scopes from the selected memory partition", async () => {
+    const { env, stubs } = makeEnv();
+    const registry = createToolRegistry(env);
+    registerMemoryTools(registry, env, "slack:T1:C1:123.000001");
+    expect((await registry.invoke("memory_bank", { fact: "x", source: "run" }, { ...caller, scopes: ["memory:read"] })).isError).toBe(true);
+    expect(stubs.size).toBe(0);
+  });
+});
+
 describe("registerOwnerMemoryTools — dashboard task recall", () => {
   it("exposes owner-pinned private sources as untrusted task context", async () => {
     const { env } = makeEnv();

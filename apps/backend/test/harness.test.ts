@@ -1,3 +1,4 @@
+import { repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeErrorEvent, claudeCodeHarness, parseClaudeCodeEvent } from "../src/harness/claude-code.js";
@@ -39,6 +40,7 @@ describe("harness registry (T22)", () => {
 
 describe("the selected harness reaches the adapter that runs it", () => {
   it("runs the harness AGENT_HARNESS selected, not the default", async () => {
+    const snapshot = repositorySnapshotFixture();
     const execs: string[] = [];
     const files = new Map<string, string>();
     const adapter = createRuntimeAdapter("sandbox", resolveHarness("codex"));
@@ -52,6 +54,8 @@ describe("the selected harness reaches the adapter that runs it", () => {
       },
       exec: async (command: string) => {
         execs.push(command);
+        const captured = await snapshot(command);
+        if (captured) return captured;
         return { stdout: "", stderr: "", exitCode: 0 };
       },
       readFile: async () => ({ kind: "utf8" as const, content: "" }),
@@ -78,6 +82,7 @@ describe("per-run harness selection end to end", () => {
   });
 
   it("the child runs the harness the approved input named, not the env default", async () => {
+    const snapshot = repositorySnapshotFixture();
     const execs: string[] = [];
     const files = new Map<string, string>();
     // What the orchestrator froze into the delegation input after the human
@@ -93,7 +98,7 @@ describe("per-run harness selection end to end", () => {
         }
         files.set(path, contents);
       },
-      exec: async (command: string) => { execs.push(command); return { stdout: "", stderr: "", exitCode: 0 }; },
+      exec: async (command: string) => { execs.push(command); return (await snapshot(command)) ?? { stdout: "", stderr: "", exitCode: 0 }; },
       readFile: async () => ({ kind: "utf8" as const, content: "" }),
     };
     await adapter.runCodingTask(ops, approved, async () => {});
@@ -396,11 +401,14 @@ describe("grok harness", () => {
 
   it("a streamed error line fails the run through the adapter, not just the parser", async () => {
     const adapter = createRuntimeAdapter("sandbox", grokHarness);
+    const snapshot = repositorySnapshotFixture();
     let emitOutput: ((stream: "stdout" | "stderr", data: string) => void) | null = null;
     const ops = {
       gitCheckout: async () => {},
       writeFile: async () => {},
       exec: async (_command: string, opts?: { onOutput?: (stream: "stdout" | "stderr", data: string) => void }) => {
+        const captured = await snapshot(_command);
+        if (captured) return captured;
         emitOutput = opts?.onOutput ?? null;
         emitOutput?.("stdout", `${JSON.stringify({ type: "error", message: "model rejected" })}\n`);
         return { stdout: "", stderr: "", exitCode: 0 };
@@ -536,10 +544,13 @@ describe("Pi harness", () => {
 
   it("fails a runtime run on Pi's streamed assistant error even when the CLI exits zero", async () => {
     const adapter = createRuntimeAdapter("sandbox", piHarness);
+    const snapshot = repositorySnapshotFixture();
     const ops = {
       gitCheckout: async () => {},
       writeFile: async () => {},
       exec: async (_command: string, opts?: { onOutput?: (stream: "stdout" | "stderr", data: string) => void }) => {
+        const captured = await snapshot(_command);
+        if (captured) return captured;
         opts?.onOutput?.("stdout", `${JSON.stringify({
           type: "message_end",
           message: { role: "assistant", stopReason: "error", errorMessage: "401 invalid key" },
@@ -575,12 +586,11 @@ describe("connection compatibility stays honest", () => {
 });
 
 describe("agent cli catalog", () => {
-  it("lists every registered harness with its pinned version", () => {
+  it("lists runnable deployment harnesses with their pinned versions", () => {
     const catalog = agentCliCatalog({});
     expect(catalog.map((a) => a.id)).toEqual([
       "opencode",
       "claude-code",
-      "claude-login",
       "codex",
       "grok",
       "pi",

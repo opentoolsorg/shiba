@@ -1,8 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Scope } from "../src/agent-tokens.js";
 import { createApiKey } from "../src/agent-tokens.js";
 import type { Env } from "../src/env.js";
 import worker from "../src/index.js";
+import { TEST_ACCESS_AUD, verifiedAccessHeaders } from "./fixtures/access-identity.js";
+
+afterEach(() => vi.unstubAllGlobals());
 import { resolveOrgForApiRequest } from "../src/org-request-auth.js";
 import { authorizeV1Request } from "../src/v1-auth.js";
 import { isOrgApiPath } from "../src/public-routes.js";
@@ -36,6 +39,7 @@ function fixture() {
   const bindings: unknown[][] = [];
   const env = {
     REQUIRE_ACCESS: "1",
+    ACCESS_AUD: TEST_ACCESS_AUD,
     Spaces: {} as DurableObjectNamespace,
     AGENT_TOKENS: new FakeKV() as unknown as KVNamespace,
     AGENT_AUDIT: {
@@ -156,7 +160,7 @@ describe("Worker API credential boundaries", () => {
     for (const path of ["/api/v1/threads", "/api/v1/events", "/api/v1/usage", "/api/v1/projects/acme%2Frepo/automations"]) {
       for (const origin of ["http://localhost", "https://worker.test"]) {
         const request = new Request(`${origin}${path}`, {
-          headers: { authorization: `Bearer ${token}`, "CF-Access-Authenticated-User-Email": "owner@example.com" },
+          headers: { authorization: `Bearer ${token}`, ...await verifiedAccessHeaders("owner@example.com"), "CF-Access-Authenticated-User-Email": "forged@example.test" },
         });
         const response = await worker.fetch(request, f.env);
         expect(response.status, `${origin}${path}`).toBe(501);

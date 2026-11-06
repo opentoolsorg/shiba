@@ -1,3 +1,4 @@
+import { repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const sandboxMock = vi.hoisted(() => ({ getSandbox: vi.fn() }));
@@ -20,6 +21,7 @@ import {
 import type { CodingTaskInput } from "../src/opencode-input.js";
 import { classifyRunError } from "../src/run-errors.js";
 import { SandboxRuntimeAdapter, type SandboxOps } from "../src/runtime.js";
+import { OpenCodeHarness } from "../src/harness/opencode.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -292,7 +294,8 @@ const INPUT: CodingTaskInput = {
 };
 
 function makeFakeOps(overrides: Partial<SandboxOps> = {}): SandboxOps {
-  return {
+  const snapshot = repositorySnapshotFixture({ status: " M src/a.ts\n", files: { "src/a.ts": "file content" } });
+  const ops: SandboxOps = {
     async gitCheckout() {},
     async writeFile() {},
     async exec(command) {
@@ -309,9 +312,37 @@ function makeFakeOps(overrides: Partial<SandboxOps> = {}): SandboxOps {
     },
     ...overrides,
   };
+  const original = ops.exec;
+  ops.exec = async (command, options) => (await snapshot(command)) ?? original(command, options);
+  return ops;
 }
 
 describe("withRetry wired into the runtime adapter", () => {
+  it("pins journal identity to the approved run and applies it only to the CLI under the original deadline", async () => {
+    const captures: Array<{ jobId: string; deadline: number }> = [];
+    const expiresAt = Date.now() + 60_000;
+    const run = async (dispatchApprovalId: string) => {
+      const ops = makeFakeOps({ async exec(command, options) {
+        if (command.includes("opencode")) {
+          const journal = options?.journal;
+          if (!journal) throw new Error("The approved CLI needs a frozen execution identity.");
+          captures.push(journal);
+        } else expect(options?.journal).toBeUndefined();
+        return { stdout: "", stderr: "", exitCode: 0 };
+      } });
+      await new SandboxRuntimeAdapter().runCodingTask(ops, { ...INPUT, dispatchApprovalId,
+        dispatchInputHash: "a".repeat(64), dispatchExpiresAt: expiresAt }, () => {});
+    };
+    await run("approval-a");
+    await run("approval-a");
+    await run("approval-b");
+    expect(captures).toHaveLength(3);
+    expect(captures[0]?.jobId).toMatch(/^[a-f0-9]{64}$/);
+    expect(captures[1]?.jobId).toBe(captures[0]?.jobId);
+    expect(captures[2]?.jobId).not.toBe(captures[0]?.jobId);
+    expect(captures.every((capture) => capture.deadline === expiresAt)).toBe(true);
+  });
+
   it("does not retry a nonzero harness exitCode — the verdict is data, not an error", async () => {
     let opencodeCalls = 0;
     const ops = makeFakeOps({
@@ -329,23 +360,77 @@ describe("withRetry wired into the runtime adapter", () => {
     expect(opencodeCalls).toBe(1);
   });
 
-  it("retries the harness exec on a thrown transient failure", async () => {
+  it.each([undefined, "stdout", "stderr"] as const)("never relaunches after an uncertain execution failure with %s output", async (stream) => {
     let opencodeCalls = 0;
+    const acceptedWork: string[] = [];
+    const gap = vi.fn();
     const ops = makeFakeOps({
-      async exec(command) {
+      async exec(command, options) {
         if (command.includes("opencode")) {
           opencodeCalls += 1;
-          if (opencodeCalls === 1) throw new Error("provider returned status 503: overloaded");
-          return { stdout: "", stderr: "", exitCode: 0 };
+          acceptedWork.push("accepted mutation");
+          if (stream) options?.onOutput?.(stream, "accepted operation\n");
+          throw new Error("provider returned status 503: overloaded");
         }
         if (command.includes("status")) return { stdout: " M src/a.ts\n", stderr: "", exitCode: 0 };
         if (command.includes("diff")) return { stdout: "diff --git a/src/a.ts", stderr: "", exitCode: 0 };
         return { stdout: "", stderr: "", exitCode: 0 };
       },
     });
-    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {});
-    expect(result.status).toBe("completed");
-    expect(opencodeCalls).toBe(2);
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {}, { onStreamGap: gap });
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("Execution outcome is uncertain");
+    expect(opencodeCalls).toBe(1);
+    expect(acceptedWork).toEqual(["accepted mutation"]);
+    expect(gap).toHaveBeenCalledOnce();
+  });
+
+  it("keeps deterministic harness environment failures outside transport uncertainty", async () => {
+    const harness = new OpenCodeHarness();
+    vi.spyOn(harness, "env").mockImplementation(() => { throw new Error("Invalid frozen harness configuration."); });
+    const execute = vi.fn(async (_command: string) => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const checkout = vi.fn(async () => {});
+    const write = vi.fn(async () => {});
+    const gap = vi.fn();
+    const result = await new SandboxRuntimeAdapter(harness).runCodingTask(makeFakeOps({ exec: execute, gitCheckout: checkout, writeFile: write }), INPUT, () => {}, { onStreamGap: gap });
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("Invalid frozen harness configuration");
+    expect(result.summary).not.toContain("uncertain");
+    expect(execute.mock.calls.some(([command]) => command.includes("opencode"))).toBe(false);
+    expect(execute).not.toHaveBeenCalled();
+    expect(checkout).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    expect(result.errorCode).toBeUndefined();
+    expect(gap).not.toHaveBeenCalled();
+  });
+
+  it("does not launch or mark a transport gap when cancelled before harness dispatch", async () => {
+    const controller = new AbortController();
+    const execute = vi.fn(async (_command: string) => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const gap = vi.fn();
+    await expect(new SandboxRuntimeAdapter().runCodingTask(makeFakeOps({ exec: execute }), INPUT,
+      (event) => { if (event.phase === "code") controller.abort(); },
+      { signal: controller.signal, onStreamGap: gap },
+    )).rejects.toThrow("Run cancelled");
+    expect(execute.mock.calls.some(([command]) => command.includes("opencode"))).toBe(false);
+    expect(gap).not.toHaveBeenCalled();
+  });
+
+  it("keeps an aborted execution cancelled without retry or a transport gap", async () => {
+    const controller = new AbortController();
+    let opencodeCalls = 0;
+    const gap = vi.fn();
+    const ops = makeFakeOps({ async exec(command) {
+      if (command.includes("opencode")) {
+        opencodeCalls++;
+        controller.abort();
+        throw abortError();
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    } });
+    await expect(new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {}, { signal: controller.signal, onStreamGap: gap })).rejects.toThrow("Run cancelled");
+    expect(opencodeCalls).toBe(1);
+    expect(gap).not.toHaveBeenCalled();
   });
 
   it("does not retry a thrown terminal failure at the harness exec", async () => {
@@ -365,13 +450,13 @@ describe("withRetry wired into the runtime adapter", () => {
   });
 
   it("retries diff collection on a thrown transient failure", async () => {
-    let statusCalls = 0;
+    let diffCalls = 0;
     const ops = makeFakeOps({
       async exec(command) {
-        if (command.includes("status")) {
-          statusCalls += 1;
-          if (statusCalls === 1) throw new Error("provider returned status 503: overloaded");
-          return { stdout: " M src/a.ts\n", stderr: "", exitCode: 0 };
+        if (command.startsWith("'git' '--no-replace-objects' 'diff'")) {
+          diffCalls += 1;
+          if (diffCalls === 1) throw new Error("provider returned status 503: overloaded");
+          return { stdout: "diff --git a/src/a.ts", stderr: "", exitCode: 0 };
         }
         if (command.includes("diff")) return { stdout: "diff --git a/x", stderr: "", exitCode: 0 };
         return { stdout: "", stderr: "", exitCode: 0 };
@@ -379,7 +464,7 @@ describe("withRetry wired into the runtime adapter", () => {
     });
     const result = await new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {});
     expect(result.status).toBe("completed");
-    expect(statusCalls).toBe(2);
+    expect(diffCalls).toBe(2);
   });
 });
 
@@ -412,7 +497,7 @@ describe("withRetry wired into createSandboxOps.gitCheckout", () => {
       throw new Error("status 401: unauthorized");
     });
     const gitCheckout = vi.fn();
-    sandboxMock.getSandbox.mockReturnValue({ approveRepoScope, gitCheckout });
+    sandboxMock.getSandbox.mockReturnValue({ approveHarnessEgress: vi.fn(async () => {}), approveRepoScope, gitCheckout });
     await expect(
       createSandboxOps({} as never, INPUT.sandboxId)
         .gitCheckout(INPUT.repoUrl, { branch: "main", targetDir: "/workspace" }),

@@ -1,7 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApiKey } from "../src/agent-tokens.js";
 import type { Env } from "../src/env.js";
 import worker from "../src/index.js";
+import { TEST_ACCESS_AUD, verifiedAccessHeaders } from "./fixtures/access-identity.js";
+
+afterEach(() => vi.unstubAllGlobals());
 
 vi.mock("@cloudflare/sandbox", () => ({
   Sandbox: class {},
@@ -21,6 +24,7 @@ function fixture() {
   const prepare = vi.fn();
   const env = {
     REQUIRE_ACCESS: "1",
+    ACCESS_AUD: TEST_ACCESS_AUD,
     AGENT_AUDIT: { prepare } as unknown as D1Database,
     AGENT_TOKENS: {
       get: async (name: string) => rows.get(name) ?? null,
@@ -54,7 +58,9 @@ describe("Worker path and explicit-credential isolation", () => {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
-        "CF-Access-Authenticated-User-Email": "owner@example.com",
+        Origin: "https://worker.test",
+        ...await verifiedAccessHeaders("owner@example.com"),
+        "CF-Access-Authenticated-User-Email": "forged@example.test",
       },
       body: JSON.stringify({ enabled: false }),
     }), f.env);
@@ -90,7 +96,8 @@ describe("Worker path and explicit-credential isolation", () => {
     const request = new Request("https://worker.test/api/v1/org-agents/%2e%2e/threads", {
       headers: {
         authorization: `Bearer ${token}`,
-        "CF-Access-Authenticated-User-Email": "owner@example.com",
+        ...await verifiedAccessHeaders("owner@example.com"),
+        "CF-Access-Authenticated-User-Email": "forged@example.test",
       },
     });
     expect(new URL(request.url).pathname).toBe("/api/v1/threads");

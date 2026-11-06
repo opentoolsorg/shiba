@@ -3,23 +3,28 @@ import { buildSessionAgentName } from "../src/web-sessions.js";
 import { handleRuns } from "../src/runs-routes.js";
 import { persistRunDeliverables, verifyExpectedDeliverables, deliverableStorageKey } from "../src/run-deliverables.js";
 import type { Env } from "../src/env.js";
+import { createApiKey } from "../src/agent-tokens.js";
+import { authorizeV1Request } from "../src/v1-auth.js";
 
 const state = vi.hoisted(() => ({
-  runs: new Map<string, Record<string, unknown>>(), sessions: new Map<string, string[]>(), requests: [] as Request[],
+  runs: new Map<string, Record<string, unknown>>(), sessions: new Map<string, string[]>(),
+  sessionMetadata: new Map<string, Record<string, unknown>>(), requests: [] as Request[], rpcCalls: 0,
 }));
 vi.mock("../src/request-auth.js", () => ({
-  isAuthorizedRequest: async (request: Request) => request.headers.get("Authorization") === "Bearer fixture",
+  isAuthorizedRequest: async (request: Request) => request.headers.get("Cookie") === "session=fixture",
   resolveUserId: async (request: Request) => request.headers.get("X-Fixture-User") ?? "owner-a",
 }));
 vi.mock("agents/routing", () => ({
   getAgentByName: async (_namespace: unknown, actor: string) => ({ fetch: async (request: Request | string) => {
+    state.rpcCalls++;
     const url = new URL(typeof request === "string" ? request : request.url);
     if (url.pathname.startsWith("/internal/web-sessions/")) {
       const id = decodeURIComponent(url.pathname.split("/").pop()!);
-      return state.sessions.get(actor)?.includes(id) ? Response.json({ session: { id } }) : Response.json({ error: "Session not found." }, { status: 404 });
+      return state.sessions.get(actor)?.includes(id) ? Response.json({ session: { id, metadata: state.sessionMetadata.get(`${actor}|${id}`) } }) : Response.json({ error: "Session not found." }, { status: 404 });
     }
     if (typeof request !== "string") state.requests.push(request);
     if (url.pathname.startsWith("/api/employee-drafts")) return Response.json({ scope: actor });
+    if (url.pathname === "/api/runs") return Response.json({ runs: [...state.runs.entries()].filter(([key]) => key.startsWith(`${actor}|`)).map(([, run]) => run) });
     const action = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([0-7])\/(review|history|revision)$/);
     if (action) {
       const target = state.runs.get(actor+"|"+decodeURIComponent(action[1]!)) as {
@@ -49,13 +54,17 @@ let objects: Map<string, Uint8Array>;
 let env: Env;
 let get: ReturnType<typeof vi.fn>;
 beforeEach(() => {
-  state.runs.clear(); state.sessions.clear(); state.requests.length = 0;
+  state.runs.clear(); state.sessions.clear(); state.sessionMetadata.clear(); state.requests.length = 0; state.rpcCalls = 0;
+  const credentialRows = new Map<string, string>();
   objects = new Map();
   get = vi.fn(async (key: string) => {
     const bytes = objects.get(key);
     return bytes ? { size: bytes.byteLength, arrayBuffer: async () => Uint8Array.from(bytes).buffer } : null;
   });
-  env = { CodingOrchestrator: {}, DASHBOARD_APPROVERS: "owner-a", ATTACHMENTS: {
+  env = { CodingOrchestrator: {}, DASHBOARD_APPROVERS: "owner-a", AGENT_TOKENS: {
+    get: async (key: string) => credentialRows.get(key) ?? null,
+    put: async (key: string, value: string) => { credentialRows.set(key, value); },
+  }, ATTACHMENTS: {
     get, put: async (key: string, value: string) => { objects.set(key, new TextEncoder().encode(value)); return { key }; },
   } } as unknown as Env;
 });
@@ -69,12 +78,45 @@ async function seed(actor = "owner-a", text = "# Draft\nApproved workspace repor
 }
 function request(path = "/api/runs/same-run/deliverables/0", user = "owner-a", method = "GET", authenticated = true) {
   return new Request("https://dashboard.test"+path, { method, headers: {
-    ...(authenticated ? { Authorization: "Bearer fixture" } : {}), "X-Fixture-User": user,
+    ...(authenticated ? { Cookie: "session=fixture" } : {}), "X-Fixture-User": user,
     "X-Agent-Principal": "spoofed-owner", "X-Shiba-Intake": "forged",
   } });
 }
 
 describe("authenticated artifact mutations and internal draft forwarding", () => {
+  it("keeps explicit credential organization checks on new intake and team selectors", async () => {
+    const intake = await handleRuns(new Request("https://dashboard.test/api/runs", {
+      method: "POST", headers: { ...Object.fromEntries(request().headers), Authorization: "Bearer invalid", "content-type": "application/json" },
+      body: JSON.stringify({ task: "Attempt organization intake", orgId: "other-org" }),
+    }), env);
+    // An ambient human cookie cannot mask an invalid explicit credential.
+    expect(intake?.status).toBe(401);
+    const selected = request();
+    selected.headers.set("Authorization", "Bearer invalid");
+    selected.headers.set("X-Shiba-Workspace", `ws_${"a".repeat(24)}`);
+    expect((await handleRuns(selected, env))?.status).toBe(401);
+    expect(state.requests).toEqual([]);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it("rejects explicit bad and valid org-scoped bearers instead of adopting the ambient cookie owner's private run", async () => {
+    await seed();
+    const scoped = await createApiKey(env, { orgId: "other-org", label: "Isolated read fixture", principal: "ci-reader", scopes: ["api:read"] });
+    const keyRequest = request();
+    keyRequest.headers.set("Authorization", `Bearer ${scoped.token}`);
+    expect(await authorizeV1Request(keyRequest, env)).toMatchObject({ orgId: "other-org", principal: "ci-reader", scopes: ["api:read"] });
+    for (const credential of ["Bearer invalid", `Bearer ${scoped.token}`, ""]) {
+      for (const path of ["/api/runs/same-run/deliverables/0", "/api/runs/same-run/deliverables/0/history", "/api/employee-drafts"]) {
+        const selected = request(path);
+        selected.headers.set("Authorization", credential);
+        expect((await handleRuns(selected, env))?.status).toBe(403);
+      }
+    }
+    expect(state.rpcCalls).toBe(0);
+    expect(state.requests).toEqual([]);
+    expect(get).not.toHaveBeenCalled();
+  });
+
   it.each([undefined, "null", "https://sibling.dashboard.test", "https://attacker.test"])("rejects review/revision from origin %s before forwarding", async (origin) => {
     for (const path of ["/api/runs/same-run/deliverables/0/review", "/api/runs/same-run/deliverables/0/revision", `/api/employee-drafts/draft_${"a".repeat(64)}/review`]) {
       const headers = new Headers(request().headers);
@@ -111,6 +153,36 @@ describe("authenticated artifact mutations and internal draft forwarding", () =>
 });
 
 describe("authenticated requested-deliverable downloads", () => {
+  it.each([{ orgId: "team:ws_aaaaaaaaaaaaaaaaaaaaaaaa" }, { teamWorkspaceId: "ws_aaaaaaaaaaaaaaaaaaaaaaaa" }])(
+    "refuses a cached team session reached through an omitted workspace selector: %j", async (metadata) => {
+      await seed(buildSessionAgentName("owner-a", SESSION));
+      state.sessions.set("owner-a", [SESSION]);
+      state.sessionMetadata.set(`owner-a|${SESSION}`, metadata);
+      const response = await handleRuns(request(`/api/runs/same-run/deliverables/0?session=${SESSION}`), env);
+      expect(response?.status).toBe(404);
+      expect(state.rpcCalls).toBe(1); // Verify the saved owner registry; never enter the team session DO.
+      expect(state.requests).toEqual([]);
+      expect(get).not.toHaveBeenCalled();
+    },
+  );
+
+  it("hides team runs and artifacts from the legacy operator registry and rejects legacy artifact mutations", async () => {
+    const { run } = await seed();
+    state.runs.set("owner-a|same-run", { ...run, orgId: "team:ws_aaaaaaaaaaaaaaaaaaaaaaaa", collaborationHandoffId: "room-handoff", summary: "Selected shared context" });
+    const list = await handleRuns(request("/api/runs"), env);
+    expect(await list?.json()).toEqual({ runs: [] });
+    for (const path of ["/api/runs/same-run", "/api/runs/same-run/deliverables/0", "/api/runs/same-run/deliverables/0/history"])
+      expect((await handleRuns(request(path), env))?.status).toBe(404);
+    for (const action of ["review", "revision"]) {
+      const source = request(`/api/runs/same-run/deliverables/0/${action}`, "owner-a", "POST");
+      source.headers.set("Origin", "https://dashboard.test"); source.headers.set("Content-Type", "application/json");
+      const response = await handleRuns(new Request(source, { body: JSON.stringify({ status: "approved", expectedRevision: 0, commandId: "revision-1" }) }), env);
+      expect(response?.status).toBe(404);
+    }
+    expect(state.requests.filter((item) => item.method === "POST")).toEqual([]);
+    expect(get).not.toHaveBeenCalled();
+  });
+
   it("downloads exact requested bytes as an attachment after owner lookup and hash validation", async () => {
     const { text } = await seed();
     const response = await handleRuns(request("/api/runs/same-run/deliverables/0?key=other-owner/private"), env);
@@ -154,7 +226,7 @@ describe("authenticated requested-deliverable downloads", () => {
   it("forwards review updates and history only through the authenticated owning run store", async () => {
     const { run } = await seed();
     const reviewRequest = new Request("https://dashboard.test/api/runs/same-run/deliverables/0/review", {
-      method: "POST", headers: { Authorization: "Bearer fixture", "X-Fixture-User": "owner-a", "content-type": "application/json", origin: "https://dashboard.test" },
+      method: "POST", headers: { Cookie: "session=fixture", "X-Fixture-User": "owner-a", "content-type": "application/json", origin: "https://dashboard.test" },
       body: JSON.stringify({ status: "approved", expectedRevision: 0 }),
     });
     expect((await handleRuns(reviewRequest, env))?.status).toBe(200);
@@ -163,7 +235,8 @@ describe("authenticated requested-deliverable downloads", () => {
     expect(history?.status).toBe(200);
     expect((await history!.json() as { versions: unknown[] }).versions).toHaveLength(1);
     expect((await handleRuns(request("/api/runs/same-run/deliverables/0/history", "owner-b"), env))?.status).toBe(404);
-    expect(state.requests.filter((item) => item.url.includes("/history"))).toHaveLength(2);
+    // The foreign owner is refused by the manifest lookup before history dispatch.
+    expect(state.requests.filter((item) => item.url.includes("/history"))).toHaveLength(1);
     expect(state.runs.has("owner-b|same-run")).toBe(false);
   });
 
@@ -171,7 +244,7 @@ describe("authenticated requested-deliverable downloads", () => {
     await seed(buildSessionAgentName("owner-a", SESSION));
     state.sessions.set("owner-a", [SESSION]);
     const response = await handleRuns(new Request(`https://dashboard.test/api/runs/same-run/deliverables/0/revision?session=${SESSION}`, {
-      method: "POST", headers: { Authorization: "Bearer fixture", "X-Fixture-User": "owner-a", "content-type": "application/json", origin: "https://dashboard.test" },
+      method: "POST", headers: { Cookie: "session=fixture", "X-Fixture-User": "owner-a", "content-type": "application/json", origin: "https://dashboard.test" },
       body: JSON.stringify({ commandId: "artifact-revision:abc-12345" }),
     }), env);
     expect(response?.status).toBe(200);

@@ -1103,7 +1103,7 @@ describe("dashboard approval routes", () => {
 describe("InboxTab + MemoryTab SSR", () => {
   it("guides first-time users to register, route, and verify mail without claiming delivery", () => {
     const html = renderToStaticMarkup(
-      React.createElement(InboxTab, { onOpenApprovals: () => {} }),
+      React.createElement(InboxTab, { onOpenApprovals: () => {}, initialMailboxes: [] }),
     );
     expect(html).toContain("Register a mailbox");
     expect(html).toContain("Configure Cloudflare Email Routing");
@@ -1119,14 +1119,13 @@ describe("InboxTab + MemoryTab SSR", () => {
     expect(memory).toContain("Loading memory");
   });
 
-  it("renders the enhanced activity summary bar and approval boundary indicators in SSR", () => {
+  it("renders mailbox controls and approval boundary in the queued view", () => {
     const inbox = renderToStaticMarkup(
-      React.createElement(InboxTab, { onOpenApprovals: () => {} }),
+      React.createElement(InboxTab, { onOpenApprovals: () => {}, activeFolder: "queued" }),
     );
-    expect(inbox).toContain("Mailbox activity summary");
-    expect(inbox).toContain("Approval-Gated Send");
-    expect(inbox).toContain("Mailbox Settings");
-    expect(inbox).toContain("All Mail");
+    expect(inbox).toContain("No queued approvals");
+    expect(inbox).toContain("Outbound emails requiring human approval before dispatch will appear here.");
+    expect(inbox).toContain("Mailbox settings");
     expect(inbox).toContain("Search mail");
   });
 });

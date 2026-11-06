@@ -5,14 +5,17 @@ import { createCustomAgent, updateCustomAgent } from "../src/custom-agents-store
 import type { Env } from "../src/env.js";
 import { handleRuns, queueCollaborationRun } from "../src/runs-routes.js";
 import type { ExecutionTarget } from "@shiba/shared";
-import { cancelCollaborationHandoff, COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID, isCollaborationHandoffDispatchable, listCollaborationHandoffs } from "../src/collaboration-store.js";
+import { cancelCollaborationHandoff, COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID, createCollaborationSlackLink, isCollaborationHandoffDispatchable, listCollaborationHandoffs, observeCollaborationSlackThread } from "../src/collaboration-store.js";
 import { replaceEmployeeToolGrants } from "../src/employee-tool-store.js";
+import { isCollaborationApprovalDispatchable, isCollaborationContextCurrent } from "../src/collaboration-context.js";
+import { revokeCollaborationMemory } from "../src/collaboration-memory.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const state = vi.hoisted(() => ({
   userId: "owner@example.test",
   approvalStatus: "",
   onQueue: null as null | (() => Promise<void>),
+  onRunFetch: null as null | (() => Promise<void>),
   cancelledHandoffs: [] as string[],
   executorCancellationPending: false,
   run: null as null | {
@@ -39,6 +42,7 @@ const state = vi.hoisted(() => ({
     profileVersion: number;
     commandId: string;
   },
+  queueReceipts: new Map<string, { approvalId: string; task: string }>(),
 }));
 
 vi.mock("../src/request-auth.js", () => ({
@@ -64,11 +68,16 @@ vi.mock("../src/runs-routes.js", () => ({
   }),
   queueCollaborationRun: vi.fn(async (_request: Request, _env: Env, input: typeof state.queued) => {
     state.queued = input;
+    const prior = input ? state.queueReceipts.get(input.commandId) : undefined;
+    if (prior) return Response.json({ ok: true, ...prior, deduped: true });
+    const receipt = { approvalId: "approval-employee-1", task: input?.task ?? "" };
+    if (input) state.queueReceipts.set(input.commandId, receipt);
     state.approvalStatus = "pending";
     state.run = null;
-    await state.onQueue?.();
+    const onQueue = state.onQueue;
     state.onQueue = null;
-    return Response.json({ ok: true, approvalId: "approval-employee-1" });
+    await onQueue?.();
+    return Response.json({ ok: true, ...receipt });
   }),
 }));
 vi.mock("../src/approvals-routes.js", () => ({
@@ -112,6 +121,9 @@ vi.mock("agents/routing", () => ({
         decodeURIComponent(url.pathname.slice("/api/runs/".length)) ===
           "agent-tool:approval-employee-1"
       ) {
+        const onRunFetch = state.onRunFetch;
+        state.onRunFetch = null;
+        await onRunFetch?.();
         return state.run
           ? Response.json({ run: state.run })
           : Response.json({ error: "Run not found." }, { status: 404 });
@@ -148,16 +160,129 @@ beforeEach(() => {
   state.userId = "owner@example.test";
   state.approvalStatus = "";
   state.onQueue = null;
+  state.onRunFetch = null;
   state.cancelledHandoffs = [];
   state.executorCancellationPending = false;
   state.run = null;
   state.queued = null;
+  state.queueReceipts.clear();
   vi.mocked(queueCollaborationRun).mockClear();
   vi.mocked(handleRuns).mockClear();
   vi.mocked(handleApprovals).mockClear();
 });
 
 describe("approval-gated employee handoffs", () => {
+  it.each([
+    ["selected-note", false], ["selected-note", true],
+    ["slack-source", false], ["slack-source", true],
+  ] as const)("hides %s-derived execution revoked during a manifest lookup (cached reply: %s)", async (source, cached) => {
+    const f = fixture();
+    const scope = { tenantId: COLLAB_TENANT_ID, workspaceId: COLLAB_WORKSPACE_ID, userId: state.userId };
+    const employee = await createCustomAgent(f.env, "self-hosted", "revocation-writer", {
+      name: "Revocation Writer", instructions: "Use only selected shared context.", harness: "opencode",
+      defaultRepoUrl: "https://github.com/example/repo",
+    });
+    const { room } = await json<{ room: { roomId: string } }>(await f.send("/rooms", "POST", { title: "Revocable result" }));
+    const roomId = room.roomId;
+    const { member } = await json<{ member: { actorId: string } }>(await f.send(`/rooms/${roomId}/agents`, "POST", {
+      profileId: employee.id, profileVersion: employee.version,
+    }));
+    const { memory } = await json<{ memory: { id: string; version: number; sha256: string } }>(
+      await f.send(`/rooms/${roomId}/memory`, "POST", { id: "ctx_revoke", title: "Shared source", content: "The private launch code is bluebird." }),
+    );
+    if (source === "slack-source") {
+      f.env.SLACK_CANVAS_OWNERS = JSON.stringify([{ teamId: "T1", channelId: "C1", ownerId: state.userId, viewerIds: [] }]);
+      await observeCollaborationSlackThread(f.env, { teamId: "T1", channelId: "C1", threadTs: "123.000001", eventId: "Ev1", userId: "U1", seenAt: 1 });
+      expect(await createCollaborationSlackLink(f.env, scope, {
+        linkId: "link_revocable", roomId, teamId: "T1", channelId: "C1", threadTs: "123.000001", createdAt: 2,
+      })).not.toBeNull();
+    }
+    const { handoff } = await json<{ handoff: { handoffId: string; approvalId: string; runId: string } }>(
+      await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+        handoffId: "handoff-revocation", taskId: "revocable-task", recipientActorId: member.actorId,
+        task: "Prepare the selected report.", memoryRefs: source === "selected-note" ? [memory] : [],
+      }),
+    );
+    const summary = "DERIVED-RESULT-THAT-MUST-BE-HIDDEN";
+    state.approvalStatus = "approved";
+    state.run = { runId: handoff.runId, status: "completed", summary,
+      customAgentId: employee.id, customAgentVersion: employee.version, approval: { approvalId: handoff.approvalId } };
+    if (cached) {
+      const visible = await f.send(`/rooms/${roomId}`);
+      expect(visible?.status).toBe(200);
+      expect(await visible?.text()).toContain(summary);
+      expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM collaboration_messages WHERE source_handoff_id=?").get(handoff.handoffId)?.count).toBe(1);
+    }
+    let revokedDuringLookup = false;
+    state.onRunFetch = async () => {
+      // The route has passed its initial source check and is awaiting the
+      // executor manifest. Revoke before that asynchronous lookup returns.
+      revokedDuringLookup = true;
+      if (source === "selected-note") {
+        expect(await revokeCollaborationMemory(f.env, scope, roomId, memory)).toBe(true);
+      } else {
+        f.env.SLACK_CANVAS_OWNERS = "[]";
+      }
+    };
+    const response = await f.send(`/rooms/${roomId}`);
+    expect(revokedDuringLookup).toBe(true);
+    expect(source === "selected-note" ? [200] : [403, 404]).toContain(response?.status);
+    const hidden = await response?.text();
+    expect(hidden).not.toContain(summary);
+    expect(hidden).not.toContain(`agent_reply_${handoff.handoffId}`);
+    if (!cached) {
+      expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM collaboration_messages WHERE source_handoff_id=?").get(handoff.handoffId)?.count).toBe(0);
+    }
+    const reloaded = await f.send(`/rooms/${roomId}`);
+    expect(source === "selected-note" ? [200] : [403, 404]).toContain(reloaded?.status);
+    expect(await reloaded?.text()).not.toContain(summary);
+  });
+
+  it.each(["before-bind", "after-bind"] as const)("recovers a shared-context approval after an injected %s crash without minting twice", async (phase) => {
+    const f = fixture();
+    const employee = await createCustomAgent(f.env, "self-hosted", "recovery-writer", {
+      name: "Recovery Writer", instructions: "Write only the selected report.", harness: "opencode",
+      defaultRepoUrl: "https://github.com/example/repo",
+    });
+    const { room } = await json<{ room: { roomId: string } }>(await f.send("/rooms", "POST", { title: "Context recovery" }));
+    const roomId = room.roomId;
+    const { member } = await json<{ member: { actorId: string } }>(await f.send(`/rooms/${roomId}/agents`, "POST", {
+      profileId: employee.id, profileVersion: employee.version,
+    }));
+    const { memory } = await json<{ memory: { id: string; version: number; sha256: string } }>(
+      await f.send(`/rooms/${roomId}/memory`, "POST", { id: "ctx_recovery", title: "Shared fact", content: "Release on Tuesday." }),
+    );
+    const handoffId = `handoff-recovery-${phase}`;
+    const body = { handoffId, taskId: "recover-context", recipientActorId: member.actorId,
+      task: "Prepare the release report.", memoryRefs: [{ id: memory.id, version: memory.version, sha256: memory.sha256 }] };
+    // Initialize the private snapshot table, then fail one SQL boundary after
+    // the durable mocked approval queue has accepted the exact request.
+    await isCollaborationContextCurrent(f.env, "initialize-context-table");
+    const target = phase === "before-bind" ? "collaboration_context_snapshots" : "collaboration_handoffs";
+    f.sqlite.exec(`CREATE TRIGGER injected_context_crash BEFORE UPDATE OF approval_id ON ${target}
+      WHEN NEW.handoff_id='${handoffId}' BEGIN SELECT RAISE(ABORT,'injected context handoff crash'); END;`);
+    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", body))?.status).toBe(503);
+    expect(state.queueReceipts.size).toBe(1);
+    const receipt = state.queueReceipts.get(handoffId)!;
+    expect(receipt.task).toContain("Release on Tuesday.");
+    expect(f.sqlite.prepare("SELECT approval_id FROM collaboration_handoffs WHERE handoff_id=?").get(handoffId))
+      .toEqual({ approval_id: null });
+    expect(f.sqlite.prepare("SELECT approval_id FROM collaboration_context_snapshots WHERE handoff_id=?").get(handoffId))
+      .toEqual({ approval_id: phase === "before-bind" ? null : receipt.approvalId });
+    const authority = { handoffId, approvalId: receipt.approvalId, employeeId: employee.id, employeeVersion: employee.version, task: receipt.task };
+    expect(await isCollaborationApprovalDispatchable(f.env, authority)).toBe(false);
+    f.sqlite.exec("DROP TRIGGER injected_context_crash");
+    const retried = await f.send(`/rooms/${roomId}/handoffs`, "POST", body);
+    expect(retried?.status, JSON.stringify(await retried?.clone().json())).toBe(201);
+    expect((await json<{ handoff: { approvalId: string; runId: string } }>(retried)).handoff)
+      .toMatchObject({ approvalId: receipt.approvalId, runId: `agent-tool:${receipt.approvalId}` });
+    expect(state.queueReceipts.size).toBe(1);
+    expect(vi.mocked(queueCollaborationRun)).toHaveBeenCalledTimes(2);
+    expect(await isCollaborationApprovalDispatchable(f.env, authority)).toBe(true);
+    expect(state.approvalStatus).toBe("pending");
+    expect(state.run).toBeNull();
+  });
+
   it("carries the pinned employee version through a human-to-human-to-employee continuation", async () => {
     const f = fixture();
     const employee = await createCustomAgent(f.env, "self-hosted", "planner", {
@@ -352,10 +477,10 @@ describe("approval-gated employee handoffs", () => {
     expect(reloaded.handoffs[0]).toMatchObject({
       status: "cancelled",
       approvalId: "approval-employee-1",
-      execution: { runStatus: "completed", summary: "No release blockers found." },
+      execution: { unavailable: true, runStatus: "unknown" },
     });
     expect((await json<{ messages: Array<{ sourceRunId?: string }> }>(await f.send(`/rooms/${roomId}`)))
-      .messages.filter((message) => message.sourceRunId === handoff.handoff.runId)).toHaveLength(1);
+      .messages.filter((message) => message.sourceRunId === handoff.handoff.runId)).toHaveLength(0);
     expect(
       f.sqlite
         .prepare(
@@ -365,7 +490,7 @@ describe("approval-gated employee handoffs", () => {
     ).toEqual({ approval_id: "approval-employee-1", run_id: "agent-tool:approval-employee-1" });
   });
 
-  it("queues a repo-free artifact-workspace handoff through approval and persists its completed employee reply", async () => {
+  it.each(["sandbox", "local"] as const)("queues a repo-free %s artifact handoff through approval and persists its completed employee reply", async (runtime) => {
     const f = fixture();
     const employee = await createCustomAgent(f.env, "self-hosted", "writer", {
       name: "Report Writer",
@@ -394,10 +519,13 @@ describe("approval-gated employee handoffs", () => {
         kind: "artifact-workspace",
         expectedDeliverables: ["reports/room-summary.md"],
       },
-      runtime: "sandbox",
+      runtime,
+      ...(runtime === "local" ? { targetMachineId: "paired-fixture" } : {}),
     }));
 
     expect(state.queued).toMatchObject({
+      runtime,
+      ...(runtime === "local" ? { targetMachineId: "paired-fixture" } : {}),
       task: "Summarize the provided meeting notes into a short report.",
       executionTarget: {
         kind: "artifact-workspace",

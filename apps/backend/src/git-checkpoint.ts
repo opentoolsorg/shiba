@@ -70,7 +70,7 @@ async function git(
   signal?: AbortSignal,
   maxOutputChars?: number,
 ): Promise<string> {
-  const result = await ops.exec(shellJoin(["git", ...argv]), {
+  const result = await ops.exec(shellJoin(["git", "--no-replace-objects", ...argv]), {
     cwd: workdir,
     timeoutMs: 60_000,
     env,

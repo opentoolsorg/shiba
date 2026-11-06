@@ -13,7 +13,11 @@ function fixture(options: { binding?: boolean; org?: string; deleted?: boolean; 
     const body = JSON.parse(String(init?.body)) as { session?: unknown; metadata?: unknown };
     return Response.json({ session: body.session ?? { id: SESSION_ID, ...body } });
   });
-  vi.mocked(getAgentByName).mockResolvedValue({ fetch: forwarded } as never);
+  vi.mocked(getAgentByName).mockResolvedValue({ fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+    // Named-session scope verification is a read, distinct from the mutation under test.
+    if (!init?.method) return Response.json({ session: { id: SESSION_ID } });
+    return forwarded(input, init);
+  } } as never);
   const queries: unknown[][] = [];
   const db = {
     prepare(sql: string) {

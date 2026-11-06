@@ -1,0 +1,21 @@
+{
+  "capturedAt": "2026-11-05T02:07:14.706Z",
+  "target": "https://shiba-ai-coworker-pr-188.opentoolsorg.workers.dev/api/whoami",
+  "method": "GET",
+  "transport": "Pinned Playwright API request through the managed session proxy",
+  "tlsVerification": true,
+  "redirectsFollowed": 0,
+  "applicationCredentialsSupplied": false,
+  "status": 200,
+  "auth": "none",
+  "defaultIdentity": true,
+  "interpretation": "Anonymous API protection failed. This is not authenticated app or control-plane acceptance.",
+  "deployedGitRevisionVerified": false,
+  "privatePayloadsRequested": false,
+  "mutationsPerformed": false,
+  "limitations": [
+    "Only the identity endpoint was requested.",
+    "No account, session, approval, run, artifact or Slack data was read.",
+    "A separate strict-TLS Chromium attempt at 01:49 UTC was blocked by the browser certificate trust store."
+  ]
+}

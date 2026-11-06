@@ -36,6 +36,10 @@ export type SideEffectKind =
 
 export type SpineKind =
   | RunSpineKind
+  | "ChildTaskSpawned"
+  | "ChildTaskProgress"
+  | "ChildTaskCompleted"
+  | "ChildTaskFailed"
   | "side_effect.requested"
   | "side_effect.dispatched"
   | "side_effect.failed"
@@ -43,6 +47,10 @@ export type SpineKind =
   | "approval.answered";
 
 export const SPINE_KINDS: readonly SpineKind[] = [
+  "ChildTaskSpawned",
+  "ChildTaskProgress",
+  "ChildTaskCompleted",
+  "ChildTaskFailed",
   "run.archived",
   "run.proposed",
   "run.approved",
@@ -72,6 +80,12 @@ const pendingApprovalSchema = z.record(z.string(), z.unknown());
  * all-optional patch arm as `{}`).
  */
 export const spineEventPayloadSchema = z.union([
+  z.strictObject({
+    childTaskId: z.string().min(1).max(512),
+    agent: z.enum(["explorer", "fixer", "reviewer"]),
+    parentName: z.string().min(1).max(1024),
+    summary: z.string().max(4_000).optional(),
+  }),
   z.strictObject({ run: delegatedRunSchema }),
   z.strictObject({
     patch: runPatchSchema.optional(),
@@ -95,6 +109,8 @@ export const spineEventPayloadSchema = z.union([
     target: z.string(),
     summary: z.string().optional(),
     error: z.string().optional(),
+    persona: z.enum(["lead", "explorer", "fixer", "reviewer"]).optional(),
+    blocks: z.array(z.unknown()).max(50).optional(),
   }),
 ]);
 export type SpinePayload = z.infer<typeof spineEventPayloadSchema>;
@@ -176,19 +192,21 @@ export function sideEffectRequestInput(args: {
   effectKind: SideEffectKind;
   target: string;
   summary?: string;
+  persona?: "lead" | "explorer" | "fixer" | "reviewer";
+  blocks?: unknown[];
   commandId: string;
   causationId?: string;
   runId?: string;
   at: number;
 }): SpineEventInput {
-  const { commandId, causationId, runId, at, effectId, effectKind, target, summary } = args;
+  const { commandId, causationId, runId, at, effectId, effectKind, target, summary, persona, blocks } = args;
   return {
     kind: "side_effect.requested",
     commandId,
     causationId,
     runId,
     at,
-    payload: { effectId, effectKind, target, summary },
+    payload: { effectId, effectKind, target, summary, ...(persona ? { persona } : {}), ...(blocks ? { blocks } : {}) },
   };
 }
 

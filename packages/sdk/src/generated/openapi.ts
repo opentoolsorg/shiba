@@ -748,6 +748,8 @@ export type components = {
         CustomAgentConfig: {
             name: string;
             emoji?: string;
+            /** @enum {string} */
+            mascotPreset?: "hero" | "climbing" | "riding" | "sleeping" | "sunglasses";
             instructions: string;
             harness: string;
             codingModel?: string;

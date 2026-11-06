@@ -1,0 +1,497 @@
+{
+  "runtime": "Local workerd + local D1/DO/R2; Vite serves actual dashboard source",
+  "auth": "Real Better Auth password sessions. Second and third identities seeded only in isolated local fixture DB; no auth mocked.",
+  "scope": "No deployed Cloudflare/Slack/provider execution, no production data.",
+  "checks": [
+    "Owner created room through actual dashboard UI; authenticated realtime connected.",
+    "Two independently signed-in identities see the same room with server-attributed online presence.",
+    "Bidirectional UI messages persisted and synchronized; member received server invalidation frames.",
+    "Shared note authored through UI reaches member; message and exact-version note explicitly selectable as handoff context.",
+    "Third authenticated account cannot list/read guessed room or establish its shared-room socket.",
+    "Full browser reload restores persisted shared messages and notes behind member authentication.",
+    "Removing the active member closes their live view, clears cached message/note/presence content, and denies subsequent HTTP reads."
+  ],
+  "errors": [],
+  "consoleMessages": [
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Encountered a script tag while rendering React component. Scripts inside React components are never executed when rendering on the client. Consider using template tag instead (https://developer.mozilla.org/en-US/docs/Web/HTML/Element/template)."
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost \u2014 this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "owner",
+      "type": "warning",
+      "text": "PartySocket: discarded 2 buffered message(s) while replacing the socket, because the connection destination changed. Pass transferEnqueuedMessages: true to deliver buffered messages to the new destination instead."
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Encountered a script tag while rendering React component. Scripts inside React components are never executed when rendering on the client. Consider using template tag instead (https://developer.mozilla.org/en-US/docs/Web/HTML/Element/template)."
+    },
+    {
+      "who": "member",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost \u2014 this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "member",
+      "type": "warning",
+      "text": "PartySocket: discarded 2 buffered message(s) while replacing the socket, because the connection destination changed. Pass transferEnqueuedMessages: true to deliver buffered messages to the new destination instead."
+    },
+    {
+      "who": "member",
+      "type": "warning",
+      "text": "WebSocket connection to 'ws://localhost:5173/api/sessions/default/realtime?viewer=0ddf2fc6-bec6-4111-b6bb-e6c4e065ad61' failed: WebSocket is closed before the connection is established."
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Encountered a script tag while rendering React component. Scripts inside React components are never executed when rendering on the client. Consider using template tag instead (https://developer.mozilla.org/en-US/docs/Web/HTML/Element/template)."
+    },
+    {
+      "who": "member",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost \u2014 this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "member",
+      "type": "warning",
+      "text": "PartySocket: discarded 2 buffered message(s) while replacing the socket, because the connection destination changed. Pass transferEnqueuedMessages: true to deliver buffered messages to the new destination instead."
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Encountered a script tag while rendering React component. Scripts inside React components are never executed when rendering on the client. Consider using template tag instead (https://developer.mozilla.org/en-US/docs/Web/HTML/Element/template)."
+    },
+    {
+      "who": "outsider",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost \u2014 this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "outsider",
+      "type": "warning",
+      "text": "PartySocket: discarded 2 buffered message(s) while replacing the socket, because the connection destination changed. Pass transferEnqueuedMessages: true to deliver buffered messages to the new destination instead."
+    },
+    {
+      "who": "outsider",
+      "type": "warning",
+      "text": "WebSocket connection to 'ws://localhost:5173/api/sessions/default/realtime?viewer=53a1d265-59d8-4502-8f3e-1745380b32cc' failed: WebSocket is closed before the connection is established."
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "owner",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Encountered a script tag while rendering React component. Scripts inside React components are never executed when rendering on the client. Consider using template tag instead (https://developer.mozilla.org/en-US/docs/Web/HTML/Element/template)."
+    },
+    {
+      "who": "outsider",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost \u2014 this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "outsider",
+      "type": "warning",
+      "text": "PartySocket: discarded 2 buffered message(s) while replacing the socket, because the connection destination changed. Pass transferEnqueuedMessages: true to deliver buffered messages to the new destination instead."
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "outsider",
+      "type": "error",
+      "text": "WebSocket connection to 'ws://localhost:5173/api/collaboration/rooms/room_4e7991da11ac2dfe03a8f213/realtime?viewer=b9e3eda4-8f7d-4764-8f55-946bd00a2ba1' failed: Error during WebSocket handshake: Unexpected response code: 404"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Encountered a script tag while rendering React component. Scripts inside React components are never executed when rendering on the client. Consider using template tag instead (https://developer.mozilla.org/en-US/docs/Web/HTML/Element/template)."
+    },
+    {
+      "who": "member",
+      "type": "warning",
+      "text": "ReconnectingWebSocket: send() was called after close(). The message has been buffered, but it will only be delivered if reconnect() is called on this socket. If this socket has been discarded, the message is lost \u2014 this usually means a stale socket reference is being used."
+    },
+    {
+      "who": "member",
+      "type": "warning",
+      "text": "PartySocket: discarded 2 buffered message(s) while replacing the socket, because the connection destination changed. Pass transferEnqueuedMessages: true to deliver buffered messages to the new destination instead."
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "who": "member",
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "responses": [
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "outsider",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "owner",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "outsider",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "outsider",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "outsider",
+      "status": 404,
+      "path": "/api/collaboration/rooms/room_4e7991da11ac2dfe03a8f213"
+    },
+    {
+      "who": "outsider",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/computers"
+    },
+    {
+      "who": "member",
+      "status": 404,
+      "path": "/api/collaboration/rooms/room_4e7991da11ac2dfe03a8f213"
+    }
+  ],
+  "sockets": [
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_65b135cb7a7a35650adf5291/realtime",
+      "types": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": true
+    },
+    {
+      "who": "owner",
+      "path": "/api/collaboration/rooms/room_4e7991da11ac2dfe03a8f213/realtime",
+      "types": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "member",
+      "path": "/api/sessions/default/realtime",
+      "types": [],
+      "closed": true
+    },
+    {
+      "who": "member",
+      "path": "/api/sessions/default/realtime",
+      "types": [
+        "snapshot",
+        "presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "member",
+      "path": "/api/collaboration/rooms/room_4e7991da11ac2dfe03a8f213/realtime",
+      "types": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence",
+        "collaboration:presence",
+        "collaboration:refresh",
+        "collaboration:presence"
+      ],
+      "closed": false
+    },
+    {
+      "who": "outsider",
+      "path": "/api/sessions/default/realtime",
+      "types": [],
+      "closed": true
+    },
+    {
+      "who": "outsider",
+      "path": "/api/sessions/default/realtime",
+      "types": [
+        "snapshot",
+        "presence",
+        "run:replay_complete"
+      ],
+      "closed": false
+    },
+    {
+      "who": "outsider",
+      "path": "/api/collaboration/rooms/room_4e7991da11ac2dfe03a8f213/realtime",
+      "types": [],
+      "closed": true
+    },
+    {
+      "who": "member",
+      "path": "/api/collaboration/rooms/room_4e7991da11ac2dfe03a8f213/realtime",
+      "types": [
+        "collaboration:snapshot",
+        "collaboration:presence",
+        "collaboration:presence"
+      ],
+      "closed": true
+    }
+  ],
+  "roomId": "room_4e7991da11ac2dfe03a8f213",
+  "result": "passed",
+  "mobile": {
+    "viewport": 390,
+    "document": 390,
+    "body": 390
+  },
+  "handoff": {
+    "status": 400,
+    "handoffId": "local-browser-handoff-1793789773705",
+    "messageId": "msg_8c9b53e7ba51154e8ab67a06",
+    "note": {
+      "id": "ctx_7194ce32-d9c0-4715-ab33-506e0cd71b29",
+      "version": 1,
+      "sha256": "9928164e09f4f39ef6cd86f3fe8ca2a915b3870b08ff808e793a8bb713d914e1"
+    },
+    "result": "blocked",
+    "detail": {
+      "error": "AI Gateway is not configured (AI_GATEWAY_TOKEN is unset). Add the gateway token, connect Codex with Sign in with ChatGPT, or run Claude on a paired local daemon.",
+      "handoffId": "local-browser-handoff-1793789773705",
+      "retryable": true
+    },
+    "pendingApprovals": 0,
+    "linkedApprovalExists": false,
+    "activeRuns": 0
+  },
+  "completedAt": "2026-11-04T10:57:10.742Z",
+  "gitHead": "c6ce663f99d92b9be960e8be5be797ea425733b8",
+  "sourceNote": "Tested an uncommitted integrated worktree. Manifest captured after browser verification; parent will run frozen exact-head checks.",
+  "sourceSha256": {
+    "apps/backend/src/collaboration-room-access.ts": "23c0a369925cdc7792ea9e466cd958aa9b7efa0ad978c2657b4c9205887034e3",
+    "apps/backend/src/collaboration-room-routes.ts": "22a220bd347b99db606e769340d9bd4de58bf89cdbf6ff4989bd3f32b491cc8c",
+    "apps/backend/src/conversation-room-do.ts": "96901cb1c101cb11f4f1783a819bff7e8338b25e3f2721d37cca576f62afdd5f",
+    "apps/backend/src/collaboration-routes.ts": "7d493dbd83d78c1ae03d9f2a2527035309690e3e0b00675b0f8884ade62d3fe0",
+    "apps/backend/src/collaboration-store.ts": "f29920c001a235ce4494c65fe1aca4b29a1b687d5b6d8f8c62bc16c1bbec802a",
+    "apps/backend/src/collaboration-context.ts": "5256497f7545ea179fcba74379f8c79d4d75dea208d07611805244f384b53766",
+    "apps/backend/src/collaboration-memory.ts": "96fa35dec5c27e5c9af87c0d652add0af6218ddff3cc5718a03904180128bda0",
+    "apps/backend/src/collaboration-artifact-routes.ts": "c0663a31f1d01e05411ae40114c5089d9f6007208b2571a2367b33cfc7456e34",
+    "apps/frontend/src/collaboration-room-realtime.ts": "3e7727d2a8add4efcb109c90260e47a947eacd455f31357631042675173f44a0",
+    "apps/frontend/src/components/CollaborationView.tsx": "d1d648a19cc383ca8f287cb1c121d0decb90be522b675744ae57a04381f9eb00",
+    "apps/frontend/vite.config.ts": "ee01fc88611af3370ac844bd7815191afdc6b5ee124bf043cfd525007cff0abd"
+  },
+  "participants": [
+    {
+      "identity": "owner@example.test",
+      "fixture": "isolated local owner signup/password cookie",
+      "roomAccess": "owner"
+    },
+    {
+      "identity": "teammate@example.test",
+      "fixture": "isolated local fixture/password cookie",
+      "roomAccess": "explicit member grant, then revoked"
+    },
+    {
+      "identity": "outsider@example.test",
+      "fixture": "isolated local fixture/password cookie",
+      "roomAccess": "authenticated but never granted; denied"
+    }
+  ],
+  "cleanup": {
+    "localRuntimeStopped": true,
+    "temporaryCredentialsRemoved": true,
+    "productionChanges": false,
+    "externalSends": false,
+    "approvalsResolved": 0,
+    "modelExecutions": 0
+  },
+  "retainedScreenshots": [
+    "multiplayer-owner-shared-room-header.png",
+    "multiplayer-member-shared-context.png",
+    "multiplayer-member-revoked.png",
+    "multiplayer-outsider-denied.png",
+    "multiplayer-owner-mobile.png"
+  ]
+}

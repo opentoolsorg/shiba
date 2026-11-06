@@ -1,8 +1,12 @@
 import { z } from "zod";
+import { CUSTOM_AGENT_ROLE_TEMPLATE_IDS } from "./custom-agents.js";
+import { expectedDeliverablesSchema } from "./deliverables.js";
 
 export const AgentTemplateSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
   name: z.string().min(1).max(120),
+  roleTemplateId: z.enum(CUSTOM_AGENT_ROLE_TEMPLATE_IDS).optional(),
+  expectedDeliverables: expectedDeliverablesSchema.optional(),
   description: z.string().max(220),
   categories: z.array(z.string().min(1)),
   appearance: z.string().optional(),

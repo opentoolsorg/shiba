@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { roomTabIdentity } from "./room-tab-identity";
 
 export interface ConversationRoomViewer {
   viewerId: string;
   joinedAt: number;
   typing: boolean;
+  label?: string;
+  cursor?: { x: number; y: number } | null;
 }
 
 export interface ConversationRoomMessage {
@@ -22,6 +25,21 @@ export interface ConversationRoomStream {
 
 export type ConversationRoomStatus = "offline" | "connecting" | "connected" | "reconnecting";
 
+export interface ConversationRunFrame {
+  sequence: number;
+  runId: string;
+  event: {
+    kind: "terminal" | "status" | "diff" | "child";
+    stream?: "stdout" | "stderr";
+    data?: string;
+    status?: string;
+    childId?: string;
+    message?: string;
+    reset?: boolean;
+    complete?: boolean;
+  };
+}
+
 interface ChatMessageLike {
   id: string;
   role: string;
@@ -35,16 +53,21 @@ interface UseConversationRoomRealtimeOptions {
   typingText: string;
   messages: readonly ChatMessageLike[];
   onMessage: (message: ConversationRoomMessage) => void;
+  onRunEvent?: (event: ConversationRunFrame) => void;
+  realtimePath?: string;
 }
 
 interface LocalPublisher {
+  localViewerId: string;
   streamId: string;
+  handleId: string;
   baselineAssistantIds: Set<string>;
   baselineUserMessageIds: Set<string>;
   sentUserMessageIds: Set<string>;
   userText: string;
   lastText: string;
   endStatus?: "complete" | "failed";
+  resumeToken?: string;
 }
 
 const MAX_ROOM_STREAM_CHARS = 50_000;
@@ -76,7 +99,7 @@ function viewerMessageOwner(message: ChatMessageLike): string | null {
 
 function belongsToLocalPublisher(message: ChatMessageLike, publisher: LocalPublisher, viewerId: string): boolean {
   const owner = viewerMessageOwner(message);
-  if (owner !== null) return owner === viewerId;
+  if (owner !== null) return owner === viewerId || owner === publisher.localViewerId;
   return !publisher.baselineUserMessageIds.has(message.id) &&
     Boolean(publisher.userText) && messageText(message).trim() === publisher.userText;
 }
@@ -117,19 +140,48 @@ export function useConversationRoomRealtime({
   typingText,
   messages,
   onMessage,
+  onRunEvent,
+  realtimePath,
 }: UseConversationRoomRealtimeOptions) {
-  const [viewerId] = useState(newId);
+  const [tabIdentity] = useState(() => roomTabIdentity());
+  const [viewerId, setViewerId] = useState(tabIdentity.provisionalId);
+  const [identityReady, setIdentityReady] = useState(false);
+  const [assignedViewerId, setAssignedViewerId] = useState<string | null>(null);
+  const assignedViewerRef = useRef<string | null>(null);
   const [status, setStatus] = useState<ConversationRoomStatus>(enabled ? "connecting" : "offline");
   const [viewers, setViewers] = useState<ConversationRoomViewer[]>([]);
   const [remoteStream, setRemoteStream] = useState<ConversationRoomStream | null>(null);
+  const [replayGap, setReplayGap] = useState(false);
+  const runSequenceRef = useRef(0);
+  const replayPendingRef = useRef(false);
+  const pendingRunFramesRef = useRef<ConversationRunFrame[]>([]);
+  const roomIdentity = JSON.stringify([sessionId, realtimePath ?? ""]);
+  const replaySessionRef = useRef(roomIdentity);
   const socketRef = useRef<WebSocket | null>(null);
   const onMessageRef = useRef(onMessage);
+  const onRunEventRef = useRef(onRunEvent);
   const messagesRef = useRef(messages);
   const publisherRef = useRef<LocalPublisher | null>(null);
   const typingSentRef = useRef(false);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cursorSentAtRef = useRef(0);
   onMessageRef.current = onMessage;
+  onRunEventRef.current = onRunEvent;
   messagesRef.current = messages;
+
+  useEffect(() => {
+    if (!enabled) { setIdentityReady(false); return; }
+    let stopped = false;
+    const claim = tabIdentity.retain();
+    const ready = (id: string) => {
+      if (stopped) return;
+      setViewerId(id);
+      setIdentityReady(true);
+    };
+    if (claim.currentId) ready(claim.currentId);
+    else void claim.ready.then(ready);
+    return () => { stopped = true; claim.release(); };
+  }, [enabled, tabIdentity]);
 
   const send = useCallback((event: unknown) => {
     const socket = socketRef.current;
@@ -143,8 +195,19 @@ export function useConversationRoomRealtime({
   }, []);
 
   useEffect(() => {
-    if (!enabled) {
-      setStatus("offline");
+    if (replaySessionRef.current !== roomIdentity) {
+      replaySessionRef.current = roomIdentity;
+      runSequenceRef.current = 0;
+      pendingRunFramesRef.current = [];
+      publisherRef.current = null;
+      typingSentRef.current = false;
+      cursorSentAtRef.current = 0;
+      setAssignedViewerId(null);
+      assignedViewerRef.current = null;
+      setReplayGap(false);
+    }
+    if (!enabled || !identityReady) {
+      setStatus(enabled ? "connecting" : "offline");
       setViewers([]);
       setRemoteStream(null);
       return;
@@ -153,14 +216,29 @@ export function useConversationRoomRealtime({
     let stopped = false;
     let attempt = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let lastHeartbeatAt = Date.now();
+    const acceptRunFrame = (frame: ConversationRunFrame) => {
+      if (frame.sequence <= runSequenceRef.current) return;
+      runSequenceRef.current = frame.sequence;
+      onRunEventRef.current?.(frame);
+    };
 
     const connect = () => {
       if (stopped) return;
       setStatus(attempt === 0 ? "connecting" : "reconnecting");
-      const url = new URL(
-        `/api/sessions/${encodeURIComponent(sessionId)}/realtime`,
-        window.location.href,
-      );
+      let url: URL;
+      try {
+        url = new URL(realtimePath ?? `/api/sessions/${encodeURIComponent(sessionId)}/realtime`, window.location.href);
+      } catch {
+        setStatus("offline");
+        return;
+      }
+      if (url.origin !== window.location.origin ||
+        (url.pathname !== "/api/slack-canvas/websocket" && !/^\/api\/sessions\/[^/]+\/realtime$/.test(url.pathname))) {
+        setStatus("offline");
+        return;
+      }
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
       url.searchParams.set("viewer", viewerId);
       let socket: WebSocket;
@@ -176,14 +254,24 @@ export function useConversationRoomRealtime({
         if (stopped || socketRef.current !== socket) return;
         attempt = 0;
         setStatus("connected");
+        lastHeartbeatAt = Date.now();
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = setInterval(() => {
+          if (Date.now() - lastHeartbeatAt > 65_000) socket.close();
+          else {
+            try { socket.send("ping"); } catch { socket.close(); }
+          }
+        }, 25_000);
         const publisher = publisherRef.current;
         if (publisher) {
-          send({ type: "stream:start", streamId: publisher.streamId });
+          // A lost first lease cannot authorize a reconnect. Start a fresh wire stream.
+          if (!publisher.resumeToken) publisher.streamId = newId();
+          send({ type: "stream:start", streamId: publisher.streamId, ...(publisher.resumeToken ? { resumeToken: publisher.resumeToken } : {}) });
           // stream:start resets the persisted body, so replay from its beginning.
           publisher.lastText = "";
           for (const message of messagesRef.current) {
             if (
-              message.role === "user" && belongsToLocalPublisher(message, publisher, viewerId) &&
+              message.role === "user" && belongsToLocalPublisher(message, publisher, assignedViewerRef.current ?? viewerId) &&
               !publisher.sentUserMessageIds.has(message.id)
             ) {
               const text = messageText(message).trim();
@@ -203,8 +291,12 @@ export function useConversationRoomRealtime({
             publisherRef.current = null;
           }
         }
+        replayPendingRef.current = true;
+        send({ type: "subscribe", after: runSequenceRef.current });
       });
       socket.addEventListener("message", (event: MessageEvent<string>) => {
+        if (stopped || socketRef.current !== socket) return;
+        if (event.data === "pong") { lastHeartbeatAt = Date.now(); return; }
         let data: unknown;
         try {
           data = JSON.parse(event.data);
@@ -213,7 +305,26 @@ export function useConversationRoomRealtime({
         }
         if (typeof data !== "object" || data === null) return;
         const frame = data as Record<string, unknown>;
-        if (frame.type === "snapshot") {
+        lastHeartbeatAt = Date.now();
+        if (frame.type === "run:event" && Number.isSafeInteger(frame.sequence) && typeof frame.runId === "string" &&
+          typeof frame.event === "object" && frame.event !== null &&
+          ["terminal", "status", "diff", "child"].includes(String((frame.event as Record<string, unknown>).kind))) {
+          const runFrame = frame as unknown as ConversationRunFrame;
+          if (replayPendingRef.current) pendingRunFramesRef.current.push(runFrame);
+          else acceptRunFrame(runFrame);
+        } else if (frame.type === "run:replay_gap") {
+          setReplayGap(true);
+          if (typeof frame.latest === "number" && frame.latest < runSequenceRef.current) runSequenceRef.current = 0;
+        } else if (frame.type === "run:replay_complete") {
+          const pending = pendingRunFramesRef.current;
+          pendingRunFramesRef.current = [];
+          replayPendingRef.current = false;
+          for (const runFrame of pending.sort((a, b) => a.sequence - b.sequence)) acceptRunFrame(runFrame);
+        } else if (frame.type === "snapshot") {
+          if (typeof frame.viewerId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(frame.viewerId)) {
+            assignedViewerRef.current = frame.viewerId;
+            setAssignedViewerId(frame.viewerId);
+          }
           setViewers(Array.isArray(frame.viewers) ? frame.viewers as ConversationRoomViewer[] : []);
           if (Array.isArray(frame.messages)) {
             for (const message of frame.messages) {
@@ -233,10 +344,10 @@ export function useConversationRoomRealtime({
             }
           }
           const streams = Array.isArray(frame.streams) ? frame.streams as ConversationRoomStream[] : [];
-          setRemoteStream(streams.find((stream) => stream.viewerId !== viewerId) ?? null);
+          setRemoteStream(streams.find((stream) => stream.viewerId !== (assignedViewerRef.current ?? viewerId)) ?? null);
         } else if (frame.type === "presence" && Array.isArray(frame.viewers)) {
           setViewers(frame.viewers as ConversationRoomViewer[]);
-        } else if (frame.type === "message" && frame.viewerId !== viewerId &&
+        } else if (frame.type === "message" && frame.viewerId !== (assignedViewerRef.current ?? viewerId) &&
           typeof frame.messageId === "string" && typeof frame.text === "string" &&
           typeof frame.createdAt === "number") {
           onMessageRef.current({
@@ -246,9 +357,12 @@ export function useConversationRoomRealtime({
             text: frame.text,
             createdAt: frame.createdAt,
           });
-        } else if (frame.type === "stream:start" && frame.viewerId !== viewerId && typeof frame.streamId === "string") {
+        } else if (frame.type === "stream:lease" && typeof frame.streamId === "string" && typeof frame.resumeToken === "string") {
+          const publisher = publisherRef.current;
+          if (publisher?.streamId === frame.streamId) publisher.resumeToken = frame.resumeToken;
+        } else if (frame.type === "stream:start" && frame.viewerId !== (assignedViewerRef.current ?? viewerId) && typeof frame.streamId === "string") {
           setRemoteStream({ streamId: frame.streamId, viewerId: String(frame.viewerId), text: "" });
-        } else if (frame.type === "stream:delta" && frame.viewerId !== viewerId &&
+        } else if (frame.type === "stream:delta" && frame.viewerId !== (assignedViewerRef.current ?? viewerId) &&
           typeof frame.streamId === "string" && typeof frame.text === "string") {
           setRemoteStream({ streamId: frame.streamId, viewerId: String(frame.viewerId), text: frame.text });
         } else if (frame.type === "stream:end" && typeof frame.streamId === "string") {
@@ -258,6 +372,9 @@ export function useConversationRoomRealtime({
       socket.addEventListener("close", () => {
         if (stopped || socketRef.current !== socket) return;
         socketRef.current = null;
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+        pendingRunFramesRef.current = [];
         setStatus("reconnecting");
         setViewers([]);
         setRemoteStream(null);
@@ -271,24 +388,25 @@ export function useConversationRoomRealtime({
     return () => {
       stopped = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (socketRef.current) socketRef.current.close();
       socketRef.current = null;
       setViewers([]);
       setRemoteStream(null);
     };
-  }, [enabled, send, sessionId, viewerId]);
+  }, [enabled, identityReady, send, sessionId, viewerId, realtimePath, roomIdentity]);
 
   useEffect(() => {
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     if (status !== "connected" || !typingText.trim()) {
-      if (typingSentRef.current) send({ type: "typing", typing: false });
+      if (typingSentRef.current) send({ type: "client_presence", typing: false });
       typingSentRef.current = false;
       return;
     }
-    if (!typingSentRef.current) send({ type: "typing", typing: true });
+    if (!typingSentRef.current) send({ type: "client_presence", typing: true });
     typingSentRef.current = true;
     typingTimerRef.current = setTimeout(() => {
-      send({ type: "typing", typing: false });
+      send({ type: "client_presence", typing: false });
       typingSentRef.current = false;
       typingTimerRef.current = null;
     }, 2_000);
@@ -302,7 +420,7 @@ export function useConversationRoomRealtime({
     if (!publisher) return;
     for (const message of messages) {
       if (
-        message.role === "user" && belongsToLocalPublisher(message, publisher, viewerId) &&
+        message.role === "user" && belongsToLocalPublisher(message, publisher, assignedViewerRef.current ?? viewerId) &&
         !publisher.sentUserMessageIds.has(message.id)
       ) {
         const text = messageText(message).trim();
@@ -321,7 +439,9 @@ export function useConversationRoomRealtime({
       send({ type: "stream:end", streamId: publisherRef.current.streamId, status: "failed" });
     }
     publisherRef.current = {
+      localViewerId: assignedViewerRef.current ?? viewerId,
       streamId,
+      handleId: streamId,
       baselineAssistantIds: new Set(messagesRef.current.filter((message) => message.role === "assistant").map((message) => message.id)),
       baselineUserMessageIds: new Set(messagesRef.current.filter((message) => message.role === "user").map((message) => message.id)),
       sentUserMessageIds: new Set(),
@@ -330,26 +450,35 @@ export function useConversationRoomRealtime({
     };
     send({ type: "stream:start", streamId });
     return streamId;
-  }, [send]);
+  }, [send, viewerId]);
 
   const finishStream = useCallback((streamId: string, status: "complete" | "failed") => {
     const publisher = publisherRef.current;
-    if (!publisher || publisher.streamId !== streamId) return;
+    if (!publisher || publisher.handleId !== streamId) return;
     const contentSynced = sendStreamText(
       send,
       publisher,
       latestLocalAssistantText(messagesRef.current, publisher),
     );
     publisher.endStatus = status;
-    if (contentSynced && send({ type: "stream:end", streamId, status })) publisherRef.current = null;
+    if (contentSynced && send({ type: "stream:end", streamId: publisher.streamId, status })) publisherRef.current = null;
+  }, [send]);
+
+  const setCursor = useCallback((cursor: { x: number; y: number } | null) => {
+    if (cursor && (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y) || cursor.x < 0 || cursor.x > 1 || cursor.y < 0 || cursor.y > 1)) return;
+    const now = Date.now();
+    if (cursor && now - cursorSentAtRef.current < 100) return;
+    if (send({ type: "client_presence", cursor })) cursorSentAtRef.current = now;
   }, [send]);
 
   return {
-    viewerId,
+    viewerId: assignedViewerId ?? viewerId,
     status,
     viewers,
     remoteStream,
+    replayGap,
     startStream,
     finishStream,
+    setCursor,
   };
 }

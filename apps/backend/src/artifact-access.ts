@@ -3,7 +3,11 @@ import type { Env } from "./env.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
-import { isAuthorizedSessionAgent } from "./web-sessions.js";
+import {
+  isAuthorizedSessionAgent,
+  parseSessionAgentName,
+  WEB_SESSION_PREFIX,
+} from "./web-sessions.js";
 
 const ACCESS_AGENT_METADATA = "accessAgent";
 
@@ -32,6 +36,38 @@ async function callerMayReadSharedRuns(request: Request, env: Env): Promise<bool
   return userId !== null && isApprover(userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS));
 }
 
+async function callerOwnsPrivateSession(
+  env: Env,
+  userId: string,
+  accessAgent: string,
+): Promise<boolean> {
+  const parsed = parseSessionAgentName(accessAgent);
+  if (!parsed || parsed.userId !== userId) return false;
+  try {
+    // Team executors deliberately have no private-session registry entry. A
+    // matching owner in their address cannot replace current room/source ACLs.
+    const owner = await getAgentByName(env.CodingOrchestrator, userId);
+    const response = await owner.fetch(
+      `https://internal/internal/web-sessions/${encodeURIComponent(parsed.sessionId)}`,
+    );
+    if (!response.ok) return false;
+    const body = await response.json().catch(() => null) as {
+      session?: { id?: unknown; userId?: unknown; agentName?: unknown; metadata?: unknown; deletingAt?: unknown };
+    } | null;
+    const session = body?.session;
+    if (!session || session.id !== parsed.sessionId || session.userId !== userId ||
+        session.agentName !== accessAgent || session.deletingAt !== undefined) return false;
+    const metadata = session.metadata;
+    if (metadata === undefined) return true;
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
+    const fields = metadata as Record<string, unknown>;
+    return !(typeof fields.orgId === "string" && fields.orgId.startsWith("team:")) &&
+      !Object.hasOwn(fields, "teamWorkspaceId") && !Object.hasOwn(fields, "teamMembershipVersion");
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Returns null when the caller may read artifacts for this sandbox, else a 403/404 response.
  */
@@ -48,7 +84,11 @@ export async function assertSandboxArtifactAccess(
   const accessAgent = storedAccessAgent?.trim() ?? "";
 
   if (accessAgent !== "") {
-    if (isAuthorizedSessionAgent(accessAgent, userId)) return null;
+    if (isAuthorizedSessionAgent(accessAgent, userId)) {
+      if (!accessAgent.startsWith(WEB_SESSION_PREFIX) ||
+          await callerOwnsPrivateSession(env, userId, accessAgent)) return null;
+      return Response.json({ error: "Artifact not found." }, { status: 404 });
+    }
     if (accessAgent === ORCHESTRATOR_NAME && (await callerMayReadSharedRuns(request, env))) {
       return null;
     }

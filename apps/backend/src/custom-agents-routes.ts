@@ -12,6 +12,8 @@ import {
 } from "./custom-agents-store.js";
 import { decodeCreateCustomAgent, decodeUpdateCustomAgent } from "./custom-agents-schema.js";
 import { resolveHarness } from "./harness/index.js";
+import { resolveUserId } from "./request-auth.js";
+import { recordEmployeeBundleProfileOwner } from "./employee-bundles-store.js";
 
 function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number]) {
   return {
@@ -110,6 +112,10 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     }
     try {
       const created = await createCustomAgent(env, auth.orgId, parsed.slug, parsed.config);
+      if (!auth.principal) {
+        const ownerId = await resolveUserId(request, env);
+        if (ownerId) await recordEmployeeBundleProfileOwner(env, auth.orgId, created.id, ownerId);
+      }
       return Response.json({ ok: true, agent: publicAgent(created) }, { status: 201 });
     } catch (error) {
       return Response.json(

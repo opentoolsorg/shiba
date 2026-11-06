@@ -59,7 +59,7 @@ const CP1 = "refs/shiba/checkpoints/sbx-parent/1";
 
 function agent() {
   return Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
-    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token" },
+    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", DASHBOARD_APPROVERS: "U1" },
     name: "dashboard:test",
     ctx: { waitUntil: (promise: Promise<unknown>) => void promise.catch(() => undefined) },
     state: { runs: [] } as OrchestratorState,

@@ -27,6 +27,7 @@ describe("verify stand-in", () => {
   it("produces diff evidence for coding runs", () => {
     const result = buildStandInCodingResult();
     expect(result.status).toBe("completed");
+    expect(result.baseRevision).toBe("a".repeat(40));
     const files = parseUnifiedDiff(result.diff);
     expect(files).toEqual([expect.objectContaining({ path: "README.md", additions: 1, deletions: 0 })]);
     expect(result.diff).toContain("@@ -1 +1,2 @@\n # verify-shiba\n+verify-shiba stand-in change\n");

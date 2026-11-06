@@ -65,6 +65,9 @@ it("archives and restores profiles without offering execution from the archived 
   let archived = false;
   const request = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "POST") {
+      if (new Headers(init.headers).get("content-type") !== "application/json") {
+        return Response.json({ error: "Content-Type must be application/json." }, { status: 415 });
+      }
       archived = url.endsWith("/archive");
       return Response.json({ agent: { ...agent, ...(archived ? { archivedAt: 123 } : {}) } });
     }

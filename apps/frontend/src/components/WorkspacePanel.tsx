@@ -7,6 +7,7 @@ import { type JSX } from "react";
 import { describeRoute } from "@shiba/shared";
 import { formatTimeAgo, statusChipClass } from "../ui-helpers";
 import type { StoredApproval } from "../types";
+import { RunOutputArchivePolicy } from "./RunOutputArchivePolicy";
 
 const ACCENT_BUTTON =
   "text-sm bg-[var(--inverse)] hover:bg-[var(--inverse-hover)] text-[var(--inverse-text)] font-medium min-h-11 min-w-11 px-4 rounded-lg transition-colors disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
@@ -18,6 +19,7 @@ export function storedApprovalKind(approval: StoredApproval): string {
   if (approval.kind === "email_send") return "Email send";
   if (approval.kind === "email_delete") return "Email delete";
   if (approval.kind === "pr_merge") return "Merge pull request";
+  if (approval.kind === "pr_publish") return "Publish pull request";
   if (approval.kind === undefined || approval.kind === "run") return "Run task";
   return approval.kind;
 }
@@ -75,6 +77,7 @@ export function StoredApprovalCard({
       ...(approval.runSetup !== undefined ? { runSetup: approval.runSetup } : {}),
       ...(approval.testCommand?.length ? { testCommand: approval.testCommand } : {}),
       ...(approval.expectedDeliverables !== undefined ? { expectedDeliverables: approval.expectedDeliverables } : {}),
+      ...(approval.outputArchive !== undefined ? { outputArchive: approval.outputArchive } : {}),
     } satisfies Record<string, unknown>);
   return (
     <div className="bg-[var(--bg)] p-4">
@@ -98,6 +101,9 @@ export function StoredApprovalCard({
       </p>
       <p className="text-sm text-[var(--fg)] font-medium break-words mb-2">{approval.task}</p>
       <p className="text-xs text-[var(--muted-foreground-2)] break-all mb-2">Repository: {approval.repoUrl}{approval.baseBranch ? ` · Branch: ${approval.baseBranch}` : ""}</p>
+      {approval.publishPullRequest ? <p className="text-xs text-[var(--fg)] mb-2">A pull request is requested. Publishing requires a separate approval after the changes are ready.</p> : null}
+      {approval.outputArchive && <RunOutputArchivePolicy policy={approval.outputArchive} />}
+      {approval.kind === "pr_publish" ? <p className="text-xs text-[var(--fg)] mb-2">Approve pushing this frozen snapshot and publishing its pull request.</p> : null}
       {approval.customAgentVersion !== undefined ? <p className="text-xs text-[var(--muted-foreground-2)] mb-1">Bot profile v{approval.customAgentVersion}</p> : null}
       {approval.expectedDeliverables?.length ? (
         <div className="text-xs text-[var(--muted-foreground-2)] mb-2">
@@ -172,6 +178,10 @@ export function DecidedApprovalRow({ approval }: { approval: StoredApproval }): 
       ? { label: "Rejected", cls: statusChipClass("rejected") }
       : approval.execution?.status === "failed"
         ? { label: "Failed", cls: statusChipClass("error") }
+        : approval.execution?.status === "unknown"
+          ? { label: "Outcome unknown", cls: statusChipClass("unknown") }
+          : approval.execution?.status === "executing"
+            ? { label: "Publishing", cls: statusChipClass("running") }
         : approval.execution?.status === "executed"
           ? { label: "Executed", cls: statusChipClass("completed") }
           : { label: "Approved", cls: statusChipClass("running") };

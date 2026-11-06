@@ -1,22 +1,34 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useLocation } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 import { App } from "../app";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { ThemeProvider, useTheme } from "../components/ThemeProvider";
+import { SlackRunCanvas } from "../components/SlackRunCanvas";
+import { BootstrapVerificationCallback } from "../components/BootstrapVerificationPanel";
 
 export const Route = createFileRoute("/$")({
   component: DashboardRoute,
 });
 
 function DashboardRoute() {
+  const location = useLocation();
   return (
     <ErrorBoundary>
       <ThemeProvider>
-        <App />
+        <DashboardContent pathname={location.pathname} search={location.searchStr} />
         <ThemedToaster />
       </ThemeProvider>
     </ErrorBoundary>
   );
+}
+
+export function DashboardContent({ pathname, search }: { pathname: string; search: string }) {
+  if ((pathname === "/app" || pathname === "/app/") && new URLSearchParams(search).get("verify") === "bootstrap") {
+    return <BootstrapVerificationCallback />;
+  }
+  return pathname === "/slack-canvas" || pathname === "/slack-canvas/"
+    ? <SlackRunCanvas search={search} />
+    : <App />;
 }
 
 function ThemedToaster() {

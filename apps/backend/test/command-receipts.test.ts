@@ -5,7 +5,8 @@
  * approved-but-never-minted run, queue dedupe by caller commandId, and
  * receipt-map eviction.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { formatAgentResult } from "../src/opencode-input.js";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
 import type { OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
@@ -20,12 +21,20 @@ import { createRun, type DelegatedRun } from "../src/runs.js";
 import { approvePointerOnly, SEED_INPUT } from "./seeding.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
 
-const mocks = vi.hoisted(() => ({
-  destroy: vi.fn(),
-  execute: vi.fn(),
-  keepAliveWhile: vi.fn((fn: () => Promise<unknown>) => fn()),
-  schedule: vi.fn(async (..._args: unknown[]) => ({})),
-}));
+const mocks = vi.hoisted(() => {
+  const background: Promise<unknown>[] = [];
+  return {
+    destroy: vi.fn(),
+    execute: vi.fn(),
+    background,
+    keepAliveWhile: vi.fn((fn: () => Promise<unknown>) => {
+      const pending = fn();
+      background.push(pending);
+      return pending;
+    }),
+    schedule: vi.fn(async (..._args: unknown[]) => ({})),
+  };
+});
 vi.mock("@cloudflare/think", () => ({ Think: class {
   onStart() {}
   getTools() { return {}; }
@@ -39,7 +48,8 @@ setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 
 function agent() {
   return Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
-    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token" }, state: { runs: [] } as OrchestratorState,
+    name: "default", messages: [],
+    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", DASHBOARD_APPROVERS: "U1" }, state: { runs: [] } as OrchestratorState,
     setState(state: OrchestratorState) { setStateLikeProduction(this, state); },
   });
 }
@@ -71,7 +81,12 @@ const resolveBody = (approvalId: string, approved = true, threadKey = "default")
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.destroy.mockResolvedValue(undefined);
-  mocks.execute.mockResolvedValue("ok");
+  mocks.execute.mockResolvedValue(formatAgentResult({ status: "completed", summary: "Done", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [] }));
+});
+
+afterEach(async () => {
+  await Promise.allSettled(mocks.background);
+  mocks.background.length = 0;
 });
 
 describe("approval.resolve command receipt", () => {
@@ -128,6 +143,7 @@ describe("approval.resolve command receipt", () => {
     mocks.execute.mockClear();
     await instance.onRequest(resolveBody(approvalId));
     await vi.waitFor(() => { expect(mocks.execute).toHaveBeenCalledOnce(); });
+    await vi.waitFor(() => expect(instance.state.runs[0]?.status).toBe("completed"));
     const before = JSON.stringify(instance.state.runs);
     await instance.onRequest(resolveBody(approvalId));
     expect(JSON.stringify(instance.state.runs)).toBe(before);

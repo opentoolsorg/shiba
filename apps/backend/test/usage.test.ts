@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("agents/routing", () => ({
   getAgentByName: async (ns: { get?: (name: string) => unknown }, name: string) => {
@@ -182,6 +182,8 @@ describe("parseUsageBudget / parseUsageDays", () => {
 });
 
 describe("GET /api/usage", () => {
+  beforeEach(() => { vi.spyOn(Date, "now").mockReturnValue(NOW); });
+  afterEach(() => vi.restoreAllMocks());
   const seededRuns = [
     makeRun({
       runId: "u1",

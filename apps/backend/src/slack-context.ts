@@ -12,6 +12,9 @@ export interface SlackThreadMessage {
   text: string;
   /** Seconds since epoch (Slack `ts` as a number for testability). */
   ts: number;
+  /** Exact Slack timestamp when supplied by the verified event or native history. */
+  messageTs?: string;
+  eventId?: string;
 }
 
 export const DEFAULT_BURST_WINDOW_SECONDS = 10;
@@ -194,6 +197,7 @@ const UNMUTE_PATTERN = /^\s*unmute\b/i;
 export function applyThreadControls(
   messages: SlackThreadMessage[],
   botId = "",
+  verifiedMentionEventId?: string,
 ): SlackThreadMessage[] {
   const out: SlackThreadMessage[] = [];
   let muted = false;
@@ -213,7 +217,8 @@ export function applyThreadControls(
       continue;
     }
     if (muted) {
-      if (botId.length > 0 && text.includes(botId)) {
+      if ((botId.length > 0 && text.includes(botId)) ||
+          (verifiedMentionEventId !== undefined && message.eventId === verifiedMentionEventId)) {
         out.push(message);
       }
       continue;
@@ -229,6 +234,8 @@ export interface GatherSlackContextArgs {
   maxMessages?: number;
   maxCharsPerMessage?: number;
   burstWindowSeconds?: number;
+  /** Only the authenticated incoming app_mention event may bypass history mute. */
+  verifiedMentionEventId?: string;
 }
 
 /**
@@ -241,14 +248,14 @@ export interface GatherSlackContextArgs {
 export function gatherSlackContext(args: GatherSlackContextArgs): string {
   const maxMessages = args.maxMessages ?? MAX_CONTEXT_MESSAGES;
   const maxChars = args.maxCharsPerMessage ?? MAX_CONTEXT_CHARS_PER_MESSAGE;
-  const visible = applyThreadControls(args.threadMessages);
+  const visible = applyThreadControls(args.threadMessages, "", args.verifiedMentionEventId);
   const tail = visible.slice(-Math.max(maxMessages, 0));
   const lines = groupMessageBursts(tail, { windowSeconds: args.burstWindowSeconds }).map(
     (burst) => {
       const first = burst[0]!;
-      const texts = burst.map((message) => boundTail(message.text, maxChars)).join(" ⋮ ");
+      const texts = burst.map((message, index) => `${index > 0 && message.messageTs ? `[${message.messageTs}] ` : ""}${boundTail(message.text, maxChars)}`).join(" ⋮ ");
       const extra = burst.length > 1 ? ` +${burst.length - 1}` : "";
-      return `[${first.user} ${first.ts}${extra}] ${texts}`;
+      return `[${first.user} ${first.messageTs ?? first.ts}${extra}] ${texts}`;
     },
   );
   for (const linked of args.linkedTexts ?? []) {

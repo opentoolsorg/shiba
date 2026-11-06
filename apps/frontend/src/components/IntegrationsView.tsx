@@ -7,8 +7,9 @@
  * (`/api/setup/status`, `/api/mailboxes`) or says honestly that it isn't
  * supported yet — no fake toggles.
  */
-import { useEffect, useMemo, useState, type JSX, type ReactNode } from "react";
-import type { AcpProvidersSnapshot, McpCapabilityDirectoryEntry, McpCapabilityInvocationReceipt } from "@shiba/shared";
+import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from "react";
+import { ChevronRight, Search } from "lucide-react";
+import type { AcpProvidersSnapshot, McpCapabilityDirectoryEntry, McpCapabilityInvocationReceipt, TeamWorkspaceRole } from "@shiba/shared";
 import { type SetupStatus, useMailboxes, useSetupStatus } from "../live-status";
 import { useSavedSkills } from "../saved";
 import type { AppNavView } from "./AppNavRail";
@@ -23,6 +24,16 @@ import type { IntegrationBindingInputs } from "../integration-connection-binding
 import { SkillsView } from "./SkillsView";
 import { ExtensionMcpServersView } from "./ExtensionMcpServersView";
 import { WorkspaceConnectorsPanel } from "./WorkspaceConnectorsPanel";
+import { MainCard, type Scope } from "./ui/ContextPanel";
+import { SlackInstallationsPanel } from "./SlackInstallationsPanel";
+import { SlackCoworkerPanel } from "./SlackCoworkerPanel";
+import { FounderStripeReads } from "./FounderStripeReads";
+import { FounderMetaReads } from "./FounderMetaReads";
+import { FounderHubSpotReads } from "./FounderHubSpotReads";
+import { FounderReconciliation } from "./FounderReconciliation";
+import { FounderReconciliationSchedules } from "./FounderReconciliationSchedules";
+import { FounderReconciliationAutomaticSlack } from "./FounderReconciliationAutomaticSlack";
+import { FounderStripeAutomaticSlack } from "./FounderStripeAutomaticSlack";
 
 function IntegrationRow({
   name,
@@ -127,13 +138,89 @@ function linearChip(linear: SetupStatus["linear"] | undefined, loading: boolean)
   return <ToneChip tone="neutral" label="Not set up" />;
 }
 
-export function IntegrationsView({
-  onNavigate,
-  initialTab,
-}: {
+interface IntegrationsViewProps {
   onNavigate?: (view: AppNavView) => void;
   initialTab?: "skills" | "mcp" | "connectors";
-}): JSX.Element {
+  actorId?: string | null;
+  scope?: Scope;
+  workspaceId?: string;
+  workspaceName?: string;
+  workspaceRole?: TeamWorkspaceRole;
+  allowPersonalScope?: boolean;
+  onPersonalScope?: () => void;
+  onChooseWorkspace?: () => void;
+  onAdoptSlackTask?: (task: string) => void;
+  onOpenSlackHandoff?: (roomId: string, handoffId: string) => void;
+}
+const UNREAD_PRIVATE_BINDINGS: IntegrationBindingInputs = { setupLoading: true, mailboxCount: undefined, mailboxLoading: true,
+  gmailConnected: null, gmailLoading: true, externalMcpServerCount: undefined, externalMcpCatalogConnections: undefined, externalMcpLoading: true };
+
+export function IntegrationsView(props: IntegrationsViewProps): JSX.Element {
+  if (!props.workspaceId && props.allowPersonalScope === false) return <section aria-label="Workspace app setup unavailable" className="p-4 text-[var(--ink)]"><h2 className="text-xl">Select a workspace for app setup</h2><p className="mt-2 text-sm">Personal integration setup is unavailable for this session. Choose an active team workspace to view explicitly shared accounts.</p>{props.onChooseWorkspace && <button type="button" className="mt-4 min-h-11 border border-[var(--line)] px-3 text-xs" onClick={props.onChooseWorkspace}>Choose a workspace</button>}</section>;
+  if (props.workspaceId) return <WorkspaceIntegrationSettings key={`${props.actorId}:${props.workspaceId}:${props.workspaceRole}`} {...props} workspaceId={props.workspaceId} />;
+  return <PersonalIntegrationsView {...props} />;
+}
+
+function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspaceId: string }): JSX.Element {
+  const [showSlack, setShowSlack] = useState(false);
+  const [showCoworker, setShowCoworker] = useState(false);
+  const [showStripe, setShowStripe] = useState(false);
+  const [showMeta, setShowMeta] = useState(false);
+  const [showHubSpot, setShowHubSpot] = useState(false);
+  const [showReconciliation, setShowReconciliation] = useState(false);
+  const [showFutureComparisons, setShowFutureComparisons] = useState(false);
+  const [showCombinedSlack, setShowCombinedSlack] = useState(false);
+  const [showStripeSlack, setShowStripeSlack] = useState(false);
+  return <div className="min-w-0 space-y-4"><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
+    actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
+    allowPersonalScope={props.allowPersonalScope} onPersonalScope={props.onPersonalScope} />
+    {props.workspaceRole === "owner" && props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showSlack} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowSlack((shown) => !shown)}>
+        {showSlack ? "Close Slack installation setup" : "Manage Slack installations"}
+      </button>
+      {showSlack && <SlackInstallationsPanel workspaceId={props.workspaceId} actorId={props.actorId} />}
+    </section>}
+    {props.actorId && props.onAdoptSlackTask && <section className="p-4">
+      <button type="button" aria-expanded={showCoworker} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowCoworker((shown) => !shown)}>{showCoworker ? "Close Slack coworker" : "Review my Slack task drafts"}</button>
+      {showCoworker && <SlackCoworkerPanel workspaceId={props.workspaceId} actorId={props.actorId} onAdoptTask={props.onAdoptSlackTask} onOpenHandoff={props.onOpenSlackHandoff} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showStripe} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowStripe((shown) => !shown)}>{showStripe ? "Close Stripe read setup" : "Review private Stripe reads"}</button>
+      {showStripe && <FounderStripeReads workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowStripe(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showMeta} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowMeta((shown) => !shown)}>{showMeta ? "Close Meta read setup" : "Review private Meta Ads reads"}</button>
+      {showMeta && <FounderMetaReads workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowMeta(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showHubSpot} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowHubSpot((shown) => !shown)}>{showHubSpot ? "Close HubSpot read setup" : "Review private HubSpot reads"}</button>
+      {showHubSpot && <FounderHubSpotReads workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowHubSpot(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showReconciliation} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowReconciliation((shown) => !shown)}>{showReconciliation ? "Close invoice comparison" : "Compare private HubSpot and Stripe captures"}</button>
+      {showReconciliation && <FounderReconciliation workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowReconciliation(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showFutureComparisons} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowFutureComparisons((shown) => !shown)}>{showFutureComparisons ? "Close future private comparisons" : "Review automatic private comparisons"}</button>
+      {showFutureComparisons && <FounderReconciliationSchedules workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowFutureComparisons(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showCombinedSlack} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowCombinedSlack((shown) => !shown)}>{showCombinedSlack ? "Close combined-report sharing" : "Review combined-report Slack sharing"}</button>
+      {showCombinedSlack && <FounderReconciliationAutomaticSlack workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowCombinedSlack(false)} />}
+    </section>}
+    {props.actorId && <section className="p-4">
+      <button type="button" aria-expanded={showStripeSlack} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowStripeSlack((shown) => !shown)}>{showStripeSlack ? "Close Stripe digest sharing" : "Review Stripe Slack digests"}</button>
+      {showStripeSlack && <FounderStripeAutomaticSlack workspaceId={props.workspaceId} actorId={props.actorId} onClose={() => setShowStripeSlack(false)} />}
+    </section>}</div>;
+}
+
+function PersonalIntegrationsView({
+  onNavigate,
+  initialTab,
+  actorId,
+  scope = "personal",
+  onChooseWorkspace,
+}: IntegrationsViewProps): JSX.Element {
   const setup = useSetupStatus();
   const mailboxes = useMailboxes();
   const savedSkills = useSavedSkills();
@@ -142,6 +229,7 @@ export function IntegrationsView({
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
   const [gmailLoading, setGmailLoading] = useState(true);
   const [externalMcpServerCount, setExternalMcpServerCount] = useState<number | undefined>(undefined);
+  const [externalMcpReadyServerCount, setExternalMcpReadyServerCount] = useState(0);
   const [externalMcpCatalogConnections, setExternalMcpCatalogConnections] = useState<
     IntegrationBindingInputs["externalMcpCatalogConnections"]
   >(undefined);
@@ -153,6 +241,7 @@ export function IntegrationsView({
   const [invocations, setInvocations] = useState<McpCapabilityInvocationReceipt[]>([]);
   const [invocationHistoryError, setInvocationHistoryError] = useState<string | null>(null);
   const [catalogRefresh, setCatalogRefresh] = useState(0);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [setupSearch, setSetupSearch] = useState("");
   const [libraryCatalog, setLibraryCatalog] = useState<Array<{ slug: string; name: string; summary: string; installed: boolean }>>([]);
   const [spacesCatalog, setSpacesCatalog] = useState<Array<{ id: string; name: string; template: string }>>([]);
@@ -226,10 +315,13 @@ export function IntegrationsView({
     ])
       .then(async ([serversResponse, catalogResponse]) => {
         if (!serversResponse.ok) {
-          if (!cancelled) setExternalMcpServerCount(0);
+          if (!cancelled) { setExternalMcpServerCount(0); setExternalMcpReadyServerCount(0); }
         } else {
-          const body = (await serversResponse.json()) as { servers?: unknown[] };
-          if (!cancelled) setExternalMcpServerCount(Array.isArray(body.servers) ? body.servers.length : 0);
+          const body = (await serversResponse.json()) as { servers?: Array<{ status?: string; health?: string }> };
+          if (!cancelled) {
+            setExternalMcpServerCount(Array.isArray(body.servers) ? body.servers.length : 0);
+            setExternalMcpReadyServerCount((body.servers ?? []).filter((server) => server.status === "enabled" && server.health === "healthy").length);
+          }
         }
         if (!catalogResponse.ok) {
           if (!cancelled) setExternalMcpCatalogConnections([]);
@@ -245,6 +337,7 @@ export function IntegrationsView({
       .catch(() => {
         if (!cancelled) {
           setExternalMcpServerCount(0);
+          setExternalMcpReadyServerCount(0);
           setExternalMcpCatalogConnections([]);
         }
       })
@@ -335,6 +428,7 @@ export function IntegrationsView({
       gmailConnected,
       gmailLoading,
       externalMcpServerCount,
+      externalMcpReadyServerCount,
       externalMcpCatalogConnections,
       externalMcpLoading,
     }),
@@ -346,6 +440,7 @@ export function IntegrationsView({
       gmailConnected,
       gmailLoading,
       externalMcpServerCount,
+      externalMcpReadyServerCount,
       externalMcpCatalogConnections,
       externalMcpLoading,
     ],
@@ -482,63 +577,109 @@ export function IntegrationsView({
     return items;
   }, [status, mailboxes.state, providers, savedSkills, toolDirectory, libraryCatalog, spacesCatalog]);
 
+  const scopeCrumb = scope === "workspace" ? "Workspace" : "Personal";
+  const sectionCrumb = activeTab === "skills" ? "Skills" : activeTab === "mcp" ? "MCP Servers" : "Connectors";
+  const crumbs = [scopeCrumb, "Extensions", sectionCrumb];
+
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
-            <span>Integrations</span>
-          </h2>
-          <p className="text-xs text-[var(--muted-foreground-2)]">
-            Third-party apps and channels your agents can reach — connect once, use everywhere.
-          </p>
-        </div>
-        {activeTab === "connectors" ? <div className="flex shrink-0 flex-wrap gap-2">
-          {showCapabilityCatalog ? (
+    <MainCard className="bg-white dark:bg-zinc-900">
+      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
+          <ol className="flex items-center gap-1.5 min-w-0">
+            {crumbs.map((crumb, idx) => {
+              const isLast = idx === crumbs.length - 1;
+              return (
+                <li key={`${crumb}-${idx}`} className="flex items-center gap-1.5 min-w-0">
+                  {idx > 0 ? (
+                    <ChevronRight className="size-3.5 text-[#71717a] shrink-0 dark:text-zinc-500" strokeWidth={1.5} aria-hidden="true" />
+                  ) : null}
+                  <span
+                    className={isLast ? "truncate text-[14px] font-medium text-[#0a0a0a] dark:text-zinc-100" : "truncate text-[14px] text-[#71717a] dark:text-zinc-400"}
+                    aria-current={isLast ? "page" : undefined}
+                  >
+                    {crumb}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {activeTab === "connectors" ? (
             <button
               type="button"
               onClick={() => {
-                setup.reload();
-                mailboxes.reload();
-                setCatalogRefresh((value) => value + 1);
+                const input = bodyRef.current?.querySelector<HTMLInputElement>('input[aria-label^="Search"]');
+                if (input) {
+                  input.focus();
+                  input.scrollIntoView({ behavior: "smooth", block: "center" });
+                }
               }}
-              className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
-              aria-label="Refresh integration status"
+              className="inline-flex h-7 max-lg:min-h-11 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
-              Refresh status
+              <Search className="size-3.5" aria-hidden="true" /> Search connectors
             </button>
           ) : null}
-          {!showCapabilityCatalog ? (
+        </div>
+      </header>
+
+      <div ref={bodyRef} className="min-h-0 min-w-0 w-full flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+        <div className="min-w-0 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex flex-col items-start justify-between gap-3 lg:flex-row lg:gap-4">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
+              <span>Integrations</span>
+            </h2>
+            <p className="text-xs text-[var(--muted-foreground-2)]">
+              Third-party apps and channels your agents can reach — connect once, use everywhere.
+            </p>
+          </div>
+          {activeTab === "connectors" ? <div className="flex min-w-0 w-full flex-wrap gap-2 lg:w-auto lg:max-w-[60%] lg:justify-end">
+            {showCapabilityCatalog ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setup.reload();
+                  mailboxes.reload();
+                  setCatalogRefresh((value) => value + 1);
+                }}
+                className="min-h-11 max-w-full whitespace-normal border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
+                aria-label="Refresh integration status"
+              >
+                Refresh status
+              </button>
+            ) : null}
+            {!showCapabilityCatalog ? (
+              <button
+                type="button"
+                onClick={() => setShowSetupDetails((shown) => !shown)}
+                className="min-h-11 max-w-full whitespace-normal border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
+                aria-pressed={showSetupDetails}
+              >
+                {showSetupDetails ? "Hide setup details" : "Show setup details"}
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={() => setShowSetupDetails((shown) => !shown)}
-              className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
-              aria-pressed={showSetupDetails}
+              onClick={() => {
+                setShowCapabilityCatalog((shown) => !shown);
+                if (!showCapabilityCatalog) setShowSetupDetails(false);
+              }}
+              className="min-h-11 max-w-full whitespace-normal border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
+              aria-pressed={showCapabilityCatalog}
             >
-              {showSetupDetails ? "Hide setup details" : "Show setup details"}
+              {showCapabilityCatalog ? "Back to integration catalog" : "Browse capability catalog"}
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              setShowCapabilityCatalog((shown) => !shown);
-              if (!showCapabilityCatalog) setShowSetupDetails(false);
-            }}
-            className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
-            aria-pressed={showCapabilityCatalog}
-          >
-            {showCapabilityCatalog ? "Back to integration catalog" : "Browse capability catalog"}
-          </button>
-        </div> : null}
-      </div>
-      <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8" role="tablist" aria-label="Integration category">
-        {([['skills', 'Skills'], ['mcp', 'MCP servers'], ['connectors', 'Connectors']] as const).map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={activeTab === id} onClick={() => selectTab(id)} className={`min-h-11 shrink-0 border-b-2 px-3 text-xs font-semibold transition-colors ${activeTab === id ? "border-[var(--primary)] text-[var(--primary)]" : "border-transparent text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-      {activeTab === "skills" ? <SkillsView embedded /> : activeTab === "mcp" ? <ExtensionMcpServersView /> : showCapabilityCatalog ? (
+          </div> : null}
+        </div>
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8" role="tablist" aria-label="Integration category">
+          {([['skills', 'Skills'], ['mcp', 'MCP servers'], ['connectors', 'Connectors']] as const).map(([id, label]) => (
+            <button key={id} type="button" role="tab" aria-selected={activeTab === id} onClick={() => selectTab(id)} className={`min-h-11 shrink-0 border-b-2 px-3 text-xs font-semibold transition-colors ${activeTab === id ? "border-[var(--primary)] text-[var(--primary)]" : "border-transparent text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {activeTab === "skills" ? <SkillsView embedded scope={scope} /> : activeTab === "mcp" ? <ExtensionMcpServersView scope={scope} /> : showCapabilityCatalog ? (
         <div className="min-h-0 flex-1">
           {providersError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{providersError} Provider state may be stale. Retry refresh before relying on the last displayed state.</p> : null}
           {toolDirectoryError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{toolDirectoryError} MCP schemas are withheld from the dashboard directory.</p> : null}
@@ -711,9 +852,10 @@ export function IntegrationsView({
               <LoadErrorState message={failed.message} onRetry={reloadAll} />
             </div>
           ) : null}
-          <WorkspaceConnectorsPanel bindingInputs={bindingInputs} onChanged={() => setCatalogRefresh((value) => value + 1)} />
+          <WorkspaceConnectorsPanel bindingInputs={bindingInputs} actorId={actorId} onManagePermissions={() => onNavigate?.("employee-tools")} onChooseWorkspace={onChooseWorkspace} onChanged={() => setCatalogRefresh((value) => value + 1)} />
         </>
       )}
-    </div>
+      </div>
+    </MainCard>
   );
 }

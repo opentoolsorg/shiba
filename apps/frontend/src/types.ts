@@ -10,6 +10,7 @@ import type {
   PendingApproval,
   SessionRecord,
   RunDeliverable,
+  RunArtifactBundle,
   ExecutionTarget,
   RunStatus,
 } from "@shiba/shared";
@@ -186,6 +187,7 @@ export interface RunProgressRecord {
   error?: string;
   expectedDeliverables?: string[];
   deliverables?: RunDeliverable[];
+  artifactBundle?: RunArtifactBundle;
 }
 
 const RUN_STATUSES = new Set<RunStatus>([

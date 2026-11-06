@@ -280,6 +280,10 @@
             "minLength": 1,
             "maxLength": 16
           },
+          "mascotPreset": {
+            "type": "string",
+            "enum": ["hero", "climbing", "riding", "sleeping", "sunglasses"]
+          },
           "instructions": {
             "type": "string",
             "minLength": 1,

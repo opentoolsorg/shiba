@@ -127,7 +127,7 @@ describe("employee-run Gmail selected-resource policy", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it.each([false, true])("exposes only prepared source reads and retention without connector grants (explicit deny-all=%s)", async (explicitPolicy) => {
+  it.each([false, true])("exposes scoped skill reads and prepared source retention without connector grants (explicit deny-all=%s)", async (explicitPolicy) => {
     const env = makeEnv();
     Object.defineProperty(env, "Sandbox", { get: () => { throw new Error("Sandbox must not start"); } });
     const externalFetch = vi.fn(() => { throw new Error("No external calls expected"); });
@@ -151,14 +151,16 @@ describe("employee-run Gmail selected-resource policy", () => {
     }) as CodingOrchestrator;
     const tools = instance.getTools();
     const turn = () => instance.beforeTurn({ tools: { ...tools, delegate_coding_task: {}, run_code: {}, broad_builtin: {} }, system: "Work" } as never);
-    expect((await turn()).activeTools?.sort()).toEqual(["employee_context_read", "employee_retain_draft"]);
+    expect((await turn()).activeTools?.sort()).toEqual(["employee_context_read", "employee_retain_draft", "get_skill_instructions", "list_skills"]);
     const read = await (tools.employee_context_read!.execute as (input: unknown, options: unknown) => Promise<{ sourceReadId: string }>)(
       {}, { toolCallId: "supplied-context", messages: [] },
     );
     expect(reads.get(read.sourceReadId)?.selectedContext?.canonicalTask).toBe(goal.task);
     expect(externalFetch).not.toHaveBeenCalled();
     Object.assign(instance, { messages: [{ role: "user", parts: [{ type: "text", text: goal.task }], metadata: { shibaMode: "work", shibaWorkTarget: "app-tools" } }] });
-    expect((await turn()).activeTools).toEqual([]);
+    // Removing the prepared goal removes its read/retention tools. The
+    // verified owned employee session can still read its scoped skill library.
+    expect((await turn()).activeTools?.sort()).toEqual(["get_skill_instructions", "list_skills"]);
     Object.assign(instance, { messages: [{ role: "user", parts: [{ type: "text", text: goal.task }], metadata: { ...metadata, shibaDraftTaskVersion: goal.reference.draftTaskVersion + 1 } }] });
     await expect(turn()).rejects.toThrow(/changed|stale|version/i);
     Object.assign(instance, { messages: [{ role: "user", metadata: { shibaMode: "work" } }] });
@@ -219,10 +221,10 @@ describe("employee-run Gmail selected-resource policy", () => {
       messages: [{ role: "user", parts: [{ type: "text", text: goal?.task ?? "Review the message" }], metadata: { ...(goal ? { shibaDraftTaskId: goal.reference.draftTaskId, shibaDraftTaskVersion: goal.reference.draftTaskVersion } : {}), shibaMode: "work", shibaWorkTarget: "app-tools", shibaTask: { customAgentId: "forged-composer-profile", orgId: "forged-composer-org" } } }],
     }) as CodingOrchestrator;
     const tools = instance.getTools();
-    expect(Object.keys(tools).sort()).toEqual(["employee_context_read", "employee_retain_draft", "employee_tool_call", "employee_tool_catalog"]);
+    expect(Object.keys(tools).sort()).toEqual(["employee_context_read", "employee_retain_draft", "employee_tool_call", "employee_tool_catalog", "get_skill_instructions", "list_skills"]);
     expect(sessionState.delegated).not.toHaveBeenCalled();
     const turn = () => instance.beforeTurn({ tools: { ...tools, delegate_coding_task: {}, run_code: {}, broad_builtin: {} }, system: "Work" } as never);
-    expect((await turn()).activeTools?.sort()).toEqual([...(withGoal ? ["employee_context_read"] : []), "employee_retain_draft", "employee_tool_call", "employee_tool_catalog"]);
+    expect((await turn()).activeTools?.sort()).toEqual([...(withGoal ? ["employee_context_read"] : []), "employee_retain_draft", "employee_tool_call", "employee_tool_catalog", "get_skill_instructions", "list_skills"]);
     if (goal) expect((await turn()).instructions).toContain("SELECTED ONBOARDING SOURCES");
     const workMessages = instance.messages;
     Object.assign(instance, { messages: [{ role: "user", metadata: { shibaMode: "chat", shibaWorkTarget: "app-tools" } }] });
@@ -239,7 +241,7 @@ describe("employee-run Gmail selected-resource policy", () => {
     const unmanaged = await createCustomAgent(env, "self-hosted", "legacy-profile", { name: "Legacy", instructions: "No tool policy", harness: "opencode" });
     sessionState.sessions = [{ ...session, metadata: { customAgentId: unmanaged.id } }];
     if (withGoal) await expect(turn()).rejects.toThrow("selected employee does not match");
-    else expect((await turn()).activeTools).toEqual([]);
+    else expect((await turn()).activeTools?.sort()).toEqual(["get_skill_instructions", "list_skills"]);
     sessionState.sessions = [session];
     const catalog = tools.employee_tool_catalog as unknown as {
       execute: (input: Record<string, never>) => Promise<{ actions: Array<{ tool: string; resources: string[] }> }>;
@@ -372,7 +374,9 @@ describe("employee-run Gmail selected-resource policy", () => {
       WHERE employee_id = ? AND employee_version = 2 AND capability_id = ? AND resource_id = ?`)
       .bind(employee.id, capability, MESSAGE_ID).run();
     expect(await catalog.execute({})).toMatchObject({ actions: [] });
-    expect((await turn()).activeTools).toEqual([]);
+    // Revoking Gmail resource grants removes app actions and draft retention,
+    // while independently authorized read-only skills remain available.
+    expect((await turn()).activeTools?.sort()).toEqual(["get_skill_instructions", "list_skills"]);
     await expect(retain.execute(input, { toolCallId: "after-revoke" })).rejects.toThrow("revoked or changed");
     expect(put).toHaveBeenCalledTimes(2);
     await expect(call.execute({ tool: "gmail_read", args: { messageIds: [MESSAGE_ID] } }))

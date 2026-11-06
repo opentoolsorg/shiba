@@ -8,6 +8,10 @@ import type { ConnectedComputer, HeartbeatRequest, PairRequest } from "@shiba/sh
 
 const Bounded = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max));
 const Harnesses = Schema.Array(Bounded(32)).check(Schema.isMaxLength(16));
+const PersonalScope = Schema.Struct({ version: Schema.Literal(2), ownerAccountId: Schema.String, actorId: Schema.String, workspaceId: Schema.String,
+  membershipVersion: Schema.Number, membershipRole: Schema.Literals(["owner", "admin", "member"]), origin: Schema.String });
+const PersonalAccount = Schema.Struct({ schemaVersion: Schema.Literal(1), harness: Schema.Literals(["claude-code", "codex"]), billingMode: Schema.Literal("native-subscription"),
+  accountFingerprint: Schema.String, authVersion: Schema.String, cliVersion: Schema.String, probeMethod: Schema.Literals(["claude-auth-status", "codex-account-read"]), probedAt: Schema.Number, receivedAt: Schema.Number });
 
 export const HeartbeatRequestSchema = Schema.Struct({
   machineId: Bounded(64),
@@ -38,6 +42,7 @@ export const ConnectedComputerSchema = Schema.Struct({
   pairedAt: Schema.optional(Schema.Number),
   activeRunId: Schema.optional(Schema.String),
   reasonNetworkCompanion: Schema.optional(Schema.Boolean),
+  personalExecution: Schema.optional(Schema.Struct({ version: Schema.Literal(1), revision: Schema.Number, scope: PersonalScope, accounts: Schema.Array(PersonalAccount) })),
 });
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] extends readonly (infer U)[] ? U[] : T[K] };

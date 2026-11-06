@@ -10,7 +10,7 @@ function mockRpc(): CloudflareSandboxRpc {
     approveRepoScope: async () => {},
     gitCheckout: async () => {},
     writeFile: async (path, content) => {
-      files.set(path, content);
+      files.set(path, typeof content === "string" ? content : await new Response(content).text());
     },
     exec: async (command) => ({ stdout: command.includes("echo") ? "contract-ok\n" : "", exitCode: 0 }),
     readFileStream: async (path) => {
@@ -37,6 +37,14 @@ describeSandboxProviderContract("cloudflare (mock rpc)", () =>
     resolveRpc: () => mockRpc(),
   }),
 );
+
+describe("cloudflare writeFileStream", () => {
+  it("streams bytes through the same RPC write", async () => {
+    const instance = await createCloudflareSandboxProvider({ resolveRpc: () => mockRpc() }).get("stream-test");
+    await instance.writeFileStream?.("/tmp/a.txt", new Response("streamed").body as ReadableStream<Uint8Array>);
+    expect(await instance.readFile("/tmp/a.txt")).toEqual({ kind: "utf8", content: "streamed" });
+  });
+});
 
 describe("cloudflare pinEgress", () => {
   it("forwards host and repo pins", async () => {

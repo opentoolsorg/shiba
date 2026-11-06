@@ -187,13 +187,20 @@ describe("strict requested deliverable capture", () => {
   });
 });
 
-interface DaemonResult { status: string; exitCode: number; summary: string; changedFiles: string[]; diff: string; files: CapturedFile[] }
-async function daemonRun(program: string, expectedDeliverables?: string[], expectedExit = 0): Promise<DaemonResult | undefined> {
+interface DaemonResult { status: string; exitCode: number; summary: string; changedFiles: string[]; diff: string; files: CapturedFile[]; baseRevision?: string }
+async function daemonRun(program: string, expectedDeliverables?: string[], expectedExit = 0, options: { artifact?: boolean; native?: boolean } = {}): Promise<DaemonResult | undefined> {
   const bin = path.join(root, "bin");
   const operatorHome = path.join(root, "operator-home");
   await mkdir(bin);
   await mkdir(operatorHome);
-  await writeFile(path.join(bin, "codex"), `#!${process.execPath}\nif (process.argv[2] === '--version') process.exit(0);\n${program}\n`, { mode: 0o755 });
+  const harness = options.native ? "claude" : "codex";
+  const body = options.native ? `require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+    if (JSON.parse(line).type !== 'user') return;
+    ${program}
+    console.log(JSON.stringify({type:'result',result:'Native artifact fixture completed'}));
+  });
+  console.log(JSON.stringify({type:'system',subtype:'init',session_id:'artifact-fixture'}));` : program;
+  await writeFile(path.join(bin, harness), `#!${process.execPath}\nif (process.argv[2] === '--version') process.exit(0);\n${body}\n`, { mode: 0o755 });
   let result: DaemonResult | undefined;
   const server = createServer(async (request, response) => {
     let raw = "";
@@ -202,9 +209,12 @@ async function daemonRun(program: string, expectedDeliverables?: string[], expec
     response.setHeader("content-type", "application/json");
     if (request.url === "/api/local/claim") {
       response.end(JSON.stringify({ claimToken: "deliverable-claim", envelope: {
-        sandboxId: "deliverable-run", harness: "codex", repoUrl: repo, baseBranch: "main",
+        sandboxId: "deliverable-run", harness: options.native ? "claude-code" : "codex", repoUrl: options.artifact ? "" : repo, baseBranch: "main",
+        ...(options.artifact ? { executionTarget: { kind: "artifact-workspace", workspaceId: "artifact-fixture", expectedDeliverables } } : {}),
+        ...(options.native ? { session: { provider: "claude", model: "fixture", permissionMode: "approval-required" } } : {}),
+        task: "Create the approved output files.",
         cloneDir: `${LOCAL_RUN_ROOT_TOKEN}/work`, homeDir: `${LOCAL_RUN_ROOT_TOKEN}/home`,
-        configFiles: [], setupCommands: [], setupAllowlist: [], execAllowlist: [], env: {}, argv: ["codex"],
+        configFiles: [], setupCommands: [], setupAllowlist: [], execAllowlist: [], env: {}, argv: [harness],
         deadlineAt: Date.now() + 30_000, ...(expectedDeliverables ? { expectedDeliverables } : {}),
       } }));
     } else {
@@ -235,16 +245,36 @@ async function daemonRun(program: string, expectedDeliverables?: string[], expec
 }
 
 describe("daemon requested deliverable collection", () => {
-  it("prioritizes requested outputs ahead of more than 50 changed files while retaining the Git diff", async () => {
+  it("returns the original base revision and includes changes committed by the harness", async () => {
+    const baseRevision = (await exec("git", ["-C", repo, "rev-parse", "HEAD"])).stdout.trim();
+    const result = await daemonRun(`const fs = require('node:fs'), cp = require('node:child_process');
+fs.writeFileSync('README.md', 'Committed harness change\\n');
+cp.execFileSync('git', ['add', 'README.md']);
+cp.execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'harness commit']);
+console.log('committed successfully');`);
+    expect(result).toMatchObject({ status: "completed", baseRevision, changedFiles: ["README.md"],
+      files: [{ path: "README.md", content: "Committed harness change\n", encoding: "utf8" }] });
+    expect(result?.diff).toContain("+Committed harness change");
+  }, 40_000);
+
+  it("prioritizes requested outputs within the complete 50-file capture limit while retaining the Git diff", async () => {
     const result = await daemonRun(`const fs = require('node:fs');
-for (let i=0;i<60;i++) fs.writeFileSync('a'+String(i).padStart(2,'0')+'.txt','other change\\n');
+for (let i=0;i<49;i++) fs.writeFileSync('a'+String(i).padStart(2,'0')+'.txt','other change\\n');
 fs.writeFileSync('zz-brief.md','# Complete requested brief\\n');
 console.log('agent claims success');`, ["zz-brief.md"]);
     expect(result?.status).toBe("completed");
     expect(result?.files[0]).toEqual({ path: "zz-brief.md", content: "# Complete requested brief\n", encoding: "utf8" });
     expect(result?.files).toHaveLength(50);
-    expect(result?.changedFiles).toHaveLength(61);
+    expect(result?.changedFiles).toHaveLength(50);
     expect(result?.diff).toContain("diff --git a/zz-brief.md b/zz-brief.md");
+  }, 40_000);
+
+  it("rejects 51 changed files instead of returning a partial publication tree", async () => {
+    const result = await daemonRun(`const fs = require('node:fs');
+for (let i=0;i<51;i++) fs.writeFileSync('file-'+i+'.txt','complete output\\n');
+console.log('agent claims success');`, undefined, 1);
+    expect(result).toMatchObject({ status: "error", files: [], changedFiles: [] });
+    expect(result?.summary).toContain("50-file limit");
   }, 40_000);
 
   it("returns an error rather than falling back to harness success when a requested file is absent", async () => {
@@ -271,5 +301,24 @@ console.log('agent claims success');`, ["zz-brief.md"]);
   it("keeps the legacy no-deliverable no-change success contract", async () => {
     const result = await daemonRun("console.log('legacy run completed');");
     expect(result).toMatchObject({ status: "completed", exitCode: 0, summary: "legacy run completed", changedFiles: [], diff: "", files: [] });
+  }, 40_000);
+});
+
+describe("repository-free daemon artifact execution", () => {
+  it.each([false, true])("captures only approved artifacts without Git state (native Claude: %s)", async (native) => {
+    const result = await daemonRun(`const fs = require('node:fs');
+if (fs.existsSync('.git')) throw new Error('artifact workspace must not require Git');
+fs.mkdirSync('out', {recursive:true});
+fs.writeFileSync('out/brief.md', '# Complete artifact\\n');
+fs.writeFileSync('unapproved.txt', 'not approved for export');`, ["out/brief.md"], 0, { artifact: true, native });
+    expect(result).toMatchObject({ status: "completed", exitCode: 0, diff: "", changedFiles: ["out/brief.md"],
+      files: [{ path: "out/brief.md", content: "# Complete artifact\n", encoding: "utf8" }] });
+    expect(result?.baseRevision).toBeUndefined();
+  }, 40_000);
+
+  it.each([false, true])("rejects missing artifacts despite provider success (native Claude: %s)", async (native) => {
+    const result = await daemonRun("console.log('provider claims success');", ["out/brief.md"], 1, { artifact: true, native });
+    expect(result).toMatchObject({ status: "error", files: [], changedFiles: [] });
+    expect(result?.summary).toContain("Expected deliverable out/brief.md");
   }, 40_000);
 });

@@ -11,8 +11,10 @@
  * the container by the Worker's egress handler (src/egress.ts).
  */
 import type { RunUsage } from "@shiba/shared";
+import { isEphemeralWorkspace } from "@shiba/shared";
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import { shellJoin } from "../security.js";
+import type { HarnessTextSanitizer } from "./event-sanitizer.js";
 
 /** Implemented harnesses. Aider was in the original sketch but has no adapter — add it here with one, not before. */
 export type AgentHarnessName =
@@ -256,7 +258,7 @@ export function verifyRunOutcome(
   capabilities: Pick<HarnessCapabilities, "canRunTests">,
 ): VerificationOutcome {
   if (result.status !== "completed") return { ok: true };
-  if (result.changedFiles.length === 0 && result.diff.trim() === "") {
+  if (result.changedFiles.length === 0 && result.diff.trim() === "" && !isEphemeralWorkspace(input.executionTarget)) {
     return {
       ok: false,
       reason: "Run exited 0 but produced no file changes — refusing to report a no-op as completed.",
@@ -315,7 +317,7 @@ export interface AgentHarness {
    * harness's event error (e.g. OpenCodeErrorEvent) for error events so the
    * run fails honestly instead of pretending success.
    */
-  parseEvent(line: string): HarnessEvent | null;
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null;
   /**
    * T48: subscription-authed harnesses declare the auth instance this run
    * uses; undefined for API-key harnesses. The admission gate checks the

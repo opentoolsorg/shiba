@@ -129,7 +129,7 @@ describe("SessionsSidebar agents group", () => {
     onOpenSetup: noop,
   };
 
-  it("renders an Agents group below Active with principal, live dot, and scope summary", () => {
+  it("renders an Agents group with principal, connection state, and scope summary", () => {
     const markup = renderToStaticMarkup(
       React.createElement(SessionsSidebar, {
         ...sidebarProps,
@@ -153,8 +153,8 @@ describe("SessionsSidebar agents group", () => {
     expect(markup).toContain("ci-bot");
     expect(markup).toContain("old-bot");
     expect(markup).toContain("email:read, memory:write");
-    // Agents sit between Active and Recent.
-    expect(markup.indexOf('aria-label="Active sessions"')).toBeLessThan(
+    // Agents follow the session groups.
+    expect(markup.indexOf('aria-label="Recent"')).toBeLessThan(
       markup.indexOf('aria-label="Agents"'),
     );
   });
@@ -183,7 +183,7 @@ describe("SessionsSidebar agents group", () => {
         selectedId: null,
       }),
     );
-    expect(markup).toContain("No sessions yet");
+    expect(markup).toContain("No recent tasks");
     expect(markup).toContain('aria-label="Agents"');
     expect(markup).toContain("ci-bot");
   });

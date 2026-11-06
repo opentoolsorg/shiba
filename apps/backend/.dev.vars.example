@@ -60,6 +60,7 @@
 
 # HMAC for Worker→DO vouched headers (X-Agent-Principal, X-Shiba-Intake).
 # INTERNAL_SIGNING_KEY=
+# ARTIFACT_SIGNING_KEY=
 
 # Optional bearer token for POST /api/trigger (e.g. iPhone Apple Shortcuts).
 # TRIGGER_TOKEN=
@@ -73,6 +74,10 @@
 # SLACK_SIGNING_SECRET=
 # SLACK_APPROVERS=
 # SLACK_BOT_TOKEN=
+# Optional managed-installation encryption keyring; remains Worker-only.
+# SLACK_INSTALLATION_KEYRING=
+# Private coworker notices also require each native user's explicit target consent.
+# SLACK_COWORKER_PRIVATE_STATUS_ENABLED=false
 # JSON map {channelId: "https://github.com/owner/repo"} for bare @mentions.
 # SLACK_CHANNEL_REPOS=
 
@@ -142,3 +147,13 @@ INTEGRATIONS_PROVIDER=openconnector
 # OPEN_CONNECTOR_URL=
 # OPEN_CONNECTOR_ADMIN_TOKEN=
 # OPEN_CONNECTOR_RUNTIME_TOKEN=
+# Separate scoped Worker-only key for the default-off audited read gateway.
+# OPEN_CONNECTOR_READ_RUNTIME_TOKEN=
+# Exact workspace/connection/operation runtime keys; JSON array, Worker-only.
+# OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS=
+# Optional native restricted Stripe reads encryption key (64 hex, Worker-only).
+# FOUNDER_STRIPE_CREDENTIAL_KEY=
+# Optional native Meta reads encryption key (64 hex, Worker-only).
+# FOUNDER_META_CREDENTIAL_KEY=
+# Optional native HubSpot capture encryption key (64 hex, Worker-only).
+# FOUNDER_HUBSPOT_CREDENTIAL_KEY=

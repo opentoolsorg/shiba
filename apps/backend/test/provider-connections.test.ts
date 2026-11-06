@@ -75,9 +75,9 @@ describe("provider and settings connection surfaces", () => {
     expect(html).not.toContain("GITHUB_WEBHOOK_SECRET");
   });
 
-  it("keeps model connections on Providers, under the ACP adapter list", () => {
+  it("keeps model connections on Providers, under the coding connection list", () => {
     const html = renderToStaticMarkup(React.createElement(ProvidersView));
-    const adapters = html.indexOf("Sandbox adapters");
+    const adapters = html.indexOf("Coding connections");
     const modelConnections = html.indexOf("Model connections");
     expect(adapters).toBeGreaterThan(-1);
     expect(modelConnections).toBeGreaterThan(adapters);

@@ -2,12 +2,28 @@
 # The "-opencode" variant ships the sandbox container server plus git,
 # node, and miscellaneous dev tools. Harness CLIs are pinned on top so the
 # exact versions are deterministic regardless of what the base image baked in.
-# The @sha256 digest pins the multi-arch manifest list (amd64+arm64) fetched
-# via the Docker Registry v2 manifest API — pull-by-tag retag attacks can't
-# move it.
+# The @sha256 digest pins the linux/amd64 image manifest verified through
+# the Docker Registry v2 API. Later tag changes cannot move it.
 FROM docker.io/cloudflare/sandbox:0.12.9-opencode@sha256:7b84b0163bd93f090504daf2f8e33d74a219a90774802f028adbb5b9de8107b5
 
 COPY --from=docker.io/cloudflare/sandbox:1.0.1 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
+
+# Workspace analysis tools live in a dedicated Python environment. Agent Reach
+# source is pinned and verified. Installing its optional integrations is separate.
+ARG AGENT_REACH_COMMIT=7a38047acf26a729cbb27851e3cb81639da86b29
+ARG AGENT_REACH_SHA256=4571f8b312f8dbd22c148a3dd40ddf5694be3edb1f2a3dcb39cd6453823e7d04
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl python3 python3-venv \
+  && rm -rf /var/lib/apt/lists/* \
+  && python3 -m venv /opt/shiba-tools \
+  && curl -sSfL -o /tmp/agent-reach.zip "https://codeload.github.com/Panniantong/Agent-Reach/zip/${AGENT_REACH_COMMIT}" \
+  && echo "${AGENT_REACH_SHA256}  /tmp/agent-reach.zip" | sha256sum -c - \
+  && /opt/shiba-tools/bin/pip install --no-cache-dir duckdb-cli==1.5.6 /tmp/agent-reach.zip \
+  && rm /tmp/agent-reach.zip \
+  && /opt/shiba-tools/bin/duckdb -version \
+  && /opt/shiba-tools/bin/agent-reach help >/dev/null \
+  && command -v curl python3 node
+ENV PATH="/opt/shiba-tools/bin:${PATH}"
 
 # One image carries every harness (opencode, Claude Code, Codex, Grok, Pi);
 # a run picks one at exec time. The credential invariant is unchanged: each
@@ -87,11 +103,12 @@ RUN set -eux; \
 # Procoder commit gate — checksum-verified, version-pinned like the harnesses.
 # Available to every sandboxed agent so quality-gate runs can execute
 # `procoder check` inside the container. Bump requires the same T10 pass.
+# Bound transient release-download retries; checksum verification stays mandatory.
 ARG PROCODER_VERSION=3.6.0
 RUN set -eux; \
   case "$(uname -m)" in x86_64) p=linux-amd64;; aarch64) p=linux-arm64;; *) exit 1;; esac; \
-  curl -sSfL -o /usr/local/bin/procoder "https://github.com/azrtydxb/procoder/releases/download/v${PROCODER_VERSION}/procoder-${p}"; \
-  curl -sSfL -o /tmp/SHA256SUMS "https://github.com/azrtydxb/procoder/releases/download/v${PROCODER_VERSION}/SHA256SUMS"; \
+  curl --retry 2 --retry-delay 2 --retry-max-time 60 --connect-timeout 10 --max-time 30 -sSfL -o /usr/local/bin/procoder "https://github.com/azrtydxb/procoder/releases/download/v${PROCODER_VERSION}/procoder-${p}"; \
+  curl --retry 2 --retry-delay 2 --retry-max-time 60 --connect-timeout 10 --max-time 30 -sSfL -o /tmp/SHA256SUMS "https://github.com/azrtydxb/procoder/releases/download/v${PROCODER_VERSION}/SHA256SUMS"; \
   grep " procoder-${p}\$" /tmp/SHA256SUMS | sed "s/procoder-${p}/procoder/" > /tmp/procoder.sum; \
   cd /usr/local/bin && sha256sum -c /tmp/procoder.sum; \
   chmod +x /usr/local/bin/procoder && procoder version

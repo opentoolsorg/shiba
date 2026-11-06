@@ -1,0 +1,162 @@
+{
+  "scope": "Actual local Worker/DO/D1 and Chromium using built sidebar changes; mock GitHub and synthetic execution.",
+  "runtimeSource": "working tree based on 6c83cf9af9a3ea280769170172fcdf8459c1db8d",
+  "checks": {
+    "core": {
+      "mode": "mock",
+      "steps": [
+        {
+          "name": "approval card",
+          "status": "passed"
+        },
+        {
+          "name": "approve (API)",
+          "status": "passed"
+        },
+        {
+          "name": "POST /api/approvals",
+          "status": "passed"
+        },
+        {
+          "name": "review findings visible in UI",
+          "status": "passed"
+        },
+        {
+          "name": "coding run id",
+          "status": "passed"
+        },
+        {
+          "name": "coding run completed",
+          "status": "passed"
+        },
+        {
+          "name": "review round terminal",
+          "status": "passed"
+        },
+        {
+          "name": "review findings persisted",
+          "status": "passed"
+        },
+        {
+          "name": "review round run",
+          "status": "passed"
+        },
+        {
+          "name": "mock GitHub PR created",
+          "status": "passed"
+        },
+        {
+          "name": "reviewer COMMENT posted",
+          "status": "passed"
+        }
+      ],
+      "status": "passed"
+    },
+    "threads": {
+      "mode": "real local Worker/D1; no model, GitHub, or container execution",
+      "steps": [
+        {
+          "step": "Create a custom bot through its form and persist it in the local Worker",
+          "status": "PASS"
+        },
+        {
+          "step": "Start a fresh bot-associated thread and select its profile in the composer",
+          "status": "PASS"
+        },
+        {
+          "step": "Failed rename shows an error and preserves the existing thread name",
+          "status": "PASS"
+        },
+        {
+          "step": "Retry saves the new name through the real session PATCH API",
+          "status": "PASS"
+        },
+        {
+          "step": "Refresh preserves the renamed thread and restores its bot profile on selection",
+          "status": "PASS"
+        },
+        {
+          "step": "Switching to the protected default session clears the bot; returning restores it",
+          "status": "PASS"
+        },
+        {
+          "step": "The bot card lists and reopens its persisted associated conversation",
+          "status": "PASS"
+        },
+        {
+          "step": "The rename form focuses its field and closes with Escape",
+          "status": "PASS"
+        },
+        {
+          "step": "Thread composer renders at 390px without horizontal page overflow",
+          "status": "PASS"
+        }
+      ],
+      "status": "PASS"
+    },
+    "lifecycle": {
+      "mode": "real local Bots UI/auth/API/D1; composer submission and human approval UI; synthetic execution; mock GitHub",
+      "steps": [
+        {
+          "step": "Create a configured bot through the UI; persist harness, model, instructions, and repository",
+          "status": "PASS"
+        },
+        {
+          "step": "Edit to version 2 and verify profile controls survive refresh",
+          "status": "PASS"
+        },
+        {
+          "step": "Launch a bot conversation and reopen it from the bot's own thread history",
+          "status": "PASS"
+        },
+        {
+          "step": "A failed bot submission shows the error, restores the draft, and creates no approval",
+          "status": "PASS"
+        },
+        {
+          "step": "Composer retry queues the exact bot/session/configuration with the same command ID and freezes version 2 before approval",
+          "status": "PASS"
+        },
+        {
+          "step": "Editing the profile to version 3 does not rewrite the pending approved inputs",
+          "status": "PASS"
+        },
+        {
+          "step": "A browser click grants the human approval; no automatic profile policy bypass",
+          "status": "PASS"
+        },
+        {
+          "step": "Synthetic execution completes with the frozen profile version 2 and route despite the live profile being version 3",
+          "status": "PASS"
+        },
+        {
+          "step": "Conversation history shows the frozen bot version and scopes review/PR reads without false missing-run errors",
+          "status": "PASS"
+        },
+        {
+          "step": "Archive blocks new threads and runs while preserving access to the existing conversation",
+          "status": "PASS"
+        },
+        {
+          "step": "Restore retains the latest editable profile and the older run's frozen provenance and conversation history",
+          "status": "PASS"
+        }
+      ],
+      "status": "PASS"
+    }
+  },
+  "assertions": 31,
+  "realProviderExecution": false,
+  "realGitHubWrites": false,
+  "containerStarts": 0,
+  "cleanup": {
+    "fixtureRecordsRemoved": true,
+    "ownedServersStopped": true,
+    "fixtureStateRemoved": true
+  },
+  "sourceSha256": {
+    "apps/frontend/src/components/AppNavRail.tsx": "f37a99674c176df0ffdf7160a91d4eb725180768c02c632e4efd15042cbcaae1",
+    ".cursor/skills/verify-shiba/scripts/drive.mjs": "1ede3030a01fb587c252e21f9ac122d7ce49978867d04a85c1c87beee0fec78e",
+    ".cursor/skills/verify-shiba/scripts/drive-agent-lifecycle.mjs": "62273b2af9eca35b6f883090b6bbfb8ca8de779fde199f387196a85ecf56121d"
+  }
+}

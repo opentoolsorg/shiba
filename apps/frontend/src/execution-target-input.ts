@@ -39,6 +39,7 @@ export function buildExecutionTargetFields(input:
   const target: ArtifactWorkspaceExecutionTarget = {
     kind: "artifact-workspace",
     workspaceName: input.workspaceName.trim() || "My workspace",
+    ...(input.expectedDeliverables.length === 0 ? { workspaceId: crypto.randomUUID() } : {}),
     expectedDeliverables: input.expectedDeliverables,
   };
   return { executionTarget: target };
