@@ -35,11 +35,13 @@ export function catalogReadinessLabel(item: IntegrationProviderCatalogItem): str
 }
 
 type BrowseProps = { open: boolean; actorId?: string | null; workspaceId?: string; onClose: () => void; onAccessLost?: () => void; onConnect?: (item: IntegrationProviderCatalogItem) => void; connectingKey?: string | null; linkedConnectorKeys?: ReadonlySet<string>; onLinkExisting?: (item: IntegrationProviderCatalogItem) => void; linkingKey?: string | null; linkActionLabel?: string; roleFilter?: CapabilityRoleFilter };
+/** Scope catalog state to the current actor and workspace before rendering its dialog. */
 export function IntegrationsBrowseCatalogDialog(props: BrowseProps): JSX.Element | null {
   const scope = `${props.actorId ?? "legacy"}\0${props.workspaceId ?? "personal"}`;
   const actor = useRef(scope); actor.current = scope;
   return <ScopedBrowseCatalog key={scope} {...props} isCurrent={() => actor.current === scope} />;
 }
+/** Load and filter catalog pages while fencing stale requests after scope changes. */
 function ScopedBrowseCatalog({
   open,
   onClose,

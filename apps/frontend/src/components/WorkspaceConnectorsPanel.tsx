@@ -40,6 +40,7 @@ export function WorkspaceConnectorsPanel(props: WorkspaceConnectorsPanelProps): 
 function reconnectItem(connection: IntegrationProviderConnection): IntegrationProviderCatalogItem {
   return { id: connection.providerKey, providerKey: connection.providerKey, name: connection.providerKey, description: "", source: "openconnector", connectable: true, isConnected: false };
 }
+/** Manage personal app accounts, including explicit disconnect and safe reconnect flows. */
 function OwnedAppAccounts({
   bindingInputs,
   actorId,
