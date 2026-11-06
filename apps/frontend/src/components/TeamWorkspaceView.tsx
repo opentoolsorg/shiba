@@ -411,7 +411,7 @@ function TeamWorkspaceSurface({
 
         {/* Workspace tabs */}
         {workspace ? (
-          <div role="tablist" aria-label="Workspace tabs" className="flex items-center gap-1 overflow-x-auto border-t border-[#e4e4e7] dark:border-zinc-800 mt-5 pt-3 -mb-2">
+          <div role="group" aria-label="Workspace sections" className="flex items-center gap-1 overflow-x-auto border-t border-[#e4e4e7] dark:border-zinc-800 mt-5 pt-3 -mb-2">
             {(
               [
                 { id: "people", label: "People", count: workspace.members.length },
@@ -423,8 +423,7 @@ function TeamWorkspaceSurface({
               <button
                 key={tab.id}
                 type="button"
-                role="tab"
-                aria-selected={activeTab === tab.id}
+                aria-pressed={activeTab === tab.id}
                 onClick={() => setActiveTab(tab.id as TeamWorkspaceTab)}
                 className={`min-h-11 shrink-0 px-3 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${
                   activeTab === tab.id

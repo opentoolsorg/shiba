@@ -340,7 +340,7 @@ describe("team coworker launchpad", () => {
     expect(onOpenChat).toHaveBeenCalledOnce();
     expect(onOpenApps).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Invite teammates" }));
-    expect(screen.getByRole("tab", { name: /Invitations/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: /Invitations/ }).getAttribute("aria-pressed")).toBe("true");
     expect(fetcher.mock.calls).toHaveLength(1);
   });
 
