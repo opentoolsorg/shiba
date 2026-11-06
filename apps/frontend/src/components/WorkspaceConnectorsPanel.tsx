@@ -23,6 +23,7 @@ export interface WorkspaceConnectorsPanelProps {
 }
 
 /** App credentials stay private; employee resource grants are configured separately. */
+/** Manage private and workspace-owned app accounts without mixing their scopes. */
 export function WorkspaceConnectorsPanel(props: WorkspaceConnectorsPanelProps): JSX.Element {
   const scope = `${props.actorId ?? "legacy"}\0${props.workspaceId ?? "personal"}\0${props.workspaceRole ?? "private"}`;
   const current = useRef(scope); current.current = scope;
