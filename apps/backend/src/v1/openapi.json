@@ -3,7 +3,7 @@
   "info": {
     "title": "Shiba public API",
     "version": "1.0.0",
-    "description": "Self-hosted /api/v1 surface with stable, predictable resource names. Authentication uses org-scoped API keys (Bearer shk_\u2026) minted in the dashboard."
+    "description": "Self-hosted /api/v1 surface with stable, predictable resource names. Authentication uses org-scoped API keys (Bearer shk_…) minted in the dashboard."
   },
   "servers": [
     {
@@ -162,31 +162,64 @@
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["skillId", "version", "name"],
+                  "required": [
+                    "skillId",
+                    "version",
+                    "name"
+                  ],
                   "properties": {
-                    "skillId": { "type": "string" },
-                    "version": { "type": "integer", "minimum": 1 },
-                    "name": { "type": "string" }
+                    "skillId": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "name": {
+                      "type": "string"
+                    }
                   }
                 }
               },
               "customAgent": {
                 "type": "object",
-                "required": ["id", "version"],
+                "required": [
+                  "id",
+                  "version"
+                ],
                 "properties": {
-                  "id": { "type": "string" },
-                  "version": { "type": "integer", "minimum": 1 }
+                  "id": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
                 }
               }
             }
           },
           "review": {
             "type": "object",
-            "required": ["status"],
+            "required": [
+              "status"
+            ],
             "properties": {
-              "status": { "type": "string", "enum": ["pending_review", "approved", "changes_requested"] },
-              "updatedAt": { "type": "integer" },
-              "note": { "type": "string", "maxLength": 500 }
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending_review",
+                  "approved",
+                  "changes_requested"
+                ]
+              },
+              "updatedAt": {
+                "type": "integer"
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 500
+              }
             }
           }
         }
@@ -282,7 +315,13 @@
           },
           "mascotPreset": {
             "type": "string",
-            "enum": ["hero", "climbing", "riding", "sleeping", "sunglasses"]
+            "enum": [
+              "hero",
+              "climbing",
+              "riding",
+              "sleeping",
+              "sunglasses"
+            ]
           },
           "instructions": {
             "type": "string",
@@ -408,6 +447,133 @@
           "expectedVersion": {
             "type": "integer",
             "minimum": 1
+          }
+        }
+      },
+      "BotReadinessProblem": {
+        "type": "object",
+        "required": [
+          "id",
+          "severity",
+          "message",
+          "fix"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warn"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "fix": {
+            "type": "object",
+            "required": [
+              "label",
+              "view"
+            ],
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "providers",
+                  "settings",
+                  "custom-agents"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "BotReadiness": {
+        "type": "object",
+        "required": [
+          "ready",
+          "target",
+          "harness",
+          "model",
+          "connectionId",
+          "synthetic",
+          "problems"
+        ],
+        "properties": {
+          "ready": {
+            "type": "boolean",
+            "description": "False when any error-severity problem would block queueing."
+          },
+          "target": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "repoUrl"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "repository"
+                    ]
+                  },
+                  "repoUrl": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "expectedDeliverables"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "artifact-workspace"
+                    ]
+                  },
+                  "expectedDeliverables": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "harness": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "connectionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "synthetic": {
+            "type": "boolean",
+            "description": "True when this deployment runs the verify-shiba stand-in instead of real execution."
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BotReadinessProblem"
+            }
           }
         }
       }
@@ -863,6 +1029,45 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/org-agents/{agentId}/readiness": {
+      "get": {
+        "summary": "Check whether a bot can be given a task",
+        "description": "Runs the same read-only preflight a queued run uses (model route, credentials, sandbox) against the bot's saved defaults. It never creates an approval or starts work; human approval is still required after a task is queued.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Launch readiness for the bot's default target",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "readiness": {
+                      "$ref": "#/components/schemas/BotReadiness"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Bot not found or archived"
           }
         }
       }
