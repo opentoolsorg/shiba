@@ -7,6 +7,7 @@ interface ExternalTool {
   capabilityId: string;
   gatewayName: string;
   description: string;
+  inputSchema: Record<string, unknown>;
   schemaVersion: string;
   effect: "unreviewed" | "read" | "approval_required";
   reviewedAt: number | null;
@@ -385,6 +386,10 @@ export function ExternalMcpManagement(): JSX.Element {
                 <p className="break-all font-mono text-[9px] text-[var(--muted-foreground-2)]">
                   {tool.capabilityId} · schema {tool.schemaVersion}
                 </p>
+                <details className="max-w-3xl">
+                  <summary className="cursor-pointer text-[10px] text-[var(--muted-foreground-2)]">Review input schema</summary>
+                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all border border-[var(--border-1)] bg-[var(--section)] p-2 font-mono text-[10px] text-[var(--fg)]">{JSON.stringify(tool.inputSchema ?? {}, null, 2)}</pre>
+                </details>
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="text-[10px] text-[var(--muted-foreground-2)]">
                     Reviewed effect{" "}

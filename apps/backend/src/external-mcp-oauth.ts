@@ -585,6 +585,40 @@ export async function resolveExternalMcpBearer(
   try { return await promise; } finally { inFlight.delete(key); }
 }
 
+/**
+ * RFC 7591 dynamic client registration for custom servers that have no
+ * operator-registered client. Registers a public PKCE client bound to the
+ * exact Shiba callback; no client secret is requested or stored.
+ */
+export async function registerExternalMcpOAuthClient(
+  discovery: ExternalMcpOAuthDiscovery,
+  redirectUri: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const endpoint = discovery.authorizationServer.registration_endpoint;
+  if (!endpoint) throw new Error("oauth_client_not_configured");
+  const url = oauthUrl(endpoint);
+  const response = await fetchImpl(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({
+      client_name: "Shiba",
+      redirect_uris: [redirectUri],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+    }),
+    redirect: "error",
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new Error("oauth_registration_failed"); }
+  const registered = await readBoundedObject(response, "oauth_registration_failed");
+  const clientId = registered?.client_id;
+  if (typeof clientId !== "string" || !clientId || clientId.length > 512 || /\s/.test(clientId)) throw new Error("oauth_registration_failed");
+  if (Array.isArray(registered?.redirect_uris) && !registered.redirect_uris.includes(redirectUri)) throw new Error("oauth_registration_failed");
+  return clientId;
+}
+
 export function deploymentOAuthClientEnvKey(catalogId: string): string {
   return `MCP_OAUTH_CLIENT_${catalogId.replace(/-/g, "_").toUpperCase()}`;
 }
