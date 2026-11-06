@@ -83,6 +83,7 @@ export async function handleWorkspaceIntegrations(request: Request, env: Env): P
     return json({ error: "workspace_integrations_unavailable" }, 503);
   }
 }
+/** Serve workspace integrations using a freshly validated member scope. */
 async function dispatch(request: Request, env: Env, member: WorkspaceNativeMember, url: URL, beforeSourceReturn?: () => Promise<void>): Promise<Response> {
   const suffix = url.pathname.slice(BASE.length);
   if (suffix === "/connections" && request.method === "GET") return json({ ok: true, workspaceId: member.workspaceId });
