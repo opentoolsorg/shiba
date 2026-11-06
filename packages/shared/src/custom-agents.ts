@@ -42,6 +42,8 @@ export interface CustomAgentConfig {
   approvalPolicy?: CustomAgentApprovalPolicy;
   /** MCP tool scope ids the agent may use (empty = deployment default). */
   toolScopes?: readonly string[];
+  /** Exact active skill versions frozen into every approval this bot queues. */
+  skillPins?: readonly { skillId: string; version: number }[];
 }
 
 export interface CustomAgentRecord {

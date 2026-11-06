@@ -1,4 +1,5 @@
 import { randomHex } from "./mailbox-store.js";
+import { sha256Hex } from "./agent-tokens.js";
 import type { AuditEnv } from "./audit.js";
 import { initAudit } from "./audit.js";
 import { teamSkillWriteGuard, type SkillMutationOptions } from "./team-skill-grant.js";
@@ -35,6 +36,7 @@ export interface SkillPin {
   version: number;
   name: string;
   sourceUrl?: string;
+  contentSha256: string;
 }
 
 const TABLES = [
@@ -332,33 +334,72 @@ export async function resolveSkillPins(
       version: skill.version,
       name: skill.content.name,
       ...(skill.content.sourceUrl ? { sourceUrl: skill.content.sourceUrl } : {}),
+      contentSha256: await sha256Hex(skill.content.instructions),
     };
     pins.push(pin);
-    sections.push([
-      `Skill: ${pin.name} (${pin.skillId}@${pin.version})`,
-      ...(pin.sourceUrl ? [`Source: ${pin.sourceUrl}`] : []),
-      "Reviewed instructions:",
-      skill.content.instructions,
-    ].join("\n"));
+    sections.push(skillSection(pin, skill.content.instructions));
   }
   return { pins, instructions: sections.length ? `Skills:\n${sections.join("\n\n")}` : "" };
 }
 
-/** Revalidate approved pins immediately before a queued run starts execution. */
+function skillSection(pin: SkillPin, instructions: string): string {
+  return [
+    `Skill: ${pin.name} (${pin.skillId}@${pin.version})`,
+    ...(pin.sourceUrl ? [`Source: ${pin.sourceUrl}`] : []),
+    "Reviewed instructions:",
+    instructions,
+  ].join("\n");
+}
+
+/** Bot-attached pins: any org member may run a bot, so only active org skills resolve, independent of the caller. */
+export async function resolveActiveSkillPins(
+  env: AuditEnv,
+  orgId: string,
+  requested: readonly { skillId: string; version: number }[],
+): Promise<{ pins: SkillPin[]; sections: string[] } | null> {
+  if (requested.length > 5 || new Set(requested.map((item) => item.skillId)).size !== requested.length) return null;
+  await ensureTables(env);
+  const pins: SkillPin[] = [];
+  const sections: string[] = [];
+  for (const ref of requested) {
+    const row = await env.AGENT_AUDIT.prepare(
+      `SELECT v.name, v.instructions, v.source_url FROM skills s JOIN skill_versions v ON v.skill_id = s.id AND v.version = s.active_version
+       WHERE s.id = ? AND s.org_id = ? AND s.status = 'active' AND s.version = ? AND s.active_version = ?`,
+    ).bind(ref.skillId, orgId, ref.version, ref.version).first<{ name: string; instructions: string; source_url: string | null }>();
+    if (!row) return null;
+    const pin: SkillPin = {
+      skillId: ref.skillId,
+      version: ref.version,
+      name: row.name,
+      ...(row.source_url ? { sourceUrl: row.source_url } : {}),
+      contentSha256: await sha256Hex(row.instructions),
+    };
+    pins.push(pin);
+    sections.push(skillSection(pin, row.instructions));
+  }
+  return { pins, sections };
+}
+
+/**
+ * Revalidate approved pins immediately before a queued run starts execution.
+ * A digest, when the approval recorded one, must still match the immutable
+ * version row so the run executes exactly the text the human approved.
+ */
 export async function areSkillPinsActive(
   env: AuditEnv,
   orgId: string,
-  pins: readonly { skillId: string; version: number }[],
+  pins: readonly { skillId: string; version: number; contentSha256?: string }[],
 ): Promise<boolean> {
   if (pins.length > 5 || new Set(pins.map((pin) => pin.skillId)).size !== pins.length) return false;
   if (pins.length === 0) return true;
   await ensureTables(env);
   for (const pin of pins) {
     const row = await env.AGENT_AUDIT.prepare(
-      `SELECT 1 AS active FROM skills
-       WHERE id = ? AND org_id = ? AND status = 'active' AND version = ? AND active_version = ?`,
-    ).bind(pin.skillId, orgId, pin.version, pin.version).first();
+      `SELECT v.instructions FROM skills s JOIN skill_versions v ON v.skill_id = s.id AND v.version = s.active_version
+       WHERE s.id = ? AND s.org_id = ? AND s.status = 'active' AND s.version = ? AND s.active_version = ?`,
+    ).bind(pin.skillId, orgId, pin.version, pin.version).first<{ instructions: string }>();
     if (!row) return false;
+    if (pin.contentSha256 !== undefined && await sha256Hex(row.instructions) !== pin.contentSha256) return false;
   }
   return true;
 }
