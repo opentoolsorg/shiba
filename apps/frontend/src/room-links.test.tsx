@@ -29,6 +29,20 @@ describe("canonical workspace room links", () => {
     expect(readRoomLink(search)).toBe("invalid");
   });
   it("ignores unrelated view parameters", () => expect(readRoomLink("?view=work")).toBeNull());
+  it("blocks a loaded room when browser navigation selects malformed room selectors", () => {
+    openLink();
+    const value = { ...directory(), selectedWorkspaceId: workspaceId };
+    const { result } = renderHook(() => useRoomLinkRoute(actor, value));
+    expect(result.current.ready).toBe(true);
+    expect(result.current.roomId).toBe(roomId);
+
+    window.history.pushState(null, "", `/threads/?workspace=${workspaceId}&room=invalid`);
+    act(() => window.dispatchEvent(new PopStateEvent("popstate")));
+
+    expect(result.current.ready).toBe(false);
+    expect(result.current.roomId).toBeUndefined();
+    expect(window.location.search).toBe(`?workspace=${workspaceId}&room=invalid`);
+  });
   it("waits for verified membership before selecting, then waits for the selected workspace before exposing the room", async () => {
     openLink(); const initial = { ...directory(), verified: false, loading: true };
     const { result, rerender } = renderHook(({ value }) => useRoomLinkRoute(actor, value), { initialProps: { value: initial } });
