@@ -30,9 +30,12 @@ provider success that failed to produce the approved files.
 
 - Task composer/app/route focused tests: 49 passed.
 - Room composer and conversation heading focused tests: 47 passed.
+- Provider route description tests: nine passed after updating the old
+  repository-only assertion to the intentionally expanded bounded-artifact route.
 - Six previously affected backend suites: 166 passed on a bounded rerun.
 - Backend routing/integration focused run: 121 passed; two existing local-runtime
   Worker tests exceeded their five-second timeout under concurrent verification.
+  The unchanged isolated local-runtime suite subsequently passed all 75 tests.
   No assertion or timeout was weakened; final full-suite status is recorded below.
 - Browser checks use the actual React components on the local Vite server with
   fixture props and intercepted API responses. They verify explicit Local
@@ -41,8 +44,11 @@ provider success that failed to produce the approved files.
   the local-artifact heading. Desktop/mobile screenshots were visually inspected.
   These checks do not execute a provider or prove live backend acceptance.
 - `pnpm typecheck`, `pnpm lint`, `pnpm lint:imports`, `pnpm build`, and
-  `pnpm test:built`, and `pnpm check:ci` passed. Lint reports existing warnings.
-- Final workspace test result: pending.
+  `pnpm test:built` and `pnpm check:ci` passed. Lint reports existing warnings.
+- `pnpm test` failed on the old repository-only provider-copy assertion
+  (1,499 frontend tests passed, one failed) and interrupted the backend run. The
+  corrected provider suite passes as recorded above; this is not a green full
+  workspace result. Exact-head GitHub CI remains the full-suite gate.
 
 Earlier parallel audits also passed focused Slack, archive/reporting,
 funded-model and offline-computer tests. Those results are not live acceptance
