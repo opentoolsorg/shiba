@@ -1,3 +1,4 @@
+import { roomLinkUrl } from "../room-links";
 import {
   type FormEvent,
   type JSX,
@@ -292,6 +293,7 @@ function ScopedCollaborationView({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [retryableError, setRetryableError] = useState(false);
+  const [copyLinkStatus, setCopyLinkStatus] = useState("");
   const activeRoomRef = useRef(activeRoomId);
   const roomReadEpoch = useRef(0);
   const revokedRooms = useRef(new Set<string>());
@@ -308,6 +310,7 @@ function ScopedCollaborationView({
 
   const clearRoomDrafts = useCallback(() => {
     setMessage("");
+    setCopyLinkStatus("");
     setTask("");
     setDraftReplacement(null);
     setTaskId("");
@@ -408,7 +411,7 @@ function ScopedCollaborationView({
           (room) => !revokedRooms.current.has(room.roomId),
         );
         setRooms(availableRooms);
-        selected = roomId || availableRooms[0]?.roomId || "";
+        selected = roomId || (revokedRooms.current.size ? "" : availableRooms[0]?.roomId) || "";
         if (revokedRooms.current.has(selected)) return;
         activeRoomRef.current = selected;
         setActiveRoomId(selected);
@@ -445,7 +448,7 @@ function ScopedCollaborationView({
           (room) => !revokedRooms.current.has(room.roomId),
         );
         setRooms(availableRooms);
-        selected = activeRoomId || availableRooms[0]?.roomId || "";
+        selected = activeRoomId || (revokedRooms.current.size ? "" : availableRooms[0]?.roomId) || "";
         if (revokedRooms.current.has(selected)) return;
         activeRoomRef.current = selected;
         setActiveRoomId(selected);
@@ -536,10 +539,6 @@ function ScopedCollaborationView({
   }, [api, workspaceId, loseRoomAccess]);
 
   useEffect(() => {
-    if (activeRoomId) onRoomChange?.(activeRoomId);
-  }, [activeRoomId, onRoomChange]);
-
-  useEffect(() => {
     if (
       !initialRoomId ||
       initialRoomId === activeRoomRef.current ||
@@ -552,6 +551,10 @@ function ScopedCollaborationView({
     setDetail(null);
     setActiveRoomId(initialRoomId);
   }, [initialRoomId, clearRoomDrafts]);
+
+  useEffect(() => {
+    if (activeRoomId && activeRoomRef.current === activeRoomId && detail?.room.roomId === activeRoomId) onRoomChange?.(activeRoomId);
+  }, [activeRoomId, detail?.room.roomId, onRoomChange]);
 
   useEffect(() => {
     if (initialEmployeeId) setSelectedProfileId(initialEmployeeId);
@@ -928,6 +931,19 @@ function ScopedCollaborationView({
                       Group conversation · {detail.room.visibility}
                     </p>
                     <h2 className="break-words font-serif text-xl">{detail.room.title}</h2>
+                    {workspaceId && <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button type="button" className="min-h-11 border border-[var(--line)] px-3 text-xs" onClick={async () => {
+                        const roomId = activeRoomId;
+                        try {
+                          await navigator.clipboard.writeText(roomLinkUrl({ workspaceId, roomId }, window.location.origin));
+                          if (activeRoomRef.current === roomId) setCopyLinkStatus("Room link copied. Recipients still need workspace and room access.");
+                        } catch {
+                          if (activeRoomRef.current === roomId) setCopyLinkStatus("Could not copy room link. Check clipboard permission and try again.");
+                        }
+                      }}>Copy room link</button>
+                      {copyLinkStatus && <p role="status" className="text-xs text-[var(--ink-2)]">{copyLinkStatus}</p>}
+                    </div>}
+
                     <p className="text-[10px] text-[var(--ink-2)]">
                       {members.length} active members
                     </p>
