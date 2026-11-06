@@ -26,9 +26,10 @@ pnpm check:deploy
 export ALCHEMY_STAGE=dogfood          # never pass --stage
 export CLOUDFLARE_ACCOUNT_ID=<account>
 export WORKERS_SUBDOMAIN=<account workers.dev subdomain>
-# Unset WORKER_HOSTNAME and BETTER_AUTH_URL, or set them to exactly
-# https://shiba-ai-coworker-dogfood.<subdomain>.workers.dev — the preflight
-# rejects any other value on a non-live stage.
+# Unset both, or set them to the dogfood origin in their own forms:
+#   WORKER_HOSTNAME=shiba-ai-coworker-dogfood.<subdomain>.workers.dev   (no scheme)
+#   BETTER_AUTH_URL=https://shiba-ai-coworker-dogfood.<subdomain>.workers.dev
+# The preflight rejects any other value on a non-live stage.
 pnpm env:load                         # validates .env
 pnpm env:scan
 pnpm deploy:preview                   # alchemy plan: read it before applying
@@ -86,6 +87,8 @@ npx wrangler secret list --name shiba-ai-coworker-dogfood
 
 Compare that list with `apps/backend/worker-secrets.json` and with the five names below. Any active secret missing from `.env` is deleted by the deploy. Do not paste values anywhere else.
 
+**Stop if dogfood has an active secret that is not in `worker-secrets.json`.** Per-account subscription secrets such as `CLAUDE_SUBSCRIPTION_TOKEN_<ACCOUNT>` are resolved at egress by name and are deliberately absent from the manifest, so Alchemy neither binds nor preserves them and a `.env` entry does not save them. There is no supported preservation path today: decide explicitly whether to drop the lane or keep the Worker on wrangler-only secrets before running `deploy:alchemy`.
+
 | Secret | What it unlocks |
 | --- | --- |
 | `INTERNAL_SIGNING_KEY` | Edge-identity signing between the Worker and its Durable Objects, and signed Slack canvas/buffer requests. Must be at least 32 characters. Unset, the orchestrator falls back to trusting vouched headers and logs a warning. Also required by the shared-computer signing check. |
@@ -99,7 +102,7 @@ Also needed for a usable dogfood stage: a built-in auth pair (`BETTER_AUTH_SECRE
 ## Rollback
 
 - Code and bindings: redeploy the previous commit with the same command (`git checkout <previous-sha>`, then repeat the deploy). Durable Object migrations do not roll back, and classes added by v9–v15 stay on the script. **Keep the current `wrangler.jsonc` `migrations` list and the current DO exports when reverting application code** — an older config whose last tag predates the script's tag is rejected, and dropping a class export while its binding remains breaks the Worker. Revert code, not migration history.
-- Inspect the plan for `deleted_classes` before redeploying; a revert that removes a class declaration can emit a deletion migration that destroys its state.
+- Inspect the plan for `deleted_classes` before redeploying, but do not rely on it: Alchemy manages migrations itself and may not surface a class deletion in the plan. Compare the deployed class inventory (the Worker's Durable Object bindings and the script's `migration_tag`) with the rollback commit's declarations before deploying. A revert that removes a class declaration can emit a deletion migration that destroys its state.
 - Do not delete DO classes to undo a deploy; that needs a new `deleted_classes` tag and destroys state.
 - Secrets: Alchemy replaces the set, so rollback must run with the previous `.env`.
 - **Do not use `wrangler deploy` with `apps/backend/wrangler.jsonc` for dogfood.** That file carries `routes: [{ pattern: "app.tryshiba.dev", custom_domain: true }]`, so even with `--name shiba-ai-coworker-dogfood` it would attach the live custom domain to the dogfood script and steal production traffic. The wrangler path in `docs/DEPLOY.md` is for the live Worker only. A script-only dogfood fallback would need its own reviewed config: no `routes`, stage-suffixed R2 buckets, KV namespace, D1 database and container, and the same `migrations` list. Do not improvise one during an incident.
