@@ -572,20 +572,18 @@ const finalSchemas = schema
       right: 8px;
       bottom: 8px;
       display: none;
-      height: calc(100svh - 76px);
+      height: calc(100svh - 84px - env(safe-area-inset-bottom, 0px));
       overflow-y: auto;
       overscroll-behavior: contain;
       flex-direction: column;
       align-items: stretch;
       gap: 6px;
       padding: 24px 20px;
-      background: color-mix(in srgb, var(--paper) 95%, transparent);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      background: var(--paper);
       border: 1px solid var(--line);
       border-radius: 16px;
-      box-shadow: 0 16px 32px color-mix(in srgb, var(--ink) 8%, transparent);
-      z-index: 49;
+      box-shadow: 0 16px 32px color-mix(in srgb, var(--ink) 12%, transparent);
+      z-index: 60;
     }
     .nav-js .nav-links.nav-open { display: flex; }
     .nav-js .nav-links.nav-open .nav-link,
@@ -614,6 +612,10 @@ const finalSchemas = schema
     .nav-more-btn { width: 100%; }
     .nav-more-panel { position: static; margin: 4px 0 6px 14px; border: 0; border-left: 2px solid var(--line); border-radius: 0; box-shadow: none; background: transparent; padding: 0 0 0 12px; }
     .nav-more-panel a { font-size: 14px; padding: 8px 12px; }
+  }
+  @media (max-width: 600px) {
+    .statusbar { align-items: stretch; flex-direction: column; gap: 0; padding: 10px 14px; }
+    .status-links { width: 100%; margin-left: 0; gap: 0 12px; }
   }
   @media (max-width: 400px) { .wordmark-name { font-size: 24px; } .nav-cta { padding-inline: 12px; font-size: 10px; } }
   .button, footer li a, .status-links a, .watch-link { min-height: 44px; }
