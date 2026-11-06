@@ -33,6 +33,7 @@ const connectionsSchema = z.array(z.object({
   connectionName: z.string(),
   configured: z.boolean(),
   status: z.string().optional(),
+  source: z.string().optional(),
   oauthAuthorizationId: z.string().min(1).optional(),
   virtual: z.boolean(),
   profile: z.object({ displayName: z.string() }),
@@ -192,8 +193,9 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
         ...(consent ? { authorizationFingerprint: await fingerprint([row.connectionName, row.service, consent]) } : {}),
         executionReady: active && Boolean(consent),
         connectionState: active ? "active" : row.status === "reauth_required" ? "reauth_required" : "unavailable",
-        ...(!active ? { unavailableReason: "Account authorization is unavailable. Reconnect to restore access; the existing account is preserved until new consent succeeds." }
+        ...(!active ? { unavailableReason: row.source?.toLowerCase() === "saas" ? "This SaaS account cannot be reconnected through this OAuth flow. Keep the account and ask the OpenConnector operator to restore or reconnect it by ID." : "Account authorization is unavailable. Reconnect to restore access; the existing account is preserved until new consent succeeds." }
           : !consent ? { unavailableReason: "This account has no verifiable OAuth consent generation. Employee actions are unavailable; ask the operator for a supported OAuth connection." } : {}),
+        ...(row.source?.toLowerCase() === "saas" ? { reconnectSupported: false } : {}),
       } satisfies IntegrationProviderConnection;
     }));
   }
@@ -209,11 +211,11 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     const limit = Math.max(1, Math.min(50, Math.floor(query.limit) || 8));
     const readiness = query.readiness;
     // Upstream lists every service; only OAuth services need a per-service client probe.
-    const rows = readiness === undefined ? matches : readiness === "unsupported" ? matches.filter((row) => !oauth(row)) : matches.filter(oauth);
+    const rows = readiness === undefined || readiness === "unsupported" ? matches : matches.filter(oauth);
     const setup = new Map<string, IntegrationProviderSetupState>();
     const page: typeof rows = [];
     let next = offset;
-    if (readiness === undefined || readiness === "unsupported") {
+    if (readiness === undefined) {
       page.push(...rows.slice(offset, offset + limit));
       next = offset + page.length;
       await this.probeSetup(page, setup);
@@ -265,6 +267,7 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     try {
       if (!SERVICE.test(context.providerKey)) return { ok: false, provider: this.id, error: "Unsupported provider identifier." };
       const existing = (await this.ownedConnectionRows(context.userId, context.workspaceId)).filter((row) => row.service === context.providerKey && !row.virtual);
+      if (context.replaceUnavailable && existing.some((row) => row.source?.toLowerCase() === "saas")) return { ok: false, provider: this.id, error: "This SaaS account cannot be reconnected through this OAuth flow. Ask the OpenConnector operator to reconnect it by ID." };
       const replaceable = context.replaceUnavailable === true && existing.every((row) => !row.configured || (row.status !== undefined && row.status !== "active"));
       if (existing.length && !replaceable) return { ok: false, provider: this.id, error: context.replaceUnavailable ? "Only an expired or unavailable account can be reconnected. Disconnect the active account explicitly first." : "Disconnect the existing owned account before starting a new connection. Existing consent cannot confirm a new sign-in." };
       const setup = await this.oauthSetup(context.providerKey);

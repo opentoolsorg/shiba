@@ -68,6 +68,7 @@ export const integrationProviderConnectionSchema = z.object({
   executionReady: z.boolean().optional(),
   connectionState: z.enum(["active", "reauth_required", "unavailable"]).optional(),
   unavailableReason: z.string().optional(),
+  reconnectSupported: z.boolean().optional(),
 });
 export type IntegrationProviderConnection = z.infer<typeof integrationProviderConnectionSchema>;
 
