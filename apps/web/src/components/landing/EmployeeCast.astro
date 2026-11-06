@@ -14,7 +14,7 @@ const roles = [
 
 <section id="employees" class="lp-band lp-cast" aria-labelledby="employees-title">
   <div class="lp-shell">
-    <div class="lp-cast-head">
+    <div class="lp-cast-head" data-motion="reveal">
       <div>
         <p class="lp-eyebrow">Employees</p>
         <h2 id="employees-title" class="lp-h2">Every department.<br />One workspace.</h2>
@@ -28,7 +28,7 @@ const roles = [
     <div class="lp-cast-grid">
       {
         roles.map((e, i) => (
-          <article class="lp-agent-card">
+          <article class="lp-agent-card" data-motion="reveal">
             <div class="lp-card-top">
               <span class="lp-template-label">{e.kind}</span>
               <span aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>

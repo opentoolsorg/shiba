@@ -56,7 +56,7 @@ const controls = [
   <div class="landing">
     <section class="hero" aria-labelledby="home-title">
       <div class="hero-dots" aria-hidden="true"></div>
-      <div class="lp-shell hero-inner">
+      <div class="lp-shell hero-inner" data-motion="hero">
         <span class="hero-pill">Open source · AGPL-3.0 · Self-hosted</span>
         <h1 id="home-title" class="hero-title">
           Hire AI employees you own.<br />
@@ -74,7 +74,7 @@ const controls = [
     </section>
 
     <section id="dashboard" class="dashboard" aria-label="Shiba dashboard">
-      <div class="lp-shell dashboard-inner">
+      <div class="lp-shell dashboard-inner" data-motion="reveal">
         <ThemedScreenshot />
       </div>
     </section>
@@ -87,7 +87,7 @@ const controls = [
         <h2 id="approve-title" class="lp-h2 section-title">Autonomous,<br />not unsupervised.</h2>
         <ol class="steps">
           {steps.map((s) => (
-            <li class="step">
+            <li class="step" data-motion="reveal">
               <span class="step-num" aria-hidden="true">{s.n}</span>
               <h3>{s.t}</h3>
               <p>{s.d}</p>
@@ -101,7 +101,7 @@ const controls = [
       <div class="lp-shell">
         <p class="lp-eyebrow">Why self-host</p>
         <h2 id="compare-title" class="lp-h2 section-title compare-title">Your employees shouldn't live<br />in someone else's account.</h2>
-        <div class="cmp" role="table" aria-label="Hosted agent platform compared with Shiba">
+        <div class="cmp" data-motion="reveal" role="table" aria-label="Hosted agent platform compared with Shiba">
           <div class="cmp-row cmp-head" role="row">
             <span class="cmp-cell" role="columnheader"><span class="visually-hidden">Aspect</span></span>
             <span class="cmp-cell cmp-them" role="columnheader">Hosted agent platform</span>
@@ -120,7 +120,7 @@ const controls = [
     </section>
 
     <section id="trust" class="lp-section" aria-labelledby="trust-title">
-      <div class="lp-shell trust">
+      <div class="lp-shell trust" data-motion="reveal">
         <div>
           <p class="lp-eyebrow">Trust</p>
           <h2 id="trust-title" class="lp-h2 trust-title">Capable by design.<br />Never in charge.</h2>
@@ -142,7 +142,7 @@ const controls = [
 
     <section id="cta" class="cta" aria-labelledby="cta-title">
       <div class="cta-dots" aria-hidden="true"></div>
-      <div class="lp-shell cta-inner">
+      <div class="lp-shell cta-inner" data-motion="reveal">
         <img class="cta-logo" src="/landing/shiba-logo.webp" alt="" width="120" height="120" loading="lazy" decoding="async" />
         <h2 id="cta-title" class="cta-title">Give the next task a clear place to start.</h2>
         <p class="cta-lead">Free to self-host. Your Cloudflare account, your repository, your approval.</p>
@@ -154,6 +154,11 @@ const controls = [
     </section>
   </div>
 </MarketingPage>
+
+<script>
+  import { initLandingMotion } from '../lib/landing-motion';
+  initLandingMotion();
+</script>
 
 <style>
   section[id] { scroll-margin-top: 96px; }
