@@ -552,9 +552,11 @@ function ScopedCollaborationView({
     setActiveRoomId(initialRoomId);
   }, [initialRoomId, clearRoomDrafts]);
 
+  const onRoomChangeRef = useRef(onRoomChange);
+  useEffect(() => { onRoomChangeRef.current = onRoomChange; }, [onRoomChange]);
   useEffect(() => {
-    if (activeRoomId && activeRoomRef.current === activeRoomId && detail?.room.roomId === activeRoomId) onRoomChange?.(activeRoomId);
-  }, [activeRoomId, detail?.room.roomId, onRoomChange]);
+    if (activeRoomId && activeRoomRef.current === activeRoomId && detail?.room.roomId === activeRoomId) onRoomChangeRef.current?.(activeRoomId);
+  }, [activeRoomId, detail?.room.roomId]);
 
   useEffect(() => {
     if (initialEmployeeId) setSelectedProfileId(initialEmployeeId);
