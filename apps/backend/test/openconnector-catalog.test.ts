@@ -36,7 +36,7 @@ function upstream(connections: unknown[] = []) {
       const service = decodeURIComponent(setup[1]!);
       if (service === "svc_013") return new Response("boom", { status: 500 });
       const client = setupFor(service);
-      return Response.json({ success: true, data: { service, ...(client ? { oauthClient: client } : {}) } });
+      return Response.json({ success: true, data: { service, ...(service === "svc_010" ? { defaultSource: "saas" } : {}), ...(client ? { oauthClient: client } : {}) } });
     }
     if (path === "/api/oauth/authorizations") return Response.json({ authorizationUrl: "https://vendor.example.test/consent?state=s", state: "s" });
     throw new Error(`Unexpected fixture request ${path}`);
@@ -62,11 +62,30 @@ describe("OpenConnector full catalog (fixture upstream)", () => {
     expect(seen.size).toBe(120);
     expect(seen.get("svc_000")).toBe("unsupported");
     expect(seen.get("svc_005")).toBe("ready");
+    expect(seen.get("svc_010")).toBe("unsupported");
     expect(seen.get("svc_007")).toBe("unsupported");
     expect(seen.get("svc_001")).toBe("needs_configuration");
     expect(seen.get("svc_013")).toBe("unverified");
     // API-key-only services are never probed for an OAuth client.
     expect(fetchImpl.mock.calls.some(([url]) => String(url).includes("/svc_000/setup"))).toBe(false);
+  });
+
+  it("returns promptly at the page deadline and leaves pending setup probes unverified", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/providers") return Response.json(services);
+      if (path === "/api/connections") return Response.json([]);
+      return new Promise<Response>((_resolve, reject) => {
+        if (init?.signal?.aborted) reject(new Error("aborted"));
+        else init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      });
+    });
+    const adapter = new OpenConnectorIntegrationProvider({ env: configured, fetchImpl });
+    const started = Date.now();
+    const page = await adapter.listCatalog({ userId: "alice", limit: 8 });
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(page.items.some((item) => item.setupState === "unverified")).toBe(true);
+    expect(page.items.every((item) => !item.connectable || item.setupState === "ready")).toBe(true);
   });
 
   it("filters by readiness with a bounded probe budget and resumable cursor", async () => {
@@ -83,7 +102,7 @@ describe("OpenConnector full catalog (fixture upstream)", () => {
       requests++;
     } while (cursor && requests < 10);
     // Multiples of 5 that are not multiples of 3.
-    expect(ready).toEqual(services.map((row) => row.service).filter((service) => Number(service.slice(4)) % 5 === 0 && Number(service.slice(4)) % 3 !== 0));
+    expect(ready).toEqual(services.map((row) => row.service).filter((service) => Number(service.slice(4)) % 5 === 0 && Number(service.slice(4)) % 3 !== 0 && service !== "svc_010"));
     const unsupported = await adapter.listCatalog({ userId: "alice", limit: 50, readiness: "unsupported" });
     expect(unsupported.items.every((item) => item.setupState === "unsupported" && !item.connectable)).toBe(true);
     expect(unsupported.items).toEqual(expect.arrayContaining([expect.objectContaining({ providerKey: "svc_007", setupState: "unsupported" })]));
