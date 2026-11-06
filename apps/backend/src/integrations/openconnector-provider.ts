@@ -40,9 +40,10 @@ const connectionsSchema = z.array(z.object({
 }));
 const authorizationSchema = z.object({ authorizationUrl: z.string().url(), state: z.string().min(1) });
 const executionSchema = z.object({ success: z.boolean(), data: z.unknown() });
-const setupSchema = z.object({ success: z.literal(true), data: z.object({ service: z.string(), oauthClient: z.object({ configured: z.boolean(), missingFields: z.array(z.string()) }).optional() }) });
+const setupSchema = z.object({ success: z.literal(true), data: z.object({ service: z.string(), oauthClient: z.object({ configured: z.boolean(), missingFields: z.array(z.string()) }).optional(), source: z.string().optional(), defaultSource: z.string().optional() }) });
 const SERVICE = /^[A-Za-z0-9_-]{1,100}$/;
 const CATALOG_PROBE_BUDGET = 40;
+const CATALOG_PAGE_DEADLINE_MS = 2_000;
 
 async function fingerprint(parts: string[]): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(parts)));
@@ -137,12 +138,13 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
   }
 
   /** Classify OAuth setup from authenticated metadata; failures remain unverified, never connectable. */
-  private async oauthSetup(service: string): Promise<IntegrationProviderSetupState> {
+  private async oauthSetup(service: string, signal?: AbortSignal): Promise<IntegrationProviderSetupState> {
     if (!SERVICE.test(service)) return "unsupported";
     try {
       // The pinned upstream classifies this metadata path as admin/connection management.
-      const setup = this.parse(setupSchema, await this.request(`/v1/providers/${encodeURIComponent(service)}/setup`, "admin")).data;
+      const setup = this.parse(setupSchema, await this.request(`/v1/providers/${encodeURIComponent(service)}/setup`, "admin", signal ? { signal } : {})).data;
       if (setup.service !== service) return "unverified";
+      if ([setup.source, setup.defaultSource].some((source) => source?.toLowerCase() === "saas")) return "unsupported";
       if (!setup.oauthClient) return "unsupported";
       return setup.oauthClient.configured && setup.oauthClient.missingFields.length === 0 ? "ready" : "needs_configuration";
     } catch { return "unverified"; }
@@ -213,18 +215,19 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     // Upstream lists every service; only OAuth services need a per-service client probe.
     const rows = readiness === undefined || readiness === "unsupported" ? matches : matches.filter(oauth);
     const setup = new Map<string, IntegrationProviderSetupState>();
+    const probeSignal = AbortSignal.timeout(CATALOG_PAGE_DEADLINE_MS);
     const page: typeof rows = [];
     let next = offset;
     if (readiness === undefined) {
       page.push(...rows.slice(offset, offset + limit));
       next = offset + page.length;
-      await this.probeSetup(page, setup);
+      await this.probeSetup(page, setup, probeSignal);
     } else {
       // A filtered page may scan past non-matching services; the probe budget bounds upstream reads per request.
       const budget = Math.max(limit, CATALOG_PROBE_BUDGET);
       while (next < rows.length && page.length < limit && next - offset < budget) {
         const batch = rows.slice(next, Math.min(next + 4, offset + budget, rows.length));
-        await this.probeSetup(batch, setup);
+        await this.probeSetup(batch, setup, probeSignal);
         for (const row of batch) {
           next++;
           if (setup.get(row.service) === readiness) page.push(row);
@@ -255,11 +258,16 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
   }
 
   /** Four metadata reads at a time; a failed setup check cannot enable OAuth. */
-  private async probeSetup(rows: { service: string; authTypes: string[] }[], into: Map<string, IntegrationProviderSetupState>): Promise<void> {
+  private async probeSetup(rows: { service: string; authTypes: string[] }[], into: Map<string, IntegrationProviderSetupState>, signal: AbortSignal): Promise<void> {
     for (let start = 0; start < rows.length; start += 4) {
-      await Promise.all(rows.slice(start, start + 4).map(async (row) => {
-        if (!into.has(row.service)) into.set(row.service, row.authTypes.includes("oauth2") ? await this.oauthSetup(row.service) : "unsupported");
+      if (signal.aborted) return;
+      const batch = Promise.all(rows.slice(start, start + 4).map(async (row) => {
+        if (!into.has(row.service)) into.set(row.service, row.authTypes.includes("oauth2") ? await this.oauthSetup(row.service, signal) : "unsupported");
       }));
+      await Promise.race([batch, new Promise<void>((resolve) => {
+        if (signal.aborted) resolve();
+        else signal.addEventListener("abort", () => resolve(), { once: true });
+      })]);
     }
   }
 
