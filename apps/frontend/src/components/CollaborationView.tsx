@@ -934,8 +934,15 @@ function ScopedCollaborationView({
                     {workspaceId && <div className="mt-2 flex flex-wrap items-center gap-2">
                       <button type="button" className="min-h-11 border border-[var(--line)] px-3 text-xs" onClick={async () => {
                         const roomId = activeRoomId;
+                        let url: string;
                         try {
-                          await navigator.clipboard.writeText(roomLinkUrl({ workspaceId, roomId }, window.location.origin));
+                          url = roomLinkUrl({ workspaceId, roomId }, window.location.origin);
+                        } catch {
+                          setCopyLinkStatus("This room has no shareable link.");
+                          return;
+                        }
+                        try {
+                          await navigator.clipboard.writeText(url);
                           if (activeRoomRef.current === roomId) setCopyLinkStatus("Room link copied. Recipients still need workspace and room access.");
                         } catch {
                           if (activeRoomRef.current === roomId) setCopyLinkStatus("Could not copy room link. Check clipboard permission and try again.");

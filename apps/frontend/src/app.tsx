@@ -793,11 +793,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const teamIdentityAvailable = signedIn && /^[^\s@:]+@[^\s@:]+\.[^\s@:]+$/.test(orchestratorName ?? "");
   const teamDirectory = useTeamWorkspaceDirectory({ actorId: teamIdentityAvailable ? orchestratorName?.trim().toLowerCase() ?? null : null, enabled: teamIdentityAvailable });
   const roomRoute = useRoomLinkRoute(teamIdentityAvailable ? orchestratorName?.trim().toLowerCase() ?? null : null, teamDirectory);
-  clearRoomLinkRef.current = () => {
-    if (!roomRoute.ready) return false;
-    roomRoute.clear();
-    return true;
-  };
+  const { ready: roomRouteReady, clear: clearRoomRoute } = roomRoute;
+  useEffect(() => {
+    clearRoomLinkRef.current = () => {
+      if (!roomRouteReady) return false;
+      clearRoomRoute();
+      return true;
+    };
+  }, [roomRouteReady, clearRoomRoute]);
   const workspaceAuthorityReady = roomRoute.ready && (!teamIdentityAvailable || teamDirectory.verified);
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
   // Entering Settings inside a team workspace lands on its only team section, not a personal-only notice.
