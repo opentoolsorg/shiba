@@ -172,11 +172,11 @@ Do not flip SDK major versions in the same deploy as DO migration tag changes or
 
 Tags in `wrangler.jsonc` `migrations` are **append-only**. Never edit or remove a tag already applied in production. Alchemy emits provider tags for new classes; wrangler must list every tag the published script has ever carried (including `alchemy:v*` placeholders) so rollback deploys do not re-apply history.
 
-List applied migrations:
-
-```sh
-npx wrangler migrations list --config apps/backend/wrangler.jsonc
-```
+Wrangler 4.140 has no `migrations list` subcommand. Read the tag the plan
+intends to apply from `pnpm deploy:preview`, and the tag already on the script
+from the current version's details in the dashboard (Workers → the Worker →
+Deployments). A deploy whose recorded tag is missing from `wrangler.jsonc` is
+rejected with a migration-tag mismatch; add the missing tag, never edit one.
 
 ---
 

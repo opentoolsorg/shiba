@@ -25,12 +25,17 @@ pnpm check:deploy
 export ALCHEMY_STAGE=dogfood          # never pass --stage
 export CLOUDFLARE_ACCOUNT_ID=<account>
 export WORKERS_SUBDOMAIN=<account workers.dev subdomain>
+# Unset WORKER_HOSTNAME and BETTER_AUTH_URL, or set them to exactly
+# https://shiba-ai-coworker-dogfood.<subdomain>.workers.dev — the preflight
+# rejects any other value on a non-live stage.
 pnpm env:load                         # validates .env
 pnpm deploy:preview                   # alchemy plan: read it before applying
 pnpm deploy:alchemy                   # pnpm build && alchemy deploy
 ```
 
 Read the plan first and confirm it creates `shiba-artifacts-dogfood` and the missing Durable Object classes, and that it does not touch `shiba-ai-coworker` (live).
+
+Do not set `ACCESS_AUD` or `REQUIRE_ACCESS`; the preflight rejects both. A non-live stage with neither `ACCESS_EMAILS` nor a `BETTER_AUTH_SECRET` + bootstrap pair deploys with an **open dashboard** (`deploy-config.ts` `openDashboard`), so configure one of them for dogfood.
 
 ## Migration order
 
@@ -56,7 +61,7 @@ Cloudflare applies migrations in list order, from the first tag the script has n
 
 **Skipping is safe** because every tag is additive (`new_sqlite_classes`) apart from the v4→v8 create-then-delete of `McpGateway`, which replays cleanly in order. A Worker that never saw v9–v15 gets them in sequence and ends with all classes. Risks to check in the plan:
 
-- `alchemy:*` tags are only placeholders. If the dogfood script's recorded tag is not in this list, Cloudflare rejects the deploy (old tag mismatch). Check with `npx wrangler migrations list --name shiba-ai-coworker-dogfood` and compare against the table.
+- `alchemy:*` tags are only placeholders. If the dogfood script's recorded tag is not in this list, Cloudflare rejects the deploy with a migration-tag mismatch. Wrangler 4.140 has **no** `migrations list` subcommand (the one in `docs/DEPLOY.md` is stale), so read the tag from the plan output and, if the deploy is rejected, from the current version's details in the dashboard (Workers → `shiba-ai-coworker-dogfood` → Deployments). Compare that against the table before changing anything.
 - Never edit, reorder or remove a tag to make a plan pass.
 - Do not combine this deploy with a Sandbox SDK major bump (`docs/DEPLOY.md`).
 
@@ -79,7 +84,7 @@ Also needed for a usable dogfood stage: a built-in auth pair (`BETTER_AUTH_SECRE
 - Code and bindings: redeploy the previous commit with the same command (`git checkout <previous-sha>`, then repeat the deploy). Durable Object migrations do not roll back, and classes added by v9–v15 stay on the script. That is harmless because older code simply does not use them.
 - Do not delete DO classes to undo a deploy; that needs a new `deleted_classes` tag and destroys state.
 - Secrets: Alchemy replaces the set, so rollback must run with the previous `.env`.
-- Emergency script-only path: `npx wrangler deploy --name shiba-ai-coworker-dogfood --config apps/backend/wrangler.jsonc` needs the name override and keeps undeclared secrets, but does not manage the stage-suffixed resources. Prefer Alchemy.
+- **Do not use `wrangler deploy` for dogfood.** `wrangler.jsonc` carries `routes: [{ pattern: "app.tryshiba.dev", custom_domain: true }]`, so even with `--name shiba-ai-coworker-dogfood` it would attach the live custom domain to the dogfood script and steal production traffic. The wrangler path in `docs/DEPLOY.md` is for the live Worker only.
 - `pnpm deploy:destroy` with `ALCHEMY_STAGE=dogfood` removes the whole stage. It is not a rollback.
 
 ## Post-deploy smoke checks
