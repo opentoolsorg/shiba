@@ -169,6 +169,7 @@ import { registerPrOwner } from "../pr-owner-index.js";
 import { decidePrWake, pullNumberFromCheckPayload, wakeFollowUpTask } from "../review/wake.js";
 import { ORCHESTRATOR_NAME } from "../slack-routes.js";
 import { areSkillPinsActive, resolveSkillPins } from "../skills-store.js";
+import { BotSkillAttachment, BotSkillAttachmentError } from "../bot-skill-pins.js";
 import { getCustomAgentById } from "../custom-agents-store.js";
 import { createExtensionSkillAgentTools, createScopedExtensionSkillAgentTools, extensionSkillDirectoryContext } from "../extension-skills-tools.js";
 import { allocateArtifactVersions, artifactIdentity, artifactReviewRevision, authoritativeArtifactReview, parseArtifactReview, prepareRunArtifacts, updateArtifactReview } from "../artifact-metadata.js";
@@ -2845,12 +2846,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (kind !== "run") {
       return Response.json({ error: `Unknown approval kind "${kind}".` }, { status: 400 });
     }
-    let skillPins: Array<{ skillId: string; version: number; name: string; sourceUrl?: string }> | undefined;
+    let skillPins: Array<{ skillId: string; version: number; name: string; sourceUrl?: string; contentSha256?: string }> | undefined;
     if (input.skillPins !== undefined) {
       if (!Array.isArray(input.skillPins) || input.skillPins.length > 5) {
         return Response.json({ error: "Invalid skill version pins." }, { status: 400 });
       }
-      const parsedPins: Array<{ skillId: string; version: number; name: string; sourceUrl?: string }> = [];
+      const parsedPins: Array<{ skillId: string; version: number; name: string; sourceUrl?: string; contentSha256?: string }> = [];
       for (const candidate of input.skillPins) {
         if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
           return Response.json({ error: "Invalid skill version pins." }, { status: 400 });
@@ -2860,13 +2861,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           typeof pin.skillId !== "string" || !/^skill-[a-f0-9]{24}$/.test(pin.skillId) ||
           !Number.isSafeInteger(pin.version) || Number(pin.version) < 1 ||
           typeof pin.name !== "string" || !pin.name.trim() || pin.name.length > 100 ||
-          (pin.sourceUrl !== undefined && (typeof pin.sourceUrl !== "string" || !pin.sourceUrl.startsWith("https://")))
+          (pin.sourceUrl !== undefined && (typeof pin.sourceUrl !== "string" || !pin.sourceUrl.startsWith("https://"))) ||
+          (pin.contentSha256 !== undefined && (typeof pin.contentSha256 !== "string" || !/^[a-f0-9]{64}$/.test(pin.contentSha256)))
         ) return Response.json({ error: "Invalid skill version pins." }, { status: 400 });
         parsedPins.push({
           skillId: pin.skillId,
           version: Number(pin.version),
           name: pin.name,
           ...(typeof pin.sourceUrl === "string" ? { sourceUrl: pin.sourceUrl } : {}),
+          ...(typeof pin.contentSha256 === "string" ? { contentSha256: pin.contentSha256 } : {}),
         });
       }
       if (new Set(parsedPins.map((pin) => pin.skillId)).size !== parsedPins.length) {
@@ -3017,6 +3020,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
       if (ephemeralWorkspace && profileDeliverables?.length) {
         task += `\n\nEphemeral workspace required outputs. Use these paths for the profile outputs:\n${profileDeliverables.map((path) => `- ${path}`).join("\n")}`;
+      }
+      try {
+        ({ task, pins: skillPins } = await new BotSkillAttachment(this.env, intakeOrgId).apply(task, skillPins, agent.config.skillPins));
+      } catch (error) {
+        if (error instanceof BotSkillAttachmentError) return Response.json({ error: error.message }, { status: 409 });
+        throw error;
       }
       if (input.expectedCustomAgentVersion !== undefined && task.length > 4000) {
         return Response.json({ error: "Pinned employee instructions and scheduled task exceed the 4,000-character approval limit. Review and shorten the schedule inputs." }, { status: 400 });
@@ -4063,7 +4072,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     let connectionId = input.connectionId;
     let sandboxProvider: string | undefined;
     const intakeOrgId = intakeOrgIdForOrchestrator(this.name, input as Record<string, unknown>);
-    let skillPins: Array<{ skillId: string; version: number; name: string; sourceUrl?: string }> | undefined;
+    let skillPins: Array<{ skillId: string; version: number; name: string; sourceUrl?: string; contentSha256?: string }> | undefined;
     if (input.skillPins !== undefined && input.skillPins.length > 0) {
       const skillOwnerId = initiatorUserIdFromOrchestratorName(this.name);
       const resolvedSkills = this.env.AGENT_AUDIT && skillOwnerId
@@ -4109,6 +4118,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (ephemeralWorkspace && profileDeliverables?.length) {
         task += `\n\nEphemeral workspace required outputs. Use these paths for the profile outputs:\n${profileDeliverables.map((path) => `- ${path}`).join("\n")}`;
       }
+      ({ task, pins: skillPins } = await new BotSkillAttachment(this.env, intakeOrgId).apply(task, skillPins, agent.config.skillPins));
       if (input.executionTarget?.kind === "artifact-workspace") {
         input = { ...input, repoUrl: "", publishPullRequest: false, expectedDeliverables,
           executionTarget: executionTargetSchema.parse({ ...input.executionTarget, expectedDeliverables: [...expectedDeliverables] }) };

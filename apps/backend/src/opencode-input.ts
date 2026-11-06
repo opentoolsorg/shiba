@@ -39,6 +39,7 @@ const codingTaskInputSchema = z.object({
     version: z.number().int().positive(),
     name: z.string().min(1).max(100),
     sourceUrl: z.string().url().startsWith("https://").optional(),
+    contentSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   }).strict()).max(5).optional(),
   codingModel: z.string().min(1),
   /** Which coding agent runs the task. Validated at approval time, never in the container. */

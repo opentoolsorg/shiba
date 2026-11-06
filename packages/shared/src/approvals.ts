@@ -55,6 +55,8 @@ export interface SkillExecutionPin {
   version: number;
   name: string;
   sourceUrl?: string;
+  /** SHA-256 of the reviewed instructions copied into the approved task. */
+  contentSha256?: string;
 }
 
 /** Runtime check that `value` is JSON-serializable — the shape a JSON body parse produces. */
