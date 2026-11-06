@@ -3803,7 +3803,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               }}
             />
           ) : mainView === "collaboration" ? (
-            <CollaborationView key={`${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} initialRoomId={roomRoute.roomId ?? sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); roomRoute.onRoomChange(id); }}
+            <CollaborationView key={`${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} initialRoomId={roomRoute.roomId ?? sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); }}
               renderApproval={(handoff) => teamWorkspaceId && handoff.senderActorId === `human:${orchestratorName?.trim().toLowerCase()}` ? <RoomApprovalReview workspaceId={teamWorkspaceId} workspaceName={teamWorkspace?.name} roomId={handoff.roomId} handoffId={handoff.handoffId} actorId={orchestratorName?.trim().toLowerCase() ?? null} /> : null}
               renderExecution={(handoff) => <RoomExecutionPanel key={`${handoff.handoffId}:${handoff.runId}:${handoff.execution?.approvalStatus}`} workspaceId={teamWorkspaceId || undefined} roomId={handoff.roomId} handoffId={handoff.handoffId} runId={handoff.runId} />} />
           ) : mainView === "team" ? (

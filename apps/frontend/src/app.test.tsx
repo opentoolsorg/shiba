@@ -599,12 +599,18 @@ describe("app Work and Threads routing", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
       if (String(url) === "/api/whoami") return Response.json({ agent: actor, auth: "better-auth", teamMember: true });
       if (String(url) === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId: id, name: "Shared team", version: 1, createdAt: 1, membership: { workspaceId: id, userId: actor, role: "member", version: 1, joinedAt: 1 } }] });
-      if (String(url) === "/api/collaboration/rooms") return Response.json({ rooms: [] });
+      if (String(url) === "/api/collaboration/rooms") return Response.json({ rooms: [{ roomId: "room-1", title: "Shared room", visibility: "private" }] });
+      if (String(url) === `/api/collaboration/rooms/room-1`) return Response.json({
+        room: { roomId: "room-1", title: "Shared room", visibility: "private" }, currentUserId: actor,
+        members: [], messages: [], handoffs: [],
+      });
       return originalFetch(url, options);
     }));
     render(<App />);
     await screen.findByText(/Chat with your team/);
+    await screen.findByRole("heading", { name: "Shared room" });
     expect(window.location.pathname).toBe("/collaboration/");
+    expect(window.location.search).toBe("");
     expect(screen.queryByRole("textbox", { name: "Task draft" })).toBeNull();
   });
 
