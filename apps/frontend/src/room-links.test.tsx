@@ -122,4 +122,25 @@ describe("canonical workspace room links", () => {
     expect(result.current.roomId).toBeUndefined();
     expect(window.location.search).toBe("");
   });
+  it("updates the canonical URL and route intent for a verified member room change", () => {
+    const value = { ...directory(), selectedWorkspaceId: workspaceId };
+    const { result } = renderHook(() => useRoomLinkRoute(actor, value));
+    const nextRoomId = `room_${"c".repeat(24)}`;
+
+    act(() => result.current.onRoomChange(nextRoomId));
+
+    expect(window.location.pathname + window.location.search).toBe(roomLinkUrl({ workspaceId, roomId: nextRoomId }, window.location.origin).replace(window.location.origin, ""));
+    expect(result.current.roomId).toBe(nextRoomId);
+  });
+  it.each(["unverified", "invalid-room"] as const)("does not update URL or route intent for %s room changes", (condition) => {
+    const value = { ...directory(), selectedWorkspaceId: workspaceId };
+    if (condition === "unverified") value.verified = false;
+    window.history.replaceState(null, "", "/threads/?keep=1");
+    const { result } = renderHook(() => useRoomLinkRoute(actor, value));
+
+    act(() => result.current.onRoomChange(condition === "invalid-room" ? "not-a-room" : roomId));
+
+    expect(window.location.search).toBe("?keep=1");
+    expect(result.current.roomId).toBeUndefined();
+  });
 });
