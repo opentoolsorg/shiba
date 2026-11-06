@@ -26,7 +26,9 @@ pnpm check:deploy
 export ALCHEMY_STAGE=dogfood          # never pass --stage
 export CLOUDFLARE_ACCOUNT_ID=<account>
 export WORKERS_SUBDOMAIN=<account workers.dev subdomain>
-# Unset both, or set them to the dogfood origin in their own forms:
+# alchemy.run.ts calls process.loadEnvFile(".env"), so .env wins over the shell.
+# Remove any live WORKER_HOSTNAME / BETTER_AUTH_URL from .env too, then either
+# leave both unset or set the dogfood origin in each one's own form:
 #   WORKER_HOSTNAME=shiba-ai-coworker-dogfood.<subdomain>.workers.dev   (no scheme)
 #   BETTER_AUTH_URL=https://shiba-ai-coworker-dogfood.<subdomain>.workers.dev
 # The preflight rejects any other value on a non-live stage.
