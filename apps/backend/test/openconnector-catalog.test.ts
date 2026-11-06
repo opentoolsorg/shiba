@@ -88,10 +88,17 @@ describe("OpenConnector full catalog (fixture upstream)", () => {
     expect(unsupported.items.every((item) => item.setupState === "unsupported" && !item.connectable)).toBe(true);
   });
 
-  it("validates the readiness query and returns totals through the authenticated route", async () => {
-    const env = { ...configured };
+  it("validates readiness queries and returns filtered catalog totals through the authenticated route", async () => {
+    const env = { ...configured, OPEN_CONNECTOR: { fetch: upstream() } } as Env;
     const bad = await handleIntegrationProviderRoutes(new Request("https://app.example.test/api/integrations/provider/catalog?readiness=live"), env);
     expect(bad?.status).toBe(400);
+
+    const good = await handleIntegrationProviderRoutes(new Request("https://app.example.test/api/integrations/provider/catalog?readiness=ready"), env);
+    expect(good?.status).toBe(200);
+    const body = await good?.json() as { items: Array<{ providerKey: string; setupState: string }> };
+    expect(body).toMatchObject({ ok: true, total: 120, oauthCapable: 80 });
+    expect(body.items).toEqual(expect.arrayContaining([expect.objectContaining({ providerKey: "svc_005", setupState: "ready" })]));
+    expect(body.items.every((item) => item.setupState === "ready")).toBe(true);
   });
 
   it("reconnects only an unavailable owned row, and only after setup is verified", async () => {
