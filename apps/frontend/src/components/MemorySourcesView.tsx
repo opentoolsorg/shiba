@@ -92,8 +92,11 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
   const uploadInput = useRef<HTMLInputElement>(null);
   const uploadBusy = useRef(false);
   const recallEpoch = useRef(0);
+  const downloadRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => { downloadRequest.current?.abort(); }, []);
 
   const load = useCallback(async () => {
+    downloadRequest.current?.abort();
     const epoch = ++recallEpoch.current;
     setHits([]);
     setSearchActive(false);
@@ -114,6 +117,36 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
   useEffect(() => {
     void load();
   }, [load]);
+
+  const download = async (source: MemorySource) => {
+    if (!source.ingestion || !source.version || downloadRequest.current) return;
+    const controller = new AbortController();
+    downloadRequest.current = controller;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(`/api/memory/sources/${encodeURIComponent(source.id)}/download?version=${source.version}`, {
+        credentials: "same-origin", cache: "no-store", signal: controller.signal,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error || `Download failed: ${response.status}`);
+      }
+      const blob = await response.blob();
+      if (controller.signal.aborted) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      try { link.href = url; link.download = source.ingestion.filename; link.click(); }
+      finally { URL.revokeObjectURL(url); }
+      setNotice(`Version ${source.version} downloaded. Saved copies remain on your device after the source is disabled or deleted.`);
+    } catch (cause) {
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "File could not be downloaded.");
+    } finally {
+      if (downloadRequest.current === controller) downloadRequest.current = null;
+      setBusy(false);
+    }
+  };
 
   const upload = async (event: FormEvent) => {
     event.preventDefault();
@@ -736,7 +769,12 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
                       </a>
                     ) : null}
                   </div>
-                  <div className="flex gap-1.5 shrink-0">
+                  <div className="flex flex-wrap gap-1.5">
+                    {source.ingestion && source.version && state === "active" ? (
+                      <button type="button" className={BUTTON} disabled={busy} onClick={() => void download(source)}>
+                        Download v{source.version}
+                      </button>
+                    ) : null}
                     <button type="button" className={BUTTON} onClick={() => edit(source)}>
                       Inspect / edit
                     </button>
