@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { handleIntegrationProviderRoutes } from "../src/integrations-provider-routes.js";
 import { OpenConnectorIntegrationProvider, openConnectorConnectionName } from "../src/integrations/openconnector-provider.js";
 
 vi.mock("../src/request-auth.js", () => ({ isAuthorizedRequest: vi.fn(async () => true) }));
 vi.mock("../src/gmail-routes.js", () => ({ gmailOwner: vi.fn(async () => "alice") }));
+afterEach(() => { vi.restoreAllMocks(); });
 
 const configured = {
   OPEN_CONNECTOR_URL: "https://connector.example.test",
@@ -106,6 +107,47 @@ describe("OpenConnector full catalog (fixture upstream)", () => {
     const unsupported = await adapter.listCatalog({ userId: "alice", limit: 50, readiness: "unsupported" });
     expect(unsupported.items.every((item) => item.setupState === "unsupported" && !item.connectable)).toBe(true);
     expect(unsupported.items).toEqual(expect.arrayContaining([expect.objectContaining({ providerKey: "svc_007", setupState: "unsupported" })]));
+  });
+
+  it.each(["unverified", "unsupported"] as const)("does not drop %s rows when setup probes hit the page deadline", async (readiness) => {
+    const deadline = new AbortController();
+    const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => ms === 2_000 ? deadline.signal : nativeTimeout(ms));
+    const catalog = Array.from({ length: 12 }, (_, index) => ({
+      service: `deadline_${index}`, displayName: `Deadline ${index}`,
+      authTypes: readiness === "unverified" || index < 4 ? ["oauth2"] : ["api_key"],
+    }));
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    let probes = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/providers") return Response.json(catalog);
+      if (path === "/api/connections") return Response.json([]);
+      probes++;
+      if (probes === 4) entered();
+      // A service binding need not promptly reject when its signal aborts.
+      return new Promise<Response>(() => {});
+    });
+    const adapter = new OpenConnectorIntegrationProvider({ env: configured, fetchImpl });
+    const first = adapter.listCatalog({ userId: "alice", limit: 4, readiness });
+    await started;
+    deadline.abort();
+    let page = await first;
+    const seen: string[] = [];
+    for (let index = 0; index < 3; index++) {
+      expect(page.items).toHaveLength(4);
+      for (const item of page.items) {
+        expect(item).toMatchObject({ setupState: readiness, connectable: false });
+        seen.push(item.providerKey);
+      }
+      if (!page.nextCursor) break;
+      page = await adapter.listCatalog({ userId: "alice", limit: 4, readiness, cursor: page.nextCursor });
+    }
+    expect(seen).toEqual(catalog.filter((_, index) => readiness === "unverified" || index >= 4).map((row) => row.service));
+    expect(page.hasMore).toBe(false);
+    expect(probes).toBe(4);
+    expect(fetchImpl.mock.calls.some(([input]) => String(input).includes("/authorizations"))).toBe(false);
   });
 
   it("validates readiness queries and returns filtered catalog totals through the authenticated route", async () => {
