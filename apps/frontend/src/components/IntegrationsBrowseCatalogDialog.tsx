@@ -1,20 +1,10 @@
+import { IntegrationLogo } from "./IntegrationLogo";
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 import type { IntegrationProviderCatalogItem, IntegrationProviderSetupState } from "@shiba/shared";
 import { ToneChip } from "./ToneChip";
 import { RoleCapabilityFilter } from "./RoleCapabilityFilter";
 import { integrationRecommendedForRole, type CapabilityRoleFilter } from "../role-capability-recommendations";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
-
-function safeLogoUrl(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:") return null;
-    return url.href;
-  } catch {
-    return null;
-  }
-}
 
 const READINESS_OPTIONS: readonly [IntegrationProviderSetupState | "all", string][] = [
   ["all", "All services"],
@@ -202,19 +192,12 @@ function ScopedBrowseCatalog({
             <p className="px-4 py-8 text-center text-sm text-[var(--muted-foreground-2)]">No connectors match on this page. {hasMore ? "Load more to search additional provider entries." : "Try another role or search."}</p>
           ) : (
             visibleItems.map((item) => {
-              const logo = safeLogoUrl(item.logoUrl);
               return (
                 <div
                   key={`${item.source}:${item.providerKey}`}
                   className="flex gap-3 border-b border-[var(--border-1)] px-4 py-3 last:border-b-0"
                 >
-                  {logo ? (
-                    <img src={logo} alt="" className="mt-0.5 h-8 w-8 rounded border border-[var(--border-1)] bg-white object-contain" />
-                  ) : (
-                    <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded border border-[var(--border-1)] bg-[var(--card)] text-[10px] font-semibold">
-                      {item.name.slice(0, 2).toUpperCase()}
-                    </div>
-                  )}
+                  <IntegrationLogo providerKey={item.providerKey} logoUrl={item.logoUrl} />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[13px] font-semibold">{item.name}</span>
