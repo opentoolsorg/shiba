@@ -4,6 +4,7 @@ import '../styles/tailwind.css';
 // scoped <style>, so descendants need the shared sheet imported here rather
 // than per-page — a page-level import would compile but resolve to no tokens.
 import '../styles/blog.css';
+import GitHubStars from '../components/GitHubStars.astro';
 
 interface Props {
   title: string;
@@ -193,7 +194,7 @@ const finalSchemas = schema
               <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
             </svg>
           </button>
-          <a class="nav-cta" href="/docs/self-hosting/">Self-host</a>
+          <GitHubStars />
         </div>
       </div>
     </header>
@@ -484,9 +485,6 @@ const finalSchemas = schema
   .nav-actions { display: flex; align-items: center; gap: 10px; }
   .nav-theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid var(--hairline); border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; transition: color 150ms var(--ease-out), border-color 150ms var(--ease-out); }
   .nav-theme-toggle:hover { color: var(--ink); border-color: var(--border); }
-  .nav-cta { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 40px; padding: 8px 16px; border-radius: 8px; background: var(--accent); color: var(--on-accent); text-decoration: none; font: 600 12px/1.5 'Geist Mono', monospace; white-space: nowrap; border: 1.5px solid var(--accent-border); box-shadow: -2px 2px 0 var(--accent-border); transition: transform 150ms var(--ease-out), box-shadow 150ms var(--ease-out); }
-  .nav-cta:hover { transform: translateY(-1px); box-shadow: -3px 3px 0 var(--accent-border); }
-  .nav-cta:active { transform: translateY(1px); box-shadow: -1px 1px 0 var(--accent-border); }
   .nav-more { position: relative; min-width: 58px; }
   .nav-more-panel { position: absolute; right: 0; top: calc(100% + 10px); min-width: 190px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); box-shadow: -3px 3px 0 var(--border); }
   .nav-more-panel a { display: flex; align-items: center; min-height: 44px; padding: 10px 14px; font: 500 12px/1.5 'Geist Mono', monospace; color: var(--ink-2); text-decoration: none; border-radius: 6px; }
@@ -559,7 +557,7 @@ const finalSchemas = schema
       width: calc(100% - 16px);
       border-radius: 14px;
     }
-    .header-inner { grid-template-columns: minmax(0, 1fr) auto auto; min-height: 52px; gap: 4px; padding-inline: 12px; }
+    .header-inner { width: 100%; grid-template-columns: minmax(0, 1fr) auto auto; min-height: 52px; gap: 4px; padding-inline: 12px; }
     .wordmark { grid-column: 1; grid-row: 1; }
     .nav-menu-toggle { grid-column: 2; grid-row: 1; }
     .nav-actions { grid-column: 3; grid-row: 1; gap: 4px; }
@@ -618,7 +616,8 @@ const finalSchemas = schema
     .statusbar { align-items: stretch; flex-direction: column; gap: 0; padding: 10px 14px; }
     .status-links { width: 100%; margin-left: 0; gap: 0 12px; }
   }
-  @media (max-width: 400px) { .wordmark-name { font-size: 24px; } .nav-cta { padding-inline: 12px; font-size: 10px; } }
+  /* Keep menu, theme and GitHub targets usable on narrow phones. The logo retains its accessible name. */
+  @media (max-width: 360px) { .wordmark .wordmark-name { display: none; } }
   .button, footer li a, .status-links a, .watch-link { min-height: 44px; }
   footer li a, .status-links a { display: inline-flex; align-items: center; }
   footer a[aria-current='page'] { color: var(--navy); font-weight: 600; }
