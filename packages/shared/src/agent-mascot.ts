@@ -3,13 +3,20 @@
  * Drawing lives in the dashboard; this module only names and normalizes the parts.
  */
 
-export const AGENT_MASCOT_SHAPES = ["round", "bean", "pointed", "cloud", "hex", "squircle"] as const;
+export const AGENT_MASCOT_SHAPES = [
+  "round", "bean", "pointed", "cloud", "hex", "squircle", "pebble", "egg", "capsule",
+] as const;
 export type AgentMascotShape = (typeof AGENT_MASCOT_SHAPES)[number];
 
 export const AGENT_MASCOT_EYES = [
   "pill", "big", "happy", "wink", "surprised", "squint", "sleepy", "heart", "star", "code",
 ] as const;
 export type AgentMascotEyes = (typeof AGENT_MASCOT_EYES)[number];
+
+/** Resting faces used for shuffle and automatic assignment — friendly by default. */
+export const AGENT_MASCOT_FRIENDLY_EYES = [
+  "pill", "big", "happy", "wink", "surprised", "heart", "star",
+] as const satisfies readonly AgentMascotEyes[];
 
 export const AGENT_MASCOT_ACCS = [
   "none", "pen", "wrench", "coffee", "loupe", "megaphone", "clipboard", "compass", "headset", "chart",
@@ -28,6 +35,14 @@ export const AGENT_MASCOT_FURS = [
   { id: "moss", label: "Moss", hex: "#6e8b6a" },
   { id: "dusk", label: "Dusk", hex: "#6e7ca8" },
   { id: "ink", label: "Ink", hex: "#2a3138" },
+  { id: "sky", label: "Sky", hex: "#7ec8e3" },
+  { id: "navy", label: "Navy", hex: "#2c3e6b" },
+  { id: "pink", label: "Pink", hex: "#e8a0bf" },
+  { id: "wine", label: "Wine", hex: "#7a3b52" },
+  { id: "sand", label: "Sand", hex: "#ddc9a3" },
+  { id: "gray", label: "Gray", hex: "#9a948c" },
+  { id: "lime", label: "Lime", hex: "#b5d86a" },
+  { id: "indigo", label: "Indigo", hex: "#5c6bc0" },
 ] as const;
 export type AgentMascotFurId = (typeof AGENT_MASCOT_FURS)[number]["id"];
 
@@ -41,6 +56,18 @@ export interface AgentMascotLook {
   eyes: AgentMascotEyes;
   acc: AgentMascotAcc;
 }
+
+/** One-click avatar recipes in the agent editor (OpenBot-style starters). */
+export const AGENT_MASCOT_STARTER_LOOKS: ReadonlyArray<{ id: string; label: string; look: AgentMascotLook }> = [
+  { id: "classic", label: "Classic", look: { shape: "pointed", color: "#c4a574", eyes: "happy", acc: "none" } },
+  { id: "coder", label: "Coder", look: { shape: "hex", color: "#2a3138", eyes: "code", acc: "wrench" } },
+  { id: "cheer", label: "Cheerful", look: { shape: "round", color: "#e07a5f", eyes: "big", acc: "none" } },
+  { id: "researcher", label: "Scout", look: { shape: "cloud", color: "#6e7ca8", eyes: "surprised", acc: "loupe" } },
+  { id: "host", label: "Host", look: { shape: "bean", color: "#f4e2c4", eyes: "wink", acc: "coffee" } },
+  { id: "lead", label: "Lead", look: { shape: "squircle", color: "#6e8b6a", eyes: "star", acc: "clipboard" } },
+  { id: "pebble-sky", label: "Sky", look: { shape: "pebble", color: "#7ec8e3", eyes: "pill", acc: "none" } },
+  { id: "egg-lime", label: "Bright", look: { shape: "egg", color: "#b5d86a", eyes: "heart", acc: "pen" } },
+];
 
 const HEX = /^#[0-9a-f]{6}$/;
 
@@ -129,7 +156,7 @@ function hashLook(id: string): AgentMascotLook {
   return {
     shape: AGENT_MASCOT_SHAPES[mix(id, 3) % AGENT_MASCOT_SHAPES.length]!,
     color: fur.hex,
-    eyes: AGENT_MASCOT_EYES[mix(id, 5) % AGENT_MASCOT_EYES.length]!,
+    eyes: AGENT_MASCOT_FRIENDLY_EYES[mix(id, 5) % AGENT_MASCOT_FRIENDLY_EYES.length]!,
     acc: AGENT_MASCOT_ACCS[mix(id, 9) % AGENT_MASCOT_ACCS.length]!,
   };
 }
@@ -172,4 +199,17 @@ export function resolveAgentMascotLook(input: {
 export function formLook(shape: string, color: string, eyes: string, acc: string): AgentMascotLook | undefined {
   if (!shape && !color && !eyes && !acc) return undefined;
   return normalizeAgentMascotLook({ shape, color, eyes, acc });
+}
+
+/** Random friendly avatar; optional seed keeps choices stable for a given string. */
+export function randomMascotLook(seed?: string): AgentMascotLook {
+  const pick = <T,>(items: readonly T[], salt: number) => (
+    seed ? items[mix(seed, salt) % items.length]! : items[Math.floor(Math.random() * items.length)]!
+  );
+  return {
+    shape: pick(AGENT_MASCOT_SHAPES, 3),
+    color: pick(AGENT_MASCOT_FURS.map((fur) => fur.hex), 1),
+    eyes: pick(AGENT_MASCOT_FRIENDLY_EYES, 5),
+    acc: pick(AGENT_MASCOT_ACCS, 9),
+  };
 }
