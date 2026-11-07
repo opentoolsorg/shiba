@@ -1,8 +1,13 @@
 # API-key gateway admission contract and implementation decision
 
-Status, 2026-11-07: **design only; execution remains disabled**. This review
-does not add a runtime route, enroll an account, change upstream source, create
-credentials, provision resources or deploy anything. It supplements
+Status, 2026-11-07: **disabled runtime foundations implemented; execution remains unavailable**.
+The initial review below described the admission contract and counterexamples.
+Shiba now includes an internal coordinated owner, permanent invocation storage,
+strict envelopes, pinned API-key capture and a fixture-only fixed Figma metadata
+executor. A separate generated native entry serializes requests and cron, but
+always rejects the operator execution namespace with 503. There is no production
+activation flag. See the [runtime verification record](verification/openconnector-coordinated-runtime-20261107.md)
+for implemented scope, tests and remaining gates. This supplements
 [operator enrollment](openconnector-operator-enrollment.md).
 
 ## Decision
@@ -17,7 +22,7 @@ The blocker is the **complete admission and mutation boundary**. Adding another
 reserved route to the current wrapper cannot provide it. The native Worker and
 parent authority stores can still change independently while final approval is
 being redeemed. A safe solution requires a new coordinated runtime/deployment
-boundary, not merely a metadata endpoint or adapter change. No API-key executor
+boundary, not merely a metadata endpoint or adapter change. The internal executor is exercised only by fixtures; no API-key execution route
 is supplied while that prerequisite is missing.
 
 This is not a claim of fundamental impossibility. The coordinator design below
@@ -91,8 +96,10 @@ See [the reproduction and verification record](verification/openconnector-operat
 
 ## Required protocol
 
-The following names describe a proposed versioned protocol, not implemented
-endpoints or currently available configuration.
+The following protocol defines the activation contract. Internal reference
+modules implement portions of it; endpoint names remain unavailable in the
+production application, and existing parent invalidations are not yet all
+coordinated.
 
 ### 1. Immutable enrollment
 
