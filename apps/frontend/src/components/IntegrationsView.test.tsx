@@ -92,6 +92,13 @@ function stubIntegrationsFetch(setup = defaultSetup()) {
 }
 
 describe("IntegrationsView native catalog", () => {
+  it("focuses discovery rather than account filtering from Search connectors", async () => {
+    stubIntegrationsFetch();
+    render(<IntegrationsView />);
+    await screen.findByLabelText("Search integrations");
+    fireEvent.click(screen.getByRole("button", { name: "Search connectors" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("Search integrations"));
+  });
   it("opens private Meta reads only on request and clears setup on workspace change", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/founder-meta-reads"
       ? Response.json({ ...metaScope, available: false, grants: [] }) : Response.json({}));

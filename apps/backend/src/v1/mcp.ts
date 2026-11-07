@@ -49,9 +49,9 @@ function safeError(error: unknown): Response {
     invalid_credential_reference: 400, auth_reference_missing: 409, schema_invalid: 502, redirect_rejected: 502,
     schema_version_changed: 409, tool_not_reviewed_or_schema_changed: 409, invalid_effect_review: 400,
     server_limit: 409, server_not_found: 404, tool_disabled: 409, approval_not_found: 404,
-    invalid_catalog_id: 400, connection_label_required: 400, connection_label_taken: 409, invalid_connection_label: 400,
+    invalid_catalog_id: 400, unsupported_auth_method: 400, connection_label_required: 400, connection_label_taken: 409, invalid_connection_label: 400,
     oauth_discovery_failed: 502, oauth_storage_unavailable: 503, oauth_state_invalid: 400, oauth_token_exchange_failed: 502,
-    oauth_refresh_in_progress: 503, oauth_client_not_configured: 503, invalid_bearer: 400 };
+    oauth_refresh_in_progress: 503, oauth_client_not_configured: 503, oauth_sign_in_required: 409, invalid_bearer: 400 };
   const allowed = new Set(Object.keys(statuses));
   return response({ ok: false, error: allowed.has(code) ? code : "external_mcp_unavailable" }, statuses[code] ?? 503);
 }
@@ -73,7 +73,7 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
     const code = ctx.url.searchParams.get("code") ?? "";
     if (!state || !code) return response({ ok: false, error: "invalid_request" }, 400);
     try {
-      const result = await exchangeExternalMcpOAuthCode(ctx.env, { state, code, principal: ctx.principal });
+      const result = await exchangeExternalMcpOAuthCode(ctx.env, { state, code, issuer: ctx.url.searchParams.get("iss") ?? undefined, principal: ctx.principal });
       const server = await getExternalMcpServer(ctx.env, result.orgId, result.ownerId, result.serverId);
       if (server) await discoverExternalMcpServer(ctx.env, server).catch(() => {});
       return response({ ok: true, serverId: result.serverId });
@@ -134,25 +134,32 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
   }
   if (action === "oauth/begin" && ctx.request.method === "POST") {
     const input = await body(ctx);
-    if (!input || !knownKeys(input, ["redirectUri"]) || typeof input.redirectUri !== "string") {
+    if (!input || !knownKeys(input, server.catalogId ? ["redirectUri"] : ["redirectUri", "clientId", "issuer", "scopes"]) || typeof input.redirectUri !== "string") {
       return response({ ok: false, error: "invalid_request" }, 400);
     }
     if (input.redirectUri !== `${ctx.url.origin}/api/v1/mcp/oauth/callback` || server.status === "disabled") return response({ ok: false, error: "invalid_request" }, 400);
-    if (!server.catalogId || server.authMode !== "oauth") return response({ ok: false, error: "invalid_request" }, 400);
-    const vendor = curatedMcpVendorByCatalogId(server.catalogId);
-    if (!vendor) return response({ ok: false, error: "invalid_catalog_id" }, 400);
-    const clientId = readDeploymentOAuthClientId(ctx.env, server.catalogId);
+    if (server.authMode !== "oauth") return response({ ok: false, error: "invalid_request" }, 400);
+    if (server.status !== "draft" || server.schemaVersion !== null) return response({ ok: false, error: "oauth_state_invalid" }, 400);
+    const vendor = server.catalogId ? curatedMcpVendorByCatalogId(server.catalogId) : null;
+    if (vendor && !vendor.connectionMethods.includes("oauth")) return response({ ok: false, error: "unsupported_auth_method" }, 400);
+    if (server.catalogId && !vendor) return response({ ok: false, error: "invalid_catalog_id" }, 400);
+    // Custom connections use a pre-registered public client, not DCR or a pasted client secret.
+    if (!server.catalogId && (typeof input.clientId !== "string" || !/^[\x21-\x7e]{1,1024}$/.test(input.clientId) ||
+      typeof input.issuer !== "string" || input.issuer.length > 2048 ||
+      (input.scopes !== undefined && (typeof input.scopes !== "string" || !/^[\x21\x23-\x5b\x5d-\x7e ]{0,512}$/.test(input.scopes))))) return response({ ok: false, error: "invalid_request" }, 400);
+    const clientId = server.catalogId ? readDeploymentOAuthClientId(ctx.env, server.catalogId) : input.clientId as string;
     if (!clientId) return response({ ok: false, error: "oauth_client_not_configured" }, 503);
     try {
-      const discovery = await discoverExternalMcpOAuth(vendor);
+      const discovery = await discoverExternalMcpOAuth(vendor ?? { endpoint: server.endpoint }, fetch,
+        server.catalogId ? undefined : { env: ctx.env, issuer: input.issuer as string });
       const begin = await beginExternalMcpOAuthConnect(ctx.env, {
         serverId: server.id,
         orgId: server.orgId,
         ownerId: server.ownerId,
-        catalogId: server.catalogId,
+        catalogId: server.catalogId ?? "custom",
         redirectUri: input.redirectUri,
         clientId,
-        scopes: discovery.scopes ?? defaultOAuthScopes(server.catalogId),
+        scopes: typeof input.scopes === "string" ? input.scopes : discovery.scopes ?? defaultOAuthScopes(server.catalogId ?? "custom"),
         discovery,
       });
       return response({ ok: true, ...begin, discovery: { resource: discovery.resource.resource, issuer: discovery.authorizationServer.issuer } });

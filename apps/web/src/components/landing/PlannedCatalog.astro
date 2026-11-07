@@ -1,5 +1,6 @@
 ---
-import { plannedCategoryCounts, plannedLogoSprite, plannedTools } from '../../data/planned-integrations';
+import IntegrationLogos from '../IntegrationLogos.astro';
+import { plannedCategoryCounts, plannedTools } from '../../data/planned-integrations';
 
 const total = plannedTools.length;
 ---
@@ -59,9 +60,7 @@ const total = plannedTools.length;
           plannedTools.map((tool) => (
             <article class="tool-card" data-planned-tool={tool.name}>
               <div class="logo">
-                <span class="logo-clip" aria-hidden="true">
-                  <img src={plannedLogoSprite} style={tool.logoStyle} alt="" width="192" height="288" />
-                </span>
+                <IntegrationLogos providerKey={tool.name} />
               </div>
               <div class="card-copy">
                 <h3>{tool.name}</h3>
@@ -311,20 +310,6 @@ const total = plannedTools.length;
     padding: 8px;
     border-radius: 18px;
     background: var(--lp-logowell, #faf5f1);
-  }
-  .logo-clip {
-    position: relative;
-    display: block;
-    width: 48px;
-    height: 48px;
-    overflow: hidden;
-  }
-  .logo img {
-    position: absolute;
-    display: block;
-    width: 192px;
-    height: 288px;
-    max-width: none;
   }
   .card-copy {
     min-width: 0;

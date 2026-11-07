@@ -19,9 +19,81 @@ const json = (value: unknown) => Response.json(value);
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("MemorySourcesView", () => {
+  const downloadable = { ...source, version: 2, sha256: "ab".repeat(32), ingestion: { state: "ready", filename: "brand.md", mediaType: "text/markdown", bytes: 12 } };
+
+  it("downloads the displayed version once, keeps errors inline, and releases the object URL", async () => {
+    const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:private-source");
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    let resolve!: (response: Response) => void;
+    const pending = new Promise<Response>((done) => { resolve = done; });
+    const fetcher = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(input) === "/api/memory/sources") return json({ sources: [downloadable] });
+      if (String(input).includes("/download")) return pending;
+      return json({ projects: [] });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<MemorySourcesView />);
+    const button = await screen.findByRole("button", { name: "Download v2" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(fetcher.mock.calls.filter(([path]) => String(path).includes("/download"))).toHaveLength(1);
+    resolve(new Response("Private text"));
+    await screen.findByText(/Version 2 downloaded/);
+    expect(fetcher).toHaveBeenCalledWith("/api/memory/sources/memsrc_1/download?version=2", expect.objectContaining({ credentials: "same-origin", cache: "no-store", signal: expect.any(AbortSignal) }));
+    expect(create).toHaveBeenCalledOnce();
+    expect(click).toHaveBeenCalledOnce();
+    expect((click.mock.instances[0] as HTMLAnchorElement).download).toBe("brand.md");
+    expect(revoke).toHaveBeenCalledWith("blob:private-source");
+  });
+
+  it("keeps a stale-version download failure inline without creating a local file", async () => {
+    const create = vi.spyOn(URL, "createObjectURL");
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/memory/sources") return json({ sources: [downloadable] });
+      if (String(input).includes("/download")) return Response.json({ error: "Source changed. Reload before downloading the current version." }, { status: 409 });
+      return json({ projects: [] });
+    }));
+    render(<MemorySourcesView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Download v2" }));
+    await screen.findByText("Source changed. Reload before downloading the current version.");
+    expect(create).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Version 2 downloaded/)).toBeNull();
+  });
+
+  it("does not download late bytes after leaving the memory view", async () => {
+    const create = vi.spyOn(URL, "createObjectURL");
+    let resolve!: (response: Response) => void;
+    const pending = new Promise<Response>((done) => { resolve = done; });
+    let signal: AbortSignal | null | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/memory/sources") return json({ sources: [downloadable] });
+      if (String(input).includes("/download")) { signal = init?.signal; return pending; }
+      return json({ projects: [] });
+    }));
+    const view = render(<MemorySourcesView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Download v2" }));
+    view.unmount();
+    expect(signal?.aborted).toBe(true);
+    resolve(new Response("Late private text"));
+    await pending;
+    await new Promise((done) => setTimeout(done, 0));
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("only offers downloads for active ready uploads, never notes or disabled/expired sources", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/memory/sources" ? json({ sources: [
+      source, { ...downloadable, id: "disabled", disabledAt: 1 }, { ...downloadable, id: "expired", expiresAt: 1 },
+    ] }) : json({ projects: [] })));
+    render(<MemorySourcesView />);
+    await screen.findAllByRole("heading", { name: "Launch notes" });
+    expect(screen.queryByRole("button", { name: /Download/ })).toBeNull();
+  });
+
   it("uploads actual TXT/Markdown bytes, shows only acknowledged ready versions, and clears stale recall", async () => {
     const file = new File(["# Brand\nOrion launch"], "brand.md", { type: "text/markdown" });
     const managed = { ...source, title: "brand.md", version: 1, sha256: "ab".repeat(32), ingestion: { state: "ready", filename: "brand.md", mediaType: "text/markdown", bytes: file.size } };

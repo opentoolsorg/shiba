@@ -1,7 +1,12 @@
 ---
+import IntegrationLogos from '../components/IntegrationLogos.astro';
 import MarketingPage from '../layouts/MarketingPage.astro';
 import PlannedCatalog from '../components/landing/PlannedCatalog.astro';
 import '../styles/landing.css';
+import { INTEGRATION_CATALOG } from '../../../../packages/shared/src/integration-catalog';
+import { CURATED_MCP_VENDORS } from '../../../../packages/shared/src/curated-mcp-vendors';
+import { SKILL_LIBRARY } from '../../../backend/src/skill-library';
+
 
 const repoUrl = 'https://github.com/princepal9120/shiba';
 
@@ -65,27 +70,27 @@ const boundaries = [
     <section class="lp-shell hero" data-motion="hero" aria-labelledby="integrations-title">
       <p class="lp-eyebrow">Your workspace, on your terms</p>
       <h1 id="integrations-title">Your tools.<br /><span class="accent">Your AI employee.</span></h1>
-      <p class="hero-copy">Give Shiba a brief from the tools you use. Keep the repository, the workspace, and the decision to run in your own hands.</p>
+      <p class="hero-copy">Browse app integrations, remote MCP server presets, and reusable skills. Configure access in your workspace and keep the decision to run in your own hands.</p>
       <div class="actions">
         <a class="lp-btn lp-btn-primary" href="#directory">Explore the directory <span aria-hidden="true">↓</span></a>
         <a class="lp-btn lp-btn-secondary" href="/docs/configuration/">Read the setup guide <span aria-hidden="true">↗</span></a>
       </div>
       <figure class="visual" role="img" aria-label="Conceptual illustration of a Shiba employee with example tools; not a connection-status view">
         <div class="visual-paper" aria-hidden="true"></div>
-        <div class="tool-chip chip-a">Slack · a brief</div>
-        <div class="tool-chip chip-b">Gmail · read-only context</div>
-        <div class="tool-chip chip-c">GitHub · your repository</div>
+        <div class="tool-chip chip-a"><IntegrationLogos providerKey="slack" />Slack · a brief</div>
+        <div class="tool-chip chip-b"><IntegrationLogos providerKey="gmail" />Gmail · read-only context</div>
+        <div class="tool-chip chip-c"><IntegrationLogos providerKey="github" />GitHub · your repository</div>
         <div class="visual-center">
           <div class="visual-tag">Instructions + your approval</div>
           <img src="/landing/mascots/operations.svg" alt="" width="260" height="240" decoding="async" />
           <div class="employee-label">Your Shiba employee</div>
           <div class="visual-tag">Your Cloudflare account</div>
         </div>
-        <div class="tool-chip chip-d">Linear · an issue</div>
+        <div class="tool-chip chip-d"><IntegrationLogos providerKey="linear" />Linear · an issue</div>
         <div class="tool-chip chip-e">Your configured AI tool</div>
         <div class="tool-chip chip-f">Schedule · a request</div>
       </figure>
-      <p class="caption">Conceptual illustration, not a connection-status view. The catalog below lists planned tools, not available connections. A request never replaces human approval.</p>
+      <p class="caption">Conceptual illustration, not a connection-status view. Browse app catalog entries, MCP presets, and draft skills below. None of these listings indicates a connected account. A request never replaces human approval.</p>
     </section>
 
     <section class="lp-band" aria-labelledby="workflows-title">
@@ -115,6 +120,55 @@ const boundaries = [
         </div>
       </div>
     </section>
+
+    <div class="lp-shell directory-content">
+    <nav class="intro-links directory-nav" aria-label="Integration directory sections">
+      <a class="text-link" href="#app-catalog">{INTEGRATION_CATALOG.length} app entries</a>
+      <a class="text-link" href="#mcp-presets">{CURATED_MCP_VENDORS.length} MCP presets</a>
+      <a class="text-link" href="#skill-templates">{SKILL_LIBRARY.length} skill templates</a>
+      <a class="text-link" href="#directory">Planned tools</a>
+    </nav>
+
+    <section id="app-catalog" class="catalog" aria-labelledby="app-catalog-title">
+      <div class="catalog-heading"><div><p class="eyebrow">APP DIRECTORY</p><h2 id="app-catalog-title">Tools for your team's work</h2></div><p class="catalog-meta">Catalog entries, not connected accounts. OpenConnector availability depends on your deployment.</p></div>
+      <div class="integration-grid">
+        {INTEGRATION_CATALOG.map((app) => (
+          <article class="integration-card">
+            <div class="card-heading"><IntegrationLogos providerKey={app.id} /><h3>{app.name}</h3></div>
+            <p class="card-description">{app.summary}</p>
+            <div class="card-bottom"><p class="verification">{app.openConnectorServiceIds?.length ? 'OpenConnector catalog mapping · requires service availability and account connection.' : app.kind === 'mcp' ? 'MCP catalog entry · requires server setup and authorization.' : app.kind === 'webhook' ? 'Webhook setup path · configure and verify in your workspace.' : 'Native setup path · verify access in your workspace.'} Not evidence of a live-tested account.</p><a class="docs-link" href={app.docsUrl}>Provider reference <span aria-hidden="true">↗</span></a></div>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section id="mcp-presets" class="catalog" aria-labelledby="mcp-presets-title">
+      <div class="catalog-heading"><div><p class="eyebrow">REMOTE MCP SERVERS</p><h2 id="mcp-presets-title">Bring tools into a task</h2></div><p class="catalog-meta">Curated server presets, not automatic connections. Sign-in depends on deployment and vendor support.</p></div>
+      <div class="integration-grid">
+        {CURATED_MCP_VENDORS.map((vendor) => (
+          <article class="integration-card">
+            <div class="card-heading"><IntegrationLogos providerKey={vendor.catalogId} /><h3>{vendor.name}</h3></div>
+            <p class="card-description">Configure the {vendor.name} remote MCP preset in your workspace, then authorize the account and tools you want to use.</p>
+            <div class="card-bottom"><p class="verification">Requires configuration and a connection test. Sensitive actions still need approval.</p><a class="docs-link" href={vendor.docsUrl}>Server documentation <span aria-hidden="true">↗</span></a></div>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section id="skill-templates" class="catalog" aria-labelledby="skill-templates-title">
+      <div class="catalog-heading"><div><p class="eyebrow">REUSABLE WORKFLOWS</p><h2 id="skill-templates-title">Start with a skill template</h2></div><p class="catalog-meta">Install from the workspace skill library as a draft, review the instructions, then select it for a task. Skills do not connect accounts.</p></div>
+      <div class="integration-grid">
+        {SKILL_LIBRARY.map((skill) => (
+          <article class="integration-card">
+            <div class="card-heading"><h3>{skill.name}</h3></div>
+            <p class="card-description">{skill.summary}</p>
+            <div class="card-bottom"><p class="verification">Draft workflow template · review before use. No automatic execution or publishing.</p><a class="docs-link" href="/docs/skills/">Skill setup guide <span aria-hidden="true">→</span></a></div>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    </div>
 
     <PlannedCatalog />
 
@@ -157,6 +211,29 @@ const boundaries = [
 </script>
 
 <style>
+
+  .directory-content { padding-block: 48px; }
+  .directory-nav { display: flex; flex-wrap: wrap; gap: 24px; padding-bottom: 32px; }
+  .directory-content a { color: var(--lp-accent); text-underline-offset: 4px; }
+  .catalog { padding: 48px 0; border-top: 1px solid var(--lp-line); scroll-margin-top: 100px; }
+  .catalog-heading { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-bottom: 28px; align-items: end; }
+  .catalog-heading h2 { font-size: clamp(28px, 3vw, 44px); line-height: 1.1; letter-spacing: -.04em; margin: 0; }
+  .eyebrow { font: 11px var(--lp-font-mono); letter-spacing: .12em; color: var(--lp-accent); margin: 0 0 16px; }
+  .catalog-meta, .card-description, .verification { color: var(--lp-ink2); line-height: 1.65; }
+  .catalog-meta { margin: 0; }
+  .integration-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .integration-card { display: flex; flex-direction: column; padding: 24px; border: 1px solid var(--lp-line); background: var(--lp-card); }
+  .card-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  .card-heading h3 { font-size: 21px; line-height: 1.25; margin: 0; }
+  .card-description { font-size: 15px; }
+  .card-bottom { margin-top: auto; }
+  .verification { font-size: 13px; }
+  .docs-link { display: flex; justify-content: space-between; align-items: center; min-height: 44px; border-top: 1px solid var(--lp-line); font-size: 13px; }
+  @media (max-width: 900px) { .integration-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .catalog-heading { grid-template-columns: 1fr; } }
+  @media (max-width: 600px) { .integration-grid { grid-template-columns: 1fr; } }
+
+  .tool-chip { display: flex; align-items: center; gap: 8px; }
+
   /* Hero */
   .hero { text-align: center; padding-top: 88px; padding-bottom: 64px; }
   .lp-h2 { font-size: 44px; line-height: 1.08; max-width: 720px; }

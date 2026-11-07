@@ -38,7 +38,7 @@ import {
   type SqlRow,
 } from "./memory-store.js";
 import { InputError } from "./security.js";
-import { memoryContentHash, readMemoryUpload, validateMemoryText } from "./owner-memory-ingestion.js";
+import { MAX_MEMORY_UPLOAD_BYTES, memoryContentHash, readMemoryUpload, validateMemoryText } from "./owner-memory-ingestion.js";
 import {
   OwnerMemoryStore,
   OwnerMemoryConflictError,
@@ -1233,6 +1233,7 @@ export class Memory {
     if (this.isRegistry || !this.agent.startsWith("owner-memory:")) {
       return badRequest("Workspace memory requires an owner-scoped Memory instance.");
     }
+    if (seg.length === 3 && seg[2] === "download") return this.downloadOwnerSource(request, pathParam(seg[1]));
     if (seg.length === 2 && seg[1] === "snapshot") {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, { status: 405 });
       const body = await this.jsonBody(request);
@@ -1289,6 +1290,42 @@ export class Memory {
       } catch { return json({ ok: true, id, cleanup: "pending", message: "Source forgotten for future retrieval. Stored file cleanup is pending; retry Delete to finish cleanup." }); }
     }
     return json({ error: "Method not allowed." }, { status: 405 });
+  }
+
+  private async downloadOwnerSource(request: Request, id: string): Promise<Response> {
+    if (request.method !== "GET") return json({ error: "Method not allowed." }, { status: 405 });
+    const versions = new URL(request.url).searchParams.getAll("version");
+    const requestedVersion = versions[0];
+    if (versions.length !== 1 || !requestedVersion || !/^[1-9]\d*$/.test(requestedVersion) || !Number.isSafeInteger(Number(requestedVersion))) return badRequest("version must identify the source version you reviewed.");
+    const version = Number(requestedVersion);
+    const stored = this.ownerStore.activeDownload(id);
+    if (!stored) return notFound("Active uploaded source not found.");
+    if (stored.version !== version) return json({ error: "Source changed. Reload before downloading the current version." }, { status: 409 });
+    const unavailable = () => json({ error: "Stored file could not be verified. No download was returned; retry later." }, { status: 503 });
+    // Never turn malformed stored metadata into response headers or an unbounded read.
+    if (!this.env.ATTACHMENTS || !/^[a-z0-9][a-z0-9 ._-]{0,179}\.(?:txt|md)$/i.test(stored.filename) ||
+        !["text/plain", "text/markdown"].includes(stored.mediaType) ||
+        !Number.isSafeInteger(stored.bytes) || stored.bytes < 1 || stored.bytes > MAX_MEMORY_UPLOAD_BYTES) return unavailable();
+    try {
+      const object = await this.env.ATTACHMENTS.get(stored.objectKey);
+      if (!object || object.size !== stored.bytes) return unavailable();
+      const bytes = new Uint8Array(await object.arrayBuffer());
+      if (bytes.byteLength !== stored.bytes || await memoryContentHash(bytes) !== stored.sha256) return unavailable();
+      // A delete, expiry, disable or correction can interleave while R2 is awaited.
+      const current = this.ownerStore.activeDownload(id);
+      if (!current) return notFound("Active uploaded source not found.");
+      if (current.version !== version || current.objectKey !== stored.objectKey || current.sha256 !== stored.sha256) return json({ error: "Source changed. Reload before downloading the current version." }, { status: 409 });
+      return new Response(bytes, { headers: {
+        "Content-Type": `${stored.mediaType}; charset=utf-8`,
+        "Content-Disposition": `attachment; filename="${stored.filename}"`,
+        "Content-Length": String(bytes.byteLength),
+        "Cache-Control": "private, no-store",
+        "Content-Security-Policy": "sandbox",
+        "X-Content-Type-Options": "nosniff",
+        "X-Source-Version": String(version),
+        "X-Source-Sha256": stored.sha256,
+      } });
+    } catch { return unavailable(); }
   }
 
   private async cleanupOwnerUpload(id: string, ownOperation = false): Promise<boolean> {

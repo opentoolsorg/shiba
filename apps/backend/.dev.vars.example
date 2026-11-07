@@ -157,3 +157,6 @@ INTEGRATIONS_PROVIDER=openconnector
 # FOUNDER_META_CREDENTIAL_KEY=
 # Optional native HubSpot capture encryption key (64 hex, Worker-only).
 # FOUNDER_HUBSPOT_CREDENTIAL_KEY=
+
+# Optional owner-only metadata review. Never enables API-key actions.
+# OPEN_CONNECTOR_OPERATOR_REVIEW_ENABLED=false

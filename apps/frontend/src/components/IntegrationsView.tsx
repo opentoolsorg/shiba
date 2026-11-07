@@ -610,7 +610,7 @@ function PersonalIntegrationsView({
             <button
               type="button"
               onClick={() => {
-                const input = bodyRef.current?.querySelector<HTMLInputElement>('input[aria-label^="Search"]');
+                const input = bodyRef.current?.querySelector<HTMLInputElement>('input[aria-label="Search integrations"]') ?? bodyRef.current?.querySelector<HTMLInputElement>('input[aria-label^="Search"]');
                 if (input) {
                   input.focus();
                   input.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -631,7 +631,7 @@ function PersonalIntegrationsView({
               <span>Integrations</span>
             </h2>
             <p className="text-xs text-[var(--muted-foreground-2)]">
-              Third-party apps and channels your agents can reach — connect once, use everywhere.
+              Connect apps, review their tools, and choose which employees can use them.
             </p>
           </div>
           {activeTab === "connectors" ? <div className="flex min-w-0 w-full flex-wrap gap-2 lg:w-auto lg:max-w-[60%] lg:justify-end">

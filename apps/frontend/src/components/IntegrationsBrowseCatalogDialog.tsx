@@ -1,33 +1,47 @@
+import { IntegrationLogo } from "./IntegrationLogo";
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
-import type { IntegrationProviderCatalogItem } from "@shiba/shared";
+import type { IntegrationProviderCatalogItem, IntegrationProviderSetupState } from "@shiba/shared";
 import { ToneChip } from "./ToneChip";
 import { RoleCapabilityFilter } from "./RoleCapabilityFilter";
 import { integrationRecommendedForRole, type CapabilityRoleFilter } from "../role-capability-recommendations";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
+import { integrationProviderReadError } from "../integration-oauth";
 
-function safeLogoUrl(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:") return null;
-    return url.href;
-  } catch {
-    return null;
-  }
+const READINESS_OPTIONS: readonly [IntegrationProviderSetupState | "all", string][] = [
+  ["all", "All services"],
+  ["ready", "Ready to connect"],
+  ["needs_configuration", "Needs OAuth configuration"],
+  ["unsupported", "No OAuth sign-in"],
+  ["unverified", "Unverified"],
+];
+
+/** Labels come from provider setup metadata only; a listing is never shown as live. */
+export function catalogReadinessLabel(item: IntegrationProviderCatalogItem): string {
+  if (item.isConnected) return "Account configured";
+  if (item.connectable) return "Sign-in available";
+  if (item.setupState === "needs_configuration") return "OAuth app setup required";
+  if (item.setupState === "unverified") return "Readiness unverified";
+  if (item.setupState === "unsupported") return item.authTypes?.length ? `No OAuth sign-in (${item.authTypes.join(", ")})` : "No OAuth sign-in";
+  return "Operator setup required";
 }
 
-type BrowseProps = { open: boolean; actorId?: string | null; workspaceId?: string; onClose: () => void; onAccessLost?: () => void; onConnect?: (item: IntegrationProviderCatalogItem) => void; connectingKey?: string | null; linkedConnectorKeys?: ReadonlySet<string>; onLinkExisting?: (item: IntegrationProviderCatalogItem) => void; linkingKey?: string | null; linkActionLabel?: string; roleFilter?: CapabilityRoleFilter };
+type BrowseProps = { open: boolean; actorId?: string | null; workspaceId?: string; onClose: () => void; onAccessLost?: () => void; onConnect?: (item: IntegrationProviderCatalogItem) => void; connectingKey?: string | null; connectionError?: string | null; connectionNotice?: string | null; connectionRevision?: number; linkedConnectorKeys?: ReadonlySet<string>; onLinkExisting?: (item: IntegrationProviderCatalogItem) => void; linkingKey?: string | null; linkActionLabel?: string; roleFilter?: CapabilityRoleFilter };
+/** Scope catalog state to the current actor and workspace before rendering its dialog. */
 export function IntegrationsBrowseCatalogDialog(props: BrowseProps): JSX.Element | null {
   const scope = `${props.actorId ?? "legacy"}\0${props.workspaceId ?? "personal"}`;
   const actor = useRef(scope); actor.current = scope;
   return <ScopedBrowseCatalog key={scope} {...props} isCurrent={() => actor.current === scope} />;
 }
+/** Load and filter catalog pages while fencing stale requests after scope changes. */
 function ScopedBrowseCatalog({
   open,
   onClose,
   onAccessLost,
   onConnect,
   connectingKey,
+  connectionError,
+  connectionNotice,
+  connectionRevision = 0,
   linkedConnectorKeys,
   onLinkExisting,
   linkingKey,
@@ -42,6 +56,8 @@ function ScopedBrowseCatalog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<CapabilityRoleFilter>(roleFilter);
+  const [readiness, setReadiness] = useState<IntegrationProviderSetupState | "all">("all");
+  const [totals, setTotals] = useState<{ total: number; oauthCapable: number } | null>(null);
   const controller = useRef<AbortController | null>(null), epoch = useRef(0), mounted = useRef(true), visible = useRef(open);
   const dialog = useRef<HTMLDivElement>(null), close = useRef(onClose), accessLost = useRef(onAccessLost); close.current = onClose; accessLost.current = onAccessLost;
   visible.current = open;
@@ -85,6 +101,7 @@ function ScopedBrowseCatalog({
         params.set("limit", "20");
         if (opts.query.trim()) params.set("query", opts.query.trim());
         if (!opts.reset && opts.nextCursor) params.set("cursor", opts.nextCursor);
+        if (readiness !== "all") params.set("readiness", readiness);
         const response = await fetch(`${workspaceId ? "/api/workspace-integrations/catalog" : "/api/integrations/provider/catalog"}?${params.toString()}`, {
           credentials: "same-origin",
           cache: "no-store",
@@ -94,13 +111,15 @@ function ScopedBrowseCatalog({
         });
         if (!response.ok) {
           if (workspaceId && [401, 403, 404].includes(response.status) && active() && generation === epoch.current && !abort.signal.aborted) accessLost.current?.();
-          throw new Error(`Catalog unavailable (${response.status}).`);
+          throw new Error(workspaceId ? `Catalog unavailable (${response.status}).` : integrationProviderReadError(response.status, await response.json().catch(() => null), `Catalog unavailable (${response.status}).`));
         }
         const body = (await response.json()) as {
           items?: IntegrationProviderCatalogItem[];
           nextCursor?: string | null;
           hasMore?: boolean;
           workspaceId?: string;
+          total?: number;
+          oauthCapable?: number;
         };
         if (!active() || generation !== epoch.current || abort.signal.aborted) return;
         if (!Array.isArray(body.items)) throw new Error("Invalid provider catalog response.");
@@ -109,15 +128,17 @@ function ScopedBrowseCatalog({
         setItems((prev) => [...new Map((opts.reset ? pageItems : [...prev, ...pageItems]).map((item) => [item.providerKey, item])).values()]);
         setCursor(body.nextCursor ?? null);
         setHasMore(Boolean(body.hasMore));
+        setTotals(typeof body.total === "number" && typeof body.oauthCapable === "number" ? { total: body.total, oauthCapable: body.oauthCapable } : null);
       } catch (loadError) {
-        if (active() && generation === epoch.current && !abort.signal.aborted) { setItems([]); setHasMore(false); setError(loadError instanceof Error ? loadError.message : String(loadError)); }
+        if (active() && generation === epoch.current && !abort.signal.aborted) { setItems([]); setHasMore(false); setTotals(null); setError(loadError instanceof Error ? loadError.message : String(loadError)); }
       } finally {
         if (active() && generation === epoch.current && !abort.signal.aborted) setLoading(false);
       }
     },
-    [active, actorId, workspaceId],
+    [active, actorId, workspaceId, readiness],
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Confirmed owner-account revisions invalidate the open catalog without dropping filters.
   useEffect(() => {
     epoch.current++; controller.current?.abort();
     if (!open || actorId === null) { setItems([]); return; }
@@ -127,7 +148,7 @@ function ScopedBrowseCatalog({
       void loadPage({ reset: true, query: search, nextCursor: null });
     }, search.trim() ? 250 : 0);
     return () => { window.clearTimeout(handle); epoch.current++; controller.current?.abort(); };
-  }, [search, open, loadPage, actorId]);
+  }, [search, open, loadPage, actorId, connectionRevision]);
 
   if (!open) return null;
 
@@ -162,31 +183,35 @@ function ScopedBrowseCatalog({
             aria-label="Search connector catalog"
             className="w-full rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-sm"
           />
-          <div className="mt-2"><RoleCapabilityFilter value={role} onChange={setRole} label="Catalog recommendations for role" /></div>
-          {error ? <p className="mt-2 text-xs text-[var(--warning-fg)]">{error}</p> : null}
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <RoleCapabilityFilter value={role} onChange={setRole} label="Catalog recommendations for role" />
+            <select aria-label="Filter by readiness" value={readiness} onChange={(event) => setReadiness(event.target.value as IntegrationProviderSetupState | "all")} className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-2 py-1 text-xs">
+              {READINESS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </div>
+          {connectionError && <p role="alert" className="mt-2 text-xs text-[var(--danger-fg)]">{connectionError}</p>}
+          {connectionNotice && <p role="status" className="mt-2 text-xs text-[var(--muted-foreground-2)]">{connectionNotice}</p>}
+          {totals ? <p className="mt-2 text-[11px] text-[var(--muted-foreground-2)]">{totals.total} provider services match · {totals.oauthCapable} declare OAuth sign-in. OAuth client readiness is checked per loaded page.</p> : null}
+          {error ? <div className="mt-2">
+            <p role="alert" className="text-xs text-[var(--warning-fg)]">{error}</p>
+            <button type="button" disabled={loading} onClick={() => void loadPage({ reset: true, query: search, nextCursor: null })} className="mt-2 min-h-11 border border-[var(--border-1)] px-3 text-xs disabled:opacity-50">Retry catalog</button>
+          </div> : null}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {visibleItems.length === 0 && !loading ? (
+          {visibleItems.length === 0 && !loading && !error && actorId !== null ? (
             <p className="px-4 py-8 text-center text-sm text-[var(--muted-foreground-2)]">No connectors match on this page. {hasMore ? "Load more to search additional provider entries." : "Try another role or search."}</p>
           ) : (
             visibleItems.map((item) => {
-              const logo = safeLogoUrl(item.logoUrl);
               return (
                 <div
                   key={`${item.source}:${item.providerKey}`}
                   className="flex gap-3 border-b border-[var(--border-1)] px-4 py-3 last:border-b-0"
                 >
-                  {logo ? (
-                    <img src={logo} alt="" className="mt-0.5 h-8 w-8 rounded border border-[var(--border-1)] bg-white object-contain" />
-                  ) : (
-                    <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded border border-[var(--border-1)] bg-[var(--card)] text-[10px] font-semibold">
-                      {item.name.slice(0, 2).toUpperCase()}
-                    </div>
-                  )}
+                  <IntegrationLogo providerKey={item.providerKey} logoUrl={item.logoUrl} />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[13px] font-semibold">{item.name}</span>
-                      <ToneChip tone={item.isConnected ? "ok" : "neutral"} label={item.isConnected ? "Account configured" : item.connectable ? "Sign-in available" : item.setupState === "needs_configuration" ? "OAuth app setup required" : item.setupState === "unverified" ? "Readiness unverified" : "Operator setup required"} />
+                      <ToneChip tone={item.isConnected ? "ok" : "neutral"} label={catalogReadinessLabel(item)} />
                       {item.priority === "P0" ? (
                         <span className="font-mono text-[10px] text-[var(--muted-foreground-2)]">P0</span>
                       ) : null}
@@ -196,7 +221,7 @@ function ScopedBrowseCatalog({
                   {item.connectable && onConnect && !item.isConnected ? (
                     <button
                       type="button"
-                      disabled={connectingKey === item.providerKey}
+                      disabled={Boolean(connectingKey)}
                       onClick={() => onConnect(item)}
                       className="self-start rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-2.5 py-1 text-[11px] font-mono font-medium text-[var(--primary)] hover:bg-[var(--primary)]/5 disabled:opacity-50"
                     >
@@ -219,7 +244,7 @@ function ScopedBrowseCatalog({
           )}
         </div>
         <div className="flex justify-between gap-2 border-t border-[var(--border-1)] px-4 py-3">
-          <span className="text-[11px] text-[var(--muted-foreground-2)]">{loading ? "Loading…" : `${visibleItems.length} shown · ${items.length} loaded`}</span>
+          <span className="text-[11px] text-[var(--muted-foreground-2)]">{loading ? "Loading…" : error ? "Provider catalog not loaded" : `${visibleItems.length} shown · ${items.length} loaded`}</span>
           {hasMore ? (
             <button
               type="button"

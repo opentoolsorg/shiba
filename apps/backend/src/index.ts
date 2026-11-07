@@ -582,6 +582,11 @@ export default {
       if (integrationsResponse) {
         return integrationsResponse;
       }
+      if (url.pathname === "/api/operator-enrollment-reviews" || url.pathname.startsWith("/api/operator-enrollment-reviews/")) {
+        const { handleOperatorEnrollmentReviews } = await import("./operator-enrollment-routes.js");
+        const response = await handleOperatorEnrollmentReviews(request, env);
+        if (response) return response;
+      }
       const integrationProviderResponse = await handleIntegrationProviderRoutes(request, env);
       if (integrationProviderResponse) {
         return integrationProviderResponse;

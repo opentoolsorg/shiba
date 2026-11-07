@@ -5,6 +5,19 @@ import {
   type IntegrationProviderConnection,
 } from "@shiba/shared";
 
+/** Explain owner authentication separately from provider deployment or an empty catalog. */
+export function integrationProviderReadError(status: number, body: unknown, fallback: string): string {
+  if (status === 401) {
+    return "Sign in to Shiba with a verified user session to load private app accounts and the provider catalog. If this is a local or gateway-only session, the operator must configure user authentication first.";
+  }
+  if (status === 503) {
+    return "OpenConnector is unavailable. Ask the operator to check the sibling service, Shiba's service binding and service credentials, then retry. Reference entries do not confirm provider availability.";
+  }
+  return body && typeof body === "object" && "error" in body && typeof body.error === "string"
+    ? body.error
+    : fallback;
+}
+
 export async function ownedAppConnections(
   signal?: AbortSignal,
   includeUnavailable = false,
@@ -17,9 +30,7 @@ export async function ownedAppConnections(
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok)
     throw new Error(
-      body && typeof body === "object" && "error" in body && typeof body.error === "string"
-        ? body.error
-        : `App accounts unavailable (${response.status}).`,
+      integrationProviderReadError(response.status, body, `App accounts unavailable (${response.status}).`),
     );
   const parsed = integrationProviderConnectionsResponseSchema.safeParse(body);
   if (!parsed.success)
@@ -42,6 +53,7 @@ export function integrationOAuthTarget(value: string): string {
 }
 
 /** OAuth completion messages are hints only. Only a fresh owned-account read confirms consent. */
+/** Coordinate isolated OAuth popups and verify consent against freshly read owned accounts. */
 export function useIntegrationOAuth(options: {
   actorId?: string | null;
   onVerified?: (connection: IntegrationProviderConnection) => void;
@@ -152,8 +164,9 @@ export function useIntegrationOAuth(options: {
       window.removeEventListener("focus", focus);
     };
   }, [options.actorId]);
+  /** Start OAuth while preventing an existing active account from confirming new consent. */
   const beginConnect = useCallback(
-    async (item: IntegrationProviderCatalogItem) => {
+    async (item: IntegrationProviderCatalogItem, options: { reconnect?: boolean } = {}) => {
       if (pending.current || latest.current.actorId === null) return;
       if (!item.connectable) {
         setError(
@@ -195,15 +208,18 @@ export function useIntegrationOAuth(options: {
       try {
         const baseline = await ownedAppConnections(controller.current.signal, true);
         if (!current(request)) { popup.close(); return; }
-        request.baselineIds = new Set(baseline.filter((connection) => connection.providerKey === item.providerKey).map((connection) => connection.id));
-        if (request.baselineIds.size) throw new Error("Disconnect the existing owned account before starting a new sign-in. An old account cannot confirm new consent.");
+        const owned = baseline.filter((connection) => connection.providerKey === item.providerKey);
+        request.baselineIds = new Set(owned.map((connection) => connection.id));
+        // Reconnect replaces only unusable rows; the old IDs stay in the baseline so they cannot confirm new consent.
+        if (owned.length && (!options.reconnect || owned.some((connection) => connection.connectionState === "active")))
+          throw new Error(options.reconnect ? "This account is still active. Disconnect it explicitly before signing in again." : "Disconnect the existing owned account before starting a new sign-in. An old account cannot confirm new consent.");
         const response = await fetch("/api/integrations/provider/connect", {
           method: "POST",
           credentials: "same-origin",
           cache: "no-store",
           signal: controller.current.signal,
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ providerKey: item.providerKey }),
+          body: JSON.stringify({ providerKey: item.providerKey, ...(options.reconnect ? { replaceUnavailable: true } : {}) }),
         });
         const body = (await response.json().catch(() => ({}))) as {
           ok?: boolean;
