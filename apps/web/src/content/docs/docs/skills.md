@@ -1,35 +1,42 @@
 ---
 title: Skills
-description: Save instructions you use often and add them to individual tasks.
+description: Give your AI employees reusable instructions for writing, research, review, and other repeatable work.
 ---
 
-Save a writing guide, review checklist, or testing convention as a skill. Add it when a task needs those instructions.
-
-## Save a skill
-
-1. Open **Skills** in the dashboard.
-2. Enter a **Skill name**, such as “Launch copy checklist”.
-3. Add notes with the instructions you want followed. You can also add a GitHub repository as a source reference.
-4. Select **Save skill**.
+A skill is a reusable set of instructions. Use one for a writing guide, research method, review checklist, or testing convention that several tasks need.
 
 For example:
 
-> Use claims supported by the product docs. Cite each source, label assumptions, and list any evidence still needed.
+> Use claims supported by the product notes. Cite the source for each claim, label assumptions, and list any missing evidence. Keep the output as a draft for review.
 
-## Use it in a task
+Skills guide an employee's work. They do not connect accounts, install tools, or approve actions.
 
-1. Open a thread and select the composer's **+** menu.
-2. Choose **Skills** and select the ones you need.
-3. Check the skill chips above your message, then send the task.
+## Reuse instructions during work
 
-The selected notes travel with your task. Review them with the rest of the exact request before approving work. A source link is a reference, not an installed tool.
+Open **Skills** and choose **New Skill**. In a team workspace, select **Team instruction skills** first; creating or managing shared instructions requires an owner or admin role. Give the skill a clear name and review its instructions before enabling it.
 
-## Keep or remove your notes
+Enabled instruction skills can be discovered and read during **Work**, including connected app tasks. Disabled and archived skills are unavailable to employees.
 
-Skills are saved in this browser and do not sync between devices. Keep a separate copy before clearing browser data.
+Check the selected scope: personal skills belong to your account; workspace skills are shared with workspace members. Do not put private personal context into a shared skill.
 
-Select **Remove** beside a skill to take it off your saved list. It will not remove instructions from tasks you already sent.
+## Attach a reviewed version to a run
 
-For instructions that apply to every task, add them to an [employee](/docs/employees/) instead.
+Use **Run-attached skills** when a repository or artifact task needs a specific set of instructions captured with its approval.
 
-Next: [Start and review a task](/docs/dashboard/).
+1. Save a new draft or install a template as a draft.
+2. Read the instructions and choose **Mark reviewed**.
+3. Choose **Activate reviewed version** as a separate step.
+4. In the task composer's **+** menu, choose **Skills** and select the active skills you need.
+5. Check the selected instructions with the rest of the task before approving the run.
+
+Editing creates a new version that needs review and activation again. A source URL records where instructions came from; it does not install a tool or grant access to that source.
+
+## Find and manage saved skills
+
+Current skills are saved to your signed-in account or selected workspace, rather than only to this browser. If a skill is missing, check the account, workspace, skill type, and whether it is disabled or archived.
+
+Older browser-local skills may appear in **Run-attached skills** with **Import legacy skills as drafts**. Importing keeps the old local records and creates drafts that still need review and activation.
+
+Disable a skill when it should no longer be used. Do not treat that as cancellation of work already running; check the task separately.
+
+For instructions that belong to one role, edit the [AI employee](/docs/employees/) itself.

@@ -8,11 +8,10 @@ Non-secret defaults are in `apps/backend/wrangler.jsonc` and `alchemy.run.ts`. F
 | Setting | Default / status | Purpose |
 | --- | --- | --- |
 | `GATEWAY_ID` | `default` | Account-owned AI Gateway selected through the Workers AI binding |
-| `ORCHESTRATOR_MODEL` | `@cf/meta/llama-3.1-8b-instruct` | Parent planning via Workers AI |
+| `ORCHESTRATOR_MODEL` | `@cf/zai-org/glm-4.7-flash` | Parent planning via Workers AI |
 | `CODING_MODEL` | `google/gemini-3.5-flash-lite` | OpenCode default coding model; also accepts `xai/<model>` for Grok |
 | `CLAUDE_CODE_MODEL` | `anthropic/claude-sonnet-4-6` | Claude Code default model |
 | `CODEX_MODEL` | `openai/gpt-5.3-codex` | Codex default model |
-| `DEVIN_MODEL` | `devin/swe-2` | Devin default model |
 | `GROK_MODEL` | `xai/grok-4.6` | Grok default model; medium reasoning effort |
 | `PI_MODEL` | `anthropic/claude-sonnet-4-6` | Pi default model |
 | `AGENT_HARNESS` | `opencode` | Deployment fallback; a task can select a harness explicitly |
@@ -27,7 +26,6 @@ Non-secret defaults are in `apps/backend/wrangler.jsonc` and `alchemy.run.ts`. F
 | `ANTIGRAVITY_SUBSCRIPTION_MODEL` | `google-subscription/gemini-3-pro` | `antigravity-subscription` default model |
 | `SHIBA_CURSOR_SUBSCRIPTION` | unset | Set `1` to open the opt-in `cursor-subscription` connect lane (below) |
 | `CURSOR_SUBSCRIPTION_MODEL` | `cursor/auto` | `cursor-subscription` model override |
-| `SHIBA_DEVIN_SUBSCRIPTION` | unset | Set `1` to open the opt-in `devin-subscription` connect lane (below) |
 | `DEVIN_SUBSCRIPTION_MODEL` | `devin/swe-2` | `devin-subscription` model override |
 | `SHIBA_LOCAL_RUNTIME` | unset | Set `1` to enable the opt-in `local` runtime (below) — dashboards can queue runs that execute on an operator machine |
 | `AGENT_MAILBOX` | `dev@tryshiba.dev` | Agent mailbox identity — the address the MCP `latest_verification` tool scans by default for OTP codes and magic sign-in links |
@@ -43,7 +41,7 @@ Model identifiers are defaults, not availability guarantees. Choose a currently 
 
 ## Harnesses and credentials
 
-The current source registry and Dockerfile include six always-on harnesses: `opencode`, `claude-code`, `codex`, `devin`, `grok`, and `pi`. OpenCode and Pi support Google, Anthropic, OpenAI, and xAI model providers; Pi runs headlessly with `--mode json` and its provider-specific API key env vars, while `grok` runs the Grok CLI with `--single` and streaming-json pinned to `api.x.ai` via `GROK_MODELS_BASE_URL`. Provider selection, dummy keys, and provider-host egress are implemented and unit-tested. Cursor stays a remote-executor connection, not an installed harness: its API-key→token exchange stores tokens inside the container, which cannot hold the dummy-key invariant. The dated `VERIFICATION.md` records OpenCode as the only harness exercised in the local end-to-end container run; that run's provider request returned 401. It records no cloud end-to-end run and no successful inference. Do not present unit tests or image binary checks as live harness acceptance.
+The current source registry and Dockerfile include `opencode`, `claude-code`, `codex`, `grok`, and `pi`, alongside ACP adapters and other configured runtime paths. Devin is not a registered harness or installed image binary. OpenCode and Pi support Google, Anthropic, OpenAI, and xAI model providers; Pi runs headlessly with `--mode json` and its provider-specific API key env vars, while `grok` runs the Grok CLI with `--single` and streaming-json pinned to `api.x.ai` via `GROK_MODELS_BASE_URL`. Provider selection, dummy keys, and provider-host egress are implemented and unit-tested. The image also includes a pinned Cursor CLI; binary presence alone does not establish an available account, approved execution route, or live compatibility. The dated `VERIFICATION.md` records OpenCode as the only harness exercised in the local end-to-end container run; that run's provider request returned 401. It records no cloud end-to-end run and no successful inference. Do not present unit tests or image binary checks as live harness acceptance.
 
 OpenCode, Claude Code, Codex, and Pi provider traffic uses the account-owned AI Gateway path; configure provider credentials there. `AI_GATEWAY_TOKEN` is an optional Worker secret for gateway authentication. Keep keys out of repository files, logs, and task text.
 

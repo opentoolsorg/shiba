@@ -1,36 +1,49 @@
 ---
 title: Threads and results
-description: Give Shiba a task, approve the request, and review the result.
+description: Keep each employee's brief, progress, decisions, and outputs in one conversation.
 ---
 
-Open the [dashboard](/app/) and sign in. Use **Threads** to start work and return to your conversations.
+A thread is the home for a task and its follow-ups. Start one from the dashboard or select **Launch bot** from [Agents](/docs/employees/) to use an employee's saved instructions.
 
-## Start a task
+## Choose the kind of work
 
-1. Open a thread, or select **Launch bot** from [Bots](/docs/employees/) to use an employee's saved instructions.
-2. Choose a GitHub repository and base branch. Describe what you want changed and how to check it.
-3. Review the selected agent and connection. Leave **Create pull request** off for your first task.
-4. Add any [skills](/docs/skills/) you want, then send the message.
+Use **Work** mode when you want the employee to use task tools. **Chat** mode is for conversation without task tools.
 
-Keep the task small enough to review: fix one bug, draft one campaign, or investigate one question. Work is returned as changes or draft files in the repository.
+The work target determines what the task can do:
 
-## Approve the request
+| Work target | Use it for |
+| --- | --- |
+| **Artifact workspace** | Create reviewable documents and files without GitHub. |
+| **Repository task** | Work in an existing GitHub repository and branch. |
+| **Employee tools and supplied context** | Work from a linked brief or app resources explicitly granted to the employee, without a repository. |
 
-Read the **exact request** on the approval card before work starts. Check the repository, branch, task, settings, and whether a pull request will be created.
+Check the selected model, account, and runtime. Cloud work needs a configured runtime; local work needs a compatible paired computer. Available tools depend on the employee and your installation.
 
-Approve the request you intend to run, or reject it and clarify the task. You can also find waiting decisions in **Approvals**.
+## Send a useful brief
 
-## Review the result
+State the outcome, audience, sources, and how you will judge the result. Add relevant [skills](/docs/skills/) and keep the request small enough to review.
 
-Stay in the thread to follow progress and read the response. Open the returned files and diff, then check what passed, failed, or could not be checked.
+For workspace runs, read the approval card before work begins. Check the target, task, output files, and publishing choice. Connected app work follows its separate tool permissions and action approvals; selecting it does not grant access.
 
-The thread may show **Run progress**, **Pull request**, and **Review findings** panels when those results are available. A completed status is a starting point for review, not proof that every result is correct.
+## Find the result
 
-If something needs another pass, reply in the same thread with a specific correction. Start another thread for unrelated work.
+Read the response and any **Run progress**, **Deliverables**, **Pull request**, or **Review findings** panels shown in the thread.
+
+- **Artifacts** are the files a task produced. Open the captured deliverables or **Download artifacts ZIP** when available. A download or file-presence check does not verify the content's accuracy.
+- **Repository changes** appear as files and a diff. Check deletions, renamed files, and reported tests.
+- **App results** depend on the permitted tools used. Read their results and any action receipts rather than assuming a requested action succeeded.
+
+Artifact ZIP links expire after seven days. Download useful work while the link is available, and read any missing-file, size-limit, or expiry notice.
+
+## Review, then decide
+
+Check facts and sources, read the changed files, and distinguish passed checks from failed or unrun checks. A completed status is not a guarantee of correctness.
+
+Reply in the same thread with a specific correction. Start another thread for unrelated work. Requesting a pull request does not publish it immediately: Shiba asks for a separate publication approval of the completed changes. See [Pull request review](/docs/review/).
 
 ## Cancel or clear
 
-Cancel from the task's controls when you want work to stop. Check the task status before starting replacement work; cancellation may take time.
+Cancel from the task's controls when you want work to stop. Check its status before starting replacement work; cancellation may take time.
 
 **Clear conversation** asks for confirmation. Cancel active work first: clearing a conversation does not stop it. If Shiba reports a partial clear, refresh and check what remains.
 
@@ -41,6 +54,4 @@ Cancel from the task's controls when you want work to stop. Check the task statu
 <span id="repo-setup"></span>
 <span id="environment-variables"></span>
 
-For effort levels, setup scripts, or test environment values, see [Task settings](/docs/task-settings/). These options are usually unnecessary for a first task.
-
-To run on your own computer, see [Remote access](/docs/remote-access/). If a connection or result is missing, start with [Troubleshooting](/docs/troubleshooting/).
+For effort levels, setup scripts, and test environment values, see [Task settings](/docs/task-settings/). For your own computer, see [Remote access](/docs/remote-access/). If something is missing, start with [Common questions](/docs/troubleshooting/).

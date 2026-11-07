@@ -17,7 +17,7 @@ any time — answers persist in `.env` (gitignored, mode 600).
    `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` in `.env`).
 2. **Collects config** — dashboard Access emails, worker secrets
    (`GITHUB_TOKEN`, `AI_GATEWAY_TOKEN`, Slack/Telegram/Discord credentials),
-   your paid-CLI subscription credentials (Claude, Codex, Cursor, Devin — blank
+   your paid-CLI subscription credentials (supported Claude, Codex, or Cursor lanes — blank
    keeps the lane dark), feature flags (`SHIBA_*_SUBSCRIPTION`, `AGENT_HARNESS`,
    `AUTOMATIONS_ENABLED`, `MEMORY_ENABLED`), and the agent mailbox address.
 3. **Builds and deploys** — `pnpm build` then `alchemy deploy`. Everything in

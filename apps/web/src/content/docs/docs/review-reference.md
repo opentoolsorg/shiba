@@ -7,7 +7,7 @@ For the dashboard workflow, use [Pull request review](/docs/review/). This refer
 
 ## Approval and posting
 
-The task's `reviewAfterPublish` flag is included in the approved input. It covers one read-only review after that task opens its pull request. A review of another pull request follows its own approval flow.
+The task's `reviewAfterPublish` flag is included in the approved input. The initial run approval does not authorize GitHub publication. After the changes are captured, a separate `pr_publish` approval authorizes pushing that frozen snapshot and opening its pull request. The selected post-publication review covers that pull request; a review of another pull request follows its own approval flow.
 
 The reviewer returns findings without editing repository files. The Worker posts a GitHub review with event `COMMENT`. Medium- and high-severity findings can appear inline; lower-severity findings remain in the review body.
 
