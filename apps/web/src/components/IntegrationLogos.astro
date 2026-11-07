@@ -1,0 +1,15 @@
+---
+import { integrationLogos } from '../../../../packages/shared/src/integration-logos';
+
+interface Props { providerKey: string }
+const { providerKey } = Astro.props;
+const logos = integrationLogos(providerKey);
+---
+<span class="brand-logos" aria-hidden="true">
+  {logos.map((logo) => <img src={logo.src} alt="" width="32" height="32" loading="lazy" decoding="async" />)}
+</span>
+<style>
+  .brand-logos { display: inline-flex; flex-shrink: 0; align-items: center; gap: 4px; }
+  img { display: block; width: 32px; height: 32px; padding: 4px; box-sizing: border-box; object-fit: contain; background: #fff; border: 1px solid var(--lp-line); border-radius: 4px; }
+  .brand-logos:empty { display: none; }
+</style>
