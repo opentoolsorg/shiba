@@ -1,3 +1,4 @@
+import { IntegrationLogo } from "./IntegrationLogo";
 import { CURATED_MCP_VENDORS, type CuratedMcpVendor } from "@shiba/shared";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { RoleCapabilityFilter } from "./RoleCapabilityFilter";
@@ -93,7 +94,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
       {vendors.map((vendor) => (
         <div key={vendor.catalogId} id={`mcp-preset-${vendor.catalogId}`} className="scroll-mt-4 border-b border-[var(--border-1)] px-4 py-3 last:border-b-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[13px] font-semibold text-[var(--fg)]">{vendor.name}</span>
+            <IntegrationLogo providerKey={vendor.catalogId} /><span className="text-[13px] font-semibold text-[var(--fg)]">{vendor.name}</span>
             <span className="font-mono text-[10px] text-[var(--muted-foreground-2)]">{vendor.endpoint}</span>
           </div>
           <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">{vendor.catalogId === "figma" ? "Figma restricts access to approved MCP clients. Shiba registration and live compatibility have not been verified." : vendor.catalogId === "notion" ? "Notion OAuth requires a registered client. Owner-generated bearer MCP tokens require a Business or Enterprise workspace; guest access is unsupported." : vendor.catalogId === "sentry" ? "Sentry documents OAuth-only connections. A static bearer fallback is unavailable here." : vendor.catalogId === "stripe" ? "Stripe OAuth requires a registered client. Bearer access uses a vendor-issued Agent API key with explicit permissions." : "Vendor account, permissions and deployment OAuth client configuration are required. Live account compatibility has not been verified."}</p>
