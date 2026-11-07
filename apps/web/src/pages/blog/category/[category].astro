@@ -26,9 +26,10 @@ const fmt = (d: Date) =>
 ---
 
 <MarketingPage
-	title={`${label} — Shiba Journal`}
-	description={`Every ${label.toLowerCase()} post from the Shiba journal, in one list.`}
+	title={`${label} articles and guides — Shiba Journal`}
+	description={`Browse ${label.toLowerCase()} articles from the Shiba Journal on AI employee workflows, review, and self-hosting.`}
 	path={path}
+	noindex={posts.length < 2}
 	breadcrumbs={[
 		{ name: 'Home', path: '/' },
 		{ name: 'Journal', path: '/blog/' },

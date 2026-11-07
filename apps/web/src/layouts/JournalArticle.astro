@@ -28,6 +28,8 @@ const path = post.path;
 // header (the inline copy in .prose is hidden in blog.css).
 const heroMatch = (post.post.body ?? '').match(/!\[([^\]]*)\]\(([^)\s]+)\)/);
 const hero = heroMatch ? { alt: heroMatch[1] ?? '', src: heroMatch[2] ?? '' } : null;
+const articleImage = new URL(hero?.src || '/assets/og/shiba-og.png', 'https://tryshiba.dev' + path).href;
+const articleImageAlt = hero ? hero.alt.trim() || title : 'Shiba';
 
 const fmt = (d: Date) =>
 	d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
@@ -46,7 +48,7 @@ const articleSchema = {
 	datePublished: pubDate.toISOString(),
 	...(updatedDate ? { dateModified: updatedDate.toISOString() } : {}),
 	mainEntityOfPage: 'https://tryshiba.dev' + path,
-	image: 'https://tryshiba.dev/assets/mascot/pet-logo.png',
+	image: { '@type': 'ImageObject', url: articleImage, caption: articleImageAlt },
 	articleSection: CATEGORY_LABEL[category],
 };
 ---
@@ -56,6 +58,8 @@ const articleSchema = {
 	description={description}
 	path={path}
 	type="article"
+	ogImage={articleImage}
+	ogImageAlt={articleImageAlt}
 	publishedTime={pubDate.toISOString()}
 	modifiedTime={updatedDate?.toISOString()}
 	schema={articleSchema}
@@ -95,7 +99,7 @@ const articleSchema = {
 				</div>
 				{hero && (
 					<figure class="article-hero">
-						<img src={hero.src} alt={hero.alt} loading="eager" />
+						<img src={hero.src} alt={articleImageAlt} loading="eager" />
 					</figure>
 				)}
 			</header>
