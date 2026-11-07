@@ -1,3 +1,4 @@
+import { IntegrationLogo } from "./IntegrationLogo";
 import {
   INTEGRATION_CATALOG,
   integrationCatalogDomains,
@@ -168,7 +169,6 @@ function IntegrationSection({
               : row.connected
                 ? { tone: "ok" as const, label: "Connected" }
                 : { tone: "neutral" as const, label: "Available" };
-            const logo = row.logoUrl;
             return (
               <div
                 key={row.key}
@@ -176,13 +176,7 @@ function IntegrationSection({
                 className="flex flex-col gap-2 border-b border-[var(--border-1)] px-4 py-3.5 last:border-b-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
               >
                 <div className="flex min-w-0 flex-1 gap-3">
-                  {logo ? (
-                    <img
-                      src={logo}
-                      alt=""
-                      className="mt-0.5 h-9 w-9 shrink-0 rounded border border-[var(--border-1)] bg-white object-contain"
-                    />
-                  ) : null}
+                  <IntegrationLogo providerKey={row.providerItem?.providerKey ?? entry?.id ?? row.name} logoUrl={row.logoUrl} />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[13px] font-semibold text-[var(--fg)]">{row.name}</span>

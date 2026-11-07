@@ -1,3 +1,4 @@
+import { IntegrationLogo } from "./IntegrationLogo";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import type { IntegrationProviderCatalogItem, IntegrationProviderConnection, TeamWorkspaceRole } from "@shiba/shared";
 import type { IntegrationBindingInputs } from "../integration-connection-bindings";
@@ -236,7 +237,7 @@ function OwnedAppAccounts({
                   className="flex min-w-0 flex-wrap items-center justify-between gap-3 border border-[var(--line)] p-4"
                 >
                   <div className="min-w-0">
-                    <h4 className="break-words text-sm font-semibold">{connection.providerKey}</h4>
+                    <div className="flex items-center gap-2"><IntegrationLogo providerKey={connection.providerKey} /><h4 className="break-words text-sm font-semibold">{connection.providerKey}</h4></div>
                     <p className="mt-1 break-words text-xs text-[var(--ink-2)]">
                       {connection.identityLabel || "Owned app account"} · {connection.connectionState === "reauth_required" ? "Sign-in expired" : connection.connectionState === "unavailable" ? "Authorization unavailable" : "Account configured"} · Live action unverified
                     </p>

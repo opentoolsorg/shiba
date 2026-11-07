@@ -1,4 +1,5 @@
 ---
+import IntegrationLogos from '../components/IntegrationLogos.astro';
 import MarketingPage from '../layouts/MarketingPage.astro';
 import PlannedCatalog from '../components/landing/PlannedCatalog.astro';
 import '../styles/landing.css';
@@ -76,16 +77,16 @@ const boundaries = [
       </div>
       <figure class="visual" role="img" aria-label="Conceptual illustration of a Shiba employee with example tools; not a connection-status view">
         <div class="visual-paper" aria-hidden="true"></div>
-        <div class="tool-chip chip-a">Slack · a brief</div>
-        <div class="tool-chip chip-b">Gmail · read-only context</div>
-        <div class="tool-chip chip-c">GitHub · your repository</div>
+        <div class="tool-chip chip-a"><IntegrationLogos providerKey="slack" />Slack · a brief</div>
+        <div class="tool-chip chip-b"><IntegrationLogos providerKey="gmail" />Gmail · read-only context</div>
+        <div class="tool-chip chip-c"><IntegrationLogos providerKey="github" />GitHub · your repository</div>
         <div class="visual-center">
           <div class="visual-tag">Instructions + your approval</div>
           <img src="/landing/mascots/operations.svg" alt="" width="260" height="240" decoding="async" />
           <div class="employee-label">Your Shiba employee</div>
           <div class="visual-tag">Your Cloudflare account</div>
         </div>
-        <div class="tool-chip chip-d">Linear · an issue</div>
+        <div class="tool-chip chip-d"><IntegrationLogos providerKey="linear" />Linear · an issue</div>
         <div class="tool-chip chip-e">Your configured AI tool</div>
         <div class="tool-chip chip-f">Schedule · a request</div>
       </figure>
@@ -133,7 +134,7 @@ const boundaries = [
       <div class="integration-grid">
         {INTEGRATION_CATALOG.map((app) => (
           <article class="integration-card">
-            <div class="card-heading"><h3>{app.name}</h3></div>
+            <div class="card-heading"><IntegrationLogos providerKey={app.id} /><h3>{app.name}</h3></div>
             <p class="card-description">{app.summary}</p>
             <div class="card-bottom"><p class="verification">{app.openConnectorServiceIds?.length ? 'OpenConnector catalog mapping · requires service availability and account connection.' : app.kind === 'mcp' ? 'MCP catalog entry · requires server setup and authorization.' : app.kind === 'webhook' ? 'Webhook setup path · configure and verify in your workspace.' : 'Native setup path · verify access in your workspace.'} Not evidence of a live-tested account.</p><a class="docs-link" href={app.docsUrl}>Provider reference <span aria-hidden="true">↗</span></a></div>
           </article>
@@ -146,7 +147,7 @@ const boundaries = [
       <div class="integration-grid">
         {CURATED_MCP_VENDORS.map((vendor) => (
           <article class="integration-card">
-            <div class="card-heading"><h3>{vendor.name}</h3></div>
+            <div class="card-heading"><IntegrationLogos providerKey={vendor.catalogId} /><h3>{vendor.name}</h3></div>
             <p class="card-description">Configure the {vendor.name} remote MCP preset in your workspace, then authorize the account and tools you want to use.</p>
             <div class="card-bottom"><p class="verification">Requires configuration and a connection test. Sensitive actions still need approval.</p><a class="docs-link" href={vendor.docsUrl}>Server documentation <span aria-hidden="true">↗</span></a></div>
           </article>
@@ -222,6 +223,7 @@ const boundaries = [
   .catalog-meta { margin: 0; }
   .integration-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
   .integration-card { display: flex; flex-direction: column; padding: 24px; border: 1px solid var(--lp-line); background: var(--lp-card); }
+  .card-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
   .card-heading h3 { font-size: 21px; line-height: 1.25; margin: 0; }
   .card-description { font-size: 15px; }
   .card-bottom { margin-top: auto; }
@@ -229,6 +231,8 @@ const boundaries = [
   .docs-link { display: flex; justify-content: space-between; align-items: center; min-height: 44px; border-top: 1px solid var(--lp-line); font-size: 13px; }
   @media (max-width: 900px) { .integration-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .catalog-heading { grid-template-columns: 1fr; } }
   @media (max-width: 600px) { .integration-grid { grid-template-columns: 1fr; } }
+
+  .tool-chip { display: flex; align-items: center; gap: 8px; }
 
   /* Hero */
   .hero { text-align: center; padding-top: 88px; padding-bottom: 64px; }

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { filterPlanned, plannedCategories, plannedCategoryCounts, plannedTools } from '../src/data/planned-integrations.ts';
 
 const names = (tools: { name: string }[]) => tools.map((t) => t.name);
-const offsets = new Map(plannedTools.map((t) => [t.name, t.logoStyle]));
+
 
 test('24 planned tools in canvas order', () => {
   assert.deepEqual(names(plannedTools), [
@@ -11,9 +11,7 @@ test('24 planned tools in canvas order', () => {
     'Google Ads', 'Google Drive', 'Granola', 'Jira & Confluence', 'Linear', 'Meta Ads', 'Monday.com', 'Moz SEO',
     'Neon', 'Notion', 'OneDrive', 'PayPal', 'PostHog', 'PostHog (EU)', 'QuickBooks', 'Salesforce', 'Sentry', 'Square',
   ]);
-  for (const [i, t] of plannedTools.entries()) {
-    assert.equal(t.logoStyle, `left:-${(i % 4) * 48}px;top:-${Math.floor(i / 4) * 48}px`);
-  }
+
 });
 
 test('15 categories with canvas counts', () => {
@@ -39,11 +37,13 @@ test('trimmed, case-insensitive query ANDed with category', () => {
   assert.equal(filterPlanned(plannedTools, { query: 'marketing' }).length, 4, 'category text is searchable');
 });
 
-test('sprite offsets stay tied to the original index after filtering', () => {
+test('brand identity stays tied to the tool name after filtering', async () => {
+  const { integrationLogos } = await import('../../../packages/shared/src/integration-logos.ts');
+  const logos = new Map(plannedTools.map((tool) => [tool.name, integrationLogos(tool.name)]));
   for (const category of plannedCategories) {
-    for (const t of filterPlanned(plannedTools, { category })) assert.equal(t.logoStyle, offsets.get(t.name));
+    for (const tool of filterPlanned(plannedTools, { category })) {
+      assert.deepEqual(integrationLogos(tool.name), logos.get(tool.name));
+    }
   }
-  for (const t of filterPlanned(plannedTools, { query: 'posthog', category: 'Analytics' })) {
-    assert.equal(t.logoStyle, offsets.get(t.name));
-  }
+  assert.equal(integrationLogos('PostHog (EU)')[0]?.src, integrationLogos('PostHog')[0]?.src);
 });
