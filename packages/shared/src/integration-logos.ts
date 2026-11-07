@@ -566,6 +566,6 @@ const aliases: Record<string, readonly string[]> = {
 /** Exact brand aliases only; unknown provider IDs must not borrow another brand. */
 export function integrationLogos(key: string): IntegrationLogoAsset[] {
   const normalized = key.trim().toLowerCase();
-  const ids = Object.hasOwn(aliases, normalized) ? aliases[normalized] : [];
+  const ids = Object.hasOwn(aliases, normalized) ? (aliases[normalized] ?? []) : [];
   return ids.flatMap((id) => assets[id] ? [assets[id]] : []);
 }
