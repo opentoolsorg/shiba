@@ -211,6 +211,30 @@ describe("gate composition", () => {
 });
 
 describe("worker-level 401 codes", () => {
+  it.each([
+    [{}, { google: false, slack: false }],
+    [{ BETTER_AUTH_GOOGLE_CLIENT_ID: "google-id", BETTER_AUTH_GOOGLE_CLIENT_SECRET: "google-secret" }, { google: true, slack: false }],
+    [{ BETTER_AUTH_SLACK_CLIENT_ID: "slack-id", BETTER_AUTH_SLACK_CLIENT_SECRET: "slack-secret" }, { google: false, slack: true }],
+    [{ BETTER_AUTH_GOOGLE_CLIENT_ID: "id-only", BETTER_AUTH_SLACK_CLIENT_SECRET: "secret-only" }, { google: false, slack: false }],
+    [{ BETTER_AUTH_GOOGLE_CLIENT_ID: " ", BETTER_AUTH_GOOGLE_CLIENT_SECRET: "secret", SLACK_CLIENT_ID: "install-id", SLACK_CLIENT_SECRET: "install-secret" }, { google: false, slack: false }],
+    [{ BETTER_AUTH_GOOGLE_CLIENT_ID: "google-id", BETTER_AUTH_GOOGLE_CLIENT_SECRET: "google-secret", BETTER_AUTH_SLACK_CLIENT_ID: "slack-id", BETTER_AUTH_SLACK_CLIENT_SECRET: "slack-secret" }, { google: true, slack: true }],
+  ])("publicly reports only social readiness without storage: %j", async (credentials, providers) => {
+    const worker = (await import("../src/index.js")).default;
+    const response = await worker.fetch(new Request("https://example.com/api/auth/social-providers"),
+      makeEnv({ ...credentials, AGENT_AUDIT: undefined }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ providers });
+  });
+
+  it("keeps social readiness dark without the auth signing secret", async () => {
+    const worker = (await import("../src/index.js")).default;
+    const response = await worker.fetch(new Request("https://example.com/api/auth/social-providers"),
+      makeEnv({ BETTER_AUTH_SECRET: undefined, BETTER_AUTH_GOOGLE_CLIENT_ID: "id", BETTER_AUTH_GOOGLE_CLIENT_SECRET: "secret" }));
+    expect(response.status).toBe(401);
+    expect(await handleBetterAuth(new Request(`${BASE}/api/auth/social-providers`), makeEnv({ BETTER_AUTH_SECRET: undefined }))).toBeNull();
+  });
+
   async function statusFor(path: string, env: Env): Promise<{ status: number; code: string | null }> {
     const worker = (await import("../src/index.js")).default;
     const res = await worker.fetch(new Request(`https://example.com${path}`), env);

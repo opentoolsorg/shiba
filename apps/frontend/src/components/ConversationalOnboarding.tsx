@@ -9,7 +9,7 @@ import type { MemorySource } from "./MemorySourcesView";
 import type { FirstRunProgressSnapshot } from "./FirstRunWizard";
 
 const QUESTIONS: Record<OutcomeStepId, { label: string; question: string; field?: keyof OnboardingDraft; choices: string[] }> = {
-  goal: { label: "Goal", question: "What should be ready when this is done?", field: "goal", choices: ["A reply draft grounded in a selected email", "A research brief with sources", "A campaign brief for review"] },
+  goal: { label: "Goal", question: "What should be ready when this is done?", field: "goal", choices: ["A code change ready for review", "A reply draft grounded in a selected email", "A research brief with sources", "A campaign brief for review"] },
   audience: { label: "Audience", question: "Who is this for?", field: "audience", choices: ["My team", "A customer", "Leadership"] },
   acceptance: { label: "Acceptance", question: "What would make this useful enough to accept?", field: "acceptance", choices: ["A clear draft with sources and open questions", "A concise recommendation with next steps", "An editable draft ready for my review"] },
   role: { label: "Your role", question: "What kind of work do you do? You can skip this.", field: "roleAnswer", choices: ["Founder or operator", "Marketing", "Engineering", "Design", "Sales", "HR", "Finance"] },
@@ -49,6 +49,8 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
   const current = QUESTIONS[step];
   const scope = draftScope ? `onboarding:${draftScope}:${step}` : null;
   const [input, setInput] = useState("");
+  const [firstChoice, setFirstChoice] = useState<{ scope: string | undefined; area: "task" | "explore" } | null>(null);
+  const showChoices = !progress?.draftTask && !input.trim() && (firstChoice?.scope !== draftScope || firstChoice?.area !== "task");
   const [roleQuery, setRoleQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,12 +82,18 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
 
 
   useEffect(() => {
-    setInput((scope ? readDraft(scope) : "") || answerFor(latestDraft.current, step));
+    const savedInput = (scope ? readDraft(scope) : "") || answerFor(latestDraft.current, step);
+    setInput(savedInput);
+    if (savedInput) setFirstChoice({ scope: draftScope, area: "task" });
     setRoleQuery("");
     inputRef.current?.focus();
     endRef.current?.scrollIntoView?.({ block: "end", behavior: "auto" });
   // Saved answer changes must not replace unsent input on a background refresh.
-  }, [scope, step]);
+  }, [scope, step, draftScope]);
+
+  useEffect(() => {
+    if (!showChoices) inputRef.current?.focus();
+  }, [showChoices]);
 
   useEffect(() => {
     const generation = ++resumeGeneration.current;
@@ -173,11 +181,24 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
   return (
     <section aria-label="First task setup" className="flex min-h-0 flex-1 flex-col bg-[var(--bg)]">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--border-1)] px-4 py-3">
-        <div><h1 className="text-base font-semibold text-[var(--fg)]">Let’s shape your first task</h1><p className="mt-1 text-xs text-[var(--muted-foreground-2)]">A saved brief first. You decide when work starts.</p></div>
+        <div><h1 className="text-base font-semibold text-[var(--fg)]">{showChoices ? "What would you like to do first?" : "Let’s shape your first task"}</h1><p className="mt-1 text-xs text-[var(--muted-foreground-2)]">{showChoices ? "Choose where to begin. Work still requires your approval." : "A saved brief first. You decide when work starts."}</p></div>
         <div className="flex gap-2"><button type="button" disabled={busy} onClick={onLegacyGuide} className={BUTTON}>Advanced setup guide</button><button type="button" disabled={busy} onClick={() => { void leave(); }} className={BUTTON}>Skip setup</button></div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
+          {showChoices ? <section aria-label="First-run choices" className="flex flex-col gap-3">
+            <p className="text-sm text-[var(--muted-foreground-2)]">These choices open setup or help you draft a task. Choosing does not connect an app, configure an employee, start work, or grant approval.</p>
+            <div role="group" aria-label="Choose where to begin" className="grid gap-2 sm:grid-cols-2">
+              <button type="button" disabled={busy} onClick={() => setFirstChoice({ scope: draftScope, area: "task" })} className={`${BUTTON} text-left`}><strong className="block">Start a coding task</strong><span className="mt-1 block">Describe the outcome and save a first-task brief for review.</span></button>
+              <button type="button" disabled={busy} onClick={() => { void leave("integrations"); }} className={`${BUTTON} text-left`}><strong className="block">Connect an app</strong><span className="mt-1 block">Browse apps and MCP servers, then choose what to connect.</span></button>
+              <button type="button" disabled={busy} onClick={() => { void leave("custom-agents", Boolean(onConfigureEmployee)); }} className={`${BUTTON} text-left`}><strong className="block">Set up an employee</strong><span className="mt-1 block">Review employee roles, configuration, and permissions.</span></button>
+              <button type="button" disabled={busy} aria-expanded={firstChoice?.scope === draftScope && firstChoice?.area === "explore"} aria-controls="onboarding-explore" onClick={() => setFirstChoice({ scope: draftScope, area: "explore" })} className={`${BUTTON} text-left`}><strong className="block">Explore team and automation</strong><span className="mt-1 block">Review team access or browse automations and triggers.</span></button>
+            </div>
+            {firstChoice?.scope === draftScope && firstChoice?.area === "explore" ? <div id="onboarding-explore" role="group" aria-label="Explore Shiba" className="flex flex-wrap gap-2">
+              <button type="button" disabled={busy} onClick={() => { void leave("team"); }} className={BUTTON}>Explore team</button>
+              <button type="button" disabled={busy} onClick={() => { void leave("automations"); }} className={BUTTON}>Explore automations</button>
+            </div> : null}
+          </section> : <>
           <p className="text-xs text-[var(--muted-foreground-2)]">Shiba setup uses guided questions, not a live model conversation. Submitted answers are saved to your account; connections and permissions are never granted here.</p>
           <div role="log" aria-label="Setup conversation" className="flex flex-col gap-5">
             {OUTCOME_STEPS.filter((item) => item !== "review" && (draft.completedSteps.includes(item) || draft.skippedSteps.includes(item))).map((item) => (
@@ -230,6 +251,7 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
               <div className="mt-4 flex flex-wrap gap-2">{prepared && preparedId ? <button type="button" disabled={busy} onClick={() => onUseDraft({ draftTaskId: preparedId, version: draft.version, draftTask: draft })} className={BUTTON}>Use first task draft in Work</button> : <button type="button" disabled={busy || Boolean(pending) || !readyToPrepare} onClick={() => { void perform({ action: "prepare-task" }, "Create first task draft"); }} className={BUTTON}>Create first task draft</button>}<button type="button" disabled={busy || Boolean(pending)} onClick={() => moveTo("goal")} className={BUTTON}>Edit brief</button></div>
             </section> : null}
           </article>
+          </>}
           {error ? <section aria-label="Setup recovery" className="rounded-[var(--radius-panel)] border border-[var(--border-1)] bg-[var(--card)] p-3 text-sm text-[var(--fg)]">
             <p role="alert">{error}</p>{pending ? <><p className="mt-2 whitespace-pre-wrap break-words">Your pending answer: {pending.summary}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => { void perform(pending.update, pending.summary, pending.scope); }} className={BUTTON}>{conflict ? "Retry my answer after review" : "Retry save"}</button><button type="button" disabled={busy} onClick={() => { if (pending.scope) writeDraft(pending.scope, ""); setPending(null); setError(null); setConflict(false); setInput(answerFor(draft, step)); }} className={BUTTON}>Use saved setup</button></div></> : <button type="button" disabled={busy} onClick={() => { void onRefresh().then(() => setError(null)).catch(() => setError("Saved setup still could not be loaded.")); }} className={`${BUTTON} mt-3`}>Retry loading setup</button>}
             <button type="button" disabled={busy} onClick={onClose} className="mt-3 block text-xs underline">Leave without saving</button>
@@ -240,7 +262,7 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
       <footer className="shrink-0 border-t border-[var(--border-1)] bg-[var(--bg)] px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto w-full max-w-2xl">
           <div className="mb-2 flex items-center justify-between gap-2 text-xs"><span role="status" aria-live="polite" className="text-[var(--muted-foreground-2)]">{busy ? "Saving your setup…" : draft.preparedAt ? "Task draft retained. Work has not started." : progress ? "Submitted answers saved to your account" : "Loading saved setup…"}</span><div className="flex gap-3">{previousStep ? <button type="button" disabled={busy || Boolean(pending)} onClick={() => moveTo(previousStep)} className="text-[var(--primary)]">Back</button> : null}{!REQUIRED.has(step) && step !== "review" ? <button type="button" disabled={busy || Boolean(pending)} onClick={skipQuestion} className="text-[var(--primary)]">Skip question</button> : null}</div></div>
-          {step !== "review" ? <form onSubmit={submit} aria-label="Setup answer composer" className="flex items-end gap-2 rounded-[var(--radius-panel)] border border-[var(--border-1)] bg-[var(--card)] p-2">
+          {!showChoices && step !== "review" ? <form onSubmit={submit} aria-label="Setup answer composer" className="flex items-end gap-2 rounded-[var(--radius-panel)] border border-[var(--border-1)] bg-[var(--card)] p-2">
             <textarea ref={inputRef} aria-label={`Your answer: ${current.label}`} aria-describedby="setup-current-question" maxLength={4000} rows={2} value={input} disabled={busy || Boolean(pending)} onChange={(event) => { setInput(event.target.value); if (scope) writeDraft(scope, event.target.value); }} onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); if (!pending && !busy) saveAnswer(input); } }} placeholder="Choose a suggestion or write your own answer" className="min-w-0 flex-1 resize-y bg-transparent p-2 text-sm text-[var(--fg)] focus:outline-none" />
             <button type="submit" disabled={busy || Boolean(pending) || !input.trim()} className={BUTTON}>Send answer</button>
           </form> : null}

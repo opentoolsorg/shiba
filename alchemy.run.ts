@@ -349,6 +349,11 @@ export const Worker = Cloudflare.Worker("Worker", {
       // Built-in dashboard auth signing secret (better-auth.ts): absent =
       // the lane is dark and the gate falls back to Access/fail-closed.
       "BETTER_AUTH_SECRET",
+      // Optional dashboard sign-in credentials; Slack app installation is separate.
+      "BETTER_AUTH_GOOGLE_CLIENT_ID",
+      "BETTER_AUTH_GOOGLE_CLIENT_SECRET",
+      "BETTER_AUTH_SLACK_CLIENT_ID",
+      "BETTER_AUTH_SLACK_CLIENT_SECRET",
       // First-account gate for public hosts. Either secret is enough.
       // Unset on a public URL refuses sign-up. Loopback dev does not need them.
       "BETTER_AUTH_BOOTSTRAP_TOKEN",

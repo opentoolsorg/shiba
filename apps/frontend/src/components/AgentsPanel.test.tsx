@@ -59,7 +59,7 @@ const mockThreads: WebThread[] = [
 ];
 
 describe("AgentsPanel", () => {
-  it("renders panel title, search and new agent action buttons, and scope switch", () => {
+  it("renders panel title and actions without duplicating the app-wide workspace picker", () => {
     const onScopeChange = vi.fn();
     const onNewAgent = vi.fn();
     render(
@@ -81,13 +81,9 @@ describe("AgentsPanel", () => {
     fireEvent.click(newBtn);
     expect(onNewAgent).toHaveBeenCalledOnce();
 
-    const personalTab = screen.getByRole("button", { name: "Personal" });
-    const workspaceTab = screen.getByRole("button", { name: "Workspace" });
-    expect(personalTab.getAttribute("aria-pressed")).toBe("true");
-    expect(workspaceTab.getAttribute("aria-pressed")).toBe("false");
-
-    fireEvent.click(workspaceTab);
-    expect(onScopeChange).toHaveBeenCalledWith("workspace");
+    expect(screen.queryByRole("button", { name: "Personal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
+    expect(onScopeChange).not.toHaveBeenCalled();
   });
 
   it("renders real custom agents with owner or workspace subtitles", () => {

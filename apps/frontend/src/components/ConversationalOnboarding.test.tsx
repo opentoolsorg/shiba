@@ -7,6 +7,7 @@ import { EMPTY_ONBOARDING_DRAFT, type OnboardingDraft } from "../onboarding-draf
 import { OnboardingConflictError, type FirstRunProgressUpdate } from "../onboarding-progress-client";
 import type { FirstRunProgressSnapshot } from "./FirstRunWizard";
 import { EMPLOYEE_TEMPLATES } from "../employee-templates";
+import { writeDraft } from "../saved";
 
 beforeEach(() => { vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ sources: [] }) }))); });
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
@@ -19,13 +20,13 @@ const initial: FirstRunProgressSnapshot = {
 };
 const reviewDraft: OnboardingDraft = { ...EMPTY_ONBOARDING_DRAFT, version: 1, currentStep: "review", goal: "Prepare a grounded reply", audience: "A customer", acceptance: "Only supported facts; no sending", employeeTemplateId: "research", employeeTemplateVersion: 1, completedSteps: ["goal", "audience", "acceptance", "employee"] };
 
-function harness(options: { draft?: OnboardingDraft; fail?: (update: FirstRunProgressUpdate) => Promise<void> } = {}) {
+function harness(options: { draft?: OnboardingDraft; configure?: boolean; progressPending?: boolean; fail?: (update: FirstRunProgressUpdate) => Promise<void> } = {}) {
   let server = { ...initial, ...(options.draft ? { draftTaskId: id, draftTask: options.draft } : {}) };
   const resume = vi.fn(async () => {}), refresh = vi.fn(async () => {}), dismiss = vi.fn(async () => {});
   const close = vi.fn(), navigate = vi.fn(), useDraft = vi.fn(), legacy = vi.fn(), configure = vi.fn();
   const updates: FirstRunProgressUpdate[] = [];
   function Harness({ account = "owner-a" }: { account?: string }) {
-    const [progress, setProgress] = useState(server);
+    const [progress, setProgress] = useState<FirstRunProgressSnapshot | null>(options.progressPending ? null : server);
     const update = async (body: FirstRunProgressUpdate) => {
       updates.push(body);
       await options.fail?.(body);
@@ -36,7 +37,7 @@ function harness(options: { draft?: OnboardingDraft; fail?: (update: FirstRunPro
       server = { ...server, draftTaskId: id, draftTask: draft, revision: server.revision + 1 };
       setProgress(server);
     };
-    return <ConversationalOnboarding progress={progress} onUpdate={update} onResume={resume} onRefresh={refresh} onDismiss={dismiss} onClose={close} onNavigate={navigate} onLegacyGuide={legacy} onUseDraft={useDraft} onConfigureEmployee={configure} draftScope={account} />;
+    return <ConversationalOnboarding progress={progress} onUpdate={update} onResume={resume} onRefresh={refresh} onDismiss={dismiss} onClose={close} onNavigate={navigate} onLegacyGuide={legacy} onUseDraft={useDraft} onConfigureEmployee={options.configure === false ? undefined : configure} draftScope={account} />;
   }
   return { Harness, updates, resume, refresh, dismiss, close, navigate, useDraft, legacy, configure, get server() { return server; } };
 }
@@ -48,9 +49,130 @@ const send = async (label: string, text: string) => {
 };
 
 describe("conversational first task setup", () => {
+  it("opens with core-area choices and enters the draft flow without saving or starting work", async () => {
+    const h = harness();
+    render(<h.Harness />);
+    expect(screen.getByRole("heading", { name: "What would you like to do first?" })).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "Choose where to begin" })).getAllByRole("button")).toHaveLength(4);
+    expect(screen.getByText(/Choosing does not connect an app, configure an employee, start work, or grant approval/)).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Start a coding task/ }));
+    const composer = await screen.findByRole("textbox", { name: "Your answer: Goal" });
+    expect(document.activeElement).toBe(composer);
+    expect(screen.getByRole("button", { name: "A code change ready for review" })).toBeTruthy();
+    expect(h.updates).toHaveLength(0);
+    expect(h.dismiss).not.toHaveBeenCalled();
+    expect(h.navigate).not.toHaveBeenCalled();
+    expect(h.configure).not.toHaveBeenCalled();
+    expect(h.useDraft).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "A code change ready for review" }));
+    await screen.findByRole("textbox", { name: "Your answer: Audience" });
+    expect(h.updates).toEqual([{ action: "save-draft", draftTask: { goal: "A code change ready for review", currentStep: "audience", completedSteps: ["goal"], skippedSteps: [] } }]);
+  });
+
+  it.each([
+    ["Connect an app", "integrations"],
+    ["Set up an employee", "configure"],
+    ["Explore team", "team"],
+    ["Explore automations", "automations"],
+  ])("saves dismissal before opening the existing interface for %s", async (label, destination) => {
+    const h = harness();
+    let finish: (() => void) | undefined;
+    h.dismiss.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    render(<h.Harness />);
+    if (label.startsWith("Explore")) {
+      fireEvent.click(screen.getByRole("button", { name: /^Explore team and automation/ }));
+      expect(h.dismiss).not.toHaveBeenCalled();
+      expect(h.updates).toHaveLength(0);
+      fireEvent.click(within(screen.getByRole("group", { name: "Explore Shiba" })).getByRole("button", { name: label }));
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${label}`) }));
+    }
+    expect(h.dismiss).toHaveBeenCalledOnce();
+    expect(h.close).not.toHaveBeenCalled();
+    expect(h.navigate).not.toHaveBeenCalled();
+    expect(h.configure).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /^Start a coding task/ }).hasAttribute("disabled")).toBe(true);
+    await act(async () => { finish?.(); });
+    expect(h.close).toHaveBeenCalledOnce();
+    if (destination === "configure") {
+      expect(h.configure).toHaveBeenCalledExactlyOnceWith(null);
+      expect(h.navigate).not.toHaveBeenCalled();
+    } else {
+      expect(h.navigate).toHaveBeenCalledExactlyOnceWith(destination);
+      expect(h.configure).not.toHaveBeenCalled();
+    }
+    expect(h.updates).toHaveLength(0);
+    expect(h.useDraft).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(h.server.draftTask).toBeNull();
+  });
+
+  it("keeps the choices available when dismissal fails and permits an explicit retry", async () => {
+    const h = harness();
+    h.dismiss.mockRejectedValueOnce(new Error("Offline"));
+    render(<h.Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /^Connect an app/ }));
+    await screen.findByRole("alert");
+    expect(h.close).not.toHaveBeenCalled();
+    expect(h.navigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /^Connect an app/ }));
+    await waitFor(() => expect(h.navigate).toHaveBeenCalledExactlyOnceWith("integrations"));
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it("opens the employee interface when no configuration callback is supplied", async () => {
+    const h = harness({ configure: false });
+    render(<h.Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /^Set up an employee/ }));
+    await waitFor(() => expect(h.navigate).toHaveBeenCalledExactlyOnceWith("custom-agents"));
+    expect(h.dismiss).toHaveBeenCalledOnce();
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it("keeps first-run choices usable while account progress is still loading", async () => {
+    const h = harness({ progressPending: true });
+    render(<h.Harness />);
+    const choices = within(screen.getByRole("group", { name: "Choose where to begin" }));
+    const start = choices.getByRole("button", { name: /^Start a coding task/ });
+    expect((start as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(start);
+    expect(await screen.findByRole("textbox", { name: "Your answer: Goal" })).toBeTruthy();
+    expect(h.updates).toHaveLength(0);
+    expect(h.dismiss).not.toHaveBeenCalled();
+    expect(h.navigate).not.toHaveBeenCalled();
+  });
+
+  it("restores unsent first-task input instead of resetting it to the choice screen", async () => {
+    const h = harness();
+    const view = render(<h.Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /^Start a coding task/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Your answer: Goal" }), { target: { value: "Fix the login layout" } });
+    view.unmount();
+    const resumed = render(<h.Harness />);
+    expect((screen.getByRole("textbox", { name: "Your answer: Goal" }) as HTMLTextAreaElement).value).toBe("Fix the login layout");
+    expect(screen.queryByRole("heading", { name: "What would you like to do first?" })).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "Your answer: Goal" }), { target: { value: "" } });
+    expect(screen.getByRole("textbox", { name: "Your answer: Goal" })).toBeTruthy();
+    resumed.rerender(<h.Harness account="owner-b" />);
+    expect(screen.getByRole("heading", { name: "What would you like to do first?" })).toBeTruthy();
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it("resumes a saved goal and account-scoped unsent input without showing choices", () => {
+    writeDraft("onboarding:owner-a:goal", "Unsent revised goal");
+    const h = harness({ draft: { ...EMPTY_ONBOARDING_DRAFT, version: 1, goal: "Saved goal" } });
+    render(<h.Harness />);
+    expect((screen.getByRole("textbox", { name: "Your answer: Goal" }) as HTMLTextAreaElement).value).toBe("Unsent revised goal");
+    expect(screen.queryByRole("region", { name: "First-run choices" })).toBeNull();
+    expect(h.updates).toHaveLength(0);
+  });
+
   it("saves chips and free answers into an honest transcript, then requires explicit draft creation", async () => {
     const h = harness();
     render(<h.Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /^Start a coding task/ }));
     fireEvent.click(screen.getByRole("button", { name: "A research brief with sources" }));
     await screen.findByRole("textbox", { name: "Your answer: Audience" });
     fireEvent.click(screen.getByRole("button", { name: "A customer" }));
@@ -85,6 +207,7 @@ describe("conversational first task setup", () => {
   it("retains unsent answers across remount, supports Back, and keeps account drafts separate", async () => {
     const h = harness();
     const view = render(<h.Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /^Start a coding task/ }));
     await send("Goal", "Prepare a sourced brief");
     await screen.findByRole("textbox", { name: "Your answer: Audience" });
     fireEvent.change(screen.getByRole("textbox", { name: "Your answer: Audience" }), { target: { value: "My pending audience" } });
@@ -116,6 +239,7 @@ describe("conversational first task setup", () => {
     let attempts = 0;
     const h = harness({ fail: async () => { if (++attempts === 1) throw new OnboardingConflictError("Setup changed in another tab."); } });
     render(<h.Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /^Start a coding task/ }));
     await send("Goal", "Keep my answer");
     await screen.findByRole("alert");
     expect(h.updates).toHaveLength(1);

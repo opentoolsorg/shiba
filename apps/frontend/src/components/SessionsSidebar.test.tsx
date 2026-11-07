@@ -95,7 +95,7 @@ describe("SessionsSidebar", () => {
     expect(screen.queryByText("Approve deployment to production")).toBeNull();
   });
 
-  it("renders 2-segment Personal | Workspace control and allows switching", () => {
+  it("does not duplicate the app-wide workspace picker", () => {
     const onScopeChange = vi.fn();
     render(
       <SessionsSidebar
@@ -113,15 +113,9 @@ describe("SessionsSidebar", () => {
       />,
     );
 
-    const personalTab = screen.getByRole("button", { name: "Personal" });
-    const workspaceTab = screen.getByRole("button", { name: "Workspace" });
-
-    expect(personalTab.getAttribute("aria-pressed")).toBe("true");
-    expect(workspaceTab.getAttribute("aria-pressed")).toBe("false");
-
-    fireEvent.click(workspaceTab);
-    expect(onScopeChange).toHaveBeenCalledWith("workspace");
-    expect(workspaceTab.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("button", { name: "Personal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
+    expect(onScopeChange).not.toHaveBeenCalled();
   });
 
   it("renders nav list rows and allows selecting active view", () => {

@@ -50,7 +50,9 @@ describe("future combined report Slack review", () => {
     const { destination, sample } = reconciliationSlackFixture(); const fetcher = vi.fn(async (_path: RequestInfo | URL, init?: RequestInit) => init?.method === "POST" ? new Response("unconfirmed", { status: 503 }) : Response.json({ workspaceId: SLACK_RECON_WORKSPACE, actorId: SLACK_RECON_OWNER, available: true, destinations: [destination], grants: [] }));
     render(<FounderReconciliationAutomaticSlack workspaceId={SLACK_RECON_WORKSPACE} actorId={SLACK_RECON_OWNER} sample={sample} client={new FounderReconciliationSlackClient(SLACK_RECON_WORKSPACE, SLACK_RECON_OWNER, fetcher)} />);
     fireEvent.change(await screen.findByLabelText("Exact Slack destination"), { target: { value: destination.linkId } }); fireEvent.change(screen.getByLabelText("Maximum future sends"), { target: { value: "2" } });
-    fireEvent.change(screen.getByLabelText("Delivery expiry (local time)"), { target: { value: new Date(Date.now() + 1800000).toISOString().slice(0, 16) } }); fireEvent.click(screen.getByRole("button", { name: "Prepare combined Slack disclosure" }));
+    const localExpiry = new Date(Date.now() + 1800000);
+    localExpiry.setMinutes(localExpiry.getMinutes() - localExpiry.getTimezoneOffset());
+    fireEvent.change(screen.getByLabelText("Delivery expiry (local time)"), { target: { value: localExpiry.toISOString().slice(0, 16) } }); fireEvent.click(screen.getByRole("button", { name: "Prepare combined Slack disclosure" }));
     await screen.findByRole("alert"); expect(screen.getByRole("button", { name: "Prepare combined Slack disclosure" }).closest("fieldset")).toHaveProperty("disabled", true);
     fireEvent.click(screen.getByRole("button", { name: "Refresh combined Slack access" })); const prepare = await screen.findByRole("button", { name: "Prepare combined Slack disclosure" }); fireEvent.click(prepare); await screen.findByRole("alert");
     const writes = fetcher.mock.calls.filter(([, init]) => init?.method === "POST"); expect(writes).toHaveLength(2); expect(JSON.parse(String(writes[0]![1]?.body)).requestId).toBe(JSON.parse(String(writes[1]![1]?.body)).requestId);
