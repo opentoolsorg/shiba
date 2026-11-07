@@ -391,6 +391,14 @@ export class OwnerMemoryStore {
     return this.exec(`SELECT object_key FROM owner_memory_versions WHERE source_id=?`, id).map((row) => String(row.object_key));
   }
 
+  /** Internal-only object metadata; callers must recheck source visibility after I/O. */
+  activeDownload(id: string, nowMs = Date.now()): OwnerMemoryVersion | null {
+    const source = this.get(id);
+    if (!source || source.disabledAt !== null || (source.expiresAt !== null && source.expiresAt <= nowMs)) return null;
+    const row = this.exec(`SELECT * FROM owner_memory_versions WHERE source_id=? ORDER BY version DESC LIMIT 1`, id)[0];
+    return row ? { version: Number(row.version), sha256: String(row.sha256), objectKey: String(row.object_key), filename: String(row.filename), mediaType: String(row.media_type), bytes: Number(row.bytes) } : null;
+  }
+
   purgeVersions(id: string): void {
     this.transaction(() => {
       this.exec(`DELETE FROM owner_memory_versions WHERE source_id=?`, id);
