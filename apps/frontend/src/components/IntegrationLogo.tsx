@@ -25,7 +25,7 @@ export function IntegrationLogo({ providerKey, logoUrl }: { providerKey: string;
           onError={() => setFailed((previous) => new Set([...previous, logo.src]))} />
       )) : (
         <span className="flex h-8 w-8 items-center justify-center rounded border border-[var(--border-1)] text-[var(--muted-foreground-2)]">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 3v4m6-4v4M7 7h10v4a5 5 0 0 1-10 0V7Zm5 9v5" /></svg>
+          <svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 3v4m6-4v4M7 7h10v4a5 5 0 0 1-10 0V7Zm5 9v5" /></svg>
         </span>
       )}
     </span>
