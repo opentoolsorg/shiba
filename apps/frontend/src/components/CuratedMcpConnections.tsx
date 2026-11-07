@@ -82,7 +82,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
           Custom MCP connections
         </p>
         <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">
-          Six remote MCP presets. Sign-in depends on deployment and vendor support; nothing connects automatically. Labels keep multi-account
+          {CURATED_MCP_VENDORS.length} remote MCP presets. Sign-in depends on deployment and vendor support; nothing connects automatically. Labels keep multi-account
           connections separate (for example <span className="font-mono">stripe:prod</span>).
         </p>
         <div className="mt-3"><RoleCapabilityFilter value={role} onChange={setRole} label="MCP presets for role" /></div>
@@ -97,7 +97,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
             <IntegrationLogo providerKey={vendor.catalogId} /><span className="text-[13px] font-semibold text-[var(--fg)]">{vendor.name}</span>
             <span className="font-mono text-[10px] text-[var(--muted-foreground-2)]">{vendor.endpoint}</span>
           </div>
-          <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">{vendor.catalogId === "figma" ? "Figma restricts access to approved MCP clients. Shiba registration and live compatibility have not been verified." : vendor.catalogId === "notion" ? "Notion OAuth requires a registered client. Owner-generated bearer MCP tokens require a Business or Enterprise workspace; guest access is unsupported." : vendor.catalogId === "sentry" ? "Sentry documents OAuth-only connections. A static bearer fallback is unavailable here." : vendor.catalogId === "stripe" ? "Stripe OAuth requires a registered client. Bearer access uses a vendor-issued Agent API key with explicit permissions." : "Vendor account, permissions and deployment OAuth client configuration are required. Live account compatibility has not been verified."}</p>
+          <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">{vendor.setupNotice} <a href={vendor.docsUrl} target="_blank" rel="noopener noreferrer" className="underline">Official setup documentation</a></p>
           <ul className="mt-2 space-y-1 text-xs text-[var(--muted-foreground-2)]">
             {connectionsFor(vendor).length === 0 ? (
               <li>No connections yet.</li>
@@ -152,19 +152,19 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
               </select>
             </label>
             <label className="flex flex-col gap-1 text-[11px] sm:col-span-2">
-              Bearer fallback (optional)
+              {vendor.connectionMethods.includes("oauth") ? "Bearer fallback (optional)" : "Bearer token"}
               <input
                 type="password"
-                disabled={vendor.catalogId === "figma" || vendor.catalogId === "sentry"}
+                disabled={!vendor.connectionMethods.includes("bearer")}
                 value={bearer[vendor.catalogId] ?? ""}
                 onChange={(event) => setBearer((current) => ({ ...current, [vendor.catalogId]: event.target.value }))}
-                placeholder="Paste vendor MCP bearer if OAuth client is not configured"
+                placeholder={vendor.connectionMethods.includes("oauth") ? "Paste vendor MCP bearer if OAuth client is not configured" : "Paste a restricted vendor token"}
                 className="border border-[var(--border-1)] bg-[var(--panel)] px-2 py-1 font-mono text-xs"
               />
             </label>
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
-            <button
+            {vendor.connectionMethods.includes("oauth") ? <button
               type="button"
               disabled={busy !== null}
               className="border border-[var(--border-1)] bg-[var(--panel)] px-3 py-1.5 text-[10px] font-mono hover:border-[var(--primary)] disabled:opacity-50"
@@ -206,10 +206,10 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
               }
             >
               Connect with OAuth
-            </button>
+            </button> : null}
             <button
               type="button"
-              disabled={busy !== null || vendor.catalogId === "figma" || vendor.catalogId === "sentry" || !(bearer[vendor.catalogId] ?? "").trim()}
+              disabled={busy !== null || !vendor.connectionMethods.includes("bearer") || !(bearer[vendor.catalogId] ?? "").trim()}
               className="border border-[var(--border-1)] bg-[var(--panel)] px-3 py-1.5 text-[10px] font-mono hover:border-[var(--primary)] disabled:opacity-50"
               onClick={() =>
                 void run(
@@ -244,7 +244,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
                 )
               }
             >
-              Save bearer fallback
+              {vendor.connectionMethods.includes("oauth") ? "Save bearer fallback" : "Save bearer token"}
             </button>
             {oauthLinks[vendor.catalogId] ? <a href={oauthLinks[vendor.catalogId]} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center border border-[var(--border-1)] px-3 text-xs underline">Continue {vendor.name} sign-in</a> : null}
           </div>

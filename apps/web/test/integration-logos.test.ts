@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { test } from 'node:test';
 import { INTEGRATION_CATALOG } from '../../../packages/shared/src/integration-catalog.ts';
+import { CURATED_MCP_VENDORS } from '../../../packages/shared/src/curated-mcp-vendors.ts';
 import { integrationLogos } from '../../../packages/shared/src/integration-logos.ts';
 import { plannedTools } from '../src/data/planned-integrations.ts';
 
@@ -13,6 +14,9 @@ test('all branded catalog entries resolve to locally shipped marks', () => {
     for (const logo of logos) {
       assert.ok(existsSync(new URL(`../public${logo.src}`, import.meta.url)), logo.src);
     }
+  }
+  for (const vendor of CURATED_MCP_VENDORS) {
+    assert.ok(integrationLogos(vendor.catalogId).length, vendor.catalogId);
   }
   for (const tool of plannedTools) {
     for (const logo of integrationLogos(tool.name)) {

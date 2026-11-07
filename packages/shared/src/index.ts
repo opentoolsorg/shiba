@@ -83,3 +83,4 @@ export * from "./founder-reconciliation-slack.js";
 export * from "./team-onboarding-task.js";
 
 export * from "./integration-logos.js";
+export * from "./operator-enrollment.js";

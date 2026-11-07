@@ -2,6 +2,7 @@
  * OAuth 2.1 pairing for owner-configured upstream MCP servers (RFC 9728 + 8414).
  * Bearer-header fallback stays on external-mcp credentialRef / encrypted bearer store.
  */
+import { curatedMcpVendorByCatalogId } from "@shiba/shared";
 import { audit } from "./audit.js";
 import type { Env } from "./env.js";
 import { sha256Hex } from "./agent-tokens.js";
@@ -300,6 +301,7 @@ export async function beginExternalMcpOAuthConnect(
   const server = await env.AGENT_AUDIT.prepare("SELECT generation,status,endpoint,schema_version,catalog_id,auth_mode FROM external_mcp_servers WHERE id=? AND org_id=? AND owner_id=?")
     .bind(input.serverId, input.orgId, input.ownerId).first<{ generation: number; status: string; endpoint: string; schema_version: string | null; catalog_id: string | null; auth_mode: string }>();
   if (!server || server.status !== "draft" || server.schema_version !== null || await loadStoredTokens(env, input.orgId, input.ownerId, input.serverId)) throw new Error("oauth_state_invalid");
+  if (server.catalog_id && !curatedMcpVendorByCatalogId(server.catalog_id)?.connectionMethods.includes("oauth")) throw new Error("unsupported_auth_method");
   oauthUrl(input.discovery.authorizationServer.authorization_endpoint);
   oauthUrl(input.discovery.authorizationServer.token_endpoint);
   if (input.discovery.authorizationServer.revocation_endpoint) oauthUrl(input.discovery.authorizationServer.revocation_endpoint);
@@ -556,9 +558,10 @@ export async function saveExternalMcpBearerToken(
   expectedGeneration?: number,
 ): Promise<void> {
   if (!bearer.trim() || bearer.length > 8_192) throw new Error("invalid_bearer");
-  const server = await env.AGENT_AUDIT.prepare("SELECT generation,status,schema_version FROM external_mcp_servers WHERE id=? AND org_id=? AND owner_id=?")
-    .bind(serverId, orgId, ownerId).first<{ generation: number; status: string; schema_version: string | null }>();
+  const server = await env.AGENT_AUDIT.prepare("SELECT generation,status,schema_version,catalog_id FROM external_mcp_servers WHERE id=? AND org_id=? AND owner_id=?")
+    .bind(serverId, orgId, ownerId).first<{ generation: number; status: string; schema_version: string | null; catalog_id: string | null }>();
   if (!server || server.status !== "draft" || server.schema_version !== null || (expectedGeneration !== undefined && server.generation !== expectedGeneration)) throw new Error("oauth_state_invalid");
+  if (server.catalog_id && !curatedMcpVendorByCatalogId(server.catalog_id)?.connectionMethods.includes("bearer")) throw new Error("unsupported_auth_method");
   if (!await persistExternalMcpOAuthTokens(env, orgId, ownerId, serverId, {
     accessToken: bearer.trim(),
     expiresAt: Date.now() + 365 * 24 * 60 * 60_000,

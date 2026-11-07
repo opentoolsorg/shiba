@@ -220,6 +220,8 @@ const assets: Record<string, IntegrationLogoAsset> = {
 };
 
 const aliases: Record<string, readonly string[]> = {
+  "github-readonly": ["github-icon"],
+  "linear-readonly": ["linear-icon"],
   "google-ads": [
     "google-ads"
   ],

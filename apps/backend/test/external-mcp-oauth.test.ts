@@ -141,7 +141,7 @@ describe("external MCP OAuth + multi-account", () => {
     expect(network).not.toHaveBeenCalled();
   });
 
-  it.each(CURATED_MCP_VENDORS)("completes a local authorized OAuth fixture for $name without enabling tools or exposing another owner's credentials", async (vendor) => {
+  it.each(CURATED_MCP_VENDORS.filter((vendor) => vendor.connectionMethods.includes("oauth")))("completes a local authorized OAuth fixture for $name without enabling tools or exposing another owner's credentials", async (vendor) => {
     const { env } = environment();
     const fetchFixture = mockDiscoveryFetch(vendor.endpoint);
     const discovery = await discoverExternalMcpOAuth(vendor, fetchFixture);
@@ -159,6 +159,59 @@ describe("external MCP OAuth + multi-account", () => {
     expect(await getExternalMcpServer(env, owner.orgId, owner.principal, server!.id)).toMatchObject({ status: "draft" });
     expect(await listExternalMcpTools(env, server!.id)).toEqual([]);
     await expect(exchangeExternalMcpOAuthCode(env, { state: consent.state, code: "fixture-code", principal: owner }, fetchFixture)).rejects.toThrow("oauth_state_invalid");
+  });
+
+  it.each(CURATED_MCP_VENDORS.filter((vendor) => !vendor.connectionMethods.includes("oauth")))("keeps $name bearer setup private, disabled and separate from unsupported OAuth", async (vendor) => {
+    const { env } = environment();
+    const network = mockMcp(vendor.endpoint);
+    vi.stubGlobal("fetch", network);
+    const server = (await createExternalMcpServer(env, { orgId: owner.orgId, ownerId: owner.principal, name: vendor.name,
+      endpoint: vendor.endpoint, credentialRef: null, catalogId: vendor.catalogId, connectionLabel: "fixture", authMode: "oauth" }))!;
+    const url = new URL(`https://shiba.test/api/v1/mcp/servers/${server.id}/oauth/begin`);
+    const response = await handleMcpV1({ url, env, principal: owner, forward: async () => new Response(),
+      request: new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ redirectUri: "https://shiba.test/api/v1/mcp/oauth/callback" }) }),
+    });
+    expect(response?.status).toBe(400);
+    expect(await response!.json()).toEqual({ ok: false, error: "unsupported_auth_method" });
+    const discovery = await discoverExternalMcpOAuth(vendor, mockDiscoveryFetch(vendor.endpoint));
+    await expect(beginExternalMcpOAuthConnect(env, { serverId: server.id, orgId: owner.orgId, ownerId: owner.principal,
+      catalogId: vendor.catalogId, redirectUri: "https://shiba.test/api/v1/mcp/oauth/callback", clientId: "unsupported", scopes: "", discovery })).rejects.toThrow("unsupported_auth_method");
+    expect(network).not.toHaveBeenCalled();
+    await saveExternalMcpBearerToken(env, owner.orgId, owner.principal, server.id, "restricted-fixture-token", server.generation);
+    expect(await loadExternalMcpOAuthTokens(env, owner.orgId, "other-owner", server.id)).toBeNull();
+    expect(await getExternalMcpServer(env, owner.orgId, owner.principal, server.id)).toMatchObject({ status: "draft", visibility: "private" });
+    expect(await listExternalMcpTools(env, server.id)).toEqual([]);
+    await discoverExternalMcpServer(env, server);
+    const tools = await listExternalMcpTools(env, server.id);
+    expect(tools.length).toBeGreaterThan(0);
+    expect(tools.every((tool) => !tool.enabled && tool.effect === "unreviewed" && tool.recommendedEffect === "approval_required")).toBe(true);
+    expect(recommendedExternalMcpToolEffect(vendor.catalogId, "new_vendor_tool")).toBe("approval_required");
+    const authenticated = network.mock.calls.find(([, init]) => init?.method === "POST");
+    expect(new Headers(authenticated?.[1]?.headers).get("Authorization")).toBe("Bearer restricted-fixture-token");
+    expect(network.mock.calls.every(([input]) => String(input instanceof Request ? input.url : input) === vendor.endpoint)).toBe(true);
+  });
+
+  it.each(CURATED_MCP_VENDORS.filter((vendor) => !vendor.connectionMethods.includes("bearer")))("rejects static bearer routes and credential references for $name", async (vendor) => {
+    const { env } = environment();
+    const input = { orgId: owner.orgId, ownerId: owner.principal, name: vendor.name,
+      endpoint: vendor.endpoint, credentialRef: null, catalogId: vendor.catalogId, connectionLabel: "fixture", authMode: "oauth" as const };
+    const server = (await createExternalMcpServer(env, input))!;
+    await expect(saveExternalMcpBearerToken(env, owner.orgId, owner.principal, server.id, "not-supported")).rejects.toThrow("unsupported_auth_method");
+    await expect(createExternalMcpServer(env, { ...input, connectionLabel: "ref", credentialRef: "MCP_CREDENTIAL_TOKEN" })).rejects.toThrow("unsupported_auth_method");
+    await expect(updateExternalMcpServer(env, { orgId: owner.orgId, ownerId: owner.principal, id: server.id, credentialRef: "MCP_CREDENTIAL_TOKEN" })).rejects.toThrow("unsupported_auth_method");
+    expect(await loadExternalMcpOAuthTokens(env, owner.orgId, owner.principal, server.id)).toBeNull();
+  });
+
+  it.each(["github-readonly", "linear-readonly"])("pins the %s endpoint and requires authentication", async (catalogId) => {
+    const { env } = environment();
+    const vendor = curatedMcpVendorByCatalogId(catalogId)!;
+    const input = { orgId: owner.orgId, ownerId: owner.principal, name: vendor.name,
+      endpoint: vendor.endpoint, credentialRef: null, catalogId, connectionLabel: "fixture", authMode: "oauth" as const };
+    await expect(createExternalMcpServer(env, { ...input, authMode: "none" })).rejects.toThrow("unsupported_auth_method");
+    await expect(createExternalMcpServer(env, { ...input, endpoint: vendor.endpoint.replace("/readonly", "") })).rejects.toThrow("invalid_endpoint");
+    const server = (await createExternalMcpServer(env, input))!;
+    await expect(updateExternalMcpServer(env, { orgId: owner.orgId, ownerId: owner.principal, id: server.id,
+      endpoint: vendor.endpoint.replace("/readonly", "") })).rejects.toThrow("invalid_endpoint");
   });
 
   it("discovers endpoint-specific metadata and a path-scoped OIDC issuer", async () => {
@@ -431,7 +484,7 @@ describe("external MCP OAuth + multi-account", () => {
     vi.stubGlobal("fetch", fetchMock);
     const server = (await createExternalMcpServer(env, {
       orgId: "org-a", ownerId: owner.principal, name: "Stripe", endpoint: vendor.endpoint, credentialRef: null,
-      catalogId: "stripe", connectionLabel: "prod", authMode: "none",
+      catalogId: "stripe", connectionLabel: "prod", authMode: "oauth",
     }))!;
     await discoverExternalMcpServer(env, server);
     const toolList = await listExternalMcpTools(env, server.id);
