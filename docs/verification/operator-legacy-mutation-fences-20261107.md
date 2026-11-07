@@ -50,6 +50,14 @@ or `null` on failure need explicit result checks in their eventual participant;
 those return values must not be mistaken for a successful source mutation.
 There is no automatic generic recovery route in this prototype.
 
+## Subsequent source registry prerequisite
+
+The [source registry verification](operator-source-registry-20261107.md) records
+mandatory atomic source mappings and source-resolved mutation claims. That
+follow-up replaces caller-selected authority sets in the mutation adapter, but
+does not migrate production writers or enable execution. The inventory below
+records the original gaps; the new record gives current remaining gates.
+
 ## Exact production wiring blockers
 
 There is no parent Durable Object/runtime binding, authenticated sibling barrier

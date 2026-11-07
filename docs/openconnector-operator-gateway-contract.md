@@ -7,7 +7,10 @@ strict envelopes, pinned API-key capture and a fixture-only fixed Figma metadata
 executor. A separate generated native entry serializes requests and cron, but
 always rejects the operator execution namespace with 503. There is no production
 activation flag. See the [runtime verification record](verification/openconnector-coordinated-runtime-20261107.md)
-for implemented scope, tests and remaining gates. This supplements
+for implemented scope, tests and remaining gates. The parent also has a
+[generation-bound source registry](verification/operator-source-registry-20261107.md)
+for atomic authority installation and complete source-resolved invalidation;
+legacy production writers remain unmigrated. This supplements
 [operator enrollment](openconnector-operator-enrollment.md).
 
 ## Decision

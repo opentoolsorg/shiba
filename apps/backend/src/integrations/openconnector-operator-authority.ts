@@ -10,12 +10,19 @@ import {
 
 import { operatorEnrollmentConnectionId, type OperatorExecutionEnrollment } from "./openconnector-operator-enrollment.js";
 
+import {
+  OperatorAuthoritySourceRegistry, operatorSourceReferences,
+  type OperatorLegacySource, type OperatorSourceReference, type OperatorSourceRegistration, type OperatorSourceSnapshot,
+} from "./openconnector-operator-sources.js";
+
 export const OPERATOR_PARENT_PRODUCTION_READY = false as const;
 export const OPERATOR_PARENT_ACTIVATION_BLOCKERS = [
   "owner enrollment and human approval must be owned by this coordinator",
   "employee, actor/resource/role grant and principal writers must invalidate first",
   "session deletion and run cancellation must invalidate first",
-  "legacy source identities must map durably to complete authority reference sets",
+  "all legacy source writers must use the registry; no snapshot backfill or legacy fallback",
+  "existing populated parent stores require a drained fresh registry epoch",
+  "human execution-approval cancellation must be owned by this coordinator",
   "all legacy writers and older deployments must be drained",
   "sibling deployment epoch and authenticated barrier transport must be bound",
 ] as const;
@@ -80,6 +87,7 @@ export type OperatorRevocationStatus = "revoking" | "revocation_outcome_unknown"
 export interface OperatorRevocation {
   revocationId: string; status: OperatorRevocationStatus;
   references: OperatorAuthorityReference[]; deploymentEpochs: string[];
+  sources?: OperatorSourceReference[];
 }
 
 type AuthorityRow = Record<string, unknown> & { version: number; state: string; record_json: string };
@@ -153,9 +161,10 @@ function matches(record: OperatorAuthorityRecord, envelope: OperatorExecutionEnv
 
 export class OperatorParentAuthority {
   private readonly now: () => number;
+  private readonly sources: OperatorAuthoritySourceRegistry;
   constructor(private readonly storage: OperatorAuthorityStorage, private readonly options: OperatorAuthorityOptions) {
     this.now = options.now ?? Date.now;
-    storage.transactionSync(() => {
+    this.sources = storage.transactionSync(() => {
       storage.sql.exec(`CREATE TABLE IF NOT EXISTS operator_parent_authority (
         kind TEXT NOT NULL, id TEXT NOT NULL, version INTEGER NOT NULL, state TEXT NOT NULL,
         record_json TEXT NOT NULL, PRIMARY KEY(kind,id))`);
@@ -169,12 +178,34 @@ export class OperatorParentAuthority {
         revocation_id TEXT PRIMARY KEY, status TEXT NOT NULL, record_json TEXT NOT NULL)`);
       storage.sql.exec(`CREATE TABLE IF NOT EXISTS operator_parent_source_mutations (
         revocation_id TEXT PRIMARY KEY, status TEXT NOT NULL CHECK(status IN ('claimed','applied')))`);
+      return new OperatorAuthoritySourceRegistry(storage.sql);
     });
   }
 
-  /** Trusted coordinator writer only. A live generation can never be overwritten. */
-  async installAuthority(input: OperatorAuthorityRecord, expectedPreviousVersion: number): Promise<void> {
-    const record = structuredClone(input);
+  /** Trusted writer only. Register real non-secret instances before creating authority. */
+  async registerLegacySource(input: OperatorSourceRegistration): Promise<void> {
+    const registration = structuredClone(input);
+    this.storage.transactionSync(() => this.sources.register(registration));
+    await this.storage.sync();
+  }
+
+  /** A successful drain is necessary, not proof of new consent or source validity. */
+  async advanceLegacySource(input: OperatorSourceRegistration, previousGeneration: number): Promise<void> {
+    const registration = structuredClone(input);
+    this.storage.transactionSync(() => this.sources.advance(registration, previousGeneration));
+    await this.storage.sync();
+  }
+
+  sourceRegistryInitialized(): boolean { return this.sources.initialized(); }
+
+  /** Non-secret authoritative lookup, NOT a permit. Mutations still compare generation atomically. */
+  lookupLegacySource(source: OperatorLegacySource): OperatorSourceSnapshot | null {
+    return this.storage.transactionSync(() => this.sources.lookup(source));
+  }
+
+  /** Authority and its full source mapping are created in the SAME transaction. */
+  async installAuthority(input: OperatorAuthorityRecord, expectedPreviousVersion: number, sourceInput: OperatorSourceReference[]): Promise<void> {
+    const record = structuredClone(input), sourceRefs = operatorSourceReferences(sourceInput);
     validateRecord(record);
     if (record.kind === "enrollment") {
       const p = record.provenance;
@@ -205,6 +236,7 @@ export class OperatorParentAuthority {
           || record.provenance.acceptance.acceptanceId === old.provenance.acceptance.acceptanceId
           || record.provenance.proposal.proposalId === old.provenance.proposal.proposalId) throw invalid();
       }
+      this.sources.bind(record, sourceRefs);
       this.storage.sql.exec(`INSERT INTO operator_parent_authority(kind,id,version,state,record_json)
         VALUES(?,?,?,'active',?) ON CONFLICT(kind,id) DO UPDATE SET
         version=excluded.version,state=excluded.state,record_json=excluded.record_json`,
@@ -282,61 +314,67 @@ export class OperatorParentAuthority {
     return result;
   }
 
-  /** Commit and flush the denial FIRST. No transaction is held over an await. */
+  /** Commit and flush an authority-only denial FIRST. Never permits a source write. */
   async beginInvalidation(revocationId: string, input: OperatorAuthorityReference[]): Promise<OperatorRevocation> {
-    return this.beginInvalidationWithSourceClaim(revocationId, input, false);
-  }
-
-  /**
-   * Claim exactly one legacy write with the tombstone, before any await. A
-   * replay, including after restart or a lost durability reply, never issues a
-   * second source-write permission. No result or credential is persisted here.
-   */
-  async beginSourceMutation(revocationId: string, input: OperatorAuthorityReference[]): Promise<OperatorRevocation> {
-    return this.beginInvalidationWithSourceClaim(revocationId, input, true);
-  }
-
-  private async beginInvalidationWithSourceClaim(
-    revocationId: string, input: OperatorAuthorityReference[], sourceMutation: boolean,
-  ): Promise<OperatorRevocation> {
     if (!validId(revocationId)) throw invalid();
     const refs = references(input);
     const result = this.storage.transactionSync(() => {
       const existing = this.getRevocation(revocationId);
       if (existing) {
-        if (sourceMutation) throw new Error("operator_source_mutation_already_started");
         if (JSON.stringify(existing.references) !== JSON.stringify(refs)) throw invalid();
         return existing;
       }
-      const epochs = new Set<string>();
-      for (const ref of refs) {
-        const row = this.authority(ref);
-        // Stale writers may not tombstone a newer generation by accident.
-        if (!row || row.version !== ref.version || (sourceMutation && row.state !== "active")) throw invalid();
-        const record = JSON.parse(row.record_json) as OperatorAuthorityRecord;
-        if (record.kind === "enrollment") epochs.add(record.deploymentEpoch);
-        this.storage.sql.exec("UPDATE operator_parent_authority SET state='tombstoned' WHERE kind=? AND id=? AND version=?", ref.kind, ref.id, ref.version);
-      }
-      // Frozen dependencies are the source of affected epochs. A caller cannot
-      // omit a deployment or use a caller-selected current snapshot instead.
-      const approvals = this.storage.sql.exec<Record<string, unknown> & { record_json: string }>(
-        "SELECT record_json FROM operator_parent_approvals",
-      ).toArray();
-      for (const row of approvals) {
-        const approval = JSON.parse(row.record_json) as OperatorHumanApproval;
-        if (approval.dependencies.some(dependency => refs.some(ref => sameRef(ref, dependency)))) epochs.add(approval.envelope.deploymentEpoch);
-      }
-      const revocation: OperatorRevocation = {
-        revocationId, status: "revoking", references: refs, deploymentEpochs: [...epochs].sort(),
-      };
-      this.storage.sql.exec("INSERT INTO operator_parent_revocations(revocation_id,status,record_json) VALUES(?,?,?)", revocationId, revocation.status, JSON.stringify(revocation));
-      if (sourceMutation) this.storage.sql.exec(
-        "INSERT INTO operator_parent_source_mutations(revocation_id,status) VALUES(?,'claimed')", revocationId,
-      );
+      return this.invalidate(revocationId, refs);
+    });
+    await this.storage.sync();
+    return result;
+  }
+
+  /**
+   * The writer identifies exact source instances, NEVER an authority subset.
+   * Registry resolution, source fence, authority denial and permanent write
+   * claim share one transaction. Unused sources still block future installation.
+   */
+  async beginSourceMutation(revocationId: string, input: OperatorSourceReference[]): Promise<OperatorRevocation> {
+    if (!validId(revocationId)) throw invalid();
+    const sourceRefs = operatorSourceReferences(input);
+    const result = this.storage.transactionSync(() => {
+      if (this.getRevocation(revocationId)) throw new Error("operator_source_mutation_already_started");
+      const refs = this.sources.claim(sourceRefs, revocationId);
+      const revocation = this.invalidate(revocationId, refs, sourceRefs);
+      this.storage.sql.exec("INSERT INTO operator_parent_source_mutations(revocation_id,status) VALUES(?,'claimed')", revocationId);
       return revocation;
     });
     await this.storage.sync();
     return result;
+  }
+
+  /** Called only inside the owner's synchronous transaction. */
+  private invalidate(revocationId: string, refs: OperatorAuthorityReference[], sources?: OperatorSourceReference[]): OperatorRevocation {
+    const epochs = new Set<string>();
+    for (const ref of refs) {
+      const row = this.authority(ref);
+      // Stale writers may not tombstone a newer generation by accident.
+      if (!row || row.version !== ref.version) throw invalid();
+      const record = JSON.parse(row.record_json) as OperatorAuthorityRecord;
+      if (record.kind === "enrollment") epochs.add(record.deploymentEpoch);
+      this.storage.sql.exec("UPDATE operator_parent_authority SET state='tombstoned' WHERE kind=? AND id=? AND version=?", ref.kind, ref.id, ref.version);
+    }
+    // Frozen dependencies are the source of affected epochs. A caller cannot
+    // omit a deployment or use a caller-selected current snapshot instead.
+    const approvals = this.storage.sql.exec<Record<string, unknown> & { record_json: string }>(
+      "SELECT record_json FROM operator_parent_approvals",
+    ).toArray();
+    for (const row of approvals) {
+      const approval = JSON.parse(row.record_json) as OperatorHumanApproval;
+      if (approval.dependencies.some(dependency => refs.some(ref => sameRef(ref, dependency)))) epochs.add(approval.envelope.deploymentEpoch);
+    }
+    const revocation: OperatorRevocation = {
+      revocationId, status: "revoking", references: refs, deploymentEpochs: [...epochs].sort(),
+      ...(sources ? { sources } : {}),
+    };
+    this.storage.sql.exec("INSERT INTO operator_parent_revocations(revocation_id,status,record_json) VALUES(?,?,?)", revocationId, revocation.status, JSON.stringify(revocation));
+    return revocation;
   }
 
   /**
@@ -410,7 +448,7 @@ export class OperatorParentAuthority {
     const result: OperatorAuthorityRecord[] = [];
     for (const ref of refs) {
       const row = this.authority(ref);
-      if (row?.state !== "active" || row.version !== ref.version) return null;
+      if (row?.state !== "active" || row.version !== ref.version || !this.sources.current(ref)) return null;
       const record = JSON.parse(row.record_json) as OperatorAuthorityRecord;
       if (record.expiresAt <= now || !matches(record, e)) return null;
       result.push(record);
@@ -422,17 +460,19 @@ export class OperatorParentAuthority {
 /**
  * Participation adapter for a future coordinated legacy-store mutation. If
  * tombstoning is uncertain, the source mutation is not attempted. Source
- * failure leaves the deny in place. The source callback must throw on failure,
+ * failure leaves the deny in place. The registry resolves the complete authority
+ * set from exact source instances. Registration/installation share this owner.
+ * The source callback must throw on failure,
  * including legacy false/null failure sentinels. A retry never replays a source
  * write; reconcile it separately, then retry only finishInvalidation. Never
  * report complete before both the source acknowledgment and sibling barrier.
  */
 export async function mutateAfterOperatorInvalidation<T>(input: {
-  authority: OperatorParentAuthority; revocationId: string; references: OperatorAuthorityReference[];
+  authority: OperatorParentAuthority; revocationId: string; sources: OperatorSourceReference[];
   mutate: () => Promise<T>; barrier: (request: OperatorBarrierRequest) => Promise<OperatorBarrierReply>;
 }): Promise<{ result: T; revocation: OperatorRevocation }> {
-  const { authority, revocationId, references: refs, mutate, barrier } = input;
-  await authority.beginSourceMutation(revocationId, refs);
+  const { authority, revocationId, sources, mutate, barrier } = input;
+  await authority.beginSourceMutation(revocationId, sources);
   const result = await mutate();
   await authority.acknowledgeSourceMutation(revocationId);
   const revocation = await authority.finishInvalidation(revocationId, barrier);
