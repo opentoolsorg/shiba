@@ -82,27 +82,13 @@ describe("AutomationsView", () => {
     expect(JSON.parse(call?.[1].body)).toMatchObject({ id: "manual-audit", repoUrl: "https://github.com/acme/app", enabled: true, customAgentId: "bot-1", triggers: [{ kind: "manual" }] });
   });
 
-  it("creates a generic webhook automation and reveals its secret once", async () => {
-    fetchMock
-      .mockResolvedValueOnce(Response.json({ automations: [] }))
-      .mockResolvedValueOnce(Response.json({ automation: { id: "webhook-test" }, webhookSecret: "one-time-secret" }, { status: 201 }))
-      .mockResolvedValueOnce(Response.json({ automations: [{ id: "webhook-test", enabled: true, triggers: [{ kind: "webhook" }] }] }));
+  it("keeps webhook signing secrets out of the dashboard UI", async () => {
+    respond();
     render(<AutomationsView />);
     fireEvent.click(await screen.findByRole("button", { name: "Triggers" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Webhook repository URL" }), { target: { value: "https://github.com/acme/app" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Webhook automation instructions" }), { target: { value: "Review each incoming report." } });
-    fireEvent.click(screen.getByRole("button", { name: "Create webhook automation" }));
-    expect(await screen.findByText("one-time-secret")).toBeTruthy();
-    const call = fetchMock.mock.calls.find((entry) => entry[1]?.method === "POST");
-    const created = JSON.parse(call?.[1].body);
-    expect(created).toMatchObject({
-      prompt: "Review each incoming report.",
-      repoUrl: "https://github.com/acme/app",
-      enabled: true,
-      triggers: [{ kind: "webhook" }],
-    });
-    expect(screen.getByText(`${window.location.origin}/api/automations/${encodeURIComponent(created.id)}/trigger`)).toBeTruthy();
-    expect(call?.[1].body).not.toContain("one-time-secret");
+    expect(screen.queryByRole("button", { name: "Create webhook automation" })).toBeNull();
+    expect(screen.queryByText("X-Automation-Secret")).toBeNull();
+    expect(screen.queryByText("one-time-secret")).toBeNull();
   });
 
   it("shows load failures and retries", async () => {

@@ -5,7 +5,7 @@ sidebar:
   order: 2
 ---
 
-The [`@shiba/sdk`](https://github.com/princepal9120/shiba/tree/main/packages/sdk) package is a **zero-runtime-dependency** fetch client for Shiba's public API. Types are generated from `GET /api/v1/openapi.json` on your Worker (`apps/backend/src/v1/openapi.json` in the repo).
+The [`@shiba/sdk`](https://github.com/opentoolsorg/shiba/tree/main/packages/sdk) package is a **zero-runtime-dependency** fetch client for Shiba's public API. Types are generated from `GET /api/v1/openapi.json` on your Worker (`apps/backend/src/v1/openapi.json` in the repo).
 
 ## Install (monorepo)
 

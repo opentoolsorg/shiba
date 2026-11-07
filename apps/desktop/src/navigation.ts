@@ -3,6 +3,7 @@ export type NavigationDecision = "allow" | "external" | "deny";
 // host or host/path-prefix hops a hosted IdP login needs (D6).
 export const DEFAULT_AUTH_HOSTS = [
   "accounts.google.com",
+  "slack.com/openid/connect",
   "github.com/login",
   "github.com/session",
   "login.microsoftonline.com",

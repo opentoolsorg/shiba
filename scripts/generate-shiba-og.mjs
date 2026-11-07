@@ -559,13 +559,11 @@ const html = `<!DOCTYPE html>
     <!-- Hero Title -->
     <div class="hero-strip">
       <h1 class="hero-h1">
-        AI employees for <span class="accent-word">company work.</span>
+        A self-hosted <span class="accent-word">cloud software engineer.</span>
       </h1>
       <p class="hero-subhead">
-        <span>ENGINEERING</span> <span class="bullet">·</span>
-        <span>RESEARCH</span> <span class="bullet">·</span>
-        <span>OPERATIONS</span> <span class="bullet">·</span>
-        <span>MARKETING</span> <span class="bullet">·</span>
+        <span>OPEN SOURCE</span> <span class="bullet">·</span>
+        <span>YOUR CLOUDFLARE ACCOUNT</span> <span class="bullet">·</span>
         <span>REVIEW THE PLAN · APPROVE THE RUN · REVIEW THE RESULT</span>
       </p>
     </div>
@@ -709,7 +707,7 @@ const html = `<!DOCTYPE html>
             <div class="file-chip">📁 marketing/brief.md</div>
             <div class="draft-box">
               <div class="draft-label">𝕏 Draft · in repo</div>
-              "AI employees for the work behind your company. Runs in your Cloudflare account. It asks before writing code 🐕"
+              "A self-hosted cloud software engineer. Review the plan, approve the run, inspect the result. 🐕"
             </div>
             <div class="metric-row">
               <span class="metric-key">Campaign</span>
