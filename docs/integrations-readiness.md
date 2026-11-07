@@ -8,10 +8,10 @@ calls. Each self-hosted deployment must configure and verify its own services.
 
 | Inventory | Count | Meaning |
 | --- | ---: | --- |
-| Static integration-directory rows | 39 | Named entries, including grouped products and generic channels. |
+| Static integration-directory rows | 40 | Named entries, including grouped products and generic channels. |
 | Rows labelled `live` | 9 | A Shiba product path exists; account setup and runtime acceptance remain separate. |
-| Rows labelled `catalog_only` | 30 | Discovery metadata; the label does not establish a working connection. |
-| Rows with OpenConnector mappings | 23 | Map to 28 distinct pinned upstream service IDs; these overlap the 39 rows. |
+| Rows labelled `catalog_only` | 31 | Discovery metadata; the label does not establish a working connection. |
+| Rows with OpenConnector mappings | 28 | Map to 37 distinct pinned upstream service IDs; these overlap the 40 rows. |
 | Curated remote MCP presets | 6 | Stripe, Notion, Sentry, PostHog, Figma and Atlassian; these overlap the directory. |
 | General managed-skill templates | 11 | Install as drafts, then review and activate. |
 | Founder skill packs | 6 | Draft instructions and setup recipes; scheduled deployment remains blocked. |
@@ -19,10 +19,10 @@ calls. Each self-hosted deployment must configure and verify its own services.
 The nine `live` labels are Gmail/Calendar, Slack, Telegram, Discord, Shiba Mailbox,
 Generic Webhook, External MCP, GitHub and Linear. A label can represent more than
 one product, and some entries represent infrastructure rather than app actions.
-Do not add these overlapping counts or present them as 39 connected apps.
+Do not add these overlapping counts or present them as 40 connected apps.
 
 The dynamic OpenConnector catalog is fetched from the configured sibling Worker,
-not limited to the 39 static directory rows. The pinned v1.9.4 source contains
+not limited to the 40 static directory rows. The pinned v1.9.4 source contains
 1,714 provider directories; the actual deployed `/api/providers` response is the
 source of truth for a deployment and can differ by release/build. Shiba pages that
 full response with search and readiness filters. OAuth-capable rows are connectable
@@ -188,4 +188,18 @@ Overlay's [feature inventory](https://github.com/LayerNorm/overlay-web/blob/main
 describes integrations, MCP servers and skills as separate capabilities and does
 not enumerate bundled skill names. These Shiba templates are independently written
 workflows, not copied Overlay skills or a claim of complete feature parity.
-The integration and MCP counts above are unchanged.
+The general library now contains eleven templates; MCP presets remain at six.
+
+## Overlay-named integration coverage
+
+All eleven apps named by Overlay's README have exact OpenConnector mappings:
+Gmail, Google Calendar, Google Sheets, Google Drive, Notion, Asana, Slack,
+GitHub, LinkedIn, X/Twitter and Outlook. Outlook Calendar, Instagram and YouTube
+are mapped too. Service IDs were checked against provider definitions at pinned
+revision `d89dc9f24f5a057bb500272d7dbf333837c77c68`.
+
+These are directory mappings into the existing dynamic provider flow, not new
+adapters or successful live calls. The directory now has 40 reference rows,
+28 mapped rows and 37 distinct service IDs. Native Gmail, Slack and GitHub
+bindings remain intact. Provider setup, consent and employee resource grants are
+still required; this does not establish parity with every Composio integration.

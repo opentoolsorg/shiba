@@ -95,6 +95,7 @@ export const INTEGRATION_CATALOG: IntegrationCatalogEntry[] = integrationCatalog
   },
   {
     id: "linkedin-instagram-youtube",
+    openConnectorServiceIds: ["linkedin", "instagram", "youtube"],
     name: "LinkedIn, Instagram, YouTube",
     domain: "marketing",
     kind: "openconnector",
@@ -204,6 +205,7 @@ export const INTEGRATION_CATALOG: IntegrationCatalogEntry[] = integrationCatalog
   },
   {
     id: "gmail-calendar",
+    openConnectorServiceIds: ["gmail", "googlecalendar"],
     name: "Gmail / Google Calendar",
     domain: "sales",
     kind: "openconnector",
@@ -213,9 +215,21 @@ export const INTEGRATION_CATALOG: IntegrationCatalogEntry[] = integrationCatalog
     summary: "Read-only Gmail in Shiba; Calendar requires a connected integration.",
     nativeBinding: "gmail",
   },
+  {
+    id: "outlook-calendar",
+    openConnectorServiceIds: ["outlook", "outlook_calendar"],
+    name: "Outlook / Outlook Calendar",
+    domain: "sales",
+    kind: "openconnector",
+    docsUrl: "https://github.com/oomol-lab/open-connector",
+    status: "catalog_only",
+    priority: "P1",
+    summary: "Microsoft mail and calendars via OpenConnector; requires provider OAuth setup, account consent and resource grants.",
+  },
   // Operations
   {
     id: "slack",
+    openConnectorServiceIds: ["slack"],
     name: "Slack",
     domain: "ops",
     kind: "native",
@@ -427,6 +441,7 @@ export const INTEGRATION_CATALOG: IntegrationCatalogEntry[] = integrationCatalog
   // Product / engineering
   {
     id: "github",
+    openConnectorServiceIds: ["github"],
     name: "GitHub",
     domain: "pm",
     kind: "native",
