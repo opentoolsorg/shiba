@@ -22,13 +22,9 @@ export type PlannedCategory = (typeof plannedCategories)[number];
 export type PlannedTool = {
   name: string;
   category: Exclude<PlannedCategory, 'All'>;
-  /** CSS offset into the 4x6 sprite, fixed by the tool's original index so filtering never shifts logos. */
-  logoStyle: string;
 };
 
-export const plannedLogoSprite = '/landing/planned-logo-sprite.png';
-
-const inventory: Array<Omit<PlannedTool, 'logoStyle'>> = [
+export const plannedTools: PlannedTool[] = [
   { name: 'Microsoft Teams', category: 'Communication' },
   { name: 'Baremetrics', category: 'Analytics' },
   { name: 'Bright Data Social', category: 'Cloud & Data' },
@@ -54,11 +50,6 @@ const inventory: Array<Omit<PlannedTool, 'logoStyle'>> = [
   { name: 'Sentry', category: 'Developer Tools' },
   { name: 'Square', category: 'Finance & Payments' },
 ];
-
-export const plannedTools: PlannedTool[] = inventory.map((tool, i) => ({
-  ...tool,
-  logoStyle: `left:-${(i % 4) * 48}px;top:-${Math.floor(i / 4) * 48}px`,
-}));
 
 /** Filters planned catalog entries by case-insensitive query and category. */
 export function filterPlanned<T extends { name: string; category: string }>(

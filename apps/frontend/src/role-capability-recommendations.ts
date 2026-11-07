@@ -9,8 +9,8 @@ const ROLE_CAPABILITIES: Record<CustomAgentRoleTemplateId, {
   integrationIds: readonly string[];
   mcpCatalogIds: readonly string[];
 }> = {
-  qa: { integrationIds: ["github", "sentry", "jira-atlassian"], mcpCatalogIds: ["sentry", "jira-atlassian"] },
-  engineering: { integrationIds: ["github", "linear", "sentry", "jira-atlassian", "slack"], mcpCatalogIds: ["sentry", "jira-atlassian", "notion"] },
+  qa: { integrationIds: ["github", "sentry", "jira-atlassian"], mcpCatalogIds: ["sentry", "jira-atlassian", "github-readonly", "linear-readonly"] },
+  engineering: { integrationIds: ["github", "linear", "sentry", "jira-atlassian", "slack"], mcpCatalogIds: ["sentry", "jira-atlassian", "notion", "github-readonly", "linear-readonly"] },
   design: { integrationIds: ["figma", "notion", "google-drive-docs-sheets", "slack"], mcpCatalogIds: ["figma", "notion"] },
   marketing: { integrationIds: ["posthog", "google-ads", "meta-ads", "hubspot", "webflow", "gmail-calendar"], mcpCatalogIds: ["posthog", "notion", "figma"] },
   gtm: { integrationIds: ["hubspot", "salesforce", "posthog", "gmail-calendar", "slack"], mcpCatalogIds: ["posthog", "notion"] },
@@ -18,7 +18,7 @@ const ROLE_CAPABILITIES: Record<CustomAgentRoleTemplateId, {
   operations: { integrationIds: ["slack", "notion", "google-drive-docs-sheets", "airtable", "monday-clickup-asana"], mcpCatalogIds: ["notion", "jira-atlassian"] },
   hr: { integrationIds: ["notion", "google-drive-docs-sheets", "gmail-calendar", "slack"], mcpCatalogIds: ["notion"] },
   finance: { integrationIds: ["stripe", "quickbooks", "google-drive-docs-sheets", "gmail-calendar"], mcpCatalogIds: ["stripe", "notion"] },
-  product: { integrationIds: ["linear", "posthog", "figma", "notion", "github"], mcpCatalogIds: ["posthog", "figma", "notion", "jira-atlassian"] },
+  product: { integrationIds: ["linear", "posthog", "figma", "notion", "github"], mcpCatalogIds: ["posthog", "figma", "notion", "jira-atlassian", "github-readonly", "linear-readonly"] },
   research: { integrationIds: ["notion", "google-drive-docs-sheets", "gmail-calendar"], mcpCatalogIds: ["notion"] },
 };
 

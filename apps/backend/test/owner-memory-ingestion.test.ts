@@ -9,10 +9,16 @@ import type { SqlRow, SqlScalar } from "../src/memory-store.js";
 
 function fixture() {
   const objects = new Map<string, Uint8Array>();
-  const controls = { failPut: false, failDelete: false, failCommit: false, failJournal: false, puts: 0, beforePut: undefined as (() => Promise<void>) | undefined };
+  const controls = { failPut: false, failGet: false, failDelete: false, failCommit: false, failJournal: false, puts: 0, beforePut: undefined as (() => Promise<void>) | undefined, beforeGet: undefined as (() => Promise<void>) | undefined };
   const databases = new Map<string, DatabaseSync>();
   const instances = new Map<string, { memory: Memory; ready: Promise<void> }>();
   const env = { REQUIRE_ACCESS: "1", MEMORY_ENABLED: "false", ATTACHMENTS: {
+    async get(key: string) {
+      const bytes = objects.get(key)?.slice();
+      await controls.beforeGet?.();
+      if (controls.failGet) throw new Error("Storage unavailable");
+      return bytes ? { size: bytes.length, arrayBuffer: async () => bytes.buffer } : null;
+    },
     async put(key: string, bytes: Uint8Array) {
       controls.puts += 1;
       await controls.beforePut?.();
@@ -71,6 +77,83 @@ function fixture() {
 }
 
 describe("managed owner text ingestion through authenticated routes", () => {
+  it("downloads exact private upload bytes with pinned version and safe attachment headers", async () => {
+    const { upload, call, patch } = fixture();
+    const raw = "# Brand\r\nOrion ships Tuesday.\r\n";
+    const { source } = await (await upload(raw)).json() as { source: OwnerMemorySource };
+    const path = `/sources/${source.id}/download?version=1`;
+    const downloaded = await call(`${path}&owner=bob&objectKey=foreign`);
+    expect(downloaded.status).toBe(200);
+    expect(await downloaded.text()).toBe(raw);
+    expect(downloaded.headers.get("Content-Disposition")).toBe('attachment; filename="brand.md"');
+    expect(downloaded.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
+    expect(downloaded.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(downloaded.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(downloaded.headers.get("Content-Security-Policy")).toBe("sandbox");
+    expect(downloaded.headers.get("X-Source-Sha256")).toBe(source.sha256);
+    expect(downloaded.headers.get("X-Source-Version")).toBe("1");
+    expect((await call(path, "bob@example.test")).status).toBe(404);
+    expect((await call(path, "")).status).toBe(401);
+    expect((await call(path, undefined, { method: "POST" })).status).toBe(405);
+    for (const query of ["", "?version=0", "?version=01", "?version=-1", "?version=1.1", "?version=9007199254740993", "?version=1&version=2"]) {
+      expect((await call(`/sources/${source.id}/download${query}`)).status).toBe(400);
+    }
+    await patch(source.id, { content: "Updated content", expectedVersion: 1 });
+    expect((await call(path)).status).toBe(409);
+    expect(await (await call(`/sources/${source.id}/download?version=2`)).text()).toBe("Updated content");
+  });
+
+  it("refuses disabled, expired, forgotten and unversioned downloads without exposing retained objects", async () => {
+    const { upload, call, patch, objects, controls, databases } = fixture();
+    const { source } = await (await upload("Private facts")).json() as { source: OwnerMemorySource };
+    const path = `/sources/${source.id}/download?version=1`;
+    await patch(source.id, { enabled: false });
+    expect((await call(path)).status).toBe(404);
+    await patch(source.id, { enabled: true });
+    for (const db of databases.values()) db.prepare("UPDATE owner_memory_sources SET expires_at=1 WHERE id=?").run(source.id);
+    expect((await call(path)).status).toBe(404);
+    for (const db of databases.values()) db.prepare("UPDATE owner_memory_sources SET expires_at=NULL WHERE id=?").run(source.id);
+    controls.failDelete = true;
+    await call(`/sources/${source.id}`, undefined, { method: "DELETE" });
+    expect(objects.size).toBe(1);
+    expect((await call(path)).status).toBe(404);
+    const note = await (await call("/sources", undefined, { method: "POST", body: JSON.stringify({ title: "Note", content: "Note text", kind: "note" }) })).json() as { source: OwnerMemorySource };
+    expect((await call(`/sources/${note.source.id}/download?version=1`)).status).toBe(404);
+  });
+
+  it.each(["missing", "corrupt", "truncated", "unavailable"])("fails closed when stored download is %s", async (failure) => {
+    const { upload, call, objects, controls } = fixture();
+    const { source } = await (await upload("Private facts")).json() as { source: OwnerMemorySource };
+    const key = [...objects.keys()][0];
+    if (!key) throw new Error("Upload fixture did not retain a file.");
+    if (failure === "missing") objects.delete(key);
+    if (failure === "corrupt") objects.set(key, new TextEncoder().encode("Altered facts"));
+    if (failure === "truncated") objects.set(key, new Uint8Array([1]));
+    controls.failGet = failure === "unavailable";
+    const response = await call(`/sources/${source.id}/download?version=1`);
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Content-Disposition")).toBeNull();
+    expect(await response.text()).not.toContain(key);
+  });
+
+  it.each(["disable", "delete", "correct"])("rechecks visibility after an in-flight download and concurrent %s", async (operation) => {
+    const { upload, call, patch, controls } = fixture();
+    const { source } = await (await upload("Private facts")).json() as { source: OwnerMemorySource };
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    controls.beforeGet = () => new Promise<void>((resolve) => { release = resolve; entered(); });
+    const download = call(`/sources/${source.id}/download?version=1`);
+    await started;
+    if (operation === "delete") await call(`/sources/${source.id}`, undefined, { method: "DELETE" });
+    if (operation === "disable") await patch(source.id, { enabled: false });
+    if (operation === "correct") await patch(source.id, { content: "New facts", expectedVersion: 1 });
+    release();
+    const result = await download;
+    expect(result.status).toBe(operation === "correct" ? 409 : 404);
+    expect(await result.text()).not.toContain("Private facts");
+  });
+
   it("uploads actual private bytes, retrieves versioned line/section citations, corrects and freezes old snapshots", async () => {
     const { upload, call, patch, snapshot, objects } = fixture();
     const raw = "# Brand\r\n\r\nOrion ships Tuesday.\r\n";
