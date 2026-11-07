@@ -15,6 +15,7 @@ interface ExternalTool {
 }
 interface ExternalServer {
   id: string;
+  generation: number;
   name: string;
   transport: "streamable_http";
   endpoint: string;
@@ -61,6 +62,58 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return value;
 }
 
+/** OAuth creates credentials only. Review, grants, and execution remain separate owner actions. */
+function CustomOAuthConnect({ serverId, disabled, onRefresh }: { serverId: string; disabled: boolean; onRefresh: () => Promise<void> }): JSX.Element {
+  const [issuer, setIssuer] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [scopes, setScopes] = useState("");
+  const [link, setLink] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const generation = useRef(0);
+  const pending = useRef(false);
+  useEffect(() => () => { generation.current++; }, []);
+  useEffect(() => {
+    if (!link) return;
+    const timer = window.setTimeout(() => { setLink(null); setError("Sign-in link expired. Start sign-in again."); }, 15 * 60_000);
+    return () => window.clearTimeout(timer);
+  }, [link]);
+  const begin = async () => {
+    if (pending.current || disabled) return;
+    pending.current = true;
+    const current = ++generation.current;
+    setBusy(true); setError(null); setLink(null);
+    try {
+      const expectedIssuer = new URL(issuer.trim());
+      if (expectedIssuer.protocol !== "https:" || expectedIssuer.username || expectedIssuer.password || expectedIssuer.search || expectedIssuer.hash) throw new Error("Enter the provider's HTTPS issuer URL.");
+      const result = await request<{ authorizationUrl: string }>(`${base}/${serverId}/oauth/begin`, { method: "POST", body: JSON.stringify({
+        redirectUri: `${window.location.origin}/api/v1/mcp/oauth/callback`, issuer: issuer.trim(), clientId: clientId.trim(), ...(scopes.trim() ? { scopes: scopes.trim() } : {}),
+      }) });
+      const target = new URL(result.authorizationUrl);
+      if (target.protocol !== "https:" || target.origin !== expectedIssuer.origin || target.username || target.password || target.hash) throw new Error("OAuth returned an unsafe sign-in URL.");
+      if (generation.current === current) setLink(target.href);
+    } catch (cause) {
+      if (generation.current === current) setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      pending.current = false;
+      if (generation.current === current) setBusy(false);
+    }
+  };
+  return <form className="grid gap-2 border-t border-[var(--border-1)] pt-3 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); void begin(); }}>
+    <p className="text-xs text-[var(--muted-foreground-2)] sm:col-span-2">Use a pre-registered public OAuth client with PKCE S256. The operator must allowlist the MCP and issuer hosts. Register this callback with the provider: {window.location.origin}/api/v1/mcp/oauth/callback. Client secrets and dynamic registration are unsupported.</p>
+    <input className={inputClass} aria-label="OAuth issuer URL" placeholder="https://auth.provider.com/tenant" required maxLength={2048} value={issuer} disabled={busy || disabled} onChange={(event) => { setIssuer(event.target.value); setLink(null); }} />
+    <input className={inputClass} aria-label="OAuth public client ID" placeholder="Pre-registered public client ID" required maxLength={1024} value={clientId} disabled={busy || disabled} onChange={(event) => { setClientId(event.target.value); setLink(null); }} />
+    <input className={inputClass} aria-label="OAuth scopes" placeholder="Scopes (optional, space-separated)" maxLength={512} value={scopes} disabled={busy || disabled} onChange={(event) => { setScopes(event.target.value); setLink(null); }} />
+    <button type="submit" className={buttonClass} disabled={busy || disabled || !issuer.trim() || !clientId.trim()}>{busy ? "Preparing sign-in…" : "Start custom OAuth"}</button>
+    {error ? <p role="alert" className="text-xs text-[var(--destructive)] sm:col-span-2">{error}</p> : null}
+    {link ? <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
+      <a href={link} target="_blank" rel="noopener noreferrer" className="text-xs underline">Continue custom OAuth sign-in</a>
+      <button type="button" className={buttonClass} disabled={disabled || busy} onClick={() => { void onRefresh().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }}>Refresh connection status</button>
+      <p className="text-xs text-[var(--muted-foreground-2)]">Return here after consent to review tools. Disable server to cancel and revoke this connection.</p>
+    </div> : null}
+  </form>;
+}
+
 /** Owner-controlled upstream registry; remote discovery happens only on explicit button press. */
 export function ExternalMcpManagement(): JSX.Element {
   const [servers, setServers] = useState<ExternalServer[]>([]);
@@ -70,6 +123,7 @@ export function ExternalMcpManagement(): JSX.Element {
   const [name, setName] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [credentialRef, setCredentialRef] = useState("");
+  const [authMode, setAuthMode] = useState<"bearer_ref" | "oauth">("bearer_ref");
   const [effectChoices, setEffectChoices] = useState<Record<string, "read" | "approval_required">>(
     {},
   );
@@ -160,7 +214,8 @@ export function ExternalMcpManagement(): JSX.Element {
             name,
             transport: "streamable_http",
             url: endpoint,
-            credentialRef: credentialRef || null,
+            credentialRef: authMode === "oauth" ? null : credentialRef || null,
+            ...(authMode === "oauth" ? { authMode } : {}),
           }),
         });
         setName("");
@@ -213,7 +268,8 @@ export function ExternalMcpManagement(): JSX.Element {
           configured by the deployment operator or the six curated presets can be contacted.
           Curated OAuth sign-in requires a deployment client registration; bearer fallback is
           available in the preset panel. SSE-only, stdio, local/private hosts, custom auth headers
-          and redirects are unsupported. Generic credentials use Worker secret references.
+          and redirects are unsupported. Custom servers support Worker secret references or
+          pre-registered public OAuth clients. OAuth still requires tool review and approval.
         </p>
       </div>
       {error ? (
@@ -256,13 +312,17 @@ export function ExternalMcpManagement(): JSX.Element {
           onChange={(event) => setEndpoint(event.target.value)}
           placeholder="https://mcp.example.com/mcp"
         />
-        <input
+        <select className={inputClass} aria-label="MCP authentication" value={authMode} onChange={(event) => setAuthMode(event.target.value as "bearer_ref" | "oauth")}>
+          <option value="bearer_ref">Worker credential reference (optional)</option>
+          <option value="oauth">Custom OAuth public client</option>
+        </select>
+        {authMode === "bearer_ref" ? <input
           className={inputClass}
           aria-label="MCP credential reference"
           value={credentialRef}
           onChange={(event) => setCredentialRef(event.target.value)}
           placeholder="MCP_CREDENTIAL_TEAM (optional)"
-        />
+        /> : null}
         <button
           type="submit"
           className={buttonClass}
@@ -309,7 +369,8 @@ export function ExternalMcpManagement(): JSX.Element {
               <button
                 type="button"
                 className={buttonClass}
-                disabled={busy !== null}
+                disabled={busy !== null || (!server.catalogId && server.authMode === "oauth" && server.status === "draft")}
+                title={!server.catalogId && server.authMode === "oauth" && server.status === "draft" ? "Complete OAuth sign-in before discovering tools." : undefined}
                 onClick={() => void discover(server)}
               >
                 {busy === `discover:${server.id}` ? "Checking…" : "Discover / retry"}
@@ -324,6 +385,8 @@ export function ExternalMcpManagement(): JSX.Element {
               </button>
             </div>
           </div>
+          {!server.catalogId && server.authMode === "oauth" && server.status === "draft" ?
+            <CustomOAuthConnect key={`${server.id}:${server.generation}:${server.endpoint}`} serverId={server.id} disabled={busy !== null} onRefresh={refresh} /> : null}
           <form
             className="grid gap-2 sm:grid-cols-3"
             onSubmit={(event) => {

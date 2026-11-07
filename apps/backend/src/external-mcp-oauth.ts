@@ -29,12 +29,16 @@ export interface OAuthAuthorizationServerMetadata {
   revocation_endpoint?: string;
   code_challenge_methods_supported?: string[];
   scopes_supported?: string[];
+  token_endpoint_auth_methods_supported?: string[];
+  authorization_response_iss_parameter_supported?: boolean;
 }
 
 export interface ExternalMcpOAuthDiscovery {
   resource: OAuthProtectedResourceMetadata;
   authorizationServer: OAuthAuthorizationServerMetadata;
   scopes?: string;
+  /** Present only for the operator-trusted, owner-pinned custom public-client lane. */
+  customIssuer?: string;
 }
 
 export interface ExternalMcpOAuthTokens {
@@ -47,6 +51,7 @@ export interface ExternalMcpOAuthTokens {
   clientId?: string;
   revocationEndpoint?: string;
   resource?: string;
+  customIssuer?: string;
 }
 
 export interface ExternalMcpOAuthPending {
@@ -64,6 +69,8 @@ export interface ExternalMcpOAuthPending {
   expiresAt: number;
   resource?: string;
   serverGeneration?: number;
+  customIssuer?: string;
+  issuerParameterRequired?: boolean;
 }
 
 const TOKEN_KIND = (serverId: string) => `external-mcp-oauth:${serverId}`;
@@ -99,6 +106,23 @@ function oauthUrl(value: unknown): URL {
   return url;
 }
 
+/** Custom hosts are an explicit operator trust boundary, never metadata-derived. */
+function customOAuthUrl(env: Env, value: unknown): URL {
+  const url = oauthUrl(value);
+  const hosts = new Set((env.MCP_TRUSTED_HOSTS ?? "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean));
+  if (!hosts.has(url.hostname) || url.hostname.endsWith(".") || url.search || url.pathname.startsWith("//")) throw new Error("destination_not_trusted");
+  return url;
+}
+
+function validateCustomOAuthBinding(env: Env, binding: { customIssuer?: string; resource?: string; tokenEndpoint?: string; revocationEndpoint?: string }) {
+  if (!binding.customIssuer) return;
+  const issuer = customOAuthUrl(env, binding.customIssuer);
+  customOAuthUrl(env, binding.resource);
+  for (const endpoint of [binding.tokenEndpoint, binding.revocationEndpoint]) {
+    if (endpoint !== undefined && customOAuthUrl(env, endpoint).origin !== issuer.origin) throw new Error("oauth_discovery_failed");
+  }
+}
+
 async function metadata(url: URL, fetchImpl: typeof fetch): Promise<Record<string, unknown> | null> {
   const response = await fetchImpl(url, { redirect: "error", signal: AbortSignal.timeout(8_000) });
   if (!response.ok) { await response.body?.cancel().catch(() => {}); return null; }
@@ -125,8 +149,10 @@ async function readBoundedObject(response: Response, failure = "oauth_discovery_
 export async function discoverExternalMcpOAuth(
   vendor: { endpoint: string; resourceOrigin?: string },
   fetchImpl: typeof fetch = fetch,
+  custom?: { env: Env; issuer: string },
 ): Promise<ExternalMcpOAuthDiscovery> {
   const endpoint = oauthUrl(vendor.endpoint), origin = oauthUrl(resourceOrigin(vendor).href);
+  if (custom) { customOAuthUrl(custom.env, endpoint.href); customOAuthUrl(custom.env, custom.issuer); }
   let advertised: string | undefined, scopes: string | undefined;
   try {
     const probe = await fetchImpl(endpoint, { method: "GET", headers: { Accept: "application/json, text/event-stream" }, redirect: "error", signal: AbortSignal.timeout(8_000) });
@@ -143,6 +169,8 @@ export async function discoverExternalMcpOAuth(
   ])].map((url) => new URL(url));
   let resource: OAuthProtectedResourceMetadata | undefined;
   for (const url of resourceUrls) {
+    // An untrusted challenge cannot make even a credential-free request off-origin.
+    if (custom && (customOAuthUrl(custom.env, url.href).origin !== endpoint.origin)) throw new Error("oauth_discovery_failed");
     const value = await metadata(url, fetchImpl);
     if (!value) continue;
     const resourceUrl = oauthUrl(value.resource);
@@ -150,11 +178,12 @@ export async function discoverExternalMcpOAuth(
       !Array.isArray(value.authorization_servers) || value.authorization_servers.length < 1 || value.authorization_servers.length > 8 ||
       value.authorization_servers.some((server) => typeof server !== "string")) throw new Error("oauth_discovery_failed");
     resource = value as unknown as OAuthProtectedResourceMetadata;
+    if (custom && (resourceUrl.href !== endpoint.href || !resource.authorization_servers.includes(custom.issuer))) throw new Error("oauth_discovery_failed");
     break;
   }
   if (!resource) throw new Error("oauth_discovery_failed");
-  const issuer = oauthUrl(resource.authorization_servers[0]);
-  if (issuer.search) throw new Error("oauth_discovery_failed");
+  const issuer = oauthUrl(custom?.issuer ?? resource.authorization_servers[0]);
+  if (issuer.search || issuer.pathname.startsWith("//")) throw new Error("oauth_discovery_failed");
   const path = issuer.pathname === "/" ? "" : issuer.pathname.replace(/\/$/, "");
   const candidates = [...new Set([
     new URL(`/.well-known/oauth-authorization-server${path}`, issuer).href,
@@ -162,13 +191,25 @@ export async function discoverExternalMcpOAuth(
     ...(path ? [new URL(`${path}/.well-known/openid-configuration`, issuer).href] : []),
   ])];
   for (const candidate of candidates) {
-    const value = await metadata(new URL(candidate), fetchImpl);
+    const metadataUrl = oauthUrl(candidate);
+    if (metadataUrl.origin !== issuer.origin) throw new Error("oauth_discovery_failed");
+    if (custom) customOAuthUrl(custom.env, metadataUrl.href);
+    const value = await metadata(metadataUrl, fetchImpl);
     if (!value) continue;
     if (oauthUrl(value.issuer).href.replace(/\/$/, "") !== issuer.href.replace(/\/$/, "")) throw new Error("oauth_discovery_failed");
     oauthUrl(value.authorization_endpoint); oauthUrl(value.token_endpoint);
     if (value.revocation_endpoint !== undefined) oauthUrl(value.revocation_endpoint);
     if (!Array.isArray(value.code_challenge_methods_supported) || !value.code_challenge_methods_supported.includes("S256")) throw new Error("oauth_discovery_failed");
-    return { resource, authorizationServer: value as unknown as OAuthAuthorizationServerMetadata, ...(scopes ? { scopes } : {}) };
+    if (custom) {
+      if (value.issuer !== custom.issuer || !Array.isArray(value.token_endpoint_auth_methods_supported) ||
+        !value.token_endpoint_auth_methods_supported.includes("none") ||
+        !Array.isArray(value.response_types_supported) || !value.response_types_supported.includes("code") ||
+        (value.grant_types_supported !== undefined && (!Array.isArray(value.grant_types_supported) || !value.grant_types_supported.includes("authorization_code")))) throw new Error("oauth_discovery_failed");
+      for (const target of [value.authorization_endpoint, value.token_endpoint, value.revocation_endpoint].filter((url) => url !== undefined)) {
+        if (customOAuthUrl(custom.env, target).origin !== issuer.origin) throw new Error("oauth_discovery_failed");
+      }
+    }
+    return { resource, authorizationServer: value as unknown as OAuthAuthorizationServerMetadata, ...(scopes ? { scopes } : {}), ...(custom ? { customIssuer: custom.issuer } : {}) };
   }
   throw new Error("oauth_discovery_failed");
 }
@@ -190,12 +231,14 @@ async function loadPendingByState(env: Env, state: string): Promise<(ExternalMcp
   );
   // Older pending rows encrypted only the verifier; new rows also retain vendor metadata.
   const secret = pendingSecret.startsWith("{")
-    ? JSON.parse(pendingSecret) as { verifier: string; revocationEndpoint?: string; resource?: string; serverGeneration?: number }
+    ? JSON.parse(pendingSecret) as { verifier: string; revocationEndpoint?: string; resource?: string; serverGeneration?: number; customIssuer?: string; issuerParameterRequired?: boolean }
     : { verifier: pendingSecret };
   return {
     revocationEndpoint: secret.revocationEndpoint,
     resource: secret.resource,
     serverGeneration: secret.serverGeneration,
+    customIssuer: secret.customIssuer,
+    issuerParameterRequired: secret.issuerParameterRequired,
     serverId: row.server_id as string,
     orgId: row.org_id as string,
     ownerId: row.owner_id as string,
@@ -254,19 +297,26 @@ export async function beginExternalMcpOAuthConnect(
 ): Promise<{ authorizationUrl: string; state: string }> {
   if (!oauthReady(env)) throw new Error("oauth_storage_unavailable");
   await ensureExternalMcpOAuthSchema(env);
-  const server = await env.AGENT_AUDIT.prepare("SELECT generation,status,endpoint,schema_version FROM external_mcp_servers WHERE id=? AND org_id=? AND owner_id=?")
-    .bind(input.serverId, input.orgId, input.ownerId).first<{ generation: number; status: string; endpoint: string; schema_version: string | null }>();
+  const server = await env.AGENT_AUDIT.prepare("SELECT generation,status,endpoint,schema_version,catalog_id,auth_mode FROM external_mcp_servers WHERE id=? AND org_id=? AND owner_id=?")
+    .bind(input.serverId, input.orgId, input.ownerId).first<{ generation: number; status: string; endpoint: string; schema_version: string | null; catalog_id: string | null; auth_mode: string }>();
   if (!server || server.status !== "draft" || server.schema_version !== null || await loadStoredTokens(env, input.orgId, input.ownerId, input.serverId)) throw new Error("oauth_state_invalid");
   oauthUrl(input.discovery.authorizationServer.authorization_endpoint);
   oauthUrl(input.discovery.authorizationServer.token_endpoint);
   if (input.discovery.authorizationServer.revocation_endpoint) oauthUrl(input.discovery.authorizationServer.revocation_endpoint);
   const resource = oauthUrl(input.discovery.resource.resource);
   if (resource.origin !== new URL(server.endpoint).origin) throw new Error("oauth_discovery_failed");
+  if (!server.catalog_id) {
+    if (server.auth_mode !== "oauth" || !input.discovery.customIssuer || resource.href !== new URL(server.endpoint).href) throw new Error("oauth_discovery_failed");
+    validateCustomOAuthBinding(env, { customIssuer: input.discovery.customIssuer, resource: resource.href,
+      tokenEndpoint: input.discovery.authorizationServer.token_endpoint, revocationEndpoint: input.discovery.authorizationServer.revocation_endpoint });
+    if (customOAuthUrl(env, input.discovery.authorizationServer.authorization_endpoint).origin !== new URL(input.discovery.customIssuer).origin) throw new Error("oauth_discovery_failed");
+  }
   const { verifier, challenge } = await generatePkce();
   const state = randomHex(24);
   const cipher = await encryptAuthJson(
     JSON.stringify({ verifier, revocationEndpoint: input.discovery.authorizationServer.revocation_endpoint,
-      resource: input.discovery.resource.resource, serverGeneration: server.generation }),
+      resource: input.discovery.resource.resource, serverGeneration: server.generation, customIssuer: input.discovery.customIssuer,
+      issuerParameterRequired: input.discovery.authorizationServer.authorization_response_iss_parameter_supported === true }),
     env.MODEL_CREDENTIAL_KEY!,
     input.orgId,
     input.ownerId,
@@ -314,7 +364,7 @@ export async function beginExternalMcpOAuthConnect(
 
 export async function exchangeExternalMcpOAuthCode(
   env: Env,
-  input: { state: string; code: string; principal: { orgId: string; principal: string } },
+  input: { state: string; code: string; issuer?: string; principal: { orgId: string; principal: string } },
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ serverId: string; orgId: string; ownerId: string }> {
   if (!oauthReady(env)) throw new Error("oauth_storage_unavailable");
@@ -323,6 +373,9 @@ export async function exchangeExternalMcpOAuthCode(
   if (!pending || pending.orgId !== input.principal.orgId || pending.ownerId !== input.principal.principal) {
     throw new Error("oauth_state_invalid");
   }
+  if (pending.customIssuer && ((input.issuer !== undefined && input.issuer !== pending.customIssuer) ||
+    (pending.issuerParameterRequired && input.issuer === undefined))) throw new Error("oauth_state_invalid");
+  validateCustomOAuthBinding(env, pending);
   // A state is consumed exactly once before exchanging its code; a failed exchange needs a new consent flow.
   const consumed = await env.AGENT_AUDIT.prepare("DELETE FROM external_mcp_oauth_pending WHERE state_hash=? AND org_id=? AND owner_id=? AND expires_at>?")
     .bind(await sha256Hex(input.state), pending.orgId, pending.ownerId, Date.now()).run();
@@ -356,6 +409,7 @@ export async function exchangeExternalMcpOAuthCode(
     scope: tokenJson.scope,
     tokenType: tokenJson.token_type ?? "Bearer",
     resource: pending.resource,
+    customIssuer: pending.customIssuer,
   };
   if (!await persistExternalMcpOAuthTokens(env, pending.orgId, pending.ownerId, pending.serverId, tokens,
     { serverGeneration: pending.serverGeneration })) throw new Error("oauth_state_invalid");
@@ -461,6 +515,7 @@ export async function revokeExternalMcpOAuth(
     const tokens = await loadExternalMcpOAuthTokens(env, input.orgId, input.ownerId, input.serverId);
     const endpoint = input.revocationEndpoint ?? tokens?.revocationEndpoint;
     if (tokens && endpoint) {
+      validateCustomOAuthBinding(env, { ...tokens, revocationEndpoint: endpoint });
       oauthUrl(endpoint);
       const body = new URLSearchParams({
         token: tokens.refreshToken ?? tokens.accessToken,
@@ -475,6 +530,7 @@ export async function revokeExternalMcpOAuth(
         signal: AbortSignal.timeout(8_000),
       });
       vendorRevocationFailed = !response.ok;
+      await response.body?.cancel().catch(() => {});
     }
   } catch {
     vendorRevocationFailed = true;
@@ -528,6 +584,7 @@ export async function resolveExternalMcpBearer(
   const resolve = async () => {
     const oauth = await loadExternalMcpOAuthTokens(env, orgId, ownerId, serverId);
     if (!oauth) return undefined;
+    validateCustomOAuthBinding(env, oauth);
     if (oauth.expiresAt > Date.now()) return oauth.accessToken;
     if (!oauth.refreshToken || !oauth.tokenEndpoint || !oauth.clientId) return undefined;
     await ensureExternalMcpOAuthSchema(env);
@@ -552,6 +609,7 @@ export async function resolveExternalMcpBearer(
       const stored = await loadStoredTokens(env, orgId, ownerId, serverId);
       if (!stored) return undefined;
       const current = stored.tokens;
+      validateCustomOAuthBinding(env, current);
       if (current.expiresAt > Date.now()) return current.accessToken;
       if (!current.refreshToken || !current.tokenEndpoint || !current.clientId) return undefined;
       oauthUrl(current.tokenEndpoint);

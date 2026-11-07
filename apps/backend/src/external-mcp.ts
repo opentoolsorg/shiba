@@ -13,6 +13,7 @@ import { initAudit, audit } from "./audit.js";
 import {
   deleteExternalMcpOAuthTokens,
   ensureExternalMcpOAuthSchema,
+  loadExternalMcpOAuthTokens,
   resolveExternalMcpBearer,
   revokeExternalMcpOAuth,
 } from "./external-mcp-oauth.js";
@@ -483,6 +484,9 @@ export async function updateExternalMcpServer(env: Env, input: { orgId: string; 
 }
 
 export async function discoverExternalMcpServer(env: Env, server: ExternalMcpServer) {
+  // Discovery before custom consent must not turn a usable draft into an error
+  // state or probe the resource without the owner's selected OAuth account.
+  if (!server.catalogId && server.authMode === "oauth" && !await loadExternalMcpOAuthTokens(env, server.orgId, server.ownerId, server.id)) throw new Error("oauth_sign_in_required");
   try {
     const result = await discovered(env, server);
     const now = Date.now();
