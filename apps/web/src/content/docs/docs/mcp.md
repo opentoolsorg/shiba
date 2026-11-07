@@ -66,6 +66,14 @@ Before minting, confirm `npx wrangler whoami` shows the Cloudflare account that 
 | `integrations.search_actions` | `integrations:read` | Discover actions for an `employeeId` with current integration grants and an exact `toolkitSlug`. A scope alone does not grant an app connection. |
 | `integrations.execute` | `integrations:execute` | Request an employee-authorized action with exact arguments; execution requires the separate human approval and current connection/resource grants. |
 
+### Select a skill as an MCP prompt
+
+Clients that support MCP prompts can use `prompts/list` and `prompts/get` to select enabled extension skills without writing files into the client's skill folders. The bearer needs `integrations:read`. The list contains only skills readable by that verified principal in its organization, with the skill name as the display title and no instruction body. Private skills belonging to another principal, disabled skills and archived skills are excluded. Team-workspace skills remain unavailable through this bearer surface because it does not establish native workspace membership.
+
+Each prompt name includes the skill ID and version, such as `shiba_skill_<id>_v1`. Refresh the client's prompt list after editing a skill: selecting an old version fails instead of silently loading changed instructions. Retrieval checks the principal, scope, current visibility, enabled state and version again. Names remain distinct even when two skills share a display title. The picker offers up to 100 skills; `list_skills` and `get_skill_instructions` remain available for directory search and on-demand reads.
+
+Selecting a prompt returns untrusted guidance, not permission to act. It cannot grant tools, approve a run or bypass any approval gate. No external tool or sandbox runs when a prompt is read. If the skill directory is unavailable, prompts are withheld while the other MCP tools remain available.
+
 ### Add an owner-reviewed external MCP server
 
 In **MCP → External MCP servers**, create a draft with an HTTPS Streamable HTTP endpoint and, when needed, the name of an already provisioned `MCP_CREDENTIAL_*` Worker secret. This custom-server form stores a reference, not the secret value. Custom public hosts must be exact hostnames in the deployment's comma-separated `MCP_TRUSTED_HOSTS`. The six curated hosts for Stripe, Notion, Sentry, PostHog, Figma and Atlassian are also trusted by the registry; an empty custom allowlist does not disable those presets. Trusting a host permits the explicit connection flow; it does not connect an account, enable a tool or grant access.
