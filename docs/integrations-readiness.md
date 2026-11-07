@@ -1,6 +1,6 @@
 # Apps, MCP and skills readiness
 
-This inventory describes the checked-in product contracts on November 6, 2026.
+This inventory describes the checked-in product contracts on November 7, 2026.
 Counts describe discovery options, not connected accounts or successful vendor
 calls. Each self-hosted deployment must configure and verify its own services.
 
@@ -13,7 +13,7 @@ calls. Each self-hosted deployment must configure and verify its own services.
 | Rows labelled `catalog_only` | 30 | Discovery metadata; the label does not establish a working connection. |
 | Rows with OpenConnector mappings | 23 | Map to 28 distinct pinned upstream service IDs; these overlap the 39 rows. |
 | Curated remote MCP presets | 6 | Stripe, Notion, Sentry, PostHog, Figma and Atlassian; these overlap the directory. |
-| General managed-skill templates | 5 | Install as drafts, then review and activate. |
+| General managed-skill templates | 11 | Install as drafts, then review and activate. |
 | Founder skill packs | 6 | Draft instructions and setup recipes; scheduled deployment remains blocked. |
 
 The nine `live` labels are Gmail/Calendar, Slack, Telegram, Discord, Shiba Mailbox,
@@ -125,7 +125,7 @@ Sources: [registry and invocation checks](../apps/backend/src/external-mcp.ts),
 
 Managed run skills and extension skills are separate surfaces:
 
-- **Run-attached skills:** the five general templates and six founder packs
+- **Run-attached skills:** the eleven general templates and six founder packs
   create owner-scoped drafts. Review the exact instructions, mark reviewed, then
   activate that version. Approved tasks freeze at most five selected skill pins;
   changed or inactive versions cannot silently replace the approved instructions.
@@ -176,3 +176,16 @@ changes; the branch's static-only authentication protection is not deployed ther
 OpenConnector OAuth accounts use an opaque Shiba connection identifier derived from the owned record and completed OAuth authorization provenance. A fresh consent changes that identifier; old grants and approvals fail current-connection checks. Token refresh within the same consent retains it. Configured legacy/API-key records without that provenance remain visible for recovery but are unavailable for employee execution. A connection is not executable merely because it is stored.
 
 The adapter verifies the approved generation immediately before dispatch and supplies the server-derived raw connection pin to the upstream action request. Pinned upstream OpenConnector has no atomic expected-consent condition on action execution. A simultaneous out-of-band operator mutation of credentials in the same row is therefore outside this verified guarantee; this implementation does not claim atomic vendor-account substitution protection.
+
+## Overlay-inspired workflow expansion (November 7)
+
+Six original instruction templates add inbox triage, meeting preparation, document
+research, task planning, weekly summaries and social drafts to the existing skill
+library. They use the same draft, review and activation path; they do not add
+provider adapters, OAuth grants, scheduled jobs or automatic publishing.
+
+Overlay's [feature inventory](https://github.com/LayerNorm/overlay-web/blob/main/FEATURES.md)
+describes integrations, MCP servers and skills as separate capabilities and does
+not enumerate bundled skill names. These Shiba templates are independently written
+workflows, not copied Overlay skills or a claim of complete feature parity.
+The integration and MCP counts above are unchanged.
