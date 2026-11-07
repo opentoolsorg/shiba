@@ -15,6 +15,7 @@ export const OPERATOR_PARENT_ACTIVATION_BLOCKERS = [
   "owner enrollment and human approval must be owned by this coordinator",
   "employee, actor/resource/role grant and principal writers must invalidate first",
   "session deletion and run cancellation must invalidate first",
+  "legacy source identities must map durably to complete authority reference sets",
   "all legacy writers and older deployments must be drained",
   "sibling deployment epoch and authenticated barrier transport must be bound",
 ] as const;
@@ -166,6 +167,8 @@ export class OperatorParentAuthority {
         deployment_epoch TEXT NOT NULL, effective_deadline INTEGER NOT NULL, admitted_at INTEGER NOT NULL)`);
       storage.sql.exec(`CREATE TABLE IF NOT EXISTS operator_parent_revocations (
         revocation_id TEXT PRIMARY KEY, status TEXT NOT NULL, record_json TEXT NOT NULL)`);
+      storage.sql.exec(`CREATE TABLE IF NOT EXISTS operator_parent_source_mutations (
+        revocation_id TEXT PRIMARY KEY, status TEXT NOT NULL CHECK(status IN ('claimed','applied')))`);
     });
   }
 
@@ -188,6 +191,13 @@ export class OperatorParentAuthority {
       const previous = this.authority(record);
       if ((!previous && expectedPreviousVersion !== 0)
         || (previous && (previous.version !== expectedPreviousVersion || previous.state !== "tombstoned"))) throw invalid();
+      // A tombstone is not a completed source mutation or sibling drain. New
+      // grants must not revive authority while either outcome is unresolved.
+      const revocations = this.storage.sql.exec<RevocationRow>(
+        "SELECT record_json,status FROM operator_parent_revocations WHERE status<>'complete'",
+      ).toArray();
+      if (revocations.some(row => (JSON.parse(row.record_json) as OperatorRevocation).references
+        .some(ref => ref.kind === record.kind && ref.id === record.id))) throw invalid();
       if (record.expiresAt <= this.now()) throw invalid();
       if (record.kind === "enrollment" && previous) {
         const old = JSON.parse(previous.record_json) as OperatorEnrollmentAuthority;
@@ -274,11 +284,27 @@ export class OperatorParentAuthority {
 
   /** Commit and flush the denial FIRST. No transaction is held over an await. */
   async beginInvalidation(revocationId: string, input: OperatorAuthorityReference[]): Promise<OperatorRevocation> {
+    return this.beginInvalidationWithSourceClaim(revocationId, input, false);
+  }
+
+  /**
+   * Claim exactly one legacy write with the tombstone, before any await. A
+   * replay, including after restart or a lost durability reply, never issues a
+   * second source-write permission. No result or credential is persisted here.
+   */
+  async beginSourceMutation(revocationId: string, input: OperatorAuthorityReference[]): Promise<OperatorRevocation> {
+    return this.beginInvalidationWithSourceClaim(revocationId, input, true);
+  }
+
+  private async beginInvalidationWithSourceClaim(
+    revocationId: string, input: OperatorAuthorityReference[], sourceMutation: boolean,
+  ): Promise<OperatorRevocation> {
     if (!validId(revocationId)) throw invalid();
     const refs = references(input);
     const result = this.storage.transactionSync(() => {
       const existing = this.getRevocation(revocationId);
       if (existing) {
+        if (sourceMutation) throw new Error("operator_source_mutation_already_started");
         if (JSON.stringify(existing.references) !== JSON.stringify(refs)) throw invalid();
         return existing;
       }
@@ -286,7 +312,7 @@ export class OperatorParentAuthority {
       for (const ref of refs) {
         const row = this.authority(ref);
         // Stale writers may not tombstone a newer generation by accident.
-        if (!row || row.version !== ref.version) throw invalid();
+        if (!row || row.version !== ref.version || (sourceMutation && row.state !== "active")) throw invalid();
         const record = JSON.parse(row.record_json) as OperatorAuthorityRecord;
         if (record.kind === "enrollment") epochs.add(record.deploymentEpoch);
         this.storage.sql.exec("UPDATE operator_parent_authority SET state='tombstoned' WHERE kind=? AND id=? AND version=?", ref.kind, ref.id, ref.version);
@@ -304,10 +330,26 @@ export class OperatorParentAuthority {
         revocationId, status: "revoking", references: refs, deploymentEpochs: [...epochs].sort(),
       };
       this.storage.sql.exec("INSERT INTO operator_parent_revocations(revocation_id,status,record_json) VALUES(?,?,?)", revocationId, revocation.status, JSON.stringify(revocation));
+      if (sourceMutation) this.storage.sql.exec(
+        "INSERT INTO operator_parent_source_mutations(revocation_id,status) VALUES(?,'claimed')", revocationId,
+      );
       return revocation;
     });
     await this.storage.sync();
     return result;
+  }
+
+  /**
+   * Trusted source writer only, after the write succeeded. On restart this may
+   * be called only after independently reconciling the actual source outcome;
+   * a retry of the source write is not reconciliation.
+   */
+  async acknowledgeSourceMutation(revocationId: string): Promise<void> {
+    this.storage.transactionSync(() => {
+      if (!this.sourceMutationStatus(revocationId)) throw invalid();
+      this.storage.sql.exec("UPDATE operator_parent_source_mutations SET status='applied' WHERE revocation_id=?", revocationId);
+    });
+    await this.storage.sync();
   }
 
   /** May be retried after process loss; barriers never redeem or issue transport. */
@@ -318,9 +360,10 @@ export class OperatorParentAuthority {
     if (!revocation) throw invalid();
     await this.storage.sync();
     if (revocation.status === "complete") return revocation;
-    let complete = true;
+    let complete = this.sourceMutationStatus(revocationId) !== "claimed";
+    // An unresolved source write cannot be completed by a successful drain.
     // No SQL transaction or authority lock is held across the sibling call.
-    for (const deploymentEpoch of revocation.deploymentEpochs) {
+    for (const deploymentEpoch of complete ? revocation.deploymentEpochs : []) {
       try {
         const reply = await barrier({ deploymentEpoch, revocationId });
         if (reply.status !== "complete" || reply.deploymentEpoch !== deploymentEpoch || reply.revocationId !== revocationId) complete = false;
@@ -330,7 +373,8 @@ export class OperatorParentAuthority {
       const current = this.getRevocation(revocationId);
       if (!current) throw invalid();
       if (current.status !== "complete") {
-        current.status = complete ? "complete" : "revocation_outcome_unknown";
+        current.status = complete && this.sourceMutationStatus(revocationId) !== "claimed"
+          ? "complete" : "revocation_outcome_unknown";
         this.storage.sql.exec("UPDATE operator_parent_revocations SET status=?,record_json=? WHERE revocation_id=?", current.status, JSON.stringify(current), revocationId);
       }
       return current;
@@ -344,6 +388,12 @@ export class OperatorParentAuthority {
       "SELECT record_json,status FROM operator_parent_revocations WHERE revocation_id=?", revocationId,
     ).toArray()[0];
     return row ? { ...JSON.parse(row.record_json) as OperatorRevocation, status: row.status } : null;
+  }
+
+  private sourceMutationStatus(revocationId: string): "claimed" | "applied" | null {
+    return this.storage.sql.exec<Record<string, unknown> & { status: "claimed" | "applied" }>(
+      "SELECT status FROM operator_parent_source_mutations WHERE revocation_id=?", revocationId,
+    ).toArray()[0]?.status ?? null;
   }
 
   private authority(ref: OperatorAuthorityReference): AuthorityRow | undefined {
@@ -372,14 +422,19 @@ export class OperatorParentAuthority {
 /**
  * Participation adapter for a future coordinated legacy-store mutation. If
  * tombstoning is uncertain, the source mutation is not attempted. Source
- * failure leaves the deny in place. Never report complete before the barrier.
+ * failure leaves the deny in place. The source callback must throw on failure,
+ * including legacy false/null failure sentinels. A retry never replays a source
+ * write; reconcile it separately, then retry only finishInvalidation. Never
+ * report complete before both the source acknowledgment and sibling barrier.
  */
 export async function mutateAfterOperatorInvalidation<T>(input: {
   authority: OperatorParentAuthority; revocationId: string; references: OperatorAuthorityReference[];
   mutate: () => Promise<T>; barrier: (request: OperatorBarrierRequest) => Promise<OperatorBarrierReply>;
 }): Promise<{ result: T; revocation: OperatorRevocation }> {
-  await input.authority.beginInvalidation(input.revocationId, input.references);
-  const result = await input.mutate();
-  const revocation = await input.authority.finishInvalidation(input.revocationId, input.barrier);
+  const { authority, revocationId, references: refs, mutate, barrier } = input;
+  await authority.beginSourceMutation(revocationId, refs);
+  const result = await mutate();
+  await authority.acknowledgeSourceMutation(revocationId);
+  const revocation = await authority.finishInvalidation(revocationId, barrier);
   return { result, revocation };
 }

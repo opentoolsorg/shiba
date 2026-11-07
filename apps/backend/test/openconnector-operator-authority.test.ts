@@ -199,6 +199,7 @@ describe("operator parent admission authority (isolated SQLite fixture only)", (
     await expect(f.authority.installAuthority({ ...required(f.records[1]), version: 2 }, 1)).rejects.toThrow();
     await f.authority.beginInvalidation("employee-change", [required(f.refs[1])]);
     await expect(f.authority.installAuthority(required(f.records[1]), 1)).rejects.toThrow();
+    await f.authority.finishInvalidation("employee-change", f.barrier);
     await f.authority.installAuthority({ ...required(f.records[1]), version: 2 }, 1);
     await expect(f.authority.beginInvalidation("stale-writer", [required(f.refs[1])])).rejects.toThrow();
   });
@@ -282,6 +283,135 @@ describe("operator revocation barrier participation", () => {
 });
 
 
+describe("coordinated legacy source mutation fencing", () => {
+  it("blocks regrant during a pending or uncertain barrier, including after restart", async () => {
+    const f = await fixture(); await f.approve();
+    const record = required(f.records[2]), refs = [required(f.refs[2])];
+    await f.authority.beginInvalidation("principal-revoke", refs);
+    const replacement = { ...record, version: 2 };
+    await expect(f.authority.installAuthority(replacement, 1)).rejects.toThrow();
+    expect((await f.authority.finishInvalidation("principal-revoke", async () => { throw Error("timeout"); })).status)
+      .toBe("revocation_outcome_unknown");
+    const restarted = new OperatorParentAuthority(f.storage, f.options);
+    await expect(restarted.installAuthority(replacement, 1)).rejects.toThrow();
+    await restarted.finishInvalidation("principal-revoke", f.barrier);
+    await restarted.installAuthority(replacement, 1);
+    expect((await f.redeem()).status).toBe("rejected");
+  });
+
+  it("does not let completion of one invalidation bypass another incomplete invalidation", async () => {
+    const f = await fixture(); await f.approve(); const refs = [required(f.refs[2])];
+    await f.authority.beginInvalidation("first", refs);
+    await f.authority.beginInvalidation("second", refs);
+    await f.authority.finishInvalidation("second", f.barrier);
+    await expect(f.authority.installAuthority({ ...required(f.records[2]), version: 2 }, 1)).rejects.toThrow();
+    await f.authority.finishInvalidation("first", f.barrier);
+    await f.authority.installAuthority({ ...required(f.records[2]), version: 2 }, 1);
+  });
+
+  it("claims a source write once before concurrent callers or recovery can complete revocation", async () => {
+    const f = await fixture(); await f.approve(); const refs = [required(f.refs[2])];
+    let release!: () => void, reached!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const writing = new Promise<void>(resolve => { reached = resolve; });
+    const mutate = vi.fn(async () => { reached(); await held; return "source-updated"; });
+    const input = { authority: f.authority, revocationId: "token-revoke", references: refs, mutate, barrier: f.barrier };
+    const pending = mutateAfterOperatorInvalidation(input);
+    await writing;
+    const restarted = new OperatorParentAuthority(f.storage, f.options);
+    try {
+      await expect(mutateAfterOperatorInvalidation({ ...input, authority: restarted })).rejects.toThrow("already_started");
+      await expect(mutateAfterOperatorInvalidation({ ...input, revocationId: "different-id" })).rejects.toThrow();
+      expect((await restarted.finishInvalidation(input.revocationId, f.barrier)).status).toBe("revocation_outcome_unknown");
+      expect(f.barrier).not.toHaveBeenCalled();
+      await expect(restarted.installAuthority({ ...required(f.records[2]), version: 2 }, 1)).rejects.toThrow();
+      expect((await f.redeem()).status).toBe("rejected");
+    } finally { release(); }
+    expect((await pending).revocation.status).toBe("complete");
+    expect(mutate).toHaveBeenCalledOnce();
+    await expect(mutateAfterOperatorInvalidation(input)).rejects.toThrow("already_started");
+    expect(mutate).toHaveBeenCalledOnce();
+  });
+
+  it("cannot revive a generation while the source write durability acknowledgment is held", async () => {
+    const f = await fixture(); await f.approve(); let release!: () => void, reached!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const waiting = new Promise<void>(resolve => { reached = resolve; });
+    let calls = 0;
+    f.storage.sync = async () => { if (++calls === 2) { reached(); await held; } };
+    const pending = mutateAfterOperatorInvalidation({ authority: f.authority, revocationId: "held-source-ack",
+      references: [required(f.refs[2])], mutate: async () => "source-updated", barrier: f.barrier });
+    await waiting;
+    try {
+      expect(f.barrier).not.toHaveBeenCalled();
+      await expect(f.authority.installAuthority({ ...required(f.records[2]), version: 2 }, 1)).rejects.toThrow();
+    } finally { release(); }
+    expect((await pending).revocation.status).toBe("complete");
+  });
+
+  it.each(["before-write", "after-write"])("does not repeat a failed source mutation %s", async phase => {
+    const f = await fixture(); await f.approve(); let writes = 0;
+    const mutate = vi.fn(async () => { if (phase === "after-write") writes++; throw Error("source outcome uncertain"); });
+    const input = { authority: f.authority, revocationId: "uncertain-source", references: [required(f.refs[2])], mutate, barrier: f.barrier };
+    await expect(mutateAfterOperatorInvalidation(input)).rejects.toThrow("source outcome uncertain");
+    const restarted = new OperatorParentAuthority(f.storage, f.options);
+    await expect(mutateAfterOperatorInvalidation({ ...input, authority: restarted })).rejects.toThrow("already_started");
+    expect((await restarted.finishInvalidation(input.revocationId, f.barrier)).status).toBe("revocation_outcome_unknown");
+    expect(f.barrier).not.toHaveBeenCalled(); expect(mutate).toHaveBeenCalledOnce();
+    expect(writes).toBe(phase === "after-write" ? 1 : 0);
+    expect((await f.redeem()).status).toBe("rejected");
+  });
+
+  it("retains the one-shot source claim after lost tombstone durability acknowledgment", async () => {
+    const f = await fixture(); await f.approve(); const mutate = vi.fn(async () => "source-updated");
+    const input = { authority: f.authority, revocationId: "uncertain-tombstone", references: [required(f.refs[2])], mutate, barrier: f.barrier };
+    f.storage.sync = async () => { throw Error("lost durability acknowledgment"); };
+    await expect(mutateAfterOperatorInvalidation(input)).rejects.toThrow("lost durability acknowledgment");
+    f.storage.sync = async () => {};
+    const restarted = new OperatorParentAuthority(f.storage, f.options);
+    await expect(mutateAfterOperatorInvalidation({ ...input, authority: restarted })).rejects.toThrow("already_started");
+    expect((await restarted.finishInvalidation(input.revocationId, f.barrier)).status).toBe("revocation_outcome_unknown");
+    expect(mutate).not.toHaveBeenCalled(); expect(f.barrier).not.toHaveBeenCalled();
+  });
+
+  it("recovers a lost source acknowledgment by draining only, never repeating the source write", async () => {
+    const f = await fixture(); await f.approve(); let calls = 0;
+    const mutate = vi.fn(async () => "source-updated");
+    const input = { authority: f.authority, revocationId: "source-ack-lost", references: [required(f.refs[2])], mutate, barrier: f.barrier };
+    f.storage.sync = async () => { if (++calls === 2) throw Error("lost source acknowledgment"); };
+    await expect(mutateAfterOperatorInvalidation(input)).rejects.toThrow("lost source acknowledgment");
+    const restarted = new OperatorParentAuthority(f.storage, f.options);
+    await expect(mutateAfterOperatorInvalidation({ ...input, authority: restarted })).rejects.toThrow("already_started");
+    expect((await restarted.finishInvalidation(input.revocationId, f.barrier)).status).toBe("complete");
+    expect(mutate).toHaveBeenCalledOnce();
+  });
+
+  it("allows only barrier recovery after a source write succeeded but the sibling reply was lost", async () => {
+    const f = await fixture(); await f.approve(); const mutate = vi.fn(async () => "source-updated");
+    const input = { authority: f.authority, revocationId: "source-done", references: [required(f.refs[2])], mutate,
+      barrier: async (): Promise<OperatorBarrierReply> => { throw Error("lost sibling reply"); } };
+    expect((await mutateAfterOperatorInvalidation(input)).revocation.status).toBe("revocation_outcome_unknown");
+    const restarted = new OperatorParentAuthority(f.storage, f.options);
+    await expect(mutateAfterOperatorInvalidation({ ...input, authority: restarted })).rejects.toThrow("already_started");
+    expect((await restarted.finishInvalidation(input.revocationId, f.barrier)).status).toBe("complete");
+    expect(mutate).toHaveBeenCalledOnce();
+  });
+
+  it("rejects attaching a source write to an old completed revocation or stale generation", async () => {
+    const f = await fixture(); await f.approve(); const refs = [required(f.refs[2])];
+    await f.authority.beginInvalidation("old-revocation", refs);
+    await f.authority.finishInvalidation("old-revocation", f.barrier);
+    const mutate = vi.fn(async () => "source-updated");
+    const input = { authority: f.authority, revocationId: "old-revocation", references: refs, mutate, barrier: f.barrier };
+    await expect(mutateAfterOperatorInvalidation(input)).rejects.toThrow("already_started");
+    await expect(mutateAfterOperatorInvalidation({ ...input, revocationId: "new-id" })).rejects.toThrow();
+    await f.authority.installAuthority({ ...required(f.records[2]), version: 2 }, 1);
+    await expect(mutateAfterOperatorInvalidation({ ...input, revocationId: "stale-source" })).rejects.toThrow();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+});
+
+
 describe("strict accepted execution provenance and parent capabilities", () => {
   it("hashes the full immutable tuple without accepting review-only consent", async () => {
     const f = await fixture(), record = f.records.find(record => record.kind === "enrollment");
@@ -308,6 +438,7 @@ describe("strict accepted execution provenance and parent capabilities", () => {
     const accepted = { ...provenance, enrollmentGeneration: 2,
       proposal: { ...provenance.proposal, proposalId: "proposal-two" },
       acceptance: { ...provenance.acceptance, acceptanceId: "acceptance-two" } };
+    await f.authority.finishInvalidation("regrant", f.barrier);
     await f.authority.installAuthority({ ...record, version: 2, enrollmentGeneration: 2, provenance: accepted, connectionId: await operatorEnrollmentConnectionId(accepted) }, 1);
   });
   it("authenticates stage-scoped capabilities with an existing parent key and rejects tampering", async () => {
