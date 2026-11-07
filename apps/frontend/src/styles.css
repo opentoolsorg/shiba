@@ -1,7 +1,7 @@
 /* Neutral theme tokens — design tokens for Shiba app shell.
    Page bg #fafafa, text #0a0a0a, muted #71717a, border zinc-200 (#e4e4e7),
    card white, secondary/hover grays (#f4f4f5/#e4e4e7), radii (6/8/12px), Geist font. */
-/* No remote font fetch in a self-hosted app; Geist renders if installed, else system-ui. Self-host the font files if exact type matters. */
+@import url("/fonts/fonts.css");
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -110,7 +110,7 @@
   /* Typography & fonts */
   --font-sans: "Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
-  --font-display: "Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Geist", system-ui, sans-serif;
   --font-body: var(--font-sans);
 
   /* Focus & motion */
@@ -475,7 +475,7 @@ select:focus-visible,
 /* ── Work visual system (shiba-*) ─────────────────────────────────────────
    Three-column shell: icon rail | context panel | main card | optional detail. */
 :root {
-  --font-serif: "Iowan Old Style", "Charter", "Source Serif 4", "Newsreader", Georgia, Cambria, "Times New Roman", serif;
+  --font-serif: "Geist", system-ui, sans-serif;
 
   --shiba-rail-w: 60px;
   --shiba-context-w: 265px;

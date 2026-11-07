@@ -22,6 +22,21 @@ export type ClaudeLoginResult = { ok: true } | { ok: false; error: string };
  */
 export function claudeStatusConfirmsLogin(code: number | null, stdout: string): boolean {
   if (code !== 0) return false;
+  const firstObject = stdout.indexOf("{");
+  const lastObject = stdout.lastIndexOf("}");
+  const candidates = [stdout.trim()];
+  if (firstObject >= 0 && lastObject > firstObject) {
+    candidates.push(stdout.slice(firstObject, lastObject + 1));
+  }
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as { loggedIn?: unknown; logged_in?: unknown };
+      if (typeof parsed.loggedIn === "boolean") return parsed.loggedIn;
+      if (typeof parsed.logged_in === "boolean") return parsed.logged_in;
+    } catch {
+      // Claude can include non-JSON text around its status output.
+    }
+  }
   for (const line of stdout.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) continue;

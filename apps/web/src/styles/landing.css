@@ -24,7 +24,7 @@
 
   --lp-font-sans: 'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --lp-font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --lp-font-display: 'Bebas Neue', 'Geist', 'Arial Narrow', sans-serif;
+  --lp-font-display: 'Geist', system-ui, sans-serif;
   --lp-gutter: 64px;
   --lp-motion-duration: 560ms;
   --lp-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
