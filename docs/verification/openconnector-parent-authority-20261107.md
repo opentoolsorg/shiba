@@ -84,7 +84,9 @@ built; the new relative documentation link resolves.
 The [legacy mutation migration record](operator-legacy-mutation-fences-20261107.md)
 documents permanent source-write claims, blocked regrant until completed
 revocation, restart/race coverage and the precise remaining writer mappings.
-Production route integration remains incomplete.
+The [source registry follow-up](operator-source-registry-20261107.md) adds
+mandatory source mappings and complete registry-resolved invalidation. Production
+route integration remains incomplete.
 
 ## Activation blockers and deliberate limits
 
