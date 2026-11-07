@@ -34,6 +34,7 @@ const connectionsSchema = z.array(z.object({
   configured: z.boolean(),
   status: z.string().optional(),
   source: z.string().optional(),
+  authType: z.string().optional(),
   oauthAuthorizationId: z.string().min(1).optional(),
   virtual: z.boolean(),
   profile: z.object({ displayName: z.string() }),
@@ -44,6 +45,17 @@ const setupSchema = z.object({ success: z.literal(true), data: z.object({ servic
 const SERVICE = /^[A-Za-z0-9_-]{1,100}$/;
 const CATALOG_PROBE_BUDGET = 40;
 const CATALOG_PAGE_DEADLINE_MS = 2_000;
+
+// Explicit credential types cannot borrow an OAuth consent marker. Older metadata
+// without authType still needs the existing runtime-owned OAuth authorization ID.
+type ConnectionRow = z.infer<typeof connectionsSchema>[number];
+function oauthConsentId(row: ConnectionRow): string | undefined {
+  return row.authType === undefined || row.authType === "oauth2" ? row.oauthAuthorizationId : undefined;
+}
+function isOperatorCredential(row: ConnectionRow): boolean {
+  return row.authType === "api_key" || row.authType === "custom_credential";
+}
+const OPERATOR_ENROLLMENT_UNAVAILABLE = "API-key and custom-credential accounts require version-pinned operator enrollment, which this deployment does not support. Credentials remain managed in OpenConnector.";
 
 async function fingerprint(parts: string[]): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(parts)));
@@ -184,9 +196,9 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
 
   async listConnections(args: { userId: string; includeUnavailable?: boolean; workspaceId?: string }): Promise<IntegrationProviderConnection[]> {
     const rows = (await this.ownedConnectionRows(args.userId, args.workspaceId)).filter((row) => !row.virtual);
-    return Promise.all(rows.filter((row) => args.includeUnavailable || (row.configured && Boolean(row.oauthAuthorizationId) && (row.status === undefined || row.status === "active"))).map(async (row) => {
+    return Promise.all(rows.filter((row) => args.includeUnavailable || (row.configured && Boolean(oauthConsentId(row)) && (row.status === undefined || row.status === "active"))).map(async (row) => {
       const active = row.configured && (row.status === undefined || row.status === "active");
-      const consent = row.oauthAuthorizationId;
+      const consent = oauthConsentId(row);
       return {
         id: `ocg_${await fingerprint([row.connectionName, row.service, row.id, consent ?? "unverified"] )}`,
         provider: this.id,
@@ -195,9 +207,9 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
         ...(consent ? { authorizationFingerprint: await fingerprint([row.connectionName, row.service, consent]) } : {}),
         executionReady: active && Boolean(consent),
         connectionState: active ? "active" : row.status === "reauth_required" ? "reauth_required" : "unavailable",
-        ...(!active ? { unavailableReason: row.source?.toLowerCase() === "saas" ? "This SaaS account cannot be reconnected through this OAuth flow. Keep the account and ask the OpenConnector operator to restore or reconnect it by ID." : "Account authorization is unavailable. Reconnect to restore access; the existing account is preserved until new consent succeeds." }
+        ...(isOperatorCredential(row) ? { unavailableReason: OPERATOR_ENROLLMENT_UNAVAILABLE } : !active ? { unavailableReason: row.source?.toLowerCase() === "saas" ? "This SaaS account cannot be reconnected through this OAuth flow. Keep the account and ask the OpenConnector operator to restore or reconnect it by ID." : "Account authorization is unavailable. Reconnect to restore access; the existing account is preserved until new consent succeeds." }
           : !consent ? { unavailableReason: "This account has no verifiable OAuth consent generation. Employee actions are unavailable; ask the operator for a supported OAuth connection." } : {}),
-        ...(row.source?.toLowerCase() === "saas" ? { reconnectSupported: false } : {}),
+        ...(row.source?.toLowerCase() === "saas" || (row.authType !== undefined && row.authType !== "oauth2") ? { reconnectSupported: false } : {}),
       } satisfies IntegrationProviderConnection;
     }));
   }
@@ -286,6 +298,7 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     try {
       if (!SERVICE.test(context.providerKey)) return { ok: false, provider: this.id, error: "Unsupported provider identifier." };
       const existing = (await this.ownedConnectionRows(context.userId, context.workspaceId)).filter((row) => row.service === context.providerKey && !row.virtual);
+      if (context.replaceUnavailable && existing.some(isOperatorCredential)) return { ok: false, provider: this.id, error: OPERATOR_ENROLLMENT_UNAVAILABLE };
       if (context.replaceUnavailable && existing.some((row) => row.source?.toLowerCase() === "saas")) return { ok: false, provider: this.id, error: "This SaaS account cannot be reconnected through this OAuth flow. Ask the OpenConnector operator to reconnect it by ID." };
       const replaceable = context.replaceUnavailable === true && existing.every((row) => !row.configured || (row.status !== undefined && row.status !== "active"));
       if (existing.length && !replaceable) return { ok: false, provider: this.id, error: context.replaceUnavailable ? "Only an expired or unavailable account can be reconnected. Disconnect the active account explicitly first." : "Disconnect the existing owned account before starting a new connection. Existing consent cannot confirm a new sign-in." };
@@ -351,8 +364,9 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
       const rows = await this.ownedConnectionRows(context.userId, context.workspaceId);
       let selected: (typeof rows)[number] | undefined;
       for (const row of rows) {
-        if (row.service !== context.toolkitSlug || !row.configured || row.virtual || (row.status !== undefined && row.status !== "active") || !row.oauthAuthorizationId) continue;
-        const id = `ocg_${await fingerprint([row.connectionName, row.service, row.id, row.oauthAuthorizationId])}`;
+        const consent = oauthConsentId(row);
+        if (row.service !== context.toolkitSlug || !row.configured || row.virtual || (row.status !== undefined && row.status !== "active") || !consent) continue;
+        const id = `ocg_${await fingerprint([row.connectionName, row.service, row.id, consent])}`;
         if (id === context.approvedConnectionId) selected = row;
       }
       if (!selected) return { ok: false, status: "failed", error: "The approved app consent generation is unavailable or changed. Review the current connection and employee grant again." };
