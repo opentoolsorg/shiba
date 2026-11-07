@@ -49,7 +49,7 @@ function safeError(error: unknown): Response {
     invalid_credential_reference: 400, auth_reference_missing: 409, schema_invalid: 502, redirect_rejected: 502,
     schema_version_changed: 409, tool_not_reviewed_or_schema_changed: 409, invalid_effect_review: 400,
     server_limit: 409, server_not_found: 404, tool_disabled: 409, approval_not_found: 404,
-    invalid_catalog_id: 400, connection_label_required: 400, connection_label_taken: 409, invalid_connection_label: 400,
+    invalid_catalog_id: 400, unsupported_auth_method: 400, connection_label_required: 400, connection_label_taken: 409, invalid_connection_label: 400,
     oauth_discovery_failed: 502, oauth_storage_unavailable: 503, oauth_state_invalid: 400, oauth_token_exchange_failed: 502,
     oauth_refresh_in_progress: 503, oauth_client_not_configured: 503, oauth_sign_in_required: 409, invalid_bearer: 400 };
   const allowed = new Set(Object.keys(statuses));
@@ -141,6 +141,7 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
     if (server.authMode !== "oauth") return response({ ok: false, error: "invalid_request" }, 400);
     if (server.status !== "draft" || server.schemaVersion !== null) return response({ ok: false, error: "oauth_state_invalid" }, 400);
     const vendor = server.catalogId ? curatedMcpVendorByCatalogId(server.catalogId) : null;
+    if (vendor && !vendor.connectionMethods.includes("oauth")) return response({ ok: false, error: "unsupported_auth_method" }, 400);
     if (server.catalogId && !vendor) return response({ ok: false, error: "invalid_catalog_id" }, 400);
     // Custom connections use a pre-registered public client, not DCR or a pasted client secret.
     if (!server.catalogId && (typeof input.clientId !== "string" || !/^[\x21-\x7e]{1,1024}$/.test(input.clientId) ||

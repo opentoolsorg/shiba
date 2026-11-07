@@ -49,6 +49,48 @@ with synthetic account metadata and SQLite employee policy storage. It proves
 rejection, not successful vendor/API-key execution. Existing OAuth, employee
 approval and revocation fixtures remain separate regression gates.
 
+## Implemented owner review foundation
+
+The optional personal dashboard review panel and `/api/operator-enrollment-reviews`
+route store and review **non-executable metadata only**. They default off with
+`OPEN_CONNECTOR_OPERATOR_REVIEW_ENABLED=false`. Apply migration
+`0037_operator_enrollment_review.sql` before explicitly enabling this review UI.
+Changing this flag cannot enable non-OAuth actions. The adapter rejection above
+is unchanged.
+
+The first review surface is limited to the current verified native bootstrap
+owner, not invited accounts, Access-only sessions, bearer principals or workspace
+accounts. Owner account identity, verification and the exact live native session
+are checked again inside each D1 read/decision statement. Decisions use the exact
+proposal digest and optimistic version. Account/generation/provenance fields
+are immutable; transitions cannot reactivate a rejected or revoked record, and
+revocation tombstones cannot be deleted through this store. Regrant requires a
+new proposal and generation. The public DTO contains no credential value or
+owner session identifier. Directory responses name the authenticated actor and
+native account. The panel checks the displayed actor, pins that native account,
+and includes the exact account pin in every decision; a cookie/account switch
+cannot silently adopt another owner. The panel shows the latest 100 proposals and clears
+stale responses and review choices when the displayed owner changes.
+
+There is intentionally **no proposal ingestion route** yet. The internal
+`proposeOperatorEnrollment` seam has no production caller: a future caller must
+authenticate the operator and fetch exact attested metadata from the coordinated
+sibling. Browser-provided metadata, revision claims or labels cannot stand in
+for that source. Do not seed a production record manually to imply attestation.
+The schema rejects unknown credential, owner and OAuth-marker fields, but it is
+not a secret detector. The future trusted ingestion boundary must project only
+the declared non-secret metadata.
+
+`proposed → accepted` records that the owner reviewed the immutable proposal.
+It never creates a connection, employee grant, invocation approval or active
+state. The schema fixes `executionAvailable` to false. Reject and revoke are
+explicit decisions; revocation leaves the upstream credential untouched. A
+known proposal can still be revoked through the exact decision endpoint after
+the review flag is disabled. The disabled directory is hidden and does not read
+the optional table. This is a metadata tombstone only, **not** the coordinated
+runtime revocation barrier required below. No runtime may treat this review
+snapshot as current execution authority.
+
 ## Proposed first scope
 
 Implement only manually approved personal `api_key` accounts for an explicit
@@ -78,6 +120,12 @@ Enrollment and execution are distinct authorities:
    Approval is one-use and does not silently authorize changed arguments.
 
 ## Required sibling contract
+
+The follow-on [gateway admission review](openconnector-operator-gateway-contract.md)
+confirms that a Shiba-owned wrapper can obtain the real revision without
+modifying upstream source. It also reproduces the remaining mutation and
+idempotency races, and specifies the coordinated runtime boundary required
+before this proposal can safely execute an API-key action.
 
 Add a reserved namespace on the sibling, isolated from the generic action
 executor and the scheduled-read gateway. Both sides default disabled. Pin the

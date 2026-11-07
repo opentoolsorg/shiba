@@ -12,8 +12,8 @@ calls. Each self-hosted deployment must configure and verify its own services.
 | Rows labelled `live` | 9 | A Shiba product path exists; account setup and runtime acceptance remain separate. |
 | Rows labelled `catalog_only` | 31 | Discovery metadata; the label does not establish a working connection. |
 | Rows with OpenConnector mappings | 28 | Map to 37 distinct pinned upstream service IDs; these overlap the 40 rows. |
-| Curated remote MCP presets | 6 | Stripe, Notion, Sentry, PostHog, Figma and Atlassian; these overlap the directory. |
-| General managed-skill templates | 11 | Install as drafts, then review and activate. |
+| Curated remote MCP presets | 8 | Stripe, Notion, Sentry, PostHog, Figma, Atlassian, GitHub (read-only) and Linear (read-only); these overlap the directory. |
+| General managed-skill templates | 17 | Install as drafts, then review and activate. |
 | Founder skill packs | 6 | Draft instructions and setup recipes; scheduled deployment remains blocked. |
 
 The nine `live` labels are Gmail/Calendar, Slack, Telegram, Discord, Shiba Mailbox,
@@ -97,7 +97,7 @@ Sources: [adapter](../apps/backend/src/integrations/openconnector-provider.ts),
 ## Remote MCP servers
 
 The [MCP guide](../apps/web/src/content/docs/docs/mcp.md) separates inbound clients
-of Shiba's `/mcp` gateway from outgoing connections to vendor MCP servers. The six
+of Shiba's `/mcp` gateway from outgoing connections to vendor MCP servers. Six of the eight
 presets provide a curated OAuth path with operator-registered client IDs and
 encrypted credential storage, plus a bearer form where the vendor supports it. Client registration,
 consent, supported account tier and vendor endpoint compatibility remain live
@@ -109,6 +109,15 @@ Vendor prerequisites differ: [Figma currently requires an approved MCP client](h
 and [Sentry documents OAuth-only connections](https://mcp.sentry.dev/).
 Shiba's Figma client approval and live vendor consent have not been verified.
 The bearer form cannot make an OAuth-only vendor accept arbitrary API keys.
+
+The two added [GitHub](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md)
+and [Linear](https://linear.app/docs/mcp) presets pin vendor-documented read-only
+Streamable HTTP endpoints and use scoped bearer tokens. Their OAuth setup paths
+are not offered: GitHub requires a client-secret flow and Linear documents
+client registration that Shiba does not implement. Documentation was checked on
+November 7, 2026; no live authenticated account or schema verification is claimed.
+Tools remain disabled/unreviewed and default to an approval-required review
+recommendation. [Catalog expansion evidence](verification/mcp-catalog-expansion-20261107.md).
 
 After sign-in, discover tools, inspect their schema, review each effect, enable
 the selected capabilities and grant the intended principal or employee exact
@@ -125,7 +134,7 @@ Sources: [registry and invocation checks](../apps/backend/src/external-mcp.ts),
 
 Managed run skills and extension skills are separate surfaces:
 
-- **Run-attached skills:** the eleven general templates and six founder packs
+- **Run-attached skills:** the seventeen general templates and six founder packs
   create owner-scoped drafts. Review the exact instructions, mark reviewed, then
   activate that version. Approved tasks freeze at most five selected skill pins;
   changed or inactive versions cannot silently replace the approved instructions.
@@ -188,7 +197,18 @@ Overlay's [feature inventory](https://github.com/LayerNorm/overlay-web/blob/main
 describes integrations, MCP servers and skills as separate capabilities and does
 not enumerate bundled skill names. These Shiba templates are independently written
 workflows, not copied Overlay skills or a claim of complete feature parity.
-The general library now contains eleven templates; MCP presets remain at six.
+Six additional role-focused templates cover marketing campaign briefs, sales
+account briefs, product specifications, design review notes, operations runbooks
+and QA test plans. They produce review-first drafts from supplied or explicitly
+granted sources, not new roles, automatic skill installation or external actions.
+The general library now contains seventeen templates; MCP presets total eight.
+See the [role-draft verification](verification/skill-role-drafts-20261107.md).
+
+API-key execution remains disabled. The parent source-mutation and regrant
+hardening is an isolated authority primitive; production writers, authenticated
+metadata ingestion and service-binding activation are not wired. Enrollment
+review acceptance does not grant execution consent. See the
+[remaining mutation migration gates](verification/operator-legacy-mutation-fences-20261107.md).
 
 ## Overlay-named integration coverage
 
