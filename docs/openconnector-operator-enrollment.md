@@ -79,6 +79,12 @@ Enrollment and execution are distinct authorities:
 
 ## Required sibling contract
 
+The follow-on [gateway admission review](openconnector-operator-gateway-contract.md)
+confirms that a Shiba-owned wrapper can obtain the real revision without
+modifying upstream source. It also reproduces the remaining mutation and
+idempotency races, and specifies the coordinated runtime boundary required
+before this proposal can safely execute an API-key action.
+
 Add a reserved namespace on the sibling, isolated from the generic action
 executor and the scheduled-read gateway. Both sides default disabled. Pin the
 reviewed sibling deployment version and contract digest through a trusted
