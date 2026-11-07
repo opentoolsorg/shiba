@@ -3,7 +3,8 @@ import type { Env } from "../src/env.js";
 import { handleSkillLibrary } from "../src/skill-library-routes.js";
 import { handleSkills } from "../src/skills-routes.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
-import { activateSkill, disableSkill, getSkill, reviewSkill } from "../src/skills-store.js";
+import { activateSkill, disableSkill, getSkill, resolveSkillPins, reviewSkill } from "../src/skills-store.js";
+import { SKILL_LIBRARY } from "../src/skill-library/index.js";
 
 const authState = vi.hoisted(() => ({
   dashboard: false,
@@ -40,6 +41,43 @@ beforeEach(() => {
 });
 
 describe("skill library routes", () => {
+  it.each(SKILL_LIBRARY.filter((entry) => entry.tags.includes("draft-workflow")))("keeps $slug installs private, idempotent and unusable before review", async (entry) => {
+    const bindings = env();
+    const first = await handleSkillLibrary(libraryRequest(`/${entry.slug}/install`, "POST"), bindings);
+    expect(first?.status).toBe(201);
+    if (!first) throw new Error("Missing install response");
+    const body = await first.json() as { skillId: string; status: string; skill: { status: string; version: number } };
+    expect(body).toMatchObject({ status: "draft", skill: { status: "draft", version: 1 } });
+    const stored = await getSkill(bindings, "self-hosted", "owner@example.test", body.skillId);
+    expect(stored?.content.instructions).toBe(entry.instructions);
+    expect(stored?.activeVersion).toBeUndefined();
+    expect(await getSkill(bindings, "self-hosted", "other@example.test", body.skillId)).toBeNull();
+    const pins = [{ skillId: body.skillId, version: 1 }];
+    expect(await resolveSkillPins(bindings, "self-hosted", "owner@example.test", pins)).toBeNull();
+    await expect(activateSkill(bindings, "self-hosted", "owner@example.test", body.skillId, 1, entry.instructions)).rejects.toThrow("review_required");
+
+    const again = await handleSkillLibrary(libraryRequest(`/${entry.slug}/install`, "POST"), bindings);
+    expect(again?.status).toBe(200);
+    expect(await again?.json()).toMatchObject({ skillId: body.skillId, status: "draft" });
+    const catalog = await handleSkillLibrary(libraryRequest(""), bindings);
+    if (!catalog) throw new Error("Missing catalog response");
+    const listed = await catalog.json() as { skills: Array<{ slug: string; installedStatus?: string; installedSkillId?: string }> };
+    expect(listed.skills.find((skill) => skill.slug === entry.slug)).toMatchObject({ installedStatus: "draft", installedSkillId: body.skillId });
+
+    await reviewSkill(bindings, "self-hosted", "owner@example.test", body.skillId, 1, entry.instructions);
+    expect(await resolveSkillPins(bindings, "self-hosted", "owner@example.test", pins)).toBeNull();
+    await activateSkill(bindings, "self-hosted", "owner@example.test", body.skillId, 1, entry.instructions);
+    expect((await resolveSkillPins(bindings, "self-hosted", "owner@example.test", pins))?.pins).toMatchObject(pins);
+    await disableSkill(bindings, "self-hosted", "owner@example.test", body.skillId);
+    expect(await resolveSkillPins(bindings, "self-hosted", "owner@example.test", pins)).toBeNull();
+  });
+
+  it.each(SKILL_LIBRARY.filter((entry) => entry.tags.includes("draft-workflow")))("denies read-only token installation of $slug", async (entry) => {
+    authState.dashboard = false;
+    authState.principal = { principal: "read-only", orgId: "self-hosted", scopes: ["api:read"] };
+    expect((await handleSkillLibrary(libraryRequest(`/${entry.slug}/install`, "POST"), env()))?.status).toBe(403);
+  });
+
   it.each(["inbox-triage", "meeting-brief", "document-research", "task-planning", "weekly-work-summary", "social-post-drafts"])("installs %s as an owner-scoped draft without activation", async (slug) => {
     const bindings = env();
     const response = await handleSkillLibrary(libraryRequest(`/${slug}/install`, "POST"), bindings);
