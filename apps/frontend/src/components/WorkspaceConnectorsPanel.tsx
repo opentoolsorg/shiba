@@ -4,7 +4,6 @@ import type { IntegrationProviderCatalogItem, IntegrationProviderConnection, Tea
 import type { IntegrationBindingInputs } from "../integration-connection-bindings";
 import { ownedAppConnections, useIntegrationOAuth } from "../integration-oauth";
 import { IntegrationCatalogDirectory } from "./IntegrationCatalogDirectory";
-import { CuratedMcpConnections } from "./CuratedMcpConnections";
 import { IntegrationsBrowseCatalogDialog } from "./IntegrationsBrowseCatalogDialog";
 import { OperatorEnrollmentReviews } from "./OperatorEnrollmentReviews";
 import { WorkspaceSharedAppAccounts } from "./WorkspaceSharedAppAccounts";
@@ -183,21 +182,6 @@ function OwnedAppAccounts({
               >
                 Browse catalog
               </button>
-              {onManagePermissions && (
-                <button type="button" className={BUTTON} onClick={onManagePermissions}>
-                  Review employee permissions
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <input
-              aria-label="Search app accounts"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="min-h-11 min-w-0 flex-1 border border-[var(--input-line)] bg-[var(--paper)] px-3 text-sm"
-              placeholder="Search your app accounts…"
-            />
             <button
               type="button"
               className={BUTTON}
@@ -208,7 +192,16 @@ function OwnedAppAccounts({
             >
               Refresh accounts
             </button>
+              {onManagePermissions && (
+                <button type="button" className={BUTTON} onClick={onManagePermissions}>
+                  Review employee permissions
+                </button>
+              )}
+            </div>
           </div>
+          {connections.length > 0 && <div className="mt-4 flex flex-wrap gap-2">
+            <input aria-label="Search app accounts" value={search} onChange={(event) => setSearch(event.target.value)} className="min-h-11 min-w-0 flex-1 border border-[var(--input-line)] bg-[var(--paper)] px-3 text-sm" placeholder="Search your app accounts…" />
+          </div>}
           {(error || oauth.error) && (
             <p role="alert" className="mt-3 text-xs text-[var(--danger)]">
               {error ?? oauth.error}
@@ -223,8 +216,8 @@ function OwnedAppAccounts({
             <p role="status" className="mt-4 text-xs">
               Checking current owned accounts…
             </p>
-          ) : shown.length === 0 ? (
-            <p className="mt-4 border border-dashed border-[var(--line)] p-5 text-xs text-[var(--ink-2)]">
+          ) : error ? null : shown.length === 0 ? (
+            <p className="mt-3 text-xs text-[var(--ink-2)]">
               {actorId === null
                 ? "Sign in before connecting an app."
                 : query
@@ -279,8 +272,12 @@ function OwnedAppAccounts({
       </section>
       {actorId !== null && (
         <div className="flex flex-col gap-6 p-4 lg:p-8">
-          <div className="mx-auto w-full max-w-6xl">
-            <CuratedMcpConnections onChanged={onChanged} />
+          <div className="mx-auto flex w-full max-w-6xl flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg">Integration catalog</h3>
+              <p className="mt-1 text-xs text-[var(--ink-2)]">Browse reference integrations below, or open the provider catalog for all available services.</p>
+            </div>
+            <a className={BUTTON} href="/integrations/?tab=mcp">Set up MCP servers</a>
           </div>
           <IntegrationCatalogDirectory
             bindingInputs={bindingInputs}
@@ -292,6 +289,8 @@ function OwnedAppAccounts({
               void oauth.beginConnect(item);
             }}
             connectingKey={oauth.connectingKey}
+            connectionError={oauth.error}
+            connectionNotice={oauth.notice}
           />
         </div>
       )}
@@ -305,6 +304,9 @@ function OwnedAppAccounts({
           void oauth.beginConnect(item);
         }}
         connectingKey={oauth.connectingKey}
+        connectionError={oauth.error}
+        connectionNotice={oauth.notice}
+        connectionRevision={connectionRevision}
       />
     </div>
   );
