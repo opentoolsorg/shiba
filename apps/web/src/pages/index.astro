@@ -19,7 +19,7 @@ const faqItems = [
 ];
 
 const schema = [
-  { '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'Shiba', url: 'https://tryshiba.dev/', description, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Cloudflare Workers', license: 'https://spdx.org/licenses/AGPL-3.0-only.html', sameAs: 'https://github.com/princepal9120/shiba', offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' }, featureList: ['AI employees for company work', 'Approval-gated sandbox execution', 'Reviewable draft files and diffs', 'Connected repository required for execution', 'Configurable agents and model connections'] },
+  { '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'Shiba', url: 'https://tryshiba.dev/', description, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Cloudflare Workers', license: 'https://spdx.org/licenses/AGPL-3.0-only.html', sameAs: 'https://github.com/opentoolsorg/shiba', offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' }, featureList: ['AI employees for company work', 'Approval-gated sandbox execution', 'Reviewable draft files and diffs', 'Connected repository required for execution', 'Configurable agents and model connections'] },
   { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqItems.map(item => ({ '@type': 'Question', name: item.q, acceptedAnswer: { '@type': 'Answer', text: item.a } })) },
 ];
 

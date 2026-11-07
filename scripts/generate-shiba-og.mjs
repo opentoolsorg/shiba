@@ -1,7 +1,7 @@
-import fs from 'fs';
-import path from 'path';
-import { execSync } from 'child_process';
-import { fileURLToPath } from 'url';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,8 +22,6 @@ const sunglassesStickerBase64 = toBase64(path.join(mascotDir, 'shiba-sticker-sun
 
 // Icons
 const checkIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#95c4a0" stroke-width="3" stroke-linecap="square"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-const chartIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#95c4a0" stroke-width="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg>`;
-
 const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -197,6 +195,13 @@ const html = `<!DOCTYPE html>
     }
     .hero-subhead span.bullet {
       color: #55574f;
+    }
+    .illustration-note {
+      font-family: 'Geist Mono', monospace;
+      font-size: 17px;
+      color: #aaa99f;
+      margin-top: 10px;
+      letter-spacing: 0.02em;
     }
 
     /* 5 Columns - Retro Windows */
@@ -400,47 +405,6 @@ const html = `<!DOCTYPE html>
       font-weight: 600;
     }
 
-    /* Pixel Chart */
-    .chart-panel {
-      background: #141412;
-      border: 1px solid #3b3d36;
-      padding: 14px;
-      box-shadow: 2px 2px 0 #000000;
-    }
-    .chart-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-family: 'Geist Mono', monospace;
-      font-size: 13.5px;
-      color: #aaa99f;
-      margin-bottom: 10px;
-    }
-    .chart-head .growth {
-      color: #95c4a0;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-    .retro-bars {
-      display: flex;
-      align-items: flex-end;
-      gap: 9px;
-      height: 80px;
-      padding: 4px 0;
-    }
-    .retro-bar {
-      flex: 1;
-      background: #3b3d36;
-      border-top: 2px solid #55574f;
-    }
-    .retro-bar.active {
-      background: #0000a8;
-      border-top: 2px solid #9cbce2;
-      box-shadow: 2px 2px 0 #000000;
-    }
-
     /* Bottom Status Gate Chip */
     .window-footer-chip {
       background: #191a18;
@@ -552,16 +516,16 @@ const html = `<!DOCTYPE html>
     <!-- Hero Title -->
     <div class="hero-strip">
       <h1 class="hero-h1">
-        AI employees that ship <span class="accent-word">while you sleep.</span>
+        AI employees for <span class="accent-word">company work.</span>
       </h1>
       <p class="hero-subhead">
-        <span>CODING</span> <span class="bullet">·</span>
-        <span>TESTING</span> <span class="bullet">·</span>
+        <span>ENGINEERING</span> <span class="bullet">·</span>
+        <span>RESEARCH</span> <span class="bullet">·</span>
         <span>OPERATIONS</span> <span class="bullet">·</span>
         <span>MARKETING</span> <span class="bullet">·</span>
-        <span>SALES</span> <span class="bullet">·</span>
-        <span>ONE APPROVAL GATE BEFORE COMMIT</span>
+        <span>REVIEW THE PLAN · APPROVE THE RUN · REVIEW THE RESULT</span>
       </p>
+      <p class="illustration-note">Illustrative example — these task cards are not live runs or measured results.</p>
     </div>
 
     <!-- 5 Retro-OS Bot Windows -->
@@ -578,7 +542,7 @@ const html = `<!DOCTYPE html>
           </div>
           <div class="bot-name-col">
             <div class="bot-name">Coding Bot</div>
-            <div class="bot-role-tag">Software Engineer</div>
+            <div class="bot-role-tag">Engineering Template</div>
           </div>
         </div>
         <div class="window-body">
@@ -605,44 +569,40 @@ const html = `<!DOCTYPE html>
         </div>
       </div>
 
-      <!-- 02 / TESTING -->
+      <!-- 02 / RESEARCH -->
       <div class="bot-window">
         <div class="window-titlebar">
-          <div class="titlebar-left"><span class="num">02</span> / QA · Testing</div>
+          <div class="titlebar-left"><span class="num">02</span> / Research</div>
           <div class="window-marks"><div class="mark-btn"></div><div class="mark-btn"></div><div class="mark-btn"></div></div>
         </div>
         <div class="bot-profile">
           <div class="mascot-frame">
-            <img src="${climbingStickerBase64}" alt="Shiba Testing">
+            <img src="${climbingStickerBase64}" alt="Shiba Research">
           </div>
           <div class="bot-name-col">
-            <div class="bot-name">Testing Bot</div>
-            <div class="bot-role-tag">QA &amp; Verification</div>
+            <div class="bot-name">Research Bot</div>
+            <div class="bot-role-tag">Research Template</div>
           </div>
         </div>
         <div class="window-body">
           <div class="content-stack">
-            <div class="file-chip">📁 task/auth-qa-run</div>
+            <div class="file-chip">📁 research/account-brief.md</div>
             <div class="metric-row">
-              <span class="metric-key">Vitest Suite</span>
-              <span class="metric-val ok">48 passed ${checkIcon}</span>
+              <span class="metric-key">Sources</span>
+              <span class="metric-val">Supplied context</span>
             </div>
             <div class="metric-row">
-              <span class="metric-key">TypeScript</span>
-              <span class="metric-val ok">0 errors ${checkIcon}</span>
+              <span class="metric-key">Findings</span>
+              <span class="metric-val">Evidence linked</span>
             </div>
             <div class="metric-row">
-              <span class="metric-key">Security AST</span>
-              <span class="metric-val ok">0 leaks ${checkIcon}</span>
-            </div>
-            <div class="metric-row">
-              <span class="metric-key">Playwright E2E</span>
-              <span class="metric-val ok">12/12 pass ${checkIcon}</span>
+              <span class="metric-key">Open questions</span>
+              <span class="metric-val">Listed in draft</span>
             </div>
           </div>
-          <div class="window-footer-chip ok">
-            <span>Sandbox Check</span>
-            <span>100% GREEN</span>
+          <div class="window-footer-chip approval">
+            <span>Research draft</span>
+            <span>READY FOR REVIEW</span>
           </div>
         </div>
       </div>
@@ -659,7 +619,7 @@ const html = `<!DOCTYPE html>
           </div>
           <div class="bot-name-col">
             <div class="bot-name">Operations Bot</div>
-            <div class="bot-role-tag">Cloud &amp; DevOps</div>
+            <div class="bot-role-tag">Operations Template</div>
           </div>
         </div>
         <div class="window-body">
@@ -667,24 +627,24 @@ const html = `<!DOCTYPE html>
             <div class="file-chip">📁 task/workers-sync</div>
             <div class="metric-row">
               <span class="metric-key">CF Worker</span>
-              <span class="metric-val ok">live ${checkIcon}</span>
+              <span class="metric-val">Configuration</span>
             </div>
             <div class="metric-row">
-              <span class="metric-key">D1 Database</span>
-              <span class="metric-val ok">synced ${checkIcon}</span>
+              <span class="metric-key">Output</span>
+              <span class="metric-val">Checklist + runbook</span>
             </div>
             <div class="metric-row">
-              <span class="metric-key">AI Gateway</span>
-              <span class="metric-val ok">0ms egress ${checkIcon}</span>
+              <span class="metric-key">Execution</span>
+              <span class="metric-val">After approval</span>
             </div>
             <div class="metric-row">
-              <span class="metric-key">Docker Daemon</span>
-              <span class="metric-val ok">healthy ${checkIcon}</span>
+              <span class="metric-key">Result</span>
+              <span class="metric-val">Reviewable files</span>
             </div>
           </div>
-          <div class="window-footer-chip ok">
-            <span>Your Account</span>
-            <span>AUTONOMOUS OPS</span>
+          <div class="window-footer-chip approval">
+            <span>Task flow</span>
+            <span>REVIEW THE RESULT</span>
           </div>
         </div>
       </div>
@@ -701,7 +661,7 @@ const html = `<!DOCTYPE html>
           </div>
           <div class="bot-name-col">
             <div class="bot-name">Marketing Bot</div>
-            <div class="bot-role-tag">Growth &amp; SEO</div>
+            <div class="bot-role-tag">Marketing Template</div>
           </div>
         </div>
         <div class="window-body">
@@ -712,8 +672,8 @@ const html = `<!DOCTYPE html>
               "AI employees for the work behind your company. Runs in your Cloudflare account. It asks before writing code 🐕"
             </div>
             <div class="metric-row">
-              <span class="metric-key">SEO &amp; GEO Rank</span>
-              <span class="metric-val ok">#1 cited ${checkIcon}</span>
+              <span class="metric-key">Draft output</span>
+              <span class="metric-val">Brief + campaign copy</span>
             </div>
           </div>
           <div class="window-footer-chip approval">
@@ -734,34 +694,22 @@ const html = `<!DOCTYPE html>
             <img src="${sunglassesStickerBase64}" alt="Shiba Sales">
           </div>
           <div class="bot-name-col">
-            <div class="bot-name">Sales Bot</div>
-            <div class="bot-role-tag">Revenue &amp; CRM</div>
+            <div class="bot-name">Account Brief</div>
+            <div class="bot-role-tag">Custom Instructions</div>
           </div>
         </div>
         <div class="window-body">
           <div class="content-stack">
-            <div class="file-chip">📁 sales/pipeline.md</div>
-            <div class="chart-panel">
-              <div class="chart-head">
-                <span>Pipeline · 7d</span>
-                <span class="growth">${chartIcon} ▲ 42%</span>
-              </div>
-              <div class="retro-bars">
-                <div class="retro-bar" style="height: 35%;"></div>
-                <div class="retro-bar" style="height: 55%;"></div>
-                <div class="retro-bar" style="height: 45%;"></div>
-                <div class="retro-bar" style="height: 70%;"></div>
-                <div class="retro-bar active" style="height: 100%;"></div>
-              </div>
-            </div>
+            <div class="file-chip">📁 research/account-brief.md</div>
             <div class="metric-row">
-              <span class="metric-key">Inbound Leads</span>
-              <span class="metric-val ok">+38 qualified ${checkIcon}</span>
+              <span class="metric-key">Input</span>
+              <span class="metric-val">Supplied account context</span>
             </div>
+            <div class="metric-row"><span class="metric-key">Output</span><span class="metric-val">Draft for review</span></div>
           </div>
-          <div class="window-footer-chip ok">
-            <span>CRM Sync</span>
-            <span>PIPELINE ACTIVE</span>
+          <div class="window-footer-chip approval">
+            <span>External outreach</span>
+            <span>NOT SENT</span>
           </div>
         </div>
       </div>
@@ -816,4 +764,4 @@ for (const target of targetPaths) {
   }
 }
 
-console.log('Generated successfully at ' + outputPath);
+console.log(`Generated successfully at ${outputPath}`);
