@@ -209,11 +209,11 @@ describe("AppNavRail mobile sheet (full navigation with thread list)", () => {
   });
 });
 
-describe("AppNavRail desktop 52px icon rail (every view)", () => {
-  it("renders ~52px transparent desktop icon rail on work view with round logo mark top", () => {
+describe("AppNavRail desktop labeled navigation (every view)", () => {
+  it("renders a 72px transparent desktop rail on work view with round logo mark top", () => {
     const { onNavigate } = renderRail({ activeView: "work", variant: "rail" });
     const aside = screen.getByRole("complementary", { name: "Primary Left Rail" });
-    expect(aside.className).toContain("w-[52px]");
+    expect(aside.className).toContain("w-[72px]");
     expect(aside.className).toContain("bg-transparent");
     expect(aside.className).toContain("hidden");
     expect(aside.className).toContain("lg:flex");
@@ -271,12 +271,24 @@ describe("AppNavRail desktop 52px icon rail (every view)", () => {
     ["threads", "Chats"],
     ["collaboration", "Chats"],
     ["memory", "More"],
-    ["analytics", "More"],
+    ["analytics", "Insights"],
     ["settings", "Settings"],
   ] as const)("marks the %s view under the %s rail item on every view", (view, item) => {
     render(<AppNavRail activeView={view} onNavigate={vi.fn()} variant="rail" />);
     expect(screen.getByRole("button", { name: item }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("button", { name: "Work" }).getAttribute("aria-current")).toBeNull();
+  });
+
+  it("offers a labeled Insights destination with a real pending approval count", () => {
+    const onNavigate = vi.fn();
+    render(<AppNavRail activeView="approvals" onNavigate={onNavigate} variant="rail" pendingApprovalCount={3} />);
+    const insights = screen.getByRole("button", { name: "Insights" });
+    expect(within(insights).getByText("Insights")).toBeTruthy();
+    expect(within(insights).getByLabelText("3 pending approvals")).toBeTruthy();
+    expect(insights.getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("button", { name: "More" }).getAttribute("aria-current")).toBeNull();
+    fireEvent.click(insights);
+    expect(onNavigate).toHaveBeenCalledWith("dashboard");
   });
 
   it("lists workspaces in the account menu with a check on the current one", () => {
