@@ -253,36 +253,45 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
   );
 }
 
-/** Static copy of the opt-in flags from wrangler.jsonc's vars comment block + env.ts. */
-const EXPERIMENTAL_FLAGS: { flag: string; effect: string; related: string }[] = [
+/** Deployment options: this page documents them but cannot read or change Worker vars. */
+const EXPERIMENTAL_FLAGS: { title: string; summary: string; setup: string; flag: string; related: string }[] = [
   {
+    title: "Claude subscription sign-in",
+    summary: "Lets people connect a Claude account for coding tasks.",
+    setup: "A deployment admin enables this and configures the Claude subscription settings.",
     flag: "SHIBA_CLAUDE_SUBSCRIPTION=1",
-    effect: "Registers the claude-subscription harness (T48).",
     related: "CLAUDE_SUBSCRIPTION_MODEL · CLAUDE_SUBSCRIPTION_TOKEN[_<ACCOUNT>] secret",
   },
   {
+    title: "Codex subscription sign-in",
+    summary: "Lets people connect a ChatGPT plan for coding tasks.",
+    setup: "A deployment admin enables this and configures the Codex subscription settings.",
     flag: "SHIBA_CODEX_SUBSCRIPTION=1",
-    effect: "Registers the codex-subscription harness (T49).",
     related: "CODEX_SUBSCRIPTION_MODEL · CODEX_SUBSCRIPTION_AUTH_JSON[_<ACCOUNT>] secret",
   },
   {
+    title: "Google Antigravity sign-in",
+    summary: "Adds the Antigravity sign-in option for coding tasks.",
+    setup: "A deployment admin enables this. Each person signs in from the provider connection screen.",
     flag: "SHIBA_ANTIGRAVITY_SUBSCRIPTION=1",
-    effect:
-      "Registers antigravity-subscription + /api/antigravity/callback (T50 pasted-redirect OAuth).",
     related:
       "ANTIGRAVITY_SUBSCRIPTION_MODEL — no secret var (tokens live in the container profile)",
   },
   {
+    title: "Use a connected computer",
+    summary: "Allows approved tasks to run on a paired local computer.",
+    setup: "A deployment admin enables this and configures the computer connection token.",
     flag: "SHIBA_LOCAL_RUNTIME=1",
-    effect: 'Admits runtime:"local" at intake and opens the /api/local daemon surface (T51).',
     related: "LOCAL_ADAPTER_TOKEN secret — unset = the surface refuses every request",
   },
 ];
 
-const KILL_SWITCHES: { flag: string; effect: string }[] = [
+const KILL_SWITCHES: { title: string; summary: string; flag: string; effect: string }[] = [
   {
+    title: "Memory summaries",
+    summary: "Controls whether Shiba saves a short summary after a task finishes.",
     flag: "MEMORY_ENABLED",
-    effect: '"false"/"0"/"off" disables run-end distillation into Memory — never the run.',
+    effect: 'Set to "false", "0", or "off" to turn off automatic summaries. Tasks still run.',
   },
 ];
 
@@ -296,7 +305,37 @@ const AUTH_LANE_LABEL: Record<string, string> = {
 function AccountSection({ onSignOut }: { onSignOut?: () => Promise<void> }): JSX.Element {
   const whoami = useWhoami();
   const [signingOut, setSigningOut] = useState(false);
+  const [socialProviders, setSocialProviders] = useState<Array<"google" | "slack">>([]);
+  const [linking, setLinking] = useState<"google" | "slack" | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
   const identity = whoami.state.kind === "data" ? whoami.state.data : undefined;
+
+  useEffect(() => {
+    if (identity?.auth !== "better-auth") return;
+    let cancelled = false;
+    void fetch("/api/auth/social-providers", { credentials: "same-origin", cache: "no-store" })
+      .then(async (response) => response.ok ? await response.json() as { providers?: { google?: boolean; slack?: boolean } } : null)
+      .then((result) => {
+        if (!cancelled && result?.providers) {
+          setSocialProviders((["google", "slack"] as const).filter((provider) => result.providers?.[provider] === true));
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [identity?.auth]);
+
+  const linkSocial = async (provider: "google" | "slack") => {
+    setLinking(provider);
+    setLinkError(null);
+    try {
+      const result = await authClient.linkSocial({ provider, callbackURL: "/app/?auth_linked=1", errorCallbackURL: "/app/?auth_link_error=1" });
+      if (result.error) setLinkError("The account could not be linked. Use the provider with the same verified email as this Shiba account.");
+    } catch {
+      setLinkError("The account link could not be confirmed. Reload this page and check the sign-in method before retrying.");
+    } finally {
+      setLinking(null);
+    }
+  };
 
   const signOut = async () => {
     setSigningOut(true);
@@ -339,19 +378,33 @@ function AccountSection({ onSignOut }: { onSignOut?: () => Promise<void> }): JSX
             </div>
           </div>
           {identity.auth === "better-auth" ? (
-            <div className="flex items-center justify-between gap-3 px-4 py-3">
-              <div className="text-xs text-[var(--muted-foreground-2)]">
-                Signs out of this dashboard session only.
+            <>
+              {socialProviders.length > 0 ? <div className="border-b border-[var(--border-1)] px-4 py-3">
+                <div className="text-xs font-semibold text-[var(--fg)]">Sign-in methods</div>
+                <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">Link a verified Google or Slack identity to this account so you can use it at the next sign-in. Slack login does not install a Slack app or grant workspace access.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {socialProviders.map((provider) => <button key={provider} type="button" disabled={linking !== null}
+                    onClick={() => void linkSocial(provider)}
+                    className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-semibold text-[var(--fg)] hover:bg-[var(--secondary)] disabled:opacity-60">
+                    {linking === provider ? "Opening…" : `Link ${provider === "google" ? "Google" : "Slack"}`}
+                  </button>)}
+                </div>
+                {linkError ? <p role="alert" className="mt-2 text-xs text-[var(--destructive)]">{linkError}</p> : null}
+              </div> : null}
+              <div className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="text-xs text-[var(--muted-foreground-2)]">
+                  Signs out of this dashboard session only.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void signOut()}
+                  disabled={signingOut}
+                  className="shrink-0 rounded-[var(--radius-button)] border border-[var(--destructive)]/50 bg-[var(--destructive-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/20 disabled:opacity-60"
+                >
+                  {signingOut ? "Signing out…" : "Sign out"}
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => void signOut()}
-                disabled={signingOut}
-                className="shrink-0 rounded-[var(--radius-button)] border border-[var(--destructive)]/50 bg-[var(--destructive-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/20 disabled:opacity-60"
-              >
-                {signingOut ? "Signing out…" : "Sign out"}
-              </button>
-            </div>
+            </>
           ) : null}
         </>
       )}
@@ -907,26 +960,56 @@ export function SettingsSectionBody({
   if (section === "experimental") {
     return (
       <SectionShell
-        title="Experimental"
-        description="Opt-in feature flags. These are set via wrangler vars/secrets at deploy time — this list mirrors wrangler.jsonc's vars comment block; it cannot read live values."
+        title="Experimental features"
+        description="Optional features for this Shiba installation. A deployment admin needs to enable them before they appear in the app."
       >
         <Card>
+          <div className="border-b border-[var(--border-1)] px-4 py-3">
+            <div className="text-sm font-medium text-[var(--fg)]">How to use this page</div>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground-2)]">
+              These options are managed by the person who runs Shiba. This page is a guide: it cannot
+              change deployment settings or check which options are currently turned on.
+            </p>
+          </div>
           {EXPERIMENTAL_FLAGS.map((flag) => (
-            <div key={flag.flag} className="border-b border-[var(--border-1)] px-4 py-3 last:border-b-0">
-              <div className="font-mono text-xs font-semibold text-[var(--primary)]">{flag.flag}</div>
-              <div className="mt-0.5 text-xs text-[var(--fg)]">{flag.effect}</div>
-              <div className="mt-0.5 font-mono text-[11px] text-[var(--muted-foreground-2)]">{flag.related}</div>
+            <div key={flag.flag} className="border-b border-[var(--border-1)] px-4 py-4 last:border-b-0">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="text-sm font-medium text-[var(--fg)]">{flag.title}</div>
+                <span className="border border-[var(--border-1)] bg-[var(--panel)] px-2 py-1 font-mono text-[10px] uppercase tracking-wide text-[var(--muted-foreground-2)]">
+                  Admin setup
+                </span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--fg)]">{flag.summary}</p>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground-2)]">{flag.setup}</p>
+              <details className="mt-2 text-xs text-[var(--muted-foreground-2)]">
+                <summary className="min-h-11 flex cursor-pointer items-center font-medium text-[var(--primary)]">
+                  Setup details for admins
+                </summary>
+                <div className="space-y-1 border-l-2 border-[var(--border-1)] py-1 pl-3">
+                  <code className="block font-mono text-[11px] text-[var(--fg)]">{flag.flag}</code>
+                  <span className="block">{flag.related}</span>
+                </div>
+              </details>
             </div>
           ))}
         </Card>
         <Card>
           <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-            Kill switches (env.ts)
+            Memory setting
           </div>
           {KILL_SWITCHES.map((flag) => (
             <div key={flag.flag} className="border-b border-[var(--border-1)] px-4 py-3 last:border-b-0">
-              <div className="font-mono text-xs font-semibold text-[var(--primary)]">{flag.flag}</div>
-              <div className="mt-0.5 text-xs text-[var(--fg)]">{flag.effect}</div>
+              <div className="text-sm font-medium text-[var(--fg)]">{flag.title}</div>
+              <div className="mt-1 text-xs leading-relaxed text-[var(--fg)]">{flag.summary}</div>
+              <div className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground-2)]">{flag.effect}</div>
+              <details className="mt-2 text-xs text-[var(--muted-foreground-2)]">
+                <summary className="min-h-11 flex cursor-pointer items-center font-medium text-[var(--primary)]">
+                  Setup details for admins
+                </summary>
+                <code className="block border-l-2 border-[var(--border-1)] py-1 pl-3 font-mono text-[11px] text-[var(--fg)]">
+                  {flag.flag}
+                </code>
+              </details>
             </div>
           ))}
         </Card>

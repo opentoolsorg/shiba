@@ -152,7 +152,7 @@ html[data-theme='dark'] .blog-filter[aria-current='true'] {
 
 .post-card-title {
 	display: block;
-	font-family: 'Instrument Serif', Georgia, serif;
+	font-family: 'Geist', system-ui, sans-serif;
 	font-weight: 400;
 	font-size: clamp(22px, 2.4vw, 30px);
 	line-height: 1.12;
@@ -428,7 +428,7 @@ html[data-theme='dark'] .blog-filter[aria-current='true'] {
 }
 
 .prose h2 {
-	font-family: 'Instrument Serif', Georgia, serif;
+	font-family: 'Geist', system-ui, sans-serif;
 	font-size: clamp(24px, 2.6vw, 32px);
 	line-height: 1.12;
 	letter-spacing: -0.01em;
@@ -442,7 +442,7 @@ html[data-theme='dark'] .blog-filter[aria-current='true'] {
 }
 
 .prose h3 {
-	font-family: 'Instrument Serif', Georgia, serif;
+	font-family: 'Geist', system-ui, sans-serif;
 	font-size: clamp(19px, 2vw, 23px);
 	line-height: 1.2;
 	color: var(--ink);
@@ -499,7 +499,7 @@ html[data-theme='dark'] .blog-filter[aria-current='true'] {
 	margin: 1.6em 0;
 	padding: 2px 0 2px 18px;
 	border-left: 3px solid var(--navy);
-	font-family: 'Instrument Serif', Georgia, serif;
+	font-family: 'Geist', system-ui, sans-serif;
 	font-size: 19px;
 	line-height: 1.4;
 	color: var(--ink);
@@ -655,7 +655,7 @@ html[data-theme='dark'] .blog-filter[aria-current='true'] {
 }
 
 .article-next-title {
-	font-family: 'Instrument Serif', Georgia, serif;
+	font-family: 'Geist', system-ui, sans-serif;
 	font-size: 20px;
 	line-height: 1.2;
 	color: var(--ink);

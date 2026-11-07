@@ -217,6 +217,8 @@ export function AutomationsView({
   const { agents: customAgents } = useCustomAgentOptions();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [webhookPrompt, setWebhookPrompt] = useState("");
+  const [webhookSetup, setWebhookSetup] = useState<{ url: string; secret: string } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tab, setTab] = useState<"automations" | "recipes" | "triggers">("automations");
   const [query, setQuery] = useState("");
@@ -297,6 +299,56 @@ export function AutomationsView({
       if (!response.ok) setNotice(body.error ?? `Could not create automation (${response.status}).`);
       else {
         setNotice(`Created "${recipe.name}".`);
+        refresh();
+      }
+    } catch {
+      setNotice("Could not create automation: the backend could not be reached.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const createWebhookAutomation = async () => {
+    if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/.test(repoUrl.trim())) {
+      setNotice("Enter a valid GitHub repository URL first.");
+      return;
+    }
+    if (!webhookPrompt.trim()) {
+      setNotice("Describe what the automation should do.");
+      return;
+    }
+    const id = `webhook-${crypto.randomUUID()}`;
+    setBusyId(id);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/automations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          prompt: webhookPrompt.trim(),
+          repoUrl: repoUrl.trim(),
+          triggers: [{ kind: "webhook" }],
+          enabled: true,
+          ...(customAgentId ? { customAgentId } : {}),
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        webhookSecret?: string | null;
+      };
+      if (!response.ok) {
+        setNotice(body.error ?? `Could not create webhook automation (${response.status}).`);
+      } else if (!body.webhookSecret) {
+        setNotice("Automation created, but the webhook secret was not returned. Check the automation list before retrying.");
+        refresh();
+      } else {
+        setWebhookSetup({
+          url: `${window.location.origin}/api/automations/${encodeURIComponent(id)}/trigger`,
+          secret: body.webhookSecret,
+        });
+        setWebhookPrompt("");
+        setNotice("Webhook automation created. Copy its secret now; it is shown only once.");
         refresh();
       }
     } catch {
@@ -702,6 +754,49 @@ export function AutomationsView({
                   Connect repository webhooks and Slack messages to trigger automated runs.
                 </p>
               </div>
+
+              <div className="space-y-3 rounded-xl border border-[#e4e4e7] bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40">
+                <h4 className="text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100">Create a webhook trigger</h4>
+                <p className="text-xs leading-relaxed text-[#71717a] dark:text-zinc-400">
+                  A request queues work for approval. The signing secret is shown once and must be sent in the X-Automation-Secret header.
+                </p>
+                <label className="block text-xs font-medium" htmlFor="webhook-automation-repo">GitHub repository</label>
+                <input
+                  id="webhook-automation-repo"
+                  type="url"
+                  aria-label="Webhook repository URL"
+                  value={repoUrl}
+                  onChange={(event) => setRepoUrl(event.target.value)}
+                  placeholder="https://github.com/owner/repo"
+                  className="min-h-11 w-full rounded-lg border border-[#e4e4e7] bg-white px-3 text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+                <label className="block text-xs font-medium" htmlFor="webhook-automation-prompt">What should the agent do?</label>
+                <textarea
+                  id="webhook-automation-prompt"
+                  aria-label="Webhook automation instructions"
+                  value={webhookPrompt}
+                  onChange={(event) => setWebhookPrompt(event.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg border border-[#e4e4e7] bg-white p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+                <button type="button" disabled={busyId !== null} onClick={() => void createWebhookAutomation()} className="min-h-11 rounded-lg border border-[#e4e4e7] px-3 text-sm font-medium hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
+                  {busyId?.startsWith("webhook-") ? "Creating…" : "Create webhook automation"}
+                </button>
+              </div>
+
+              {webhookSetup ? (
+                <div role="status" className="space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-5 text-sm dark:border-amber-900 dark:bg-amber-950/30">
+                  <h4 className="font-semibold">Copy your webhook credentials now</h4>
+                  <p className="text-xs">The secret will not be available again. Keep it private and send it only in the request header.</p>
+                  <label className="block text-xs font-medium">Trigger URL</label>
+                  <code className="block break-all rounded bg-white p-2 text-xs dark:bg-zinc-900">{webhookSetup.url}</code>
+                  <button type="button" onClick={() => void copyToClipboard(webhookSetup.url, "webhook-url")} className="min-h-11 rounded-lg border px-3 text-xs">{copiedEndpoint === "webhook-url" ? "Copied URL" : "Copy URL"}</button>
+                  <label className="block text-xs font-medium">X-Automation-Secret</label>
+                  <code className="block break-all rounded bg-white p-2 text-xs dark:bg-zinc-900">{webhookSetup.secret}</code>
+                  <button type="button" onClick={() => void copyToClipboard(webhookSetup.secret, "webhook-secret")} className="min-h-11 rounded-lg border px-3 text-xs">{copiedEndpoint === "webhook-secret" ? "Copied secret" : "Copy secret"}</button>
+                  <button type="button" onClick={() => setWebhookSetup(null)} className="min-h-11 rounded-lg px-3 text-xs underline">Dismiss</button>
+                </div>
+              ) : null}
 
               {[
                 {
