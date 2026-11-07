@@ -32,7 +32,9 @@ describe("integration catalog schema", () => {
       "google-ads",
       "meta-ads",
       "x-twitter",
-      "linkedin-instagram-youtube",
+      "linkedin",
+      "instagram",
+      "youtube",
       "posthog",
       "webflow",
       "wix",
@@ -40,6 +42,17 @@ describe("integration catalog schema", () => {
     ]) {
       expect(INTEGRATION_CATALOG.some((entry) => entry.id === id)).toBe(true);
     }
+  });
+
+  it.each([
+    ["linkedin", "LinkedIn"],
+    ["instagram", "Instagram"],
+    ["youtube", "YouTube"],
+  ])("keeps %s as a separately searchable app", (id, name) => {
+    expect(searchIntegrationCatalog(INTEGRATION_CATALOG, name).map((entry) => entry.id)).toEqual([id]);
+    expect(INTEGRATION_CATALOG.find((entry) => entry.id === id)).toMatchObject({
+      name, openConnectorServiceIds: [id], status: "catalog_only",
+    });
   });
 
   it("rejects invalid catalog entries", () => {

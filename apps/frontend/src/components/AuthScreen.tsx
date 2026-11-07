@@ -120,7 +120,7 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
         requestSignUp: false,
       }), AUTH_CLIENT_TIMEOUT_MS);
       if (result.error) {
-        setError("This provider is not linked to your Shiba account yet. Sign in with email first, then link it in Settings → Account.");
+        setError(result.error.message?.trim() || "Provider sign-in failed. If this provider is not linked yet, sign in with email first, then link it in Settings → Account.");
       }
     } catch (caught) {
       setError(caught instanceof AuthTimeoutError ? caught.message : "Could not start provider sign-in. Try again.");

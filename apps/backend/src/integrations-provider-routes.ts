@@ -1,7 +1,9 @@
 import {
   INTEGRATIONS_PROVIDER_PAGE_SIZE_DEFAULT,
   SHIBA_INTEGRATIONS_OAUTH_CHANNEL,
+  integrationProviderSetupStateSchema,
   type IntegrationProviderBeginConnectResponse,
+  type IntegrationProviderSetupState,
 } from "@shiba/shared";
 import { gmailOwner } from "./gmail-routes.js";
 import type { Env } from "./env.js";
@@ -69,6 +71,13 @@ function parseLimit(raw: string | null): number {
   return Math.min(value, 50);
 }
 
+/** Absent means unfiltered; null means an invalid value. */
+export function parseReadiness(raw: string | null): IntegrationProviderSetupState | undefined | null {
+  if (!raw) return undefined;
+  const parsed = integrationProviderSetupStateSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
 async function readJsonBody(request: Request, maxBytes = 4096): Promise<Record<string, unknown> | null> {
   const length = request.headers.get("content-length");
   if (length !== null && (!/^\d+$/.test(length) || Number(length) > maxBytes)) return null;
@@ -102,6 +111,7 @@ function requireSameOrigin(request: Request): Response | null {
   return null;
 }
 
+/** Authenticate and dispatch provider catalog, connection, OAuth, and action routes. */
 export async function handleIntegrationProviderRoutes(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== PROVIDER_BASE && !url.pathname.startsWith(`${PROVIDER_BASE}/`)) {
@@ -146,10 +156,13 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
   }
 
   if (suffix === "/catalog" && request.method === "GET") {
+    const readiness = parseReadiness(url.searchParams.get("readiness"));
+    if (readiness === null) return json({ ok: false, error: "readiness must be ready, needs_configuration, unsupported or unverified." }, 400);
     try {
       const page = await provider.listCatalog({
         userId: owner,
         query: url.searchParams.get("query") ?? undefined,
+        ...(readiness ? { readiness } : {}),
         cursor: url.searchParams.get("cursor") ?? undefined,
         limit: parseLimit(url.searchParams.get("limit")),
       });
@@ -160,6 +173,8 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
         nextCursor: page.nextCursor,
         hasMore: page.hasMore,
         fallbackCatalog: page.fallbackCatalog,
+        total: page.total,
+        oauthCapable: page.oauthCapable,
       });
     } catch {
       return json({ ok: false, error: "Integration catalog unavailable." }, 503);
@@ -194,6 +209,7 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
       userId: owner,
       providerKey,
       callbackOrigin: origin,
+      ...(body?.replaceUnavailable === true ? { replaceUnavailable: true } : {}),
     });
     return json(result, result.ok ? 200 : 503);
   }

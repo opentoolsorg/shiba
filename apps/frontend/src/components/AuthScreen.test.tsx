@@ -81,6 +81,18 @@ describe("AuthScreen", () => {
     expect(screen.queryByRole("button", { name: "Slack" })).toBeNull();
   });
 
+  it("shows the provider error reason and keeps linking guidance as a fallback", async () => {
+    policies();
+    signInSocial.mockResolvedValueOnce({ error: { message: "OAuth provider is not configured" } });
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Google" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("OAuth provider is not configured");
+
+    signInSocial.mockResolvedValueOnce({ error: { message: "  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("sign in with email first, then link it in Settings");
+  });
+
   it("does not enter the dashboard with a successful but unverified invited session", async () => {
     policies(true, true); signIn.mockResolvedValue({ data: {} }); const onSignedIn = vi.fn();
     render(<AuthScreen onSignedIn={onSignedIn} />); fillSignIn();

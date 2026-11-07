@@ -50,6 +50,40 @@ async function oauth(f: Fixture, provider: "google" | "slack", email = "local@ex
   const cookie = start.headers.getSetCookie().map(c => c.split(";")[0]).join("; ");
   return f.auth.handler(new Request(`${BASE}/api/auth/callback/${provider}?code=fixture&state=${encodeURIComponent(state)}`, { headers: { cookie } }));
 }
+function cookieHeader(...responses: Response[]): string {
+  const cookies = new Map<string, string>();
+  for (const response of responses) for (const cookie of response.headers.getSetCookie()) {
+    const pair = cookie.split(";")[0] ?? "";
+    const separator = pair.indexOf("=");
+    if (separator > 0) cookies.set(pair.slice(0, separator), pair.slice(separator + 1));
+  }
+  return [...cookies].map(([name, value]) => `${name}=${value}`).join("; ");
+}
+async function linkOAuth(f: Fixture, provider: "google" | "slack", expectedEmail = "local@example.test") {
+  const signup = await f.auth.handler(post("sign-up/email", {
+    name: "Local", email: expectedEmail, password: "fixture-password-123",
+  }));
+  expect(signup.status).toBe(200);
+  const cookies = cookieHeader(signup);
+  f.sqlite.prepare('UPDATE "user" SET emailVerified=1 WHERE email=?').run(expectedEmail);
+  const runtime = (await f.auth.$context).socialProviders.find(p => p.id === provider);
+  if (!runtime) throw new Error(`Missing provider ${provider}`);
+  runtime.validateAuthorizationCode = vi.fn(async () => ({ accessToken: "fixture-token", scopes: ["openid", "email", "profile"] }));
+  runtime.getUserInfo = vi.fn(async () => ({ user: { name: "Remote", email: expectedEmail, emailVerified: true },
+    data: { sub: "remote-subject", "https://slack.com/user_id": "remote-subject" } }));
+  const start = await f.auth.handler(new Request(`${BASE}/api/auth/link-social`, {
+    method: "POST", headers: { "content-type": "application/json", origin: BASE, cookie: cookies },
+    body: JSON.stringify({ provider, callbackURL: `${BASE}/app/` }),
+  }));
+  expect(start.status).toBe(200);
+  const { url } = await start.json() as { url: string };
+  const state = new URL(url).searchParams.get("state");
+  if (!state) throw new Error("Missing OAuth state");
+  const callbackCookies = cookieHeader(signup, start);
+  return f.auth.handler(new Request(`${BASE}/api/auth/callback/${provider}?code=fixture&state=${encodeURIComponent(state)}`, {
+    headers: { cookie: callbackCookies },
+  }));
+}
 
 describe("built-in social provider configuration", () => {
   it.each([
@@ -127,6 +161,43 @@ describe.each(["google", "slack"] as const)("%s social account policy", provider
     const response = await oauth(f, provider);
     expect(response.headers.get("location")).toContain("error=social_sign_in_not_allowed");
     expect(f.sqlite.prepare('SELECT COUNT(*) AS c FROM "account"').get()?.c).toBe(0);
+  });
+
+  it("links an explicit account only when the local verified account has provenance", async () => {
+    const allowed = await fixture();
+    const linked = await linkOAuth(allowed, provider);
+    expect(linked.headers.get("location")).toBe(`${BASE}/app/`);
+    expect(allowed.sqlite.prepare('SELECT providerId,userId FROM "account" WHERE providerId=?').get(provider)).toEqual({ providerId: provider, userId: expect.any(String) });
+
+    const denied = await fixture();
+    const signup = await denied.auth.handler(post("sign-up/email", {
+      name: "Local", email: "local@example.test", password: "fixture-password-123",
+    }));
+    expect(signup.status).toBe(200);
+    denied.sqlite.prepare('UPDATE "user" SET emailVerified=1 WHERE email=?').run("local@example.test");
+    denied.sqlite.prepare("DELETE FROM shiba_auth_account_policy").run();
+    const accountCountBefore = denied.sqlite.prepare('SELECT COUNT(*) AS c FROM "account"').get()?.c;
+    const cookie = cookieHeader(signup);
+    const context = await denied.auth.$context;
+    const runtime = context.socialProviders.find(item => item.id === provider);
+    if (!runtime) throw new Error(`Missing provider ${provider}`);
+    runtime.validateAuthorizationCode = vi.fn(async () => ({ accessToken: "fixture-token", scopes: ["openid", "email", "profile"] }));
+    runtime.getUserInfo = vi.fn(async () => ({ user: { name: "Remote", email: "local@example.test", emailVerified: true },
+      data: { sub: "remote-subject", "https://slack.com/user_id": "remote-subject" } }));
+    const start = await denied.auth.handler(new Request(`${BASE}/api/auth/link-social`, {
+      method: "POST", headers: { "content-type": "application/json", origin: BASE, cookie },
+      body: JSON.stringify({ provider, callbackURL: `${BASE}/app/` }),
+    }));
+    expect(start.status).toBe(200);
+    const { url } = await start.json() as { url: string };
+    const state = new URL(url).searchParams.get("state");
+    if (!state) throw new Error("Missing OAuth state");
+    const callback = await denied.auth.handler(new Request(`${BASE}/api/auth/callback/${provider}?code=fixture&state=${encodeURIComponent(state)}`, {
+      headers: { cookie: cookieHeader(signup, start) },
+    }));
+    expect(callback.headers.get("location")).toContain("error=social_sign_in_not_allowed");
+    expect(denied.sqlite.prepare('SELECT COUNT(*) AS c FROM "account"').get()?.c).toBe(accountCountBefore);
+    expect(denied.sqlite.prepare('SELECT COUNT(*) AS c FROM "account" WHERE providerId=?').get(provider)?.c).toBe(0);
   });
 
   it("rechecks linked accounts before provider claims can restore revoked verification", async () => {

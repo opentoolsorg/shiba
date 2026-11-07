@@ -22,6 +22,24 @@ describe("OpenConnector catalog mappings", () => {
     }
   });
 
+  it("maps every app named in the Overlay README to an exact provider service", () => {
+    const services = new Set(INTEGRATION_CATALOG.flatMap((entry) => entry.openConnectorServiceIds ?? []));
+    for (const service of ["gmail", "googlecalendar", "googlesheets", "googledrive", "notion", "asana", "slack", "github", "linkedin", "twitter", "outlook"]) {
+      expect(services.has(service), service).toBe(true);
+    }
+    expect(INTEGRATION_CATALOG.find((entry) => entry.id === "outlook-calendar")).toMatchObject({
+      status: "catalog_only", openConnectorServiceIds: ["outlook", "outlook_calendar"],
+    });
+    for (const id of ["linkedin", "instagram", "youtube"]) {
+      expect(INTEGRATION_CATALOG.find((entry) => entry.id === id)).toMatchObject({
+        openConnectorServiceIds: [id], status: "catalog_only",
+      });
+    }
+    expect(INTEGRATION_CATALOG.find((entry) => entry.id === "gmail-calendar")?.nativeBinding).toBe("gmail");
+    expect(INTEGRATION_CATALOG.find((entry) => entry.id === "slack")?.nativeBinding).toBe("slack");
+    expect(INTEGRATION_CATALOG.find((entry) => entry.id === "github")?.nativeBinding).toBe("github");
+  });
+
   it("requires nonempty service IDs", () => {
     expect(integrationCatalogEntrySchema.safeParse({ ...INTEGRATION_CATALOG[0], openConnectorServiceIds: [""] }).success).toBe(false);
   });

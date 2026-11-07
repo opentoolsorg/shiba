@@ -4,7 +4,7 @@ import { ChevronDown } from "lucide-react";
 export type Scope = "personal" | "workspace";
 
 const iconButton =
-  "size-7 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
+  "size-9 rounded-md flex items-center justify-center text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 
 export function PanelIconButton({ label, onClick, children }: { label: string; onClick?: () => void; children: ReactNode }): JSX.Element {
   return <button type="button" aria-label={label} title={label} onClick={onClick} className={iconButton}>{children}</button>;
@@ -20,8 +20,8 @@ export function ContextPanel({ title, actions, children, className = "" }: {
   className?: string;
 }): JSX.Element {
   return (
-    <aside aria-label={title} className={`flex h-full w-[265px] min-w-[265px] shrink-0 flex-col overflow-hidden rounded-xl border border-[#e4e4e7] bg-white shadow-sm dark:border-zinc-800 dark:bg-[#121214] ${className}`.trim()}>
-      <div className="flex shrink-0 items-center justify-between px-4 pb-2.5 pt-3.5">
+    <aside aria-label={title} className={`shiba-destination-panel flex h-full shrink-0 flex-col overflow-hidden ${className}`.trim()}>
+      <div className="flex shrink-0 items-center justify-between min-h-14 px-4 py-2">
         <h2 className="text-[14px] font-semibold tracking-tight text-[#0a0a0a] dark:text-zinc-100">{title}</h2>
         <div className="flex items-center gap-1">{actions}</div>
       </div>
@@ -40,7 +40,7 @@ export function PanelNavItem({ icon: Icon, label, active = false, disabled = fal
 }): JSX.Element {
   return (
     <button type="button" onClick={onClick} disabled={disabled} aria-current={active ? "page" : undefined}
-      className={`flex h-[34px] w-full items-center gap-3 rounded-lg px-2.5 text-left text-[14px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${active ? "bg-[#e4e4e7] font-medium text-[#0a0a0a] dark:bg-zinc-800 dark:text-zinc-100" : "text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100"}`}>
+      className={`flex min-h-10 w-full items-center gap-3 rounded-lg px-2.5 text-left text-[14px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${active ? "bg-[#e4e4e7] font-medium text-[#0a0a0a] dark:bg-zinc-800 dark:text-zinc-100" : "text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100"}`}>
       {Icon ? <Icon className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" /> : null}
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {trailing}
@@ -62,7 +62,7 @@ export function PanelGroup({ label, emptyText, action, defaultOpen = true, child
     <section aria-label={label} className="mt-4 flex flex-col first:mt-1">
       <div className="flex items-center justify-between px-1">
         <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
-          className="flex w-fit items-center gap-1.5 rounded py-0.5 text-[12px] font-medium text-[#71717a] hover:text-[#0a0a0a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] dark:text-zinc-400 dark:hover:text-zinc-100">
+          className="flex w-fit items-center gap-1.5 min-h-9 rounded py-1 text-[12px] font-medium text-[#71717a] hover:text-[#0a0a0a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] dark:text-zinc-400 dark:hover:text-zinc-100">
           {label}
           <ChevronDown className={`size-3 transition-transform duration-150 ${open ? "" : "-rotate-90"}`} strokeWidth={2} aria-hidden="true" />
         </button>
@@ -75,7 +75,7 @@ export function PanelGroup({ label, emptyText, action, defaultOpen = true, child
 
 /** Main card: full-height rounded card beside the context panel. */
 export function MainCard({ children, className = "" }: { children: ReactNode; className?: string }): JSX.Element {
-  return <div className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#e4e4e7] bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900 ${className}`.trim()}>{children}</div>;
+  return <div className={`shiba-content-card flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${className}`.trim()}>{children}</div>;
 }
 
 /** Centered empty state: muted icon, bold title, muted description, optional action. */

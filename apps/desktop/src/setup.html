@@ -14,9 +14,10 @@
   label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; }
   input { width: 100%; box-sizing: border-box; min-height: 44px; padding: 8px 10px; font: inherit; border: 1px solid #888; border-radius: 0; }
   button { margin-top: 12px; min-height: 44px; padding: 8px 14px; font: 600 14px Geist, system-ui, sans-serif; border: 1px solid #111; border-radius: 0; background: #111; color: #fff; cursor: pointer; }
-  button:focus-visible, input:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+  button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+  input:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
   #error { color: #b00020; margin-top: 12px; min-height: 1em; }
-  @media (prefers-color-scheme: dark) { body { background: #111; color: #eee; } p { color: #aaa; } input { background: #222; color: #eee; border-color: #444; } button { background: #eee; color: #111; } }
+  @media (prefers-color-scheme: dark) { body { background: #111; color: #eee; } p { color: #aaa; } input { background: #222; color: #eee; border-color: #444; } button { background: #eee; color: #111; } button:focus-visible { outline-color: #fbbf24; } }
 </style>
 </head>
 <body>
