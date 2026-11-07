@@ -1,6 +1,10 @@
 ---
 import MarketingPage from '../layouts/MarketingPage.astro';
 import { integrationGroups, integrations } from '../data/integrations';
+import { INTEGRATION_CATALOG } from '../../../../packages/shared/src/integration-catalog';
+import { CURATED_MCP_VENDORS } from '../../../../packages/shared/src/curated-mcp-vendors';
+import { SKILL_LIBRARY } from '../../../backend/src/skill-library';
+
 
 ---
 
@@ -15,7 +19,7 @@ import { integrationGroups, integrations } from '../data/integrations';
       <div class="intro-copy-block">
       <p class="eyebrow">INTEGRATIONS / YOUR TOOLS, YOUR ACCOUNT</p>
       <h1 id="integrations-title">Connect your team’s work<br />to the tools you use</h1>
-      <p class="intro-copy">Send a brief from chat, run it against your repository, review the result. Every run needs a GitHub repository, even when the output is a document.</p>
+      <p class="intro-copy">Browse app integrations, remote MCP server presets, and reusable skills. Choose what your task needs, configure access in your workspace, and review the result.</p>
       <div class="intro-links">
         <a class="primary-link" href="/docs/self-hosting/">Self-host Shiba</a>
         <a class="text-link" href="https://github.com/princepal9120/shiba">Explore the source <span aria-hidden="true">↗</span></a>
@@ -25,6 +29,52 @@ import { integrationGroups, integrations } from '../data/integrations';
         <span class="readiness-mark" aria-hidden="true">i</span>
         <p><strong>Check the setup before you rely on it.</strong> This directory describes supported connections, not the status of your account. Entries marked “Needs live verification” still need a successful test in your installation. See the <a href="/docs/readiness/">readiness guide</a>.</p>
       </aside>
+    </section>
+
+    <nav class="intro-links directory-nav" aria-label="Integration directory sections">
+      <a class="text-link" href="#app-catalog">{INTEGRATION_CATALOG.length} app entries</a>
+      <a class="text-link" href="#mcp-presets">{CURATED_MCP_VENDORS.length} MCP presets</a>
+      <a class="text-link" href="#skill-templates">{SKILL_LIBRARY.length} skill templates</a>
+      <a class="text-link" href="#catalog-title">Channels &amp; setup</a>
+    </nav>
+
+    <section id="app-catalog" class="catalog" aria-labelledby="app-catalog-title">
+      <div class="catalog-heading"><div><p class="eyebrow">APP DIRECTORY</p><h2 id="app-catalog-title">Tools for your team's work</h2></div><p class="catalog-meta">Catalog entries, not connected accounts. OpenConnector availability depends on your deployment.</p></div>
+      <div class="integration-grid">
+        {INTEGRATION_CATALOG.map((app) => (
+          <article class="integration-card">
+            <div class="card-heading"><h3>{app.name}</h3></div>
+            <p class="card-description">{app.summary}</p>
+            <div class="card-bottom"><p class="verification">{app.openConnectorServiceIds?.length ? 'OpenConnector catalog mapping · requires service availability and account connection.' : app.kind === 'mcp' ? 'MCP catalog entry · requires server setup and authorization.' : app.kind === 'webhook' ? 'Webhook setup path · configure and verify in your workspace.' : 'Native setup path · verify access in your workspace.'} Not evidence of a live-tested account.</p><a class="docs-link" href={app.docsUrl}>Provider reference <span aria-hidden="true">↗</span></a></div>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section id="mcp-presets" class="catalog" aria-labelledby="mcp-presets-title">
+      <div class="catalog-heading"><div><p class="eyebrow">REMOTE MCP SERVERS</p><h2 id="mcp-presets-title">Bring tools into a task</h2></div><p class="catalog-meta">Curated server presets, not automatic connections. Sign-in depends on deployment and vendor support.</p></div>
+      <div class="integration-grid">
+        {CURATED_MCP_VENDORS.map((vendor) => (
+          <article class="integration-card">
+            <div class="card-heading"><h3>{vendor.name}</h3></div>
+            <p class="card-description">Configure the {vendor.name} remote MCP preset in your workspace, then authorize the account and tools you want to use.</p>
+            <div class="card-bottom"><p class="verification">Requires configuration and a connection test. Sensitive actions still need approval.</p><a class="docs-link" href={vendor.docsUrl}>Server documentation <span aria-hidden="true">↗</span></a></div>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section id="skill-templates" class="catalog" aria-labelledby="skill-templates-title">
+      <div class="catalog-heading"><div><p class="eyebrow">REUSABLE WORKFLOWS</p><h2 id="skill-templates-title">Start with a skill template</h2></div><p class="catalog-meta">Install from the workspace skill library as a draft, review the instructions, then select it for a task. Skills do not connect accounts.</p></div>
+      <div class="integration-grid">
+        {SKILL_LIBRARY.map((skill) => (
+          <article class="integration-card">
+            <div class="card-heading"><h3>{skill.name}</h3></div>
+            <p class="card-description">{skill.summary}</p>
+            <div class="card-bottom"><p class="verification">Draft workflow template · review before use. No automatic execution or publishing.</p><a class="docs-link" href="/docs/skills/">Skill setup guide <span aria-hidden="true">→</span></a></div>
+          </article>
+        ))}
+      </div>
     </section>
 
     <section class="catalog" aria-labelledby="catalog-title">
@@ -158,6 +208,8 @@ import { integrationGroups, integrations } from '../data/integrations';
   .readiness p { margin: 0; font-size: 14px; line-height: 1.75; color: var(--ink-2); }
   .readiness strong { color: var(--ink); }
   .readiness a { color: var(--navy); text-decoration: underline; text-underline-offset: 3px; }
+  .directory-nav { padding-bottom: 32px; flex-wrap: wrap; }
+  section[id] { scroll-margin-top: 100px; }
   .catalog { padding: 48px 0 80px; border-top: 1px solid var(--line-2); }
   .catalog-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 28px; }
   .catalog-heading .eyebrow { margin-bottom: 10px; }
