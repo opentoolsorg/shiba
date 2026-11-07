@@ -259,15 +259,26 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
 
   /** Four metadata reads at a time; a failed setup check cannot enable OAuth. */
   private async probeSetup(rows: { service: string; authTypes: string[] }[], into: Map<string, IntegrationProviderSetupState>, signal: AbortSignal): Promise<void> {
-    for (let start = 0; start < rows.length; start += 4) {
+    const pending = rows.filter((row) => row.authTypes.includes("oauth2") && !into.has(row.service));
+    // Every scanned row needs a classification, even when the shared page
+    // deadline has elapsed. Otherwise filtered pagination silently skips it.
+    for (const row of rows) {
+      if (!into.has(row.service)) into.set(row.service, row.authTypes.includes("oauth2") ? "unverified" : "unsupported");
+    }
+    for (let start = 0; start < pending.length; start += 4) {
       if (signal.aborted) return;
-      const batch = Promise.all(rows.slice(start, start + 4).map(async (row) => {
-        if (!into.has(row.service)) into.set(row.service, row.authTypes.includes("oauth2") ? await this.oauthSetup(row.service, signal) : "unsupported");
+      const batch = Promise.all(pending.slice(start, start + 4).map(async (row) => {
+        const state = await this.oauthSetup(row.service, signal);
+        if (!signal.aborted) into.set(row.service, state);
       }));
-      await Promise.race([batch, new Promise<void>((resolve) => {
+      let onAbort = () => {};
+      const aborted = new Promise<void>((resolve) => {
+        onAbort = resolve;
         if (signal.aborted) resolve();
-        else signal.addEventListener("abort", () => resolve(), { once: true });
-      })]);
+        else signal.addEventListener("abort", onAbort, { once: true });
+      });
+      try { await Promise.race([batch, aborted]); }
+      finally { signal.removeEventListener("abort", onAbort); }
     }
   }
 
