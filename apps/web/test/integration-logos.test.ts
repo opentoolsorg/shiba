@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { test } from 'node:test';
 import { INTEGRATION_CATALOG } from '../../../packages/shared/src/integration-catalog.ts';
 import { CURATED_MCP_VENDORS } from '../../../packages/shared/src/curated-mcp-vendors.ts';
@@ -22,5 +22,16 @@ test('all branded catalog entries resolve to locally shipped marks', () => {
     for (const logo of integrationLogos(tool.name)) {
       assert.ok(existsSync(new URL(`../public${logo.src}`, import.meta.url)), logo.src);
     }
+  }
+});
+
+
+test('standalone SVG brand assets include nonempty accessible titles', () => {
+  const directory = new URL('../public/integration-logos/', import.meta.url);
+  const files = readdirSync(directory).filter((file) => file.endsWith('.svg'));
+  assert.ok(files.length > 0);
+  for (const file of files) {
+    const svg = readFileSync(new URL(file, directory), 'utf8');
+    assert.match(svg, /<title>[^<]+<\/title>/, file);
   }
 });

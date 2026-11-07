@@ -22,6 +22,8 @@ describe("integration brand logos", () => {
     const { container } = render(<IntegrationLogo providerKey="unknown-service" logoUrl={logoUrl} />);
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("svg")).not.toBeNull();
+    expect(container.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector("svg")?.getAttribute("focusable")).toBe("false");
   });
 
   it("keeps unknown brand names neutral and falls back when an upstream image fails", () => {
@@ -33,6 +35,8 @@ describe("integration brand logos", () => {
     fireEvent.error(container.querySelector("img")!);
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("svg")).not.toBeNull();
+    expect(container.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector("svg")?.getAttribute("focusable")).toBe("false");
   });
 
   it("does not keep a failed logo when the provider changes", () => {

@@ -26,3 +26,9 @@ The work was replayed onto PR #199 checkpoint `bf828b0a2c3dded3e91333c9e9bbce658
 - Regression coverage includes catalog visibility, server search and readiness filtering beyond the first loaded page, filter reset, missing owner authentication, 503/retry, separate native/MCP and provider readiness, popup-blocked feedback inside the dialog, concurrent-connect prevention, verified-success refresh, actor-change fencing and existing reconnect/disconnect flows.
 - Chromium could not start because this execution environment denied its local process socket, including an escalation attempt. No browser page was opened and no visual/responsive screenshot pass is claimed. Desktop/tablet/mobile light/dark visual QA remains to be run on an environment where Chromium can start.
 - No full backend runtime suite, live-account consent, sibling deployment, vendor action or production deployment was performed. This is not a full repository/live end-to-end acceptance claim.
+
+## Follow-up logo accessibility cleanup
+
+The preceding logo checkpoint's 45 root lint errors are resolved separately: the 44 standalone brand SVGs now have descriptive titles, and the decorative generic SVG is explicitly hidden from assistive technology and keyboard focus. A byte comparison after removing each newly added title confirmed unchanged SVG geometry and colors.
+
+After cleanup, all 53 focused integration UI tests and all six logo/landing catalog tests passed. Frontend TypeScript, ESLint, root Biome lint/CI and Knip passed (existing warnings remain). The frontend production build and prerender passed again. The full frontend suite above preceded these metadata-only logo changes; the affected tests were rerun afterward. Browser visual QA and live integration acceptance remain unverified.
