@@ -11,7 +11,7 @@ export function PanelIconButton({ label, onClick, children }: { label: string; o
 }
 
 /** ~265px context panel: title row, optional scope switch, then content. */
-export function ContextPanel({ title, actions, scope, onScopeChange, children, className = "" }: {
+export function ContextPanel({ title, actions, children, className = "" }: {
   title: string;
   actions?: ReactNode;
   scope?: Scope;
@@ -25,24 +25,8 @@ export function ContextPanel({ title, actions, scope, onScopeChange, children, c
         <h2 className="text-[14px] font-semibold tracking-tight text-[#0a0a0a] dark:text-zinc-100">{title}</h2>
         <div className="flex items-center gap-1">{actions}</div>
       </div>
-      {scope && onScopeChange ? <ScopeSwitch scope={scope} onChange={onScopeChange} label={`${title} scope`} /> : null}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-4">{children}</div>
     </aside>
-  );
-}
-
-export function ScopeSwitch({ scope, onChange, label }: { scope: Scope; onChange: (scope: Scope) => void; label: string }): JSX.Element {
-  return (
-    <div className="shrink-0 px-3 pb-3">
-      <div role="group" aria-label={label} className="flex items-center gap-0.5 rounded-md bg-[#f4f4f5] p-0.5 dark:bg-zinc-800/80">
-        {(["personal", "workspace"] as const).map((value) => (
-          <button key={value} type="button" aria-pressed={scope === value} onClick={() => onChange(value)}
-            className={`flex min-h-11 flex-1 items-center justify-center rounded text-[12px] font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${scope === value ? "bg-white text-[#0a0a0a] shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:bg-zinc-900 dark:text-zinc-100" : "text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-200"}`}>
-            {value === "personal" ? "Personal" : "Workspace"}
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }
 

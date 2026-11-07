@@ -243,9 +243,9 @@ const CURATED_WORKFLOWS = [
 const RAIL_MORE_ITEMS: { id: AppNavView; label: string; icon: LucideIcon }[] = (
   [
     { id: "integrations", label: "Extensions", icon: Blocks },
-    { id: "inbox", icon: Inbox },
-    { id: "memory", icon: Brain },
-    { id: "automations", icon: Zap },
+    { id: "inbox", label: "Mailbox", icon: Inbox },
+    { id: "memory", label: "Memory", icon: Brain },
+    { id: "automations", label: "Automations", icon: Zap },
     { id: "dashboard", label: "Insights", icon: LayoutDashboard },
   ] as { id: AppNavView; label?: string; icon: LucideIcon }[]
 ).map(({ id, label, icon }) => ({
@@ -400,15 +400,12 @@ export function AppNavRail({
   };
 
   const moreViews: AppNavView[] = [
-    "dashboard",
     "activity",
     "analytics",
     "approvals",
     "swarm",
     "collaboration",
     "team",
-    "inbox",
-    "memory",
     "providers",
     "spaces",
     "employee-tools",
@@ -1085,26 +1082,29 @@ export function AppNavRail({
                 <span className="flex-1 text-left truncate leading-none">Pull requests</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigate("automations");
-                  if (variant === "sheet") onClose?.();
-                }}
-                aria-current={activeView === "automations" ? "page" : undefined}
-                className={
-                  "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
-                  (activeView === "automations"
-                    ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
-                    : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
-                }
-              >
-                <Zap className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-                <span className="flex-1 text-left truncate leading-none">Automations</span>
-              </button>
+              <p className="px-2.5 pb-1 pt-3 text-[11px] font-medium text-[var(--muted-foreground-3)]">Explore</p>
+              {RAIL_MORE_ITEMS.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    onNavigate(id);
+                    if (variant === "sheet") onClose?.();
+                  }}
+                  aria-current={activeView === id ? "page" : undefined}
+                  className={`flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
+                    activeView === id
+                      ? "bg-[var(--secondary)] text-[var(--fg)] font-medium"
+                      : "text-[var(--muted-foreground-2)] hover:bg-[var(--section)] hover:text-[var(--fg)]"
+                  }`}
+                >
+                  <Icon aria-hidden="true" className="size-4 shrink-0 text-[var(--icon-muted)]" />
+                  <span>{label}</span>
+                </button>
+              ))}
 
               <p className="px-2.5 pb-1 pt-3 text-[11px] font-medium text-[var(--muted-foreground-3)]">Resources</p>
-              {(["integrations", "skills", "agents"] as const).map((id) => {
+              {(["skills", "agents"] as const).map((id) => {
                 const item = APP_NAV_ITEMS.find((entry) => entry.id === id);
                 if (!item) return null;
                 const Icon = ICONS[id];

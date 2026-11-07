@@ -97,7 +97,9 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await page.getByLabel("Email", { exact: true }).fill("native-owner@example.test");
     await page.getByLabel("Password", { exact: true }).fill("native-fixture-only-password-2026!");
     await page.getByRole("button", { name: "Create account", exact: true }).click();
-    await page.getByRole("region", { name: "First task setup", exact: true }).waitFor();
+    const onboarding = page.getByRole("region", { name: "First task setup", exact: true });
+    await onboarding.waitFor();
+    await page.getByRole("button", { name: /^Start a coding task/ }).click();
     await answer(page, "Goal", goal);
     await page.getByRole("textbox", { name: "Your answer: Audience", exact: true }).fill(audience);
     await expect.poll(async () => (await progress(page)).draftTask.goal).toBe(goal);
@@ -465,7 +467,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
         () => (globalThis as { __protocolRegistrations?: number }).__protocolRegistrations,
       ),
     ).toBe(0);
-    await page.screenshot({ path: path.join(evidence, "restarted-retained-output.png") });
+    await page.screenshot({ path: path.join(evidence, "restarted-retained-output.png"), timeout: 30_000 });
   } catch (error) {
     if (app) {
       const evidence = fileURLToPath(new URL("../../../.verify/native-onboarding/", import.meta.url));

@@ -22,7 +22,6 @@ const sunglassesStickerBase64 = toBase64(path.join(mascotDir, 'shiba-sticker-sun
 
 // Icons
 const checkIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#95c4a0" stroke-width="3" stroke-linecap="square"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-const chartIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#95c4a0" stroke-width="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg>`;
 
 const html = `<!DOCTYPE html>
 <html lang="en">
@@ -206,6 +205,14 @@ const html = `<!DOCTYPE html>
       gap: 24px;
       width: 100%;
       margin-bottom: 28px;
+    }
+
+    .example-disclaimer {
+      font-family: 'Geist Mono', monospace;
+      font-size: 14px;
+      color: #aaa99f;
+      letter-spacing: 0.03em;
+      margin: -12px 0 18px;
     }
 
     .bot-window {
@@ -552,17 +559,16 @@ const html = `<!DOCTYPE html>
     <!-- Hero Title -->
     <div class="hero-strip">
       <h1 class="hero-h1">
-        AI employees that ship <span class="accent-word">while you sleep.</span>
+        A self-hosted <span class="accent-word">cloud software engineer.</span>
       </h1>
       <p class="hero-subhead">
-        <span>CODING</span> <span class="bullet">·</span>
-        <span>TESTING</span> <span class="bullet">·</span>
-        <span>OPERATIONS</span> <span class="bullet">·</span>
-        <span>MARKETING</span> <span class="bullet">·</span>
-        <span>SALES</span> <span class="bullet">·</span>
-        <span>ONE APPROVAL GATE BEFORE COMMIT</span>
+        <span>OPEN SOURCE</span> <span class="bullet">·</span>
+        <span>YOUR CLOUDFLARE ACCOUNT</span> <span class="bullet">·</span>
+        <span>REVIEW THE PLAN · APPROVE THE RUN · REVIEW THE RESULT</span>
       </p>
     </div>
+
+    <p class="example-disclaimer">Illustrative examples — these task cards are not live runs or measured results.</p>
 
     <!-- 5 Retro-OS Bot Windows -->
     <div class="cards-grid">
@@ -590,12 +596,12 @@ const html = `<!DOCTYPE html>
               <span class="muted">+ 3 files changed (+142 -8)</span>
             </div>
             <div class="metric-row">
-              <span class="metric-key">Harness</span>
-              <span class="metric-val ok">Claude Code ${checkIcon}</span>
+              <span class="metric-key">Plan</span>
+              <span class="metric-val ok">reviewable ${checkIcon}</span>
             </div>
             <div class="metric-row">
-              <span class="metric-key">OpenCode</span>
-              <span class="metric-val ok">clean diff ${checkIcon}</span>
+              <span class="metric-key">Execution</span>
+              <span class="metric-val ok">after approval ${checkIcon}</span>
             </div>
           </div>
           <div class="window-footer-chip approval">
@@ -605,44 +611,40 @@ const html = `<!DOCTYPE html>
         </div>
       </div>
 
-      <!-- 02 / TESTING -->
+      <!-- 02 / RESEARCH -->
       <div class="bot-window">
         <div class="window-titlebar">
-          <div class="titlebar-left"><span class="num">02</span> / QA · Testing</div>
+          <div class="titlebar-left"><span class="num">02</span> / Research</div>
           <div class="window-marks"><div class="mark-btn"></div><div class="mark-btn"></div><div class="mark-btn"></div></div>
         </div>
         <div class="bot-profile">
           <div class="mascot-frame">
-            <img src="${climbingStickerBase64}" alt="Shiba Testing">
+            <img src="${climbingStickerBase64}" alt="Shiba Research">
           </div>
           <div class="bot-name-col">
-            <div class="bot-name">Testing Bot</div>
-            <div class="bot-role-tag">QA &amp; Verification</div>
+            <div class="bot-name">Research Template</div>
+            <div class="bot-role-tag">Evidence &amp; Findings</div>
           </div>
         </div>
         <div class="window-body">
           <div class="content-stack">
-            <div class="file-chip">📁 task/auth-qa-run</div>
+            <div class="file-chip">📁 research/brief.md</div>
             <div class="metric-row">
-              <span class="metric-key">Vitest Suite</span>
-              <span class="metric-val ok">48 passed ${checkIcon}</span>
+              <span class="metric-key">Context</span>
+              <span class="metric-val ok">provided sources ${checkIcon}</span>
             </div>
             <div class="metric-row">
-              <span class="metric-key">TypeScript</span>
-              <span class="metric-val ok">0 errors ${checkIcon}</span>
+              <span class="metric-key">Findings</span>
+              <span class="metric-val ok">evidence linked ${checkIcon}</span>
             </div>
             <div class="metric-row">
-              <span class="metric-key">Security AST</span>
-              <span class="metric-val ok">0 leaks ${checkIcon}</span>
-            </div>
-            <div class="metric-row">
-              <span class="metric-key">Playwright E2E</span>
-              <span class="metric-val ok">12/12 pass ${checkIcon}</span>
+              <span class="metric-key">Open questions</span>
+              <span class="metric-val ok">listed ${checkIcon}</span>
             </div>
           </div>
-          <div class="window-footer-chip ok">
-            <span>Sandbox Check</span>
-            <span>100% GREEN</span>
+          <div class="window-footer-chip approval">
+            <span>Research Brief</span>
+            <span>READY TO REVIEW</span>
           </div>
         </div>
       </div>
@@ -664,27 +666,23 @@ const html = `<!DOCTYPE html>
         </div>
         <div class="window-body">
           <div class="content-stack">
-            <div class="file-chip">📁 task/workers-sync</div>
+            <div class="file-chip">📁 ops/runbook.md</div>
             <div class="metric-row">
-              <span class="metric-key">CF Worker</span>
-              <span class="metric-val ok">live ${checkIcon}</span>
+              <span class="metric-key">Task plan</span>
+              <span class="metric-val ok">prepared ${checkIcon}</span>
             </div>
             <div class="metric-row">
-              <span class="metric-key">D1 Database</span>
-              <span class="metric-val ok">synced ${checkIcon}</span>
+              <span class="metric-key">Checklist</span>
+              <span class="metric-val ok">reviewable ${checkIcon}</span>
             </div>
             <div class="metric-row">
-              <span class="metric-key">AI Gateway</span>
-              <span class="metric-val ok">0ms egress ${checkIcon}</span>
-            </div>
-            <div class="metric-row">
-              <span class="metric-key">Docker Daemon</span>
-              <span class="metric-val ok">healthy ${checkIcon}</span>
+              <span class="metric-key">Execution</span>
+              <span class="metric-val ok">after approval ${checkIcon}</span>
             </div>
           </div>
-          <div class="window-footer-chip ok">
-            <span>Your Account</span>
-            <span>AUTONOMOUS OPS</span>
+          <div class="window-footer-chip approval">
+            <span>Ops Runbook</span>
+            <span>REVIEW THE RESULT</span>
           </div>
         </div>
       </div>
@@ -709,11 +707,11 @@ const html = `<!DOCTYPE html>
             <div class="file-chip">📁 marketing/brief.md</div>
             <div class="draft-box">
               <div class="draft-label">𝕏 Draft · in repo</div>
-              "AI employees for the work behind your company. Runs in your Cloudflare account. It asks before writing code 🐕"
+              "A self-hosted cloud software engineer. Review the plan, approve the run, inspect the result. 🐕"
             </div>
             <div class="metric-row">
-              <span class="metric-key">SEO &amp; GEO Rank</span>
-              <span class="metric-val ok">#1 cited ${checkIcon}</span>
+              <span class="metric-key">Campaign</span>
+              <span class="metric-val ok">draft for review ${checkIcon}</span>
             </div>
           </div>
           <div class="window-footer-chip approval">
@@ -723,45 +721,36 @@ const html = `<!DOCTYPE html>
         </div>
       </div>
 
-      <!-- 05 / SALES -->
+      <!-- 05 / CUSTOM INSTRUCTIONS -->
       <div class="bot-window">
         <div class="window-titlebar">
-          <div class="titlebar-left"><span class="num">05</span> / Revenue · Sales</div>
+          <div class="titlebar-left"><span class="num">05</span> / Custom</div>
           <div class="window-marks"><div class="mark-btn"></div><div class="mark-btn"></div><div class="mark-btn"></div></div>
         </div>
         <div class="bot-profile">
           <div class="mascot-frame">
-            <img src="${sunglassesStickerBase64}" alt="Shiba Sales">
+            <img src="${sunglassesStickerBase64}" alt="Shiba Custom Instructions">
           </div>
           <div class="bot-name-col">
-            <div class="bot-name">Sales Bot</div>
-            <div class="bot-role-tag">Revenue &amp; CRM</div>
+            <div class="bot-name">Account Brief</div>
+            <div class="bot-role-tag">Custom Instructions</div>
           </div>
         </div>
         <div class="window-body">
           <div class="content-stack">
-            <div class="file-chip">📁 sales/pipeline.md</div>
-            <div class="chart-panel">
-              <div class="chart-head">
-                <span>Pipeline · 7d</span>
-                <span class="growth">${chartIcon} ▲ 42%</span>
-              </div>
-              <div class="retro-bars">
-                <div class="retro-bar" style="height: 35%;"></div>
-                <div class="retro-bar" style="height: 55%;"></div>
-                <div class="retro-bar" style="height: 45%;"></div>
-                <div class="retro-bar" style="height: 70%;"></div>
-                <div class="retro-bar active" style="height: 100%;"></div>
-              </div>
+            <div class="file-chip">📁 account/brief.md</div>
+            <div class="draft-box">
+              <div class="draft-label">Supplied account context</div>
+              Priorities, constraints, and a tailored draft prepared for review.
             </div>
             <div class="metric-row">
-              <span class="metric-key">Inbound Leads</span>
-              <span class="metric-val ok">+38 qualified ${checkIcon}</span>
+              <span class="metric-key">External outreach</span>
+              <span class="metric-val ok">not sent ${checkIcon}</span>
             </div>
           </div>
-          <div class="window-footer-chip ok">
-            <span>CRM Sync</span>
-            <span>PIPELINE ACTIVE</span>
+          <div class="window-footer-chip approval">
+            <span>Custom Output</span>
+            <span>READY TO REVIEW</span>
           </div>
         </div>
       </div>

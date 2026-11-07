@@ -30,7 +30,7 @@ const {
   schema,
   breadcrumbs = [{ name: 'Home', path: '/' }],
   ogImage = '/assets/og/shiba-og.png',
-  ogImageAlt = 'Shiba: AI employees for the work behind your company—from code and design to marketing, sales, operations and finance.',
+  ogImageAlt = 'Shiba open-source workspace illustration with clearly labeled example tasks for engineering, research, operations, marketing, and custom account briefs for human review.',
   noindex = false,
 } = Astro.props;
 const canonical = new URL(path, 'https://tryshiba.dev').href;
@@ -93,7 +93,7 @@ const finalSchemas = schema
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={ogImageUrl} />
-    {ogImage === '/assets/og/shiba-og.png' && <>
+    {ogImageUrl === new URL('/assets/og/shiba-og.png', 'https://tryshiba.dev').href && <>
       <meta property="og:image:width" content="2400" />
       <meta property="og:image:height" content="1260" />
       <meta property="og:image:type" content="image/png" />
@@ -108,11 +108,6 @@ const finalSchemas = schema
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageUrl} />
-
-    <!-- Preconnect Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 
     <!-- Structured Data (JSON-LD) -->
     {finalSchemas.map((s) => (
@@ -227,7 +222,7 @@ const finalSchemas = schema
               <li><a href="/integrations/" class="hover:text-[var(--navy)] transition-colors">Integrations</a></li>
               <li><a href="/network/" class="hover:text-[var(--navy)] transition-colors">Network</a></li>
               <li><a href="/waitlist/" class="hover:text-[var(--navy)] transition-colors">Join Waitlist &amp; Contribute</a></li>
-              <li><a href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer" class="hover:text-[var(--navy)] transition-colors">GitHub Repository ↗</a></li>
+              <li><a href="https://github.com/opentoolsorg/shiba" target="_blank" rel="noopener noreferrer" class="hover:text-[var(--navy)] transition-colors">GitHub Repository ↗</a></li>
             </ul>
           </div>
           <div class="space-y-3 text-xs">
@@ -482,7 +477,7 @@ const finalSchemas = schema
   }
   .header-inner { min-height: 56px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 20px; padding-inline: 16px; }
   .wordmark { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; text-decoration: none; white-space: nowrap; }
-  .wordmark-name { font-family: 'Bebas Neue', 'Geist', sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.04em; color: var(--ink); text-transform: uppercase; }
+  .wordmark-name { font-family: 'Geist', system-ui, sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.02em; color: var(--ink); }
   .nav-links { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; white-space: nowrap; }
   .nav-link { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 44px; min-height: 44px; padding: 8px 10px; font: 500 12px/1.5 'Geist Mono', monospace; text-decoration: none; color: var(--ink-2); border: 0; background: transparent; cursor: pointer; border-radius: 6px; transition: color 150ms var(--ease-out), background 150ms var(--ease-out); }
   .nav-link[aria-current='page'], .nav-more-panel a[aria-current='page'] { color: var(--accent); font-weight: 600; }
@@ -532,7 +527,8 @@ const finalSchemas = schema
 
   /* Shared primitives */
   .eyebrow, .micro { font-family: 'Geist Mono', monospace; text-transform: uppercase; letter-spacing: 0.14em; font-size: 10px; color: var(--navy); font-weight: 500; }
-  h1, h2, h3, h4 { font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif; font-weight: 600; font-style: normal; letter-spacing: -0.02em; line-height: 1.1; color: var(--ink); }
+  h1, h2 { font-family: 'Geist', system-ui, sans-serif; font-weight: 400; font-style: normal; letter-spacing: -0.02em; line-height: 1.08; color: var(--ink); }
+  h3, h4 { font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif; font-weight: 600; font-style: normal; letter-spacing: -0.02em; line-height: 1.2; color: var(--ink); }
   h1 { font-size: clamp(48px, 5.5vw, 60px); margin: 16px 0 24px; max-width: 680px; }
   h2 { font-size: clamp(32px, 3.8vw, 48px); }
   p { color: var(--ink-2); }
@@ -627,8 +623,7 @@ const finalSchemas = schema
   footer li a, .status-links a { display: inline-flex; align-items: center; }
   footer a[aria-current='page'] { color: var(--navy); font-weight: 600; }
 
-  /* theme.css (docs) already ships this net; the marketing layout has its own
-     animations, so it needs the same guard for reduced-motion users. */
+  /* Marketing has its own animations, so keep the same reduced-motion guard. */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
   }

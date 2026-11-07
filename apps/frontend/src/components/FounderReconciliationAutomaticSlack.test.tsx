@@ -57,6 +57,6 @@ describe("future combined report Slack review", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("Outcome not confirmed."); expect(prepare.closest("fieldset")).toHaveProperty("disabled", true);
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1); fireEvent.click(prepare); expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Refresh combined Slack access" })); await waitFor(() => expect(prepare.closest("fieldset")).toHaveProperty("disabled", false)); fireEvent.click(prepare); expect((await screen.findByRole("alert")).textContent).toContain("Outcome not confirmed.");
-    const writes = fetcher.mock.calls.filter(([, init]) => init?.method === "POST"); expect(writes).toHaveLength(2); const first = JSON.parse(String(writes[0]![1]?.body)); expect(first.expiresAt).toBe(Math.floor(expiresAt.getTime() / 60000) * 60000); expect(JSON.parse(String(writes[1]![1]?.body))).toEqual(first);
+    const writes = fetcher.mock.calls.filter(([, init]) => init?.method === "POST"); expect(writes).toHaveLength(2); const first = JSON.parse(String(writes[0]![1]?.body)); expect(first.expiresAt).toBe(Math.floor(expiresAt.getTime() / 60000) * 60000); expect(JSON.parse(String(writes[1]![1]?.body))).toEqual(first); expect(first.requestId).toBe(JSON.parse(String(writes[1]![1]?.body)).requestId);
   });
 });

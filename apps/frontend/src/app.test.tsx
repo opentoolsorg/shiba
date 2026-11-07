@@ -408,7 +408,9 @@ describe("app Work and Threads routing", () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     render(<App />);
     const chats = await screen.findByRole("complementary", { name: "Chats" });
-    await waitFor(() => expect(within(chats).getByRole("button", { name: "Workspace" }).getAttribute("aria-pressed")).toBe("true"));
+    fireEvent.click(screen.getByRole("button", { name: /(· workspace|^Workspace profile)$/ }));
+    await waitFor(() => expect(screen.getByRole("menuitemradio", { name: "Design team" }).getAttribute("aria-checked")).toBe("true"));
+    expect(within(chats).queryByRole("button", { name: "Workspace" })).toBeNull();
     expect(screen.queryByText("Recents")).toBeNull();
     expect(screen.queryByText("Personal secret plan")).toBeNull();
     expect(screen.queryByText("Private budget notes")).toBeNull();
