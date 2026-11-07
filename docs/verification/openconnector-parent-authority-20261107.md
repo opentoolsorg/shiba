@@ -79,6 +79,13 @@ The approval-before-sandbox test itself passes. Built-site docs validation was
 not available in this independent checkout because `public/` has not been
 built; the new relative documentation link resolves.
 
+## Subsequent mutation-fence hardening
+
+The [legacy mutation migration record](operator-legacy-mutation-fences-20261107.md)
+documents permanent source-write claims, blocked regrant until completed
+revocation, restart/race coverage and the precise remaining writer mappings.
+Production route integration remains incomplete.
+
 ## Activation blockers and deliberate limits
 
 `OPERATOR_PARENT_PRODUCTION_READY` is the literal `false`. There is no runtime
