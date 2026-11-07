@@ -168,6 +168,14 @@ and `unverified` remain unavailable. Non-OAuth services are `unsupported` for th
 OAuth connection flow. Listings, OAuth declarations and configured OAuth clients do
 not establish an account connection or a successful live action.
 
+Operator-managed API-key and custom-credential accounts are not execution-ready in
+Shiba. The pinned sibling does not expose or enforce their credential revision at
+the manual action boundary, so a local enrollment ID alone would survive key
+rotation. See the [bounded operator-enrollment design](openconnector-operator-enrollment.md)
+for the required provenance, grants, approval and revocation contract. This lane
+is not enabled; configuring an API key in the sibling does not enable employee
+actions. OAuth reconnect is not offered for these account types.
+
 A saved `reauth_required`/unavailable account can use **Reconnect**. The server
 rechecks setup and replaces only that unusable owned row before creating fresh OAuth
 consent; active rows must be explicitly disconnected first. The old account ID
