@@ -6,6 +6,7 @@ import {
   defaultLookFor,
   mascotLookForPreset,
   normalizeAgentMascotLook,
+  randomMascotLook,
   resolveAgentMascotLook,
 } from "@shiba/shared";
 import { mascotExpression } from "./agent-mascots";
@@ -27,6 +28,17 @@ describe("agent mascot looks", () => {
     expect(normalizeAgentMascotLook(null)).toBeUndefined();
     expect(normalizeAgentMascotLook("hero")).toBeUndefined();
     expect(normalizeAgentMascotLook({ shape: "javascript:alert(1)" })).toBeUndefined();
+    expect(normalizeAgentMascotLook({ shape: "pebble", color: "#7ec8e3", eyes: "happy", acc: "none" })?.shape).toBe("pebble");
+    expect(normalizeAgentMascotLook({ color: "sky" })?.color).toBe("#7ec8e3");
+  });
+
+  it("shuffles and seeds friendly random looks", () => {
+    const a = randomMascotLook("seed-a");
+    const b = randomMascotLook("seed-b");
+    expect(a).toEqual(randomMascotLook("seed-a"));
+    expect(a).not.toEqual(b);
+    expect(a.shape).toBeTruthy();
+    expect(a.color).toMatch(/^#[0-9a-f]{6}$/);
   });
 
   it("gives every catalog template and employee role a distinct default", () => {

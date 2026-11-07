@@ -753,7 +753,7 @@ export type components = {
             /** @description Visor mascot parts. When present, this wins over mascotPreset. */
             look?: {
                 /** @enum {string} */
-                shape: "round" | "bean" | "pointed" | "cloud" | "hex" | "squircle";
+                shape: "round" | "bean" | "pointed" | "cloud" | "hex" | "squircle" | "pebble" | "egg" | "capsule";
                 color: string;
                 /** @enum {string} */
                 eyes: "pill" | "big" | "happy" | "wink" | "surprised" | "squint" | "sleepy" | "heart" | "star" | "code";

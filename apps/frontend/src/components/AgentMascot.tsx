@@ -21,6 +21,12 @@ function Head({ shape, color }: { shape: AgentMascotShape; color: string }) {
       return <polygon fill={color} points="32,22 49,31 49,47 32,55 15,47 15,31" />;
     case "squircle":
       return <rect x="15" y="24" width="34" height="30" rx="12" fill={color} />;
+    case "pebble":
+      return <path fill={color} d="M17 42c-4-12 2-20 15-22 10-1.5 17 4 20 13 2.5 9-2 16.5-12 19.5-9 2.5-25-1.5-23-10.5z" />;
+    case "egg":
+      return <ellipse cx="32" cy="40" rx="14" ry="17.5" fill={color} />;
+    case "capsule":
+      return <rect x="17" y="26" width="30" height="28" rx="14" fill={color} />;
     default:
       return null;
   }
