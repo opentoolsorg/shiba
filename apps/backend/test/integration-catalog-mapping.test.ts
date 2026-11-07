@@ -30,8 +30,11 @@ describe("OpenConnector catalog mappings", () => {
     expect(INTEGRATION_CATALOG.find((entry) => entry.id === "outlook-calendar")).toMatchObject({
       status: "catalog_only", openConnectorServiceIds: ["outlook", "outlook_calendar"],
     });
-    expect(INTEGRATION_CATALOG.find((entry) => entry.id === "linkedin-instagram-youtube")?.openConnectorServiceIds)
-      .toEqual(["linkedin", "instagram", "youtube"]);
+    for (const id of ["linkedin", "instagram", "youtube"]) {
+      expect(INTEGRATION_CATALOG.find((entry) => entry.id === id)).toMatchObject({
+        openConnectorServiceIds: [id], status: "catalog_only",
+      });
+    }
     expect(INTEGRATION_CATALOG.find((entry) => entry.id === "gmail-calendar")?.nativeBinding).toBe("gmail");
     expect(INTEGRATION_CATALOG.find((entry) => entry.id === "slack")?.nativeBinding).toBe("slack");
     expect(INTEGRATION_CATALOG.find((entry) => entry.id === "github")?.nativeBinding).toBe("github");
