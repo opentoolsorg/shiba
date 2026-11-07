@@ -21,7 +21,7 @@ Check the selected model, account, and runtime. Cloud work needs a configured ru
 
 ## Send a useful brief
 
-State the outcome, audience, sources, and how you will judge the result. Add relevant [skills](/docs/skills/) and keep the request small enough to review.
+State the outcome, audience, sources, and how you will judge the result. Add relevant [skills](/docs/skills/), choose reusable [project context](/docs/context-and-memory/) when useful, and keep the request small enough to review.
 
 For workspace runs, read the approval card before work begins. Check the target, task, output files, and publishing choice. Connected app work follows its separate tool permissions and action approvals; selecting it does not grant access.
 
@@ -33,7 +33,7 @@ Read the response and any **Run progress**, **Deliverables**, **Pull request**, 
 - **Repository changes** appear as files and a diff. Check deletions, renamed files, and reported tests.
 - **App results** depend on the permitted tools used. Read their results and any action receipts rather than assuming a requested action succeeded.
 
-Artifact ZIP links expire after seven days. Download useful work while the link is available, and read any missing-file, size-limit, or expiry notice.
+Artifact ZIP links expire after seven days, and anyone with the complete link can download the archive. Share them only with intended recipients. Download useful work while the link is available, and read any missing-file, size-limit, or expiry notice. The [Files and revisions guide](/docs/artifacts/) explains output limits, version history, and how saved feedback becomes a separate revision approval.
 
 ## Review, then decide
 

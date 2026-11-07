@@ -54,3 +54,64 @@ test('sidebar and machine-readable introduction share the employee-first journey
   assert.match(llms, /artifact workspaces create reviewable files without a repository/i);
   assert.doesNotMatch(llms, /a GitHub repository is required even for non-code drafts/);
 });
+
+test('file guide separates capture, saved review, revision execution and signed downloads', async () => {
+  const guide = await readDoc('artifacts.md');
+  for (const label of ['Named deliverables', 'Artifact ZIP', 'Save review', 'Create revision approval', 'Version history']) {
+    assert.ok(guide.includes(`**${label}**`), label);
+  }
+  assert.match(guide, /Saving a review records your decision\. It does not start another run/);
+  assert.match(guide, /Anyone with the complete ZIP link can download the archive/);
+  assert.match(guide, /Up to 8 UTF-8/);
+  assert.match(guide, /Up to 64 files/);
+  assert.match(guide, /expire[s]? after seven days/);
+});
+
+test('memory guide explains private sources, bounded snapshots and deletion limits', async () => {
+  const guide = await readDoc('context-and-memory.md');
+  assert.match(guide, /\*\*OWNER PRIVATE\*\*/);
+  assert.match(guide, /Shiba does not fetch that page/);
+  assert.match(guide, /40,000 bytes/);
+  assert.match(guide, /360 characters per selected source/);
+  assert.match(guide, /Existing approved snapshots remain unchanged/);
+  assert.match(guide, /Original uploaded files remain stored until deletion/);
+  assert.match(guide, /\*\*Apply project defaults\*\*/);
+});
+
+test('auth references keep standard SIWC credentials on the Worker', async () => {
+  for (const name of ['model-auth.md', 'configuration.md']) {
+    const source = await readDoc(name);
+    assert.match(source, /ACCESS_TOKEN=shiba-egress-placeholder/, name);
+    assert.match(source, /SHIBA_CODEX_DEVICE_AUTH=1/, name);
+    assert.doesNotMatch(source, /mounts real `auth.json`|only a ~1h|exchange\/refresh must move into the sandbox|CLI refreshes from the container/, name);
+  }
+  const security = await readDoc('security.md');
+  assert.match(security, /Better Auth/);
+  assert.match(security, /Every allowed workspace run requires human approval/);
+  assert.doesNotMatch(security, /Unattended mode is opt-in and narrow/);
+});
+
+test('automation and limits guides distinguish dispatch policy from billing and UI state', async () => {
+  const guide = await readDoc('automations.md');
+  const reference = await readDoc('automation-reference.md');
+  const limits = await readDoc('runtime-limits.md');
+  assert.match(guide, /\*\*Disable\*\*/);
+  assert.match(guide, /does not cancel a request already queued/);
+  assert.match(reference, /TypeSafe Noul/);
+  assert.match(reference, /before the coding-run approval is queued/);
+  assert.match(reference, /only schedule triggers are accepted/);
+  assert.match(limits, /harness reported/);
+  assert.match(limits, /unreported|no reported cost/);
+  assert.match(limits, /100,000 bytes/);
+  assert.doesNotMatch(limits, /Capture truncation can make publication incomplete|configured container instances \| 5/);
+});
+
+test('deeper user guides are reachable from the primary navigation', async () => {
+  const config = await readFile(new URL('../astro.config.mjs', import.meta.url), 'utf8');
+  for (const path of ['artifacts', 'context-and-memory', 'permissions']) assert.ok(config.includes(`/docs/${path}/`));
+  const roles = await readDoc('permissions.md');
+  assert.match(roles, /Deployment operator/);
+  assert.match(roles, /Workspace owner or admin/);
+  assert.match(roles, /MCP client identity/);
+  assert.match(roles, /Room participant/);
+});

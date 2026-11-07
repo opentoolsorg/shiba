@@ -27,7 +27,17 @@ A listed app or MCP preset is not a connected account. A role or skill template 
 
 The OpenConnector operator-account execution path for general API-key/custom credentials remains disabled. Its review-only enrollment and runtime foundations are not an activation path. Other specific supported account flows must be evaluated on their own requirements.
 
-Multiple employee profiles do not establish unattended collaboration, automatic private-context sharing, or permission to act on one another's behalf.
+Multiple employee profiles do not establish unattended collaboration, automatic private-context sharing, or permission to act on one another's behalf. The named employee-to-employee coordination foundation is review-only: it has no production executor or switch that enables employees to call each other.
+
+## Optional team features have separate limits
+
+These are distinct, default-off paths, not benefits automatically granted by workspace membership:
+
+- **Personal team execution:** an explicitly paired personal computer and approved local execution. It does not inherit the operator's provider account.
+- **Funded team text sessions:** bounded text responses through a configured Workers AI model, with explicit funding consent. This lane has no app tools, MCP, coding CLI, or schedules.
+- **Shared computers:** a separate human desktop workflow. The first slice has no Internet access and is not an employee tool, a coding run, or general remote-computer access.
+
+An operator must check the exact configuration, consent, and implementation limits before offering one of these paths. Developer details: [personal execution](https://github.com/opentoolsorg/shiba/blob/main/docs/personal-team-execution-contract.md), [team text sessions](https://github.com/opentoolsorg/shiba/blob/main/docs/team-model-sessions.md), [shared computers](https://github.com/opentoolsorg/shiba/blob/main/docs/shared-computers.md), and [employee coordination](https://github.com/opentoolsorg/shiba/blob/main/docs/team-employee-coordination.md).
 
 ## What to verify in your workspace
 

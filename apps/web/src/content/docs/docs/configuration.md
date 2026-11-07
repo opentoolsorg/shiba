@@ -17,16 +17,15 @@ Non-secret defaults are in `apps/backend/wrangler.jsonc` and `alchemy.run.ts`. F
 | `AGENT_HARNESS` | `opencode` | Deployment fallback; a task can select a harness explicitly |
 | `SLACK_AGENT_HARNESS` | `AGENT_HARNESS`, then `claude-code` | Harness for Slack-originated runs (mentions, DMs, /shiba) |
 | `SHIBA_CLAUDE_SUBSCRIPTION` | `0` in wrangler defaults | Set `1` to enable the deprecated `claude-subscription` harness — may violate Anthropic terms; prefer API Claude Code or explicitly paired local Claude Code ([model auth](/docs/model-auth/)) |
-| `MODEL_CREDENTIAL_KEY` | unset | 64 hex chars — enables per-user encrypted ChatGPT `auth.json` storage (Settings → Models) |
+| `MODEL_CREDENTIAL_KEY` | unset | 64 hex chars; enables per-user encrypted ChatGPT connection credentials (Settings → Models) |
 | `SHIBA_SINGLE_USER` | unset | Set `1` to allow legacy `CODEX_SUBSCRIPTION_AUTH_JSON` Worker-secret fallback for codex-subscription |
 | `CLAUDE_SUBSCRIPTION_MODEL` | `anthropic-subscription/claude-sonnet-4-6` | `claude-subscription` default model |
-| `SHIBA_CODEX_SUBSCRIPTION` | unset | Set `1` to enable the opt-in `codex-subscription` harness (below) |
+| `SHIBA_CODEX_SUBSCRIPTION` | unset | Set `1` to enable `codex-subscription`; a valid `MODEL_CREDENTIAL_KEY` also enables this harness for per-user connections (below) |
 | `CODEX_SUBSCRIPTION_MODEL` | `openai-subscription/gpt-5.3-codex` | `codex-subscription` default model |
 | `SHIBA_ANTIGRAVITY_SUBSCRIPTION` | unset | Set `1` to enable the opt-in `antigravity-subscription` harness (below) |
 | `ANTIGRAVITY_SUBSCRIPTION_MODEL` | `google-subscription/gemini-3-pro` | `antigravity-subscription` default model |
 | `SHIBA_CURSOR_SUBSCRIPTION` | unset | Set `1` to open the opt-in `cursor-subscription` connect lane (below) |
-| `CURSOR_SUBSCRIPTION_MODEL` | `cursor/auto` | `cursor-subscription` model override |
-| `DEVIN_SUBSCRIPTION_MODEL` | `devin/swe-2` | `devin-subscription` model override |
+| `CURSOR_SUBSCRIPTION_MODEL` | `cursor-subscription/auto` | `cursor-subscription` model override |
 | `SHIBA_LOCAL_RUNTIME` | unset | Set `1` to enable the opt-in `local` runtime (below) — dashboards can queue runs that execute on an operator machine |
 | `AGENT_MAILBOX` | `dev@tryshiba.dev` | Agent mailbox identity — the address the MCP `latest_verification` tool scans by default for OTP codes and magic sign-in links |
 | `LOCAL_ADAPTER_TOKEN` | unset | Bearer token the operator daemon presents on `/api/local/*`; required for the surface to answer (dark otherwise) |
@@ -34,7 +33,9 @@ Non-secret defaults are in `apps/backend/wrangler.jsonc` and `alchemy.run.ts`. F
 | `ROLE_MODEL__ORCHESTRATOR` / `__EXPLORER` / `__FIXER` / `__REVIEWER` / `__DESIGNER` | unset | Per-role pin as `"harness/model"` or bare `"harness"` — consulted when the map has no entry for that role |
 | `RUNTIME` | `sandbox` | Runtime adapter; current default is Cloudflare Sandbox |
 | `INSTANCE_TYPE` | `standard-1` | Configured Cloudflare container size |
-| `REQUIRE_ACCESS` | Wrangler default unset; live Alchemy stages set `1` | Require Access identity at the Worker boundary; if both `REQUIRE_ACCESS` and `ACCESS_AUD` are unset, only loopback hosts are unauthenticated |
+| `SHIBA_ELEVATED_CONCURRENCY` | unset | Raises the orchestrator policy cap from five to ten active runs; deployment container capacity is a separate limit |
+| `SHIBA_DAILY_CONTAINER_BUDGET_USD` | unset | Blocks new starts at a configured harness-reported usage threshold, not a full invoice cap |
+| `REQUIRE_ACCESS` | Wrangler default unset; live Alchemy stages set `1` | Enable the Access identity lane at the Worker boundary; built-in Better Auth is a separate configured lane. Without either identity system, only loopback development hosts bypass authentication |
 | `BETTER_AUTH_URL` | unset | Canonical public dashboard URL (e.g. `https://app.tryshiba.dev`) for Better Auth cookie scope and origin checks; unset falls back to each request's own origin |
 
 Model identifiers are defaults, not availability guarantees. Choose a currently available model for your account. Harness selection is implemented in `apps/backend/src/harness/` and has unit coverage; local OpenCode execution and successful model inference are separate claims (see dated [verification](/docs/readiness/)).
@@ -51,11 +52,13 @@ OpenCode, Claude Code, Codex, and Pi provider traffic uses the account-owned AI 
 
 ### ChatGPT subscription (per user, OSS self-host)
 
-Set `MODEL_CREDENTIAL_KEY`, register an `openai-subscription` connection, and have each user complete **Sign in with ChatGPT** under **Settings → Models** (paste the `127.0.0.1` callback URL). Runs use `codex app-server` with a short-lived `ACCESS_TOKEN` only; refresh stays on the `ChatGptAuth` Durable Object. Details: [Model authentication](/docs/model-auth/).
+Set `MODEL_CREDENTIAL_KEY`, register an `openai-subscription` connection, and have each user complete **Sign in with ChatGPT** under **Settings → Models** (paste the `127.0.0.1` callback URL). Standard SIWC runs use `codex app-server` with `ACCESS_TOKEN=shiba-egress-placeholder`. The real access token is attached by Worker egress for the signed-in user, and refresh stays in the `ChatGptAuth` Durable Object. Neither real tokens nor `auth.json` enter that run container. Details: [Model authentication](/docs/model-auth/).
 
 ### Codex subscription (opt-in)
 
-Setting `SHIBA_CODEX_SUBSCRIPTION=1` registers `codex-subscription`, which drives the same `codex` binary against the operator's own ChatGPT subscription instead of AI Gateway. Per-user storage (`MODEL_CREDENTIAL_KEY`) or legacy `SHIBA_SINGLE_USER=1` + `CODEX_SUBSCRIPTION_AUTH_JSON` mounts real `auth.json` into each run's ephemeral `CODEX_HOME` (mode `0600`, removed at run end); the CLI refreshes from the container. Worker egress injection against `chatgpt.com` is not used (bot-challenge on Workers, 2026-10-19). Operator verify flow remains under `/api/auth/codex-subscription` (begin, verify, clear). Your own plan terms apply.
+`codex-subscription` uses the user's connected ChatGPT plan rather than the AI Gateway provider-key path. For the standard SIWC route, configure per-user connection storage and complete Sign in with ChatGPT. The harness starts `codex app-server`, supplies only a placeholder in the sandbox, and sends plan inference through `api.openai.com` to the Worker `codexPlan` egress handler. The handler resolves credentials for the initiating user; it does not put tokens in the egress parameters or mount `auth.json` into the run.
+
+Legacy operator authentication endpoints and `SHIBA_SINGLE_USER` credential storage are not evidence that the current SIWC harness mounts credentials or refreshes them in a container. Prefer the documented per-user sign-in route. A separate device-auth branch is default-off behind `SHIBA_CODEX_DEVICE_AUTH=1`; a computed per-user volume path is not proof of a provisioned credential mount or a working deployment. See [Model authentication](/docs/model-auth/) for its limits. Your own plan terms apply.
 
 ### Antigravity subscription (opt-in)
 
@@ -97,9 +100,9 @@ Intake is provably dashboard-only: `runtime: "local"` is refused at intake on ev
 | `SLACK_CHANNEL_REPOS` | Optional channel-to-repository mapping |
 | `TRIGGER_TOKEN` | Bearer token for `POST /api/trigger` (e.g. iPhone Apple Shortcuts); unset disables the route |
 | `TYPESAFE_API_KEY` | Optional TypeSafe integration |
-| `BETTER_AUTH_SECRET` | Turns on the built-in dashboard login: email+password accounts and signed-cookie sessions served at `/api/auth/*`, stored in the `AGENT_AUDIT` D1 database. The library requires >=32 characters. Generate with `openssl rand -base64 48`. Unset (or shorter) keeps the lane dark and the gate falls back to Access / fail-closed. The first account is the only account. Sign-up then closes. Reopen by clearing the `user` table. Access still takes precedence when configured |
+| `BETTER_AUTH_SECRET` | Turns on the built-in dashboard login: email+password accounts and signed-cookie sessions served at `/api/auth/*`, stored in the `AGENT_AUDIT` D1 database. The library requires >=32 characters. Generate with `openssl rand -base64 48`. Unset (or shorter) keeps the lane dark and the gate falls back to Access / fail-closed. Sign-up defaults to one bootstrap deployment account. Further enrollment requires a current invitation, verified email delivery, and the restricted-member API policy; invited accounts do not become deployment operators. Access remains a separately configured identity lane |
 | `BETTER_AUTH_BOOTSTRAP_TOKEN` | Setup token the first sign-up must send (`x-shiba-bootstrap-token`). On a public hostname, sign-up stays locked until this token is set; `BETTER_AUTH_OWNER_EMAIL` adds an email restriction. Loopback dev can create the first account without either |
-| `BETTER_AUTH_OWNER_EMAIL` | Allowlisted email for that first account. Compared case-insensitively. Any other address is refused |
+| `BETTER_AUTH_OWNER_EMAIL` | Allowlisted email for the bootstrap account, compared case-insensitively; this is separate from authorized invitation enrollment |
 
 Local example:
 

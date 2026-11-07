@@ -27,6 +27,8 @@ export async function GET() {
 - Finance and revenue: draft analysis from supplied information, not bookkeeping sync, payroll, payments, autonomous CRM updates, or guaranteed financial outcomes.
 - Ownership and costs: free, open-source software (AGPL-3.0-only). Hosting and model usage are paid to the configured providers. No free managed plan is offered.
 - Connections: model accounts, app accounts, and employee tool permissions are separate. OpenConnector catalog listings and MCP presets are not proof of connected accounts or live vendor acceptance. General API-key/custom-account execution in the OpenConnector operator path remains disabled.
+- Files: named deliverables have captured versions, saved review decisions, and a separate revision-approval workflow. Cloud artifact ZIP links expire after seven days and grant download access to anyone with the complete link.
+- Context: the memory source library is owner-private, supports text/Markdown uploads and local keyword recall, and uses bounded project snapshots frozen at approval. It does not fetch saved reference URLs or automatically share a private library with a team.
 - Skills: current instruction skills and versioned run-attached skills are account- or workspace-scoped. Run-attached drafts need explicit review and activation; legacy browser-local notes can be imported as drafts.
 - Status: under active development. Supported connections still need validation in the installation; see ${SITE}/docs/readiness/ for current verification limits.
 - Maintainer: Prince Pal (https://github.com/princepal9120)
@@ -49,8 +51,8 @@ export async function GET() {
 - Edge Orchestrator: Cloudflare Workers + Agents SDK (TypeScript) routing requests at the edge.
 - Sandbox containers: Cloudflare Sandbox SDK + Containers provide isolated Linux containers per task.
 - Credentials: Supported provider-backed execution uses Worker-side egress authorization. Review the authentication-mode limits in ${SITE}/docs/configuration/ and ${SITE}/docs/security/ before choosing a connection.
-- State & Memory: Cloudflare Durable Objects + SQLite for human approval queues, live logs, and Vectorize for long-term memory.
-- Access: Designed to sit behind operator-configured Cloudflare Access for dashboard and runner endpoints.
+- State & Memory: Cloudflare Durable Objects + SQLite for approval queues, logs, and owner-private source storage/search. Uploaded source versions and artifacts use private storage. Other memory adapters may use Vectorize; that is separate from the source library’s local keyword recall.
+- Access: Configured Cloudflare Access or built-in Better Auth sessions establish identity; workspace membership, deployment administration, employee capabilities, resource grants, and action approvals remain separate.
 
 ## Documentation
 

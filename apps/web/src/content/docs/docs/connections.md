@@ -27,6 +27,14 @@ Use **Reconnect** when an owned account is expired or unavailable and the suppor
 
 If setup is unavailable, ask your workspace operator. Do not paste API keys, passwords, or tokens into a task as a workaround. General API-key/custom-account execution in the OpenConnector operator path remains disabled; review-only enrollment is not permission to execute.
 
+## Check permissions before the first action
+
+Start with one account, one employee, and one resource. For example, a project-tracker connection should cover the project the employee needs, not every project merely because your account can see them. Check a small read before approving a write.
+
+The available tool set is limited by the workspace, signed-in person, access role, employee capabilities, and client-token scopes. The account and resource grants are checked again when the action runs. A stale tool list or an older approval cannot keep access that has since been removed. See [Permissions and roles](/docs/permissions/) for how these layers fit together.
+
+If an action fails after approval, inspect its receipt or error before retrying. An approval records permission, not proof that the vendor accepted the operation. A connection test also does not verify every action the service offers.
+
 ## Add tools through MCP
 
 **MCP** is a standard for connecting AI tools. Shiba supports configured remote MCP servers and curated presets in a separate setup area.

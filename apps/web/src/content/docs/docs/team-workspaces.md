@@ -9,11 +9,13 @@ A team workspace brings people, AI employee profiles, and shared work into one p
 
 Use the workspace switcher before creating an employee, saving a skill, or starting team work. Personal records stay in your personal scope; team records belong to the selected workspace.
 
+The [owner-private memory source library](/docs/context-and-memory/) is an exception to workspace-scoped records: changing the selected workspace does not turn those sources into team memory.
+
 Check the workspace name when something seems missing. Switching workspaces does not move private conversations, skills, or account credentials into the team.
 
 ## Invite people deliberately
 
-Use **Team** to manage the workspace and its members. The available invitation and management controls depend on your role.
+Use **Team** to manage the workspace and its members. The available invitation and management controls depend on your role. Workspace administration is separate from deployment administration; see [Permissions and roles](/docs/permissions/).
 
 Joining a workspace does not automatically grant the member every connected account, the operator's computer, or the operator's model credentials and billing. Execution and app access still need their own configured permissions.
 
@@ -35,6 +37,6 @@ Grant access to the specific member, employee, and resources needed for the job.
 
 Keep the brief, result, and follow-up decisions in the right thread or room. An authorized person still needs to approve the specific workspace run or external action when required.
 
-Start with one employee and one reviewable task before expanding the workflow. Multiple profiles do not establish an unattended team or automatic handoffs between employees.
+Start with one employee and one reviewable task before expanding the workflow. Multiple profiles do not establish an unattended team or automatic handoffs between employees. Named employee-to-employee coordination is review-only and cannot currently be enabled for execution. Optional funded text sessions, personal execution, and shared computers are separate paths with their own limits; see [Product status](/docs/product-status/).
 
 Next: [Set up an AI employee](/docs/employees/), [reuse skills](/docs/skills/), or [understand approvals](/docs/approval-gates/).

@@ -41,4 +41,6 @@ Open the returned files or artifact download. Check the facts, missing informati
 
 Ask for a specific revision in the same thread. If you requested a pull request, review the separate publication approval after the changes are ready; approving the initial run does not publish them.
 
+For named files, you can save a review and create a separate revision approval from the file card. See [Files and revisions](/docs/artifacts/) for the exact steps and output limits.
+
 Next: [Work with your employees](/docs/employees/), [understand results](/docs/dashboard/), or [connect useful tools](/docs/connections/).
