@@ -604,7 +604,6 @@ describe("Phase 1 core loop (integration)", () => {
       { executionTarget: target, expectedDeliverables: ["sales/other.md"] },
       { executionTarget: { ...target, expectedDeliverables: ["../private.md"] } },
       { executionTarget: target, publishPullRequest: true },
-      { executionTarget: target, runtime: "local" },
       { executionTarget: target, runSetup: true },
     ];
     for (const body of invalidRequests) {
@@ -612,6 +611,10 @@ describe("Phase 1 core loop (integration)", () => {
       expect(response.status).toBe(400);
       expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
     }
+    // Local artifact work is valid input but needs SHIBA_LOCAL_RUNTIME=1 and dashboard intake.
+    const local = await postRun({ executionTarget: target, runtime: "local" });
+    expect(local.status).toBe(403);
+    expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
 
     const payload = { executionTarget: target, commandId: "artifact-command-1" };
     const first = await postRun(payload);

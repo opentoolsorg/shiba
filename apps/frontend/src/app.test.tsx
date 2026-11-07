@@ -60,6 +60,25 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
 
 describe("app employee onboarding", () => {
+  it("lets navigation leave an invalid room link without switching workspaces", async () => {
+    const workspaceId = `ws_${"a".repeat(24)}`;
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?workspace=${workspaceId}&room=invalid`);
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Workspace access could not be verified" });
+    const settingsButton = screen.getByRole("button", { name: "Settings" });
+    fireEvent.click(settingsButton);
+
+    await waitFor(() => expect(settingsButton.getAttribute("aria-current")).toBe("page"));
+    await waitFor(() => {
+      const params = new URLSearchParams(window.location.search);
+      expect(params.has("workspace")).toBe(false);
+      expect(params.has("room")).toBe(false);
+    });
+    expect(screen.queryByRole("button", { name: "Switch to personal workspace" })).toBeNull();
+  });
+
   it("shows on first run, skips, and persists dismissal across remounts", async () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Set up your AI employees" });
@@ -580,12 +599,18 @@ describe("app Work and Threads routing", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
       if (String(url) === "/api/whoami") return Response.json({ agent: actor, auth: "better-auth", teamMember: true });
       if (String(url) === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId: id, name: "Shared team", version: 1, createdAt: 1, membership: { workspaceId: id, userId: actor, role: "member", version: 1, joinedAt: 1 } }] });
-      if (String(url) === "/api/collaboration/rooms") return Response.json({ rooms: [] });
+      if (String(url) === "/api/collaboration/rooms") return Response.json({ rooms: [{ roomId: "room-1", title: "Shared room", visibility: "private" }] });
+      if (String(url) === `/api/collaboration/rooms/room-1`) return Response.json({
+        room: { roomId: "room-1", title: "Shared room", visibility: "private" }, currentUserId: actor,
+        members: [], messages: [], handoffs: [],
+      });
       return originalFetch(url, options);
     }));
     render(<App />);
     await screen.findByText(/Chat with your team/);
+    await screen.findByRole("heading", { name: "Shared room" });
     expect(window.location.pathname).toBe("/collaboration/");
+    expect(window.location.search).toBe("");
     expect(screen.queryByRole("textbox", { name: "Task draft" })).toBeNull();
   });
 
