@@ -21,14 +21,37 @@ export const CUSTOM_AGENT_ROLE_TEMPLATE_IDS = [
 ] as const;
 export type CustomAgentRoleTemplateId = (typeof CUSTOM_AGENT_ROLE_TEMPLATE_IDS)[number];
 
-export const CUSTOM_AGENT_MASCOT_PRESETS = ["hero", "climbing", "riding", "sleeping", "sunglasses"] as const;
-export type CustomAgentMascotPreset = (typeof CUSTOM_AGENT_MASCOT_PRESETS)[number];
+import type { AgentMascotLook, CustomAgentMascotPreset } from "./agent-mascot.js";
+
+export {
+  AGENT_MASCOT_ACCS,
+  AGENT_MASCOT_EYES,
+  AGENT_MASCOT_FURS,
+  AGENT_MASCOT_SHAPES,
+  CUSTOM_AGENT_MASCOT_PRESETS,
+  defaultLookFor,
+  formLook,
+  mascotLookForPreset,
+  normalizeAgentMascotLook,
+  normalizeMascotColor,
+  resolveAgentMascotLook,
+} from "./agent-mascot.js";
+export type {
+  AgentMascotAcc,
+  AgentMascotEyes,
+  AgentMascotFurId,
+  AgentMascotLook,
+  AgentMascotShape,
+  CustomAgentMascotPreset,
+} from "./agent-mascot.js";
 
 /** Versioned config blob stored in D1 (JSON). */
 export interface CustomAgentConfig {
   name: string;
   emoji?: string;
   mascotPreset?: CustomAgentMascotPreset;
+  /** Visor-mascot parts. When set, this wins over mascotPreset. */
+  look?: AgentMascotLook;
   /** The chosen editable role template, retained when the bot is renamed. */
   roleTemplateId?: CustomAgentRoleTemplateId;
   instructions: string;

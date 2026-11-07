@@ -233,6 +233,7 @@ export function AgentsPanel({
                       id={isDefault ? DEFAULT_AGENT_ID : (row.agent?.slug ?? row.id)}
                       name={row.name}
                       mascotPreset={row.agent?.config.mascotPreset}
+                      look={row.agent?.config.look}
                       role={
                         row.agent
                           ? employeeRole(row.agent.slug, row.agent.config.roleTemplateId)
