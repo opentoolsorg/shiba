@@ -48,6 +48,7 @@ import {
   type CapabilityInvocationReceipt,
 } from "./capability-invocations.js";
 import { registerAllMcpTools } from "./mcp-tool-registration.js";
+import { registerExtensionSkillMcpPrompts } from "./mcp-skill-prompts.js";
 import { registerExternalMcpTools } from "./external-mcp.js";
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
@@ -445,6 +446,12 @@ async function buildMcpServer(env: Env, mcpCtx: McpRequestContext): Promise<McpS
               { idempotencyKey: mcpIdempotencyKey(ctx.mcpReq._meta) },
         )) as CallToolResultV2,
     );
+  }
+  try {
+    await registerExtensionSkillMcpPrompts(server, env, principal,
+      (ctx) => principalFor(ctx.http?.req ?? mcpCtx.requestInfo));
+  } catch {
+    console.warn("MCP skill directory unavailable; skill prompts withheld.");
   }
   return server;
 }

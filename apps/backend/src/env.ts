@@ -571,6 +571,8 @@ export interface Env {
    */
   INTEGRATIONS_PROVIDER?: string;
   /** Optional sibling Worker; preferred over OPEN_CONNECTOR_URL. */
+  /** Review metadata only; never enables non-OAuth execution. */
+  OPEN_CONNECTOR_OPERATOR_REVIEW_ENABLED?: string;
   OPEN_CONNECTOR?: Fetcher;
   OPEN_CONNECTOR_URL?: string;
   OPEN_CONNECTOR_ADMIN_TOKEN?: string;

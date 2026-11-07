@@ -43,14 +43,14 @@ describe("deploy config wiring", () => {
     expect([...WORKER_SECRETS.secrets].sort()).toEqual([...new Set(fromAlchemy)].sort());
   });
 
-  it("wires an optional operator OAuth client ID for every curated MCP preset", () => {
+  it("wires an optional operator OAuth client ID for every OAuth-capable curated MCP preset", () => {
     const configured = new Set(WORKER_SECRETS.secrets);
     const secretBlock = block(ALCHEMY, "...secrets([");
     expect(WRANGLER).toContain("MCP_OAUTH_CLIENT_*");
     expect(CURATED_MCP_VENDORS.map((vendor) => vendor.catalogId).sort()).toEqual([
-      "figma", "jira-atlassian", "notion", "posthog", "sentry", "stripe",
+      "figma", "github-readonly", "jira-atlassian", "linear-readonly", "notion", "posthog", "sentry", "stripe",
     ]);
-    for (const { catalogId } of CURATED_MCP_VENDORS) {
+    for (const { catalogId } of CURATED_MCP_VENDORS.filter((vendor) => vendor.connectionMethods.includes("oauth"))) {
       const key = deploymentOAuthClientEnvKey(catalogId);
       expect(secretBlock, `${key} must be bound by Alchemy`).toContain(`"${key}"`);
       expect(configured, `${key} must be available to Wrangler operators`).toContain(key);
