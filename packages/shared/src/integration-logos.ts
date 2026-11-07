@@ -231,11 +231,6 @@ const aliases: Record<string, readonly string[]> = {
   "x-twitter": [
     "twitter"
   ],
-  "linkedin-instagram-youtube": [
-    "linkedin-icon",
-    "instagram-icon",
-    "youtube-icon"
-  ],
   "posthog": [
     "posthog-icon"
   ],

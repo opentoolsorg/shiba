@@ -219,7 +219,7 @@ are mapped too. Service IDs were checked against provider definitions at pinned
 revision `d89dc9f24f5a057bb500272d7dbf333837c77c68`.
 
 These are directory mappings into the existing dynamic provider flow, not new
-adapters or successful live calls. The directory now has 40 reference rows,
-28 mapped rows and 37 distinct service IDs. Native Gmail, Slack and GitHub
+adapters or successful live calls. The directory now has 42 reference rows,
+30 mapped rows and 37 distinct service IDs. Native Gmail, Slack and GitHub
 bindings remain intact. Provider setup, consent and employee resource grants are
 still required; this does not establish parity with every Composio integration.

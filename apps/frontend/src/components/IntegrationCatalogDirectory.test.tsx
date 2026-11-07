@@ -17,6 +17,40 @@ vi.mock("./IntegrationsBrowseCatalogDialog", async (importOriginal) => ({
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("IntegrationCatalogDirectory OAuth redirects", () => {
+  it.each(["linkedin", "instagram", "youtube"])("keeps social cards and account state separate when %s is connected", async (connectedKey) => {
+    const listings = [
+      { id: "linkedin", name: "LinkedIn" },
+      { id: "instagram", name: "Instagram" },
+      { id: "youtube", name: "YouTube" },
+    ].map((app) => ({ ...app, providerKey: app.id, description: `${app.name} account`, source: "openconnector", connectable: true, isConnected: false, setupState: "ready" }));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/connections")) return Response.json({ ok: true, provider: "openconnector", connections: [{ id: `account-${connectedKey}`, providerKey: connectedKey, provider: "openconnector" }] });
+      if (path.endsWith("/meta")) return Response.json({ health: { provider: "openconnector", status: "healthy", checkedAt: 1 } });
+      return Response.json({ items: listings, hasMore: false });
+    }));
+    const onRequestConnect = vi.fn();
+    render(<IntegrationCatalogDirectory actorId="alice" onRequestConnect={onRequestConnect} bindingInputs={{ setupLoading: false, mailboxCount: 0, mailboxLoading: false, gmailConnected: false, gmailLoading: false, externalMcpServerCount: 0, externalMcpCatalogConnections: [], externalMcpLoading: false }} />);
+    fireEvent.change(screen.getByLabelText("Filter by domain"), { target: { value: "marketing" } });
+    await screen.findByText("Account configured");
+    for (const app of listings) {
+      const row = await screen.findByTestId(`integration-catalog-row-${app.id}`);
+      expect(screen.getAllByTestId(`integration-catalog-row-${app.id}`)).toHaveLength(1);
+      await within(row).findByText("Provider listing");
+      expect(row.querySelectorAll("img")).toHaveLength(1);
+      expect(row.querySelector("img")?.getAttribute("src")).toBe(`/integration-logos/${app.id}-icon.svg`);
+      if (app.id === connectedKey) {
+        await within(row).findByText("Account configured");
+        expect(within(row).queryByRole("button", { name: "Connect app" })).toBeNull();
+      } else {
+        expect(within(row).queryByText("Account configured")).toBeNull();
+        fireEvent.click(within(row).getByRole("button", { name: "Connect app" }));
+        expect(onRequestConnect).toHaveBeenLastCalledWith(expect.objectContaining({ providerKey: app.id }));
+      }
+    }
+    expect(screen.queryByText("LinkedIn, Instagram, YouTube")).toBeNull();
+  });
+
   it("searches beyond the loaded page and clears discovery filters", async () => {
     const item = { id: "far-away", providerKey: "far-away", name: "Far away app", description: "Only returned by server search", source: "openconnector", connectable: true, isConnected: false, setupState: "ready" };
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
