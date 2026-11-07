@@ -3,7 +3,7 @@ title: Sandbox providers
 description: Choose where shiba runs agent containers — Cloudflare by default, or alternate backends for self-hosting.
 ---
 
-Shiba isolates each run in a **sandbox** (Linux container or microVM). The Worker talks to sandboxes through [`@shiba/sandbox`](https://github.com/princepal9120/shiba/tree/main/packages/sandbox): a small typed interface with pluggable adapters.
+Shiba isolates each run in a **sandbox** (Linux container or microVM). The Worker talks to sandboxes through [`@shiba/sandbox`](https://github.com/opentoolsorg/shiba/tree/main/packages/sandbox): a small typed interface with pluggable adapters.
 
 ## Default: Cloudflare (`cloudflare`)
 

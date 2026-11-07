@@ -43,7 +43,7 @@ describe("MailboxPanel", () => {
     expect(screen.getByText("@agent-1")).toBeDefined();
   });
 
-  it("handles folder selection and scope switching", () => {
+  it("handles folder selection without a duplicate scope switch", () => {
     const onSelect = vi.fn();
     const onScopeChange = vi.fn();
 
@@ -59,8 +59,8 @@ describe("MailboxPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Drafts/i }));
     expect(onSelect).toHaveBeenCalledWith("drafts");
 
-    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
-    expect(onScopeChange).toHaveBeenCalledWith("workspace");
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
+    expect(onScopeChange).not.toHaveBeenCalled();
   });
 
   it("invokes onCompose, onSearch, and onSelectMailbox", () => {

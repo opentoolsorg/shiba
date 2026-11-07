@@ -69,6 +69,19 @@ describe("AppNavRail mobile sheet (full navigation with thread list)", () => {
     expect(screen.queryByRole("tablist")).toBeNull();
   });
 
+  it.each([
+    ["Extensions", "integrations"],
+    ["Mailbox", "inbox"],
+    ["Memory", "memory"],
+    ["Automations", "automations"],
+    ["Insights", "dashboard"],
+  ] as const)("shows %s as a direct sidebar destination", (label, id) => {
+    const { onNavigate } = renderRail();
+    const sidebar = screen.getByRole("region", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: label }));
+    expect(onNavigate).toHaveBeenCalledWith(id);
+  });
+
   it.each(["sheet"] as const)("starts a new thread from the %s", (variant) => {
     const onNewTask = vi.fn();
     const onClose = vi.fn();
@@ -186,11 +199,11 @@ describe("AppNavRail mobile sheet (full navigation with thread list)", () => {
     expect(screen.queryByRole("menuitem", { name: "Agents" })).toBeNull();
   });
 
-  it("exposes integrations, skills and MCP in the sheet", () => {
+  it("exposes Extensions, skills and MCP in the sheet", () => {
     const onNavigate = vi.fn();
     const onClose = vi.fn();
     const { rerender } = render(<AppNavRail activeView="agents" onNavigate={onNavigate} variant="sheet" onClose={onClose} />);
-    for (const [label, id] of [["Integrations", "integrations"], ["Skills", "skills"], ["MCP", "agents"]] as const) {
+    for (const [label, id] of [["Extensions", "integrations"], ["Skills", "skills"], ["MCP", "agents"]] as const) {
       fireEvent.click(screen.getByRole("button", { name: label }));
       expect(onNavigate).toHaveBeenLastCalledWith(id);
       rerender(<AppNavRail activeView={id} onNavigate={onNavigate} variant="sheet" onClose={onClose} />);
