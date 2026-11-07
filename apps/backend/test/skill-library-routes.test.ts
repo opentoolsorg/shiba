@@ -40,6 +40,18 @@ beforeEach(() => {
 });
 
 describe("skill library routes", () => {
+  it.each(["inbox-triage", "meeting-brief", "document-research", "task-planning", "weekly-work-summary", "social-post-drafts"])("installs %s as an owner-scoped draft without activation", async (slug) => {
+    const bindings = env();
+    const response = await handleSkillLibrary(libraryRequest(`/${slug}/install`, "POST"), bindings);
+    expect(response?.status).toBe(201);
+    const body = await response!.json() as { skillId: string; skill: { status: string } };
+    expect(body.skill.status).toBe("draft");
+    const stored = await getSkill(bindings, "self-hosted", "owner@example.test", body.skillId);
+    expect(stored?.status).toBe("draft");
+    expect(stored?.content.instructions).toContain("exact-action human approval");
+    expect(await getSkill(bindings, "self-hosted", "other@example.test", body.skillId)).toBeNull();
+  });
+
   it.each(["disabled", "missing"])("reports current readiness instead of showing %s drafts as installed", async (state) => {
     const db = customAgentD1();
     const bindings = env(db.database);
