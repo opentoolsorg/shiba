@@ -5,6 +5,19 @@ import {
   type IntegrationProviderConnection,
 } from "@shiba/shared";
 
+/** Explain owner authentication separately from provider deployment or an empty catalog. */
+export function integrationProviderReadError(status: number, body: unknown, fallback: string): string {
+  if (status === 401) {
+    return "Sign in to Shiba with a verified user session to load private app accounts and the provider catalog. If this is a local or gateway-only session, the operator must configure user authentication first.";
+  }
+  if (status === 503) {
+    return "OpenConnector is unavailable. Ask the operator to check the sibling service, Shiba's service binding and service credentials, then retry. Reference entries do not confirm provider availability.";
+  }
+  return body && typeof body === "object" && "error" in body && typeof body.error === "string"
+    ? body.error
+    : fallback;
+}
+
 export async function ownedAppConnections(
   signal?: AbortSignal,
   includeUnavailable = false,
@@ -17,9 +30,7 @@ export async function ownedAppConnections(
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok)
     throw new Error(
-      body && typeof body === "object" && "error" in body && typeof body.error === "string"
-        ? body.error
-        : `App accounts unavailable (${response.status}).`,
+      integrationProviderReadError(response.status, body, `App accounts unavailable (${response.status}).`),
     );
   const parsed = integrationProviderConnectionsResponseSchema.safeParse(body);
   if (!parsed.success)

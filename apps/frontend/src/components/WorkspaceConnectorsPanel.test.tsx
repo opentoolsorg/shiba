@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceConnectorsPanel } from "./WorkspaceConnectorsPanel";
 import type { IntegrationBindingInputs } from "../integration-connection-bindings";
 
-vi.mock("./CuratedMcpConnections", () => ({ CuratedMcpConnections: () => null }));
 const bindingInputs: IntegrationBindingInputs = {
   setupLoading: false,
   mailboxCount: 0,
@@ -63,7 +62,7 @@ function fixture() {
       return Response.json({
         health: { provider: "openconnector", status: "healthy", checkedAt: 1 },
       });
-    return Response.json({ items: [listing], hasMore: false, nextCursor: null });
+    return Response.json({ items: [{ ...listing, isConnected: connected }], hasMore: false, nextCursor: null });
   });
   vi.stubGlobal("fetch", fetcher);
   return {
@@ -83,6 +82,25 @@ afterEach(() => {
 });
 
 describe("owned OpenConnector accounts through normal HTTP paths", () => {
+  it("shows the catalog directly instead of burying it beneath MCP credential forms", async () => {
+    fixture();
+    render(<WorkspaceConnectorsPanel actorId="alice" bindingInputs={bindingInputs} />);
+    expect(screen.getByRole("heading", { name: "Integration catalog" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Set up MCP servers" }).getAttribute("href")).toBe("/integrations/?tab=mcp");
+    expect(screen.queryByText("Custom MCP connections")).toBeNull();
+    expect(screen.queryByLabelText("MCP presets for role")).toBeNull();
+    expect(await screen.findByText(/provider listings loaded/)).toBeTruthy();
+    expect(screen.getByLabelText("Search integrations")).toBeTruthy();
+  });
+  it("explains missing owner authentication without claiming there are no owned accounts", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Authenticated owner required." }, { status: 401 })));
+    render(<WorkspaceConnectorsPanel actorId="default" bindingInputs={bindingInputs} />);
+    expect((await within(screen.getByRole("region", { name: "Your app accounts" })).findByRole("alert")).textContent).toContain("Sign in to Shiba with a verified user session");
+    expect(screen.queryByText(/No owned app accounts confirmed/)).toBeNull();
+    expect(screen.getByRole("heading", { name: "Integration catalog" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "GitHub" } });
+    expect(screen.getByTestId("integration-catalog-row-github")).toBeTruthy();
+  });
   it("reads canonical accounts without fixture mode or a shadow connector registry", async () => {
     const { fetcher, connected } = fixture();
     connected();
@@ -125,10 +143,21 @@ describe("owned OpenConnector accounts through normal HTTP paths", () => {
     fireEvent(window, new Event("focus"));
     await waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/Alice HubSpot/)).toBeTruthy();
+    await waitFor(() => expect(within(dialog).queryByRole("button", { name: "Connect" })).toBeNull());
+    expect(within(dialog).getByText("Account configured")).toBeTruthy();
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
     expect(
       fetcher.mock.calls.every(([path]) => !String(path).includes("/extensions/connectors")),
     ).toBe(true);
+  });
+  it("shows a blocked-popup error inside the catalog dialog", async () => {
+    fixture();
+    vi.spyOn(window, "open").mockReturnValue(null);
+    render(<WorkspaceConnectorsPanel actorId="alice" bindingInputs={bindingInputs} />);
+    fireEvent.click(within(screen.getByRole("region", { name: "Your app accounts" })).getByRole("button", { name: "Browse catalog" }));
+    const dialog = await screen.findByRole("dialog", { name: "Browse integration catalog" });
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Connect" }));
+    expect(await within(dialog).findByRole("alert")).toHaveProperty("textContent", "Popup blocked. Allow popups for Shiba, then try connecting again.");
   });
   it("does not create an authorization when popups are blocked", async () => {
     const { fetcher } = fixture();
@@ -225,7 +254,7 @@ describe("owned OpenConnector accounts through normal HTTP paths", () => {
     expect(screen.queryByText(/hubspot disconnected/)).toBeNull();
     await waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith("https://oauth.example.test/consent"));
     connected(); fireEvent(window, new Event("focus"));
-    expect(await screen.findByText(/hubspot account confirmed/)).toBeTruthy();
+    expect(await within(screen.getByRole("region", { name: "Your app accounts" })).findByText(/hubspot account confirmed/)).toBeTruthy();
     expect(screen.queryByText(/hubspot disconnected/)).toBeNull();
     expect(await screen.findByText(/Alice HubSpot/)).toBeTruthy();
   });
@@ -246,7 +275,7 @@ describe("owned OpenConnector accounts through normal HTTP paths", () => {
     const post = fetcher.mock.calls.find(([path]) => String(path).endsWith("/connect"));
     expect(JSON.parse(String(post?.[1]?.body))).toEqual({ providerKey: "hubspot", replaceUnavailable: true });
     state = "fresh"; fireEvent(window, new Event("focus"));
-    expect(await screen.findByText(/hubspot account confirmed/)).toBeTruthy();
+    expect(await within(screen.getByRole("region", { name: "Your app accounts" })).findByText(/hubspot account confirmed/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Reconnect hubspot" })).toBeNull();
     expect(fetcher.mock.calls.some(([path]) => String(path).endsWith("/execute"))).toBe(false);
   });

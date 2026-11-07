@@ -4,7 +4,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IntegrationCatalogDirectory } from "./IntegrationCatalogDirectory";
 
-vi.mock("./IntegrationsBrowseCatalogDialog", () => ({
+vi.mock("./IntegrationsBrowseCatalogDialog", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./IntegrationsBrowseCatalogDialog")>(),
   IntegrationsBrowseCatalogDialog: ({ onConnect }: { onConnect: (item: IntegrationProviderCatalogItem) => void }) => (
     <button type="button" onClick={() => onConnect({
       id: "fixture", providerKey: "fixture", name: "Fixture", description: "", source: "openconnector",
@@ -16,6 +17,61 @@ vi.mock("./IntegrationsBrowseCatalogDialog", () => ({
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("IntegrationCatalogDirectory OAuth redirects", () => {
+  it("searches beyond the loaded page and clears discovery filters", async () => {
+    const item = { id: "far-away", providerKey: "far-away", name: "Far away app", description: "Only returned by server search", source: "openconnector", connectable: true, isConnected: false, setupState: "ready" };
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/connections")) return Response.json({ ok: true, provider: "openconnector", connections: [] });
+      if (path.endsWith("/meta")) return Response.json({ health: { provider: "openconnector", status: "healthy", checkedAt: 1 } });
+      return Response.json({ items: path.includes("query=Far+away") ? [item] : [], hasMore: false });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<IntegrationCatalogDirectory actorId="alice" bindingInputs={{ setupLoading: false, mailboxCount: 0, mailboxLoading: false, gmailConnected: false, gmailLoading: false, externalMcpServerCount: 0, externalMcpCatalogConnections: [], externalMcpLoading: false }} />);
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "Far away" } });
+    expect(await screen.findByText("Far away app")).toBeTruthy();
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes("query=Far+away"))).toBe(true);
+    fireEvent.change(screen.getByLabelText("Filter integration setup"), { target: { value: "ready" } });
+    await waitFor(() => expect(fetcher.mock.calls.some(([url]) => String(url).includes("query=Far+away") && String(url).includes("readiness=ready"))).toBe(true));
+    expect(await screen.findByText("Far away app")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Filter integration setup"), { target: { value: "reference" } });
+    expect(screen.queryByText("Far away app")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect((screen.getByLabelText("Search integrations") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Filter integration setup") as HTMLSelectElement).value).toBe("all");
+  });
+  it("preserves a configured MCP path beside an unconnected provider sign-in", async () => {
+    const listing = { id: "stripe", providerKey: "stripe", name: "Stripe", description: "App path", source: "openconnector", connectable: true, isConnected: false, setupState: "ready" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).includes("/connections")
+      ? Response.json({ ok: true, provider: "openconnector", connections: [] })
+      : Response.json({ items: [listing], hasMore: false })));
+    render(<IntegrationCatalogDirectory actorId="alice" bindingInputs={{ setupLoading: false, mailboxCount: 0, mailboxLoading: false, gmailConnected: false, gmailLoading: false, externalMcpServerCount: 1, externalMcpCatalogConnections: [{ catalogId: "stripe", connectionLabel: null, status: "enabled", health: "healthy" }], externalMcpLoading: false }} />);
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "Stripe" } });
+    expect(await screen.findByText("Sign-in available")).toBeTruthy();
+    const row = screen.getByTestId("integration-catalog-row-stripe");
+    expect(within(row).getByText("Configured")).toBeTruthy();
+    expect(within(row).queryByText("Account configured")).toBeNull();
+  });
+  it("keeps the catalog failure visible when readiness and account checks fail later", async () => {
+    let failMeta!: (response: Response) => void;
+    let failAccounts!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith("/meta")) return new Promise<Response>((resolve) => { failMeta = resolve; });
+      if (path.includes("/connections")) return new Promise<Response>((resolve) => { failAccounts = resolve; });
+      return Response.json({ error: "Authenticated owner required." }, { status: 401 });
+    }));
+    render(<IntegrationCatalogDirectory actorId="default" bindingInputs={{ setupLoading: false, mailboxCount: 0, mailboxLoading: false, gmailConnected: false, gmailLoading: false, externalMcpServerCount: 0, externalMcpCatalogConnections: [], externalMcpLoading: false }} />);
+    expect(await screen.findByText(/Sign in to Shiba with a verified user session/)).toBeTruthy();
+    await act(async () => {
+      failMeta(Response.json({ error: "Temporary meta failure" }, { status: 500 }));
+      failAccounts(Response.json({ error: "Temporary account failure" }, { status: 500 }));
+    });
+    expect(screen.getByText(/Sign in to Shiba with a verified user session/)).toBeTruthy();
+    expect(screen.queryByText("Temporary meta failure")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "GitHub" } });
+    expect(screen.getByTestId("integration-catalog-row-github")).toBeTruthy();
+    expect(screen.queryByText("Account configured")).toBeNull();
+  });
   it("refreshes a verified parent connection revision without dropping filters or accepting late old account reads", async () => {
     const bindingInputs = { setupLoading: false, mailboxCount: 0, mailboxLoading: false, gmailConnected: false, gmailLoading: false, externalMcpServerCount: 0, externalMcpCatalogConnections: [], externalMcpLoading: false };
     const listing = { id: "revision-app", providerKey: "revision-app", name: "Revision fixture", description: "Scoped account", source: "openconnector", domain: "marketing", priority: "P0", connectable: true, isConnected: true };
