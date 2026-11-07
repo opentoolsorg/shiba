@@ -750,6 +750,16 @@ export type components = {
             emoji?: string;
             /** @enum {string} */
             mascotPreset?: "hero" | "climbing" | "riding" | "sleeping" | "sunglasses";
+            /** @description Visor mascot parts. When present, this wins over mascotPreset. */
+            look?: {
+                /** @enum {string} */
+                shape: "round" | "bean" | "pointed" | "cloud" | "hex" | "squircle";
+                color: string;
+                /** @enum {string} */
+                eyes: "pill" | "big" | "happy" | "wink" | "surprised" | "squint" | "sleepy" | "heart" | "star" | "code";
+                /** @enum {string} */
+                acc: "none" | "pen" | "wrench" | "coffee" | "loupe" | "megaphone" | "clipboard" | "compass" | "headset" | "chart";
+            };
             instructions: string;
             harness: string;
             codingModel?: string;

@@ -155,7 +155,7 @@ export interface TaskComposerProps {
   selectedSkillIds?: string[];
   onToggleSkill?: (id: string) => void;
   /** Org custom agents from /api/custom-agents */
-  customAgents?: { id: string; name: string; slug: string; mascotPreset?: import("@shiba/shared").CustomAgentMascotPreset; emoji?: string; roleTemplateId?: CustomAgentRoleTemplateId; expectedDeliverables?: readonly string[] }[];
+  customAgents?: { id: string; name: string; slug: string; mascotPreset?: import("@shiba/shared").CustomAgentMascotPreset; look?: import("@shiba/shared").AgentMascotLook; emoji?: string; roleTemplateId?: CustomAgentRoleTemplateId; expectedDeliverables?: readonly string[] }[];
   customAgentId?: string;
   projects?: { id: string; name: string; purpose: string; defaultCustomAgentId: string | null; defaultHarness: string | null }[];
   projectContextId?: string;
@@ -1921,7 +1921,7 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
   };
 
   if (agentName) return <div className="flex min-h-0 flex-1 flex-col">
-    {hero ? <div className="flex min-h-0 flex-1 flex-col overflow-y-auto"><AgentConversationEmpty name={agentName} agentId={selectedCustomAgent?.id} mascotPreset={selectedCustomAgent?.mascotPreset} slug={selectedCustomAgent?.slug} role={selectedCustomAgent?.roleTemplateId} examples={examples} prefillDisabled={task.trim() !== ""} onPrefill={prefill} /></div> : null}
+    {hero ? <div className="flex min-h-0 flex-1 flex-col overflow-y-auto"><AgentConversationEmpty name={agentName} agentId={selectedCustomAgent?.id} mascotPreset={selectedCustomAgent?.mascotPreset} look={selectedCustomAgent?.look} slug={selectedCustomAgent?.slug} role={selectedCustomAgent?.roleTemplateId} examples={examples} prefillDisabled={task.trim() !== ""} onPrefill={prefill} /></div> : null}
     <div className="mx-auto mt-auto w-full max-w-[820px] shrink-0 px-4 pb-3 pt-3">{form}<p className="mt-3 text-center text-xs text-[var(--muted-foreground-2)]">Shiba can make mistakes. Check important info.</p></div>
   </div>;
 

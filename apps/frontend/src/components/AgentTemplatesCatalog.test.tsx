@@ -15,7 +15,7 @@ describe("AgentTemplatesCatalog", () => {
     fireEvent.click(screen.getByRole("button", { name: /My templates/i }));
     const heading = await screen.findByRole("heading", { name: "My scout" });
     const card = heading.closest("article")!;
-    expect(card.querySelector("img")?.getAttribute("src")).toBe("/assets/mascot/shiba-sticker-sleeping.webp");
+    expect(card.querySelector(".shiba-agent-mascot")?.getAttribute("data-eyes")).toBe("sleepy");
     fireEvent.click(Array.from(card.querySelectorAll("button")).find((button) => /Hire/.test(button.textContent ?? ""))!);
     await waitFor(() => expect(onUse).toHaveBeenCalledWith(expect.objectContaining({ id: "scout" }), config));
   });
@@ -50,14 +50,12 @@ describe("AgentTemplatesCatalog", () => {
   it("renders mascot, category tag and capability chips derived from the template", () => {
     render(<AgentTemplatesCatalog onUse={vi.fn()} />);
     const card = screen.getByRole("heading", { name: "Coding Coworker" }).closest("article");
-    const mascot = card?.querySelector(".agent-avatar img");
+    const mascot = card?.querySelector(".agent-avatar .shiba-agent-mascot");
     if (!card || !mascot) throw new Error("Expected a card with a mascot.");
-    expect(mascot.getAttribute("src")).toBe("/assets/mascot/shiba-sticker-hero.webp");
+    expect(mascot.getAttribute("data-shape")).toBe("pointed");
+    expect(mascot.getAttribute("data-eyes")).toBe("happy");
     expect(card.querySelector(".agent-category")?.textContent).toBe("engineering");
     expect(Array.from(card.querySelectorAll(".agent-capabilities span"), (chip) => chip.textContent)).toEqual(["repository work", "slack threads", "Approval-gated"]);
-    fireEvent.error(mascot);
-    expect(card.querySelector(".agent-avatar img")).toBeNull();
-    expect(card.querySelector(".agent-avatar")?.textContent).toBe("CC");
   });
   it("reviews a complete catalog bundle without creating a bot or installing metadata skills", async () => {
     const request = vi.fn(async (_url: string, init?: RequestInit) => Response.json({

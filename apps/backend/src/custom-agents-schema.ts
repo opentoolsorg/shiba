@@ -1,6 +1,9 @@
 import { Result, Schema } from "effect";
 import {
   CUSTOM_AGENT_APPROVAL_POLICIES,
+  AGENT_MASCOT_ACCS,
+  AGENT_MASCOT_EYES,
+  AGENT_MASCOT_SHAPES,
   CUSTOM_AGENT_MASCOT_PRESETS,
   CUSTOM_AGENT_SANDBOX_PROVIDERS,
   CUSTOM_AGENT_ROLE_TEMPLATE_IDS,
@@ -14,6 +17,12 @@ export const CustomAgentConfigSchema = Schema.Struct({
   name: Bounded(120),
   emoji: Schema.optional(Bounded(16)),
   mascotPreset: Schema.optional(Schema.Literals(CUSTOM_AGENT_MASCOT_PRESETS)),
+  look: Schema.optional(Schema.Struct({
+    shape: Schema.Literals(AGENT_MASCOT_SHAPES),
+    color: Schema.String.check(Schema.makeFilter((value: string) => /^#[0-9A-Fa-f]{6}$/.test(value) || "Fur color must be a 6-digit hex.")),
+    eyes: Schema.Literals(AGENT_MASCOT_EYES),
+    acc: Schema.Literals(AGENT_MASCOT_ACCS),
+  })),
   roleTemplateId: Schema.optional(Schema.Literals(CUSTOM_AGENT_ROLE_TEMPLATE_IDS)),
   instructions: Bounded(32_000),
   expectedDeliverables: Schema.optional(Schema.Array(Bounded(240)).check(
