@@ -9,8 +9,8 @@ A marketing brief, research report, operating checklist, and code change can all
 
 ## From request to result
 
-1. **Create an employee and start a thread.** Choose an employee or create one with your own instructions. Describe the outcome, supply context, and select the repository for the work.
-2. **Review the request.** Shiba records the requested task and presents an approval. Check the exact task, repository, and settings before approving it. Queueing does not start a sandbox.
+1. **Create an employee and start a thread.** Choose an employee or create one with your own instructions. Describe the outcome, supply context, and choose a repository or artifact workspace for file-producing work. Employee app tasks use their own granted resources.
+2. **Review the request.** Shiba records the requested task and presents an approval. Check the exact task, work target, and settings before approving it. Queueing does not start a sandbox.
 3. **Run the approved work.** The orchestrator dispatches the approved task to a configured execution target. For sandbox runs, the harness works in an isolated container and returns its result and status.
 4. **Review the output.** Read the response, inspect the files and changes, and check the reported evidence. Continue in the thread or start a separate task. Publishing is a separate decision.
 
@@ -34,7 +34,7 @@ The dashboard and configured channels reach Worker routes that authenticate requ
 
 Model and subscription credentials are attached by the Worker egress proxy. The sandbox receives a placeholder rather than the real credential. GitHub access is denied until a repository scope is approved and is limited to that repository. See [Security and privacy](/docs/security/) for the boundaries and [Readiness](/docs/readiness/) for verification status.
 
-A connected provider or listed integration is not proof of access to a particular account. Check the connection and test the relevant workflow in your installation. Shiba's repository-backed workflow also applies to non-code drafts; it does not automatically publish a campaign, send a customer message, or perform a financial transaction.
+A connected provider or listed integration is not proof of access to a particular account. Check the connection and test the relevant workflow in your installation. Non-code drafts can use an artifact workspace without a repository. An employee does not automatically publish a campaign, send a customer message, or perform a financial transaction. See [Connections and tools](/docs/connections/) for the distinction between accounts, employee grants, and actions.
 
 ## Source map
 

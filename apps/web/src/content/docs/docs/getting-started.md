@@ -1,36 +1,46 @@
 ---
-title: Your first task
-description: Give Shiba a clear brief, approve the work, and review the result.
+title: Give your first task
+description: Ask an AI employee for a useful draft, approve the work, and review the result.
 ---
 
-Choose one small task you can easily check. A launch brief, a research summary, an operating checklist, or a test for a known bug is a good place to start.
+Start with one small outcome you can check. This guide uses a launch brief, but the same approach works for a research summary, checklist, or product specification.
 
-## 1. Open a thread
+## 1. Choose an employee
 
-Sign in to your Shiba workspace. Start a thread, or open **Bots** and select **Launch bot** on an employee you want to work with.
+Sign in to your Shiba workspace. Open **Agents**, choose an employee, and select **Launch bot** to start a thread with its saved instructions. You can also start a thread directly.
 
-Need a workspace first? Follow [Self-hosting](/docs/self-hosting/), or ask the person who manages your team's installation.
+An AI employee is a saved role and set of instructions. Some controls still use the word “bot.” If you need to create one, follow [AI employees](/docs/employees/).
 
-## 2. Describe what you want
+Need a workspace first? Ask the person who manages your installation or follow [Self-hosting](/docs/self-hosting/).
 
-Choose the GitHub repository and branch for the task. Tell Shiba what to produce and how you'll judge the result.
+## 2. Choose a place for the output
 
-For example:
+In **Work** mode, choose **Artifact workspace** as the work target. Give it a name, such as “Product launch.” This creates files without requiring a GitHub repository.
 
-> Read our product notes and draft a short launch brief for solo developers. Keep it in the marketing folder, flag unsupported claims, and leave it ready for review. Don't publish anything.
+For a simple cloud task, you can leave **Output files** blank and ask the employee to save its drafts in the output folder. Shiba collects the final files as an artifact download. If you select a local computer, list the output files you want returned and check that the computer is connected.
 
-For a code change, name the problem and ask for a relevant test. A focused request is easier to review than “improve the whole app.”
+Working on existing code instead? Choose **Repository task**, select the GitHub repository and branch, and leave **Create pull request** off for your first task.
 
-## 3. Review the request
+## 3. Give a clear brief
 
-Read the approval card. Check the repository, task, and whether creating a pull request is included.
+Tell the employee the outcome, audience, useful context, and limits. For example:
 
-Approve it if it matches your intent. Otherwise, reject it and revise the brief. Repository work starts only after approval; if the request changes, review it again.
+> Draft a one-page launch brief for solo developers. Use the product notes below, separate facts from assumptions, and suggest three announcement options. Save the draft in out/launch-brief.md. Don't publish or send anything.
 
-## 4. Check the result
+Add your product notes to the request. Ask the employee to flag missing information rather than invent it. Never include passwords, API keys, or account tokens in a brief.
 
-Read the response and inspect the changed files. Check what passed, what failed, and what still needs attention.
+## 4. Approve the request
 
-Keep related follow-ups in the same thread. Reviewing a result doesn't publish it: decide separately whether to use the draft or publish the proposed code changes.
+Read the approval card. Check the task, work target, model connection, output files, and any requested publication.
 
-Next, learn about [employees](/docs/employees/), [threads and results](/docs/dashboard/), or [approvals](/docs/approval-gates/).
+Approve it if it matches your intent. Otherwise, reject it and revise the brief. Creating an employee or sending a message does not approve a workspace run.
+
+## 5. Review the result
+
+Open the returned files or artifact download. Check the facts, missing information, and any reported tests. A completed task still needs your review.
+
+Ask for a specific revision in the same thread. If you requested a pull request, review the separate publication approval after the changes are ready; approving the initial run does not publish them.
+
+For named files, you can save a review and create a separate revision approval from the file card. See [Files and revisions](/docs/artifacts/) for the exact steps and output limits.
+
+Next: [Work with your employees](/docs/employees/), [understand results](/docs/dashboard/), or [connect useful tools](/docs/connections/).
