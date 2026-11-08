@@ -142,7 +142,7 @@ Quit the app, delete Shiba from Applications, and remove `~/.shiba-local` to dro
 - This is built for a single tenant. If `PAIRING_SECRET` is unset, pairing tokens are signed with the deployment's `LOCAL_ADAPTER_TOKEN`.
 - Checking a daemon's token reads through the whole fleet on every daemon call. That is fine for a handful of machines and has not been measured for large fleets.
 - Status lags reality by up to about 40 seconds for a change and 75 seconds for going offline. Use the run timeline, not the fleet view, to see what a task is doing.
-- The connect command assumes the machine has a checkout of this repository and Node.js 22.12.0+ installed.
+- The connect command assumes the machine has a checkout of this repository and Node.js 22.13.0+ installed.
 
 Return to [Remote access](/docs/remote-access/).
 

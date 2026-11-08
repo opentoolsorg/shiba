@@ -1,18 +1,35 @@
 ---
-title: Agent templates
-description: Browse, add, copy, and import Shiba agent template packs.
+title: Employee templates
+description: Start an AI employee from a reusable role, then adapt it to your work.
 sidebar:
   order: 11
 ---
 
-Shiba template packs are authored as folders under [`templates/`](https://github.com/opentoolsorg/shiba/tree/main/templates). Each pack contains `template.json`, original Shiba instructions, optional skill stubs, and a getting-started guide.
+Templates are starting points for AI employees. Each pack supplies a role, instructions, and suggested outputs so you do not have to write the profile from scratch.
 
-## Add a template
+Choose a pack that matches a real job, such as a product specification, support triage, competitor summary, or pull request review. Read the instructions and adapt the scope before using it.
 
-Create a folder with a lowercase kebab-case ID. Add `template.json` matching [`template.schema.json`](https://github.com/opentoolsorg/shiba/blob/main/templates/template.schema.json), `INSTRUCTIONS.md`, `getting-started.md`, and zero to three focused `skills/*/SKILL.md` files. Keep descriptions at 220 characters or fewer. Use original wording; do not copy proprietary instructions from other catalogs. Templates should be Slack-first: Slack is the only supported chat lane in these packs for now.
+## Choose and use a template
 
-The TypeScript registry and validator live in `packages/shared/src/agent-templates.ts`; its tests check that every registry entry has a matching complete pack folder. Add a registry entry and test the pack when adding a template.
+1. Open **Agents → Template catalog**.
+2. Browse the official packs by category. Choose **My** to see saved workspace profiles as reusable packs.
+3. Open **Review bundle** to inspect the instructions, then choose **Hire** to create the employee.
+4. Check its model connection, required deliverables, and permissions before launching a task.
 
-## Use, copy, and import
+Creating an employee from a pack does not connect an account, install app tools, or approve execution. Packs are currently Slack-first for their chat-channel instructions; other channels have their own setup and supported flows.
 
-Open **Bots → Template catalog**. Browse official packs by category or choose **My** to see saved workspace bots as reusable packs. **Use** creates the bot through Shiba's existing custom-agent API. **Copy pack** copies JSON metadata plus an `INSTRUCTIONS.md` Markdown section. To import one, expand **Paste import**, paste the combined pack, and create the bot. Review its instructions before starting a task.
+## Copy or import a pack
+
+**Copy pack** copies the profile metadata and instructions. Importing that copy into the same workspace fails if its saved bot slug already exists. Use **Hire** to clone the saved profile, or change `template.id` in the copied data before opening **Paste import**. Review the contents before creating the employee.
+
+Treat imported instructions as something to inspect, especially their requested tools, data, and external actions. Import only into the personal or team workspace where you intend the profile to live.
+
+## Employee templates and skill templates
+
+An employee template defines a role. A [skill template](/docs/skills/) supplies a reusable method or checklist. Installing a run-attached skill template creates a draft that needs separate review and activation.
+
+## Contribute a template
+
+Developer packs live under [`templates/`](https://github.com/opentoolsorg/shiba/tree/main/templates). Add a lowercase kebab-case folder with `template.json` matching the [schema](https://github.com/opentoolsorg/shiba/blob/main/templates/template.schema.json), `INSTRUCTIONS.md`, `getting-started.md`, and up to three focused `skills/*/SKILL.md` files.
+
+Keep descriptions at 220 characters or fewer and use original instructions. Add the pack to `packages/shared/src/agent-templates.ts` and run its validation tests. See [Contributing](/docs/contributing/) for the development workflow.

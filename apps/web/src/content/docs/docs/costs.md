@@ -9,10 +9,10 @@ Shiba is free, open-source software. Running a workspace can still incur charges
 
 The person who runs your installation chooses its hosting and model connections. Ask them which services are available and how usage is paid for.
 
-There isn't a fixed price for every task. The model, task size, and time spent working can affect usage. Start with a small task when you're trying a new setup.
+There isn't a fixed price for every task. The model, task size, and time spent working can affect usage. Planning and automation-condition checks may incur usage before a workspace run is approved. A run-approval gate is not a guarantee of zero earlier model usage. Start with a small task when you're trying a new setup.
 
 ## If you run your own workspace
 
-You pay your hosting and model providers for the services you configure. Review their current prices and set budgets or alerts where available.
+You pay your hosting and model providers for the services you configure. Review their current prices and set budgets or alerts where available. Shiba’s optional execution budget uses harness-reported costs and may have unreported runs; it is not a complete provider invoice or a hard cap on all account charges.
 
 The [self-hosting guide](/docs/self-hosting/) covers setup. [Runtime costs and limits](/docs/runtime-limits/) lists the technical references for installation owners.

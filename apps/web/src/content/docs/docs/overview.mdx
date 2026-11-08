@@ -1,43 +1,53 @@
 ---
-title: Welcome to Shiba
-description: Get help with your work, from the first brief to the finished draft.
+title: AI employees for your work
+description: Build a team of AI employees, give them clear tasks, and review what they produce.
 tableOfContents: false
 ---
 
 import { CardGrid } from "../../../components/ui/card-grid";
 import { LinkCard } from "../../../components/ui/link-card";
 
-Shiba gives you AI employees for the work behind your company: engineering, design, marketing, sales, operations, finance, and research.
+Shiba is a workspace for AI employees. Give each employee a role, instructions, and the tools it needs to help with the work behind your company.
 
-Ask for a campaign draft, an account brief, a draft budget from figures you supply, or a code change. Review the proposed task and approve it when you're ready.
+Start with a marketing brief, a research report, an operating checklist, or a code change. Explain the outcome, provide context, and review the result before using it.
 
 <CardGrid>
-  <LinkCard title="Start your first task" description="Go from a short brief to a result you can review." href="/docs/getting-started/" />
-  <LinkCard title="Choose an employee" description="Give an employee a role and instructions for the work you do." href="/docs/employees/" />
+  <LinkCard title="Meet your AI employees" description="Choose a role and make it your own." href="/docs/employees/" />
+  <LinkCard title="Give your first task" description="Create a useful draft without connecting a repository." href="/docs/getting-started/" />
 </CardGrid>
 
-## What an employee can help with
+## A role for the work you do
 
-| Work | Example outcome |
-| --- | --- |
-| Marketing | A launch brief or announcement draft grounded in your product notes. |
-| Research | A sourced report that separates findings from open questions. |
-| Operations | A handoff, support summary, or repeatable checklist. |
-| Engineering and QA | A focused change, test, or review with evidence. |
-| Design, sales, and finance | A specification, account brief, or draft analysis using context you provide. |
+- **Marketing and sales:** campaign drafts, launch plans, account briefs, and outreach copy for review.
+- **Research and operations:** evidence-based summaries, runbooks, handoffs, and checklists.
+- **Product and design:** specifications, user flows, interface copy, and prototype plans.
+- **Engineering and QA:** focused code changes, tests, and review findings.
+- **Finance:** draft budgets and analysis from figures you supply.
 
-Start with an [employee](/docs/employees/), then give it a specific outcome and the context it needs. Its available connections and permissions depend on your setup.
+Roles are reusable instructions, not a promise of expertise or access. Start from a [template](/docs/templates/) or write your own brief. The employee can use only the connections and permissions available to it.
 
-## Keep your work together
+## From a brief to a result
 
-Use [threads](/docs/dashboard/) to keep a task and its follow-ups in one conversation. Save instructions you often reuse as [skills](/docs/skills/).
+1. **Choose an employee.** Set its job, working style, and expected output.
+2. **Give it context.** Share the facts, files, and limits that matter to the task.
+3. **Approve the work.** Check the proposed request before a workspace task runs. Connected app actions follow their own permissions and approval rules.
+4. **Review the result.** Read the draft, inspect the changes, and check the evidence. Ask for another pass in the same thread.
 
-Before work runs in your repository, Shiba asks you to [approve the request](/docs/approval-gates/). Read the result and its checks before you use or publish it.
+A draft stays a draft until you decide what to do with it. Publishing a pull request requires a separate approval of the completed changes.
 
-## What you need
+## Choose where work happens
 
-You'll need access to a Shiba workspace and a GitHub repository for the work. Documents and other non-code tasks use a repository too.
+You do not need GitHub for every task. An **artifact workspace** is a place to create reviewable files without a repository. Use a **repository task** when working on an existing codebase, or **employee tools and supplied context** for a task using permitted app resources.
 
-Shiba is free to self-host. Hosting and model usage can cost money; see [costs](/docs/costs/). If you're setting up a workspace for the first time, follow the [self-hosting guide](/docs/self-hosting/).
+Learn more about [threads and results](/docs/dashboard/), [connections](/docs/connections/), and [approvals](/docs/approval-gates/).
 
-Need help? Start with [common questions](/docs/troubleshooting/). Shiba is under active development; [product status](/docs/product-status/) explains current limits.
+## Make the next task easier
+
+Keep related work in a thread and [share team context deliberately](/docs/team-workspaces/). Reuse reference material through [context and memory](/docs/context-and-memory/), track [files and revisions](/docs/artifacts/), save repeatable instructions as [skills](/docs/skills/), and use [automations](/docs/automations/) for supported recurring requests. Creating a skill or schedule does not grant new app access or approve future work.
+
+Shiba is open-source and self-hosted. Your installation needs a working model connection and the runtime for the tasks you choose. Hosting and model usage may cost money; see [costs](/docs/costs/).
+
+<CardGrid>
+  <LinkCard title="Set up a workspace" description="Installation guides for the person running Shiba." href="/docs/self-hosting/" />
+  <LinkCard title="Check availability" description="Understand what depends on your setup and what is still limited." href="/docs/product-status/" />
+</CardGrid>
