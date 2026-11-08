@@ -13,7 +13,7 @@ Check current [Workers pricing](https://developers.cloudflare.com/workers/platfo
 | --- | --- |
 | Orchestrator run policy | Five active runs by default; ten with `SHIBA_ELEVATED_CONCURRENCY` enabled. |
 | Cloud container configuration | `standard-1`, with up to ten instances in the deployment configuration. |
-| `SHIBA_DAILY_CONTAINER_BUDGET_USD` | Optional threshold that blocks new starts when recorded, harness-reported usage reaches the configured amount. |
+| `SHIBA_DAILY_CONTAINER_BUDGET_USD` | Optional threshold enabled only by a positive finite number; it blocks new starts when recorded, harness-reported usage reaches that amount. Zero, negative, and non-finite values do not enable the threshold. |
 | Automation request budget | Defaults to 20 requests per automation per UTC day. |
 
 The run policy is checked against the current orchestrator's run registry. It is not a guarantee of one deployment-global five-run limit, available container capacity, or queued retry. The container ceiling, account quotas, provider limits, and local-computer capacity are separate constraints.

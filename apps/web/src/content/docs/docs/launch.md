@@ -24,6 +24,12 @@ any time — answers persist in `.env` (gitignored, mode 600).
    `.env` is bound as a secret or var; anything missing there is **removed**
    from the Worker on the next deploy, so `.env` is the source of truth.
 
+The bootstrap `CODEX_SUBSCRIPTION_AUTH_JSON` prompt does not create a per-user
+Sign in with ChatGPT connection. To enable Codex plan sign-in, configure a
+separate `MODEL_CREDENTIAL_KEY` on the Worker and have each user sign in through
+**Settings → Models** after deployment. Do not paste `auth.json` for this flow;
+see [Model authentication modes](/docs/model-auth/).
+
 ## After deploy (printed by the script)
 
 - **Cloudflare Access** — until an Access app covers the hostname, every

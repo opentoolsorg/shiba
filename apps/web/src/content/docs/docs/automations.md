@@ -28,7 +28,7 @@ For a recipe with a manual trigger, choose **Run now** in **Deployed Automations
 
 ## Pause or change an automation
 
-Choose **Disable** on the automation in **Deployed Automations** to stop future requests. Choose **Enable** when you want them to resume. Disabling a schedule does not cancel a request already queued for approval or a run already in progress; inspect those tasks separately and reject or cancel them as needed.
+Choose **Disable** on the automation in **Deployed Automations** to stop future requests. Choose **Enable** when you want them to resume. Disabling does not cancel a request already queued for approval or a run already in progress; a trigger already being evaluated may also queue an approval afterward. Inspect existing requests and runs, then check again for late-arriving approvals and reject or cancel them as needed.
 
 If the employee profile has changed since the automation was saved, a dispatch can be skipped as stale rather than silently using new instructions. Attached reviewed skills are stored snapshots: editing or disabling the original library skill does not automatically update that saved automation. Review and update the automation itself when its instructions should change.
 

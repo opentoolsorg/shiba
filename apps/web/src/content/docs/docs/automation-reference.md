@@ -47,7 +47,7 @@ Attached reviewed skills are stored instruction snapshots. Dispatch checks each 
 
 ## Conditional requests
 
-A trigger can include a `runWhen` condition, such as “the issue is a bug report, not a feature request.” The condition is evaluated before the coding-run approval is queued. With `TYPESAFE_API_KEY` configured, Shiba uses TypeSafe Noul; otherwise it uses the configured Workers AI planning model. Event/task context used for the check is sent to that service even though execution still needs human approval.
+A trigger can include a `runWhen` condition, such as “run for GitHub issues with the `bug` label.” For GitHub events, the condition can inspect the event name and action, repository, branch, author, and labels; issue titles and bodies are not included. The condition is evaluated before the coding-run approval is queued. With `TYPESAFE_API_KEY` configured, Shiba uses TypeSafe Noul; otherwise it uses the configured Workers AI planning model. Event/task context used for the check is sent to that service even though execution still needs human approval.
 
 The condition fails closed: an error, empty answer, or unrecognized answer skips the request and records the reason. Model and platform usage can still incur charges.
 

@@ -2,7 +2,7 @@
 
 ## Scope
 
-Based on `main` at `10360a3694471b485ab16426689a8e6800e89611`, after PR #199 merged. No application behavior, credential, permission, feature flag, migration, or deployment changed.
+Based on `main` at `10360a3694471b485ab16426689a8e6800e89611`, after PR #199 merged. This PR also adds a live GitHub-star count to the marketing header. No credential, permission, feature flag, migration, or deployment changed.
 
 - Lead with AI employees, concrete job outcomes, a first draft, and review rather than installation internals.
 - Explain repository tasks, repository-free artifact workspaces, and employee app tools as different work targets.
@@ -24,7 +24,7 @@ Based on `main` at `10360a3694471b485ab16426689a8e6800e89611`, after PR #199 mer
 - Package typechecks and import lint: **18 tasks passed**. Root TypeScript build and SDK generated-type consistency also passed.
 - Root Biome CI and Knip exited successfully with existing repository warnings/reports. Changed configuration, machine-readable intro, and tests passed focused Biome without fixes.
 - Aggregate tests did **not** complete. The full frontend suite finished with **1,556 passed across 189 files**. Sandbox (86), SDK (14), ACP server (9), login (3), read gateway (150), desktop (202), and auth (12) suites also finished successfully.
-- Before interruption, the backend reported failures in the unchanged direct-execution intake assertion in `phase1-core-loop.integration.test.ts` and the unchanged overview expectation in `dashboard.test.ts`. No full-backend total or green aggregate result is claimed.
+- On base commit `c3cdb05e691c3ffceefb5ee353f278feac6f7b68` (PR #201), the two focused backend files ran 31 tests: 29 passed and the same two failed. `phase1-core-loop.integration.test.ts` receives 403 before request validation in its direct-execution intake case; `dashboard.test.ts` expected stale overview text `Your agent plane`. This confirms both failures predate this PR. The PR updates the overview assertion to the current copy; the direct-execution fixture remains an existing failure. No full-backend total or green aggregate result is claimed.
 - The full-suite continuation was blocked because its live Typesafe call could send task/classification data outside the local test environment without verified authorization. That operation was not retried; no live acceptance is claimed. The test process was no longer available when cancellation was requested.
 - Independent source review found two small navigation/copy clarifications (team instruction skills and saved-task copying); both were incorporated.
 

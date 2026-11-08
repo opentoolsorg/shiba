@@ -24,7 +24,7 @@ Check the selected scope: personal skills belong to your account; workspace skil
 Use **Run-attached skills** when a repository or artifact task needs a specific set of instructions captured with its approval.
 
 1. Save a new draft or install a template as a draft.
-2. Read the instructions and choose **Mark reviewed**.
+2. Read the instructions and choose **Mark reviewed**. In a team workspace, these controls are available only to an owner or admin who also owns the skill; another admin cannot review or activate it. If the controls are unavailable, ask the skill's owner.
 3. Choose **Activate reviewed version** as a separate step.
 4. In the task composer's **+** menu, choose **Skills** and select the active skills you need.
 5. Check the selected instructions with the rest of the task before approving the run.

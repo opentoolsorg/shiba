@@ -13,14 +13,14 @@ Choose a pack that matches a real job, such as a product specification, support 
 
 1. Open **Agents → Template catalog**.
 2. Browse the official packs by category. Choose **My** to see saved workspace profiles as reusable packs.
-3. Read the role and instructions, then choose **Use** to create the employee.
+3. Open **Review bundle** to inspect the instructions, then choose **Hire** to create the employee.
 4. Check its model connection, required deliverables, and permissions before launching a task.
 
 Creating an employee from a pack does not connect an account, install app tools, or approve execution. Packs are currently Slack-first for their chat-channel instructions; other channels have their own setup and supported flows.
 
 ## Copy or import a pack
 
-**Copy pack** copies the profile metadata and instructions. To reuse a pack, open **Paste import**, paste it, and review the contents before creating the employee.
+**Copy pack** copies the profile metadata and instructions. Importing that copy into the same workspace fails if its saved bot slug already exists. Use **Hire** to clone the saved profile, or change `template.id` in the copied data before opening **Paste import**. Review the contents before creating the employee.
 
 Treat imported instructions as something to inspect, especially their requested tools, data, and external actions. Import only into the personal or team workspace where you intend the profile to live.
 
