@@ -604,7 +604,6 @@ describe("Phase 1 core loop (integration)", () => {
       { executionTarget: target, expectedDeliverables: ["sales/other.md"] },
       { executionTarget: { ...target, expectedDeliverables: ["../private.md"] } },
       { executionTarget: target, publishPullRequest: true },
-      { executionTarget: target, runtime: "local" },
       { executionTarget: target, runSetup: true },
     ];
     for (const body of invalidRequests) {
@@ -612,6 +611,16 @@ describe("Phase 1 core loop (integration)", () => {
       expect(response.status).toBe(400);
       expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
     }
+
+    // Local artifact work is valid input, but only authenticated dashboard
+    // intake may request it, and the deployment must enable the local runtime.
+    const local = await postRun({ executionTarget: target, runtime: "local" });
+    expect(local.status).toBe(403);
+    expect(await local.json()).toEqual({ error: 'runtime "local" is admitted only through the dashboard.' });
+    expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
+    expect(instance.state.runs ?? []).toHaveLength(0);
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.destroy).not.toHaveBeenCalled();
 
     const payload = { executionTarget: target, commandId: "artifact-command-1" };
     const first = await postRun(payload);
