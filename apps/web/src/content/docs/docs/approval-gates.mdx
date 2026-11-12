@@ -1,31 +1,50 @@
 ---
-title: Approvals
-description: Check a proposed task before it starts, then approve it or ask for a change.
+title: Approvals and control
+description: Choose what your AI employees can use, approve concrete actions, and review the output.
 ---
 
-Before Shiba starts repository work, it asks you to approve the request. Read the approval card in the task's thread or open **Approvals** to find pending decisions.
+Shiba separates an employee's instructions, its access to tools, and permission to take an action. Giving an employee a role does not approve everything it might do.
 
-## Check the request
+## Before a workspace task runs
 
-Make sure the card matches what you want:
+Repository and artifact-workspace runs wait for human approval. Read the card in the thread, or open **Approvals** to find pending decisions.
 
-- **Repository and branch:** Is this the right place to work?
-- **Task:** Is the requested change clear and limited to your brief?
-- **Checks:** Are the requested tests or other checks appropriate?
-- **Publishing:** Should Shiba open a pull request, and post a review afterward?
+Check:
 
-The card shows the exact request you are approving. If something is wrong, reject it and explain the change in the thread. Review the new request before approving it.
+- **Outcome:** Is the task clear and limited to your brief?
+- **Work target:** Is it the right repository and branch, or the intended artifact workspace?
+- **Execution:** Are the model, account, and runtime the ones you expect?
+- **Output:** Are the required files and checks appropriate?
+- **Publication:** Is a pull request requested, and is a review included?
 
-## Approve or reject
+The card records the exact request. Approve it only if it matches your intent. If it does not, reject it and submit a revised brief.
 
-Choose **Approve** to allow that request to run. Approval applies to the request shown, not every future task in the conversation.
+## Approval is specific
 
-Choose **Reject** to cancel the proposed work. No repository work starts for that rejected request. You can revise your brief and try again.
+Choosing **Approve** allows the request shown. It is not permission for every future task in the conversation. Choosing **Reject** prevents that proposed run from starting.
 
-If your team uses Slack approvals, an authorized teammate can also decide from the card in Slack. Your administrator controls who can approve there.
+If your team uses Slack approvals, an authorized teammate can decide from the Slack card. Your administrator controls who can approve there.
+
+## Publishing is a separate decision
+
+For repository work, **Create pull request** requests publication after the work is ready. The initial run approval does not authorize the push or pull request.
+
+Review the completed changes, then decide on the separate publication approval. That decision applies to the captured version of the changes. Merging follows its own review and approval process.
+
+A document draft also does not automatically become a sent message or published campaign. Any supported external action must have the required account access and action approval.
+
+## Connected apps have their own permissions
+
+An account connection alone does not let every employee use it. Check the employee's **Tool policy**, granted resources, and any action approval card. Some narrowly scoped reads can use explicit standing consent where your installation supports it; that does not grant write or publishing access.
+
+Installing a template, enabling a skill, or setting up an automation does not bypass these controls. See [Connections and tools](/docs/connections/).
+
+## File reviews are another decision
+
+In a deliverable card, **Approve** records that you accept the captured file. **Request revision** plus **Save review** records feedback. To run the revision, choose **Create revision approval**, then review and approve that new request. Neither accepting a file nor saving feedback sends it to an external service. See [Files and revisions](/docs/artifacts/).
 
 ## After approval
 
-Return to the thread to follow progress and inspect the result. Read the changed files and reported checks before adopting the work. An approval gives permission to run; it does not guarantee the result is correct.
+Read the result and its evidence. Approval gives permission to act; it does not guarantee that the output is correct or that an external service accepted the action.
 
 Continue with [Threads and results](/docs/dashboard/) or [Pull request review](/docs/review/).

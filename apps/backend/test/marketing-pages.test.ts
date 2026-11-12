@@ -14,6 +14,22 @@ const built = existsSync(join(root, "waitlist", "index.html"));
 describe.skipIf(!built)("new marketing pages", () => {
   const page = (path: string) => readFileSync(join(root, path), "utf8");
 
+  it("replaces the shared header self-host CTA with the canonical GitHub stars link", () => {
+    for (const route of ["index.html", "why-shiba/index.html", "integrations/index.html", "waitlist/index.html", "blog/index.html"]) {
+      const html = page(route);
+      const header = html.split("<header")[1]?.split("</header>")[0] ?? "";
+      expect(header).toContain("data-github-stars");
+      expect(header).toContain('href="https://github.com/opentoolsorg/shiba"');
+      expect(header).toContain('aria-label="Star Shiba on GitHub"');
+      expect(header).toMatch(/data-github-stars-count[^>]*>Star<\/span>/);
+      expect(header).not.toContain("Self-host");
+      expect(header).not.toContain("/docs/self-hosting/");
+      // No fabricated build-time star count: the client enhances this useful link.
+      expect(header).not.toMatch(/data-github-stars-count[^>]*>\d/);
+      expect(html).toContain('href="/docs/self-hosting/"');
+    }
+  });
+
   it("lists the app catalog, MCP presets and skill library without claiming connected accounts", () => {
     const html = page("integrations/index.html");
     for (const entry of [...INTEGRATION_CATALOG, ...CURATED_MCP_VENDORS, ...SKILL_LIBRARY]) {
