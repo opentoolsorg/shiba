@@ -100,12 +100,14 @@ describe("dashboard rendering", () => {
       onInspectRun: vi.fn(),
     }));
 
-    expect(markup).toContain('<h1 id="dashboard-title">Dashboard</h1>');
-    expect(markup).toContain("MCP principals");
-    expect(markup).toContain("Connect your tools");
+    expect(markup).toContain("Your work, decisions, and agents.");
     expect(markup).toContain("Add useful context");
     expect(markup).toContain("Meet your agents");
     expect(markup).toContain("No runs yet");
+    // Retain capability-surface coverage alongside the shared overview copy.
+    expect(markup).toContain('<h1 id="dashboard-title">Dashboard</h1>');
+    expect(markup).toContain("MCP principals");
+    expect(markup).toContain("Connect your tools");
   });
 
   it("shows useful empty states when no task has started", () => {
