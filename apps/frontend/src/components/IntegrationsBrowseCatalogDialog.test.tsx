@@ -9,6 +9,37 @@ afterEach(() => {
 });
 
 describe("IntegrationsBrowseCatalogDialog", () => {
+  it("blocks another connect while one is pending and keeps its outcome in the dialog", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: ["one", "two"].map((id) => ({ id, providerKey: id, name: id, description: "", source: "openconnector", connectable: true, isConnected: false })), hasMore: false })));
+    const connect = vi.fn();
+    render(<IntegrationsBrowseCatalogDialog open actorId="alice" connectingKey="one" connectionNotice="Finish signing in in the new window." onConnect={connect} onClose={() => {}} />);
+    const pending = await screen.findByRole("button", { name: "Connecting…" });
+    const other = screen.getByRole("button", { name: "Connect" });
+    expect((pending as HTMLButtonElement).disabled).toBe(true);
+    expect((other as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(other);
+    expect(connect).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toContain("Finish signing in");
+  });
+  it.each([401, 503])("distinguishes a %s failure from an empty catalog and supports retry", async (status) => {
+    let available = false;
+    const fetcher = vi.fn(async () => available
+      ? Response.json({ items: [{ id: "fixture-app", providerKey: "fixture-app", name: "Recovered fixture app", description: "Fixture only", source: "openconnector", connectable: false, isConnected: false }], hasMore: false, total: 1, oauthCapable: 0 })
+      : Response.json({ error: status === 401 ? "Authenticated owner required." : "Integration catalog unavailable." }, { status }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<IntegrationsBrowseCatalogDialog open actorId="default" onClose={() => {}} />);
+    const error = await screen.findByRole("alert");
+    expect(error.textContent).toContain(status === 401 ? "Sign in to Shiba with a verified user session" : "check the sibling service");
+    expect(screen.queryByText(/No connectors match/)).toBeNull();
+    expect(screen.queryByText(/0 shown/)).toBeNull();
+    expect(screen.getByText("Provider catalog not loaded")).toBeTruthy();
+    available = true;
+    fireEvent.click(screen.getByRole("button", { name: "Retry catalog" }));
+    expect(await screen.findByText("Recovered fixture app")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry catalog" })).toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
   it("discards an older search response and clears cards when the dialog closes", async () => {
     let resolve!: (value: Response) => void;
     const fetcher = vi.fn(async (path: RequestInfo | URL) => String(path).includes("query=new") ? Response.json({ items: [{ id: "new", providerKey: "new", name: "New result", description: "", source: "openconnector", connectable: false, isConnected: false }], hasMore: false }) : new Promise<Response>((done) => { resolve = done; })); vi.stubGlobal("fetch", fetcher);
@@ -93,5 +124,28 @@ describe("IntegrationsBrowseCatalogDialog", () => {
     const linkBtn = screen.getByRole("button", { name: "Add to view" });
     fireEvent.click(linkBtn);
     expect(onLinkExisting).toHaveBeenCalledWith(expect.objectContaining({ providerKey: "zendesk" }));
+  });
+  it("requests a readiness-filtered page and labels services only from setup metadata", async () => {
+    const fetcher = vi.fn(async (path: RequestInfo | URL) => Response.json(String(path).includes("readiness=needs_configuration")
+      ? { items: [{ id: "zoom", providerKey: "zoom", name: "Zoom", description: "", source: "openconnector", isConnected: false, connectable: false, setupState: "needs_configuration" }], hasMore: false, total: 120, oauthCapable: 80 }
+      : { items: [
+        { id: "notion", providerKey: "notion", name: "Notion", description: "", source: "openconnector", isConnected: false, connectable: true, setupState: "ready" },
+        { id: "stripe", providerKey: "stripe", name: "Stripe", description: "", source: "openconnector", isConnected: false, connectable: false, setupState: "unsupported", authTypes: ["api_key"] },
+        { id: "odd", providerKey: "odd", name: "Odd", description: "", source: "openconnector", isConnected: false, connectable: false, setupState: "unverified" },
+      ], hasMore: true, nextCursor: "50", total: 120, oauthCapable: 80 }));
+    vi.stubGlobal("fetch", fetcher);
+    const connect = vi.fn();
+    render(<IntegrationsBrowseCatalogDialog open actorId="alice" onClose={() => {}} onConnect={connect} />);
+    expect(await screen.findByText("Sign-in available")).toBeTruthy();
+    expect(screen.getByText("No OAuth sign-in (api_key)")).toBeTruthy();
+    expect(screen.getByText("Readiness unverified")).toBeTruthy();
+    expect(screen.getByText(/120 provider services match · 80 declare OAuth sign-in/)).toBeTruthy();
+    expect(screen.queryByText(/Live|Connected/)).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Connect" })).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText("Filter by readiness"), { target: { value: "needs_configuration" } });
+    expect(await screen.findByText("OAuth app setup required")).toBeTruthy();
+    expect(String(fetcher.mock.calls.at(-1)?.[0])).toContain("readiness=needs_configuration");
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+    expect(connect).not.toHaveBeenCalled();
   });
 });

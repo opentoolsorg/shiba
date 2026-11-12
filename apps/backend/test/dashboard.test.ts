@@ -100,11 +100,9 @@ describe("dashboard rendering", () => {
       onInspectRun: vi.fn(),
     }));
 
-    expect(markup).toContain("Your agent plane");
-    expect(markup).toContain("Agents &amp; MCP");
-    expect(markup).toContain("Mailbox");
-    expect(markup).toContain("Memory");
-    expect(markup).toContain("Sandbox");
+    expect(markup).toContain("Your work, decisions, and agents.");
+    expect(markup).toContain("Add useful context");
+    expect(markup).toContain("Meet your agents");
     expect(markup).toContain("No runs yet");
   });
 

@@ -1,0 +1,64 @@
+---
+interface Props {
+  class?: string;
+}
+
+const { class: className } = Astro.props;
+---
+
+<figure class:list={['lp-shot', className]}>
+  <div class="lp-shot-frame">
+    <picture>
+      <source
+        data-theme-source
+        media="(prefers-color-scheme: dark)"
+        srcset="/landing/app-agents-dark.png"
+        width="3024"
+        height="1672"
+      />
+      <img
+        src="/landing/app-agents-light.png"
+        alt="Actual Shiba app showing the Agents workspace and template catalog"
+        width="3000"
+        height="1666"
+        loading="eager"
+        decoding="async"
+        fetchpriority="high"
+      />
+    </picture>
+  </div>
+  <figcaption>Actual Shiba app · Agents and template catalog · captured product UI</figcaption>
+</figure>
+
+<style>
+  .lp-shot {
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+
+  .lp-shot-frame {
+    overflow: hidden;
+    background: var(--lp-raised);
+    border: 1px solid var(--lp-line2);
+    border-radius: 8px;
+    box-shadow: var(--lp-shadow);
+  }
+
+  /* One fixed ratio for both captures (they differ by <0.5%), so a theme
+     switch never moves the content below. */
+  .lp-shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 3000 / 1666;
+    object-fit: cover;
+    object-position: top center;
+  }
+
+  figcaption {
+    margin: 16px 0 0;
+    color: var(--lp-ink2);
+    font: 500 12px/1.5 var(--lp-font-mono);
+    text-align: center;
+  }
+</style>

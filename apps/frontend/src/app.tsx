@@ -2821,7 +2821,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }
 
   return (
-    <div className="h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)] font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-text)] flex pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <div className="shiba-app-shell h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)] font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-text)] flex pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       {/* LEFT: app navigation rail (lg+; phones use the sheet below) */}
       <AppNavRail
         workspaceSwitcher={<WorkspaceSwitcher workspaces={teamDirectory.workspaces} selectedWorkspaceId={teamWorkspaceId} loading={teamDirectory.loading} onSelect={(id) => { flushDraft(); roomRoute.clear(); teamDirectory.selectWorkspace(id); }} onManage={() => openView("team")} />}
@@ -2930,14 +2930,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* TOP BAR — subtle chrome header */}
-        <header className="h-[calc(2.5rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] shrink-0 bg-[var(--chrome)] border-b border-[var(--border-1)] text-[var(--fg)] flex items-center gap-2.5 pl-2 pr-3 lg:px-4 z-20">
+        <header className="shiba-app-topbar pt-[env(safe-area-inset-top)] shrink-0 text-[var(--fg)] flex items-center gap-2.5 pl-2 pr-3 lg:px-4 z-20">
           <button
             type="button"
             ref={mobileNavTriggerRef}
             onClick={() => setMobileNavOpen(true)}
             aria-label="Open navigation"
             aria-expanded={mobileNavOpen}
-            className="lg:hidden size-9 -my-1 shrink-0 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+            className="lg:hidden size-11 -my-1 shrink-0 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
           >
             <svg
               aria-hidden="true"
@@ -2950,24 +2950,19 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <nav aria-label="Breadcrumb" hidden={mainView === "work"} className={mainView === "work" ? "hidden" : "flex items-center gap-2 min-w-0"}>
-            <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
-              Shiba
-            </span>
-            <span className="text-[var(--muted-foreground-3)] text-xs" aria-hidden="true">
-              /
-            </span>
-            <span className="text-[13px] font-medium text-[var(--fg)] truncate">
-              {APP_NAV_ITEMS.find((item) => item.id === mainView)?.label ?? "Threads"}
-            </span>
-          </nav>
+          <div className="flex min-w-0 items-center gap-2 text-[13px]">
+            <span className="shiba-workspace-indicator" aria-hidden="true">{teamWorkspaceId ? "T" : "P"}</span>
+            <span className="truncate font-medium" title={teamWorkspaceId ? (teamWorkspace?.name ?? "Team workspace") : "Personal workspace"}>{teamWorkspaceId ? (teamWorkspace?.name ?? "Team workspace") : "Personal workspace"}</span>
+            <span className="hidden text-[var(--muted-foreground-3)] sm:inline" aria-hidden="true">/</span>
+            <span className="hidden truncate text-[var(--muted-foreground-2)] sm:inline">{APP_NAV_ITEMS.find((item) => item.id === mainView)?.label ?? "Threads"}</span>
+          </div>
           <div className="ml-auto flex items-center gap-1.5">
             <Tooltip content="Command menu" shortcut="⌘K" side="bottom">
               <button
                 type="button"
                 onClick={() => setCommandMenuOpen(true)}
                 aria-label="Open command menu"
-                className="h-7 touch:h-8 touch:min-w-10 justify-center rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] flex items-center gap-1.5 px-2 text-[11px] font-medium transition-colors"
+                className="shiba-command-trigger min-h-11 sm:min-h-9 justify-center rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] flex items-center gap-2 px-3 text-xs transition-colors"
               >
                 <svg
                   aria-hidden="true"
@@ -2983,7 +2978,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z"
                   />
                 </svg>
-                <span className="font-mono text-[10px] text-[var(--muted-foreground-2)]">⌘K</span>
+                <span className="hidden sm:inline">Search and commands</span>
+                <kbd className="hidden rounded border border-[var(--border-1)] px-1 py-0.5 font-mono text-[10px] text-[var(--muted-foreground-2)] sm:inline">⌘K</kbd>
               </button>
             </Tooltip>
           </div>
@@ -3017,7 +3013,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           </div>
         ) : null}
 
-        <div className={`flex-1 flex min-w-0 min-h-0 ${mainView === "work" ? "" : "gap-2 p-2"}`}>
+        <div className={`shiba-app-content flex-1 flex min-w-0 min-h-0 ${mainView === "work" ? "" : "gap-3 p-3"}`}>
           {destinationPanel && mainView !== "work" && !sessionsCollapsed ? <div className="hidden lg:flex">{destinationPanel}</div> : null}
           <MainCard className={mainView === "work" || mainView === "settings" || (!personalOnlyNotice && SELF_CARDED_VIEWS.includes(mainView) && !(mainView === "integrations" && (teamWorkspaceId || restrictedTeamMember))) ? "!rounded-none !border-0 !bg-transparent !shadow-none" : ""}>
           {inboxMounted && privateDataEnabled ? (
@@ -3057,7 +3053,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : personalOnlyNotice ? (
             <section className="m-4 min-w-0 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal workspace feature"><h1 className="text-xl font-medium">Open this feature in your personal workspace</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">This view uses personal or deployment settings. Team messages, context and results stay in the selected team’s shared chat and Work views.</p><button type="button" className="mt-4 min-h-11 border border-[var(--border-1)] px-4" onClick={() => { roomRoute.clear(); teamDirectory.selectWorkspace(""); }}>Switch to personal workspace</button><button type="button" className="ml-3 min-h-11 border border-[var(--border-1)] px-4" onClick={() => openView("threads")}>Open team chat</button></section>
           ) : mainView === "inbox" ? null : mainView === "work" ? (
-            <div className="flex min-h-0 flex-1 p-2 gap-2 bg-[var(--bg)] overflow-hidden">
+            <div className="flex min-h-0 flex-1 p-3 gap-3 overflow-hidden">
               <div id="work-panel" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                 {teamWorkspaceId ? <aside className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--card)] px-4 py-3 text-xs"><p>Plan your first team task with optional role and employee choices. Saved drafts start no work.</p><button type="button" disabled={authMode !== "better-auth"} className="min-h-11 border border-[var(--line)] px-3 disabled:opacity-50" onClick={() => setShowFirstRun(true)}>{authMode === "better-auth" ? "Set up a team task" : "Saved setup requires email sign-in"}</button></aside> : null}
                 {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}

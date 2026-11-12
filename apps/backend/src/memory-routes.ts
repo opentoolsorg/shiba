@@ -17,9 +17,10 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
   const { pathname } = url;
   const factId = /^\/api\/memory\/facts\/([^/]+)$/.exec(pathname)?.[1];
   const ownerSources = /^\/api\/memory\/sources(?:\/[^/]+)?$/.test(pathname);
+  const ownerDownload = /^\/api\/memory\/sources\/[^/]+\/download$/.test(pathname);
   const ownerProjects = /^\/api\/memory\/projects(?:\/[^/]+)?$/.test(pathname);
   const ownerRecall = pathname === "/api/memory/recall";
-  if (pathname !== "/api/memory/facts" && pathname !== "/api/memory/sessions" && factId === undefined && !ownerSources && !ownerProjects && !ownerRecall) {
+  if (pathname !== "/api/memory/facts" && pathname !== "/api/memory/sessions" && factId === undefined && !ownerSources && !ownerProjects && !ownerRecall && !ownerDownload) {
     return null;
   }
   if (!(await isAuthorizedRequest(request, env))) {
@@ -34,7 +35,7 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
       { status: 503 },
     );
   }
-  if (ownerSources || ownerProjects || ownerRecall) {
+  if (ownerSources || ownerProjects || ownerRecall || ownerDownload) {
     const userId = await resolveUserId(request, env);
     // The route has already passed its own auth check. A loopback-only
     // development session has no account identity, so it receives a
@@ -43,7 +44,9 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
     const stub = await ownerMemoryStub(env, owner);
     // Scope is derived exclusively from the verified dashboard identity;
     // never relay caller-supplied owner/workspace query params to the DO.
-    const target = `https://internal${pathname.replace("/api/memory", "/internal/memory")}${ownerRecall ? url.search : ""}`;
+    const downloadQuery = new URLSearchParams();
+    if (ownerDownload) for (const value of url.searchParams.getAll("version")) downloadQuery.append("version", value);
+    const target = `https://internal${pathname.replace("/api/memory", "/internal/memory")}${ownerRecall ? url.search : ownerDownload ? `?${downloadQuery}` : ""}`;
     const init: RequestInit = { method: request.method };
     const contentType = request.headers.get("content-type");
     if (contentType !== null) init.headers = { "Content-Type": contentType };
@@ -57,7 +60,12 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
         throw error;
       }
     } else if (request.method === "POST" || request.method === "PATCH") init.body = await request.text();
-    return stub.fetch(target, init);
+    const response = await stub.fetch(target, init);
+    if (!ownerDownload) return response;
+    const privateResponse = new Response(response.body, response);
+    privateResponse.headers.set("Cache-Control", "private, no-store");
+    privateResponse.headers.set("X-Content-Type-Options", "nosniff");
+    return privateResponse;
   }
   // Legacy Memory facts and session records have only an agent name, not an
   // owner key. Treat exact identity-name matches as the only established

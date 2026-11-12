@@ -11,7 +11,7 @@ If email is your immediate goal, choose **Setup Guide â†’ deployment checklist â
 
 ## Local prerequisites
 
-- Node.js 22.12.0 or newer and pnpm 10 or newer (see root `package.json`).
+- Node.js 22.13.0 or newer and pnpm 10 or newer (see root `package.json`).
 - Docker-compatible engine for building/running the configured Sandbox image.
 - Cloudflare account and access to the Workers, Durable Objects, Workers AI, Containers/Sandbox and other configured resources for deployment. Eligibility, limits, and pricing vary; check current Cloudflare documentation.
 
@@ -49,4 +49,4 @@ Before using real repositories, complete the [readiness checklist](/docs/readine
 
 For Slack app setup (scopes, endpoints, approver allowlist) see [Slack Integration](/docs/slack/). For the full runtime environment variable reference see [Configuration](/docs/configuration/).
 
-Claude Code, Codex, and Devin are implemented and have unit-tested harness/configuration paths. Their successful execution against live provider services is not established by the dated verification record. OpenCode is the only harness exercised in the recorded local end-to-end run, and that run did not complete model inference.
+Claude Code and Codex are implemented and have unit-tested harness/configuration paths. Devin is not present in the current registry or image. Their successful execution against live provider services is not established by the dated verification record. OpenCode is the only harness exercised in the recorded local end-to-end run, and that run did not complete model inference.

@@ -10,6 +10,7 @@ import {
   ipcMain,
   Menu,
   Notification,
+  nativeImage,
   powerMonitor,
   screen,
   session,
@@ -487,6 +488,14 @@ function trayIconPath(): string | null {
   return fs.existsSync(icon) ? icon : null;
 }
 
+function setDockIcon(): void {
+  if (!isMac || !app.dock) return;
+  const iconPath = path.join(app.getAppPath(), "assets", "icon.png");
+  if (!fs.existsSync(iconPath)) return;
+  const icon = nativeImage.createFromBuffer(fs.readFileSync(iconPath));
+  if (!icon.isEmpty()) app.dock.setIcon(icon);
+}
+
 const supervisorFacade: DesktopSupervisor = {
   status: () => controller?.status() ?? { state: "signed-out" },
   stop: async () => {
@@ -667,6 +676,7 @@ if (!app.requestSingleInstanceLock()) {
     if (!isMac) app.quit();
   });
   void app.whenReady().then(() => {
+    setDockIcon();
     config = loadConfig();
     registerProtocol();
     buildMenu();

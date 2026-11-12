@@ -60,6 +60,7 @@ export async function startWorkerFixture({ repoRoot = defaultRoot, buildAssets =
     PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: path.join(tempRoot, "home"), TMPDIR: tmpdir(), CI: "1",
     XDG_CONFIG_HOME: path.join(tempRoot, "config"), XDG_CACHE_HOME: path.join(tempRoot, "cache"),
     WRANGLER_LOG_PATH: path.join(tempRoot, "logs"), WRANGLER_SEND_METRICS: "false",
+    CLOUDFLARE_CF_FETCH_ENABLED: "false",
     ASTRO_TELEMETRY_DISABLED: "1", TURBO_TELEMETRY_DISABLED: "1",
   };
   const logs = [];

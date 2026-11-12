@@ -27,6 +27,9 @@ interface BootstrapPolicy {
   locked: boolean;
 }
 
+type SocialProvider = "google" | "slack";
+type SocialProviderStatus = { providers?: Partial<Record<SocialProvider, boolean>> };
+
 export function SessionPending(): JSX.Element {
   return (
     <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center">
@@ -76,6 +79,8 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
   const [invitationToken, setInvitationToken] = useState(initialInvitation);
   const [invitationPolicy, setInvitationPolicy] = useState<{ enabled: boolean; reason?: string } | null>(null);
   const [verificationPending, setVerificationPending] = useState(false);
+  const [socialProviders, setSocialProviders] = useState<SocialProvider[]>([]);
+  const [socialPending, setSocialPending] = useState<SocialProvider | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,10 +95,39 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
       .then(async (response) => response.ok ? await response.json() as { enabled: boolean; reason?: string } : null)
       .then((body) => { if (!cancelled && body && typeof body.enabled === "boolean") setInvitationPolicy(body); })
       .catch(() => {});
+    void fetch("/api/auth/social-providers", { cache: "no-store" })
+      .then(async (response) => response.ok ? await response.json() as SocialProviderStatus : null)
+      .then((body) => {
+        if (!cancelled && body?.providers) {
+          setSocialProviders((["google", "slack"] as const).filter((provider) => body.providers?.[provider] === true));
+        }
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, []);
+
+  async function signInSocial(provider: SocialProvider): Promise<void> {
+    setError(null);
+    setSocialPending(provider);
+    const next = signInReturnPath(window.location.search);
+    try {
+      const result = await withAuthTimeout(authClient.signIn.social({
+        provider,
+        callbackURL: next ?? "/app/",
+        errorCallbackURL: "/app/?auth_error=1",
+        requestSignUp: false,
+      }), AUTH_CLIENT_TIMEOUT_MS);
+      if (result.error) {
+        setError(result.error.message?.trim() || "Provider sign-in failed. If this provider is not linked yet, sign in with email first, then link it in Settings → Account.");
+      }
+    } catch (caught) {
+      setError(caught instanceof AuthTimeoutError ? caught.message : "Could not start provider sign-in. Try again.");
+    } finally {
+      setSocialPending(null);
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -275,6 +309,20 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
                 : "Sign in"}
           </button>
         </form>
+        {mode === "signin" && socialProviders.length > 0 ? (
+          <div className="w-full border-t border-[var(--border-1)] pt-3">
+            <p className="mb-2 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">Or sign in with a linked account</p>
+            <div className="grid grid-cols-2 gap-2">
+              {socialProviders.map((provider) => (
+                <button key={provider} type="button" disabled={pending || socialPending !== null}
+                  onClick={() => void signInSocial(provider)}
+                  className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 text-sm font-medium text-[var(--fg)] hover:bg-[var(--secondary)] disabled:opacity-60">
+                  {socialPending === provider ? "Opening…" : provider === "google" ? "Google" : "Slack"}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <button
           type="button"
           onClick={() => {

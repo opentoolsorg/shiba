@@ -3,7 +3,7 @@ title: Sandbox SDK 1.0 migration
 description: Phase 2a — move shiba from @cloudflare/sandbox 0.12 to 1.0 with outbound handlers and a custom Sandbox Durable Object.
 ---
 
-Shiba run sandboxes now use **Sandbox SDK 1.0**: your Worker owns a `Sandbox` Durable Object that calls `this.ctx.container` for exec, files, previews, and snapshots. The npm package supplies `Files` helpers only; egress stays in the Worker via `SandboxOutbound` and [`egress.ts`](https://github.com/princepal9120/shiba/blob/main/apps/backend/src/egress.ts).
+Shiba run sandboxes now use **Sandbox SDK 1.0**: your Worker owns a `Sandbox` Durable Object that calls `this.ctx.container` for exec, files, previews, and snapshots. The npm package supplies `Files` helpers only; egress stays in the Worker via `SandboxOutbound` and [`egress.ts`](https://github.com/opentoolsorg/shiba/blob/main/apps/backend/src/egress.ts).
 
 ## Local rehearsal (required before production)
 

@@ -22,6 +22,59 @@ afterEach(async () => {
 });
 
 describe("OpenConnector real HTTP service fixture (no vendor accounts)", () => {
+  it("executes only the exact approved owner/consent over HTTP and rejects stale or expired authority", async () => {
+    const alice = await openConnectorConnectionName("alice"), bob = await openConnectorConnectionName("bob");
+    let consent = "fixture-consent-a";
+    const dispatched: Array<{ alias: string | undefined; appId: string | undefined; body: unknown }> = [];
+    const server = createServer(async (request, response) => {
+      const path = new URL(request.url ?? "/", "http://fixture").pathname;
+      const reply = (body: unknown, status = 200) => {
+        response.writeHead(status, { "content-type": "application/json" });
+        response.end(JSON.stringify(body));
+      };
+      if (path === "/api/connections" && request.headers.authorization === "Bearer fixture-admin") {
+        reply([alice, bob].map((alias) => ({ id: `app-${alias}`, service: "github", connectionName: alias,
+          configured: true, virtual: false, status: "active", oauthAuthorizationId: consent, profile: { displayName: alias } })));
+        return;
+      }
+      if (path === "/v1/actions/github.get_current_user" && request.method === "POST" && request.headers.authorization === "Bearer fixture-runtime") {
+        let raw = "";
+        for await (const chunk of request) raw += String(chunk);
+        dispatched.push({ alias: request.headers["x-oo-connector-alias"] as string | undefined,
+          appId: request.headers["x-oo-connector-app-id"] as string | undefined, body: JSON.parse(raw) });
+        reply({ success: true, data: { login: "fixture-alice" } });
+        return;
+      }
+      reply({ error: "unauthorized" }, 401);
+    });
+    servers.push(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("No fixture port");
+    const provider = new OpenConnectorIntegrationProvider({ env: {
+      OPEN_CONNECTOR_URL: `http://127.0.0.1:${address.port}`,
+      OPEN_CONNECTOR_ADMIN_TOKEN: "fixture-admin", OPEN_CONNECTOR_RUNTIME_TOKEN: "fixture-runtime",
+    } as Env });
+    const own = (await provider.listConnections({ userId: "alice" }))[0];
+    const foreign = (await provider.listConnections({ userId: "bob" }))[0];
+    if (!own || !foreign) throw new Error("Missing scoped fixture account");
+    const action = { userId: "alice", toolkitSlug: "github", toolSlug: "github.get_current_user", arguments: {} };
+    expect(await provider.executeTool(action)).toMatchObject({ ok: false });
+    expect(await provider.executeTool({ ...action, approvedConnectionId: foreign.id })).toMatchObject({ ok: false });
+    expect(dispatched).toEqual([]);
+    let dispatchChecks = 0;
+    expect(await provider.executeTool({ ...action, approvedConnectionId: own.id, approvedUntil: Date.now() + 60_000,
+      beforeDispatch: async () => { dispatchChecks++; },
+    })).toEqual({ ok: true, status: "completed", output: { login: "fixture-alice" } });
+    expect(dispatchChecks).toBe(1);
+    expect(dispatched).toEqual([{ alias: alice, appId: `app-${alice}`, body: { input: {} } }]);
+    expect(await provider.executeTool({ ...action, approvedConnectionId: own.id, approvedUntil: Date.now() - 1 })).toMatchObject({ ok: false, error: expect.stringContaining("expired") });
+    consent = "fixture-consent-b";
+    expect(await provider.executeTool({ ...action, approvedConnectionId: own.id })).toMatchObject({ ok: false, error: expect.stringContaining("consent generation") });
+    expect(dispatched).toHaveLength(1);
+  });
+
   it("verifies metadata, OAuth setup, per-owner accounts/discovery and disconnect without an unapproved action", async () => {
     const alice = await openConnectorConnectionName("alice"),
       bob = await openConnectorConnectionName("bob");

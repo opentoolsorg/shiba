@@ -70,12 +70,12 @@ describe('Slack coworker native scope',()=>{
   expect(Boolean(screen.queryByText(/\/shiba-link/))).toBe(success&&!matching);
   expect(fetcher.mock.calls.filter(([url])=>String(url).endsWith('/confirm'))).toHaveLength(1);
  });
- it('clears identity-link instructions after a denied status refresh',async()=>{
+ it.each([401,403,500])('clears identity-link instructions only after an auth-denied status refresh (%i)',async(status)=>{
   const ws='ws_'+ 'a'.repeat(24),actor='a@example.test';let denied=false;
   const fetcher=vi.fn(async(url:RequestInfo|URL)=>{
     const path=String(url);
     if(path.endsWith('/begin'))return Response.json({id:'sc_'+ 'b'.repeat(32),secret:'c'.repeat(64),teamId:'T1',expiresAt:Date.now()+600000});
-    if(denied)return Response.json({error:'forbidden'},{status:403});
+    if(denied)return Response.json({error:'unavailable'},{status});
     return Response.json(path.endsWith('/drafts')?{drafts:[]}:path.endsWith('/drafts/submissions')?{ok:true,workspaceId:ws,actorId:actor,submissions:[]}:state);
   });
   render(<SlackCoworkerPanel workspaceId={ws} actorId={actor} onAdoptTask={()=>{}} client={new SlackCoworkerClient(ws,actor,fetcher)}/>);
@@ -85,7 +85,7 @@ describe('Slack coworker native scope',()=>{
   await screen.findByText(/\/shiba-link/);
   denied=true;fireEvent.click(screen.getByRole('button',{name:'Refresh'}));
   await screen.findByText('Status could not be verified. Refresh before another action.');
-  expect(screen.queryByText(/\/shiba-link/)).toBeNull();
+  expect(Boolean(screen.queryByText(/\/shiba-link/))).toBe(status===500);
   expect(fetcher.mock.calls.filter(([url])=>String(url).endsWith('/begin'))).toHaveLength(1);
  });
  it.each([1500,-1])('honors the server challenge expiry offset %i without another request',async(offset)=>{

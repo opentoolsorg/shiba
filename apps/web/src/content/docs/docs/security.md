@@ -5,16 +5,25 @@ description: Authentication, credential boundaries, and known limitations.
 
 ## Installation boundary
 
-Each installation is account-owned; the application does not provide cross-customer multi-tenant isolation. Put Cloudflare Access in front of the Worker route before exposing it: an obscure URL is not protection. Deployment configuration and Access policies are account-owned and must be verified for every hostname.
+Each installation is account-owned; the application does not provide cross-customer multi-tenant isolation. Configure and verify an identity system before exposing dashboard or runner endpoints. An obscure URL is not protection.
 
-When `REQUIRE_ACCESS` or `ACCESS_AUD` is enabled, the Worker requires an authenticated identity for ordinary routes. With `ACCESS_AUD`, `apps/backend/src/access-jwt.ts` verifies the RS256 Access JWT (issuer/JWKS and audience) and rebuilds the email identity from that token; a client-supplied email header is not trusted. Without either setting, only loopback hosts are served without identity; requests to deployed hosts fail closed with 401, even if they carry a client-supplied identity header. Signature-authenticated Slack/GitHub routes, automation webhooks, and bearer-token MCP routes use their own authentication and are exempt from Access identity checks. Configure matching Access policies/bypasses for those integrations. This code-level behavior is tested; it does not prove that a deployed hostname is covered by the intended Access application. `VERIFICATION.md` records a deployed-Worker forged-header 401 check, but no cloud end-to-end coding run.
+Shiba supports Cloudflare Access and the configured built-in Better Auth cookie-session lane. With `ACCESS_AUD`, Access JWT validation checks the issuer, signature, and audience before deriving the user's email. A client-supplied email header is not an identity proof. Better Auth checks the signed-in session when that lane is configured. Without an identity system, only loopback development hosts bypass the gate; deployed API requests fail closed.
+
+Signature-authenticated Slack/GitHub routes, automation webhooks, bearer-token MCP/local-runtime routes, and supported authentication endpoints have their own route-specific checks. Configure matching Access policies or bypasses for integrations that need them. `OPEN_DASHBOARD` can expose the static dashboard shell, not private APIs, identity, or execution authority.
+
+Authentication is only the first layer. Invited team membership is not deployment-operator authority. Provider setup, fleet administration, and deployment MCP configuration have separate restrictions. Room access, employee capabilities, account/resource grants, and action approval also remain separate. See [Permissions and roles](/docs/permissions/).
+
+These are implementation and test claims, not proof that a deployed hostname has the intended policy. `VERIFICATION.md` records a dated forged-header 401 check but no cloud end-to-end coding run. Validate your actual hostname and account roles.
 
 ## The credential boundary
 
 Provider credentials are not supplied to provider-backed harnesses in the container: they receive a dummy key and provider requests are forwarded at Sandbox egress (`apps/backend/src/egress.ts`). These boundaries have unit coverage; do not treat that as proof of a cloud deployment:
 
 - **Model traffic.** The container is given a dummy key and calls its selected provider host. The Worker forwards supported provider requests through the configured AI Gateway binding; successful inference still depends on account configuration and credentials. There is no provider callback route.
+- **ChatGPT plan traffic (standard SIWC).** `codex-subscription` receives an `ACCESS_TOKEN` placeholder. The Worker resolves the signed-in user and attaches the real bearer at the `api.openai.com` egress boundary; refresh stays in the per-user `ChatGptAuth` Durable Object. Real OAuth tokens and `auth.json` are not supplied to that run container.
 - **Repository traffic.** `GITHUB_TOKEN` is attached in the Worker, never in the container.
+
+Opt-in authentication modes can have different security limits. In particular, the Antigravity container-profile path does not meet the same Worker-only credential boundary. Review [Model authentication](/docs/model-auth/) and [Configuration](/docs/configuration/) before enabling a non-default lane. Do not move standard SIWC OAuth exchange or refresh into a task sandbox as a workaround.
 
 ### Deny-by-default egress
 
@@ -28,15 +37,15 @@ A run that never scoped itself gets no credential at all.
 
 ## Automation safety
 
-An automation is an approval gate with nobody standing at it, so three controls apply together (`authorizeAutomationRun`):
+An automation schedules requests; it cannot approve them. `authorizeAutomationRun` applies these controls:
 
-1. **Approval is required by default.** An automation schedules work; it does not authorize it.
-2. **Unattended mode is opt-in and narrow.** It is granted only when opening a pull request is the run's only mutation *and* the repo is on that automation's explicit allowlist. A PR is reviewable and revertible; nothing else is.
-3. **A daily run budget per automation.** A cron misconfiguration or a webhook loop otherwise burns tokens until somebody notices, and both provider inference and platform resource usage may incur account charges.
+1. **Every allowed workspace run requires human approval**, including artifact-workspace runs. Legacy `unattended` fields do not bypass the gate.
+2. **Targets stay constrained.** Artifact-workspace automations support schedule triggers and cannot request PR publication or connected-app mutations. Completed repository changes require a separate publication approval.
+3. **Per-automation daily request limits and enable switches apply.** A schedule or webhook loop can otherwise consume resources before somebody notices.
 
-The optional `run_when` gate asks the cheap Workers AI orchestrator model whether a plain-language condition holds before a run starts. It **fails closed**: a model error, an empty answer, or anything not clearly affirmative means no run, and the reason is recorded rather than dropped.
+An optional `runWhen` condition is evaluated before the coding-run approval is queued. When `TYPESAFE_API_KEY` is configured, evaluation uses TypeSafe Noul; otherwise it uses Workers AI. The check sends the relevant condition/event context to that service and can incur usage even when no coding run is approved. Errors, empty answers, and answers that are not clearly affirmative fail closed and record a skip reason.
 
-Kill switches: `enabled` per automation, and the `AUTOMATIONS_ENABLED` var globally.
+Use **Disable** in **Deployed Automations** to stop future requests. This does not cancel previously queued or running tasks. Operators also have the deployment-wide `AUTOMATIONS_ENABLED` switch. See the [automation reference](/docs/automation-reference/).
 
 ## Other implemented safeguards
 
@@ -52,8 +61,10 @@ Kill switches: `enabled` per automation, and the `AUTOMATIONS_ENABLED` var globa
 
 Clearing history or the run registry does not erase all child Durable Object data or stop running containers. Review retention and deletion requirements before using confidential repositories.
 
-Treat generated code as untrusted. Review changes and run tests. Use least-privilege credentials restricted to test repositories. Publishing opens a PR and never merges it, and publication is not a lossless Git patch transport.
+Owner-private memory retention excludes expired sources from recall; it does not delete uploaded originals or rewrite approved snapshots. Artifact ZIP links expire after seven days, but anyone holding the complete signed link can use it before expiry. See [Context and memory](/docs/context-and-memory/) and [Files and revisions](/docs/artifacts/) for deletion and sharing behavior.
+
+Treat generated output as untrusted. Review changes and run tests. Use least-privilege credentials restricted to the needed resources. Publishing opens a PR and never merges it. Repository capture validates supported file types, bytes, and limits against an immutable snapshot, and fails rather than intentionally publishing a partial captured tree. A shortened diff display is not the complete review record.
 
 Sources: [Access](https://developers.cloudflare.com/cloudflare-one/access-controls/), [service tokens](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/), [Sandbox outbound traffic](https://developers.cloudflare.com/sandbox/guides/outbound-traffic/), [AI Gateway](https://developers.cloudflare.com/ai-gateway/).
 
-Local implementation: `apps/backend/src/index.ts`, `apps/backend/src/egress.ts`, `apps/backend/src/sandbox.ts`, `apps/backend/src/security.ts`, `apps/backend/src/automations.ts`, and `apps/backend/src/agents/orchestrator.ts`. See [Readiness](/docs/readiness/).
+Local implementation: `apps/backend/src/index.ts`, `apps/backend/src/request-auth.ts`, `apps/backend/src/team-member-auth.ts`, `apps/backend/src/employee-tool-policy.ts`, `apps/backend/src/egress.ts`, `apps/backend/src/sandbox.ts`, `apps/backend/src/security.ts`, `apps/backend/src/automations.ts`, and `apps/backend/src/agents/orchestrator.ts`. See [Readiness](/docs/readiness/).

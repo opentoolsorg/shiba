@@ -162,15 +162,12 @@ export function SessionsSidebar({
   isMobileDrawer = false,
   variant = "work",
   title: customTitle,
-  scope: controlledScope,
-  onScopeChange,
   activeNav: controlledNav,
   onNavChange,
   onSearchClick,
   className = "",
 }: SessionsSidebarProps): JSX.Element {
   const title = customTitle ?? (variant === "sessions" ? "Sessions" : "Work");
-  const [internalScope, setInternalScope] = useState<"personal" | "workspace">("personal");
   const [internalNav, setInternalNav] = useState<WorkHeaderViewMode>("list");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -189,13 +186,7 @@ export function SessionsSidebar({
     agents: true,
   });
 
-  const activeScope = controlledScope ?? internalScope;
   const currentNav = controlledNav ?? internalNav;
-
-  const handleScopeChange = (nextScope: "personal" | "workspace") => {
-    setInternalScope(nextScope);
-    onScopeChange?.(nextScope);
-  };
 
   const handleNavChange = (nextNav: WorkHeaderViewMode) => {
     setInternalNav(nextNav);
@@ -344,42 +335,6 @@ export function SessionsSidebar({
                 ✕
               </button>
             ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      {/* Segmented control: Personal | Workspace (work variant only) */}
-      {variant !== "sessions" ? (
-        <div className="px-3 pb-3 shrink-0">
-          <div
-            className="p-0.5 bg-[#f4f4f5] dark:bg-zinc-800/80 rounded-md flex items-center gap-0.5"
-            role="group"
-            aria-label="Work scope"
-          >
-            <button
-              type="button"
-              aria-pressed={activeScope === "personal"}
-              onClick={() => handleScopeChange("personal")}
-              className={`flex-1 min-h-11 rounded text-[12px] font-medium transition-all flex items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
-                activeScope === "personal"
-                  ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
-                  : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-200"
-              }`}
-            >
-              Personal
-            </button>
-            <button
-              type="button"
-              aria-pressed={activeScope === "workspace"}
-              onClick={() => handleScopeChange("workspace")}
-              className={`flex-1 min-h-11 rounded text-[12px] font-medium transition-all flex items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
-                activeScope === "workspace"
-                  ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
-                  : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-200"
-              }`}
-            >
-              Workspace
-            </button>
           </div>
         </div>
       ) : null}

@@ -184,6 +184,7 @@ export const Worker = Cloudflare.Worker("Worker", {
     FOUNDER_HUBSPOT_READS_ENABLED: "false",
     FOUNDER_RECONCILIATION_SCHEDULES_ENABLED: "false",
     FOUNDER_RECONCILIATION_SLACK_ENABLED: "false",
+    OPEN_CONNECTOR_OPERATOR_REVIEW_ENABLED: "false",
     OPEN_CONNECTOR_READ_VERSION_ID: "",
     OPEN_CONNECTOR_READ_MANIFEST_SHA256: "",
     SLACK_INSTALLATIONS_ENABLED: "false",
@@ -349,6 +350,11 @@ export const Worker = Cloudflare.Worker("Worker", {
       // Built-in dashboard auth signing secret (better-auth.ts): absent =
       // the lane is dark and the gate falls back to Access/fail-closed.
       "BETTER_AUTH_SECRET",
+      // Optional dashboard sign-in credentials; Slack app installation is separate.
+      "BETTER_AUTH_GOOGLE_CLIENT_ID",
+      "BETTER_AUTH_GOOGLE_CLIENT_SECRET",
+      "BETTER_AUTH_SLACK_CLIENT_ID",
+      "BETTER_AUTH_SLACK_CLIENT_SECRET",
       // First-account gate for public hosts. Either secret is enough.
       // Unset on a public URL refuses sign-up. Loopback dev does not need them.
       "BETTER_AUTH_BOOTSTRAP_TOKEN",
@@ -432,6 +438,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "FOUNDER_HUBSPOT_READS_ENABLED",
       "FOUNDER_RECONCILIATION_SCHEDULES_ENABLED",
       "FOUNDER_RECONCILIATION_SLACK_ENABLED",
+      "OPEN_CONNECTOR_OPERATOR_REVIEW_ENABLED",
       "OPEN_CONNECTOR_READ_VERSION_ID",
       "OPEN_CONNECTOR_READ_MANIFEST_SHA256",
       "SLACK_INSTALLATIONS_ENABLED",
