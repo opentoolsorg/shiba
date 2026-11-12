@@ -4,11 +4,12 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { AuthScreen } from "./AuthScreen";
 
 const signIn = vi.fn();
+const signInSocial = vi.fn();
 const signUp = vi.fn();
 
 vi.mock("../auth-client", () => ({
   authClient: {
-    signIn: { email: (...args: unknown[]) => signIn(...args) },
+    signIn: { email: (...args: unknown[]) => signIn(...args), social: (...args: unknown[]) => signInSocial(...args) },
     signUp: { email: (...args: unknown[]) => signUp(...args) },
   },
 }));
@@ -16,6 +17,7 @@ vi.mock("../auth-client", () => ({
 afterEach(() => {
   cleanup();
   signIn.mockReset();
+  signInSocial.mockReset();
   signUp.mockReset();
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -31,6 +33,7 @@ describe("AuthScreen", () => {
   function policies(enabled = true, restricted = false) {
     const fetcher = vi.fn(async (url: string) => ({ ok: true,
       json: async () => url.endsWith("invitation-policy") ? { enabled, reason: enabled ? undefined : "The operator must configure email verification." }
+        : url.endsWith("social-providers") ? { providers: { google: true, slack: true } }
         : url.endsWith("enrollment-status") ? { restricted, emailVerified: !restricted }
         : { requiresToken: false, requiresOwnerEmail: false, locked: false } }));
     vi.stubGlobal("fetch", fetcher);
@@ -62,6 +65,32 @@ describe("AuthScreen", () => {
     expect(await screen.findByText(/operator must configure email verification/i)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Create team account" }) as HTMLButtonElement).disabled).toBe(true);
     expect(signUp).not.toHaveBeenCalled();
+  });
+
+  it("offers configured social sign-in only on the existing-account path and disables social signup", async () => {
+    policies();
+    signInSocial.mockResolvedValue({ data: { url: "https://accounts.google.com/" } });
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    expect(await screen.findByRole("button", { name: "Google" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Slack" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+    await act(async () => {});
+    expect(signInSocial).toHaveBeenCalledWith(expect.objectContaining({ provider: "google", requestSignUp: false }));
+    fireEvent.click(screen.getByRole("button", { name: "First sign-in? Create the account" }));
+    expect(screen.queryByRole("button", { name: "Google" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Slack" })).toBeNull();
+  });
+
+  it("shows the provider error reason and keeps linking guidance as a fallback", async () => {
+    policies();
+    signInSocial.mockResolvedValueOnce({ error: { message: "OAuth provider is not configured" } });
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Google" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("OAuth provider is not configured");
+
+    signInSocial.mockResolvedValueOnce({ error: { message: "  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("sign in with email first, then link it in Settings");
   });
 
   it("does not enter the dashboard with a successful but unverified invited session", async () => {

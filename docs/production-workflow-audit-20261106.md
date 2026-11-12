@@ -103,6 +103,10 @@ current source returns 403. The unhandled rejection originated in
 `local-daemon-deliverables.test.ts:208`, parsing an empty request as JSON.
 No assertions were weakened. The full root gate is **not green**.
 
+PR #196 later updated the direct-intake matrix to expect 403 for local execution
+without dashboard authority. The 400-versus-403 assertion mismatch is resolved;
+the full root gate above remains a historical result, not a current rerun.
+
 Next gates: resolve deployment/source drift through reviewed deployment; provision
 secure native test sessions; prove two-account rooms/presence/removal; verify an
 approved real model run and live-work transport; configure and authorize a real

@@ -7,12 +7,12 @@ import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";
   data-slot="search-trigger"
   data-search-trigger
   type="button"
-  class="flex items-center gap-2 rounded-md border border-border bg-card text-sm leading-5 text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground p-2 sm:px-2.5 sm:py-1.5"
+  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card p-0 text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground sm:h-10 sm:w-44 sm:justify-start sm:gap-3 sm:px-3 sm:py-0 sm:text-sm md:w-56 lg:w-72"
   aria-keyshortcuts="Control+K"
 >
   <Icon name="ph:magnifying-glass" class="h-4 w-4" />
-  <span class="sr-only md:not-sr-only">Search</span><span class="sr-only"> documentation</span>
-  <kbd aria-hidden="true" dir="ltr" class="hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1.5 py-0.5 text-[0.625rem] leading-4 font-medium text-muted-foreground">
+  <span class="sr-only sm:not-sr-only">Search</span><span class="sr-only"> documentation</span>
+  <kbd aria-hidden="true" dir="ltr" class="ml-auto hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1.5 py-0.5 text-[0.625rem] leading-4 font-medium text-muted-foreground">
     <span data-shortcut-key>Ctrl</span>K
   </kbd>
 </button>

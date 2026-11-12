@@ -70,6 +70,20 @@ The dashboard also uses the `coding-orchestrator` agent SDK routes under `/agent
 
 Harness unit coverage is not proof of successful inference. Review the [readiness checklist](/docs/readiness/) for recorded verification and current limits.
 
+## Private memory source downloads
+
+In Memory, **Download vN** saves the exact retained TXT or Markdown bytes for the displayed uploaded source version. Pasted notes do not have an original uploaded file. Disabled, expired, or deleted sources cannot be downloaded. Saved local copies remain on your device after a source is disabled or deleted.
+
+`GET /api/memory/sources/:id/download?version=N` uses the authenticated dashboard identity, not an owner query parameter or an MCP token. `version` is required and must match the current immutable version. The response is a private, non-cacheable attachment with its validated filename, original media type, `X-Source-Version`, and `X-Source-Sha256` headers. Bytes are length- and SHA-256-checked before download, and source visibility is rechecked after storage reads.
+
+- `400`: missing or invalid version.
+- `401`: no authenticated dashboard session.
+- `404`: no active uploaded source in this owner's private partition.
+- `409`: the displayed version is stale. Reload Memory and review the new version.
+- `503`: storage is unavailable, missing, or fails integrity checks. No file bytes are returned.
+
+This route does not expose storage object keys, create public links, grant sharing access, or restore a deleted source. Verification uses local storage and authenticated-route fixtures, not a live cloud run.
+
 ## Email API
 
 <ApiEndpoint method="GET" path="/api/email/openapi.json" title="Read the email contract" response="OpenAPI 3.1"><p>Machine-readable schema for this installation's mailbox, email, thread, draft, and attachment routes.</p></ApiEndpoint>

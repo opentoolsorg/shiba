@@ -6,7 +6,7 @@ import { ExtensionMcpServersView } from "./ExtensionMcpServersView";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("Extension MCP uses the canonical reviewed registry", () => {
-  it("uses normal HTTP and shows all six presets without shadow fixtures or unsupported controls", async () => {
+  it("uses normal HTTP and shows all eight presets without shadow fixtures or unsupported controls", async () => {
     const calls: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path=String(input); calls.push(path);
@@ -18,6 +18,7 @@ describe("Extension MCP uses the canonical reviewed registry", () => {
     render(<ExtensionMcpServersView />);
     await screen.findByText("No external MCP servers registered. The built-in Shiba gateway is separate.");
     expect(screen.getAllByRole("button",{name:"Connect with OAuth"})).toHaveLength(6);
+    expect(screen.getAllByRole("button",{name:"Save bearer token"})).toHaveLength(2);
     expect(screen.queryByText("GitHub MCP Server")).toBeNull();
     expect(screen.queryByLabelText("Transport")).toBeNull();
     expect(screen.queryByLabelText("Custom header")).toBeNull();

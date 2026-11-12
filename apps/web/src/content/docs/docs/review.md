@@ -1,29 +1,37 @@
 ---
 title: Pull request review
-description: Open a pull request, read the findings, and decide what to do with the changes.
+description: Review an employee's completed changes, approve publication, and inspect the findings.
 ---
 
-Shiba can open a pull request for a task and review the proposed changes. Your team decides whether to accept or merge them.
+For repository tasks, Shiba can prepare a pull request and review its changes. You decide whether to publish, accept, or merge the work.
 
-## Request a review
+## Request a pull request
 
-1. In the task composer, turn on **Create pull request**.
-2. Check **Read-only review after publish** if you want Shiba to review the pull request after it opens.
-3. Read the approval card. It explains whether the request includes publication and a review.
-4. Approve only when that request matches your intent.
+1. Choose **Repository task** and select the GitHub repository and branch.
+2. Turn on **Create pull request** if you want publication after the work is ready.
+3. Select **Read-only review after publish** if you want findings posted after the pull request opens.
+4. Read and approve the task request to start the run.
 
-That approval covers the task, its pull request, and the review described on the card. The review does not ask for a second approval. Approving one task does not approve reviews of other pull requests.
+The first approval allows the task to run. It does not authorize pushing the changes or opening the pull request.
+
+## Review the completed changes
+
+When the work is ready, inspect the files, diff, and reported checks. Shiba presents a separate publication approval for the captured changes.
+
+Approve that publication only when the repository, changes, and requested review match your intent. If you want a revision, request it before publishing. Check the returned pull request link to confirm publication succeeded.
+
+The selected post-publication review covers this task's pull request. It does not approve reviews of unrelated pull requests or a merge.
 
 ## Read the findings
 
-Open the task's thread and find **Review findings**. Each finding points to a file and line and explains a possible problem. You can also read the review on GitHub.
+Find **Review findings** in the thread or read the posted review on GitHub. Findings point to files and lines and explain possible problems.
 
-Check the finding against the change and the relevant tests. A review with no findings is not a guarantee that the code is correct. The reviewer reports problems; it does not edit the code.
+Check each finding against the change and tests. A review with no findings is not proof that the code is correct. The read-only reviewer reports problems without editing the code.
 
 ## If the review fails
 
-Read the error in **Review findings**, address the reported problem, then choose **Retry review**. If the review is finished but its GitHub post failed, Shiba retries the post without running the reviewer again.
+Read the error in **Review findings**, address the problem, then choose **Retry review**. If the result is ready but its GitHub post failed, Shiba retries the post rather than repeating the review.
 
-Reviewing does not merge the pull request. Inspect the diff and checks, then follow your team's usual merge process.
+Reviewing does not merge the pull request. Follow your team's merge process and any separate merge approval.
 
-For integration details, see the [review reference](/docs/review-reference/). To review work without publishing it, use [Threads and results](/docs/dashboard/).
+For technical details, see the [review reference](/docs/review-reference/). For files that do not need GitHub, see [Threads and results](/docs/dashboard/).

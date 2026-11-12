@@ -20,7 +20,7 @@ const mockRun: RetainedRun = {
 };
 
 describe("DashboardView", () => {
-  it("renders the 48px header with breadcrumb and connection label", () => {
+  it("renders overview heading, breadcrumb, connection state and a new task action", () => {
     const onNewTask = vi.fn();
     render(
       <DashboardView
@@ -55,7 +55,9 @@ describe("DashboardView", () => {
     render(
       <DashboardView
         runs={[mockRun]}
-        pendingApprovals={[{ approvalId: "app-1", messageId: "m1", toolCallId: "tc1", tool: "deploy", input: {} }]}
+        pendingApprovals={[
+          { approvalId: "app-1", messageId: "m1", toolCallId: "tc1", tool: "deploy", input: {} },
+        ]}
         storedApprovals={[]}
         agents={[{ principal: "agent-1", scopes: ["read"], live: true, created: 1000 }]}
         connectionLabel="Connected"
@@ -95,6 +97,8 @@ describe("DashboardView", () => {
 
     expect(screen.getByTestId("launch-blocked-banner")).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toContain("Failed to fetch runs");
+    expect(screen.getByRole("button", { name: /Total runs/ }).textContent).toContain("—");
+    expect(screen.queryByRole("heading", { name: "No runs yet" })).toBeNull();
   });
 
   it("inspects recent run on click", () => {
@@ -116,5 +120,79 @@ describe("DashboardView", () => {
 
     fireEvent.click(screen.getByText("Optimize database queries").closest("button")!);
     expect(onInspectRun).toHaveBeenCalledWith("run-12345678");
+  });
+});
+
+describe("Dashboard overview hierarchy", () => {
+  const props = {
+    runs: [],
+    pendingApprovals: [],
+    storedApprovals: [],
+    agents: [],
+    connectionLabel: "Connected",
+    connectionTone: "ok" as const,
+    runsError: null,
+    onNavigate: vi.fn(),
+    onNewTask: vi.fn(),
+    onInspectRun: vi.fn(),
+  };
+
+  it("puts the approval review ahead of setup without approving anything from the overview", () => {
+    const onNavigate = vi.fn();
+    render(
+      <DashboardView
+        {...props}
+        onNavigate={onNavigate}
+        launchBlocked
+        pendingApprovals={[
+          { approvalId: "a", messageId: "m", toolCallId: "tc", tool: "deploy", input: {} },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Your review comes first" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review approvals" }));
+    expect(onNavigate).toHaveBeenCalledWith("approvals");
+    expect(screen.queryByRole("button", { name: /^Approve$/ })).toBeNull();
+  });
+
+  it("directs a blocked empty workspace to setup and never fabricates a success rate", () => {
+    const onNavigate = vi.fn();
+    render(<DashboardView {...props} launchBlocked onNavigate={onNavigate} />);
+    expect(screen.getByRole("heading", { name: "Connect a provider to get started" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Success rate/ }).textContent).toContain("—");
+    expect(screen.queryByText("100%")).toBeNull();
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Open providers" })[0] as HTMLButtonElement,
+    );
+    expect(onNavigate).toHaveBeenCalledWith("providers");
+  });
+
+  it("keeps workspace shortcuts connected to their owning routes", () => {
+    const onNavigate = vi.fn();
+    render(<DashboardView {...props} onNavigate={onNavigate} />);
+    for (const [label, route] of [
+      ["Connect your tools", "integrations"],
+      ["Add useful context", "memory"],
+      ["Meet your agents", "custom-agents"],
+    ] as const) {
+      fireEvent.click(screen.getByRole("button", { name: new RegExp(label) }));
+      expect(onNavigate).toHaveBeenLastCalledWith(route);
+    }
+  });
+
+  it("sorts recent activity by the latest update and limits it to six runs", () => {
+    const onInspectRun = vi.fn();
+    const runs = Array.from({ length: 8 }, (_, index) => ({
+      ...mockRun,
+      runId: `run-${index}`,
+      task: `Task ${index}`,
+      updatedAt: 1000 + index,
+    }));
+    render(<DashboardView {...props} runs={runs} onInspectRun={onInspectRun} />);
+    expect(screen.queryByText("Task 0")).toBeNull();
+    expect(screen.queryByText("Task 1")).toBeNull();
+    expect(screen.getByText("6 shown")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Task 7/ }));
+    expect(onInspectRun).toHaveBeenCalledWith("run-7");
   });
 });

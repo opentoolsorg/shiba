@@ -41,6 +41,8 @@ describe("decideNavigation", () => {
     ["cloudflareaccess suffix trick", "https://evilcloudflareaccess.com/", "external"],
     ["cloudflareaccess over http", "http://acme.cloudflareaccess.com/", "deny"],
     ["google auth host", "https://accounts.google.com/o/oauth2/v2/auth", "allow"],
+    ["Slack OpenID authorization", "https://slack.com/openid/connect/authorize", "allow"],
+    ["Slack unrelated page -> external", "https://slack.com/workspace", "external"],
     ["github login prefix", "https://github.com/login/oauth/authorize", "allow"],
     ["github login exact", "https://github.com/login", "allow"],
     ["github session", "https://github.com/session", "allow"],

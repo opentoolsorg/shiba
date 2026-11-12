@@ -11,7 +11,7 @@ This page is the operator guide for a fresh account. It does not deploy anything
 
 For a credentials-free local boot check, clone the repository, install the lockfile dependencies, then run `corepack pnpm selfhost:smoke` (details in [Local development](/docs/local-development/)). This exercises a local Worker, D1 migrations, the app shell, and a safe API route using temporary state. It does not contact AI providers or prove Cloudflare-hosted services work.
 
-Shiba is not an offline inference package: it does not ship model weights or a local model server. Local dashboard/API development and local D1/DO state are available through Wrangler. Real agent execution still needs a configured model path and repository access; local container execution also needs Docker. Deployed Containers, Workers AI, managed Access, public webhooks, Vectorize-backed semantic memory, and product-managed storage depend on your Cloudflare account and configured bindings. Optional external integrations need their own credentials and setup. An unset integration is not connected.
+Shiba is not an offline inference package: it does not ship model weights or a local model server. Local dashboard/API development and local D1/DO state are available through Wrangler. Real agent execution still needs a configured model path and runtime; repository tasks also need repository access; local container execution also needs Docker. Deployed Containers, Workers AI, managed Access, public webhooks, Vectorize-backed semantic memory, and product-managed storage depend on your Cloudflare account and configured bindings. Optional external integrations need their own credentials and setup. An unset integration is not connected.
 
 ## Prerequisites
 
@@ -23,7 +23,7 @@ Shiba is not an offline inference package: it does not ship model weights or a l
 | **Cloudflare products enabled** | Workers, Durable Objects, **Containers**, Workers AI, KV, R2, D1, Vectorize, Browser Rendering (optional screenshots), Email Sending (optional mailbox) |
 | **AI Gateway** with **BYOK** | Provider keys live in the gateway; the sandbox never receives real provider credentials |
 
-Honest ceiling: Cloudflare Containers default to **`standard-4` (4 vCPU / 12 GiB)** — see [Containers limits](https://developers.cloudflare.com/containers/platform/limits/). This is not a hosted “128 GB machine” product; size tasks accordingly.
+Shiba currently configures **`INSTANCE_TYPE=standard-1`** in its deployment defaults. Container sizes and platform limits are separate choices; check [Containers limits](https://developers.cloudflare.com/containers/platform/limits/) before changing the configuration. This is not a hosted “128 GB machine” product; size tasks accordingly.
 
 ## Cloudflare account setup (first time)
 

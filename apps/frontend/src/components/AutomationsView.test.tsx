@@ -82,6 +82,15 @@ describe("AutomationsView", () => {
     expect(JSON.parse(call?.[1].body)).toMatchObject({ id: "manual-audit", repoUrl: "https://github.com/acme/app", enabled: true, customAgentId: "bot-1", triggers: [{ kind: "manual" }] });
   });
 
+  it("keeps webhook signing secrets out of the dashboard UI", async () => {
+    respond();
+    render(<AutomationsView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Triggers" }));
+    expect(screen.queryByRole("button", { name: "Create webhook automation" })).toBeNull();
+    expect(screen.queryByText("X-Automation-Secret")).toBeNull();
+    expect(screen.queryByText("one-time-secret")).toBeNull();
+  });
+
   it("shows load failures and retries", async () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
     render(<AutomationsView />);

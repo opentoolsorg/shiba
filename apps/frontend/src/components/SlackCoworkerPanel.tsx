@@ -17,7 +17,7 @@ function ScopedSlackCoworkerPanel({workspaceId,actorId,onAdoptTask,onOpenHandoff
   const current=(owner:AbortController,seq:number)=>controller.current===owner&&!owner.signal.aborted&&epoch.current===seq;
   async function refresh(owner:AbortController){if(operating.current)return;operating.current=true;const seq=++epoch.current;setBusy(true);setError('');setState(null);setDrafts([]);
     try{const result=await client.read(owner.signal);if(current(owner,seq)){setState(result.state);setDrafts(result.drafts);setSecret(previous=>previous&&result.state.challenges.some(c=>c.id===previous.id)?null:previous);setUncertain(false);}}
-    catch{if(current(owner,seq)){setSecret(null);setError('Status could not be verified. Refresh before another action.');}}
+    catch(error){if(current(owner,seq)){if(error instanceof Error&&'status' in error&&(error.status===401||error.status===403))setSecret(null);setError('Status could not be verified. Refresh before another action.');}}
     finally{if(current(owner,seq)){operating.current=false;setBusy(false);}}}
   // Each client owns one abortable identity scope.
   useEffect(()=>{const owner=new AbortController();controller.current=owner;operating.current=false;void refresh(owner);void refreshReceipts(owner);return()=>{owner.abort();if(controller.current===owner)controller.current=null;};},[client]);

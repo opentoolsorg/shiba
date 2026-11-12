@@ -43,8 +43,6 @@ const SECTIONS = [
 const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]";
 
 export function WorkLeftPanel({
-  scope,
-  onScopeChange,
   view,
   onViewChange,
   needsYou,
@@ -79,14 +77,6 @@ export function WorkLeftPanel({
           </button>
         ) : null}
       </div>
-
-      <fieldset aria-label="Work scope" className="shiba-segmented m-0 min-w-0 shrink-0 border-0">
-        {(["personal", "workspace"] as const).map((id) => (
-          <button key={id} type="button" aria-pressed={scope === id} onClick={() => onScopeChange(id)} className={focusRing}>
-            {id === "personal" ? "Personal" : "Workspace"}
-          </button>
-        ))}
-      </fieldset>
 
       <nav aria-label="Work pages" className="flex shrink-0 flex-col gap-0.5">
         {NAV.map((item) => (

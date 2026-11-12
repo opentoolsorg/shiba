@@ -66,6 +66,7 @@ import { createCollaborationMemory, listCollaborationMemory, revokeCollaboration
 import { resolvePersonalExecutionOwner, resolvePersonalExecutionGrant } from "./personal-execution-store.js";
 import { parseAgentResult } from "./opencode-input.js";
 import { redactSecrets } from "./security.js";
+import { employeeCoordinationUnavailable } from "./employee-coordination.js";
 
 const PREFIX = "/api/collaboration";
 const BODY_LIMIT = 16 * 1024;
@@ -1078,10 +1079,7 @@ export async function handleCollaboration(
           return json({ error: "Active parent handoff not found for this participant." }, 404);
         }
         if (parent.recipientActorId.startsWith("agent:")) {
-          return json(
-            { error: "Agent handoff execution is not available in this deployment." },
-            501,
-          );
+          return employeeCoordinationUnavailable();
         }
         const parentEnvelope = envelopeForHandoff(parent);
         const lineage = childHandoffLineage(parentEnvelope);

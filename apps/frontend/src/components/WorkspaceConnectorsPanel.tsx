@@ -1,10 +1,11 @@
+import { IntegrationLogo } from "./IntegrationLogo";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
-import type { IntegrationProviderConnection, TeamWorkspaceRole } from "@shiba/shared";
+import type { IntegrationProviderCatalogItem, IntegrationProviderConnection, TeamWorkspaceRole } from "@shiba/shared";
 import type { IntegrationBindingInputs } from "../integration-connection-bindings";
 import { ownedAppConnections, useIntegrationOAuth } from "../integration-oauth";
 import { IntegrationCatalogDirectory } from "./IntegrationCatalogDirectory";
-import { CuratedMcpConnections } from "./CuratedMcpConnections";
 import { IntegrationsBrowseCatalogDialog } from "./IntegrationsBrowseCatalogDialog";
+import { OperatorEnrollmentReviews } from "./OperatorEnrollmentReviews";
 import { WorkspaceSharedAppAccounts } from "./WorkspaceSharedAppAccounts";
 
 const BUTTON =
@@ -23,11 +24,13 @@ export interface WorkspaceConnectorsPanelProps {
 }
 
 /** App credentials stay private; employee resource grants are configured separately. */
+/** Manage private and workspace-owned app accounts without mixing their scopes. */
 export function WorkspaceConnectorsPanel(props: WorkspaceConnectorsPanelProps): JSX.Element {
   const scope = `${props.actorId ?? "legacy"}\0${props.workspaceId ?? "personal"}\0${props.workspaceRole ?? "private"}`;
   const current = useRef(scope); current.current = scope;
   return <div className="flex h-full min-h-0 flex-1 flex-col">
     {(props.workspaceId || props.onChooseWorkspace) && <fieldset className="border-b border-[var(--line)] bg-[var(--card)] px-4 py-3 text-xs lg:px-8"><legend className="sr-only">App account ownership</legend><label className="flex flex-wrap items-center gap-3">Account ownership<select aria-label="App account ownership" value={props.workspaceId ? "workspace" : "personal"} className="min-h-11 min-w-0 max-w-full border border-[var(--input-line)] bg-[var(--paper)] px-3" onChange={(event) => { if (event.target.value === "personal") props.onPersonalScope?.(); else props.onChooseWorkspace?.(); }}><option value="personal" disabled={props.workspaceId ? !props.allowPersonalScope || !props.onPersonalScope : false}>Personal, only you</option><option value="workspace">Workspace-shared{props.workspaceName ? `, ${props.workspaceName}` : ", select a team"}</option></select></label><p className="mt-2 text-[var(--ink-2)]">{props.workspaceId ? props.allowPersonalScope ? "Personal account management opens your personal workspace. Accounts are never transferred by changing this selector." : "This invited session can use explicitly granted workspace accounts. Personal integration setup is unavailable here." : "Personal accounts stay private. Select a team workspace before starting a separate shared consent."}</p></fieldset>}
+    {!props.workspaceId && <OperatorEnrollmentReviews actorId={props.actorId} />}
     {props.workspaceId ? <WorkspaceSharedAppAccounts key={scope} workspaceId={props.workspaceId} workspaceName={props.workspaceName} actorId={props.actorId} role={props.workspaceRole} isCurrent={() => current.current === scope} onChanged={props.onChanged} /> : <OwnedAppAccounts
       key={scope}
       {...props}
@@ -35,6 +38,11 @@ export function WorkspaceConnectorsPanel(props: WorkspaceConnectorsPanelProps): 
     />}
   </div>;
 }
+/** The server re-verifies OAuth client readiness before replacing the unusable row. */
+function reconnectItem(connection: IntegrationProviderConnection): IntegrationProviderCatalogItem {
+  return { id: connection.providerKey, providerKey: connection.providerKey, name: connection.providerKey, description: "", source: "openconnector", connectable: true, isConnected: false };
+}
+/** Manage personal app accounts, including explicit disconnect and safe reconnect flows. */
 function OwnedAppAccounts({
   bindingInputs,
   actorId,
@@ -174,21 +182,6 @@ function OwnedAppAccounts({
               >
                 Browse catalog
               </button>
-              {onManagePermissions && (
-                <button type="button" className={BUTTON} onClick={onManagePermissions}>
-                  Review employee permissions
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <input
-              aria-label="Search app accounts"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="min-h-11 min-w-0 flex-1 border border-[var(--input-line)] bg-[var(--paper)] px-3 text-sm"
-              placeholder="Search your app accounts…"
-            />
             <button
               type="button"
               className={BUTTON}
@@ -199,7 +192,16 @@ function OwnedAppAccounts({
             >
               Refresh accounts
             </button>
+              {onManagePermissions && (
+                <button type="button" className={BUTTON} onClick={onManagePermissions}>
+                  Review employee permissions
+                </button>
+              )}
+            </div>
           </div>
+          {connections.length > 0 && <div className="mt-4 flex flex-wrap gap-2">
+            <input aria-label="Search app accounts" value={search} onChange={(event) => setSearch(event.target.value)} className="min-h-11 min-w-0 flex-1 border border-[var(--input-line)] bg-[var(--paper)] px-3 text-sm" placeholder="Search your app accounts…" />
+          </div>}
           {(error || oauth.error) && (
             <p role="alert" className="mt-3 text-xs text-[var(--danger)]">
               {error ?? oauth.error}
@@ -214,8 +216,8 @@ function OwnedAppAccounts({
             <p role="status" className="mt-4 text-xs">
               Checking current owned accounts…
             </p>
-          ) : shown.length === 0 ? (
-            <p className="mt-4 border border-dashed border-[var(--line)] p-5 text-xs text-[var(--ink-2)]">
+          ) : error ? null : shown.length === 0 ? (
+            <p className="mt-3 text-xs text-[var(--ink-2)]">
               {actorId === null
                 ? "Sign in before connecting an app."
                 : query
@@ -230,22 +232,38 @@ function OwnedAppAccounts({
                   className="flex min-w-0 flex-wrap items-center justify-between gap-3 border border-[var(--line)] p-4"
                 >
                   <div className="min-w-0">
-                    <h4 className="break-words text-sm font-semibold">{connection.providerKey}</h4>
+                    <div className="flex items-center gap-2"><IntegrationLogo providerKey={connection.providerKey} /><h4 className="break-words text-sm font-semibold">{connection.providerKey}</h4></div>
                     <p className="mt-1 break-words text-xs text-[var(--ink-2)]">
                       {connection.identityLabel || "Owned app account"} · {connection.connectionState === "reauth_required" ? "Sign-in expired" : connection.connectionState === "unavailable" ? "Authorization unavailable" : "Account configured"} · Live action unverified
                     </p>
                     {connection.unavailableReason && <p className="mt-1 text-xs text-[var(--ink-2)]">{connection.unavailableReason}</p>}
                   </div>
-                  <button
-                    type="button"
-                    className={BUTTON}
-                    disabled={Boolean(busy) || Boolean(oauth.connectingKey)}
-                    onClick={() => {
-                      void disconnect(connection);
-                    }}
-                  >
-                    Disconnect {connection.providerKey}
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    {connection.connectionState !== undefined && connection.connectionState !== "active" && connection.reconnectSupported !== false && (
+                      <button
+                        type="button"
+                        className={BUTTON}
+                        disabled={Boolean(busy) || Boolean(oauth.connectingKey)}
+                        onClick={() => {
+                          setNotice(null);
+                          setError(null);
+                          void oauth.beginConnect(reconnectItem(connection), { reconnect: true });
+                        }}
+                      >
+                        Reconnect {connection.providerKey}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={BUTTON}
+                      disabled={Boolean(busy) || Boolean(oauth.connectingKey)}
+                      onClick={() => {
+                        void disconnect(connection);
+                      }}
+                    >
+                      Disconnect {connection.providerKey}
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -254,8 +272,12 @@ function OwnedAppAccounts({
       </section>
       {actorId !== null && (
         <div className="flex flex-col gap-6 p-4 lg:p-8">
-          <div className="mx-auto w-full max-w-6xl">
-            <CuratedMcpConnections onChanged={onChanged} />
+          <div className="mx-auto flex w-full max-w-6xl flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg">Integration catalog</h3>
+              <p className="mt-1 text-xs text-[var(--ink-2)]">Browse reference integrations below, or open the provider catalog for all available services.</p>
+            </div>
+            <a className={BUTTON} href="/integrations/?tab=mcp">Set up MCP servers</a>
           </div>
           <IntegrationCatalogDirectory
             bindingInputs={bindingInputs}
@@ -267,6 +289,8 @@ function OwnedAppAccounts({
               void oauth.beginConnect(item);
             }}
             connectingKey={oauth.connectingKey}
+            connectionError={oauth.error}
+            connectionNotice={oauth.notice}
           />
         </div>
       )}
@@ -280,6 +304,9 @@ function OwnedAppAccounts({
           void oauth.beginConnect(item);
         }}
         connectingKey={oauth.connectingKey}
+        connectionError={oauth.error}
+        connectionNotice={oauth.notice}
+        connectionRevision={connectionRevision}
       />
     </div>
   );

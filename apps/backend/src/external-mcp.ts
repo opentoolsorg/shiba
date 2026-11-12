@@ -13,6 +13,7 @@ import { initAudit, audit } from "./audit.js";
 import {
   deleteExternalMcpOAuthTokens,
   ensureExternalMcpOAuthSchema,
+  loadExternalMcpOAuthTokens,
   resolveExternalMcpBearer,
   revokeExternalMcpOAuth,
 } from "./external-mcp-oauth.js";
@@ -423,6 +424,7 @@ export async function createExternalMcpServer(env: Env, input: {
   if (catalogId) {
     const vendor = curatedMcpVendorByCatalogId(catalogId);
     if (!vendor) throw new Error("invalid_catalog_id");
+    if (authMode === "none" || (input.credentialRef && !vendor.connectionMethods.includes("bearer"))) throw new Error("unsupported_auth_method");
     if (!endpoint) endpoint = vendor.endpoint;
     if (!name) name = vendor.name;
     validatePublicHttpsEndpoint(endpoint);
@@ -461,6 +463,7 @@ export async function updateExternalMcpServer(env: Env, input: { orgId: string; 
   const changed = endpoint !== current.endpoint || credentialRef !== current.credentialRef;
   const vendor = current.catalogId ? curatedMcpVendorByCatalogId(current.catalogId) : undefined;
   if (vendor && new URL(endpoint).href !== new URL(vendor.endpoint).href) throw new Error("invalid_endpoint");
+  if (vendor && credentialRef && !vendor.connectionMethods.includes("bearer")) throw new Error("unsupported_auth_method");
   const now = Date.now();
   const update = env.AGENT_AUDIT.prepare(`UPDATE external_mcp_servers SET name = ?, endpoint = ?, credential_ref = ?,
     status = ?, generation = generation + ?, schema_version = ?, health = 'unknown', last_checked_at = NULL,
@@ -483,6 +486,9 @@ export async function updateExternalMcpServer(env: Env, input: { orgId: string; 
 }
 
 export async function discoverExternalMcpServer(env: Env, server: ExternalMcpServer) {
+  // Discovery before custom consent must not turn a usable draft into an error
+  // state or probe the resource without the owner's selected OAuth account.
+  if (!server.catalogId && server.authMode === "oauth" && !await loadExternalMcpOAuthTokens(env, server.orgId, server.ownerId, server.id)) throw new Error("oauth_sign_in_required");
   try {
     const result = await discovered(env, server);
     const now = Date.now();

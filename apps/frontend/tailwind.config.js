@@ -55,11 +55,8 @@ export default {
         serif: ['var(--font-serif)'],
         display: [
           'Geist',
-          'system-ui',
-          '-apple-system',
-          'BlinkMacSystemFont',
-          'Segoe UI',
-          'sans-serif',
+          'Georgia',
+          'serif',
         ],
       },
       borderRadius: {

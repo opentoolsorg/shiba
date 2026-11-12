@@ -329,15 +329,15 @@ describe("WorkView", () => {
     expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeTruthy();
   });
 
-  it("renders the left panel only with a scope handler and drives scope and view from it", () => {
+  it("renders the left panel only with a scope handler and leaves workspace switching global", () => {
     const onScopeChange = vi.fn();
     const { rerender } = render(<WorkView runs={mockRuns} storedApprovals={mockApprovals} />);
     expect(screen.queryByRole("complementary", { name: "Work" })).toBeNull();
     rerender(<WorkView runs={mockRuns} storedApprovals={mockApprovals} onScopeChange={onScopeChange} />);
     const panel = screen.getByRole("complementary", { name: "Work" });
-    expect(within(panel).getByRole("button", { name: "Personal" }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(within(panel).getByRole("button", { name: "Workspace" }));
-    expect(onScopeChange).toHaveBeenCalledWith("workspace");
+    expect(within(panel).queryByRole("button", { name: "Personal" })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Workspace" })).toBeNull();
+    expect(onScopeChange).not.toHaveBeenCalled();
     expect(within(screen.getByRole("region", { name: "Needs you" })).getByRole("button", { name: "Add pagination to audit log API" })).toBeTruthy();
     expect(within(screen.getByRole("region", { name: "Assigned to me" })).getByText("Nothing assigned to you")).toBeTruthy();
     expect(within(screen.getByRole("region", { name: "Everything" })).queryByText("Bump Node to 22")).toBeNull();

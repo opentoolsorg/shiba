@@ -3,9 +3,25 @@ title: Readiness and acceptance checklist
 description: Known gaps and evidence required before production use.
 ---
 
+## Read the evidence by feature (2026-11-07)
+
+Start with [Product status](/docs/product-status/) for a plain-language overview. The records below describe particular revisions and test environments; no single historical test count establishes that your current installation is ready.
+
+| Evidence | What it tells you |
+| --- | --- |
+| Current source | A capability is implemented, possibly behind a flag or with setup still required. |
+| Unit, fixture, or local tests | Specific behavior was checked in that test environment. This is not live vendor acceptance. |
+| A deployed revision | That revision was deployed, not that every model, app, or task path works. |
+| Live workflow acceptance | The exact configured path completed against authorized real services, with a dated result. |
+| Disabled or review-only | The feature cannot be treated as executable merely because code or a review panel exists. |
+
+Recent feature evidence lives in the [verification directory](https://github.com/opentoolsorg/shiba/tree/main/docs/verification), including [catalog discovery](https://github.com/opentoolsorg/shiba/blob/main/docs/verification/catalog-discovery-20261107.md) and [operator enrollment review](https://github.com/opentoolsorg/shiba/blob/main/docs/verification/operator-enrollment-review-20261107.md). Those records distinguish fixture checks, missing live acceptance, and disabled execution. Also read the dated [verification log](https://github.com/opentoolsorg/shiba/blob/main/VERIFICATION.md).
+
+The September snapshot below is retained as historical evidence. Its deployment blockers and counts are not a current installation status report. Verify the revision, configuration, and exact workflow you intend to use.
+
 ## Evidence status (2026-09-24)
 
-**Implemented** describes code present; **unit-tested** describes mocked/component tests; **locally exercised** describes the dated `wrangler dev` run below. None of these means cloud-live. The latest recorded checks in [`VERIFICATION.md`](/docs/readiness/#evidence-status-2026-09-24) report typecheck, lint, 995 tests, build, and frontend smoke passing. The Worker/container dry run was blocked because Docker was unavailable; the Worker/assets-only dry run passed with container rollout disabled. Alchemy planning reached the expected missing-Cloudflare-OAuth error. No cloud deployment or cloud end-to-end run is recorded.
+**Implemented** describes code present; **unit-tested** describes mocked/component tests; **locally exercised** describes the dated `wrangler dev` run below. None of these means cloud-live. The September 24 checks in [`VERIFICATION.md`](https://github.com/opentoolsorg/shiba/blob/main/VERIFICATION.md) report typecheck, lint, 995 tests, build, and frontend smoke passing. The Worker/container dry run was blocked because Docker was unavailable; the Worker/assets-only dry run passed with container rollout disabled. Alchemy planning reached the expected missing-Cloudflare-OAuth error. No cloud deployment or cloud end-to-end run is recorded.
 
 ### Implemented and unit-tested
 
@@ -17,7 +33,7 @@ The 2026-09-19 `wrangler dev` run exercised queue → signed Slack approval → 
 
 ### Cloud-live
 
-**No cloud end-to-end run is recorded.** Do not describe the product as production-ready or claim cloud-live container execution, model inference, PR publication, or billing behavior. Deployment remains blocked pending Docker-capable validation and Cloudflare OAuth/profile setup. `VERIFICATION.md` is the dated source of truth for later status.
+**No cloud end-to-end run was recorded in this September snapshot.** Do not describe the product as production-ready or claim cloud-live container execution, model inference, PR publication, or billing behavior. That snapshot reported deployment blocked pending Docker-capable validation and Cloudflare OAuth/profile setup. `VERIFICATION.md` is the dated source of truth for later status.
 
 ## Remaining gaps
 
