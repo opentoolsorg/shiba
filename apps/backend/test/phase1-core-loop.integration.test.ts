@@ -611,7 +611,6 @@ describe("Phase 1 core loop (integration)", () => {
       expect(response.status).toBe(400);
       expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
     }
-
     // Local artifact work is valid input, but this non-dashboard intake cannot
     // request local execution. The dashboard also requires an enabled local runtime.
     const local = await postRun({ executionTarget: target, runtime: "local" });

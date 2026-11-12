@@ -3,7 +3,7 @@ import { act,cleanup,fireEvent,render,screen } from '@testing-library/react';
 import { afterEach,describe,expect,it,vi } from 'vitest';
 import { SlackCoworkerPanel } from './SlackCoworkerPanel';
 import { SlackCoworkerClient } from '../slack-coworker-client';
-afterEach(()=>{cleanup();vi.restoreAllMocks();});
+afterEach(()=>{cleanup();vi.useRealTimers();vi.restoreAllMocks();});
 const draft={id:'sd_'+ 'a'.repeat(32),text:'My Slack task',teamId:'T1',channelId:'C1',threadTs:'123.000001',messageTs:'123.000002',slackUserId:'U1',eventId:'E1'};
 const state={bindings:[],challenges:[],grants:[],executionAvailable:false};
 describe('Slack coworker native scope',()=>{
@@ -27,6 +27,87 @@ describe('Slack coworker native scope',()=>{
   await screen.findByText(/Member b@example.test/);
   await act(async()=>{release(Response.json(draft));});
   expect(onAdopt).not.toHaveBeenCalled();expect(screen.queryByText(/\/shiba-link/)).toBeNull();expect(screen.queryByText('My Slack task')).toBeNull();
+ });
+ it.each([true,false])('clears only the matching Slack-confirmed challenge secret (matching: %s)',async(matching)=>{
+  const ws='ws_'+ 'a'.repeat(24),actor='a@example.test',challengeId='sc_'+ 'b'.repeat(32);let confirmed=false;
+  const fetcher=vi.fn(async(url:RequestInfo|URL)=>{
+    const path=String(url);
+    if(path.endsWith('/begin'))return Response.json({id:challengeId,secret:'c'.repeat(64),teamId:'T1',expiresAt:Date.now()+600000});
+    return Response.json(path.endsWith('/drafts')?{drafts:[]}:path.endsWith('/drafts/submissions')?{ok:true,workspaceId:ws,actorId:actor,submissions:[]}:{...state,challenges:confirmed?[{id:matching?challengeId:'sc_'+ 'd'.repeat(32),installationId:'I1',teamId:'T1',slackUserId:'U1',state:'slack_confirmed',expiresAt:Date.now()+600000}]:[]});
+  });
+  render(<SlackCoworkerPanel workspaceId={ws} actorId={actor} onAdoptTask={()=>{}} client={new SlackCoworkerClient(ws,actor,fetcher)}/>);
+  await act(async()=>{});
+  fireEvent.change(screen.getByLabelText('Managed installation ID'),{target:{value:'I1'}});
+  fireEvent.click(screen.getByRole('button',{name:'Begin identity link'}));
+  await screen.findByText(/\/shiba-link/);
+  confirmed=true;fireEvent.click(screen.getByRole('button',{name:'Refresh'}));
+  await screen.findByRole('button',{name:'Confirm this identity'});
+  expect(Boolean(screen.queryByText(/\/shiba-link/))).toBe(!matching);
+  expect(fetcher.mock.calls.filter(([url])=>String(url).endsWith('/begin'))).toHaveLength(1);
+  expect(fetcher.mock.calls.some(([url])=>String(url).endsWith('/confirm'))).toBe(false);
+  confirmed=false;fireEvent.click(screen.getByRole('button',{name:'Refresh'}));
+  await act(async()=>{});
+  expect(Boolean(screen.queryByText(/\/shiba-link/))).toBe(!matching);
+ });
+ it.each([{success:true,matching:true},{success:false,matching:true},{success:true,matching:false},{success:false,matching:false}])('scopes native confirmation secret clearing and fails closed ($success, matching: $matching)',async({success,matching})=>{
+  const ws='ws_'+ 'a'.repeat(24),actor='a@example.test';let consumed=false;
+  const challenge={id:'sc_'+ (matching?'b':'d').repeat(32),installationId:'I1',teamId:'T1',slackUserId:'U1',state:'slack_confirmed',expiresAt:Date.now()+600000};
+  const fetcher=vi.fn(async(url:RequestInfo|URL)=>{
+    const path=String(url);
+    if(path.endsWith('/begin'))return Response.json({id:'sc_'+ 'b'.repeat(32),secret:'c'.repeat(64),teamId:'T1',expiresAt:Date.now()+600000});
+    if(path.endsWith('/confirm')){if(!success)throw new Error('lost response');consumed=true;return Response.json({id:'sb_1',teamId:'T1',slackUserId:'U1'});}
+    return Response.json(path.endsWith('/drafts')?{drafts:[]}:path.endsWith('/drafts/submissions')?{ok:true,workspaceId:ws,actorId:actor,submissions:[]}:{...state,challenges:consumed?[]:[challenge],bindings:consumed?[{id:'sb_1',installationId:'I1',teamId:'T1',slackUserId:'U1'}]:[]});
+  });
+  render(<SlackCoworkerPanel workspaceId={ws} actorId={actor} onAdoptTask={()=>{}} client={new SlackCoworkerClient(ws,actor,fetcher)}/>);
+  await screen.findByRole('button',{name:'Confirm this identity'});
+  fireEvent.change(screen.getByLabelText('Managed installation ID'),{target:{value:'I1'}});
+  fireEvent.click(screen.getByRole('button',{name:'Begin identity link'}));
+  await act(async()=>{});
+  expect(Boolean(screen.queryByText(/\/shiba-link/))).toBe(!matching);
+  fireEvent.click(screen.getByRole('button',{name:'Confirm this identity'}));
+  if(success)await screen.findByText('Linked: team T1, Slack user U1');
+  else{await screen.findByText(/nothing is retried automatically/);expect((screen.getByRole('button',{name:'Begin identity link'}) as HTMLButtonElement).disabled).toBe(true);}
+  expect(Boolean(screen.queryByText(/\/shiba-link/))).toBe(success&&!matching);
+  expect(fetcher.mock.calls.filter(([url])=>String(url).endsWith('/confirm'))).toHaveLength(1);
+ });
+ it.each([401,403,500])('clears identity-link instructions only after an auth-denied status refresh (%i)',async(status)=>{
+  const ws='ws_'+ 'a'.repeat(24),actor='a@example.test';let denied=false;
+  const fetcher=vi.fn(async(url:RequestInfo|URL)=>{
+    const path=String(url);
+    if(path.endsWith('/begin'))return Response.json({id:'sc_'+ 'b'.repeat(32),secret:'c'.repeat(64),teamId:'T1',expiresAt:Date.now()+600000});
+    if(denied)return Response.json({error:'unavailable'},{status});
+    return Response.json(path.endsWith('/drafts')?{drafts:[]}:path.endsWith('/drafts/submissions')?{ok:true,workspaceId:ws,actorId:actor,submissions:[]}:state);
+  });
+  render(<SlackCoworkerPanel workspaceId={ws} actorId={actor} onAdoptTask={()=>{}} client={new SlackCoworkerClient(ws,actor,fetcher)}/>);
+  await act(async()=>{});
+  fireEvent.change(screen.getByLabelText('Managed installation ID'),{target:{value:'I1'}});
+  fireEvent.click(screen.getByRole('button',{name:'Begin identity link'}));
+  await screen.findByText(/\/shiba-link/);
+  denied=true;fireEvent.click(screen.getByRole('button',{name:'Refresh'}));
+  await screen.findByText('Status could not be verified. Refresh before another action.');
+  expect(Boolean(screen.queryByText(/\/shiba-link/))).toBe(status===500);
+  expect(fetcher.mock.calls.filter(([url])=>String(url).endsWith('/begin'))).toHaveLength(1);
+ });
+ it.each([1500,-1])('honors the server challenge expiry offset %i without another request',async(offset)=>{
+  const ws='ws_'+ 'a'.repeat(24),actor='a@example.test';
+  const fetcher=vi.fn(async(url:RequestInfo|URL)=>{
+    const path=String(url);
+    if(path.endsWith('/begin'))return Response.json({id:'sc_'+ 'b'.repeat(32),secret:'c'.repeat(64),teamId:'T1',expiresAt:Date.now()+offset});
+    return Response.json(path.endsWith('/drafts')?{drafts:[]}:path.endsWith('/drafts/submissions')?{ok:true,workspaceId:ws,actorId:actor,submissions:[]}:state);
+  });
+  render(<SlackCoworkerPanel workspaceId={ws} actorId={actor} onAdoptTask={()=>{}} client={new SlackCoworkerClient(ws,actor,fetcher)}/>);
+  await act(async()=>{});vi.useFakeTimers();
+  fireEvent.change(screen.getByLabelText('Managed installation ID'),{target:{value:'I1'}});
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Begin identity link'}));});
+  const calls=fetcher.mock.calls.length;
+  if(offset>0){
+    expect(screen.getByText(/\/shiba-link/)).toBeTruthy();
+    await act(async()=>{await vi.advanceTimersByTimeAsync(offset-1);});
+    expect(screen.getByText(/\/shiba-link/)).toBeTruthy();
+    await act(async()=>{await vi.advanceTimersByTimeAsync(1);});
+  }
+  expect(screen.queryByText(/\/shiba-link/)).toBeNull();
+  expect(fetcher).toHaveBeenCalledTimes(calls);
  });
  it('keeps a receipt visible after its source draft is unavailable',async()=>{
   const ws='ws_'+ 'a'.repeat(24),actor='a@example.test',roomId='room_'+ 'd'.repeat(24),handoffId='scx_'+ 'a'.repeat(32),onOpen=vi.fn();

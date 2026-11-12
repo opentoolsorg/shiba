@@ -261,6 +261,7 @@ export function SettingsPage({
   onChanged,
   onOpenChat,
   onOpenWork,
+  onOpenApps,
   withPanel = false,
   showSectionSwitcher = false,
   onOpenPersonalWorkspace,
@@ -355,6 +356,7 @@ export function SettingsPage({
             onChanged={onChanged}
             onOpenChat={onOpenChat}
             onOpenWork={onOpenWork}
+            onOpenApps={onOpenApps}
           />
         ) : activeSection === "remote" ? (
           <RemoteAccessView />
