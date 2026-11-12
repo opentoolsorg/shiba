@@ -1,11 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, MessageSquare, PanelLeft, PanelRight, Plus, Users, X } from "lucide-react";
-import type { CustomAgentMascotPreset } from "@shiba/shared";
+import type { AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
 import type { CustomAgentWire } from "./CustomAgentsView";
 import type { WebThread } from "../agent-threads";
 import { threadAgentId } from "../agent-threads";
 import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTemplate, type EmployeeRole } from "../employee-templates";
 import { AgentAvatar as BaseAvatar } from "./AgentAvatar";
+import { ShibaMark } from "./ShibaMark";
 import { ViewHeader, viewButtonClass } from "./ui/ViewChrome";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
 
@@ -29,9 +30,9 @@ export function employeeExamples(agent?: CustomAgentWire): readonly string[] {
   }
 }
 
-export function AgentAvatar({ name, slug, role, agentId, mascotPreset, large = false, size = large ? 112 : 40 }: { name: string; slug?: string; role?: EmployeeRole; agentId?: string; mascotPreset?: CustomAgentMascotPreset; large?: boolean; size?: number }) {
-  if (slug === undefined) return <img src="/assets/mascot/pet-logo.png" alt="" aria-hidden="true" className="agent-mascot shrink-0 object-contain" style={{ width: size, height: size }} />;
-  return <BaseAvatar id={agentId ?? slug} name={name} mascotPreset={mascotPreset} role={role ?? employeeRole(slug)} size={size} decorative />;
+export function AgentAvatar({ name, slug, role, agentId, mascotPreset, look, large = false, size = large ? 112 : 40 }: { name: string; slug?: string; role?: EmployeeRole; agentId?: string; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; large?: boolean; size?: number }) {
+  if (slug === undefined) return <span className="inline-flex shrink-0" style={{ width: size, height: size }}><ShibaMark className="size-full" decorative /></span>;
+  return <BaseAvatar id={agentId ?? slug} name={name} mascotPreset={mascotPreset} look={look} role={role ?? employeeRole(slug)} size={size} decorative />;
 }
 
 export function AgentSidebar({ agents, threads, selectedId, onOpenThread, onNewThread, onManage }: {
@@ -52,7 +53,7 @@ export function AgentSidebar({ agents, threads, selectedId, onOpenThread, onNewT
       const children = threads.filter((thread) => row.agent ? threadAgentId(thread) === row.id : !threadAgentId(thread) || !agents.some((agent) => agent.id === threadAgentId(thread)));
       return <div key={row.id}>
         <div className="flex items-center">
-          <button type="button" className={`${quietButton} min-w-0 flex-1 justify-start gap-2 text-left text-[13px]`} onClick={() => { const latest = [...children].sort((a, b) => b.updatedAt - a.updatedAt)[0]; if (latest) onOpenThread(latest.id); else onNewThread(row.agent); }}><AgentAvatar agentId={row.agent?.id} name={row.name} mascotPreset={row.agent?.config.mascotPreset} slug={row.agent?.slug} role={employeeRole(row.agent?.slug, row.agent?.config.roleTemplateId)} size={28} /><span className="truncate">{row.name}</span></button>
+          <button type="button" className={`${quietButton} min-w-0 flex-1 justify-start gap-2 text-left text-[13px]`} onClick={() => { const latest = [...children].sort((a, b) => b.updatedAt - a.updatedAt)[0]; if (latest) onOpenThread(latest.id); else onNewThread(row.agent); }}><AgentAvatar agentId={row.agent?.id} name={row.name} mascotPreset={row.agent?.config.mascotPreset} look={row.agent?.config.look} slug={row.agent?.slug} role={employeeRole(row.agent?.slug, row.agent?.config.roleTemplateId)} size={28} /><span className="truncate">{row.name}</span></button>
           <button type="button" className={quietButton} aria-label={`New thread with ${row.name}`} onClick={() => onNewThread(row.agent)}><Plus aria-hidden="true" className="size-4" /></button>
           <button type="button" className={quietButton} aria-label={`${isExpanded ? "Collapse" : "Expand"} ${row.name} threads`} aria-expanded={isExpanded} aria-controls={`${id}-${row.id}`} onClick={() => setExpanded((current) => ({ ...current, [row.id]: !isExpanded }))}>{isExpanded ? <ChevronDown aria-hidden="true" className="size-3.5" /> : <ChevronRight aria-hidden="true" className="size-3.5" />}</button>
         </div>
@@ -93,7 +94,7 @@ export async function createEmployeeAgent(template: EmployeeTemplate, workspaceI
   return body.agent;
 }
 
-export function AgentPageHeader({ name, slug, role, agentId, mascotPreset, detailsOpen, onToggleDetails, onExpandSidebar, onShareWithTeam }: { name: string; slug?: string; role?: EmployeeRole; agentId?: string; mascotPreset?: CustomAgentMascotPreset; detailsOpen: boolean; onToggleDetails: () => void; onExpandSidebar?: () => void; onShareWithTeam?: () => void }) {
+export function AgentPageHeader({ name, slug, role, agentId, mascotPreset, look, detailsOpen, onToggleDetails, onExpandSidebar, onShareWithTeam }: { name: string; slug?: string; role?: EmployeeRole; agentId?: string; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; detailsOpen: boolean; onToggleDetails: () => void; onExpandSidebar?: () => void; onShareWithTeam?: () => void }) {
   const [participantsOpen, setParticipantsOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -114,15 +115,15 @@ export function AgentPageHeader({ name, slug, role, agentId, mascotPreset, detai
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [participantsOpen]);
-  return <div ref={headerRef} className="relative"><ViewHeader section="Agents" view={name} leading={<>{onExpandSidebar ? <button type="button" className={`${quietButton} hidden lg:inline-flex`} aria-label="Expand sidebar" onClick={onExpandSidebar}><PanelLeft aria-hidden="true" className="size-4" /></button> : null}<AgentAvatar agentId={agentId} name={name} mascotPreset={mascotPreset} slug={slug} role={role} size={28} /></>}>
+  return <div ref={headerRef} className="relative"><ViewHeader section="Agents" view={name} leading={<>{onExpandSidebar ? <button type="button" className={`${quietButton} hidden lg:inline-flex`} aria-label="Expand sidebar" onClick={onExpandSidebar}><PanelLeft aria-hidden="true" className="size-4" /></button> : null}<AgentAvatar agentId={agentId} name={name} mascotPreset={mascotPreset} look={look} slug={slug} role={role} size={28} /></>}>
     {onShareWithTeam ? <button type="button" className={`${quietButton} gap-2 text-xs`} onClick={() => onShareWithTeam()} aria-describedby={`${id}-share-context`}><Users aria-hidden="true" className="size-4" />Start shared conversation</button> : null}
     <button type="button" className={quietButton} aria-label="Participants" aria-expanded={participantsOpen} aria-controls={`${id}-participants`} onClick={() => setParticipantsOpen(!participantsOpen)}><Users aria-hidden="true" className="size-4" /><span className="ml-2 hidden sm:inline">You and agent</span></button>
     <button type="button" className={quietButton} aria-label="Toggle agent details" aria-expanded={detailsOpen} aria-controls="agent-details" onClick={onToggleDetails}><PanelRight aria-hidden="true" className="size-4" /></button>
   </ViewHeader>{onShareWithTeam ? <p id={`${id}-share-context`} className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--muted-foreground-2)]">A shared conversation starts separately. Your private history is not automatically included; choose what to share in the team chat.</p> : null}{participantsOpen ? <div id={`${id}-participants`} className="absolute right-4 top-full z-20 w-60 rounded-xl border border-[var(--border-1)] bg-[var(--popover)] p-4 text-sm text-[var(--fg)] shadow-overlay"><p className="font-medium">Participants</p><p className="mt-3">You</p><p className="mt-2">{name}</p><p className="mt-3 text-xs text-[var(--muted-foreground-2)]">You and this agent work in your Shiba workspace.</p></div> : null}</div>;
 }
 
-export function AgentConversationEmpty({ name, slug, role, agentId, mascotPreset, examples = [], onPrefill, prefillDisabled = false }: { name: string; slug?: string; role?: EmployeeRole; agentId?: string; mascotPreset?: CustomAgentMascotPreset; examples?: readonly string[]; onPrefill: (prompt: string) => void; prefillDisabled?: boolean }) {
-  return <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center"><AgentAvatar agentId={agentId} name={name} mascotPreset={mascotPreset} slug={slug} role={role} large /><h2 className="text-base font-medium text-[var(--fg)]">{name}</h2><p className="max-w-md text-sm leading-relaxed text-[var(--muted-foreground-2)]">This is the beginning of your conversation. Messages are stored in your Shiba workspace.</p><p className="max-w-md text-xs leading-relaxed text-[var(--muted-foreground-2)]">Planning can start now. Every sandbox execution requires human approval. Publishing completed changes requires a separate approval.</p>{examples.length ? <div className="mt-4 flex max-w-xl flex-wrap justify-center gap-2">{examples.map((prompt) => <button type="button" key={prompt} disabled={prefillDisabled} title={prefillDisabled ? "Clear your draft to use an example" : undefined} className={`${viewButtonClass} text-left font-normal disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => onPrefill(prompt)}>{prompt}</button>)}</div> : null}</div>;
+export function AgentConversationEmpty({ name, slug, role, agentId, mascotPreset, look, examples = [], onPrefill, prefillDisabled = false }: { name: string; slug?: string; role?: EmployeeRole; agentId?: string; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; examples?: readonly string[]; onPrefill: (prompt: string) => void; prefillDisabled?: boolean }) {
+  return <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center"><AgentAvatar agentId={agentId} name={name} mascotPreset={mascotPreset} look={look} slug={slug} role={role} large /><h2 className="text-base font-medium text-[var(--fg)]">{name}</h2><p className="max-w-md text-sm leading-relaxed text-[var(--muted-foreground-2)]">This is the beginning of your conversation. Messages are stored in your Shiba workspace.</p><p className="max-w-md text-xs leading-relaxed text-[var(--muted-foreground-2)]">Planning can start now. Every sandbox execution requires human approval. Publishing completed changes requires a separate approval.</p>{examples.length ? <div className="mt-4 flex max-w-xl flex-wrap justify-center gap-2">{examples.map((prompt) => <button type="button" key={prompt} disabled={prefillDisabled} title={prefillDisabled ? "Clear your draft to use an example" : undefined} className={`${viewButtonClass} text-left font-normal disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => onPrefill(prompt)}>{prompt}</button>)}</div> : null}</div>;
 }
 
 export function AgentDetailsPanel({
@@ -165,7 +166,7 @@ export function AgentDetailsPanel({
         <X aria-hidden="true" className="size-4" />
       </button>
       <div className="flex flex-col items-center gap-3 py-5 text-center">
-        <AgentAvatar agentId={agent?.id} name={name} mascotPreset={agent?.config.mascotPreset} slug={agent?.slug} role={role} large />
+        <AgentAvatar agentId={agent?.id} name={name} mascotPreset={agent?.config.mascotPreset} look={agent?.config.look} slug={agent?.slug} role={role} large />
         <h2 className="text-lg font-medium tracking-tight">{name}</h2>
         <p className="text-xs font-medium text-[var(--muted-foreground-2)]">
           {ownerName ? `${ownerName} · ` : ""}

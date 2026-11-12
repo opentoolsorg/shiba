@@ -11,6 +11,16 @@ import { CustomAgentsView, type CustomAgentWire, useCustomAgentOptions } from ".
 import { createAgentThread } from "../agent-threads";
 
 describe("CustomAgentsView", () => {
+  it("brings the name field into focus for New bot and look starters", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: [] })));
+    render(<CustomAgentsView />);
+    await screen.findByText("No bots");
+    fireEvent.click(screen.getByRole("button", { name: "New bot" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("Name"));
+    fireEvent.click(screen.getByRole("button", { name: "Sleepy" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("Name"));
+  });
+
   it("saves mascot and supplied Gemini model, hydrates edits, preserves failed drafts, and clears automatic presets", async () => {
     let saved: CustomAgentWire | undefined;
     let failSave = false;
@@ -28,25 +38,26 @@ describe("CustomAgentsView", () => {
     fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: "Review project notes." } });
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "google/gemini-2.5-pro" } });
     fireEvent.change(screen.getByLabelText("Default repository"), { target: { value: "https://github.com/example/project" } });
-    fireEvent.click(screen.getByRole("radio", { name: "sleeping" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sleepy" }));
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
-    await waitFor(() => expect(saved?.config).toMatchObject({ mascotPreset: "sleeping", codingModel: "google/gemini-2.5-pro", defaultRepoUrl: "https://github.com/example/project" }));
+    await waitFor(() => expect(saved?.config).toMatchObject({ look: { eyes: "sleepy" }, codingModel: "google/gemini-2.5-pro", defaultRepoUrl: "https://github.com/example/project" }));
+    expect(saved?.config).not.toHaveProperty("mascotPreset");
     fireEvent.click(await screen.findByRole("button", { name: "Edit bot" }));
-    expect((screen.getByRole("radio", { name: "sleeping" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("button", { name: "Sleepy" }).getAttribute("aria-pressed")).toBe("true");
     expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("google/gemini-2.5-pro");
-    fireEvent.click(screen.getByRole("radio", { name: "riding" }));
+    fireEvent.click(screen.getByRole("button", { name: "Wrench" }));
     failSave = true;
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await screen.findByText("Try again");
-    expect((screen.getByRole("radio", { name: "riding" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("button", { name: "Wrench" }).getAttribute("aria-pressed")).toBe("true");
     failSave = false;
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(saved?.config.mascotPreset).toBe("riding"));
+    await waitFor(() => expect(saved?.config.look).toMatchObject({ eyes: "sleepy", acc: "wrench" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));
-    fireEvent.click(screen.getByRole("radio", { name: "Automatic" }));
+    fireEvent.click(screen.getByRole("button", { name: "Automatic" }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(saved?.config).not.toHaveProperty("mascotPreset"));
+    await waitFor(() => expect(saved?.config).not.toHaveProperty("look"));
     expect(saved?.config.codingModel).toBe("google/gemini-2.5-pro");
     const patch = request.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(JSON.parse(String(patch?.[1]?.body)).expectedVersion).toBe(1);

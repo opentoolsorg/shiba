@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CUSTOM_AGENT_MASCOT_PRESETS, CUSTOM_AGENT_ROLE_TEMPLATE_IDS } from "./custom-agents.js";
+import { AGENT_MASCOT_ACCS, AGENT_MASCOT_EYES, AGENT_MASCOT_SHAPES, CUSTOM_AGENT_MASCOT_PRESETS, CUSTOM_AGENT_ROLE_TEMPLATE_IDS } from "./custom-agents.js";
 import { expectedDeliverablesSchema } from "./deliverables.js";
 import { redactSecrets } from "./security.js";
 
@@ -27,6 +27,12 @@ export const EmployeeBundleSchema = z.object({
     codingModel: text(200).optional(),
     emoji: text(16).optional(),
     mascotPreset: z.enum(CUSTOM_AGENT_MASCOT_PRESETS).optional(),
+    look: z.object({
+      shape: z.enum(AGENT_MASCOT_SHAPES),
+      color: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+      eyes: z.enum(AGENT_MASCOT_EYES),
+      acc: z.enum(AGENT_MASCOT_ACCS),
+    }).strict().optional(),
     roleTemplateId: z.enum(CUSTOM_AGENT_ROLE_TEMPLATE_IDS).optional(),
     expectedDeliverables: expectedDeliverablesSchema.default([]),
     provenance: source.optional(),

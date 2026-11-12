@@ -254,11 +254,11 @@ const RAIL_MORE_ITEMS: { id: AppNavView; label: string; icon: LucideIcon }[] = (
   label: label ?? APP_NAV_ITEMS.find((item) => item.id === id)?.label ?? id,
 }));
 
-const AGENTS_VIEWS: AppNavView[] = ["custom-agents", "employee-tools", "swarm", "tasks"];
+const AGENTS_VIEWS: AppNavView[] = ["custom-agents", "employee-tools", "swarm"];
 const CHATS_VIEWS: AppNavView[] = ["threads", "collaboration"];
 
 export function railItemForView(view: AppNavView): "work" | "agents" | "chats" | "insights" | "more" | "settings" {
-  if (view === "work") return "work";
+  if (view === "work" || view === "tasks") return "work";
   if (view === "settings") return "settings";
   if (AGENTS_VIEWS.includes(view)) return "agents";
   if (CHATS_VIEWS.includes(view)) return "chats";
@@ -318,6 +318,8 @@ export function AppNavRail({
   const navigationId = useId();
   const restoreToggleFocus = useRef(false);
   const identity = workspaceLabel(accountEmail);
+  const activeRailItem = railItemForView(activeView);
+  const workDestination: AppNavView = selectedWorkspaceId ? "work" : "tasks";
 
   useEffect(() => {
     if (variant === "rail" && restoreToggleFocus.current) {
@@ -417,7 +419,7 @@ export function AppNavRail({
 
   // Persistent labeled navigation keeps primary destinations discoverable on every view.
   if (variant === "rail") {
-    const activeRailItem = railItemForView(activeView);
+
     const railBtnBase = "shiba-app-rail-button rounded-lg flex items-center justify-center transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] relative";
     const railBtnActive = "bg-[#e4e4e7] text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100 font-medium shadow-none";
     const railBtnInactive = "text-[#71717a] dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-black/5 dark:hover:bg-white/5";
@@ -440,10 +442,10 @@ export function AppNavRail({
           <div className="flex flex-col items-center gap-4 w-full">
             <Tooltip content="Shiba Home" side="right">
               <a
-                href="/"
+                href={selectedWorkspaceId ? "/work/" : "/tasks/"}
                 onClick={(e) => {
                   e.preventDefault();
-                  onNavigate("work");
+                  onNavigate(workDestination);
                 }}
                 aria-label="Shiba Home"
                 className="size-9 rounded-full flex items-center justify-center hover:opacity-80 transition-opacity focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
@@ -459,7 +461,7 @@ export function AppNavRail({
                   <Tooltip content="Work" side="right">
                     <button
                       type="button"
-                      onClick={() => onNavigate("work")}
+                      onClick={() => onNavigate(workDestination)}
                       aria-label="Work"
                       aria-current={activeRailItem === "work" ? "page" : undefined}
                       className={`${railBtnBase} ${activeRailItem === "work" ? railBtnActive : railBtnInactive}`}
@@ -783,10 +785,10 @@ export function AppNavRail({
           <div className="flex shrink-0 items-center justify-between px-1 pb-3 mb-1">
             <div ref={teamRef} className="relative flex items-center min-w-0">
               <a
-                href="/"
+                href={selectedWorkspaceId ? "/work/" : "/tasks/"}
                 onClick={(e) => {
                   e.preventDefault();
-                  onNavigate("work");
+                  onNavigate(workDestination);
                   if (variant === "sheet") onClose?.();
                 }}
                 className="flex items-center gap-2 group focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 rounded-md min-w-0"
@@ -998,13 +1000,13 @@ export function AppNavRail({
               <button
                 type="button"
                 onClick={() => {
-                  onNavigate("work");
+                  onNavigate(workDestination);
                   if (variant === "sheet") onClose?.();
                 }}
-                aria-current={activeView === "work" ? "page" : undefined}
+                aria-current={activeRailItem === "work" ? "page" : undefined}
                 className={
                   "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
-                  (activeView === "work"
+                  (activeRailItem === "work"
                     ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
                     : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
                 }
@@ -1031,19 +1033,19 @@ export function AppNavRail({
               <button
                 type="button"
                 onClick={() => {
-                  onNavigate("tasks");
+                  onNavigate("work");
                   if (variant === "sheet") onClose?.();
                 }}
-                aria-current={activeView === "tasks" ? "page" : undefined}
+                aria-current={activeView === "work" ? "page" : undefined}
                 className={
                   "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
-                  (activeView === "tasks"
+                  (activeView === "work"
                     ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
                     : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
                 }
               >
                 <List className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-                <span className="flex-1 text-left truncate leading-none">Tasks</span>
+                <span className="flex-1 text-left truncate leading-none">Board &amp; timeline</span>
               </button>
 
               <button

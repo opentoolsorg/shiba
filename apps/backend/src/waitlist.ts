@@ -28,28 +28,32 @@ export function parseWaitlistEntry(value: unknown): WaitlistEntry | null {
 
 async function limitedJson(request: Request): Promise<unknown> {
   const contentLength = Number(request.headers.get("Content-Length"));
-  if (contentLength > MAX_BODY_BYTES) throw new Error("too large");
+  if (contentLength > MAX_BODY_BYTES) {
+    // Cancellation is cleanup, not a prerequisite for rejecting an untrusted body.
+    void request.body?.cancel().catch(() => {});
+    throw new Error("too large");
+  }
   const reader = request.body?.getReader();
   if (!reader) throw new Error("empty body");
-  const chunks: Uint8Array[] = [];
+  const bytes = new Uint8Array(MAX_BODY_BYTES);
   let length = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    length += value.byteLength;
-    if (length > MAX_BODY_BYTES) {
-      await reader.cancel();
-      throw new Error("too large");
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value.byteLength > MAX_BODY_BYTES - length) {
+        // A tee/upstream cancellation can remain pending until its other consumer
+        // finishes. Never let that hold the 400 response or buffer the rest.
+        void reader.cancel().catch(() => {});
+        throw new Error("too large");
+      }
+      bytes.set(value, length);
+      length += value.byteLength;
     }
-    chunks.push(value);
+  } finally {
+    reader.releaseLock();
   }
-  const bytes = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return JSON.parse(new TextDecoder().decode(bytes));
+  return JSON.parse(new TextDecoder().decode(bytes.subarray(0, length)));
 }
 
 function noStore(response: Response): Response {

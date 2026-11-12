@@ -612,8 +612,8 @@ describe("Phase 1 core loop (integration)", () => {
       expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
     }
 
-    // Local artifact work is valid input, but only authenticated dashboard
-    // intake may request it, and the deployment must enable the local runtime.
+    // Local artifact work is valid input, but this non-dashboard intake cannot
+    // request local execution. The dashboard also requires an enabled local runtime.
     const local = await postRun({ executionTarget: target, runtime: "local" });
     expect(local.status).toBe(403);
     expect(await local.json()).toEqual({ error: 'runtime "local" is admitted only through the dashboard.' });

@@ -1,3 +1,4 @@
+import { normalizeRepositoryInput, REPOSITORY_INPUT_ERROR } from "../repository-input";
 /**
  * Settings section bodies mounted by SettingsPage.
  * Sections mount only the live data they need from /api/setup/status,
@@ -1044,9 +1045,9 @@ function RepositoriesSection(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
 
   const add = () => {
-    const clean = draft.trim();
-    if (!clean.startsWith("https://github.com/")) {
-      setError("Repository URL must look like https://github.com/owner/repo.");
+    const clean = normalizeRepositoryInput(draft);
+    if (!clean) {
+      setError(REPOSITORY_INPUT_ERROR);
       return;
     }
     saveRepo(clean);
@@ -1059,10 +1060,12 @@ function RepositoriesSection(): JSX.Element {
       <div className="px-4 py-3 border-b border-[var(--border-1)] flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <input
-            type="url"
+            type="text"
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="https://github.com/owner/repo"
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? "settings-repo-error" : undefined}
+            onChange={(event) => { setDraft(event.target.value); setError(null); }}
+            placeholder="owner/repo or full GitHub URL"
             aria-label="New repository URL"
             className="flex-1 bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors"
           />
@@ -1074,7 +1077,7 @@ function RepositoriesSection(): JSX.Element {
             Save repo
           </button>
         </div>
-        {error ? <span className="text-[11px] text-[var(--destructive)]">{error}</span> : null}
+        {error ? <span id="settings-repo-error" role="alert" className="text-[11px] text-[var(--destructive)]">{error}</span> : null}
       </div>
       {repos.length === 0 ? (
         <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">

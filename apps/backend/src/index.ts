@@ -86,6 +86,7 @@ import { handleDiscordInteractions } from "./discord.js";
 import { handleTelegramWebhook } from "./telegram.js";
 import { handleTrigger } from "./trigger.js";
 import { handleSandboxRoutes } from "./sandbox-routes.js";
+import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { isOrgApiPath, isPublicRequest } from "./public-routes.js";
 import { handleWaitlist } from "./waitlist.js";
 import { Waitlist } from "./waitlist-do.js";
@@ -145,6 +146,8 @@ const MARKETING_SECTIONS = new Set([
 // Root paths of the dashboard's sidebar views (AppNavRail ids); "" is the Work home.
 export const DASHBOARD_VIEWS = new Set([
   "slack-canvas",
+  "signin",
+  "login",
   // Keep in sync with AppNavRail APP_NAV_ITEMS ids.
   "",
   "work",
@@ -670,6 +673,10 @@ export default {
       // An `/api/*` URL that survived every handler is an API miss, not a
       // page route — answer JSON instead of the marketing 404 HTML.
       if (url.pathname.startsWith("/api/")) {
+        if (isOrgApiPath(url.pathname)) {
+          const auth = await resolveOrgForApiRequest(request, env);
+          if (auth instanceof Response) return auth;
+        }
         return Response.json({ error: "Not found." }, { status: 404 });
       }
       return env.ASSETS.fetch(request);
