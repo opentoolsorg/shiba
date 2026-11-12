@@ -117,7 +117,7 @@ async function probeGitHub(env: Env, findings: DoctorFinding[]): Promise<void> {
   }
 }
 
-async function roleRows(env: Env, snapshot: ModelConfigSnapshot): Promise<DoctorRoleRow[]> {
+async function roleRows(env: Env, snapshot: ModelConfigSnapshot, initiatorUserId?: string): Promise<DoctorRoleRow[]> {
   const rolePins = snapshot.policy.rolePins;
   const described = describeRoleModels(env, rolePins, snapshot);
   const sole = soleReadyConnection(snapshot);
@@ -155,6 +155,7 @@ async function roleRows(env: Env, snapshot: ModelConfigSnapshot): Promise<Doctor
       harness: row.harness,
       codingModel: row.model,
       route,
+      ...(initiatorUserId ? { initiatorUserId } : {}),
     };
     try {
       await assertRunPreflight(env, preflight, snapshot);
@@ -288,7 +289,7 @@ function checkSecretsCatalog(env: Env, findings: DoctorFinding[]): void {
 
 export async function runSetupDoctor(
   env: Env,
-  hints: { gateway: { token: boolean; reachable: "yes" | "unauthorized" | "error" | "unknown" } },
+  hints: { gateway: { token: boolean; reachable: "yes" | "unauthorized" | "error" | "unknown" }; initiatorUserId?: string },
 ): Promise<SetupDoctorReport> {
   const checkedAt = Date.now();
   const findings: DoctorFinding[] = [];
@@ -310,7 +311,7 @@ export async function runSetupDoctor(
     );
   }
 
-  const roles = await roleRows(env, snapshot);
+  const roles = await roleRows(env, snapshot, hints.initiatorUserId);
   for (const row of roles) {
     if (!row.ok) {
       push(findings, `role.${row.role}`, "error", `Role ${row.role}: ${row.message ?? "not runnable"}`, row.fix);
