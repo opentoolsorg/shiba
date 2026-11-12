@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from "react";
 import { ArrowUp, Check, CircleDot, LoaderCircle, Mic, PanelLeft, SquareArrowOutUpRight } from "lucide-react";
+import type { AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
 import type { RetainedRun, StoredApproval } from "../types";
+import type { EmployeeRole } from "../employee-templates";
 import { formatTimeAgo, type PendingApproval as ChatPendingApproval } from "../ui-helpers";
 import { AgentAvatar } from "./AgentAvatar";
 import { useSetupStatus } from "../live-status";
@@ -13,6 +15,9 @@ export interface TasksHomeAgent {
   slug: string;
   emoji?: string;
   defaultRepoUrl?: string;
+  mascotPreset?: CustomAgentMascotPreset;
+  look?: AgentMascotLook;
+  role?: EmployeeRole;
 }
 
 export interface TasksHomeItem {
@@ -371,7 +376,7 @@ export function TasksHomeView({
           </div>
           <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border-1)] px-3 py-2.5 sm:px-4">
             <label htmlFor="tasks-home-agent" className="sr-only">Choose an agent</label>
-            <AgentAvatar id={selectedAgentId || "shiba"} name={selectedAgent?.name || "Shiba"} size={28} decorative />
+            <AgentAvatar id={selectedAgentId || "shiba"} name={selectedAgent?.name || "Shiba"} mascotPreset={selectedAgent?.mascotPreset} look={selectedAgent?.look} role={selectedAgent?.role} size={28} decorative />
             <select
               id="tasks-home-agent"
               aria-label="Choose an agent"
