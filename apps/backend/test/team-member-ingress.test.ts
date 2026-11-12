@@ -174,7 +174,7 @@ describe("full Worker ingress for restricted native team members", () => {
       stage: "dispatch", requestDigest: "a".repeat(64), capability: "forged.signature",
     }), env);
     expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "automatic_read_capability_denied" });
+    expect(await response.json()).toEqual({ error: "Forbidden." });
     expect(prepare).not.toHaveBeenCalled();
     expect(routing.getAgentByName).not.toHaveBeenCalled();
     expect(routing.routeAgentRequest).not.toHaveBeenCalled();

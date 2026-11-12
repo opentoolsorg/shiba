@@ -9,7 +9,7 @@ import {
   randomMascotLook,
   resolveAgentMascotLook,
 } from "@shiba/shared";
-import { mascotExpression } from "./agent-mascots";
+import { avatarStatusFromTask, mascotExpression } from "./agent-mascots";
 
 const key = (look: { shape: string; color: string; eyes: string; acc: string }) => `${look.shape}|${look.color}|${look.eyes}|${look.acc}`;
 
@@ -77,5 +77,13 @@ describe("agent mascot looks", () => {
     expect(mascotExpression("needs-approval", "happy")).toBe("surprised");
     expect(mascotExpression("failed", "happy")).toBe("squint");
     expect(mascotExpression("asleep", "pill")).toBe("sleepy");
+  });
+});
+
+describe("task avatar status", () => {
+  it("does not misrepresent review as an approval requirement", () => {
+    expect(avatarStatusFromTask("in-review")).toBe("waiting");
+    expect(avatarStatusFromTask("needs-approval")).toBe("needs-approval");
+    expect(avatarStatusFromTask("waiting-approval")).toBe("needs-approval");
   });
 });

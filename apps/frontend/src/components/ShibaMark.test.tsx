@@ -6,13 +6,15 @@ import { ShibaMark } from "./ShibaMark";
 afterEach(cleanup);
 
 describe("Shiba brand mark", () => {
-  it("uses the canonical logo with accessible text and neutral token backing", () => {
+  it("uses the SVG Shiba with accessible text and neutral token backing", () => {
     const { rerender } = render(<ShibaMark />);
     const logo = screen.getByRole("img", { name: "Shiba" });
-    expect(logo.getAttribute("src")).toBe("/assets/mascot/pet-logo.png");
+    expect(logo.querySelector("svg.shiba-agent-mascot")?.getAttribute("data-shape")).toBe("pointed");
+    expect(logo.querySelector("img")).toBeNull();
     expect(logo.className).toContain("bg-[var(--card)]");
-    expect(logo.className).toContain("object-contain");
     rerender(<ShibaMark className="size-6" />);
     expect(screen.getByRole("img", { name: "Shiba" }).className).toContain("size-6");
+    rerender(<ShibaMark decorative />);
+    expect(screen.queryByRole("img", { name: "Shiba" })).toBeNull();
   });
 });

@@ -2,6 +2,10 @@ import { useEffect, useRef, useState, type FormEvent, type JSX } from "react";
 import { ArrowUp, Check, CircleDot, LoaderCircle, Mic, PanelLeft, SquareArrowOutUpRight } from "lucide-react";
 import type { RetainedRun, StoredApproval } from "../types";
 import { formatTimeAgo } from "../ui-helpers";
+import { AgentAvatar } from "./AgentAvatar";
+import { useSetupStatus } from "../live-status";
+import { taskReadiness, type TaskRouteSelection } from "../task-readiness";
+import { normalizeRepositoryInput, REPOSITORY_INPUT_ERROR } from "../repository-input";
 
 export interface TasksHomeAgent {
   id: string;
@@ -44,6 +48,7 @@ export function buildTasksHomeBuckets(
       updatedAt: approval.createdAt,
       bucket: "needs-you",
       status: "Approval",
+      progressText: "Waiting for you to approve",
       source: { kind: "approval", approvalId: approval.approvalId },
     });
   }
@@ -67,7 +72,7 @@ export function buildTasksHomeBuckets(
         progressText: run.summary?.trim() || "Working…",
       });
     } else if (run.status === "pending") {
-      buckets.waiting.push({ ...base, bucket: "waiting", status: "Queued" });
+      buckets.waiting.push({ ...base, bucket: "waiting", status: "Queued", progressText: run.summary?.trim() || "Waiting to start" });
     } else if (run.status === "completed") {
       buckets.needsYou.push({ ...base, bucket: "needs-you", status: "Answered" });
     } else {
@@ -137,10 +142,10 @@ function TaskRow({
           </div>
           {item.progressText ? (
             <div className="mt-3 flex items-center gap-2 text-xs text-[var(--muted-foreground-1)]" data-testid="task-progress">
-              <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--primary)]" aria-hidden="true" />
+              <LoaderCircle className={`size-3.5 shrink-0 text-[var(--primary)] ${isWorking ? "motion-safe:animate-spin" : ""}`} aria-hidden="true" />
               <span className="min-w-0 truncate">{item.progressText}</span>
               <span className="relative ml-1 h-px min-w-8 flex-1 overflow-hidden bg-[var(--border-1)]" aria-hidden="true">
-                <span className="absolute inset-y-0 left-0 w-1/3 animate-pulse bg-[var(--primary)]" />
+                <span className={`absolute inset-y-0 left-0 w-1/3 bg-[var(--primary)] ${isWorking ? "motion-safe:animate-pulse" : ""}`} />
               </span>
             </div>
           ) : null}
@@ -202,6 +207,10 @@ export function TasksHomeView({
   onOpenApproval,
   onToggleAgents,
   agentsOpen = true,
+  route = {},
+  onOpenModels,
+  submitError,
+  submitNotice,
 }: {
   task: string;
   onTaskChange: (value: string) => void;
@@ -215,13 +224,33 @@ export function TasksHomeView({
   runs: RetainedRun[];
   approvals: StoredApproval[];
   busy?: boolean;
-  onSubmit: (event: FormEvent<HTMLFormElement>, agentId: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>, agentId: string) => void | Promise<void>;
+  route?: TaskRouteSelection;
+  onOpenModels?: () => void;
+  submitError?: string | null;
+  submitNotice?: string | null;
   onOpenRun?: (runId: string) => void;
   onOpenApproval?: (approvalId: string) => void;
   onToggleAgents?: () => void;
   agentsOpen?: boolean;
 }): JSX.Element {
   const buckets = buildTasksHomeBuckets(runs, approvals);
+  const setup = useSetupStatus();
+  const readiness = taskReadiness(setup.state, route);
+  const [repoError, setRepoError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const submitLock = useRef(false);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy || submitLock.current || readiness.blocked || !task.trim() || agentsLoading) return;
+    if (!normalizeRepositoryInput(repoUrl)) { setRepoError(REPOSITORY_INPUT_ERROR); return; }
+    setRepoError(null);
+    setSubmissionError(null);
+    submitLock.current = true;
+    setSubmitting(true);
+    try { await onSubmit(event, selectedAgentId); } catch { setSubmissionError("Unable to hand off this task. Check its status before retrying."); } finally { submitLock.current = false; setSubmitting(false); }
+  };
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
   const repositoryNeeded = !selectedAgent?.defaultRepoUrl || !repoUrl.trim();
   const [listening, setListening] = useState(false);
@@ -298,7 +327,7 @@ export function TasksHomeView({
           </p>
         </section>
 
-    <form onSubmit={(event) => onSubmit(event, selectedAgentId)} className="mt-8 border border-[var(--border-2)] bg-[var(--card)] shadow-[2px_2px_0_var(--paper-shadow)] focus-within:border-[var(--primary)]">
+    <form onSubmit={(event) => { void submit(event); }} aria-label="Hand off work" aria-busy={busy || submitting} className="mt-8 border border-[var(--border-2)] bg-[var(--card)] shadow-[2px_2px_0_var(--paper-shadow)] focus-within:border-[var(--primary)]">
           <label htmlFor="tasks-home-prompt" className="sr-only">What do you want done?</label>
           <textarea
             id="tasks-home-prompt"
@@ -306,30 +335,45 @@ export function TasksHomeView({
             onChange={(event) => onTaskChange(event.target.value)}
             placeholder="What do you want done?"
             rows={3}
+            required
             className="block min-h-24 w-full resize-y border-0 bg-transparent px-4 py-4 text-sm leading-6 text-[var(--fg)] outline-none placeholder:text-[var(--muted-foreground-3)] focus:ring-0 sm:px-5"
           />
+          <div className="border-t border-[var(--border-1)] px-4 py-3 text-xs text-[var(--muted-foreground-1)]">
+            <p id="tasks-home-readiness" role="status">{readiness.message}</p>
+            <div className="mt-2 flex flex-wrap gap-3">
+              {onOpenModels ? <button type="button" onClick={onOpenModels} className="min-h-11 underline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">Open Settings → Models</button> : null}
+              <button type="button" onClick={setup.reload} disabled={setup.inFlight} className="min-h-11 underline disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-[var(--ring)]">Recheck setup</button>
+            </div>
+            {submitNotice ? <p role="status" className="mt-2 text-[var(--fg)]">{submitNotice}</p> : null}
+            {submitError || submissionError ? <p role="alert" className="mt-2 text-[var(--destructive)]">{submitError || submissionError}</p> : null}
+            {repoError ? <p id="tasks-home-repo-error" role="alert" className="mt-2 text-[var(--destructive)]">{repoError}</p> : null}
+          </div>
           <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border-1)] px-3 py-2.5 sm:px-4">
             <label htmlFor="tasks-home-agent" className="sr-only">Choose an agent</label>
+            <AgentAvatar id={selectedAgentId || "shiba"} name={selectedAgent?.name || "Shiba"} size={28} decorative />
             <select
               id="tasks-home-agent"
               aria-label="Choose an agent"
               value={selectedAgentId}
               onChange={(event) => onAgentChange(event.target.value)}
-              disabled={agentsLoading || agents.length === 0}
+              disabled={agentsLoading}
               className="h-9 max-w-full border border-[var(--border-1)] bg-[var(--panel)] px-2.5 text-xs text-[var(--fg)] focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
             >
-              {agents.length === 0 ? <option value="">{agentsLoading ? "Loading agents…" : "No saved agents"}</option> : null}
+              <option value="">Shiba</option>
               {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.emoji ? `${agent.emoji} ` : ""}{agent.name}</option>)}
             </select>
             {repositoryNeeded ? (
               <input
-                type="url"
-                aria-label="GitHub repository URL"
+                type="text"
+                aria-label="GitHub repository"
+                aria-invalid={Boolean(repoError)}
+                aria-describedby={repoError ? "tasks-home-repo-error" : undefined}
+                required
                 list="tasks-home-repositories"
                 value={repoUrl}
-                onChange={(event) => onRepoUrlChange(event.target.value)}
-                placeholder="https://github.com/owner/repo"
-                className="h-9 min-w-[200px] flex-1 border border-[var(--border-1)] bg-[var(--panel)] px-2.5 text-xs text-[var(--fg)] outline-none placeholder:text-[var(--muted-foreground-3)] focus:border-[var(--primary)]"
+                onChange={(event) => { setRepoError(null); onRepoUrlChange(event.target.value); }}
+                placeholder="owner/repo or GitHub URL"
+                className="h-9 min-w-0 w-full sm:w-auto flex-1 border border-[var(--border-1)] bg-[var(--panel)] px-2.5 text-xs text-[var(--fg)] outline-none placeholder:text-[var(--muted-foreground-3)] focus:border-[var(--primary)]"
               />
             ) : (
               <span className="max-w-[260px] truncate border border-[var(--border-1)] px-2.5 py-2 font-mono text-[10px] text-[var(--muted-foreground-2)]" title={repoUrl}>
@@ -350,11 +394,12 @@ export function TasksHomeView({
             </button>
             <button
               type="submit"
-              disabled={busy || !task.trim() || agentsLoading || (repositoryNeeded && !repoUrl.trim())}
+              disabled={busy || submitting || readiness.blocked || !task.trim() || agentsLoading || !repoUrl.trim()}
+              aria-describedby="tasks-home-readiness"
               aria-label="Send task"
               className="inline-flex size-9 items-center justify-center border border-[var(--navy)] bg-[var(--navy)] text-[var(--primary-text)] shadow-[2px_2px_0_var(--paper-shadow)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
-              {busy ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : <ArrowUp className="size-4" aria-hidden="true" />}
+              {busy || submitting ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : <ArrowUp className="size-4" aria-hidden="true" />}
             </button>
           </div>
         </form>

@@ -16,6 +16,7 @@ describe("Linear webhook unsigned override", () => {
         LINEAR_ALLOW_UNSIGNED_WEBHOOK: value,
       } as Env);
       expect(response?.status).toBe(503);
+      expect(await response?.json()).toEqual({ error: "Webhook is disabled." });
     }
     const allowed = await handleLinearWebhook(makeRequest(), { LINEAR_ALLOW_UNSIGNED_WEBHOOK: "1" } as Env);
     expect(allowed?.status).not.toBe(503);

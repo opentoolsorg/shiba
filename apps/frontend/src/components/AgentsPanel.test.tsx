@@ -259,7 +259,7 @@ describe("AgentsPanel", () => {
     localStorage.removeItem("shiba.agents.pinned");
   });
 
-  it("shows a hire empty state that opens the catalog when there are no custom agents", () => {
+  it("does not show an empty workspace when the built-in Shiba exists", () => {
     const onOpenCatalog = vi.fn();
     render(
       <AgentsPanel
@@ -273,8 +273,9 @@ describe("AgentsPanel", () => {
 
     expect(screen.getByText("Shiba")).toBeTruthy();
     expect(screen.queryByText("No agents yet")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Hire your first teammate" }));
-    expect(onOpenCatalog).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Make room for good work.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Hire your first teammate" })).toBeNull();
+    expect(onOpenCatalog).not.toHaveBeenCalled();
   });
 
   it("renders panel navigation items for Tool policy, Swarm, and Tasks", () => {

@@ -268,14 +268,47 @@ function assertOwnerBootstrap(
   }
 }
 
+/** Run admission before Better Auth's existing-email lookup, not only its create hook.
+ * The hook remains authoritative against stale invitations and concurrent requests.
+ */
+async function signupAdmission(request: Request, env: BetterAuthLaneEnv, enrollment?: BetterAuthEnrollmentAdapter): Promise<Request | Response> {
+  if (request.method !== "POST" || !/^\/api\/auth\/sign-up\/email\/?$/.test(new URL(request.url).pathname)) return request;
+  let body: Record<string, unknown>;
+  try {
+    const value: unknown = await request.clone().json();
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid body");
+    body = value as Record<string, unknown>;
+  } catch {
+    return Response.json({ message: "Invalid sign-up request." }, { status: 400 });
+  }
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || typeof body.password !== "string" || body.password.length < 8 || body.password.length > 128 || typeof body.name !== "string" || !body.name.trim()) {
+    return Response.json({ message: "Invalid sign-up request." }, { status: 400 });
+  }
+  const denied = () => Response.json({ message: "Sign-up is closed or locked. A valid invitation or setup authorization is required." }, { status: 403, headers: { "Cache-Control": "no-store" } });
+  const row = await env.AGENT_AUDIT!.prepare('SELECT COUNT(*) AS c FROM "user"').first<{ c: number }>();
+  if (Number(row?.c ?? 0) === 0) {
+    const token = configuredSecret(env.BETTER_AUTH_BOOTSTRAP_TOKEN);
+    const owner = configuredSecret(env.BETTER_AUTH_OWNER_EMAIL);
+    if ((owner && owner.toLowerCase() !== email) || ((!isLoopbackRequest(request) || token) && (!token || !secretsEqual(token, request.headers.get(BETTER_AUTH_BOOTSTRAP_HEADER) ?? "")))) return denied();
+  } else {
+    const token = request.headers.get(BETTER_AUTH_INVITATION_HEADER) ?? "";
+    if (!enrollment?.enabled || !/^[a-f0-9]{64}$/i.test(token) || !await enrollment.validateInvitation({ token, email })) return denied();
+  }
+  const headers = new Headers(request.headers);
+  headers.delete("content-length");
+  return new Request(request, { headers, body: JSON.stringify({ ...body, email }) });
+}
+
 function withDeadline(work: Promise<Response>, ms: number): Promise<Response> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
+      console.error("Auth handler deadline exceeded; check auth storage availability.");
       resolve(
         Response.json(
           {
             error:
-              "Auth request timed out. Check that AGENT_AUDIT is bound and that D1 can answer.",
+              "Auth request timed out. Please try again.",
           },
           { status: 504 },
         ),
@@ -468,8 +501,12 @@ export async function handleBetterAuth(
   }
   if (url.pathname === `${BETTER_AUTH_BASE_PATH}/invitation-policy` && request.method === "GET") {
     return Response.json({ enabled: enrollment?.enabled === true,
-      ...(enrollment?.enabled ? {} : { reason: enrollment?.unavailableReason ?? "Verified email invitation enrollment is not configured." }) },
+      ...(enrollment?.enabled ? {} : { reason: "Invitation enrollment is currently unavailable. Contact your workspace owner." }) },
     { headers: { "Cache-Control": "no-store" } });
+  }
+  const callbackProvider = url.pathname.match(/^\/api\/auth\/callback\/([^/]+)\/?$/)?.[1];
+  if (callbackProvider && !enabledBetterAuthProviderIds(env).includes(callbackProvider as "google" | "slack")) {
+    return Response.json({ error: "Not found." }, { status: 404, headers: { "Cache-Control": "no-store" } });
   }
   if (env.AGENT_AUDIT === undefined) {
     return Response.json(
@@ -483,6 +520,9 @@ export async function handleBetterAuth(
     return await withDeadline(
       (async () => {
         await ensureBetterAuthSchema(env as { AGENT_AUDIT: D1Database });
+        const admitted = await signupAdmission(request, env, enrollment);
+        if (admitted instanceof Response) return admitted;
+        request = admitted;
         const bootstrapResponse = await handleBootstrapVerification(request, env as { AGENT_AUDIT: D1Database; BETTER_AUTH_SECRET: string; BETTER_AUTH_URL?: string }, bootstrapVerification,
           async () => {
             const account = await resolveBetterAuthSessionAccount(request, env, redact);

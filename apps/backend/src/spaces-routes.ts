@@ -83,12 +83,12 @@ async function applySpaceTemplate(
 export async function handleSpaces(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/spaces")) return null;
+  const auth = await resolveOrgForApiRequest(request, env);
+  if (auth instanceof Response) return auth;
   if (!env.AGENT_AUDIT || !env.Spaces) {
     return Response.json({ ok: false, error: "spaces_unavailable" }, { status: 503 });
   }
 
-  const auth = await resolveOrgForApiRequest(request, env);
-  if (auth instanceof Response) return auth;
   if (auth.workspace || auth.orgId.startsWith("team:")) return Response.json({ ok: false, error: "team_spaces_unavailable", message: "Use team rooms for shared work. Team Spaces do not have a scoped mutation contract." }, { status: 501, headers: { "Cache-Control": "no-store" } });
   const ownerId = auth.principal?.principal ?? await resolveUserId(request, env);
   if (!ownerId) return Response.json({ ok: false, error: "authentication_required" }, { status: 401 });

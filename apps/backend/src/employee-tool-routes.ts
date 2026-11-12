@@ -643,7 +643,11 @@ export async function handleEmployeeTools(request: Request, env: Env): Promise<R
     return jsonError("method_not_allowed", 405);
   }
   const match = url.pathname.match(/^\/api\/employee-tools\/([^/]+)\/(policy|call)\/?$/);
-  if (!match) return jsonError("not_found", 404);
+  if (!match) {
+    const auth = await resolveOrgForApiRequest(request, env);
+    if (auth instanceof Response) return auth;
+    return jsonError("not_found", 404);
+  }
   let employeeId: string;
   try { employeeId = decodeURIComponent(match[1]!); } catch { return jsonError("invalid_employee_id", 400); }
   if (!employeeId || /[/\\]/.test(employeeId) || employeeId.length > 120) return jsonError("invalid_employee_id", 400);

@@ -208,8 +208,9 @@ export async function handleSlackCommand(
   }
   const secret = env.SLACK_SIGNING_SECRET ?? "";
   if (!secret) {
+    console.warn("Webhook disabled: SLACK_SIGNING_SECRET is unset.");
     return Response.json(
-      { error: "Slack is not configured: set the SLACK_SIGNING_SECRET secret." },
+      { error: "Webhook is disabled." },
       { status: 503 },
     );
   }

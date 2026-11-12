@@ -39,6 +39,8 @@ import {
   X,
 } from "lucide-react";
 import { Tooltip } from "./Tooltip";
+import { AgentAvatar } from "./AgentAvatar";
+import { normalizeRepositoryInput, REPOSITORY_INPUT_ERROR } from "../repository-input";
 import { formatBytes } from "../ui-helpers";
 import { AgentConversationEmpty } from "./AgentExperience";
 import type { SavedSkill } from "../saved";
@@ -399,6 +401,7 @@ export function TaskComposer({
   const [mentionIndex, setMentionIndex] = useState(0);
   const [repoFilter, setRepoFilter] = useState("");
   const [repoUrlDraft, setRepoUrlDraft] = useState("");
+  const [repoInputError, setRepoInputError] = useState<string | null>(null);
   const [modelFilter, setModelFilter] = useState("");
   const [modelDraft, setModelDraft] = useState("");
   const [branchDraft, setBranchDraft] = useState("");
@@ -638,7 +641,10 @@ export function TaskComposer({
   const namedEnvCount = namedEnvVars.length;
 
   const pickRepo = (url: string) => {
-    onRepoUrlChange(url);
+    const normalized = normalizeRepositoryInput(url);
+    if (!normalized) { setRepoInputError(REPOSITORY_INPUT_ERROR); return; }
+    setRepoInputError(null);
+    onRepoUrlChange(normalized);
     setOpen(null);
   };
   const applyBranch = () => {
@@ -909,21 +915,23 @@ export function TaskComposer({
             </div>
             <div className="border-t border-[var(--border-1)] px-3 py-2.5 flex flex-col gap-2">
               <label htmlFor={idFor("repo-url-input")} className={sectionLabelClass}>
-                Use a URL
+                Repository
               </label>
               <div className="flex items-center gap-1.5">
                 <input
                   id={idFor("repo-url-input")}
-                  type="url"
+                  type="text"
                   value={repoUrlDraft}
-                  onChange={(event) => setRepoUrlDraft(event.target.value)}
+                  aria-invalid={Boolean(repoInputError)}
+                  aria-describedby={repoInputError ? idFor("repo-error") : undefined}
+                  onChange={(event) => { setRepoUrlDraft(event.target.value); setRepoInputError(null); }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && repoUrlDraft.trim()) {
                       event.preventDefault();
                       pickRepo(repoUrlDraft.trim());
                     }
                   }}
-                  placeholder="https://github.com/owner/repo"
+                  placeholder="owner/repo or https://github.com/owner/repo"
                   className={`${inputClass} flex-1 font-mono`}
                 />
                 <button
@@ -935,6 +943,7 @@ export function TaskComposer({
                   Use
                 </button>
               </div>
+              {repoInputError ? <p id={idFor("repo-error")} role="alert" className="text-xs text-[var(--destructive)]">{repoInputError}</p> : null}
             </div>
           </Popover>
         </div> : (
@@ -1532,7 +1541,7 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
                 {runSetup ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
               </button> : null}
 
-              {onCustomAgentChange && customAgents.length > 0 ? (
+              {onCustomAgentChange ? (
                 <div className="border-t border-[var(--border-1)] pt-2 flex flex-col gap-1.5">
                   <span className="text-xs text-[var(--muted-foreground-1)]">Bot</span>
                   <button
@@ -1546,7 +1555,7 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
                     }`}
                     onClick={() => onCustomAgentChange("")}
                   >
-                    <span className="flex-1 truncate">Default (no bot)</span>
+                    <AgentAvatar id="shiba" name="Shiba" size={24} decorative /><span className="flex-1 truncate">Shiba</span>
                     {customAgentId === "" ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
                   </button>
                   {customAgents.map((agent) => (
