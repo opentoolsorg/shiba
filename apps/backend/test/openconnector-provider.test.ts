@@ -134,7 +134,7 @@ describe("OpenConnector adapter", () => {
     ]);
     const recovery = await provider(fetchImpl).listConnections({ userId: "alice", includeUnavailable: true });
     expect(recovery).toHaveLength(5);
-    expect(recovery.find((row) => row.connectionState === "reauth_required")).toMatchObject({ executionReady: false, unavailableReason: expect.stringContaining("Disconnect") });
+    expect(recovery.find((row) => row.connectionState === "reauth_required")).toMatchObject({ executionReady: false, unavailableReason: expect.stringContaining("Reconnect") });
   });
 
   it("maps, searches and paginates the catalog with user-scoped connection badges", async () => {

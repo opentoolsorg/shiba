@@ -1,0 +1,218 @@
+---
+const roles = [
+  { t: 'Marketing', kind: 'Built-in template', mascot: 'marketing', d: 'Turn a product brief into campaign drafts for your review.', a: 'Launch brief', b: 'Campaign copy' },
+  { t: 'Sales', kind: 'Custom role example', mascot: 'sales', d: 'Prepare account research and outreach drafts from supplied context.', a: 'Account brief', b: 'Draft outreach' },
+  { t: 'Research', kind: 'Built-in template', mascot: 'research', d: 'Answer a focused question with sources and gaps made clear.', a: 'Research report', b: 'Sources and open questions' },
+  { t: 'Product', kind: 'Custom role example', mascot: 'product', d: 'Turn customer evidence into a product brief your team can discuss.', a: 'Product brief', b: 'Scope and acceptance checks' },
+  { t: 'Design', kind: 'Custom role example', mascot: 'design', d: 'Map a user flow and draft interface copy before you build.', a: 'Design specification', b: 'States and accessibility checks' },
+  { t: 'Engineering', kind: 'Built-in template', mascot: 'engineering', d: 'Make a focused code change and report the checks run.', a: 'Code changes and tests', b: 'Review handoff' },
+  { t: 'QA & Testing', kind: 'Custom role example', mascot: 'engineering', d: 'Check a feature and document what passed, failed, or needs another look.', a: 'Test report', b: 'Reproduction steps' },
+  { t: 'Operations', kind: 'Built-in template', mascot: 'operations', d: 'Turn a recurring process into a checklist someone can follow.', a: 'Operating runbook', b: 'Readiness and recovery steps' },
+  { t: 'Your custom role', kind: 'Custom role', mascot: 'custom', d: 'Give an employee instructions for the work your team repeats.', a: 'Your working brief', b: 'The files you need' },
+];
+---
+
+<section id="employees" class="lp-band lp-cast" aria-labelledby="employees-title">
+  <div class="lp-shell">
+    <div class="lp-cast-head" data-motion="reveal">
+      <div>
+        <p class="lp-eyebrow">Employees</p>
+        <h2 id="employees-title" class="lp-h2">Every department.<br />One workspace.</h2>
+      </div>
+      <p class="lp-cast-side">
+        Four built-in templates: Engineering, Marketing, Research and Operations. Sales, Product, Design and QA are
+        custom-role examples. Add your own instructions for any role.
+      </p>
+    </div>
+
+    <div class="lp-cast-grid">
+      {
+        roles.map((e, i) => (
+          <article class="lp-agent-card" data-motion="reveal">
+            <div class="lp-card-top">
+              <span class="lp-template-label">{e.kind}</span>
+              <span aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
+            </div>
+            <div class="lp-avatar">
+              <img src={`/landing/mascots/${e.mascot}.svg`} alt="" width="260" height="240" loading="lazy" decoding="async" />
+            </div>
+            <h3>{e.t}</h3>
+            <p class="lp-role">{e.d}</p>
+            <div class="lp-deliverables">
+              <h4>{i === roles.length - 1 ? 'You define' : 'Example outputs'}</h4>
+              <ul>
+                <li>{e.a}</li>
+                <li>{e.b}</li>
+              </ul>
+            </div>
+          </article>
+        ))
+      }
+    </div>
+
+    <div class="lp-cast-notes">
+      <p>
+        Engineering, Marketing, Research, and Operations have built-in templates. The other roles shown here are
+        examples you can create with custom instructions.
+      </p>
+      <p>
+        Roles use information you supply to prepare drafts. A role alone does not connect accounts, make payments,
+        update external services, or grant permission to publish.
+      </p>
+    </div>
+  </div>
+</section>
+
+<style>
+  .lp-cast {
+    padding-block: 72px;
+  }
+
+  .lp-cast-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 40px;
+  }
+
+  .lp-cast-side {
+    max-width: 340px;
+    margin: 0;
+    color: var(--lp-ink2);
+    font-size: 15px;
+  }
+
+  .lp-cast-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+  }
+
+  .lp-agent-card {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 24px;
+    background: var(--lp-card);
+    border: 2px solid var(--lp-ink);
+    border-radius: 0;
+    box-shadow: -3px 3px 0 var(--lp-ink);
+  }
+
+  .lp-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--lp-ink2);
+    font: 500 12px/1.5 var(--lp-font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .lp-template-label {
+    padding: 3px 8px;
+    border: 1.5px solid var(--lp-ink);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .lp-avatar {
+    width: 180px;
+    max-width: 100%;
+    min-height: 160px;
+    display: grid;
+    place-items: center;
+    margin: 16px auto;
+  }
+
+  .lp-avatar img {
+    display: block;
+    width: 150px;
+    max-width: 100%;
+    height: auto;
+  }
+
+  .lp-agent-card h3 {
+    margin: 0 0 10px;
+    color: var(--lp-ink);
+    font: 400 32px/1 var(--lp-font-display);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .lp-role {
+    margin: 0 0 20px;
+    color: var(--lp-ink2);
+    font: 400 13px/1.5 var(--lp-font-mono);
+    text-wrap: pretty;
+  }
+
+  .lp-deliverables {
+    margin-top: auto;
+    padding-top: 16px;
+    border-top: 1.5px dashed var(--lp-line2);
+  }
+
+  .lp-deliverables h4 {
+    margin: 0 0 10px;
+    color: var(--lp-ink2);
+    font: 600 11px/16px var(--lp-font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .lp-deliverables ul {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .lp-deliverables li {
+    color: var(--lp-ink);
+    font: 400 12px/16px var(--lp-font-mono);
+    overflow-wrap: anywhere;
+  }
+
+  .lp-cast-notes {
+    max-width: 900px;
+    margin-top: 32px;
+    color: var(--lp-ink2);
+    font: 400 12px/16px var(--lp-font-mono);
+  }
+
+  .lp-cast-notes p {
+    margin: 0 0 12px;
+  }
+
+  .lp-cast-notes p:last-child {
+    margin-bottom: 0;
+  }
+
+  @media (max-width: 1100px) {
+    .lp-cast-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 560px) {
+    .lp-cast-grid {
+      grid-template-columns: 1fr;
+      gap: 20px;
+    }
+
+    .lp-agent-card {
+      padding: 20px;
+    }
+
+    .lp-agent-card h3 {
+      font-size: 28px;
+    }
+  }
+</style>

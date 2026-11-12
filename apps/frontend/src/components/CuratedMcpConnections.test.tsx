@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CuratedMcpConnections } from "./CuratedMcpConnections";
 
@@ -44,13 +44,17 @@ describe("CuratedMcpConnections", () => {
     expect(open).not.toHaveBeenCalled();
     open.mockRestore();
   });
-  it("shows all six presets, filters by role and performs no connection mutation during discovery", async () => {
+  it("shows all eight presets, filters by role and performs no connection mutation during discovery", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL) => Response.json({ connections: [] }));
     vi.stubGlobal("fetch", fetchMock);
     render(<CuratedMcpConnections />);
     expect(screen.getByText("Figma")).toBeTruthy();
     expect(screen.getByText("PostHog")).toBeTruthy();
     expect(screen.getByText("Atlassian")).toBeTruthy();
+    expect(screen.getByText("GitHub (read-only)")).toBeTruthy();
+    expect(screen.getByText("Linear (read-only)")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Save bearer token" })).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: "Official setup documentation" })).toHaveLength(8);
     expect(screen.getAllByRole("button", { name: "Connect with OAuth" })).toHaveLength(6);
     fireEvent.change(screen.getByLabelText("MCP presets for role"), { target: { value: "design" } });
     expect(screen.getByText("Figma")).toBeTruthy();
@@ -59,6 +63,32 @@ describe("CuratedMcpConnections", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/mcp/catalog-connections");
   });
+  it.each(["GitHub", "Linear"])("uses only explicit bearer setup for the %s read-only preset", async (name) => {
+    const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/catalog-connections")) return Response.json({ connections: [] });
+      if (init?.method === "POST") writes.push({ path, body: JSON.parse(String(init.body)) });
+      if (path === "/api/v1/mcp/servers") return Response.json({ server: { id: "bearer-draft" } });
+      return Response.json({ ok: true });
+    }));
+    render(<CuratedMcpConnections />);
+    const catalogId = `${name.toLowerCase()}-readonly`;
+    const card = document.getElementById(`mcp-preset-${catalogId}`)!;
+    expect(within(card).queryByRole("button", { name: "Connect with OAuth" })).toBeNull();
+    expect(writes).toEqual([]);
+    fireEvent.change(within(card).getByLabelText("Label"), { target: { value: "review" } });
+    fireEvent.change(within(card).getByLabelText("Bearer token"), { target: { value: "restricted-fixture-token" } });
+    fireEvent.click(within(card).getByRole("button", { name: "Save bearer token" }));
+    await waitFor(() => expect(writes).toHaveLength(3));
+    expect(writes[0]?.body).toMatchObject({ catalogId, connectionLabel: "review", visibility: "private", credentialRef: null, authMode: "oauth" });
+    expect(writes[0]?.body.url).toMatch(/\/mcp\/readonly$/);
+    expect(writes[1]).toEqual({ path: "/api/v1/mcp/servers/bearer-draft/bearer", body: { token: "restricted-fixture-token" } });
+    expect(writes[2]?.path).toBe("/api/v1/mcp/servers/bearer-draft/discover");
+    expect(writes.some(({ path }) => /oauth|enable|grant/.test(path))).toBe(false);
+    expect((within(card).getByLabelText("Bearer token") as HTMLInputElement).value).toBe("");
+  });
+
   it.each(["OAuth", "bearer"])("keeps the original %s error when draft cleanup fails", async (failureMode) => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);

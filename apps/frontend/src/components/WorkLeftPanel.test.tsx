@@ -22,11 +22,11 @@ const setup = (overrides: Partial<WorkLeftPanelProps> = {}) => {
 };
 
 describe("WorkLeftPanel", () => {
-  it("switches scope and view from the segmented tabs and nav", () => {
+  it("keeps workspace switching global and lets the panel change views", () => {
     const props = setup();
-    expect(screen.getByRole("button", { name: "Workspace" }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "Personal" }));
-    expect(props.onScopeChange).toHaveBeenCalledWith("personal");
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Personal" })).toBeNull();
+    expect(props.onScopeChange).not.toHaveBeenCalled();
     const nav = screen.getByRole("navigation", { name: "Work pages" });
     expect(within(nav).getByRole("button", { name: "List" }).getAttribute("aria-current")).toBe("page");
     fireEvent.click(within(nav).getByRole("button", { name: "Organization" }));

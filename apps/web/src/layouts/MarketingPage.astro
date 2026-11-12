@@ -4,6 +4,7 @@ import '../styles/tailwind.css';
 // scoped <style>, so descendants need the shared sheet imported here rather
 // than per-page — a page-level import would compile but resolve to no tokens.
 import '../styles/blog.css';
+import GitHubStars from '../components/GitHubStars.astro';
 
 interface Props {
   title: string;
@@ -16,6 +17,8 @@ interface Props {
   breadcrumbs?: Array<{ name: string; path: string }>;
   /** Overrides the default Open Graph card for this page. */
   ogImage?: string;
+  /** Accessible description shared by Open Graph and Twitter cards. */
+  ogImageAlt?: string;
   noindex?: boolean;
 }
 const {
@@ -28,6 +31,7 @@ const {
   schema,
   breadcrumbs = [{ name: 'Home', path: '/' }],
   ogImage = '/assets/og/shiba-og.png',
+  ogImageAlt = 'Shiba open-source workspace illustration with clearly labeled example tasks for engineering, research, operations, marketing, and custom account briefs for human review.',
   noindex = false,
 } = Astro.props;
 const canonical = new URL(path, 'https://tryshiba.dev').href;
@@ -44,7 +48,7 @@ const defaultSchemas: Array<Record<string, unknown>> = [
     url: 'https://tryshiba.dev/',
     logo: { '@type': 'ImageObject', url: logoUrl, width: 512, height: 512 },
     founder: author,
-    sameAs: ['https://github.com/princepal9120/shiba', 'https://github.com/princepal9120'],
+    sameAs: ['https://github.com/opentoolsorg/shiba'],
   },
 ];
 
@@ -90,28 +94,25 @@ const finalSchemas = schema
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={ogImageUrl} />
-    <meta property="og:image:width" content="2400" />
-    <meta property="og:image:height" content="1260" />
-    <meta property="og:image:type" content="image/png" />
-    <meta property="og:image:alt" content="Shiba: AI employees for the work behind your company—from code and design to marketing, sales, operations and finance." />
-    {publishedTime && <meta property="article:published_time" content={publishedTime} />}
-    {modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
+    {ogImageUrl === new URL('/assets/og/shiba-og.png', 'https://tryshiba.dev').href && <>
+      <meta property="og:image:width" content="2400" />
+      <meta property="og:image:height" content="1260" />
+      <meta property="og:image:type" content="image/png" />
+    </>}
+    <meta property="og:image:alt" content={ogImageAlt} />
+    {type === 'article' && publishedTime && <meta property="article:published_time" content={publishedTime} />}
+    {type === 'article' && modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image:alt" content="Shiba: AI employees for the work behind your company—from code and design to marketing, sales, operations and finance." />
+    <meta name="twitter:image:alt" content={ogImageAlt} />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageUrl} />
 
-    <!-- Preconnect Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-
     <!-- Structured Data (JSON-LD) -->
     {finalSchemas.map((s) => (
-      <script type="application/ld+json" set:html={JSON.stringify(s)} />
+      <script type="application/ld+json" set:html={JSON.stringify(s).replace(/</g, '\\u003c')} />
     ))}
 
     <!-- Instant Theme Initializer (No FOIT) -->
@@ -193,7 +194,7 @@ const finalSchemas = schema
               <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
             </svg>
           </button>
-          <a class="nav-cta" href="/docs/self-hosting/">Self-host</a>
+          <GitHubStars />
         </div>
       </div>
     </header>
@@ -222,7 +223,7 @@ const finalSchemas = schema
               <li><a href="/integrations/" class="hover:text-[var(--navy)] transition-colors">Integrations</a></li>
               <li><a href="/network/" class="hover:text-[var(--navy)] transition-colors">Network</a></li>
               <li><a href="/waitlist/" class="hover:text-[var(--navy)] transition-colors">Join Waitlist &amp; Contribute</a></li>
-              <li><a href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer" class="hover:text-[var(--navy)] transition-colors">GitHub Repository ↗</a></li>
+              <li><a href="https://github.com/opentoolsorg/shiba" target="_blank" rel="noopener noreferrer" class="hover:text-[var(--navy)] transition-colors">GitHub Repository ↗</a></li>
             </ul>
           </div>
           <div class="space-y-3 text-xs">
@@ -477,16 +478,13 @@ const finalSchemas = schema
   }
   .header-inner { min-height: 56px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 20px; padding-inline: 16px; }
   .wordmark { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; text-decoration: none; white-space: nowrap; }
-  .wordmark-name { font-family: 'Bebas Neue', 'Geist', sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.04em; color: var(--ink); text-transform: uppercase; }
+  .wordmark-name { font-family: 'Geist', system-ui, sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.02em; color: var(--ink); }
   .nav-links { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; white-space: nowrap; }
   .nav-link { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 44px; min-height: 44px; padding: 8px 10px; font: 500 12px/1.5 'Geist Mono', monospace; text-decoration: none; color: var(--ink-2); border: 0; background: transparent; cursor: pointer; border-radius: 6px; transition: color 150ms var(--ease-out), background 150ms var(--ease-out); }
   .nav-link[aria-current='page'], .nav-more-panel a[aria-current='page'] { color: var(--accent); font-weight: 600; }
   .nav-actions { display: flex; align-items: center; gap: 10px; }
   .nav-theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid var(--hairline); border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; transition: color 150ms var(--ease-out), border-color 150ms var(--ease-out); }
   .nav-theme-toggle:hover { color: var(--ink); border-color: var(--border); }
-  .nav-cta { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 40px; padding: 8px 16px; border-radius: 8px; background: var(--accent); color: var(--on-accent); text-decoration: none; font: 600 12px/1.5 'Geist Mono', monospace; white-space: nowrap; border: 1.5px solid var(--accent-border); box-shadow: -2px 2px 0 var(--accent-border); transition: transform 150ms var(--ease-out), box-shadow 150ms var(--ease-out); }
-  .nav-cta:hover { transform: translateY(-1px); box-shadow: -3px 3px 0 var(--accent-border); }
-  .nav-cta:active { transform: translateY(1px); box-shadow: -1px 1px 0 var(--accent-border); }
   .nav-more { position: relative; min-width: 58px; }
   .nav-more-panel { position: absolute; right: 0; top: calc(100% + 10px); min-width: 190px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); box-shadow: -3px 3px 0 var(--border); }
   .nav-more-panel a { display: flex; align-items: center; min-height: 44px; padding: 10px 14px; font: 500 12px/1.5 'Geist Mono', monospace; color: var(--ink-2); text-decoration: none; border-radius: 6px; }
@@ -527,7 +525,8 @@ const finalSchemas = schema
 
   /* Shared primitives */
   .eyebrow, .micro { font-family: 'Geist Mono', monospace; text-transform: uppercase; letter-spacing: 0.14em; font-size: 10px; color: var(--navy); font-weight: 500; }
-  h1, h2, h3, h4 { font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif; font-weight: 600; font-style: normal; letter-spacing: -0.02em; line-height: 1.1; color: var(--ink); }
+  h1, h2 { font-family: 'Geist', system-ui, sans-serif; font-weight: 400; font-style: normal; letter-spacing: -0.02em; line-height: 1.08; color: var(--ink); }
+  h3, h4 { font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif; font-weight: 600; font-style: normal; letter-spacing: -0.02em; line-height: 1.2; color: var(--ink); }
   h1 { font-size: clamp(48px, 5.5vw, 60px); margin: 16px 0 24px; max-width: 680px; }
   h2 { font-size: clamp(32px, 3.8vw, 48px); }
   p { color: var(--ink-2); }
@@ -558,7 +557,7 @@ const finalSchemas = schema
       width: calc(100% - 16px);
       border-radius: 14px;
     }
-    .header-inner { grid-template-columns: minmax(0, 1fr) auto auto; min-height: 52px; gap: 4px; padding-inline: 12px; }
+    .header-inner { width: 100%; grid-template-columns: minmax(0, 1fr) auto auto; min-height: 52px; gap: 4px; padding-inline: 12px; }
     .wordmark { grid-column: 1; grid-row: 1; }
     .nav-menu-toggle { grid-column: 2; grid-row: 1; }
     .nav-actions { grid-column: 3; grid-row: 1; gap: 4px; }
@@ -572,20 +571,18 @@ const finalSchemas = schema
       right: 8px;
       bottom: 8px;
       display: none;
-      height: calc(100svh - 76px);
+      height: calc(100svh - 84px - env(safe-area-inset-bottom, 0px));
       overflow-y: auto;
       overscroll-behavior: contain;
       flex-direction: column;
       align-items: stretch;
       gap: 6px;
       padding: 24px 20px;
-      background: color-mix(in srgb, var(--paper) 95%, transparent);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      background: var(--paper);
       border: 1px solid var(--line);
       border-radius: 16px;
-      box-shadow: 0 16px 32px color-mix(in srgb, var(--ink) 8%, transparent);
-      z-index: 49;
+      box-shadow: 0 16px 32px color-mix(in srgb, var(--ink) 12%, transparent);
+      z-index: 60;
     }
     .nav-js .nav-links.nav-open { display: flex; }
     .nav-js .nav-links.nav-open .nav-link,
@@ -615,13 +612,17 @@ const finalSchemas = schema
     .nav-more-panel { position: static; margin: 4px 0 6px 14px; border: 0; border-left: 2px solid var(--line); border-radius: 0; box-shadow: none; background: transparent; padding: 0 0 0 12px; }
     .nav-more-panel a { font-size: 14px; padding: 8px 12px; }
   }
-  @media (max-width: 400px) { .wordmark-name { font-size: 24px; } .nav-cta { padding-inline: 12px; font-size: 10px; } }
+  @media (max-width: 600px) {
+    .statusbar { align-items: stretch; flex-direction: column; gap: 0; padding: 10px 14px; }
+    .status-links { width: 100%; margin-left: 0; gap: 0 12px; }
+  }
+  /* Keep menu, theme and GitHub targets usable on narrow phones. The logo retains its accessible name. */
+  @media (max-width: 360px) { .wordmark .wordmark-name { display: none; } }
   .button, footer li a, .status-links a, .watch-link { min-height: 44px; }
   footer li a, .status-links a { display: inline-flex; align-items: center; }
   footer a[aria-current='page'] { color: var(--navy); font-weight: 600; }
 
-  /* theme.css (docs) already ships this net; the marketing layout has its own
-     animations, so it needs the same guard for reduced-motion users. */
+  /* Marketing has its own animations, so keep the same reduced-motion guard. */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
   }

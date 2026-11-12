@@ -21,6 +21,7 @@ export {
   BETTER_AUTH_INVITATION_HEADER,
   betterAuthFor,
   ensureBetterAuthSchema,
+  enabledBetterAuthProviderIds,
   isBetterAuthConfigured,
   isBetterAuthPath,
 } from "@shiba/auth/better-auth";

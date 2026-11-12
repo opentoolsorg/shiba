@@ -10,6 +10,10 @@ export interface WorkspaceSwitcherProps {
   onManage: () => void;
 }
 
+function workspaceChoiceLabel(name: string, shared: boolean): string {
+  return `${name} · ${shared ? "Shared" : "Private"}`;
+}
+
 export function WorkspaceSwitcher({
   workspaces,
   loading,
@@ -26,7 +30,7 @@ export function WorkspaceSwitcher({
         htmlFor={selectorId}
         className="mb-1 block font-mono text-[10px] uppercase tracking-widest text-[var(--ink-2)]"
       >
-        Workspace
+        Switch workspace
       </label>
       <div className="flex min-w-0 gap-1">
         <select
@@ -37,11 +41,11 @@ export function WorkspaceSwitcher({
           aria-busy={loading}
           className="min-h-11 min-w-0 flex-1 border border-[var(--line)] bg-[var(--card)] px-2 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]"
         >
-          <option value="">Personal workspace</option>
+          <option value="">{workspaceChoiceLabel("Personal", false)}</option>
           {unknownSelection ? <option value={selectedWorkspaceId}>{loading ? "Checking selected workspace…" : "Workspace unavailable"}</option> : null}
           {workspaces.map((item) => (
             <option key={item.workspaceId} value={item.workspaceId}>
-              {item.name} · {item.membership.role}
+              {workspaceChoiceLabel(item.name, true)} · {item.membership.role}
             </option>
           ))}
         </select>
@@ -59,6 +63,7 @@ export function WorkspaceSwitcher({
           Checking memberships…
         </p>
       )}
+      <p className="mt-1 text-[11px] leading-4 text-[var(--ink-2)]">Changes apply across the app.</p>
     </div>
   );
 }

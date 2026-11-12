@@ -26,13 +26,15 @@ Primary flow (t3code-style token sharing):
 3. **Settings → Models → ChatGPT subscription → Start sign-in** opens OpenAI authorize URL (`dynamic_agent_client` first time, then saved `oaiapp_*` client). Redirect is always `http://127.0.0.1:<port>/auth/callback` (never `localhost`).
 4. After browser sign-in, paste the final `127.0.0.1` callback URL back. Shiba validates state, single `code`, and `oaiapp_*` client id, exchanges with PKCE, and verifies `id_token` (JWKS).
 5. Encrypted per user: `clientId`, tokens, `earliest_refresh_at`, scopes, `subject`, `email`, `hostId`. **Refresh** runs in a per-user `ChatGptAuth` Durable Object (single writer, rotated refresh token). **Logout** revokes at `revocation_endpoint` then deletes.
-6. Runs call `codex app-server --listen stdio://` with `model_provider=openai_chatgpt_plan` and only a ~1h **`ACCESS_TOKEN`** in the child env (private `CODEX_HOME`). **Refresh tokens never enter the sandbox.** Egress allowlist: `api.openai.com` (not `chatgpt.com`).
+6. Runs call `codex app-server --listen stdio://` with `model_provider=openai_chatgpt_plan` and **`ACCESS_TOKEN=shiba-egress-placeholder`** in the child environment. No real access token, refresh token, or `auth.json` is placed in that run container. For `api.openai.com` plan traffic, the Worker `codexPlan` egress handler resolves the initiating user's connection, obtains the real access token from `ChatGptAuth`, and attaches it to the outgoing request. Egress parameters carry the user ID, not the credential.
 
-**Worker vs sandbox for OAuth (2026-10-19):** `chatgpt.com` returns a Cloudflare bot-challenge to Workers; plan inference therefore uses `api.openai.com` via app-server. Token exchange/refresh is implemented on the Worker first; if `auth.openai.com` is also bot-challenged in your environment, exchange/refresh must move into the sandbox (documented fallback — not verified in CI).
+The standard SIWC route keeps OAuth exchange, credential custody, and refresh on the Worker side. Plan inference uses `api.openai.com`; do not move token exchange or refresh into a task sandbox to work around an OAuth error or provider challenge. Diagnose the connection and deployment configuration instead.
 
-**Fallback (labeled):** `codex login --device-auth` inside the user's sandbox with `auth.json` only on that user's sandbox volume — never stored in the Worker DB. Pasting `auth.json` to the server is **deprecated** (`410` on `/paste`).
+### Device-auth is a separate opt-in branch
 
-Optional: `npx shiba-login` loopback helper (posts the callback code to shiba) — follow-up.
+The device-auth endpoint is default-off and returns unavailable unless `SHIBA_CODEX_DEVICE_AUTH=1`. Its code advertises a per-user volume path and `codex login --device-auth`, then selects a different credential/egress path from standard SIWC. A derived path is not proof that a persistent volume was mounted, securely isolated, or tested end to end.
+
+Treat this branch as deployment-dependent and unverified, not a generally available fallback or a way around Worker-side credential custody. Do not recommend it for untrusted task execution without resolving those security and provisioning requirements. Pasting `auth.json` to the subscription endpoint is deprecated and returns `410` on `/paste`.
 
 ## Claude
 

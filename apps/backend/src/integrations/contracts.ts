@@ -4,6 +4,7 @@ import type {
   IntegrationProviderConnection,
   IntegrationProviderExecuteResponse,
   IntegrationProviderHealth,
+  IntegrationProviderSetupState,
   IntegrationActionOperationType,
   IntegrationsProviderId,
 } from "@shiba/shared";
@@ -14,6 +15,7 @@ export interface IntegrationCatalogQuery {
   cursor?: string;
   limit: number;
   query?: string;
+  readiness?: IntegrationProviderSetupState;
   userId: string;
 }
 
@@ -22,6 +24,8 @@ export interface IntegrationCatalogPage {
   nextCursor: string | null;
   hasMore: boolean;
   fallbackCatalog?: boolean;
+  total?: number;
+  oauthCapable?: number;
 }
 
 export interface IntegrationConnectContext {
@@ -29,6 +33,8 @@ export interface IntegrationConnectContext {
   callbackOrigin: string;
   providerKey: string;
   userId: string;
+  /** Replace only a non-active owned row (expired, revoked or unconfigured) with fresh consent. */
+  replaceUnavailable?: boolean;
 }
 
 export interface IntegrationExecuteContext {

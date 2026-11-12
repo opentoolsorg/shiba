@@ -20,6 +20,7 @@ function fakeChild() {
 describe("claudeStatusConfirmsLogin", () => {
   it("requires a logged-in status", () => {
     expect(claudeStatusConfirmsLogin(0, '{"loggedIn":true}')).toBe(true);
+    expect(claudeStatusConfirmsLogin(0, JSON.stringify({ loggedIn: true, authMethod: "oauth" }, null, 2))).toBe(true);
     expect(claudeStatusConfirmsLogin(0, "Logged in as ada@example.com")).toBe(true);
     expect(claudeStatusConfirmsLogin(0, '{"loggedIn":false}')).toBe(false);
     expect(claudeStatusConfirmsLogin(0, "Not logged in")).toBe(false);

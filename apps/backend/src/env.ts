@@ -523,6 +523,12 @@ export interface Env {
    * origin validation. Unset falls back to each request's own origin.
    */
   BETTER_AUTH_URL?: string;
+  /** Dashboard social sign-in; each provider needs both credentials. */
+  BETTER_AUTH_GOOGLE_CLIENT_ID?: string;
+  BETTER_AUTH_GOOGLE_CLIENT_SECRET?: string;
+  /** Slack OpenID sign-in, independent of Slack app installation. */
+  BETTER_AUTH_SLACK_CLIENT_ID?: string;
+  BETTER_AUTH_SLACK_CLIENT_SECRET?: string;
   /**
    * Optional. Required on a public hostname before the first dashboard
    * account, unless BETTER_AUTH_OWNER_EMAIL is set. The sign-up form sends
@@ -571,6 +577,8 @@ export interface Env {
    */
   INTEGRATIONS_PROVIDER?: string;
   /** Optional sibling Worker; preferred over OPEN_CONNECTOR_URL. */
+  /** Review metadata only; never enables non-OAuth execution. */
+  OPEN_CONNECTOR_OPERATOR_REVIEW_ENABLED?: string;
   OPEN_CONNECTOR?: Fetcher;
   OPEN_CONNECTOR_URL?: string;
   OPEN_CONNECTOR_ADMIN_TOKEN?: string;

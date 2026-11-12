@@ -1,12 +1,18 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, SettingsPanel } from "./SettingsPage";
+
+const linkSocial = vi.fn();
+vi.mock("../auth-client", () => ({ authClient: { linkSocial: (...args: unknown[]) => linkSocial(...args), signOut: vi.fn() } }));
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
+
+beforeEach(() => vi.stubGlobal("fetch", vi.fn(async () => Response.json({}))));
 
 describe("SettingsPanel", () => {
   it("renders Settings header, Back to app, search box, and Workspace items", () => {
@@ -71,6 +77,20 @@ describe("SettingsPage", () => {
     expect(onBack).toHaveBeenCalled();
   });
 
+  it("offers only configured social identity links for the signed-in Better Auth account", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return url === "/api/whoami"
+        ? Response.json({ agent: "owner@example.com", auth: "better-auth" })
+        : Response.json({ providers: { google: true, slack: false } });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<SettingsPage section="account" />);
+    expect(await screen.findByRole("button", { name: "Link Google" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Link Slack" })).toBeNull();
+    expect(screen.getByText(/does not install a Slack app/i)).toBeTruthy();
+  });
+
   it("renders TeamWorkspaceView when section is team", () => {
     const fetcher = vi.fn(async () => Response.json({ workspace: null }));
     vi.stubGlobal("fetch", fetcher);
@@ -92,6 +112,22 @@ describe("SettingsPage", () => {
 
     render(<SettingsPage section="remote" />);
     expect(screen.getByRole("heading", { name: /Remote Access/i })).toBeTruthy();
+  });
+
+  it("explains experimental features in plain language and keeps deployment switches read-only", () => {
+    render(<SettingsPage section="experimental" />);
+
+    expect(screen.getByRole("heading", { name: "Experimental features" })).toBeTruthy();
+    expect(screen.getByText(/cannot change deployment settings or check which options are currently turned on/i)).toBeTruthy();
+    expect(screen.getByText("Claude subscription sign-in")).toBeTruthy();
+    expect(screen.getByText("Use a connected computer")).toBeTruthy();
+    expect(screen.getByText("Memory summaries")).toBeTruthy();
+    expect(screen.getAllByText("Setup details for admins")).toHaveLength(5);
+    const adminDetails = screen.getAllByText("Setup details for admins")[0]!;
+    expect(adminDetails.closest("details")?.open).toBe(false);
+    fireEvent.click(adminDetails);
+    expect(adminDetails.closest("details")?.open).toBe(true);
+    expect(screen.getByText("SHIBA_CLAUDE_SUBSCRIPTION=1")).toBeTruthy();
   });
 
   it("renders with panel side-by-side when withPanel is true", () => {

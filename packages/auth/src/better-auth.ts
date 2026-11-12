@@ -47,6 +47,11 @@ export interface BetterAuthLaneEnv {
   AGENT_AUDIT?: D1Database;
   BETTER_AUTH_SECRET?: string;
   BETTER_AUTH_URL?: string;
+  BETTER_AUTH_GOOGLE_CLIENT_ID?: string;
+  BETTER_AUTH_GOOGLE_CLIENT_SECRET?: string;
+  /** Slack OpenID sign-in credentials, separate from Slack app installation. */
+  BETTER_AUTH_SLACK_CLIENT_ID?: string;
+  BETTER_AUTH_SLACK_CLIENT_SECRET?: string;
   /** Required on a public host before the first account. */
   BETTER_AUTH_BOOTSTRAP_TOKEN?: string;
   /** Allowlisted email for the first account. Compared case-insensitively. */
@@ -175,6 +180,24 @@ function configuredSecret(value: string | undefined): string | null {
   return trimmed === "" ? null : trimmed;
 }
 
+/** Built-in providers only; never reuse integration/app-install credentials. */
+function socialProviders(env: BetterAuthLaneEnv) {
+  const googleId = configuredSecret(env.BETTER_AUTH_GOOGLE_CLIENT_ID);
+  const googleSecret = configuredSecret(env.BETTER_AUTH_GOOGLE_CLIENT_SECRET);
+  const slackId = configuredSecret(env.BETTER_AUTH_SLACK_CLIENT_ID);
+  const slackSecret = configuredSecret(env.BETTER_AUTH_SLACK_CLIENT_SECRET);
+  const policy = { disableSignUp: true, requireEmailVerification: true,
+    overrideUserInfoOnSignIn: false };
+  return {
+    ...(googleId && googleSecret ? { google: { clientId: googleId, clientSecret: googleSecret, ...policy } } : {}),
+    ...(slackId && slackSecret ? { slack: { clientId: slackId, clientSecret: slackSecret, ...policy } } : {}),
+  };
+}
+
+export function enabledBetterAuthProviderIds(env: BetterAuthLaneEnv): string[] {
+  return isBetterAuthConfigured(env) ? Object.keys(socialProviders(env)) : [];
+}
+
 export function bootstrapRequirements(env: BetterAuthLaneEnv): {
   requiresToken: boolean;
   requiresOwnerEmail: boolean;
@@ -284,6 +307,33 @@ async function createBetterAuth(env: BetterAuthLaneEnv, enrollment?: BetterAuthE
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
     basePath: BETTER_AUTH_BASE_PATH,
+    socialProviders: socialProviders(env),
+    account: {
+      accountLinking: {
+        enabled: true,
+        requireLocalEmailVerified: true,
+        allowDifferentEmails: false,
+        trustedProviders: [],
+        updateUserInfoOnLink: false,
+      },
+    },
+    user: {
+      validateUserInfo: async ({ user, source }) => {
+        if (source.method !== "oauth") return;
+        // 1.7.7 can promote emailVerified on returning OAuth sign-in. Gate
+        // before linking or updating, including already-linked identities.
+        const deny = { error: "social_sign_in_not_allowed",
+          errorDescription: "Sign in requires an existing, locally verified dashboard account." };
+        if (source.action === "create-user" || !env.AGENT_AUDIT || !user.id || user.emailVerified !== true ||
+          !enabledBetterAuthProviderIds(env).includes(source.oauth?.providerId ?? "")) return deny;
+        const policy = await readBetterAuthAccountPolicy(env.AGENT_AUDIT, user.id);
+        const local = await env.AGENT_AUDIT.prepare(`SELECT email,emailVerified FROM "user" WHERE id=?`)
+          .bind(user.id).first<{ email: string; emailVerified: number }>();
+        const email = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
+        if (!policy || !local || local.emailVerified !== 1 || policy.email !== email ||
+          local.email.trim().toLowerCase() !== email) return deny;
+      },
+    },
     emailAndPassword: {
       enabled: true,
       autoSignIn: true,
@@ -407,6 +457,12 @@ export async function handleBetterAuth(
   }
   if (url.pathname === `${BETTER_AUTH_BASE_PATH}/bootstrap` && request.method === "GET") {
     return Response.json(publicBootstrap(env, request), {
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+  if (url.pathname === `${BETTER_AUTH_BASE_PATH}/social-providers` && request.method === "GET") {
+    const enabled = enabledBetterAuthProviderIds(env);
+    return Response.json({ providers: { google: enabled.includes("google"), slack: enabled.includes("slack") } }, {
       headers: { "Cache-Control": "no-store" },
     });
   }

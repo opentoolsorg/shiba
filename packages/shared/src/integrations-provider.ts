@@ -20,6 +20,9 @@ export const integrationProviderHealthSchema = z.object({
 });
 export type IntegrationProviderHealth = z.infer<typeof integrationProviderHealthSchema>;
 
+export const integrationProviderSetupStateSchema = z.enum(["ready", "needs_configuration", "unverified", "unsupported"]);
+export type IntegrationProviderSetupState = z.infer<typeof integrationProviderSetupStateSchema>;
+
 export const integrationProviderCatalogItemSchema = z.object({
   id: z.string().min(1),
   providerKey: z.string().min(1),
@@ -35,7 +38,9 @@ export const integrationProviderCatalogItemSchema = z.object({
   source: z.enum(["static", "native", "openconnector"]),
   connectable: z.boolean(),
   /** Verified provider OAuth application setup, independently of account consent. */
-  setupState: z.enum(["ready", "needs_configuration", "unverified", "unsupported"]).optional(),
+  setupState: integrationProviderSetupStateSchema.optional(),
+  /** Upstream-declared auth modes; declaration alone does not prove a configured client. */
+  authTypes: z.array(z.string()).optional(),
 });
 export type IntegrationProviderCatalogItem = z.infer<typeof integrationProviderCatalogItemSchema>;
 
@@ -46,6 +51,10 @@ export const integrationProviderCatalogPageSchema = z.object({
   nextCursor: z.string().nullable(),
   hasMore: z.boolean(),
   fallbackCatalog: z.boolean().optional(),
+  /** Services matching the search before any readiness filter. */
+  total: z.number().int().nonnegative().optional(),
+  /** Matching services that declare OAuth sign-in; their client setup is probed per page. */
+  oauthCapable: z.number().int().nonnegative().optional(),
 });
 export type IntegrationProviderCatalogPage = z.infer<typeof integrationProviderCatalogPageSchema>;
 
@@ -59,6 +68,7 @@ export const integrationProviderConnectionSchema = z.object({
   executionReady: z.boolean().optional(),
   connectionState: z.enum(["active", "reauth_required", "unavailable"]).optional(),
   unavailableReason: z.string().optional(),
+  reconnectSupported: z.boolean().optional(),
 });
 export type IntegrationProviderConnection = z.infer<typeof integrationProviderConnectionSchema>;
 

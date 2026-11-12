@@ -29,8 +29,10 @@ it("offers personal and verified team choices with separate management", () => {
       onManage={manage}
     />,
   );
-  expect(screen.getByRole("option", { name: "Acme · member" })).toBeTruthy();
-  fireEvent.change(screen.getByLabelText("Workspace"), { target: { value: "" } });
+  expect(screen.getByRole("option", { name: "Acme · Shared · member" })).toBeTruthy();
+  expect(screen.getByRole("option", { name: "Personal · Private" })).toBeTruthy();
+  expect(screen.getByText("Changes apply across the app.")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Switch workspace"), { target: { value: "" } });
   expect(select).toHaveBeenCalledWith("");
   fireEvent.click(screen.getByRole("button", { name: "Manage team workspaces" }));
   expect(manage).toHaveBeenCalledTimes(1);
@@ -45,7 +47,7 @@ it("disables switching during membership validation without silently choosing pe
       onManage={vi.fn()}
     />,
   );
-  const selector = screen.getByLabelText("Workspace") as HTMLSelectElement;
+  const selector = screen.getByLabelText("Switch workspace") as HTMLSelectElement;
   expect(selector.disabled).toBe(true);
   expect(selector.value).toBe(workspace.workspaceId);
   expect(screen.getByRole("option", { name: "Checking selected workspace…" })).toBeTruthy();
@@ -68,7 +70,7 @@ it("uses distinct labels when desktop and mobile switches are both mounted", () 
       />
     </>,
   );
-  const selectors = screen.getAllByLabelText("Workspace");
+  const selectors = screen.getAllByLabelText("Switch workspace");
   expect(selectors).toHaveLength(2);
   expect(selectors[0]?.id).not.toBe(selectors[1]?.id);
 });

@@ -1,10 +1,11 @@
+@import url("/fonts/fonts.css");
 @import "tailwindcss";
 
 @theme {
-  --font-display: "Bebas Neue", Impact, sans-serif;
+  --font-display: "Geist", system-ui, sans-serif;
   --font-comic: Bangers, "Comic Sans MS", cursive;
-  --font-tech: "DM Mono", "Geist Mono", monospace;
-  --font-sans: Inter, system-ui, sans-serif;
+  --font-tech: "Geist Mono", ui-monospace, monospace;
+  --font-sans: "Geist", system-ui, sans-serif;
   --color-brand: #0b9f95;
   --color-brand-light: #2dd4bf;
   --color-brand-dark: #097d75;

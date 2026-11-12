@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 describe("ExtensionsPanel", () => {
-  it("renders panel with title, scope switch, and all navigation items", () => {
+  it("renders panel navigation without a duplicate scope switch", () => {
     const onScopeChange = vi.fn();
     const onSelect = vi.fn();
 
@@ -24,13 +24,9 @@ describe("ExtensionsPanel", () => {
 
     expect(screen.getByRole("heading", { name: "Extensions" })).toBeTruthy();
 
-    const personalTab = screen.getByRole("button", { name: "Personal" });
-    const workspaceTab = screen.getByRole("button", { name: "Workspace" });
-    expect(personalTab.getAttribute("aria-pressed")).toBe("true");
-    expect(workspaceTab.getAttribute("aria-pressed")).toBe("false");
-
-    fireEvent.click(workspaceTab);
-    expect(onScopeChange).toHaveBeenCalledWith("workspace");
+    expect(screen.queryByRole("button", { name: "Personal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
+    expect(onScopeChange).not.toHaveBeenCalled();
 
     expect(screen.getByRole("button", { name: /Connectors/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Skills/i })).toBeTruthy();
