@@ -93,7 +93,7 @@ export async function handleMeta(request: Request, env: Env): Promise<Response |
     if (request.method !== "GET") {
       return Response.json({ error: "Method not allowed." }, { status: 405 });
     }
-    return Response.json(await readSetupStatus(env), {
+    return Response.json(await readSetupStatus(env, true, (await resolveUserId(request, env)) ?? "default"), {
       headers: { "Cache-Control": "no-store" },
     });
   }
