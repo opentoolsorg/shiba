@@ -3104,6 +3104,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 slug: profile.slug,
                 emoji: profile.config.emoji,
                 defaultRepoUrl: profile.config.defaultRepoUrl,
+                mascotPreset: profile.config.mascotPreset,
+                look: profile.config.look,
+                role: employeeRole(profile.slug, profile.config.roleTemplateId),
               }))}
               agentsLoading={customAgentsLoading}
               selectedAgentId={customAgentId}

@@ -9,7 +9,8 @@ import {
   randomMascotLook,
   resolveAgentMascotLook,
 } from "@shiba/shared";
-import { avatarStatusFromTask, mascotExpression } from "./agent-mascots";
+import type { EmployeeRole } from "./employee-templates";
+import { agentMascotPreset, avatarStatusFromTask, mascotExpression } from "./agent-mascots";
 
 const key = (look: { shape: string; color: string; eyes: string; acc: string }) => `${look.shape}|${look.color}|${look.eyes}|${look.acc}`;
 
@@ -77,6 +78,10 @@ describe("agent mascot looks", () => {
       expect(defaultLookFor(name, name)).toEqual(look);
       expect(resolveAgentMascotLook({ id: name, role: name })).toEqual(look);
     }
+  });
+  it("does not treat inherited preset names as known templates", () => {
+    expect(CUSTOM_AGENT_MASCOT_PRESETS).toContain(agentMascotPreset("constructor"));
+    expect(CUSTOM_AGENT_MASCOT_PRESETS).toContain(agentMascotPreset("unknown", "toString" as EmployeeRole));
   });
 
   it("maps run status onto a live expression", () => {

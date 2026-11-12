@@ -32,6 +32,21 @@ describe("task handoff", () => {
     show({submitNotice: "Run could not be queued: Repository access denied"});
     expect(screen.getByText("Run could not be queued: Repository access denied").getAttribute("role")).toBe("status");
   });
+  it("renders the selected agent's saved avatar appearance", () => {
+    const {container, rerender} = show({
+      selectedAgentId: "bot-1",
+      agents: [{id: "bot-1", name: "Designer", slug: "designer", role: "design", mascotPreset: "sleeping", look: {shape: "bean", color: "#6e8b6a", eyes: "wink", acc: "headset"}}],
+    });
+    const mascot = () => container.querySelector(".agent-avatar .shiba-agent-mascot");
+    expect(mascot()?.getAttribute("data-shape")).toBe("bean");
+    expect(mascot()?.getAttribute("data-color")).toBe("#6e8b6a");
+    expect(mascot()?.getAttribute("data-eyes")).toBe("wink");
+    expect(container.querySelector(".agent-avatar")?.getAttribute("data-employee-role")).toBe("design");
+    rerender(<TasksHomeView task="Fix the bug" onTaskChange={vi.fn()} agents={[{id: "bot-1", name: "Designer", slug: "designer", role: "design", mascotPreset: "sleeping"}]} selectedAgentId="bot-1" onAgentChange={vi.fn()} repoUrl="owner/repo" onRepoUrlChange={vi.fn()} runs={[]} approvals={[]} route={{runTarget: "local"}} onSubmit={vi.fn()} />);
+    expect(mascot()?.getAttribute("data-eyes")).toBe("sleepy");
+    rerender(<TasksHomeView task="Fix the bug" onTaskChange={vi.fn()} agents={[{id: "bot-1", name: "Designer", slug: "designer", role: "design"}]} selectedAgentId="bot-1" onAgentChange={vi.fn()} repoUrl="owner/repo" onRepoUrlChange={vi.fn()} runs={[]} approvals={[]} route={{runTarget: "local"}} onSubmit={vi.fn()} />);
+    expect(mascot()?.getAttribute("data-shape")).toBe("cloud");
+  });
   it("offers built-in Shiba even without custom agents and accepts shorthand", async () => {
     const submit = vi.fn(); show({onSubmit: submit});
     expect((screen.getByRole("combobox", {name: "Choose an agent"}) as HTMLSelectElement).disabled).toBe(false);

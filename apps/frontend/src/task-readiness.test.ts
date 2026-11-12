@@ -20,6 +20,13 @@ describe("task route readiness", () => {
   it("blocks a failing matching provider route with remediation", () => {
     expect(taskReadiness(state(false), {})).toEqual({blocked: true, message: "Sign in to provider Open Models"});
   });
+  it("blocks a failed diagnostic for an inherited model connection", () => {
+    const setup = state(false);
+    if (setup.kind !== "data") throw new Error("Expected setup data");
+    setup.data.doctor.roles = setup.data.doctor.roles.map((row) => ({...row, connectionId: "conn_ready"}));
+    expect(taskReadiness(setup, {})).toEqual({blocked: true, message: "Sign in to provider Open Models"});
+    expect(taskReadiness(setup, {connectionId: "conn_other"})).toMatchObject({blocked: false, message: expect.stringContaining("not been checked")});
+  });
   it("does not falsely verify an unmatched override or connection", () => {
     expect(taskReadiness(state(false), {connectionId: "another"})).toMatchObject({blocked: false, message: expect.stringContaining("not been checked")});
   });

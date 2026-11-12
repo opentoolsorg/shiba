@@ -1,6 +1,5 @@
 import {
   CUSTOM_AGENT_MASCOT_PRESETS,
-  defaultLookFor,
   resolveAgentMascotLook,
   type AgentMascotEyes,
   type AgentMascotLook,
@@ -23,7 +22,7 @@ const rolePresets: Partial<Record<EmployeeRole, CustomAgentMascotPreset>> = {
 };
 
 export function agentMascotPreset(id: string, role?: EmployeeRole, fallbackId = id): CustomAgentMascotPreset {
-  const known = templatePresets[id] ?? (role ? rolePresets[role] : undefined);
+  const known = Object.hasOwn(templatePresets, id) ? templatePresets[id] : role && Object.hasOwn(rolePresets, role) ? rolePresets[role] : undefined;
   const hash = Array.from(fallbackId).reduce((value, character) => (Math.imul(value, 31) + character.charCodeAt(0)) >>> 0, 0);
   return known ?? CUSTOM_AGENT_MASCOT_PRESETS[hash % CUSTOM_AGENT_MASCOT_PRESETS.length]!;
 }

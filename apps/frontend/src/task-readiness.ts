@@ -15,7 +15,9 @@ export function taskReadiness(state: LoadState<SetupStatus>, route: TaskRouteSel
   if (!state.data.models || !Array.isArray(state.data.doctor?.roles)) return { blocked: true, message: "Model setup diagnostics are unavailable. Retry the check or open Settings → Models." };
   const harness = route.harness || state.data.models.harness;
   const model = route.codingModel || state.data.models.coding;
-  const row = state.data.doctor.roles.find((entry) => entry.harness === harness && entry.model === model && (entry.connectionId ?? "") === (route.connectionId || ""));
+  const inheritedConnectionId = state.data.doctor.roles.find((entry) => entry.role === "fixer" && entry.harness === harness && entry.model === model)?.connectionId;
+  const connectionId = route.connectionId || inheritedConnectionId || "";
+  const row = state.data.doctor.roles.find((entry) => entry.harness === harness && entry.model === model && (entry.connectionId ?? "") === connectionId);
   if (!row) return { blocked: false, message: "This model override has not been checked by setup diagnostics. The server validates it before approval." };
   if (!row.ok) return { blocked: true, message: `${row.message || "The selected model route needs setup."} ${row.fix || "Open Settings → Models to finish setup."}` };
   return { blocked: false, message: "Selected model route setup checks passed. Repository access and approval are still checked before work starts." };
