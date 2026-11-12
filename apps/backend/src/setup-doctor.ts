@@ -138,7 +138,7 @@ async function roleRows(env: Env, snapshot: ModelConfigSnapshot, initiatorUserId
         connectionId,
         model: row.model,
         harness: row.harness,
-      });
+      }, { initiatorUserId });
     } catch (error) {
       rows.push({
         role,
