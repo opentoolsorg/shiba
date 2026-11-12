@@ -205,7 +205,8 @@ async function daemonRun(program: string, expectedDeliverables?: string[], expec
   const server = createServer(async (request, response) => {
     let raw = "";
     for await (const chunk of request) raw += String(chunk);
-    const body = JSON.parse(raw) as { result?: DaemonResult };
+    // The daemon's GET polls carry no body.
+    const body = (raw ? JSON.parse(raw) : {}) as { result?: DaemonResult };
     response.setHeader("content-type", "application/json");
     if (request.url === "/api/local/claim") {
       response.end(JSON.stringify({ claimToken: "deliverable-claim", envelope: {

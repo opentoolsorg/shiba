@@ -18,7 +18,7 @@ export class SlackCoworkerClient {
     try{return await withAuthTimeout((async()=>{
       const init:RequestInit={method:body===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer',signal:c.signal,headers:{'X-Shiba-Workspace':this.workspaceId,...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})};
       const response=await (this.fetcher ? this.fetcher.call(globalThis,(options?.absolute?path:'/api/slack/coworker'+path),init) : globalThis.fetch((options?.absolute?path:'/api/slack/coworker'+path),init));
-      c.signal.throwIfAborted();if(!response.ok&&!options?.allowError)throw new Error('Request unavailable');
+      c.signal.throwIfAborted();if(!response.ok&&!options?.allowError)throw Object.assign(new Error('Request unavailable'),{status:response.status});
       const reader=response.body?.getReader(),bytes=new Uint8Array(524288);let used=0;
       try{if(!reader)throw new Error();for(;;){c.signal.throwIfAborted();const part=await reader.read();if(part.done)break;if(used+part.value.length>bytes.length)throw new Error();bytes.set(part.value,used);used+=part.value.length;}c.signal.throwIfAborted();return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(0,used)));}finally{await reader?.cancel().catch(()=>{});}
     })(),20_000);}finally{signal.removeEventListener('abort',relay);c.abort();}

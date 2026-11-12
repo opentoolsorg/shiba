@@ -1343,3 +1343,84 @@ describe("Slack draft room review", () => {
     expect(consumed).not.toHaveBeenCalled();
   });
 });
+
+describe("workspace room deep links", () => {
+  const workspaceId = `ws_${"a".repeat(24)}`;
+  const roomId = `room_${"b".repeat(24)}`;
+  const detail = { ...roomDetail, room: { ...roomDetail.room, roomId } };
+  function fixture(denied = false) {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [detail.room, { ...detail.room, roomId: "other-room", title: "Another room" }] });
+      if (path === `/api/collaboration/rooms/${roomId}`) return denied
+        ? Response.json({ error: "membership_required" }, { status: 403 }) : Response.json(detail);
+      if (path === `/api/workspaces/${workspaceId}`) return Response.json({ workspace: { members: [] } });
+      return Response.json({ agents: [], computers: [] });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    return fetcher;
+  }
+  it("copies only a canonical workspace+room URL and explains that access is still required", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    fixture();
+    render(<CollaborationView workspaceId={workspaceId} initialRoomId={roomId} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Copy room link" }));
+    await screen.findByText("Room link copied. Recipients still need workspace and room access.");
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/threads/?workspace=${workspaceId}&room=${roomId}`);
+  });
+  it("reports clipboard failure without claiming a copied link", async () => {
+    vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn().mockRejectedValue(new Error("denied")) } });
+    fixture();
+    render(<CollaborationView workspaceId={workspaceId} initialRoomId={roomId} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Copy room link" }));
+    await screen.findByText("Could not copy room link. Check clipboard permission and try again.");
+    expect(screen.queryByText(/Room link copied/)).toBeNull();
+  });
+  it("rechecks recipient room membership with the workspace header and does not fall back after denial", async () => {
+    const fetcher = fixture(true), onRoomChange = vi.fn();
+    render(<CollaborationView workspaceId={workspaceId} initialRoomId={roomId} onRoomChange={onRoomChange} />);
+    await screen.findByText("Access to this room ended. Its contents are no longer available in this session.");
+    expect(screen.queryByText("Confidential room note")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy room link" })).toBeNull();
+    expect(onRoomChange).not.toHaveBeenCalled();
+    expect(fetcher.mock.calls.some(([path, init]) => String(path) === `/api/collaboration/rooms/${roomId}` &&
+      new Headers(init?.headers).get("X-Shiba-Workspace") === workspaceId)).toBe(true);
+    expect(fetcher.mock.calls.some(([path]) => String(path) === "/api/collaboration/rooms/other-room")).toBe(false);
+    expect(fetcher.mock.calls.every(([, init]) => new Headers(init?.headers).get("X-Shiba-Workspace") === workspaceId)).toBe(true);
+  });
+  it("does not republish the previous room when a recipient opens another link in the same workspace", async () => {
+    const secondRoomId = `room_${"c".repeat(24)}`;
+    const fetcher = fixture();
+    fetcher.mockImplementation(async (input, _init) => {
+      const path = String(input);
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [detail.room, { ...detail.room, roomId: secondRoomId }] });
+      if (path === `/api/collaboration/rooms/${roomId}`) return Response.json(detail);
+      if (path === `/api/collaboration/rooms/${secondRoomId}`) return Response.json({ ...detail, room: { ...detail.room, roomId: secondRoomId, title: "Second linked room" } });
+      if (path === `/api/workspaces/${workspaceId}`) return Response.json({ workspace: { members: [] } });
+      return Response.json({ agents: [], computers: [] });
+    });
+    const onRoomChange = vi.fn();
+    const view = render(<CollaborationView workspaceId={workspaceId} initialRoomId={roomId} onRoomChange={onRoomChange} />);
+    await screen.findByRole("heading", { name: "Shared room" });
+    await waitFor(() => expect(onRoomChange).toHaveBeenCalledWith(roomId));
+    onRoomChange.mockClear();
+    view.rerender(<CollaborationView workspaceId={workspaceId} initialRoomId={secondRoomId} onRoomChange={onRoomChange} />);
+    await screen.findByRole("heading", { name: "Second linked room" });
+    await waitFor(() => expect(onRoomChange).toHaveBeenCalledWith(secondRoomId));
+    expect(onRoomChange).not.toHaveBeenCalledWith(roomId);
+  });
+  it("does not republish a loaded room when the parent supplies a new callback", async () => {
+    fixture();
+    const firstCallback = vi.fn();
+    const view = render(<CollaborationView workspaceId={workspaceId} initialRoomId={roomId} onRoomChange={firstCallback} />);
+    await screen.findByRole("heading", { name: "Shared room" });
+    await waitFor(() => expect(firstCallback).toHaveBeenCalledWith(roomId));
+
+    const nextCallback = vi.fn();
+    view.rerender(<CollaborationView workspaceId={workspaceId} initialRoomId={roomId} onRoomChange={nextCallback} />);
+
+    expect(firstCallback).toHaveBeenCalledTimes(1);
+    expect(nextCallback).not.toHaveBeenCalled();
+  });
+});

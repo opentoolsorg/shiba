@@ -2,6 +2,7 @@
  * Complete End-to-End Shiba Dashboard.
  * Approval-gated coding tasks delegated to isolated Cloudflare Sandbox containers running OpenCode.
  */
+import { readRoomLink, useRoomLinkRoute } from "./room-links";
 import { normalizeRepositoryInput, REPOSITORY_INPUT_ERROR } from "./repository-input";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useConversationRoomRealtime, type ConversationRoomMessage } from "./conversation-room-realtime";
@@ -396,6 +397,7 @@ const VIEW_ALIASES: Record<string, AppNavView> = {
 function viewFromUrl(): AppNavView | null {
   if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
+  if (readRoomLink(window.location.search) !== null) return "threads";
   if (params.has("run") || readPromptParam(window.location.search).prompt !== null) return "threads";
   if (params.has("task") || ["list", "board", "timeline", "organization"].includes(params.get("view") ?? "")) return "work";
   const toView = (raw: string | null) => {
@@ -554,7 +556,9 @@ export function App(): React.JSX.Element {
   const [settingsSection, setSettingsSection] = useState<string>(() =>
     typeof window === "undefined" ? "account" : normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
   const previousViewRef = useRef<MainView>(DEFAULT_VIEW);
+  const clearRoomIntentRef = useRef<() => void>(() => {});
   const openView = useCallback((view: AppNavView) => {
+    if (view !== "threads") clearRoomIntentRef.current();
     setShowFirstRun(false);
     if (view === "settings") previousViewRef.current = currentNavigation.current.view === "settings" ? previousViewRef.current : currentNavigation.current.view;
     setMainView(view);
@@ -790,7 +794,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const signedIn = orchestratorName !== null && identityIssue === null;
   const teamIdentityAvailable = signedIn && /^[^\s@:]+@[^\s@:]+\.[^\s@:]+$/.test(orchestratorName ?? "");
   const teamDirectory = useTeamWorkspaceDirectory({ actorId: teamIdentityAvailable ? orchestratorName?.trim().toLowerCase() ?? null : null, enabled: teamIdentityAvailable });
-  const workspaceAuthorityReady = !teamIdentityAvailable || teamDirectory.verified;
+  const roomRoute = useRoomLinkRoute(teamIdentityAvailable ? orchestratorName?.trim().toLowerCase() ?? null : null, teamDirectory);
+  useEffect(() => {
+    clearRoomIntentRef.current = roomRoute.clearIntent;
+  }, [roomRoute.clearIntent]);
+  const workspaceAuthorityReady = roomRoute.ready && (!teamIdentityAvailable || teamDirectory.verified);
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
   useEffect(() => {
     // The personal task queue must never execute in a team workspace.
@@ -816,6 +824,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const scope: Scope = teamWorkspaceId ? "workspace" : "personal";
   const handleScopeChange = (next: Scope) => {
     if (teamDirectory.loading) return;
+    roomRoute.clear();
     if (next === "personal") { flushDraft(); teamDirectory.selectWorkspace(""); return; }
     const rememberedId = orchestratorName ? lastTeamWorkspace(orchestratorName.trim().toLowerCase()) : "";
     const remembered = rememberedId ? teamDirectory.workspaces.find((item) => item.workspaceId === rememberedId) : undefined;
@@ -840,7 +849,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const openSlackHandoff = (roomId: string, handoffId: string) => {
     if (activeSurfaceScopeRef.current !== slackTaskSurface || !signedIn || !teamWorkspaceId || !orchestratorName ||
       !/^room_[a-f0-9]{24}$/.test(roomId) || !/^scx_[a-f0-9]{32}$/.test(handoffId)) return;
-    setIncomingSlackTask(null); setSharedRoomId(roomId); setSharedHandoffId(handoffId); setSharedEmployeeId(undefined);
+    roomRoute.clear(); setIncomingSlackTask(null); setSharedRoomId(roomId); setSharedHandoffId(handoffId); setSharedEmployeeId(undefined);
     setShowFirstRun(false); setMainView("threads"); setConversationMode("work");
   };
   const stageTeamSetupTask = (draft: TeamOnboardingTask) => {
@@ -851,11 +860,19 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     setSharedHandoffId(undefined); setSharedEmployeeId(undefined);
     setShowFirstRun(false); setMainView("threads"); setConversationMode("work");
   };
-  const [sharedRoomId, setSharedRoomId] = useState<string | undefined>();
+  const sharedRoomScope = JSON.stringify([orchestratorName, teamWorkspaceId]);
+  const [sharedRoom, setSharedRoom] = useState<{ id: string; scope: string }>();
+  const sharedRoomId = sharedRoom?.scope === sharedRoomScope ? sharedRoom.id : undefined;
+  const setSharedRoomId = useCallback((id: string | undefined) => {
+    setSharedRoom((current) => {
+      if (!id) return undefined;
+      return current?.id === id && current.scope === sharedRoomScope ? current : { id, scope: sharedRoomScope };
+    });
+  }, [sharedRoomScope]);
   const [sharedHandoffId, setSharedHandoffId] = useState<string | undefined>();
   const [sharedEmployeeId, setSharedEmployeeId] = useState<string | undefined>();
   const sharedWork = useWorkTasks(signedIn ? orchestratorName : null, teamWorkspaceId, signedIn && mainView === "work");
-  useEffect(() => { setSharedRoomId(undefined); setSharedHandoffId(undefined); setSharedEmployeeId(undefined); }, [teamWorkspaceId, orchestratorName]);
+  useEffect(() => { setSharedHandoffId(undefined); setSharedEmployeeId(undefined); }, [teamWorkspaceId, orchestratorName]);
   const projectContexts = useProjectContexts(privateDataEnabled ? orchestratorName : null);
   useEffect(() => setProjectContextId(""), [signedIn, orchestratorName]);
   // Per-session composer draft: a scope change loads that scope's draft
@@ -2811,10 +2828,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     <div className="shiba-app-shell h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)] font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-text)] flex pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       {/* LEFT: app navigation rail (lg+; phones use the sheet below) */}
       <AppNavRail
-        workspaceSwitcher={<WorkspaceSwitcher workspaces={teamDirectory.workspaces} selectedWorkspaceId={teamWorkspaceId} loading={teamDirectory.loading} onSelect={(id) => { flushDraft(); teamDirectory.selectWorkspace(id); }} onManage={() => openView("team")} />}
+        workspaceSwitcher={<WorkspaceSwitcher workspaces={teamDirectory.workspaces} selectedWorkspaceId={teamWorkspaceId} loading={teamDirectory.loading} onSelect={(id) => { flushDraft(); roomRoute.clear(); teamDirectory.selectWorkspace(id); }} onManage={() => openView("team")} />}
         workspaces={teamDirectory.workspaces}
         selectedWorkspaceId={teamWorkspaceId}
-        onSelectWorkspace={(id) => { flushDraft(); teamDirectory.selectWorkspace(id); }}
+        onSelectWorkspace={(id) => { flushDraft(); roomRoute.clear(); teamDirectory.selectWorkspace(id); }}
         collapsed={mainView === "work" ? workPanelCollapsed : sessionsCollapsed}
         sidebarPanelId={mainView === "work" ? "work-panel" : undefined}
         activeView={mainView}
@@ -2859,7 +2876,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           />
           <div className="absolute inset-y-0 left-0 shadow-[var(--sh-overlay)] animate-enter-x">
             <AppNavRail
-              workspaceSwitcher={<WorkspaceSwitcher workspaces={teamDirectory.workspaces} selectedWorkspaceId={teamWorkspaceId} loading={teamDirectory.loading} onSelect={(id) => { flushDraft(); teamDirectory.selectWorkspace(id); }} onManage={() => { openView("team"); setMobileNavOpen(false); }} />}
+              workspaceSwitcher={<WorkspaceSwitcher workspaces={teamDirectory.workspaces} selectedWorkspaceId={teamWorkspaceId} loading={teamDirectory.loading} onSelect={(id) => { flushDraft(); roomRoute.clear(); teamDirectory.selectWorkspace(id); }} onManage={() => { openView("team"); setMobileNavOpen(false); }} />}
               variant="sheet"
               activeView={mainView}
               onNavigate={(view) => {
@@ -3022,7 +3039,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               />
             </div>
           ) : null}
-{showFirstRun && teamWorkspaceId ? (
+{showFirstRun && teamWorkspaceId && workspaceAuthorityReady ? (
             <TeamOnboardingDraft key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} workspaceName={teamWorkspace?.name} actorId={orchestratorName?.trim().toLowerCase()} onStageTask={stageTeamSetupTask} onConfigureEmployee={teamWorkspace && ["owner", "admin"].includes(teamWorkspace.membership.role) ? (templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); } : undefined} onClose={() => setShowFirstRun(false)} onOpenRooms={() => { setShowFirstRun(false); openView("threads"); }} />
           ) : showFirstRun && privateDataEnabled ? (
             <ConversationalOnboarding key={orchestratorName ?? "pending"} progress={firstRunProgress}
@@ -3031,14 +3048,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onLegacyGuide={() => { setShowFirstRun(false); setShowLegacyFirstRun(true); }}
               onConfigureEmployee={(templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); }}
               onUseDraft={applyOnboardingDraft} employees={customAgentRecords} draftScope={orchestratorName ?? undefined} />
-          ) : teamIdentityAvailable && (!teamDirectory.verified || teamDirectory.error) && mainView !== "team" ? (
-            <section className="m-4 min-w-0 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Workspace verification"><h1 className="text-xl font-medium">{teamDirectory.loading ? "Checking workspace access…" : "Workspace access could not be verified"}</h1>{teamDirectory.error ? <><p className="mt-3 text-[var(--muted-foreground-2)]">{teamDirectory.error}</p><button type="button" className="mt-4 min-h-11 border border-[var(--border-1)] px-4" onClick={() => { void teamDirectory.refresh(); }}>Retry workspace access</button><button type="button" className="ml-3 min-h-11 border border-[var(--border-1)] px-4" onClick={() => teamDirectory.selectWorkspace("")}>Open personal workspace</button></> : <p role="status" className="mt-3">Your selected workspace is being checked before conversations load.</p>}</section>
+          ) : (!roomRoute.ready || (teamIdentityAvailable && (!teamDirectory.verified || teamDirectory.error))) && mainView !== "team" ? (
+            <section className="m-4 min-w-0 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Workspace verification"><h1 className="text-xl font-medium">{teamDirectory.loading || roomRoute.pending ? "Checking workspace access…" : "Workspace access could not be verified"}</h1>{teamDirectory.error || !roomRoute.ready && !teamDirectory.loading ? <><p className="mt-3 text-[var(--muted-foreground-2)]">{teamDirectory.error ?? "This room link is invalid or its workspace is unavailable to your account. Links do not grant access."}</p><button type="button" className="mt-4 min-h-11 border border-[var(--border-1)] px-4" onClick={() => { void teamDirectory.refresh(); }}>Retry workspace access</button><button type="button" className="ml-3 min-h-11 border border-[var(--border-1)] px-4" onClick={() => { roomRoute.clear(); teamDirectory.selectWorkspace(""); }}>Open personal workspace</button></> : <p role="status" className="mt-3">Your selected workspace is being checked before conversations load.</p>}</section>
           ) : restrictedTeamMember && !teamWorkspaceId && !["team", "providers", "memory"].includes(mainView) ? (
             <TeamWorkspaceView actorId={orchestratorName?.trim().toLowerCase() ?? null} invitationToken={invitationToken}
               onInvitationAccepted={(id) => { setInvitationToken(""); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }}
-              onSelectWorkspace={(id) => { void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }} onChanged={() => { void teamDirectory.refresh(); }} />
+              onSelectWorkspace={(id) => { roomRoute.clear(); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }} onChanged={() => { void teamDirectory.refresh(); }} />
           ) : personalOnlyNotice ? (
-            <section className="m-4 min-w-0 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal workspace feature"><h1 className="text-xl font-medium">Open this feature in your personal workspace</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">This view uses personal or deployment settings. Team messages, context and results stay in the selected team’s shared chat and Work views.</p><button type="button" className="mt-4 min-h-11 border border-[var(--border-1)] px-4" onClick={() => teamDirectory.selectWorkspace("")}>Switch to personal workspace</button><button type="button" className="ml-3 min-h-11 border border-[var(--border-1)] px-4" onClick={() => openView("threads")}>Open team chat</button></section>
+            <section className="m-4 min-w-0 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal workspace feature"><h1 className="text-xl font-medium">Open this feature in your personal workspace</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">This view uses personal or deployment settings. Team messages, context and results stay in the selected team’s shared chat and Work views.</p><button type="button" className="mt-4 min-h-11 border border-[var(--border-1)] px-4" onClick={() => { roomRoute.clear(); teamDirectory.selectWorkspace(""); }}>Switch to personal workspace</button><button type="button" className="ml-3 min-h-11 border border-[var(--border-1)] px-4" onClick={() => openView("threads")}>Open team chat</button></section>
           ) : mainView === "inbox" ? null : mainView === "work" ? (
             <div className="flex min-h-0 flex-1 p-3 gap-3 overflow-hidden">
               <div id="work-panel" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -3171,7 +3188,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               }}
             />
           ) : mainView === "threads" && teamWorkspaceId ? (
-            <CollaborationView key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} initialRoomId={sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={setSharedRoomId}
+            <CollaborationView key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} initialRoomId={roomRoute.roomId ?? sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); roomRoute.onRoomChange(id); }}
               renderApproval={(handoff) => teamWorkspaceId && handoff.senderActorId === `human:${orchestratorName?.trim().toLowerCase()}` ? <RoomApprovalReview workspaceId={teamWorkspaceId} workspaceName={teamWorkspace?.name} roomId={handoff.roomId} handoffId={handoff.handoffId} actorId={orchestratorName?.trim().toLowerCase() ?? null} /> : null}
               renderExecution={(handoff) => <RoomExecutionPanel key={`${handoff.handoffId}:${handoff.runId}:${handoff.execution?.approvalStatus}`} workspaceId={teamWorkspaceId} roomId={handoff.roomId} handoffId={handoff.handoffId} runId={handoff.runId} />} />
           ) : mainView === "threads" ? (
@@ -3801,14 +3818,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               }}
             />
           ) : mainView === "collaboration" ? (
-            <CollaborationView key={`${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} initialRoomId={sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={setSharedRoomId}
+            <CollaborationView key={`legacy:${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} initialRoomId={sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); }}
               renderApproval={(handoff) => teamWorkspaceId && handoff.senderActorId === `human:${orchestratorName?.trim().toLowerCase()}` ? <RoomApprovalReview workspaceId={teamWorkspaceId} workspaceName={teamWorkspace?.name} roomId={handoff.roomId} handoffId={handoff.handoffId} actorId={orchestratorName?.trim().toLowerCase() ?? null} /> : null}
               renderExecution={(handoff) => <RoomExecutionPanel key={`${handoff.handoffId}:${handoff.runId}:${handoff.execution?.approvalStatus}`} workspaceId={teamWorkspaceId || undefined} roomId={handoff.roomId} handoffId={handoff.handoffId} runId={handoff.runId} />} />
           ) : mainView === "team" ? (
             <TeamWorkspaceView actorId={signedIn ? orchestratorName?.trim().toLowerCase() ?? null : null} workspaceId={teamWorkspaceId || undefined} invitationToken={invitationToken}
               onInvitationAccepted={(id) => { setInvitationToken(""); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }}
-              onSelectWorkspace={(id) => { void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }} onChanged={() => { void teamDirectory.refresh(); }}
-              onOpenChat={() => openView("threads")} onOpenWork={() => openView("work")} />
+              onSelectWorkspace={(id) => { roomRoute.clear(); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }} onChanged={() => { void teamDirectory.refresh(); }}
+              onOpenChat={() => openView("threads")} onOpenWork={() => openView("work")} onOpenApps={() => openView("integrations")} />
           ) : mainView === "providers" ? (
             restrictedTeamMember ? <section className="m-4 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal provider setup unavailable"><h1 className="text-xl font-medium">Personal provider setup needs an explicit account grant</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">Your invitation gives you team collaboration access. Connecting Claude or Codex and launching employee execution are unavailable for invited accounts until an owned provider and its billing permissions are verified. A deployment operator can request approved work and share its results in your team room.</p><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">Your account will not fall back to a deployment credential. You can continue using shared chat, selected context, workspace membership and permitted employee recipes.</p></section> : <ProvidersView />
           ) : mainView === "skills" ? (
@@ -3862,10 +3879,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               workspaceId={teamWorkspaceId || undefined}
               invitationToken={invitationToken}
               onInvitationAccepted={(id) => { setInvitationToken(""); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }}
-              onSelectWorkspace={(id) => { void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }}
+              onSelectWorkspace={(id) => { roomRoute.clear(); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }}
               onChanged={() => { void teamDirectory.refresh(); }}
               onOpenChat={() => openView("threads")}
-              onOpenWork={() => openView("work")}
+              onOpenWork={() => openView("work")} onOpenApps={() => openView("integrations")}
             />
           ) : null}
           </MainCard>

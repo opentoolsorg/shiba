@@ -325,3 +325,49 @@ describe("team workspace settings", () => {
     );
   });
 });
+
+
+describe("team coworker launchpad", () => {
+  it("opens existing room and Slack surfaces without starting work", async () => {
+    const fetcher = vi.fn(async () => Response.json({ workspace: detail() }));
+    vi.stubGlobal("fetch", fetcher);
+    const onOpenChat = vi.fn(), onOpenApps = vi.fn();
+    render(<TeamWorkspaceView actorId="owner@example.com" workspaceId={idA} onOpenChat={onOpenChat} onOpenApps={onOpenApps} />);
+    await loaded();
+    expect(screen.getByRole("region", { name: "Team coworker launchpad" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Open shared rooms" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Slack setup" }));
+    expect(onOpenChat).toHaveBeenCalledOnce();
+    expect(onOpenApps).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Invite teammates" }));
+    expect(screen.getByRole("button", { name: /Invitations/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(fetcher.mock.calls).toHaveLength(1);
+  });
+
+  it("keeps invitation authority with managers while members can open Slack setup", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ workspace: detail("member") })));
+    const onOpenApps = vi.fn();
+    render(<TeamWorkspaceView actorId="owner@example.com" workspaceId={idA} onOpenApps={onOpenApps} />);
+    await loaded();
+    expect(screen.queryByRole("button", { name: "Invite teammates" })).toBeNull();
+    expect(screen.getByText("Ask a workspace owner or admin to invite teammates.")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Open Slack setup" }));
+    expect(onOpenApps).toHaveBeenCalledOnce();
+  });
+
+  it("drops the launchpad on scope changes and revoked membership", async () => {
+    let revoked = false;
+    vi.stubGlobal("fetch", vi.fn(async () => revoked
+      ? Response.json({ error: "Workspace not found." }, { status: 404 })
+      : Response.json({ workspace: detail() })));
+    const props = { actorId: "owner@example.com", workspaceId: idA, onOpenApps: vi.fn() };
+    const view = render(<TeamWorkspaceView {...props} />);
+    await loaded();
+    revoked = true;
+    fireEvent(window, new Event("focus"));
+    await screen.findByRole("heading", { name: "Workspace unavailable" });
+    expect(screen.queryByRole("region", { name: "Team coworker launchpad" })).toBeNull();
+    view.rerender(<TeamWorkspaceView {...props} workspaceId={idB} />);
+    expect(screen.queryByRole("button", { name: "Open Slack setup" })).toBeNull();
+  });
+});
