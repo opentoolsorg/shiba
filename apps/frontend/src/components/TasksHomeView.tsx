@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from "react";
 import { ArrowUp, Check, CircleDot, LoaderCircle, Mic, PanelLeft, SquareArrowOutUpRight } from "lucide-react";
 import type { RetainedRun, StoredApproval } from "../types";
-import { formatTimeAgo } from "../ui-helpers";
+import { formatTimeAgo, type PendingApproval as ChatPendingApproval } from "../ui-helpers";
 import { AgentAvatar } from "./AgentAvatar";
 import { useSetupStatus } from "../live-status";
 import { taskReadiness, type TaskRouteSelection } from "../task-readiness";
@@ -36,16 +36,35 @@ export interface TasksHomeBuckets {
 export function buildTasksHomeBuckets(
   runs: RetainedRun[],
   approvals: StoredApproval[],
+  chatApprovals: ChatPendingApproval[] = [],
 ): TasksHomeBuckets {
   const buckets: TasksHomeBuckets = { needsYou: [], working: [], waiting: [] };
   const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
+  const approvalIds = new Set<string>();
 
   for (const approval of pendingApprovals) {
+    if (approvalIds.has(approval.approvalId)) continue;
+    approvalIds.add(approval.approvalId);
     buckets.needsYou.push({
       id: `approval:${approval.approvalId}`,
       title: approval.task,
       repoUrl: approval.repoUrl,
       updatedAt: approval.createdAt,
+      bucket: "needs-you",
+      status: "Approval",
+      progressText: "Waiting for you to approve",
+      source: { kind: "approval", approvalId: approval.approvalId },
+    });
+  }
+
+  for (const approval of chatApprovals) {
+    if (approvalIds.has(approval.approvalId)) continue;
+    approvalIds.add(approval.approvalId);
+    buckets.needsYou.push({
+      id: `approval:${approval.approvalId}`,
+      title: `Approve tool: ${approval.tool}`,
+      repoUrl: "",
+      updatedAt: 0,
       bucket: "needs-you",
       status: "Approval",
       progressText: "Waiting for you to approve",
@@ -138,7 +157,7 @@ function TaskRow({
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] text-[var(--muted-foreground-2)]">
             {item.repoUrl ? <span className="max-w-full truncate">{item.repoUrl.replace(/^https:\/\/github\.com\//, "")}</span> : null}
             {item.repoUrl ? <span aria-hidden="true">·</span> : null}
-            <span>{formatTimeAgo(item.updatedAt)}</span>
+            {item.updatedAt > 0 ? <span>{formatTimeAgo(item.updatedAt)}</span> : null}
           </div>
           {item.progressText ? (
             <div className="mt-3 flex items-center gap-2 text-xs text-[var(--muted-foreground-1)]" data-testid="task-progress">
@@ -201,6 +220,7 @@ export function TasksHomeView({
   onRepoUrlChange,
   runs,
   approvals,
+  pendingApprovals = [],
   busy = false,
   onSubmit,
   onOpenRun,
@@ -223,6 +243,7 @@ export function TasksHomeView({
   onRepoUrlChange: (value: string) => void;
   runs: RetainedRun[];
   approvals: StoredApproval[];
+  pendingApprovals?: ChatPendingApproval[];
   busy?: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>, agentId: string) => void | Promise<void>;
   route?: TaskRouteSelection;
@@ -234,7 +255,7 @@ export function TasksHomeView({
   onToggleAgents?: () => void;
   agentsOpen?: boolean;
 }): JSX.Element {
-  const buckets = buildTasksHomeBuckets(runs, approvals);
+  const buckets = buildTasksHomeBuckets(runs, approvals, pendingApprovals);
   const setup = useSetupStatus();
   const readiness = taskReadiness(setup.state, route);
   const [repoError, setRepoError] = useState<string | null>(null);

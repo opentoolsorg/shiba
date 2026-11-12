@@ -163,9 +163,10 @@ function hashLook(id: string): AgentMascotLook {
 
 /** Template id wins, then employee role, then a stable hash so strangers do not share a face. */
 export function defaultLookFor(id: string, role?: string): AgentMascotLook {
-  const named = NAMED_LOOKS[id];
+  const named = Object.hasOwn(NAMED_LOOKS, id) ? NAMED_LOOKS[id] : undefined;
   if (named) return named;
-  if (role && role !== "custom" && ROLE_LOOKS[role]) return ROLE_LOOKS[role];
+  const roleLook = role && role !== "custom" && Object.hasOwn(ROLE_LOOKS, role) ? ROLE_LOOKS[role] : undefined;
+  if (roleLook) return roleLook;
   return hashLook(id);
 }
 
@@ -191,8 +192,10 @@ export function resolveAgentMascotLook(input: {
   if (input.preset && (CUSTOM_AGENT_MASCOT_PRESETS as readonly string[]).includes(input.preset)) {
     return MASCOT_PRESET_LOOKS[input.preset];
   }
-  if (NAMED_LOOKS[input.id]) return NAMED_LOOKS[input.id]!;
-  if (input.role && input.role !== "custom" && ROLE_LOOKS[input.role]) return ROLE_LOOKS[input.role]!;
+  const named = Object.hasOwn(NAMED_LOOKS, input.id) ? NAMED_LOOKS[input.id] : undefined;
+  if (named) return named;
+  const roleLook = input.role && input.role !== "custom" && Object.hasOwn(ROLE_LOOKS, input.role) ? ROLE_LOOKS[input.role] : undefined;
+  if (roleLook) return roleLook;
   return hashLook(input.fallbackId ?? input.id);
 }
 
