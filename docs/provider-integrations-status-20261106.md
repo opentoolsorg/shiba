@@ -87,17 +87,16 @@ Two things the doctor does not surface:
 
 | Run | Result |
 | --- | --- |
-| Harness, provider, doctor and preflight set (42 files) | 627 of 628 pass |
+| Harness, provider, doctor and preflight set (42 files) | 627 of 628 passed at the audited base revision; the failing assertion is updated in this PR. |
 | Channel set (42 files) | 726 of 726 pass |
 | `pnpm lint` | Exit 0, warnings only. The repo has no Makefile, so this is the lint gate. |
 
-The one failure, `phase1-core-loop.integration.test.ts` "validates direct
-execution-target intake before approval…", also fails on the base revision. The
-request `{ executionTarget: artifact-workspace, runtime: "local" }` gets 403
+The base-revision failure was in `phase1-core-loop.integration.test.ts` "validates
+direct execution-target intake before approval…". The request
+`{ executionTarget: artifact-workspace, runtime: "local" }` gets 403
 `runtime "local" is admitted only through the dashboard` from the intake gate in
-`agents/orchestrator.ts` (~L3187), but the test expects 400. It is not a provider
-bug. Which side is right is a product decision (reject the combination as 400
-first, or update the test), so it is not fixed here.
+`agents/orchestrator.ts` (~L3187). This PR updates the assertion to match that
+gate; all 16 tests in the phase1 file pass after merging `upstream/main`.
 
 ## Gaps that block a "yes"
 
