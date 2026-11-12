@@ -5,7 +5,6 @@ import { EmptyState, SkeletonLines, StatusNotice } from "./surface";
 import { agentThreads, type WebThread } from "../agent-threads";
 import { formatTimeAgo } from "../ui-helpers";
 import { AGENT_MASCOT_ACCS, AGENT_MASCOT_EYES, AGENT_MASCOT_SHAPES, CUSTOM_AGENT_MASCOT_PRESETS, defaultLookFor, formLook, normalizeMascotColor, sanitizeCustomAgentSlug, type CustomAgentConfig, type CustomAgentRoleTemplateId } from "@shiba/shared";
-import { agentMascotPreset } from "../agent-mascots";
 import { AgentLookStyler } from "./AgentLookStyler";
 import { codingModelOptions, type ConnectionOption } from "../live-status";
 import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTemplate } from "../employee-templates";
@@ -142,6 +141,14 @@ function ScopedCustomAgentsView({
   const appliedInitialTemplate = useRef<EmployeeTemplate["id"] | null>(null);
   const templateTrigger = useRef<HTMLButtonElement | null>(null);
   const keepDraftButton = useRef<HTMLButtonElement | null>(null);
+  const nameInput = useRef<HTMLInputElement | null>(null);
+  const [focusNameRequest, setFocusNameRequest] = useState(0);
+  const focusName = useCallback(() => setFocusNameRequest((request) => request + 1), []);
+  useEffect(() => {
+    if (!focusNameRequest || showArchived) return;
+    nameInput.current?.scrollIntoView?.({ block: "center", behavior: "auto" });
+    nameInput.current?.focus({ preventScroll: true });
+  }, [focusNameRequest, showArchived]);
   const templateTitleId = useId();
   const templateDescriptionId = useId();
 
@@ -178,8 +185,9 @@ function ScopedCustomAgentsView({
     }));
     setPendingTemplate(null);
     setConflict(false);
+    focusName();
     setNotice({ tone: "ok", text: `${template.label} role loaded as an editable draft. Review it before creating a bot.` });
-  }, [editingId, busy]);
+  }, [editingId, busy, focusName]);
 
   const chooseTemplate = (template: EmployeeTemplate, trigger: HTMLButtonElement) => {
     if (editingId || busy) return;
@@ -242,6 +250,7 @@ function ScopedCustomAgentsView({
   };
 
   const startEdit = (agent: CustomAgentWire) => {
+    focusName();
     setPendingTemplate(null);
     setEditingId(agent.id);
     setExpectedVersion(agent.version);
@@ -442,6 +451,7 @@ function ScopedCustomAgentsView({
           </span>
         </nav>
         <div className="flex items-center gap-2">
+          <button type="button" disabled={busy} className="min-h-11 rounded-md px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-[var(--ring)]" onClick={() => { resetForm(); setShowArchived(false); focusName(); }}>New bot</button>
           <div className="flex gap-1" role="group" aria-label="Bot directory">
             {[false, true].map((archived) => (
               <button
@@ -471,7 +481,7 @@ function ScopedCustomAgentsView({
 
           <AgentTemplatesCatalog workspaceId={workspaceId} onUse={async (template: AgentTemplate, savedConfig?: CustomAgentConfig) => {
             if (!isActive()) return;
-            const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({ slug: savedConfig ? `${template.id.slice(0, 39)}-${crypto.randomUUID().slice(0, 8)}` : template.id, config: savedConfig ?? { name: template.name, mascotPreset: agentMascotPreset(template.id, template.roleTemplateId), look: defaultLookFor(template.id, template.roleTemplateId), instructions: template.instructions, harness: template.harness ?? "opencode", ...(template.roleTemplateId ? { roleTemplateId: template.roleTemplateId } : {}), ...(template.expectedDeliverables ? { expectedDeliverables: template.expectedDeliverables } : {}), ...(template.appearance ? { emoji: template.appearance } : {}) } }) });
+            const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({ slug: savedConfig ? `${template.id.slice(0, 39)}-${crypto.randomUUID().slice(0, 8)}` : template.id, config: savedConfig ?? { name: template.name, look: defaultLookFor(template.id, template.roleTemplateId), instructions: template.instructions, harness: template.harness ?? "opencode", ...(template.roleTemplateId ? { roleTemplateId: template.roleTemplateId } : {}), ...(template.expectedDeliverables ? { expectedDeliverables: template.expectedDeliverables } : {}), ...(template.appearance ? { emoji: template.appearance } : {}) } }) });
             const body = await response.json().catch(() => ({})) as { error?: string };
             if (!isActive()) return;
             if (!response.ok) throw new Error(body.error ?? `Could not add template (${response.status}).`);
@@ -526,6 +536,7 @@ function ScopedCustomAgentsView({
                 color={form.lookColor}
                 eyes={form.lookEyes}
                 acc={form.lookAcc}
+                onStarterPick={focusName}
                 onAutomatic={() => setForm((current) => ({ ...current, mascotPreset: "", lookShape: "", lookColor: "", lookEyes: "", lookAcc: "" }))}
                 onCustomize={(next) => setForm((current) => ({ ...current, mascotPreset: "", lookShape: next.shape, lookColor: next.color, lookEyes: next.eyes, lookAcc: next.acc }))}
               />
@@ -535,6 +546,7 @@ function ScopedCustomAgentsView({
                 Name
                 <input
                   type="text"
+                  ref={nameInput}
                   value={form.name}
                   onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                   placeholder="Research partner"

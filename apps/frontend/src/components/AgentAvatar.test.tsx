@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { EmployeeRole } from "../employee-templates";
 import { AgentAvatar } from "./AgentAvatar";
@@ -82,7 +83,7 @@ describe("AgentAvatar", () => {
   });
 
   it("gates blink motion on prefers-reduced-motion", () => {
-    const css = readFileSync("src/styles.css", "utf8");
+    const css = readFileSync(resolve(import.meta.dirname, "../styles.css"), "utf8");
     expect(css).toContain('@media (prefers-reduced-motion: no-preference)');
     expect(css).toContain(".shiba-agent-mascot[data-live=\"true\"] .shiba-mascot-blink");
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');

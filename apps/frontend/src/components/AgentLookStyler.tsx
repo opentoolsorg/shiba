@@ -43,7 +43,7 @@ function LookTile({ label, selected, onPick, children }: {
   );
 }
 
-export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onCustomize, onAutomatic }: {
+export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onCustomize, onAutomatic, onStarterPick }: {
   id: string;
   role?: EmployeeRole;
   preset?: CustomAgentMascotPreset;
@@ -53,6 +53,7 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
   acc: string;
   onCustomize: (look: AgentMascotLook) => void;
   onAutomatic: () => void;
+  onStarterPick?: () => void;
 }): JSX.Element {
   const custom = Boolean(shape || color || eyes || acc);
   const preview = resolveAgentMascotLook({
@@ -96,7 +97,7 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">Starters</span>
-            <div className="flex flex-wrap gap-1.5">
+            <div role="group" aria-label="Starters" className="flex flex-wrap gap-1.5">
               {AGENT_MASCOT_STARTER_LOOKS.map((starter) => {
                 const active = custom
                   && preview.shape === starter.look.shape
@@ -104,7 +105,7 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
                   && preview.eyes === starter.look.eyes
                   && preview.acc === starter.look.acc;
                 return (
-                  <LookTile key={starter.id} label={starter.label} selected={active} onPick={() => onCustomize(starter.look)}>
+                  <LookTile key={starter.id} label={starter.label} selected={active} onPick={() => { onCustomize(starter.look); onStarterPick?.(); }}>
                     <span className="inline-flex size-10">
                       <AgentMascot look={starter.look} />
                     </span>
@@ -115,7 +116,7 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">Shape</span>
-            <div className="flex flex-wrap gap-1.5">
+            <div role="group" aria-label="Shape" className="flex flex-wrap gap-1.5">
               {AGENT_MASCOT_SHAPES.map((option) => (
                 <LookTile
                   key={option}
@@ -133,12 +134,24 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">Color</span>
             <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Fur color">
-              {AGENT_MASCOT_FURS.map((fur) => (
+              {AGENT_MASCOT_FURS.map((fur, index) => (
                 <button
                   key={fur.id}
                   type="button"
                   role="radio"
-                  aria-checked={custom && preview.color === fur.hex}
+                  aria-checked={preview.color === fur.hex}
+                  tabIndex={index === Math.max(0, AGENT_MASCOT_FURS.findIndex((option) => option.hex === preview.color)) ? 0 : -1}
+                  onKeyDown={(event) => {
+                    let next: number;
+                    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % AGENT_MASCOT_FURS.length;
+                    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index - 1 + AGENT_MASCOT_FURS.length) % AGENT_MASCOT_FURS.length;
+                    else if (event.key === "Home") next = 0;
+                    else if (event.key === "End") next = AGENT_MASCOT_FURS.length - 1;
+                    else return;
+                    event.preventDefault();
+                    pick({ color: AGENT_MASCOT_FURS[next]!.hex });
+                    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next]?.focus();
+                  }}
                   aria-label={fur.label}
                   title={fur.label}
                   onClick={() => pick({ color: fur.hex })}
@@ -153,7 +166,7 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">Expression</span>
-            <div className="flex flex-wrap gap-1.5">
+            <div role="group" aria-label="Expression" className="flex flex-wrap gap-1.5">
               {AGENT_MASCOT_EYES.map((option) => (
                 <LookTile
                   key={option}
@@ -170,7 +183,7 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">Accessory</span>
-            <div className="flex flex-wrap gap-1.5">
+            <div role="group" aria-label="Accessory" className="flex flex-wrap gap-1.5">
               {AGENT_MASCOT_ACCS.map((option) => (
                 <LookTile
                   key={option}

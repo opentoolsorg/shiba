@@ -12,8 +12,8 @@ async function objectBody(request:Request):Promise<Record<string,unknown>|null>{
 /** Authenticated setup and owner operation API; native sends are claimed by the paired daemon only. */
 export async function handleReasonNetwork(request:Request,env:Env):Promise<Response|null>{
   const url=new URL(request.url); if(url.pathname!==PREFIX&&!url.pathname.startsWith(`${PREFIX}/`))return null;
-  if(!env.AGENT_AUDIT)return json({error:"Reason Network approval storage is unavailable."},503);
   if(!(await isAuthorizedRequest(request,env)))return json({error:"Authentication required."},401);
+  if(!env.AGENT_AUDIT)return json({error:"Reason Network approval storage is unavailable."},503);
   const ownerId=(await resolveUserId(request,env))?.trim(); if(!ownerId)return json({error:"Authenticated owner required."},401);
   if(request.method!=="GET"&&(request.headers.get("origin")!==url.origin||request.headers.get("sec-fetch-site")==="cross-site"))return json({error:"Same-origin request required."},403);
   const path=url.pathname.slice(PREFIX.length).split("/").filter(Boolean).map((part)=>{try{return decodeURIComponent(part);}catch{return "";}});

@@ -40,6 +40,20 @@ function renderComposer(variant: "hero" | "docked", overrides: Partial<TaskCompo
 }
 
 describe("TaskComposer", () => {
+  it("normalizes repository shorthand and keeps invalid input errors in the picker", () => {
+    const change = vi.fn();
+    renderComposer("hero", {onRepoUrlChange: change});
+    fireEvent.click(screen.getByRole("button", {name: "Project: Select repository"}));
+    const input = screen.getByRole("textbox", {name: "Repository"});
+    fireEvent.change(input, {target: {value: "https://evil.com/a/b"}});
+    fireEvent.click(screen.getByRole("button", {name: "Use"}));
+    expect(screen.getByRole("alert").textContent).toContain("owner/repo");
+    expect(change).not.toHaveBeenCalled();
+    fireEvent.change(input, {target: {value: "opentoolsorg/shiba"}});
+    fireEvent.click(screen.getByRole("button", {name: "Use"}));
+    expect(change).toHaveBeenCalledWith("https://github.com/opentoolsorg/shiba");
+  });
+
   it("closes the runtime menu on its trigger pointer/click sequence and on outside activation", () => {
     renderComposer("docked", { repoUrl: "https://github.com/example/work", task: "Prepare a report", onRunTargetChange: vi.fn() });
     const trigger = screen.getByRole("button", { name: "Run on: Cloud" });

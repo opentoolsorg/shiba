@@ -23,6 +23,7 @@ vi.mock("agents/routing", () => ({
   getAgentByName: async () => ({ fetch: async () => new Response("{}", { status: 404 }) }),
 }));
 
+import { createAutomation } from "../src/automations.js";
 import { Automations } from "../src/automations-do.js";
 import type { Env } from "../src/env.js";
 
@@ -168,5 +169,24 @@ describe("Automations DO dedupe storage", () => {
     await automation.fetch(dedupeRequest("again"));
     expect(storage.listCalls).toBe(2);
     expect(storage.data.has("dedupe:old")).toBe(false);
+  });
+});
+
+
+describe("Automation webhook admission", () => {
+  it("returns the same denial for missing ids, wrong/missing headers and query secrets", async () => {
+    const { do: service, storage } = makeDo();
+    const { automation, webhookSecret } = createAutomation({ id: "known", prompt: "Review", repoUrl: "https://github.com/acme/repo", triggers: [{ kind: "webhook" }] });
+    storage.data.set("state", { items: [automation] });
+    const results = [];
+    for (const [id, secret, query] of [["missing", "", ""], ["missing", "wrong", ""], ["known", "wrong", ""], ["known", "", ""], ["known", "", `?secret=${webhookSecret}`], ["missing", "0".repeat(64), ""]]) {
+      const response = await service.fetch(new Request(`https://internal/api/automations/${id}/trigger${query}`, { method: "POST", headers: { "x-automation-secret": secret! }, body: "{}" }));
+      results.push({ status: response.status, body: await response.json() });
+    }
+    expect(results[0]).toEqual({ status: 401, body: { error: "Invalid automation secret." } });
+    for (const result of results) expect(result).toEqual(results[0]);
+    // Valid credentials advance past auth to the bounded body parser.
+    const valid = await service.fetch(new Request("https://internal/api/automations/known/trigger", { method: "POST", headers: { "x-automation-secret": webhookSecret! }, body: "x".repeat(32001) }));
+    expect(valid.status).toBe(413);
   });
 });

@@ -64,8 +64,8 @@ export function mascotExpression(status: AgentAvatarStatus | undefined, eyes: Ag
 export function avatarStatusFromTask(status: string | undefined): AgentAvatarStatus | undefined {
   if (!status) return undefined;
   if (status === "running" || status === "working" || status === "in-progress" || status === "live") return "working";
-  if (status === "needs-approval" || status === "waiting-approval" || status === "in-review") return "needs-approval";
-  if (status === "waiting") return "waiting";
+  if (status === "needs-approval" || status === "waiting-approval") return "needs-approval";
+  if (status === "waiting" || status === "in-review") return "waiting";
   if (status === "failed" || status === "error") return "failed";
   if (status === "asleep") return "asleep";
   return undefined;

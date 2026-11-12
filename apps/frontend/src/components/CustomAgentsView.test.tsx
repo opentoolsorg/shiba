@@ -11,6 +11,16 @@ import { CustomAgentsView, type CustomAgentWire, useCustomAgentOptions } from ".
 import { createAgentThread } from "../agent-threads";
 
 describe("CustomAgentsView", () => {
+  it("brings the name field into focus for New bot and look starters", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: [] })));
+    render(<CustomAgentsView />);
+    await screen.findByText("No bots");
+    fireEvent.click(screen.getByRole("button", { name: "New bot" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("Name"));
+    fireEvent.click(screen.getByRole("button", { name: "Sleepy" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("Name"));
+  });
+
   it("saves mascot and supplied Gemini model, hydrates edits, preserves failed drafts, and clears automatic presets", async () => {
     let saved: CustomAgentWire | undefined;
     let failSave = false;
@@ -33,13 +43,13 @@ describe("CustomAgentsView", () => {
     await waitFor(() => expect(saved?.config).toMatchObject({ look: { eyes: "sleepy" }, codingModel: "google/gemini-2.5-pro", defaultRepoUrl: "https://github.com/example/project" }));
     expect(saved?.config).not.toHaveProperty("mascotPreset");
     fireEvent.click(await screen.findByRole("button", { name: "Edit bot" }));
-    expect(screen.getByRole("button", { name: "Sleepy" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Sleepy" }).getAttribute("aria-pressed")).toBe("true");
     expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("google/gemini-2.5-pro");
     fireEvent.click(screen.getByRole("button", { name: "Wrench" }));
     failSave = true;
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await screen.findByText("Try again");
-    expect(screen.getByRole("button", { name: "Wrench" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Wrench" }).getAttribute("aria-pressed")).toBe("true");
     failSave = false;
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(saved?.config.look).toMatchObject({ eyes: "sleepy", acc: "wrench" }));

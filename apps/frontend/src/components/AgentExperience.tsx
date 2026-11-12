@@ -6,6 +6,7 @@ import type { WebThread } from "../agent-threads";
 import { threadAgentId } from "../agent-threads";
 import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTemplate, type EmployeeRole } from "../employee-templates";
 import { AgentAvatar as BaseAvatar } from "./AgentAvatar";
+import { ShibaMark } from "./ShibaMark";
 import { ViewHeader, viewButtonClass } from "./ui/ViewChrome";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
 
@@ -30,7 +31,7 @@ export function employeeExamples(agent?: CustomAgentWire): readonly string[] {
 }
 
 export function AgentAvatar({ name, slug, role, agentId, mascotPreset, look, large = false, size = large ? 112 : 40 }: { name: string; slug?: string; role?: EmployeeRole; agentId?: string; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; large?: boolean; size?: number }) {
-  if (slug === undefined) return <img src="/assets/mascot/pet-logo.png" alt="" aria-hidden="true" className="agent-mascot shrink-0 object-contain" style={{ width: size, height: size }} />;
+  if (slug === undefined) return <span className="inline-flex shrink-0" style={{ width: size, height: size }}><ShibaMark className="size-full" decorative /></span>;
   return <BaseAvatar id={agentId ?? slug} name={name} mascotPreset={mascotPreset} look={look} role={role ?? employeeRole(slug)} size={size} decorative />;
 }
 

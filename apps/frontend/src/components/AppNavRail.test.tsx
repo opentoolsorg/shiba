@@ -55,12 +55,12 @@ describe("AppNavRail mobile sheet (full navigation with thread list)", () => {
     const { onNavigate } = renderRail();
     const wordmark = screen.getByRole("link", { name: "Shiba Home" });
     expect(wordmark).toBeTruthy();
-    expect(within(wordmark).getByRole("img", { name: "Shiba" }).getAttribute("src")).toBe("/assets/mascot/pet-logo.png");
+    expect(within(wordmark).getByRole("img", { name: "Shiba" })).toBeTruthy();
     const profile = screen.getByRole("button", { name: "Workspace profile" });
-    expect(within(profile).getByRole("img", { name: "Shiba" }).getAttribute("src")).toBe("/assets/mascot/pet-logo.png");
+    expect(within(profile).getByRole("img", { name: "Shiba" })).toBeTruthy();
     expect(screen.getByText("Shiba")).toBeTruthy();
     fireEvent.click(wordmark);
-    expect(onNavigate).toHaveBeenCalledWith("work");
+    expect(onNavigate).toHaveBeenCalledWith("tasks");
   });
 
   it("shows a static workspace label without a fake scope switch", () => {
@@ -105,7 +105,7 @@ describe("AppNavRail mobile sheet (full navigation with thread list)", () => {
     const { onNavigate } = renderRail();
     const workBtn = screen.getByRole("button", { name: "Work" });
     fireEvent.click(workBtn);
-    expect(onNavigate).toHaveBeenCalledWith("work");
+    expect(onNavigate).toHaveBeenCalledWith("tasks");
   });
 
   it("renders approval groups without fabricated assignment data", () => {
@@ -233,9 +233,9 @@ describe("AppNavRail desktop labeled navigation (every view)", () => {
 
     const logo = screen.getByRole("link", { name: "Shiba Home" });
     expect(logo).toBeTruthy();
-    expect(within(logo).getByRole("img", { name: "Shiba" }).getAttribute("src")).toBe("/assets/mascot/pet-logo.png");
+    expect(within(logo).getByRole("img", { name: "Shiba" })).toBeTruthy();
     fireEvent.click(logo);
-    expect(onNavigate).toHaveBeenCalledWith("work");
+    expect(onNavigate).toHaveBeenCalledWith("tasks");
   });
 
   it("stacks primary buttons: Work, Agents, Chats, and More with active pill on Work", () => {
@@ -257,7 +257,7 @@ describe("AppNavRail desktop labeled navigation (every view)", () => {
     expect(onNavigate).toHaveBeenCalledWith("threads");
 
     fireEvent.click(workBtn);
-    expect(onNavigate).toHaveBeenCalledWith("work");
+    expect(onNavigate).toHaveBeenCalledWith("tasks");
 
     expect(moreBtn).toBeTruthy();
   });
@@ -280,7 +280,7 @@ describe("AppNavRail desktop labeled navigation (every view)", () => {
     ["custom-agents", "Agents"],
     ["employee-tools", "Agents"],
     ["swarm", "Agents"],
-    ["tasks", "Agents"],
+    ["tasks", "Work"],
     ["threads", "Chats"],
     ["collaboration", "Chats"],
     ["memory", "More"],
@@ -289,7 +289,7 @@ describe("AppNavRail desktop labeled navigation (every view)", () => {
   ] as const)("marks the %s view under the %s rail item on every view", (view, item) => {
     render(<AppNavRail activeView={view} onNavigate={vi.fn()} variant="rail" />);
     expect(screen.getByRole("button", { name: item }).getAttribute("aria-current")).toBe("page");
-    expect(screen.getByRole("button", { name: "Work" }).getAttribute("aria-current")).toBeNull();
+    expect(screen.getByRole("button", { name: "Work" }).getAttribute("aria-current")).toBe(item === "Work" ? "page" : null);
   });
 
   it("offers a labeled Insights destination with a real pending approval count", () => {

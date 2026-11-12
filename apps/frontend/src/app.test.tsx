@@ -46,6 +46,7 @@ vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChang
 vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value }: { value: string }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} readOnly /></div> }));
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "/work/");
   mocks.agent.reconnect.mockClear();
   mocks.suspension = null;
   setSavedLibraryActor("test-operator");
@@ -199,19 +200,67 @@ describe("app Work and Threads routing", () => {
     expect(window.location.search).toBe("");
   });
 
-  it("keeps Work as the plain root default and after popstate", async () => {
+  it("opens the task inbox at root and after popstate", async () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
-    await screen.findByRole("group", { name: "Work views" });
+    await screen.findByRole("heading", { name: /Hand off the work/ });
     fireEvent.click(screen.getByRole("button", { name: "Chats" }));
     await screen.findByRole("textbox", { name: "Task draft" });
     act(() => { window.history.replaceState(null, "", "/"); window.dispatchEvent(new PopStateEvent("popstate")); });
-    await screen.findByRole("group", { name: "Work views" });
-    expect(window.location.pathname).toBe("/");
+    await screen.findByRole("heading", { name: /Hand off the work/ });
+    expect(window.location.pathname).toBe("/tasks/");
+  });
+
+  it.each(["/work/", "/tasks/"])("does not redirect explicit %s when first-run progress resolves late", async (path) => {
+    window.history.replaceState(null, "", path);
+    const originalFetch = fetch;
+    let resolveProgress!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/whoami") return Promise.resolve(Response.json({ agent: "test-operator", auth: "better-auth" }));
+      if (String(url) === "/api/onboarding/progress") return new Promise<Response>((resolve) => { resolveProgress = resolve; });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await screen.findByRole("button", { name: "Chats" });
+    await waitFor(() => expect(resolveProgress).toBeTypeOf("function"));
+    await act(async () => resolveProgress(Response.json({ revision: 1, activatedAt: null, dismissedAt: null })));
+    expect(window.location.pathname).toBe(path);
+    expect(screen.queryByTestId("chat-composer")).toBeNull();
+  });
+
+  it("selects a custom agent explicitly and restores built-in defaults", async () => {
+    window.history.replaceState(null, "", "/tasks/");
+    const originalFetch = fetch;
+    const template = EMPLOYEE_TEMPLATES.find((item) => item.id === "research")!;
+    const profile = { id: "research-agent", slug: template.slug, version: 1, config: { ...template.config, harness: "codex", defaultRepoUrl: "https://github.com/custom/repo" } };
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/setup/status") return Response.json({ models: { harness: "opencode", coding: "default" }, doctor: { roles: [] } });
+      if (String(url).startsWith("/api/runs") && options?.method === "POST") return Response.json({ error: "Repository access denied" }, { status: 403 });
+      if (String(url) === "/api/custom-agents") return Response.json({ agents: [profile] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const select = await screen.findByRole("combobox", { name: "Choose an agent" }) as HTMLSelectElement;
+    await screen.findByRole("option", { name: new RegExp(profile.config.name) });
+    const repo = screen.getByRole("combobox", { name: "GitHub repository" }) as HTMLInputElement;
+    expect(select.value).toBe("");
+    expect(repo.value).toBe("");
+    fireEvent.change(repo, { target: { value: "my/repo" } });
+    fireEvent.change(select, { target: { value: profile.id } });
+    expect(select.value).toBe(profile.id);
+    expect(screen.getByText("custom/repo")).toBeTruthy();
+    await screen.findByText(/This model override has not been checked/);
+    fireEvent.change(screen.getByRole("textbox", { name: "What do you want done?" }), { target: { value: "Fix the issue" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Hand off work" }));
+    expect((await screen.findByText("Run could not be queued: Repository access denied")).getAttribute("role")).toBe("status");
+    expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/api\/runs/), expect.objectContaining({ method: "POST", body: expect.stringContaining('"customAgentId":"research-agent"') }));
+    fireEvent.change(select, { target: { value: "" } });
+    expect(select.value).toBe("");
+    expect((screen.getByRole("combobox", { name: "GitHub repository" }) as HTMLInputElement).value).toBe("my/repo");
   });
 
   it("keeps a quick-add draft in the composer after creating and navigating to a thread", async () => {
-    window.history.replaceState(null, "", "/");
+    window.history.replaceState(null, "", "/work/");
     render(<App />);
     const input = await screen.findByRole("textbox", { name: "Add a task and press Enter" });
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ cache: "no-store" })));
@@ -376,8 +425,8 @@ describe("app Work and Threads routing", () => {
     window.history.replaceState(null, "", "/settings/?section=account");
     render(<App />);
     fireEvent.click((await screen.findAllByRole("button", { name: "Back to app" }))[0]!);
-    await screen.findByRole("group", { name: "Work views" });
-    expect(window.location.pathname).toBe("/");
+    await screen.findByRole("heading", { name: /Hand off the work/ });
+    expect(window.location.pathname).toBe("/tasks/");
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     await screen.findAllByRole("button", { name: "Back to app" });
     expect(window.location.pathname).toBe("/settings/");
@@ -387,7 +436,7 @@ describe("app Work and Threads routing", () => {
   it("switches destinations with Alt+number shortcuts", async () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
-    await screen.findByRole("group", { name: "Work views" });
+    await screen.findByRole("heading", { name: /Hand off the work/ });
     fireEvent.keyDown(window, { key: "2", code: "Digit2", altKey: true });
     await waitFor(() => expect(window.location.pathname).toBe("/custom-agents/"));
   });
@@ -542,6 +591,7 @@ describe("app Work and Threads routing", () => {
     const originalFetch = fetch;
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
       if (String(url) === "/api/whoami") return Response.json({ agent: "test-operator", auth: "better-auth" });
+      if (String(url) === "/api/whoami") return Promise.resolve(Response.json({ agent: "test-operator", auth: "better-auth" }));
       if (String(url) === "/api/onboarding/progress") return new Promise<Response>(resolve => { finish = resolve; });
       return originalFetch(url, options);
     }));

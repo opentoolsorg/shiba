@@ -72,7 +72,6 @@ export function AgentsPanel({
   onSelectThread,
   onSelectAgent,
   onNewAgent,
-  onOpenCatalog,
   ownerName,
   workspaceName,
   className = "",
@@ -230,7 +229,7 @@ export function AgentsPanel({
                     className="flex min-w-0 flex-1 items-center gap-2.5 rounded text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
                   >
                     <AgentAvatar
-                      id={isDefault ? DEFAULT_AGENT_ID : (row.agent?.slug ?? row.id)}
+                      id={isDefault ? DEFAULT_AGENT_ID : row.id}
                       name={row.name}
                       mascotPreset={row.agent?.config.mascotPreset}
                       look={row.agent?.config.look}
@@ -308,30 +307,7 @@ export function AgentsPanel({
           })}
         </ul>
 
-        {agents.length === 0 && !query ? (
-          <div className="mt-3 rounded-xl border border-dashed border-[#e4e4e7] px-3 py-6 text-center dark:border-zinc-800">
-            <AgentAvatar
-              id="support-triage"
-              name="Your next teammate"
-              size={72}
-              decorative
-              className="mx-auto"
-            />
-            <h3 className="mt-3 text-[14px] font-semibold text-[#0a0a0a] dark:text-zinc-100">
-              Make room for good work.
-            </h3>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-[#71717a] dark:text-zinc-400">
-              A teammate for the work you love. And the work you don’t.
-            </p>
-            <button
-              type="button"
-              onClick={() => (onOpenCatalog ?? onNewAgent)?.()}
-              className="mt-4 min-h-11 w-full rounded-lg bg-[#0a0a0a] px-3 text-[12px] font-medium text-white hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:focus-visible:ring-offset-zinc-900"
-            >
-              Hire your first teammate
-            </button>
-          </div>
-        ) : null}
+
       </div>
 
       <div className="mt-auto flex flex-col gap-0.5 border-t border-[#e4e4e7] pt-2 dark:border-zinc-800">

@@ -335,6 +335,30 @@ describe("end-to-end session flow", () => {
     expect(res?.status).toBe(403);
   });
 
+  it("does not reveal registered emails when signup is closed, including concurrent padded/case variants", async () => {
+    const env = makeEnv();
+    await signUp(env);
+    const cases = ["", "/"].flatMap((suffix) => ["owner@example.com", "OWNER@example.com", " owner@example.com ", "unused@example.com"].map((email) => ({ suffix, email })));
+    const results = await Promise.all(cases.map(async ({ suffix, email }) => {
+      const response = await handleBetterAuth(jsonRequest(`/api/auth/sign-up/email${suffix}`, { name: "User", email, password: "password-123" }), env);
+      return { status: response?.status, body: await response?.json() };
+    }));
+    expect(results[0]?.status).toBe(403);
+    for (const result of results) expect(result).toEqual(results[0]);
+    for (const body of [{ name: "User", email: "owner@example.com", password: "" }, { name: "User", email: "bad-email", password: "password-123" }]) {
+      expect((await handleBetterAuth(jsonRequest("/api/auth/sign-up/email", body), env))?.status).toBe(400);
+    }
+  });
+
+  it("does not expose disabled social callback state or redirect attacker input", async () => {
+    for (const suffix of ["", "/"]) {
+      const response = await handleBetterAuth(new Request(`${BASE}/api/auth/callback/google${suffix}?state=attacker&code=bogus`), makeEnv());
+      expect(response?.status).toBe(404);
+      expect(response?.headers.get("location")).toBeNull();
+      expect(await response?.json()).toEqual({ error: "Not found." });
+    }
+  });
+
   it("rejects a wrong password and ignores it at the gate", async () => {
     const env = makeEnv();
     await signUp(env);
@@ -490,6 +514,7 @@ describe("end-to-end session flow", () => {
       expect(res?.status).toBe(504);
       const body = (await res?.json()) as { error?: string };
       expect(body.error).toMatch(/timed out/i);
+      expect(body.error).not.toMatch(/AGENT_AUDIT|D1/);
     } finally {
       vi.useRealTimers();
     }

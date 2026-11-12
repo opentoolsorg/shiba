@@ -46,10 +46,10 @@ function parseReceipt(value:unknown,input:Omit<ReadRequest,"capabilities">):Gate
 export async function handleFounderAutomaticReadPermit(request:Request,env:Env):Promise<Response|null>{
   const url=new URL(request.url);if(url.pathname!=="/internal/founder-automatic-read/permit")return null;
   const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{"cache-control":"no-store","referrer-policy":"no-referrer"}});
-  if(request.method!=="POST"||url.search||!/^application\/json(?:;|$)/i.test(request.headers.get("content-type")??""))return json({error:"automatic_read_capability_denied"},403);
-  try{let body:unknown;try{body=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(await boundedBody(request.body,80000)));}catch{return json({error:"automatic_read_capability_denied"},403);}
+  if(request.method!=="POST"||url.search||!/^application\/json(?:;|$)/i.test(request.headers.get("content-type")??""))return json({error:"Forbidden."},403);
+  try{let body:unknown;try{body=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(await boundedBody(request.body,80000)));}catch{return json({error:"Forbidden."},403);}
     const b=body as {stage?:Stage;capability?:unknown;requestDigest?:string;receipt?:unknown};
-    if(!b||typeof b!=="object"||Array.isArray(b)||!b.stage||!["claim","dispatch","complete","attest_claim","attest_complete"].includes(b.stage)||typeof b.requestDigest!=="string"||!/^[a-f0-9]{64}$/.test(b.requestDigest)||Object.keys(b).some(k=>!["stage","capability","requestDigest",...(b.stage==="complete"?["receipt"]:[])].includes(k)))return json({error:"automatic_read_capability_denied"},403);
+    if(!b||typeof b!=="object"||Array.isArray(b)||!b.stage||!["claim","dispatch","complete","attest_claim","attest_complete"].includes(b.stage)||typeof b.requestDigest!=="string"||!/^[a-f0-9]{64}$/.test(b.requestDigest)||Object.keys(b).some(k=>!["stage","capability","requestDigest",...(b.stage==="complete"?["receipt"]:[])].includes(k)))return json({error:"Forbidden."},403);
     const cap=await verify(env,b.capability,b.stage,b.requestDigest);
     const unavailable=automaticAvailability(env);if(unavailable)throw new WorkspaceIntegrationError(unavailable,503);
     if(b.stage==="attest_claim"||b.stage==="attest_complete"){
@@ -89,5 +89,5 @@ export async function handleFounderAutomaticReadPermit(request:Request,env:Env):
     const changed=await env.AGENT_AUDIT.prepare(`UPDATE founder_automatic_read_steps SET state=?,receipt_json=?,complete_used=1,updated_at=? WHERE id=? AND nonce=? AND request_digest=? AND complete_used=0 AND claim_used=1 AND ((?='completed' AND state='dispatching' AND dispatch_used=1) OR (?<>'completed' AND state IN ('claimed','dispatching'))) AND ${context}`)
       .bind(receipt.state,JSON.stringify(receipt),Date.now(),step.id,cap.nonce,cap.requestDigest,receipt.state,receipt.state,...contextValues).run();
     if(changed.meta.changes!==1)throw new WorkspaceIntegrationError("automatic_read_nonce_unconfirmed",409);return json({ok:true});
-  }catch(error){return error instanceof WorkspaceIntegrationError?json({error:error.code},error.status):json({error:"automatic_read_capability_denied"},403);}
+  }catch(error){return error instanceof WorkspaceIntegrationError?json({error:error.status===403?"Forbidden.":error.code},error.status):json({error:"Forbidden."},403);}
 }

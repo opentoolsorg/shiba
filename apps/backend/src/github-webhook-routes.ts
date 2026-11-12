@@ -19,8 +19,9 @@ export async function handleGitHubWebhook(request: Request, env: Env, ctx?: Exec
   }
   const secret = env.GITHUB_WEBHOOK_SECRET ?? "";
   if (!secret) {
+    console.warn("Webhook disabled: GITHUB_WEBHOOK_SECRET is unset.");
     return Response.json(
-      { error: "Webhooks are not configured: set the GITHUB_WEBHOOK_SECRET secret." },
+      { error: "Webhook is disabled." },
       { status: 503 },
     );
   }
