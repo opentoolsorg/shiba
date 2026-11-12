@@ -30,15 +30,7 @@ interface BootstrapPolicy {
 type SocialProvider = "google" | "slack";
 type SocialProviderStatus = { providers?: Partial<Record<SocialProvider, boolean>> };
 
-export function SessionPending(): JSX.Element {
-  return (
-    <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center">
-      <p role="status" className="font-mono text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
-        Checking your session…
-      </p>
-    </div>
-  );
-}
+export { SessionPending } from "./SessionPending";
 
 export function SessionProblem({
   message,

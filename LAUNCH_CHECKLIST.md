@@ -204,4 +204,5 @@ npx wrangler tail --status error
    `/api/auth/*`, `/api/antigravity/callback`, `/api/local/*`.
 7. wrangler.jsonc migrations v1–v9 are explicit; alchemy relies on
    provider-emitted migrations for new DO classes. Live adoption keeps
-   existing history — verify `wrangler migrations list` after first alchemy deploy.
+   existing history — verify the applied tag in the dashboard version details
+   after the first alchemy deploy (wrangler 4.140 has no `migrations list`).

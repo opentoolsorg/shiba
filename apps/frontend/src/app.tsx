@@ -3,6 +3,7 @@
  * Approval-gated coding tasks delegated to isolated Cloudflare Sandbox containers running OpenCode.
  */
 import { readRoomLink, useRoomLinkRoute } from "./room-links";
+import { normalizeRepositoryInput, REPOSITORY_INPUT_ERROR } from "./repository-input";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useConversationRoomRealtime, type ConversationRoomMessage } from "./conversation-room-realtime";
 import { useAgent, useAgentToolEvents } from "agents/react";
@@ -379,7 +380,7 @@ function toolRunInput(run: ToolRunRecord): Record<string, unknown> {
 }
 
 type MainView = AppNavView;
-const DEFAULT_VIEW: MainView = "work";
+const DEFAULT_VIEW: MainView = "tasks";
 /** Views that work inside a team workspace; every other view is personal-only. */
 /** Views that render their own MainCard, so the shell must not add a second one. */
 const SELF_CARDED_VIEWS: readonly string[] = ["dashboard", "activity", "analytics", "diff", "approvals", "automations", "providers", "spaces", "integrations"];
@@ -398,6 +399,7 @@ function viewFromUrl(): AppNavView | null {
   const params = new URLSearchParams(window.location.search);
   if (readRoomLink(window.location.search) !== null) return "threads";
   if (params.has("run") || readPromptParam(window.location.search).prompt !== null) return "threads";
+  if (params.has("task") || ["list", "board", "timeline", "organization"].includes(params.get("view") ?? "")) return "work";
   const toView = (raw: string | null) => {
     const view = raw ? (VIEW_ALIASES[raw] ?? raw) : null;
     return APP_NAV_ITEMS.some((item) => item.id === view) ? (view as AppNavView) : null;
@@ -417,7 +419,7 @@ function workViewFromUrl(): WorkViewMode {
 }
 
 function pathForView(view: MainView): string {
-  return view === "work" ? "/" : `/${view}/`;
+  return `/${view}/`;
 }
 
 const SETUP_TOTAL_STEPS = 6;
@@ -798,6 +800,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [roomRoute.clearIntent]);
   const workspaceAuthorityReady = roomRoute.ready && (!teamIdentityAvailable || teamDirectory.verified);
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
+  useEffect(() => {
+    // The personal task queue must never execute in a team workspace.
+    if (teamWorkspaceId && mainView === "tasks") setMainView("work");
+  }, [teamWorkspaceId, mainView]);
   // Entering Settings inside a team workspace lands on its only team section, not a personal-only notice.
   useEffect(() => {
     if (mainView === "settings" && teamWorkspaceId) setSettingsSection("team");
@@ -942,6 +948,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         slug: agent.slug,
         emoji: agent.config.emoji,
         mascotPreset: agent.config.mascotPreset,
+        look: agent.config.look,
         roleTemplateId: agent.config.roleTemplateId,
         expectedDeliverables: agent.config.expectedDeliverables,
       })),
@@ -1098,17 +1105,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     void firstRunProgressClient.current!.read().then((progress) => {
       if (!cancelled && progress) {
         const show = progress.activatedAt === null && progress.dismissedAt === null && !progress.draftTask?.preparedAt;
-        if (navigation === currentNavigation.current && ["work", "threads"].includes(navigation.view)) {
+        if (navigation === currentNavigation.current && navigation.view === "threads") {
           setShowFirstRun(show);
-          if (show) setMainView("threads");
         }
       }
     }).catch(() => {
       if (!cancelled) {
         setFirstRunProgress(null);
-        if (navigation === currentNavigation.current && ["work", "threads"].includes(navigation.view)) {
+        if (navigation === currentNavigation.current && navigation.view === "threads") {
           setShowFirstRun(true);
-          setMainView("threads");
         }
       }
     });
@@ -1201,6 +1206,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     // Also restore when the registry arrives after mount, not only on sidebar clicks.
     setCustomAgentId(sessionCustomAgentId);
   }, [selectedSessionId, sessionCustomAgentId]);
+  const builtinTaskDefaults = useRef<{ harness: string; codingModel: string; connectionId: string; repoUrl: string; runTarget: "sandbox" | "local" } | null>(null);
   const applyThreadProfile = useCallback((profile: CustomAgentWire) => {
     setHarness(profile.config.harness);
     setCodingModel(profile.config.codingModel ?? "");
@@ -1663,8 +1669,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         setNotice(executionTargetKind === "repository" ? "Enter a repository URL and a task first." : "Enter a task first.");
         return;
       }
-      if (executionTargetKind === "repository" && !repoUrl.trim().startsWith("https://github.com/")) {
-        setNotice("Repository URL must be a GitHub URL like https://github.com/owner/repo.");
+      const normalizedRepoUrl = normalizeRepositoryInput(repoUrl);
+      if (executionTargetKind === "repository" && !normalizedRepoUrl) {
+        setNotice(REPOSITORY_INPUT_ERROR);
         return;
       }
       const parsedArtifactDeliverables = parseArtifactDeliverables(artifactDeliverables);
@@ -1708,7 +1715,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         // The Worker resolves its saved profile and requires human approval
         // of the frozen task before dispatching either runtime.
         const targetFields = executionTargetKind === "repository"
-          ? buildExecutionTargetFields({ kind: "repository", repoUrl: repoUrl.trim(), baseBranch: branch })
+          ? buildExecutionTargetFields({ kind: "repository", repoUrl: normalizedRepoUrl ?? repoUrl.trim(), baseBranch: branch })
           : buildExecutionTargetFields({
               kind: "artifact-workspace",
               workspaceName: artifactWorkspaceName,
@@ -1771,7 +1778,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             throw new Error(detail || `Run request failed with ${res.status}`);
           }
           runCommand.current = null;
-          if (executionTargetKind === "repository") saveRepo(repoUrl.trim(), orchestratorName);
+          if (executionTargetKind === "repository") saveRepo(normalizedRepoUrl ?? repoUrl.trim(), orchestratorName);
           setNotice(runTarget === "local"
             ? "Queued — approve the run card to execute on this computer."
             : executionTargetKind === "artifact-workspace"
@@ -1865,7 +1872,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       }
       setNotice(null);
       const text = [
-        `Repository: ${repoUrl.trim()}`,
+        `Repository: ${normalizedRepoUrl ?? repoUrl.trim()}`,
         `Base branch: ${branch}`,
         `Coding agent harness: ${harness}`,
         ...(codingModel.trim() ? [`Coding model: ${codingModel.trim()}`] : []),
@@ -1895,7 +1902,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           metadata: {
             shibaMode: "work",
             shibaTask: {
-              repoUrl: repoUrl.trim(),
+              repoUrl: normalizedRepoUrl ?? repoUrl.trim(),
               task: task.trim(),
               ...(activeOnboardingRef ? { draftTaskId: activeOnboardingRef.draftTaskId, draftTaskVersion: activeOnboardingRef.version } : {}),
               skillPins: attachedSkills.map((skill) => ({ skillId: skill.id, version: skill.version })),
@@ -1918,7 +1925,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         if (submitFailed.current) {
           restoreDraft(draftSession, draft, activeOnboardingRef);
         } else {
-          saveRepo(repoUrl.trim(), orchestratorName);
+          saveRepo(normalizedRepoUrl ?? repoUrl.trim(), orchestratorName);
           setEnvVars([]);
           attachmentsGeneration.current += 1;
           attachmentsRef.current = [];
@@ -2158,7 +2165,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       }
       if (isEditableTarget(e.target)) return;
       if (e.altKey && !e.metaKey && !e.ctrlKey && /^Digit[1-7]$/.test(e.code)) {
-        const target = (["work", "custom-agents", "threads", "integrations", "inbox", "memory", "settings"] as const)[Number(e.code.slice(5)) - 1];
+        const target = ([teamWorkspaceId ? "work" : "tasks", "custom-agents", "threads", "integrations", "inbox", "memory", "settings"] as const)[Number(e.code.slice(5)) - 1];
         if (target) { e.preventDefault(); openView(target); }
         return;
       }
@@ -2213,6 +2220,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     executionTargetKind,
     conversationMode,
     appToolsWork,
+    teamWorkspaceId,
     toggleActiveSidebar,
     toggleSessionsCollapsed,
     toggleTheme,
@@ -2623,13 +2631,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     }
   };
   const activeEmployee = customAgentRecords.find((profile) => profile.id === customAgentId);
-  useEffect(() => {
-    if (mainView !== "tasks" || customAgentId || customAgentRecords.length === 0) return;
-    applyThreadProfile(customAgentRecords[0]!);
-  }, [mainView, customAgentId, customAgentRecords, applyThreadProfile]);
   const employeeName = activeEmployee?.config.name ?? "Shiba";
-  const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
-  const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, mascotPreset: record.config.mascotPreset, role: employeeRole(record.slug, record.config.roleTemplateId) }));
+  const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, look: activeEmployee?.config.look, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
+  const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, mascotPreset: record.config.mascotPreset, look: record.config.look, role: employeeRole(record.slug, record.config.roleTemplateId) }));
   const showEmployeeOnboarding = !teamWorkspaceId && !restrictedTeamMember && !employeeOnboardingDismissed && !threadsLoading && !customAgentsLoading && !customAgentsError && sessionApiAvailable && customAgentRecords.length === 0 && webSessions.every((session) => session.id === "default") && sessions.every((session) => session.id === "default") && !threadHasWork;
 
   const activeSandboxCount = useMemo(() => {
@@ -2664,6 +2668,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       run: () => openView(item.id),
     })),
     { id: "new-task", label: "New task", run: handleNewTask },
+    ...(!teamWorkspaceId ? [{ id: "settings-models", label: "Open Settings → Models", hint: "Configure model providers and execution routes", run: () => { setSettingsSection("models"); openView("settings"); } }] : []),
     {
       id: "toggle-sessions",
       label: "Toggle sessions sidebar",
@@ -2690,7 +2695,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   ];
 
   if (orchestratorName === null && identityIssue === null) {
-    return <SessionPending />;
+    return <SessionPending onRetry={retryIdentity} />;
   }
 
   // Built-in login lane: the Worker 401s with code "better-auth".
@@ -3116,27 +3121,42 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 slug: profile.slug,
                 emoji: profile.config.emoji,
                 defaultRepoUrl: profile.config.defaultRepoUrl,
+                mascotPreset: profile.config.mascotPreset,
+                look: profile.config.look,
+                role: employeeRole(profile.slug, profile.config.roleTemplateId),
               }))}
               agentsLoading={customAgentsLoading}
-              selectedAgentId={customAgentId || customAgentRecords[0]?.id || ""}
+              selectedAgentId={customAgentId}
               onAgentChange={(id) => {
                 const profile = customAgentRecords.find((candidate) => candidate.id === id);
                 if (profile) {
+                  if (!customAgentId) builtinTaskDefaults.current = { harness, codingModel, connectionId, repoUrl, runTarget };
+                  setCustomAgentId(profile.id);
                   applyThreadProfile(profile);
                   if (!profile.config.defaultRepoUrl && !repoUrl) setRepoUrl(repoSuggestions[0] ?? "");
                 } else {
-                  setCustomAgentId(id);
+                  setCustomAgentId("");
+                  const defaults = builtinTaskDefaults.current;
+                  setHarness(defaults?.harness ?? "opencode");
+                  setCodingModel(defaults?.codingModel ?? "");
+                  setConnectionId(defaults?.connectionId ?? "");
+                  setRepoUrl(defaults?.repoUrl ?? "");
+                  setRunTarget(defaults?.runTarget ?? "sandbox");
+                  setPublishPullRequest(false);
                 }
+                setNotice(null);
               }}
               repoUrl={repoUrl}
               repoSuggestions={repoSuggestions}
               onRepoUrlChange={setRepoUrl}
               runs={retainedRuns}
               approvals={visibleStoredApprovals}
+              pendingApprovals={pendingApprovals}
               busy={busy}
-              onSubmit={(event, agentId) => {
-                void submitTask(event, { forceWork: true, customAgentId: agentId });
-              }}
+              submitNotice={notice}
+              route={{ harness, codingModel, connectionId, runTarget }}
+              onOpenModels={() => { setSettingsSection("models"); setMainView("settings"); }}
+              onSubmit={(event, agentId) => submitTask(event, { forceWork: true, customAgentId: agentId })}
               onOpenRun={(runId) => { void handleSelectSession(runId); }}
               onOpenApproval={() => setMainView("approvals")}
               onToggleAgents={toggleSessionsCollapsed}

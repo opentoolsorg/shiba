@@ -1,5 +1,6 @@
 import type { RunStatus } from "@shiba/shared";
 import { type DragEvent, type JSX, useState } from "react";
+import { avatarStatusFromTask } from "../agent-mascots";
 import { AgentAvatar } from "./AgentAvatar";
 import type { TaskDetailAgent } from "./TaskDetailPanel";
 import type { TaskHistoryAttempt, TaskHistoryItem, TaskHistoryStatus } from "./TaskHistory";
@@ -147,7 +148,7 @@ function AssigneeSlot({ task, agents }: { task: NormalizedBoardTask; agents: rea
   }
   const agent = agents.find((item) => item.id === task.assigneeId);
   if (task.assigneeKind === "agent")
-    return <AgentAvatar id={task.assigneeId} name={name} mascotPreset={agent?.mascotPreset} role={agent?.role} size={20} />;
+    return <AgentAvatar id={task.assigneeId} name={name} mascotPreset={agent?.mascotPreset} look={agent?.look} role={agent?.role} status={avatarStatusFromTask(task.status)} size={20} />;
   return (
     <span
       role="img"

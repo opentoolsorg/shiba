@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defaultLookFor } from "@shiba/shared";
 import type { WebThread } from "./agent-threads";
 import { AgentsPanel } from "./components/AgentsPanel";
 import type { CustomAgentWire } from "./components/CustomAgentsView";
@@ -241,14 +242,10 @@ describe("Organization", () => {
     const chief = screen.getByTestId("organization-chief-card");
     expect(within(chief).getByRole("heading", { name: "Shiba" })).toBeTruthy();
     expect(within(chief).getByText("Workspace chief of staff")).toBeTruthy();
-    expect(within(chief).getByRole("img", { name: "Shiba" }).getAttribute("src")).toMatch(
-      /^\/assets\/mascot\/shiba-sticker-\w+\.webp$/,
-    );
+    expect(within(chief).getByRole("img", { name: "Shiba" }).getAttribute("data-shape")).toBe("pointed");
     const members = screen.getByRole("list", { name: "Member chiefs of staff" });
     expect(within(members).getByText("Personal chief of staff")).toBeTruthy();
-    expect(within(members).getAllByRole("img")[0]?.getAttribute("src")).toMatch(
-      /^\/assets\/mascot\/shiba-sticker-\w+\.webp$/,
-    );
+    expect(within(members).getAllByRole("img")[0]?.classList.contains("shiba-agent-mascot")).toBe(true);
     expect(screen.getByText("Personal agents are private")).toBeTruthy();
     expect(screen.getByText(/Lines show coordination, not access permissions/)).toBeTruthy();
   });
@@ -280,9 +277,20 @@ describe("Agents page", () => {
     expect(within(list).getAllByRole("listitem")).toHaveLength(4);
     for (const name of ["Shiba", "Coder", "Reviewer", "Triage"])
       expect(within(list).getByText(name)).toBeTruthy();
-    const srcs = [...list.querySelectorAll("img")].map((img) => img.getAttribute("src"));
-    expect(srcs).toHaveLength(4);
-    for (const src of srcs) expect(src).toMatch(/^\/assets\/mascot\/shiba-sticker-\w+\.webp$/);
+    const faces = [...list.querySelectorAll(".shiba-agent-mascot")];
+    expect(faces).toHaveLength(4);
+    expect(new Set(faces.map((face) => `${face.getAttribute("data-shape") ?? ""}|${face.getAttribute("data-acc") ?? ""}`)).size).toBeGreaterThan(1);
+  });
+
+  it("keys automatic custom avatars by stable agent ID, like task and directory avatars", () => {
+    panel([agent("agent-uuid-123", "Custom teammate", "my-custom-slug")]);
+    const row = screen.getByText("Custom teammate").closest("li")!;
+    const face = row.querySelector("svg.shiba-agent-mascot")!;
+    const expected = defaultLookFor("agent-uuid-123");
+    expect(face.getAttribute("data-shape")).toBe(expected.shape);
+    expect(face.getAttribute("data-color")).toBe(expected.color);
+    expect(face.getAttribute("data-eyes")).toBe(expected.eyes);
+    expect(face.getAttribute("data-acc")).toBe(expected.acc);
   });
 
   it("expands and collapses an agent's threads", () => {
@@ -311,11 +319,13 @@ describe("Agents page", () => {
     expect(onNewThread).toHaveBeenCalledWith("a1");
   });
 
-  it("shows an inviting empty state that leads to hiring an agent", () => {
+  it("keeps built-in Shiba available without saved agents and supports hiring", () => {
     const onNewAgent = vi.fn();
     panel([], [], { onNewAgent });
-    expect(screen.getByRole("heading", { name: "Make room for good work." })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Hire your first teammate/ }));
+    const list = screen.getByRole("list", { name: "Agents" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(list).getByText("Shiba")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "New agent" }));
     expect(onNewAgent).toHaveBeenCalledOnce();
   });
 });

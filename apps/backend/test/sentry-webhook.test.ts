@@ -194,6 +194,7 @@ describe("sentry webhook intake", () => {
     (h.env as { SENTRY_WEBHOOK_SECRET?: string }).SENTRY_WEBHOOK_SECRET = "";
     const res = await sentryRequest(h);
     expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "Webhook is disabled." });
   });
 
   it("acknowledges non-issue payloads without queueing", async () => {

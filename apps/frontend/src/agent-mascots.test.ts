@@ -1,24 +1,104 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
-import { agentMascot } from "./agent-mascots";
-import { AGENT_TEMPLATES, CUSTOM_AGENT_MASCOT_PRESETS } from "@shiba/shared";
+import {
+  AGENT_TEMPLATES,
+  CUSTOM_AGENT_MASCOT_PRESETS,
+  CUSTOM_AGENT_ROLE_TEMPLATE_IDS,
+  defaultLookFor,
+  mascotLookForPreset,
+  normalizeAgentMascotLook,
+  randomMascotLook,
+  resolveAgentMascotLook,
+} from "@shiba/shared";
+import type { EmployeeRole } from "./employee-templates";
+import { agentMascotPreset, avatarStatusFromTask, mascotExpression } from "./agent-mascots";
 
-describe("agent mascots", () => {
-  it("maps every catalog teammate to a bundled Shiba sticker", () => {
-    for (const template of AGENT_TEMPLATES) expect(agentMascot(template.id)).toMatch(/^\/assets\/mascot\/shiba-sticker-(hero|climbing|riding|sleeping|sunglasses)\.webp$/);
-    expect(agentMascot("coding-coworker")).toBe("/assets/mascot/shiba-sticker-hero.webp");
-    expect(agentMascot("pr-reviewer")).toBe("/assets/mascot/shiba-sticker-sunglasses.webp");
-    expect(agentMascot("shiba")).toBe("/assets/mascot/shiba-sticker-hero.webp");
+const key = (look: { shape: string; color: string; eyes: string; acc: string }) => `${look.shape}|${look.color}|${look.eyes}|${look.acc}`;
+
+describe("agent mascot looks", () => {
+  it("normalizes a complete look and coerces invalid parts", () => {
+    expect(normalizeAgentMascotLook({ shape: "hex", color: "#C4A574", eyes: "star", acc: "pen" })).toEqual({
+      shape: "hex", color: "#c4a574", eyes: "star", acc: "pen",
+    });
+    expect(normalizeAgentMascotLook({ shape: "nope", color: "crimson", eyes: "happy", acc: "mug" })).toEqual({
+      shape: "round", color: "#f4e2c4", eyes: "happy", acc: "none",
+    });
+    expect(normalizeAgentMascotLook({ color: "red" })?.color).toBe("#a65a3a");
+    expect(normalizeAgentMascotLook({ color: "#112233" })).toEqual({
+      shape: "round", color: "#112233", eyes: "pill", acc: "none",
+    });
+    expect(normalizeAgentMascotLook(null)).toBeUndefined();
+    expect(normalizeAgentMascotLook("hero")).toBeUndefined();
+    expect(normalizeAgentMascotLook({ shape: "javascript:alert(1)" })).toBeUndefined();
+    expect(normalizeAgentMascotLook({ shape: "pebble", color: "#7ec8e3", eyes: "happy", acc: "none" })?.shape).toBe("pebble");
+    expect(normalizeAgentMascotLook({ color: "sky" })?.color).toBe("#7ec8e3");
   });
-  it("uses role fit before a stable custom-id fallback", () => {
-    expect(agentMascot("custom-123", "design")).toBe("/assets/mascot/shiba-sticker-riding.webp");
-    expect(agentMascot("custom-123", "custom")).toBe(agentMascot("custom-123"));
-    expect(agentMascot("renamed-slug", "custom", "custom-123")).toBe(agentMascot("custom-123"));
+
+  it("shuffles and seeds friendly random looks", () => {
+    const a = randomMascotLook("seed-a");
+    const b = randomMascotLook("seed-b");
+    expect(a).toEqual(randomMascotLook("seed-a"));
+    expect(a).not.toEqual(b);
+    expect(a.shape).toBeTruthy();
+    expect(a.color).toMatch(/^#[0-9a-f]{6}$/);
   });
-  it.each(CUSTOM_AGENT_MASCOT_PRESETS)("uses an allowlisted %s override and ships original dog art", (preset) => {
-    const path = agentMascot("coding-coworker", "engineering", "custom-id", preset);
-    const original = new URL(`../../web/public${path}`, import.meta.url);
-    expect(existsSync(original)).toBe(true);
-    expect(readFileSync(original).subarray(8, 12).toString()).toBe("WEBP");
+
+  it("gives every catalog template and employee role a distinct default", () => {
+    const templates = AGENT_TEMPLATES.map((template) => key(defaultLookFor(template.id)));
+    expect(new Set(templates).size).toBe(AGENT_TEMPLATES.length);
+    const roles = CUSTOM_AGENT_ROLE_TEMPLATE_IDS.map((role) => key(defaultLookFor(`role-${role}`, role)));
+    expect(new Set(roles).size).toBe(CUSTOM_AGENT_ROLE_TEMPLATE_IDS.length);
+    expect(new Set([...templates, ...roles]).size).toBe(templates.length + roles.length);
+    expect(defaultLookFor("coding-coworker")).toEqual(mascotLookForPreset("hero"));
+    expect(defaultLookFor("pr-reviewer")).toEqual(mascotLookForPreset("sunglasses"));
+    expect(defaultLookFor("shiba")).toEqual(mascotLookForPreset("hero"));
+    expect(defaultLookFor("custom-123", "design").shape).toBe("cloud");
+  });
+
+  it("maps sticker presets onto unique looks and hashes unknown ids stably", () => {
+    const presets = CUSTOM_AGENT_MASCOT_PRESETS.map((preset) => key(mascotLookForPreset(preset)));
+    expect(new Set(presets).size).toBe(CUSTOM_AGENT_MASCOT_PRESETS.length);
+    const first = defaultLookFor("zzz-unknown");
+    const second = defaultLookFor("yyy-unknown");
+    expect(first).toEqual(defaultLookFor("zzz-unknown"));
+    expect(key(first)).not.toBe(key(second));
+    expect(resolveAgentMascotLook({ id: "coding-coworker", preset: "sleeping" })).toEqual(mascotLookForPreset("sleeping"));
+    expect(resolveAgentMascotLook({
+      id: "coding-coworker",
+      preset: "sleeping",
+      look: { shape: "bean", color: "#6e8b6a", eyes: "wink", acc: "coffee" },
+    })).toEqual({ shape: "bean", color: "#6e8b6a", eyes: "wink", acc: "coffee" });
+    expect(resolveAgentMascotLook({ id: "renamed-slug", role: "custom", fallbackId: "custom-123" })).toEqual(defaultLookFor("custom-123"));
+  });
+
+  it("hashes names and roles inherited from Object.prototype", () => {
+    for (const name of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+      const look = defaultLookFor(name);
+      expect(look).toEqual(resolveAgentMascotLook({ id: name }));
+      expect(look.color).toMatch(/^#[0-9a-f]{6}$/);
+      expect(defaultLookFor(name, name)).toEqual(look);
+      expect(resolveAgentMascotLook({ id: name, role: name })).toEqual(look);
+    }
+  });
+  it("does not treat inherited preset names as known templates", () => {
+    expect(CUSTOM_AGENT_MASCOT_PRESETS).toContain(agentMascotPreset("constructor"));
+    expect(CUSTOM_AGENT_MASCOT_PRESETS).toContain(agentMascotPreset("unknown", "toString" as EmployeeRole));
+  });
+
+  it("maps run status onto a live expression", () => {
+    expect(mascotExpression(undefined, "happy")).toBe("happy");
+    expect(mascotExpression("idle", "happy")).toBe("happy");
+    expect(mascotExpression("working", "happy")).toBe("code");
+    expect(mascotExpression("waiting", "happy")).toBe("sleepy");
+    expect(mascotExpression("needs-approval", "happy")).toBe("surprised");
+    expect(mascotExpression("failed", "happy")).toBe("squint");
+    expect(mascotExpression("asleep", "pill")).toBe("sleepy");
+  });
+});
+
+describe("task avatar status", () => {
+  it("does not misrepresent review as an approval requirement", () => {
+    expect(avatarStatusFromTask("in-review")).toBe("waiting");
+    expect(avatarStatusFromTask("needs-approval")).toBe("needs-approval");
+    expect(avatarStatusFromTask("waiting-approval")).toBe("needs-approval");
   });
 });

@@ -611,10 +611,15 @@ describe("Phase 1 core loop (integration)", () => {
       expect(response.status).toBe(400);
       expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
     }
-    // Local artifact work is valid input but needs SHIBA_LOCAL_RUNTIME=1 and dashboard intake.
+    // Local artifact work is valid input, but this non-dashboard intake cannot
+    // request local execution. The dashboard also requires an enabled local runtime.
     const local = await postRun({ executionTarget: target, runtime: "local" });
     expect(local.status).toBe(403);
+    expect(await local.json()).toEqual({ error: 'runtime "local" is admitted only through the dashboard.' });
     expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
+    expect(instance.state.runs ?? []).toHaveLength(0);
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.destroy).not.toHaveBeenCalled();
 
     const payload = { executionTarget: target, commandId: "artifact-command-1" };
     const first = await postRun(payload);

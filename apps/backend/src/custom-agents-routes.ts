@@ -31,6 +31,8 @@ function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number
 export async function handleCustomAgents(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/custom-agents")) return null;
+  const auth = await resolveOrgForApiRequest(request, env);
+  if (auth instanceof Response) return auth;
   // Only explicit lifecycle suffixes are supported. An unknown suffix must
   // never turn DELETE /:id/unknown into deletion of the real agent.
   const route = url.pathname.match(/^\/api\/custom-agents(?:\/([^/]+)(?:\/(archive|restore))?)?\/?$/);
@@ -38,8 +40,6 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
   if (!env.AGENT_AUDIT) {
     return Response.json({ ok: false, error: "AGENT_AUDIT D1 binding is not configured." }, { status: 503 });
   }
-  const auth = await resolveOrgForApiRequest(request, env);
-  if (auth instanceof Response) return auth;
   if (auth.principal) {
     if (request.method === "GET" && !requireV1Read(auth.principal)) return v1Forbidden();
     if (request.method !== "GET" && !requireV1Write(auth.principal)) return v1Forbidden();

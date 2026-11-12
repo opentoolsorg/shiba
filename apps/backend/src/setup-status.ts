@@ -46,7 +46,7 @@ async function probeGateway(env: Env): Promise<SetupStatus["gateway"]["reachable
   }
 }
 
-export async function readSetupStatus(env: Env, probe = true): Promise<SetupStatus> {
+export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: string): Promise<SetupStatus> {
   const approvers = (env.SLACK_APPROVERS ?? "")
     .split(",")
     .map((id) => id.trim())
@@ -99,6 +99,6 @@ export async function readSetupStatus(env: Env, probe = true): Promise<SetupStat
       sendEnabled: env.SEND_EMAIL !== undefined,
     },
   };
-  const doctor = await runSetupDoctor(env, { gateway: base.gateway });
+  const doctor = await runSetupDoctor(env, { gateway: base.gateway, initiatorUserId });
   return { ...base, doctor };
 }

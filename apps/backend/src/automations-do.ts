@@ -1007,16 +1007,16 @@ export class Automations {
       try {
         decodedId = decodeURIComponent(webhookId);
       } catch {
-        // Malformed % escapes keep the raw id — lookup below 404s anyway.
+        // Malformed escapes use the raw id and receive the same auth denial.
       }
       const automation = store.get(decodedId);
-      if (!automation) {
-        return Response.json({ error: "Automation not found." }, { status: 404 });
-      }
       // Header only: a ?secret= query param lands in proxy and access logs,
       // which is exactly where a credential must not appear.
       const secret = request.headers.get("x-automation-secret") ?? "";
-      if (!verifyWebhookSecret(automation, secret)) {
+      // Missing ids still perform the secret comparison; never disclose existence.
+      const candidate = automation ?? { webhookSecret: "0".repeat(64) };
+      const secretValid = verifyWebhookSecret(candidate, secret);
+      if (!automation || !secretValid) {
         return Response.json({ error: "Invalid automation secret." }, { status: 401 });
       }
       const webhookTrigger = automation.triggers.find((t) => t.kind === "webhook");

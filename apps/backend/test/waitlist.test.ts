@@ -54,6 +54,59 @@ describe("waitlist boundary", () => {
     expect(captured).toHaveLength(1);
   });
 
+  it("rejects an oversized Content-Length without reading or awaiting cancellation", async () => {
+    const pull = vi.fn();
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const body = new ReadableStream<Uint8Array>({ pull, cancel }, { highWaterMark: 0 });
+    const request = new Request(`${ORIGIN}/api/waitlist`, {
+      method: "POST", body, duplex: "half",
+      headers: { Origin: ORIGIN, "Content-Type": "application/json", "Content-Length": "4097" },
+    } as RequestInit);
+    const fetch = vi.fn();
+    const env = { Waitlist: { idFromName: () => "id", get: () => ({ fetch }) } } as unknown as Parameters<typeof handleWaitlist>[1];
+    const response = await handleWaitlist(request, env);
+    expect(response?.status).toBe(400);
+    expect(await response?.json()).toEqual({ error: "Invalid or oversized request." });
+    expect(pull).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fetch).not.toHaveBeenCalled();
+  }, 500);
+
+  it.each([undefined, "1"])("stops at the first byte over the cap despite absent or false length %s", async (contentLength) => {
+    let chunks = 0;
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const pull = vi.fn((controller: ReadableStreamDefaultController<Uint8Array>) => {
+      controller.enqueue(new Uint8Array(chunks++ === 0 ? 4096 : 1));
+      // Deliberately never close: the server must not read to EOF.
+    });
+    const body = new ReadableStream<Uint8Array>({ pull, cancel }, { highWaterMark: 0 });
+    const request = new Request(`${ORIGIN}/api/waitlist`, {
+      method: "POST", body, duplex: "half",
+      headers: { Origin: ORIGIN, "Content-Type": "application/json", ...(contentLength ? { "Content-Length": contentLength } : {}) },
+    } as RequestInit);
+    const fetch = vi.fn();
+    const env = { Waitlist: { idFromName: () => "id", get: () => ({ fetch }) } } as unknown as Parameters<typeof handleWaitlist>[1];
+    const response = await handleWaitlist(request, env);
+    expect(response?.status).toBe(400);
+    expect(await response?.json()).toEqual({ error: "Invalid or oversized request." });
+    expect(pull).toHaveBeenCalledTimes(2);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(body.locked).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  }, 500);
+
+  it("accepts valid JSON at exactly the byte cap", async () => {
+    const json = JSON.stringify(entry);
+    const body = json + " ".repeat(4096 - new TextEncoder().encode(json).byteLength);
+    const request = new Request(`${ORIGIN}/api/waitlist`, {
+      method: "POST", body, headers: { Origin: ORIGIN, "Content-Type": "application/json", "Content-Length": "4096" },
+    });
+    const fetch = vi.fn(async () => Response.json({ ok: true }));
+    const env = { Waitlist: { idFromName: () => "id", get: () => ({ fetch }) } } as unknown as Parameters<typeof handleWaitlist>[1];
+    expect((await handleWaitlist(request, env))?.status).toBe(200);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("accepts the Pages origin when the request arrives at the Worker host", async () => {
     const env = { Waitlist: { idFromName: () => "id", get: () => ({ fetch: async () => Response.json({ ok: true }, { status: 201 }) }) } } as unknown as Parameters<typeof handleWaitlist>[1];
     // Pages edge-proxies the form POST unchanged: URL host is the Worker,
