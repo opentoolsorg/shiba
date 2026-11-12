@@ -12,7 +12,7 @@ Describe a proposed change separately from behavior already implemented.
 ## Verify locally
 
 Use the Node and pnpm versions declared in `package.json`:
-Node 22.12.0 or newer and pnpm 10.0.0 or newer.
+Node 22.13.0 or newer and pnpm 10.0.0 or newer.
 Run these commands from the repository root:
 
 ```sh

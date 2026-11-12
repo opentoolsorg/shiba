@@ -12,7 +12,7 @@
 
 Shiba is an open-source workspace for AI employees doing the work behind a company: engineering, design, marketing, sales, operations, finance, research, and revenue planning.
 
-Describe a task, review the proposed work, and approve the request. Shiba returns files and changes for you to inspect: a code fix, campaign draft, account brief, operating checklist, or draft budget using figures you supply. All execution currently needs a GitHub repository, including non-code work.
+Describe a task, review the proposed work, and approve the request. Shiba returns files and changes for you to inspect: a code fix, campaign draft, account brief, operating checklist, or draft budget using figures you supply. Choose an artifact workspace for reviewable files without GitHub, a repository task for an existing codebase, or employee tools and supplied context for permitted app work. Workspace execution requires approval; pull request publication requires a separate approval of the completed changes.
 
 The software is free to self-host. You pay for hosting and model usage through your chosen providers. Start with [your first task](https://tryshiba.dev/docs/getting-started/) or the [self-hosting guide](https://tryshiba.dev/docs/self-hosting/).
 
