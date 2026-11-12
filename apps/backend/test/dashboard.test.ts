@@ -68,7 +68,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderApp(view?: "threads", mode: "chat" | "work" = "chat") {
+function renderApp(view?: "threads" | "work" | "tasks", mode: "chat" | "work" = "chat") {
   (globalThis as { __shibaTestAgent?: string }).__shibaTestAgent = "ada@example.com";
   if (view) {
     vi.stubGlobal("window", { location: new URL(`https://app.tryshiba.dev/${view}/`) });
@@ -100,20 +100,22 @@ describe("dashboard rendering", () => {
       onInspectRun: vi.fn(),
     }));
 
-    expect(markup).toContain("Your agent plane");
-    expect(markup).toContain("Agents &amp; MCP");
-    expect(markup).toContain("Mailbox");
-    expect(markup).toContain("Memory");
-    expect(markup).toContain("Sandbox");
+    expect(markup).toContain('<h1 id="dashboard-title">Dashboard</h1>');
+    expect(markup).toContain("MCP principals");
+    expect(markup).toContain("Connect your tools");
+    expect(markup).toContain("Add useful context");
+    expect(markup).toContain("Meet your agents");
     expect(markup).toContain("No runs yet");
   });
 
   it("shows useful empty states when no task has started", () => {
     const markup = renderApp();
 
-    expect(markup).toContain('aria-label="Work views"');
-    expect(markup).toContain("No tasks yet");
-    expect(markup).toContain("New task");
+    expect(markup).toContain('aria-label="Task queues"');
+    expect(markup).toContain("Nothing waiting for review.");
+    expect(markup).toContain("No agents currently running.");
+    expect(markup).toContain("No tasks in queue.");
+    expect(markup).toContain('aria-label="Hand off work"');
     expect(markup).toContain('aria-label="Chats"');
   });
 
@@ -143,7 +145,7 @@ describe("dashboard rendering", () => {
       },
     ];
 
-    const workMarkup = renderApp();
+    const workMarkup = renderApp("work");
     expect(workMarkup).toContain("Approve tool: runSandbox");
     expect(workMarkup).toContain("Review");
 
@@ -325,8 +327,8 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("Operator &amp; Self-Hosting Setup");
     expect(markup).toContain('role="checkbox"');
   });
-  it("renders the sidebar toggle, task search, and chat control", () => {
-    const markup = renderApp();
+  it("renders the board sidebar toggle, task search, and chat control at its explicit route", () => {
+    const markup = renderApp("work");
     expect(markup).toContain('aria-label="Collapse sidebar"');
     expect(markup).toContain('aria-expanded="true"');
     expect(markup).toContain('aria-label="Search tasks"');
