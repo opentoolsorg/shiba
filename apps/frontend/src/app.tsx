@@ -3131,6 +3131,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onRepoUrlChange={setRepoUrl}
               runs={retainedRuns}
               approvals={visibleStoredApprovals}
+              pendingApprovals={pendingApprovals}
               busy={busy}
               submitNotice={notice}
               route={{ harness, codingModel, connectionId, runTarget }}

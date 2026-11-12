@@ -2,12 +2,32 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TasksHomeView } from "./TasksHomeView";
+import type { StoredApproval } from "../types";
 vi.mock("../live-status", () => ({useSetupStatus: () => ({state: {kind: "loading"}, reload: vi.fn(), inFlight: false})}));
 afterEach(cleanup);
 function show(overrides: Partial<React.ComponentProps<typeof TasksHomeView>> = {}) {
   return render(<TasksHomeView task="Fix the bug" onTaskChange={vi.fn()} agents={[]} selectedAgentId="" onAgentChange={vi.fn()} repoUrl="owner/repo" onRepoUrlChange={vi.fn()} runs={[]} approvals={[]} route={{runTarget: "local"}} onSubmit={vi.fn()} {...overrides} />);
 }
 describe("task handoff", () => {
+  it("shows chat approvals on home and deduplicates stored approvals by id", () => {
+    const onOpenApproval = vi.fn();
+    const approval: StoredApproval = {
+      threadKey: "thread-1", approvalId: "shared-id", task: "Review deployment",
+      repoUrl: "https://github.com/acme/app", status: "pending", createdAt: Date.now(), payload: {},
+    };
+    show({
+      approvals: [approval],
+      pendingApprovals: [
+        { messageId: "message-1", toolCallId: "tool-1", approvalId: "shared-id", tool: "shell", input: {} },
+        { messageId: "message-2", toolCallId: "tool-2", approvalId: "chat-only", tool: "writeFile", input: {} },
+      ],
+      onOpenApproval,
+    });
+    expect(screen.getAllByTestId("task-row-approval:shared-id")).toHaveLength(1);
+    expect(screen.getByTestId("task-row-approval:chat-only").textContent).toContain("Approve tool: writeFile");
+    fireEvent.click(screen.getByRole("button", { name: "Approve tool: writeFile" }));
+    expect(onOpenApproval).toHaveBeenCalledWith("chat-only");
+  });
   it("announces backend rejection or early validation notices next to handoff", () => {
     show({submitNotice: "Run could not be queued: Repository access denied"});
     expect(screen.getByText("Run could not be queued: Repository access denied").getAttribute("role")).toBe("status");

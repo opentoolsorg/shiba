@@ -69,6 +69,16 @@ describe("agent mascot looks", () => {
     expect(resolveAgentMascotLook({ id: "renamed-slug", role: "custom", fallbackId: "custom-123" })).toEqual(defaultLookFor("custom-123"));
   });
 
+  it("hashes names and roles inherited from Object.prototype", () => {
+    for (const name of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+      const look = defaultLookFor(name);
+      expect(look).toEqual(resolveAgentMascotLook({ id: name }));
+      expect(look.color).toMatch(/^#[0-9a-f]{6}$/);
+      expect(defaultLookFor(name, name)).toEqual(look);
+      expect(resolveAgentMascotLook({ id: name, role: name })).toEqual(look);
+    }
+  });
+
   it("maps run status onto a live expression", () => {
     expect(mascotExpression(undefined, "happy")).toBe("happy");
     expect(mascotExpression("idle", "happy")).toBe("happy");

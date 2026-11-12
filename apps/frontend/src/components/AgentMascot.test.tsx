@@ -1,12 +1,16 @@
 // @vitest-environment happy-dom
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { mascotLookForPreset } from "@shiba/shared";
+import { mascotLookForPreset, resolveAgentMascotLook } from "@shiba/shared";
 import { AgentMascot } from "./AgentMascot";
 
 afterEach(cleanup);
 
 describe("AgentMascot", () => {
+  it("renders a bot whose name matches an inherited object property", () => {
+    const { container } = render(<AgentMascot look={resolveAgentMascotLook({ id: "constructor", role: "custom" })} />);
+    expect(container.querySelector("svg")?.getAttribute("data-color")).toMatch(/^#[0-9a-f]{6}$/);
+  });
   it("marks the pointed ears, visor, eyes, and accessory", () => {
     const { container } = render(<AgentMascot look={mascotLookForPreset("sunglasses")} expression="squint" live label="Reviewer" />);
     const svg = container.querySelector("svg");
