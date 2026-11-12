@@ -132,6 +132,34 @@ describe("canonical workspace room links", () => {
     expect(window.location.pathname + window.location.search).toBe(roomLinkUrl({ workspaceId, roomId: nextRoomId }, window.location.origin).replace(window.location.origin, ""));
     expect(result.current.roomId).toBe(nextRoomId);
   });
+  it("synchronizes a room selected during directory refresh after membership is reverified", () => {
+    openLink();
+    const value = { ...directory(), selectedWorkspaceId: workspaceId };
+    const nextRoomId = `room_${"c".repeat(24)}`;
+    const { result, rerender } = renderHook(({ value }) => useRoomLinkRoute(actor, value), { initialProps: { value } });
+
+    rerender({ value: { ...value, loading: true } });
+    act(() => result.current.onRoomChange(nextRoomId));
+    expect(result.current.roomId).toBe(roomId);
+    expect(readRoomLink(window.location.search)).toEqual(link);
+
+    rerender({ value });
+    expect(result.current.roomId).toBe(nextRoomId);
+    expect(readRoomLink(window.location.search)).toEqual({ workspaceId, roomId: nextRoomId });
+  });
+  it("drops a pending room selection if refreshed membership is revoked", () => {
+    openLink();
+    const value = { ...directory(), selectedWorkspaceId: workspaceId };
+    const nextRoomId = `room_${"c".repeat(24)}`;
+    const { result, rerender } = renderHook(({ value }) => useRoomLinkRoute(actor, value), { initialProps: { value } });
+
+    rerender({ value: { ...value, loading: true } });
+    act(() => result.current.onRoomChange(nextRoomId));
+    rerender({ value: { ...value, verified: false, workspaces: [], error: "Access revoked" } });
+
+    expect(result.current.ready).toBe(false);
+    expect(readRoomLink(window.location.search)).toEqual(link);
+  });
   it.each(["unverified", "invalid-room"] as const)("does not update URL or route intent for %s room changes", (condition) => {
     const value = { ...directory(), selectedWorkspaceId: workspaceId };
     if (condition === "unverified") value.verified = false;
