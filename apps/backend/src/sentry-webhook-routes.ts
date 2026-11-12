@@ -176,8 +176,9 @@ export async function handleSentryWebhook(request: Request, env: Env): Promise<R
   }
   const secret = env.SENTRY_WEBHOOK_SECRET ?? "";
   if (!secret) {
+    console.warn("Webhook disabled: SENTRY_WEBHOOK_SECRET is unset.");
     return Response.json(
-      { error: "Sentry intake is not configured: set the SENTRY_WEBHOOK_SECRET secret." },
+      { error: "Webhook is disabled." },
       { status: 503 },
     );
   }

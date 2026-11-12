@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useId, useRef, useState } from "react";
 import { ChevronRight, MoreHorizontal, PanelRight, Users } from "lucide-react";
-import type { CustomAgentMascotPreset } from "@shiba/shared";
+import type { AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
 import type { EmployeeRole } from "../employee-templates";
 import { AgentAvatar } from "./AgentAvatar";
 
@@ -21,7 +21,7 @@ export function AgentChatHeader({
   workspaceLabel = "Workspace",
   onOpenAgents,
 }: {
-  agent: { id: string; name: string; role?: EmployeeRole; mascotPreset?: CustomAgentMascotPreset };
+  agent: { id: string; name: string; role?: EmployeeRole; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook };
   participants: readonly AgentChatParticipant[];
   panelOpen: boolean;
   onTogglePanel: () => void;
@@ -67,7 +67,7 @@ export function AgentChatHeader({
           </li>
           <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
           <li aria-current="page" className="flex min-w-0 items-center gap-2 font-medium text-[var(--fg)]">
-            <AgentAvatar id={agent.id} name={agent.name} mascotPreset={agent.mascotPreset} role={agent.role} size={20} decorative />
+            <AgentAvatar id={agent.id} name={agent.name} mascotPreset={agent.mascotPreset} look={agent.look} role={agent.role} size={20} decorative />
             <span className="truncate">{agent.name}</span>
           </li>
         </ol>
@@ -100,7 +100,7 @@ export function AgentChatHeader({
               <ul className="mt-2 space-y-2">
                 {participants.map((participant) => (
                   <li key={participant.id} className="flex items-center gap-2">
-                    <AgentAvatar id={participant.id} name={participant.name} mascotPreset={participant.id === agent.id ? agent.mascotPreset : undefined} size={20} decorative />
+                    <AgentAvatar id={participant.id} name={participant.name} mascotPreset={participant.id === agent.id ? agent.mascotPreset : undefined} look={participant.id === agent.id ? agent.look : undefined} size={20} decorative />
                     <span className="truncate">{participant.name}</span>
                   </li>
                 ))}

@@ -19,6 +19,13 @@ describe("optional employee role provenance", () => {
     expect(decodeUpdateCustomAgent({ config: input.config })).toEqual({ config: input.config });
   });
 
+  it("accepts a complete visor look and rejects a partial or unsafe one", () => {
+    const look = { shape: "pointed", color: "#c4a574", eyes: "happy", acc: "wrench" };
+    expect(decodeCreateCustomAgent({ slug: "helper", config: { ...config, look } })).toEqual({ slug: "helper", config: { ...config, look } });
+    expect(decodeCreateCustomAgent({ slug: "helper", config: { ...config, look: { ...look, color: "red" } } })).toBeNull();
+    expect(decodeUpdateCustomAgent({ config: { ...config, look: { shape: "round" } } })).toBeNull();
+  });
+
   it.each(["https://example.test/avatar.png", "../hero", "", null, ["hero"], { id: "hero" }])("rejects unsafe mascot %j", (mascotPreset) => {
     expect(decodeCreateCustomAgent({ slug: "helper", config: { ...config, mascotPreset } })).toBeNull();
     expect(decodeUpdateCustomAgent({ config: { ...config, mascotPreset } })).toBeNull();

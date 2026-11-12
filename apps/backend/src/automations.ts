@@ -598,7 +598,7 @@ function timingSafeEqualString(actual: string, expected: string): boolean {
 }
 
 /** True only when the automation carries a webhook trigger holding this secret. */
-export function verifyWebhookSecret(automation: Automation, provided: string): boolean {
+export function verifyWebhookSecret(automation: Pick<Automation, "webhookSecret">, provided: string): boolean {
   if (!automation.webhookSecret) {
     return false;
   }

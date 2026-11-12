@@ -1,6 +1,7 @@
 import { ChevronRight, ListChecks } from "lucide-react";
 import { type JSX, type KeyboardEvent, useState } from "react";
 import type { TeamWorkItem } from "../team-work-items";
+import { avatarStatusFromTask } from "../agent-mascots";
 import { AgentAvatar } from "./AgentAvatar";
 import type { TaskDetailAgent } from "./TaskDetailPanel";
 
@@ -104,7 +105,7 @@ function AssigneeSlot({ task, agents }: { task: TeamWorkItem; agents: readonly T
     );
   }
   const agent = agents.find((item) => item.id === id);
-  return <AgentAvatar id={id} name={name} mascotPreset={agent?.mascotPreset} role={agent?.role} size={20} />;
+  return <AgentAvatar id={id} name={name} mascotPreset={agent?.mascotPreset} look={agent?.look} role={agent?.role} status={avatarStatusFromTask(task.status)} size={20} />;
 }
 
 export interface WorkListViewProps {
