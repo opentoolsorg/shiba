@@ -554,11 +554,9 @@ export function App(): React.JSX.Element {
   const [settingsSection, setSettingsSection] = useState<string>(() =>
     typeof window === "undefined" ? "account" : normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
   const previousViewRef = useRef<MainView>(DEFAULT_VIEW);
-  const clearRoomLinkRef = useRef<() => void>(() => {});
   const clearRoomIntentRef = useRef<() => void>(() => {});
   const openView = useCallback((view: AppNavView) => {
-    if (view === "collaboration") clearRoomIntentRef.current();
-    else if (view !== "threads") clearRoomLinkRef.current();
+    if (view !== "threads") clearRoomIntentRef.current();
     setShowFirstRun(false);
     if (view === "settings") previousViewRef.current = currentNavigation.current.view === "settings" ? previousViewRef.current : currentNavigation.current.view;
     setMainView(view);
@@ -795,11 +793,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const teamIdentityAvailable = signedIn && /^[^\s@:]+@[^\s@:]+\.[^\s@:]+$/.test(orchestratorName ?? "");
   const teamDirectory = useTeamWorkspaceDirectory({ actorId: teamIdentityAvailable ? orchestratorName?.trim().toLowerCase() ?? null : null, enabled: teamIdentityAvailable });
   const roomRoute = useRoomLinkRoute(teamIdentityAvailable ? orchestratorName?.trim().toLowerCase() ?? null : null, teamDirectory);
-  const { clear: clearRoomRoute } = roomRoute;
   useEffect(() => {
-    clearRoomLinkRef.current = clearRoomRoute;
     clearRoomIntentRef.current = roomRoute.clearIntent;
-  }, [clearRoomRoute, roomRoute.clearIntent]);
+  }, [roomRoute.clearIntent]);
   const workspaceAuthorityReady = roomRoute.ready && (!teamIdentityAvailable || teamDirectory.verified);
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
   // Entering Settings inside a team workspace lands on its only team section, not a personal-only notice.
@@ -3802,7 +3798,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               }}
             />
           ) : mainView === "collaboration" ? (
-            <CollaborationView key={`${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} initialRoomId={sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); }}
+            <CollaborationView key={`legacy:${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} initialRoomId={sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); }}
               renderApproval={(handoff) => teamWorkspaceId && handoff.senderActorId === `human:${orchestratorName?.trim().toLowerCase()}` ? <RoomApprovalReview workspaceId={teamWorkspaceId} workspaceName={teamWorkspace?.name} roomId={handoff.roomId} handoffId={handoff.handoffId} actorId={orchestratorName?.trim().toLowerCase() ?? null} /> : null}
               renderExecution={(handoff) => <RoomExecutionPanel key={`${handoff.handoffId}:${handoff.runId}:${handoff.execution?.approvalStatus}`} workspaceId={teamWorkspaceId || undefined} roomId={handoff.roomId} handoffId={handoff.handoffId} runId={handoff.runId} />} />
           ) : mainView === "team" ? (

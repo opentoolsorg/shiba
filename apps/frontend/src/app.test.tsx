@@ -408,6 +408,51 @@ describe("app Work and Threads routing", () => {
     expect(window.location.pathname + window.location.search).toBe(linkedPath);
   });
 
+  it("preserves a linked room in history through Settings and legacy Collaboration", async () => {
+    const id = `ws_${"a".repeat(24)}`;
+    const actor = "owner@example.com";
+    const roomA = `room_${"b".repeat(24)}`;
+    const roomB = `room_${"c".repeat(24)}`;
+    const linkedPath = `/threads/?workspace=${id}&room=${roomA}`;
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", linkedPath);
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
+      if (path === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId: id, name: "Design team", version: 1, createdAt: 1, membership: { workspaceId: id, userId: actor, role: "owner", version: 1, joinedAt: 1 } }] });
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [
+        { roomId: roomA, title: "Room A", visibility: "private" },
+        { roomId: roomB, title: "Room B", visibility: "private" },
+      ] });
+      if (path === `/api/collaboration/rooms/${roomA}` || path === `/api/collaboration/rooms/${roomB}`) {
+        const roomId = path.endsWith(roomA) ? roomA : roomB;
+        return Response.json({ room: { roomId, title: roomId === roomA ? "Room A" : "Room B", visibility: "private" }, currentUserId: actor, members: [], messages: [], handoffs: [] });
+      }
+      return originalFetch(url, options);
+    }));
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Room A" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/settings/"));
+    expect(window.location.search).toMatch(/^\?section=/);
+    fireEvent.click(screen.getByRole("button", { name: "Open command menu" }));
+    fireEvent.click(await screen.findByText("Go to Collaboration"));
+    await waitFor(() => expect(window.location.pathname).toBe("/collaboration/"));
+    fireEvent.click(screen.getByRole("button", { name: /Room B private/ }));
+    await screen.findByRole("heading", { name: "Room B" });
+
+    await act(async () => { window.history.back(); });
+    await waitFor(() => expect(window.location.pathname).toBe("/settings/"));
+    act(() => window.dispatchEvent(new PopStateEvent("popstate")));
+    await act(async () => { window.history.back(); });
+    await waitFor(() => expect(window.location.pathname + window.location.search).toBe(linkedPath));
+    act(() => window.dispatchEvent(new PopStateEvent("popstate")));
+    await screen.findByRole("heading", { name: "Room A" });
+    expect(screen.queryByRole("heading", { name: "Room B" })).toBeNull();
+  });
+
   it("keeps the selected room and URL in sync after a directory refresh", async () => {
     const id = `ws_${"a".repeat(24)}`;
     const actor = "owner@example.com";
