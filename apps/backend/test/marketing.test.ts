@@ -64,23 +64,21 @@ describe("marketing landing page", () => {
     expect(markup).toContain("Shiba — AI Employees for the Work Behind Your Company");
     expect(markup).toContain('href="/docs/self-hosting/"');
     expect(markup).toContain('id="home-title"');
-    expect(markup).toContain("AI employees for");
     const heading = markup.match(/<h1\b[^>]*id="home-title"[^>]*>([\s\S]*?)<\/h1>/)?.[1]
       ?.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-    expect(heading).toBe("AI employees for the work behind your company.");
+    expect(heading).toBe("Hire AI employees you own. Approve every move.");
     expect(markup).toContain('id="dashboard"');
     expect(markup).toContain('id="employees"');
+    expect(markup).toContain("/landing/app-agents-light.png");
+    expect(markup).toContain("/landing/app-agents-dark.png");
     expect(markup).not.toContain("manga-panel");
     expect(markup).toContain('prefers-color-scheme: dark');
     expect(markup).toContain("theme-toggle-btn");
     expect(markup).toContain("AGPL-3.0");
-    for (const harness of ["OpenCode", "Claude Code", "Codex"]) {
-      expect(markup).toContain(harness);
-    }
   });
 
   test("every referenced asset exists in the build output", () => {
-    const refs = [...html().matchAll(/\/assets\/[\w-]+\/[\w.-]+/g)].map((match) => match[0]);
+    const refs = [...html().matchAll(/\/(?:assets|landing)\/[\w/.-]+\.(?:png|webp|svg|jpg)/g)].map((match) => match[0]);
     expect(refs.length).toBeGreaterThan(0);
     const missing = refs.filter((ref) => !existsSync(join(distRoot, ref.replace(/^\//, ""))));
     expect(missing).toEqual([]);

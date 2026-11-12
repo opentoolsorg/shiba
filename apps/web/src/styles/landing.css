@@ -1,0 +1,206 @@
+/*
+ * Landing design tokens and shared primitives.
+ * Everything is scoped to the `.landing` wrapper so marketing pages can opt in
+ * without touching the global theme. Theme resolution mirrors MarketingPage:
+ * an explicit html[data-theme] wins; without it, the system preference applies.
+ */
+
+.landing {
+  --lp-paper: #fbf8f1;
+  --lp-card: #f3eee3;
+  --lp-panel: #eae4d6;
+  --lp-raised: #ffffff;
+  --lp-ink: #111111;
+  --lp-ink2: #5f5a4c;
+  --lp-line: rgba(17, 17, 17, 0.12);
+  --lp-line2: rgba(17, 17, 17, 0.2);
+  --lp-dot: rgba(17, 17, 17, 0.28);
+  --lp-shadow: 0 3px 6px #00000008, 0 14px 38px #00000014;
+  --lp-accent: #0000a8;
+  --lp-onaccent: #ffffff;
+  --lp-ctabg: #111111;
+  --lp-ctafg: #fbf8f1;
+  --lp-logowell: #faf5f1;
+
+  --lp-font-sans: 'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --lp-font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --lp-font-display: 'Geist', system-ui, sans-serif;
+  --lp-gutter: 64px;
+  --lp-motion-duration: 560ms;
+  --lp-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  color-scheme: light;
+  background: var(--lp-paper);
+  color: var(--lp-ink);
+  font-family: var(--lp-font-sans);
+  line-height: 1.55;
+}
+
+html[data-theme='dark'] .landing {
+  --lp-paper: #131209;
+  --lp-card: #181818;
+  --lp-panel: #1f1f1f;
+  --lp-raised: #242424;
+  --lp-ink: #f6f1e6;
+  --lp-ink2: #b3ac9b;
+  --lp-line: rgba(246, 241, 230, 0.14);
+  --lp-line2: rgba(246, 241, 230, 0.22);
+  --lp-dot: rgba(246, 241, 230, 0.3);
+  --lp-shadow: 0 14px 38px #00000066;
+  --lp-accent: #9cbce2;
+  --lp-onaccent: #131209;
+  --lp-ctabg: #f6f1e6;
+  --lp-ctafg: #131209;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme='light']) .landing {
+    --lp-paper: #131209;
+    --lp-card: #181818;
+    --lp-panel: #1f1f1f;
+    --lp-raised: #242424;
+    --lp-ink: #f6f1e6;
+    --lp-ink2: #b3ac9b;
+    --lp-line: rgba(246, 241, 230, 0.14);
+    --lp-line2: rgba(246, 241, 230, 0.22);
+    --lp-dot: rgba(246, 241, 230, 0.3);
+    --lp-shadow: 0 14px 38px #00000066;
+    --lp-accent: #9cbce2;
+    --lp-onaccent: #131209;
+    --lp-ctabg: #f6f1e6;
+    --lp-ctafg: #131209;
+    color-scheme: dark;
+  }
+}
+
+/* Layout */
+
+.lp-shell {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(1312px + 2 * var(--lp-gutter));
+  margin-inline: auto;
+  padding-inline: max(var(--lp-gutter), env(safe-area-inset-left)) max(var(--lp-gutter), env(safe-area-inset-right));
+}
+
+@media (max-width: 1100px) {
+  .landing { --lp-gutter: 32px; }
+}
+
+@media (max-width: 700px) {
+  .landing { --lp-gutter: 20px; }
+}
+
+.lp-section {
+  padding-block: 88px;
+}
+
+.lp-band {
+  background: var(--lp-card);
+  border-block: 1px solid var(--lp-line);
+}
+
+@media (max-width: 700px) {
+  .lp-section { padding-block: 56px; }
+}
+
+/* Type */
+
+.lp-eyebrow {
+  margin: 0 0 12px;
+  color: var(--lp-accent);
+  font: 500 11px/1.5 var(--lp-font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.lp-h2 {
+  margin: 0;
+  color: var(--lp-ink);
+  font: 600 48px/1.05 var(--lp-font-sans);
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+}
+
+@media (max-width: 700px) {
+  .lp-h2 { font-size: 36px; }
+}
+
+/* Buttons */
+
+.lp-btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 22px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: 600 14px/1.2 var(--lp-font-mono);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, filter 0.15s ease;
+}
+
+.lp-btn-primary {
+  background: var(--lp-accent);
+  color: var(--lp-onaccent);
+  box-shadow: var(--lp-shadow);
+}
+
+.lp-btn-secondary {
+  background: var(--lp-raised);
+  color: var(--lp-ink);
+  border-color: var(--lp-line2);
+}
+
+@media (hover: hover) {
+  .lp-btn-primary:hover { filter: brightness(1.12); }
+  .lp-btn-secondary:hover { border-color: var(--lp-ink); }
+}
+
+/* Focus */
+
+.landing :is(a, button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--lp-accent);
+  outline-offset: 4px;
+}
+
+.landing :is(input, select, textarea):focus-visible {
+  outline-offset: 2px;
+}
+
+/* Entrances are opt-in and finite; the resting state is always visible.
+ * No pending/hidden class: failed scripts or observers cannot strand content. */
+@keyframes lp-enter {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .landing [data-motion='hero']:not([data-motion-done]) > :nth-child(-n + 6) {
+    animation: lp-enter var(--lp-motion-duration) var(--lp-motion-ease) backwards;
+  }
+
+  .landing [data-motion='reveal'].lp-enter {
+    animation: lp-enter var(--lp-motion-duration) var(--lp-motion-ease) backwards;
+  }
+
+  .landing [data-motion='hero']:not([data-motion-done]) > :nth-child(2) { animation-delay: 60ms; }
+  .landing [data-motion='hero']:not([data-motion-done]) > :nth-child(3) { animation-delay: 120ms; }
+  .landing [data-motion='hero']:not([data-motion-done]) > :nth-child(4) { animation-delay: 180ms; }
+  .landing [data-motion='hero']:not([data-motion-done]) > :nth-child(5) { animation-delay: 240ms; }
+  .landing [data-motion='hero']:not([data-motion-done]) > :nth-child(6) { animation-delay: 300ms; }
+
+  .landing [data-motion='hero']:focus-within > :nth-child(-n + 6),
+  .landing .lp-enter:focus-within,
+  .landing [data-motion='hero']:focus-within > * { animation: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-btn { transition: none; }
+}

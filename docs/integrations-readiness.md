@@ -1,6 +1,6 @@
 # Apps, MCP and skills readiness
 
-This inventory describes the checked-in product contracts on November 4, 2026.
+This inventory describes the checked-in product contracts on November 7, 2026.
 Counts describe discovery options, not connected accounts or successful vendor
 calls. Each self-hosted deployment must configure and verify its own services.
 
@@ -8,23 +8,28 @@ calls. Each self-hosted deployment must configure and verify its own services.
 
 | Inventory | Count | Meaning |
 | --- | ---: | --- |
-| Static integration-directory rows | 39 | Named entries, including grouped products and generic channels. |
+| Static integration-directory rows | 40 | Named entries, including grouped products and generic channels. |
 | Rows labelled `live` | 9 | A Shiba product path exists; account setup and runtime acceptance remain separate. |
-| Rows labelled `catalog_only` | 30 | Discovery metadata; the label does not establish a working connection. |
-| Rows with OpenConnector mappings | 23 | Map to 28 distinct pinned upstream service IDs; these overlap the 39 rows. |
-| Curated remote MCP presets | 6 | Stripe, Notion, Sentry, PostHog, Figma and Atlassian; these overlap the directory. |
-| General managed-skill templates | 5 | Install as drafts, then review and activate. |
+| Rows labelled `catalog_only` | 31 | Discovery metadata; the label does not establish a working connection. |
+| Rows with OpenConnector mappings | 28 | Map to 37 distinct pinned upstream service IDs; these overlap the 40 rows. |
+| Curated remote MCP presets | 8 | Stripe, Notion, Sentry, PostHog, Figma, Atlassian, GitHub (read-only) and Linear (read-only); these overlap the directory. |
+| General managed-skill templates | 17 | Install as drafts, then review and activate. |
 | Founder skill packs | 6 | Draft instructions and setup recipes; scheduled deployment remains blocked. |
 
 The nine `live` labels are Gmail/Calendar, Slack, Telegram, Discord, Shiba Mailbox,
 Generic Webhook, External MCP, GitHub and Linear. A label can represent more than
 one product, and some entries represent infrastructure rather than app actions.
-Do not add these overlapping counts or present them as 39 connected apps.
+Do not add these overlapping counts or present them as 40 connected apps.
 
-The dynamic OpenConnector provider catalog depends on the sibling deployment,
-its release, configured OAuth clients and the requesting user's connections.
-Its live contents and vendor compatibility have not been independently verified
-for this preview. No fixed upstream app count is promised here.
+The dynamic OpenConnector catalog is fetched from the configured sibling Worker,
+not limited to the 40 static directory rows. The pinned v1.9.4 source contains
+1,714 provider directories; the actual deployed `/api/providers` response is the
+source of truth for a deployment and can differ by release/build. Shiba pages that
+full response with search and readiness filters. OAuth-capable rows are connectable
+only when the sibling's per-provider setup metadata says `ready`; non-OAuth rows
+are `unsupported`, and failed metadata checks are `unverified`. These are setup
+states, not connected/live claims. No vendor action or live account has been
+verified by the fixture acceptance.
 
 Inventory sources: [integration directory](../packages/shared/src/integration-catalog.ts),
 [MCP presets](../packages/shared/src/curated-mcp-vendors.ts),
@@ -75,10 +80,15 @@ does not prove that the upstream runtime token permits an action.
 Direct `POST /api/integrations/provider/execute` returns 403 and cannot substitute
 for the registered employee approval path.
 
-OpenConnector's Shiba adapter currently addresses accounts by authenticated user;
-it has no separate workspace-owned connection identity or transfer lifecycle.
-Shared workspace service accounts therefore remain a product gap.
-Joining a team must not expose another member's personal connected accounts.
+Personal connections remain scoped to the authenticated user. A separate
+workspace-owned connection path is implemented in Integrations → Connectors:
+a current native workspace owner/admin explicitly starts consent using a
+server-derived workspace alias; Shiba keeps the receipt, grant, member, employee,
+consent-generation and approval checks in the workspace integrations store. It does
+not transfer a personal connection, and membership alone grants no account or
+employee access. See [workspace app account design and authority](workspace-integrations.md).
+This safely supports shared service accounts under explicit owner/admin authority;
+legal ownership at the vendor is not inferred.
 
 Sources: [adapter](../apps/backend/src/integrations/openconnector-provider.ts),
 [employee policy](../apps/backend/src/employee-tool-policy.ts) and
@@ -87,7 +97,7 @@ Sources: [adapter](../apps/backend/src/integrations/openconnector-provider.ts),
 ## Remote MCP servers
 
 The [MCP guide](../apps/web/src/content/docs/docs/mcp.md) separates inbound clients
-of Shiba's `/mcp` gateway from outgoing connections to vendor MCP servers. The six
+of Shiba's `/mcp` gateway from outgoing connections to vendor MCP servers. Six of the eight
 presets provide a curated OAuth path with operator-registered client IDs and
 encrypted credential storage, plus a bearer form where the vendor supports it. Client registration,
 consent, supported account tier and vendor endpoint compatibility remain live
@@ -99,6 +109,15 @@ Vendor prerequisites differ: [Figma currently requires an approved MCP client](h
 and [Sentry documents OAuth-only connections](https://mcp.sentry.dev/).
 Shiba's Figma client approval and live vendor consent have not been verified.
 The bearer form cannot make an OAuth-only vendor accept arbitrary API keys.
+
+The two added [GitHub](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md)
+and [Linear](https://linear.app/docs/mcp) presets pin vendor-documented read-only
+Streamable HTTP endpoints and use scoped bearer tokens. Their OAuth setup paths
+are not offered: GitHub requires a client-secret flow and Linear documents
+client registration that Shiba does not implement. Documentation was checked on
+November 7, 2026; no live authenticated account or schema verification is claimed.
+Tools remain disabled/unreviewed and default to an approval-required review
+recommendation. [Catalog expansion evidence](verification/mcp-catalog-expansion-20261107.md).
 
 After sign-in, discover tools, inspect their schema, review each effect, enable
 the selected capabilities and grant the intended principal or employee exact
@@ -115,7 +134,7 @@ Sources: [registry and invocation checks](../apps/backend/src/external-mcp.ts),
 
 Managed run skills and extension skills are separate surfaces:
 
-- **Run-attached skills:** the five general templates and six founder packs
+- **Run-attached skills:** the seventeen general templates and six founder packs
   create owner-scoped drafts. Review the exact instructions, mark reviewed, then
   activate that version. Approved tasks freeze at most five selected skill pins;
   changed or inactive versions cannot silently replace the approved instructions.
@@ -150,11 +169,13 @@ Record the account, exact action, success/error, cleanup and cross-user denial
 without recording credential values. This document does not claim those live
 vendor checks have passed.
 
+The [November 6 OpenConnector catalog fixture journey](verification/openconnector-catalog-fixture-20261106/README.md)
+covers catalog search/readiness, connect/reconnect/disconnect and responsive
+layout against intercepted synthetic OpenConnector responses. All evidence is
+explicitly fixture-only; no sibling Worker, vendor, account or credential was used.
 The [November 4 browser acceptance](verification/integrations-local-browser-20261104.md)
-records ten actual local Worker/dashboard journeys and twelve separate responsive
-component checks, including before/after mobile screenshots. The OpenConnector
-HTTP service was a synthetic fixture; remote MCP success and vendor actions were
-not exercised. Reports retain expected HTTP failures and SDK navigation warnings.
+records the prior local Worker/dashboard journeys and separate responsive component
+checks. Remote MCP success and vendor actions were not exercised. Reports retain expected HTTP failures and SDK navigation warnings.
 The [preview observation](verification/preview-auth-reexposure-20261104.json)
 separately records the deployed anonymous default identity after external operator
 changes; the branch's static-only authentication protection is not deployed there.
@@ -164,3 +185,41 @@ changes; the branch's static-only authentication protection is not deployed ther
 OpenConnector OAuth accounts use an opaque Shiba connection identifier derived from the owned record and completed OAuth authorization provenance. A fresh consent changes that identifier; old grants and approvals fail current-connection checks. Token refresh within the same consent retains it. Configured legacy/API-key records without that provenance remain visible for recovery but are unavailable for employee execution. A connection is not executable merely because it is stored.
 
 The adapter verifies the approved generation immediately before dispatch and supplies the server-derived raw connection pin to the upstream action request. Pinned upstream OpenConnector has no atomic expected-consent condition on action execution. A simultaneous out-of-band operator mutation of credentials in the same row is therefore outside this verified guarantee; this implementation does not claim atomic vendor-account substitution protection.
+
+## Overlay-inspired workflow expansion (November 7)
+
+Six original instruction templates add inbox triage, meeting preparation, document
+research, task planning, weekly summaries and social drafts to the existing skill
+library. They use the same draft, review and activation path; they do not add
+provider adapters, OAuth grants, scheduled jobs or automatic publishing.
+
+Overlay's [feature inventory](https://github.com/LayerNorm/overlay-web/blob/main/FEATURES.md)
+describes integrations, MCP servers and skills as separate capabilities and does
+not enumerate bundled skill names. These Shiba templates are independently written
+workflows, not copied Overlay skills or a claim of complete feature parity.
+Six additional role-focused templates cover marketing campaign briefs, sales
+account briefs, product specifications, design review notes, operations runbooks
+and QA test plans. They produce review-first drafts from supplied or explicitly
+granted sources, not new roles, automatic skill installation or external actions.
+The general library now contains seventeen templates; MCP presets total eight.
+See the [role-draft verification](verification/skill-role-drafts-20261107.md).
+
+API-key execution remains disabled. The parent source-mutation and regrant
+hardening is an isolated authority primitive; production writers, authenticated
+metadata ingestion and service-binding activation are not wired. Enrollment
+review acceptance does not grant execution consent. See the
+[remaining mutation migration gates](verification/operator-legacy-mutation-fences-20261107.md).
+
+## Overlay-named integration coverage
+
+All eleven apps named by Overlay's README have exact OpenConnector mappings:
+Gmail, Google Calendar, Google Sheets, Google Drive, Notion, Asana, Slack,
+GitHub, LinkedIn, X/Twitter and Outlook. Outlook Calendar, Instagram and YouTube
+are mapped too. Service IDs were checked against provider definitions at pinned
+revision `d89dc9f24f5a057bb500272d7dbf333837c77c68`.
+
+These are directory mappings into the existing dynamic provider flow, not new
+adapters or successful live calls. The directory now has 42 reference rows,
+30 mapped rows and 37 distinct service IDs. Native Gmail, Slack and GitHub
+bindings remain intact. Provider setup, consent and employee resource grants are
+still required; this does not establish parity with every Composio integration.

@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap");
+@import url("/fonts/fonts.css");
 @import "tailwindcss";
 
 @custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
@@ -109,13 +109,14 @@
 	/* Used only by the API reference (registry: api-layout); harmless elsewhere. */
 	--nb-code-rail-width: 34rem;
 
-	/* Typography — self-hosted via @fontsource-variable in BaseLayout.astro */
+	/* Shared Shiba typography: Geist, Geist Mono, Geist. */
 	--nb-font-sans:
-		"Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
+		"Geist", system-ui, -apple-system, "Segoe UI", Roboto,
 		sans-serif;
 	--nb-font-mono:
-		"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Cascadia Code",
+		"Geist Mono", ui-monospace, "Cascadia Code",
 		"Source Code Pro", Menlo, Consolas, monospace;
+	--nb-font-display: "Geist", system-ui, sans-serif;
 	/* Type scale: one ratio, √1.5, stepping up from the 16px body. Two steps
 	   make 1.5, so body → h2 → h1 is the same interval twice and lands on
 	   whole pixels: 16 → 24 → 36, with h3 at the half step (19.6 → 20).
@@ -256,6 +257,7 @@
 
 	--font-sans: var(--nb-font-sans);
 	--font-mono: var(--nb-font-mono);
+	--font-display: var(--nb-font-display);
 
 	--radius-lg: var(--nb-radius);
 	--radius-sm: var(--nb-radius-sm);

@@ -1,6 +1,6 @@
 /**
  * AppNavRail — workspace shell navigation:
- * On desktop (variant "rail", every view): ~52px icon rail (Work, Agents, Chats, More; bottom controls and account menu).
+ * On desktop (variant "rail", every view): labeled primary rail (Work, Agents, Chats, Insights, More; bottom controls and account menu).
  * On mobile (variant === "sheet"): full navigation drawer with the thread list.
  */
 import { useState, useMemo, useRef, useEffect, useId, type JSX } from "react";
@@ -243,9 +243,9 @@ const CURATED_WORKFLOWS = [
 const RAIL_MORE_ITEMS: { id: AppNavView; label: string; icon: LucideIcon }[] = (
   [
     { id: "integrations", label: "Extensions", icon: Blocks },
-    { id: "inbox", icon: Inbox },
-    { id: "memory", icon: Brain },
-    { id: "automations", icon: Zap },
+    { id: "inbox", label: "Mailbox", icon: Inbox },
+    { id: "memory", label: "Memory", icon: Brain },
+    { id: "automations", label: "Automations", icon: Zap },
     { id: "dashboard", label: "Insights", icon: LayoutDashboard },
   ] as { id: AppNavView; label?: string; icon: LucideIcon }[]
 ).map(({ id, label, icon }) => ({
@@ -257,11 +257,12 @@ const RAIL_MORE_ITEMS: { id: AppNavView; label: string; icon: LucideIcon }[] = (
 const AGENTS_VIEWS: AppNavView[] = ["custom-agents", "employee-tools", "swarm", "tasks"];
 const CHATS_VIEWS: AppNavView[] = ["threads", "collaboration"];
 
-export function railItemForView(view: AppNavView): "work" | "agents" | "chats" | "more" | "settings" {
+export function railItemForView(view: AppNavView): "work" | "agents" | "chats" | "insights" | "more" | "settings" {
   if (view === "work") return "work";
   if (view === "settings") return "settings";
   if (AGENTS_VIEWS.includes(view)) return "agents";
   if (CHATS_VIEWS.includes(view)) return "chats";
+  if (["dashboard", "analytics", "activity", "approvals", "diff"].includes(view)) return "insights";
   return "more";
 }
 
@@ -399,15 +400,12 @@ export function AppNavRail({
   };
 
   const moreViews: AppNavView[] = [
-    "dashboard",
     "activity",
     "analytics",
     "approvals",
     "swarm",
     "collaboration",
     "team",
-    "inbox",
-    "memory",
     "providers",
     "spaces",
     "employee-tools",
@@ -417,10 +415,10 @@ export function AppNavRail({
 
   const isMoreViewActive = moreViews.includes(activeView);
 
-  // 1. Desktop ~52px icon rail, shown on every view.
+  // Persistent labeled navigation keeps primary destinations discoverable on every view.
   if (variant === "rail") {
     const activeRailItem = railItemForView(activeView);
-    const railBtnBase = "size-[38px] rounded-lg flex items-center justify-center transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] relative";
+    const railBtnBase = "shiba-app-rail-button rounded-lg flex items-center justify-center transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] relative";
     const railBtnActive = "bg-[#e4e4e7] text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100 font-medium shadow-none";
     const railBtnInactive = "text-[#71717a] dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-black/5 dark:hover:bg-white/5";
 
@@ -428,7 +426,7 @@ export function AppNavRail({
       <aside
         ref={navigationRef}
         id={navigationId}
-        className="hidden lg:flex w-[52px] shrink-0 flex-col items-center justify-between py-2 select-none h-full bg-transparent z-40"
+        className="shiba-app-rail hidden lg:flex w-[72px] shrink-0 flex-col items-center justify-between py-3 select-none h-full bg-transparent z-40"
         aria-label="Primary Left Rail"
         onFocusCapture={() => { restoreToggleFocus.current = true; }}
         onBlurCapture={(event) => {
@@ -438,8 +436,8 @@ export function AppNavRail({
         }}
       >
         <div className="w-full h-full flex flex-col items-center justify-between">
-          {/* Top: Round logo mark + Primary items (Work, Agents, Chat, More) */}
-          <div className="flex flex-col items-center gap-3 w-full">
+          {/* Brand and the primary work destinations stay in one stable position. */}
+          <div className="flex flex-col items-center gap-4 w-full">
             <Tooltip content="Shiba Home" side="right">
               <a
                 href="/"
@@ -455,7 +453,7 @@ export function AppNavRail({
             </Tooltip>
 
             <nav aria-label="App Icon Rail" className="w-full">
-              <ul className="flex flex-col items-center gap-1.5 w-full list-none p-0 m-0">
+              <ul className="shiba-app-rail-nav flex flex-col items-center gap-1 w-full list-none p-0 m-0">
                 {/* Work */}
                 <li>
                   <Tooltip content="Work" side="right">
@@ -467,6 +465,7 @@ export function AppNavRail({
                       className={`${railBtnBase} ${activeRailItem === "work" ? railBtnActive : railBtnInactive}`}
                     >
                       <ListChecks className="size-5" strokeWidth={1.8} aria-hidden="true" />
+                      <span className="shiba-app-rail-label">Work</span>
                     </button>
                   </Tooltip>
                 </li>
@@ -482,6 +481,7 @@ export function AppNavRail({
                       className={`${railBtnBase} ${activeRailItem === "agents" ? railBtnActive : railBtnInactive}`}
                     >
                       <Bot className="size-5" strokeWidth={1.8} aria-hidden="true" />
+                      <span className="shiba-app-rail-label">Agents</span>
                     </button>
                   </Tooltip>
                 </li>
@@ -497,6 +497,23 @@ export function AppNavRail({
                       className={`${railBtnBase} ${activeRailItem === "chats" ? railBtnActive : railBtnInactive}`}
                     >
                       <MessagesSquare className="size-5" strokeWidth={1.8} aria-hidden="true" />
+                      <span className="shiba-app-rail-label">Chats</span>
+                    </button>
+                  </Tooltip>
+                </li>
+
+                <li>
+                  <Tooltip content={pendingApprovalCount > 0 ? `Insights · ${pendingApprovalCount} pending approvals` : "Insights"} side="right">
+                    <button
+                      type="button"
+                      onClick={() => onNavigate("dashboard")}
+                      aria-label="Insights"
+                      aria-current={activeRailItem === "insights" ? "page" : undefined}
+                      className={`${railBtnBase} ${activeRailItem === "insights" ? railBtnActive : railBtnInactive}`}
+                    >
+                      <LayoutDashboard className="size-5" strokeWidth={1.8} aria-hidden="true" />
+                      <span className="shiba-app-rail-label">Insights</span>
+                      {pendingApprovalCount > 0 ? <span role="status" className="shiba-app-rail-badge" aria-label={`${pendingApprovalCount} pending approvals`}>{pendingApprovalCount > 99 ? "99+" : pendingApprovalCount}</span> : null}
                     </button>
                   </Tooltip>
                 </li>
@@ -515,12 +532,7 @@ export function AppNavRail({
                         className={`${railBtnBase} ${activeRailItem === "more" ? railBtnActive : railBtnInactive}`}
                       >
                         <MoreHorizontal className="size-5" strokeWidth={1.8} aria-hidden="true" />
-                        {pendingApprovalCount > 0 ? (
-                          <span
-                            className="absolute top-1.5 right-1.5 size-2 rounded-full bg-[var(--warning-fg)] ring-2 ring-[var(--bg,#fafafa)]"
-                            aria-hidden="true"
-                          />
-                        ) : null}
+                        <span className="shiba-app-rail-label">More</span>
                       </button>
                     </Tooltip>
 
@@ -1070,26 +1082,29 @@ export function AppNavRail({
                 <span className="flex-1 text-left truncate leading-none">Pull requests</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigate("automations");
-                  if (variant === "sheet") onClose?.();
-                }}
-                aria-current={activeView === "automations" ? "page" : undefined}
-                className={
-                  "w-full flex items-center gap-2.5 rounded-lg px-2.5 min-h-[44px] h-11 text-[14px] font-normal transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 " +
-                  (activeView === "automations"
-                    ? "text-[var(--fg)] bg-[var(--secondary)] font-medium"
-                    : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--section)]")
-                }
-              >
-                <Zap className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
-                <span className="flex-1 text-left truncate leading-none">Automations</span>
-              </button>
+              <p className="px-2.5 pb-1 pt-3 text-[11px] font-medium text-[var(--muted-foreground-3)]">Explore</p>
+              {RAIL_MORE_ITEMS.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    onNavigate(id);
+                    if (variant === "sheet") onClose?.();
+                  }}
+                  aria-current={activeView === id ? "page" : undefined}
+                  className={`flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
+                    activeView === id
+                      ? "bg-[var(--secondary)] text-[var(--fg)] font-medium"
+                      : "text-[var(--muted-foreground-2)] hover:bg-[var(--section)] hover:text-[var(--fg)]"
+                  }`}
+                >
+                  <Icon aria-hidden="true" className="size-4 shrink-0 text-[var(--icon-muted)]" />
+                  <span>{label}</span>
+                </button>
+              ))}
 
               <p className="px-2.5 pb-1 pt-3 text-[11px] font-medium text-[var(--muted-foreground-3)]">Resources</p>
-              {(["integrations", "skills", "agents"] as const).map((id) => {
+              {(["skills", "agents"] as const).map((id) => {
                 const item = APP_NAV_ITEMS.find((entry) => entry.id === id);
                 if (!item) return null;
                 const Icon = ICONS[id];

@@ -6,7 +6,7 @@ import { InsightsPanel } from "./InsightsPanel";
 afterEach(cleanup);
 
 describe("InsightsPanel", () => {
-  it("renders all five navigation items and switches scopes", () => {
+  it("renders its navigation without a duplicate scope switch", () => {
     const onScopeChange = vi.fn();
     const onSelect = vi.fn();
 
@@ -22,10 +22,8 @@ describe("InsightsPanel", () => {
 
     expect(screen.getByRole("heading", { name: "Insights" })).toBeTruthy();
 
-    // Check scope switch
-    const workspaceTab = screen.getByRole("button", { name: "Workspace" });
-    fireEvent.click(workspaceTab);
-    expect(onScopeChange).toHaveBeenCalledWith("workspace");
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
+    expect(onScopeChange).not.toHaveBeenCalled();
 
     // Check nav items
     expect(screen.getByRole("button", { name: "Dashboard" })).toBeTruthy();

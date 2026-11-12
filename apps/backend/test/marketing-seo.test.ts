@@ -52,7 +52,7 @@ describe.skipIf(!built)("marketing SEO (built dist)", () => {
 		const breadcrumb = schemas.find((schema) => schema?.["@type"] === "BreadcrumbList");
 		expect(breadcrumb?.itemListElement).toEqual([
 			{ "@type": "ListItem", position: 1, name: "Home", item: "https://tryshiba.dev/" },
-			{ "@type": "ListItem", position: 2, name: "Welcome", item: "https://tryshiba.dev/docs/overview/" },
+			{ "@type": "ListItem", position: 2, name: "AI employees at a glance", item: "https://tryshiba.dev/docs/overview/" },
 		]);
 		expect(overview).toContain("og:image");
 		expect(overview).toContain("twitter:image");

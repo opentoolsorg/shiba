@@ -159,12 +159,30 @@ list. Upstream does not send a Shiba popup completion message or accept a Shiba
 callback URL in this flow. Named connections are isolated by Shiba's adapter;
 trusted operators with the upstream administrator token can access all names.
 
-The catalog checks the upstream runtime provider-setup metadata before enabling
-OAuth sign-in. Only `ready` entries are connectable; `needs_configuration`,
-`unsupported` and `unverified` identify setup that still needs attention. A
-provider's declaration that it supports OAuth does not mean its OAuth client is
-configured. Saved connections requiring reauthorization are omitted from the
-usable connection list.
+The catalog pages every service returned by the sibling's `/api/providers` endpoint,
+with search and readiness filters. The pinned v1.9.4 source contains 1,714 provider
+directories; deployments can return a different count as releases/builds change.
+OAuth-capable services are checked through per-service setup metadata before enabling
+sign-in: only `ready` entries are connectable; `needs_configuration`, `unsupported`
+and `unverified` remain unavailable. Non-OAuth services are `unsupported` for this
+OAuth connection flow. Listings, OAuth declarations and configured OAuth clients do
+not establish an account connection or a successful live action.
+
+Operator-managed API-key and custom-credential accounts are not execution-ready in
+Shiba. The pinned sibling does not expose or enforce their credential revision at
+the manual action boundary, so a local enrollment ID alone would survive key
+rotation. See the [bounded operator-enrollment design](openconnector-operator-enrollment.md)
+for the required provenance, grants, approval and revocation contract. This lane
+is not enabled; configuring an API key in the sibling does not enable employee
+actions. OAuth reconnect is not offered for these account types.
+
+A saved `reauth_required`/unavailable account can use **Reconnect**. The server
+rechecks setup and replaces only that unusable owned row before creating fresh OAuth
+consent; active rows must be explicitly disconnected first. The old account ID
+cannot confirm the new consent. Workspace-owned connections are separate: current
+native workspace owners/admins initiate explicit workspace audience consent; exact
+member/employee grants and exact-action approval remain required. Personal accounts
+are never transferred. See [workspace shared account controls](workspace-integrations.md).
 
 ## Verify and upgrade
 

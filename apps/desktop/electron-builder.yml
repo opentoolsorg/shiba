@@ -16,6 +16,7 @@ asarUnpack:
   - dist/setup.js
   - dist/diff.html
   - dist/diff.js
+  - dist/fonts/**
 protocols:
   - name: Shiba
     schemes:
