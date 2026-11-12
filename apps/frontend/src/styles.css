@@ -1088,6 +1088,28 @@ select:focus-visible,
   .shiba-prop-row { grid-template-columns: 96px minmax(0, 1fr); }
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .shiba-agent-mascot[data-live="true"] .shiba-mascot-gaze {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: shiba-mascot-gaze 5.6s ease-in-out infinite;
+  }
+  .shiba-agent-mascot[data-live="true"] .shiba-mascot-blink {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: shiba-mascot-blink 4.6s linear infinite;
+  }
+}
+@keyframes shiba-mascot-gaze {
+  0%, 100% { transform: translate(0, 0); }
+  35% { transform: translate(0.8px, 0.15px); }
+  70% { transform: translate(-0.7px, 0.2px); }
+}
+@keyframes shiba-mascot-blink {
+  0%, 46%, 52%, 100% { transform: scaleY(1); }
+  49% { transform: scaleY(0.08); }
+}
+
 /* One off-switch for every shiba-* animation and transition. */
 @media (prefers-reduced-motion: reduce) {
   [class*="shiba-"],

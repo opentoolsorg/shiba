@@ -48,6 +48,7 @@
 
 # Built-in email+password dashboard login (>=32 chars). Unset = lane dark.
 # BETTER_AUTH_SECRET=
+# Optional social-login OAuth client secrets; configure matching client IDs separately.
 # BETTER_AUTH_GOOGLE_CLIENT_SECRET=
 # BETTER_AUTH_SLACK_CLIENT_SECRET=
 # Public hosts refuse the first account until one of these is set.

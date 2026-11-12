@@ -1,4 +1,5 @@
 import { createRouter } from "@tanstack/react-router";
+import { SessionPending } from "./components/SessionPending";
 import { routeTree } from "./routeTree.gen";
 
 // TanStack Start's required router entry (src/router.tsx → getRouter).
@@ -7,13 +8,7 @@ export function getRouter() {
   return createRouter({
     routeTree,
     // The shell SSRs only the root, so every path must first paint this exact markup or React logs #418.
-    defaultPendingComponent: () => (
-      <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center">
-        <p role="status" className="font-mono text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
-          Checking your session…
-        </p>
-      </div>
-    ),
+    defaultPendingComponent: SessionPending,
     trailingSlash: "always",
   });
 }

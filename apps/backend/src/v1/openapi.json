@@ -284,6 +284,18 @@
             "type": "string",
             "enum": ["hero", "climbing", "riding", "sleeping", "sunglasses"]
           },
+          "look": {
+            "type": "object",
+            "description": "Visor mascot parts. When present, this wins over mascotPreset.",
+            "additionalProperties": false,
+            "required": ["shape", "color", "eyes", "acc"],
+            "properties": {
+              "shape": { "type": "string", "enum": ["round", "bean", "pointed", "cloud", "hex", "squircle", "pebble", "egg", "capsule"] },
+              "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+              "eyes": { "type": "string", "enum": ["pill", "big", "happy", "wink", "surprised", "squint", "sleepy", "heart", "star", "code"] },
+              "acc": { "type": "string", "enum": ["none", "pen", "wrench", "coffee", "loupe", "megaphone", "clipboard", "compass", "headset", "chart"] }
+            }
+          },
           "instructions": {
             "type": "string",
             "minLength": 1,

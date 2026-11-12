@@ -102,7 +102,7 @@ describe("invitation-only verified native enrollment", () => {
     expect(await disabled?.json()).toMatchObject({ enabled: false });
     const unavailableEnv = { ...f.env, SEND_EMAIL: undefined } as Env;
     const unavailable = await native(request("/api/auth/invitation-policy"), unavailableEnv);
-    expect(await unavailable?.json()).toMatchObject({ enabled: false, reason: expect.stringContaining("SEND_EMAIL") });
+    expect(await unavailable?.json()).toMatchObject({ enabled: false, reason: "Invitation enrollment is currently unavailable. Contact your workspace owner." });
     expect(f.send).not.toHaveBeenCalled();
     await expect(sendNativeEnrollmentVerification(f.env, { email: member, url: "https://evil.example/api/auth/verify-email?token=fixture" })).rejects.toThrow("destination");
     expect(f.send).not.toHaveBeenCalled();

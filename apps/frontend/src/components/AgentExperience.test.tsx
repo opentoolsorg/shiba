@@ -54,10 +54,11 @@ describe("agent conversation", () => {
     render(<AgentPageHeader name="Shiba" detailsOpen={false} onToggleDetails={vi.fn()} />);
     expect(screen.queryByRole("button", { name: "Start shared conversation" })).toBeNull();
   });
-  it("uses the real Shiba brand for the built-in profile, not a custom employee label", () => {
+  it("uses the built-in SVG Shiba for the built-in profile, not a custom employee label", () => {
     const { container } = render(<AgentDetailsPanel onClose={vi.fn()} onEdit={vi.fn()} />);
     expect(screen.getByText("Shiba · Runs on workspace default")).toBeTruthy();
-    expect(container.querySelector('img[src="/assets/mascot/pet-logo.png"]')).toBeTruthy();
+    expect(container.querySelector("svg.shiba-agent-mascot")).toBeTruthy();
+    expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector('[data-employee-role="custom"]')).toBeNull();
   });
 

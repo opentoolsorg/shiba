@@ -118,7 +118,7 @@ describe("TaskDetailPanel", () => {
     );
     expect(parents).toEqual(["Not inside another task", "Launch"]);
     expect((screen.getByLabelText("Owner") as HTMLSelectElement).value).toBe("coding-coworker");
-    expect(document.querySelector('img[src="/assets/mascot/shiba-sticker-hero.webp"]')).not.toBeNull();
+    expect(document.querySelector('.shiba-agent-mascot[data-shape="pointed"][data-eyes="happy"]')).not.toBeNull();
   });
 
   it("debounces title edits into a single patch and flushes on blur", () => {

@@ -79,6 +79,8 @@ async function probeModelKey(
 export async function handleOrgModelKeys(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/org/model-keys")) return null;
+  const auth = await resolveOrgForApiRequest(request, env);
+  if (auth instanceof Response) return auth;
   if (!env.AGENT_AUDIT) {
     return Response.json(
       { ok: false, error: "AGENT_AUDIT D1 binding is not configured." },
@@ -86,8 +88,6 @@ export async function handleOrgModelKeys(request: Request, env: Env): Promise<Re
     );
   }
 
-  const auth = await resolveOrgForApiRequest(request, env);
-  if (auth instanceof Response) return auth;
   if (auth.principal) {
     if (request.method === "GET" && !requireV1Read(auth.principal)) return v1Forbidden();
     if (request.method !== "GET" && !requireV1Write(auth.principal)) return v1Forbidden();
