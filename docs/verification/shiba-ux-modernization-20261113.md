@@ -207,7 +207,7 @@ so the next draft check starts in its declared mode.
 The authenticated Marketing fixture starts at `/threads/`, the existing entry
 that opens account setup, rather than expecting its Skip setup button on Work.
 The native onboarding acceptance test uses the same Threads entry when starting
-or resuming account setup and the shared five-area navigation helper. Its
+or resuming account setup and the current five-area navigation labels. Its
 production Desktop code is unchanged; native Electron results are recorded by CI.
 Generated follow-up evidence records each gate's exact SHA and outcome; the
 earlier 995d2e7d evidence bundle is retained separately in Library as
