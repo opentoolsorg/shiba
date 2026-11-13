@@ -176,6 +176,10 @@ async function queue(task){
   assert.equal(approval.customAgentVersion,1);assert.equal(approval.customAgentId,profile.id);assert.equal(approval.runtime,'local');assert.equal(approval.targetMachineId,machine.machineId);
   assert.equal(approval.threadKey,session.agentName,'Worker derives queue owner from the verified named session');
   if(marketing)assert.deepEqual(approval.expectedDeliverables,marketingFiles.map(file=>file.path),'Approval freezes the role requirements');
+  // The response and read model can settle before React opens the receipt.
+  // Wait for that real handoff before another helper tries to close/navigate it.
+  await page.waitForURL(url=>url.pathname==='/work/'&&url.searchParams.get('task')===approval.approvalId&&url.searchParams.get('taskKind')==='approval');
+  await page.getByRole('dialog',{name:/^Work inspector:/}).filter({hasText:task}).waitFor();
   passed('Send task UI queues a frozen local bot approval');
   return approval;
 }
