@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { WorkView } from "./WorkView";
-import type { RetainedRun, StoredApproval } from "../types";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TeamWorkItem } from "../team-work-items";
+import type { RetainedRun, StoredApproval } from "../types";
+import { WorkView } from "./WorkView";
 
 afterEach(() => {
   cleanup();
@@ -77,8 +78,8 @@ describe("WorkView", () => {
       { ...base, runId: "archived", task: "Archived", archivedAt: 1 },
       ...(["error", "aborted", "cancelled", "unknown"] as const).map((status) => ({ ...base, runId: status, task: `Unsuccessful ${status}`, status })),
     ]} sessions={[{ id: "archived", title: "Archived session", status: "completed", repoName: "infra", updatedAt: 1 }]} />);
-    expect(within(screen.getByRole("region", { name: "PR open - 1" })).getByText("Published")).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Done - 1" })).getByText("Requested only")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "PR linked - 1" })).getByText("Published")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Completed - 1" })).getByText("Requested only")).toBeTruthy();
     const attention = screen.getByRole("region", { name: "Needs attention - 4" });
     expect(within(attention).getAllByRole("button")).toHaveLength(4);
     expect(screen.queryByText("Archived")).toBeNull();
@@ -91,8 +92,13 @@ describe("WorkView", () => {
     render(<WorkView pendingApprovals={[{ approvalId: "chat", messageId: "msg", toolCallId: "tool", tool: "shell", input: {} }]} onSelectTask={onSelectTask} />);
     for (const mode of ["List", "Board", "Timeline"]) {
       fireEvent.click(screen.getByRole("button", { name: mode }));
-      fireEvent.click(screen.getByRole("button", { name: /Approve tool: shell/ }));
+      fireEvent.click(screen.getByRole("button", { name: /^Approve tool: shell/ }));
+      expect(screen.getByRole("dialog", { name: /Work inspector/ })).toBeTruthy();
+      expect(onSelectTask).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Open approval queue" }));
       expect(onSelectTask).toHaveBeenLastCalledWith("chat", "approval");
+      fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+      onSelectTask.mockClear();
     }
     expect(screen.queryByText("repository")).toBeNull();
   });
@@ -103,8 +109,8 @@ describe("WorkView", () => {
     expect(screen.getByText(/3 open/)).toBeTruthy();
     const running = screen.getByRole("region", { name: "Running - 1" });
     expect(running.querySelector("summary")?.textContent).toBe("Running1 item");
-    const done = screen.getByRole("region", { name: "Done - 1" });
-    expect(done.querySelector("summary")?.textContent).toBe("Done1 item");
+    const done = screen.getByRole("region", { name: "Completed - 1" });
+    expect(done.querySelector("summary")?.textContent).toBe("Completed1 item");
     const attention = screen.getByRole("region", { name: "Needs attention - 0" });
     expect(attention.querySelector("summary")?.textContent).toBe("Needs attention0 items");
   });
@@ -205,6 +211,9 @@ describe("WorkView", () => {
 
     const reviewBtn = screen.getByRole("button", { name: "Review" });
     fireEvent.click(reviewBtn);
+    expect(onReviewApproval).not.toHaveBeenCalled();
+    expect(screen.getByRole("tab", { name: "Approval" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Open approval review" }));
     expect(onReviewApproval).toHaveBeenCalledWith("app-1");
   });
 
@@ -232,18 +241,22 @@ describe("WorkView", () => {
     render(<WorkView storedApprovals={mockApprovals} onReviewApproval={onReviewApproval} />);
     fireEvent.click(screen.getByRole("button", { name: "Board" }));
     fireEvent.click(screen.getByRole("button", { name: /^Review/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Open approval review" }));
     expect(onReviewApproval).toHaveBeenLastCalledWith("app-1");
+    fireEvent.click(screen.getByRole("button", { name: "Close task" }));
     fireEvent.click(screen.getByRole("button", { name: "Timeline" }));
     fireEvent.click(screen.getByRole("button", { name: /^Review/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Open approval review" }));
     expect(onReviewApproval).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps failed runs out of Done and PR-open runs in review on the board", () => {
+  it("keeps failed runs out of completed and distinguishes PR-linked runs on the board", () => {
     const failed: RetainedRun = { ...mockRuns[2]!, runId: "run-failed", task: "Broken migration", status: "error" };
     render(<WorkView runs={[...mockRuns, failed]} />);
     fireEvent.click(screen.getByRole("button", { name: "Board" }));
     expect(screen.getByTestId("board-column-done").textContent).not.toContain("Broken migration");
-    expect(screen.getByTestId("board-column-in_review").textContent).toContain("Fix flaky checkout test");
+    expect(screen.getByTestId("board-column-pr_open").textContent).toContain("Fix flaky checkout test");
+    expect(screen.getByTestId("board-column-attention").textContent).toContain("Broken migration");
   });
 
   it("keeps cancelled and PR-open labels distinct in the Timeline", () => {
@@ -252,17 +265,17 @@ describe("WorkView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Timeline" }));
     const timeline = screen.getByRole("region", { name: "Timeline view" });
     expect(within(timeline).getByText("Cancelled")).toBeTruthy();
-    expect(within(timeline).getByText("PR open")).toBeTruthy();
+    expect(within(timeline).getByText("PR linked")).toBeTruthy();
     expect(within(timeline).queryByText("Error")).toBeNull();
   });
 
-  it("groups needs-provider chats with waiting work and offers no approval review for them", () => {
+  it("groups needs-provider chats with attention and offers no approval review for them", () => {
     const onReviewApproval = vi.fn();
     const sessions = [{ id: "s-np", title: "Connect a provider", repoName: "", status: "needs-provider", updatedAt: 5 }];
     render(<WorkView sessions={sessions} onReviewApproval={onReviewApproval} />);
-    const waiting = screen.getByRole("region", { name: /^Needs approval - 1$/ });
+    const waiting = screen.getByRole("region", { name: /^Needs attention - 1$/ });
     expect(waiting.textContent).toContain("Connect a provider");
-    expect(screen.getByRole("region", { name: /^Done - 0$/ }).textContent).not.toContain("Connect a provider");
+    expect(screen.getByRole("region", { name: /^Completed - 0$/ }).textContent).not.toContain("Connect a provider");
     expect(screen.queryByRole("button", { name: /^Review/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Board" }));
     expect(screen.queryByRole("button", { name: /^Review/ })).toBeNull();

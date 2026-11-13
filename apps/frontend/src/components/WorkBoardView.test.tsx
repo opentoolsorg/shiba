@@ -259,12 +259,12 @@ describe("boardColumn", () => {
 
 describe("deriveKanbanColumn", () => {
   it("keeps the run-oriented grouping", () => {
-    expect(deriveKanbanColumn("pending")).toBe("todo");
+    expect(deriveKanbanColumn("pending")).toBe("queued");
     expect(deriveKanbanColumn("running")).toBe("in_progress");
     expect(deriveKanbanColumn("waiting-approval")).toBe("needs_approval");
     expect(deriveKanbanColumn("pr-open")).toBe("pr_open");
     expect(deriveKanbanColumn("completed")).toBe("done");
-    for (const status of ["error", "aborted", "cancelled", "unknown", "rejected", "expired"]) {
+    for (const status of ["error", "failed", "blocked", "needs-provider", "aborted", "cancelled", "unknown", "rejected", "expired"]) {
       expect(deriveKanbanColumn(status)).toBe("attention");
     }
   });
