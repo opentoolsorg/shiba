@@ -77,8 +77,7 @@ try {
   await page.getByLabel(/^Project:/).click();
   const search = page.getByLabel("Search repositories");
   if (await search.count()) await search.fill("cloudflare/ai-chat");
-  const urlBox = page.locator("input[type=url]");
-  await urlBox.first().fill("https://github.com/cloudflare/ai-chat");
+  await page.getByRole("textbox", { name: "Repository", exact: true }).fill("https://github.com/cloudflare/ai-chat");
   await page.getByTestId("task-composer").getByRole("button", { name: "Use", exact: true }).click();
   const wantsPublishReview =
     feature === "pr-publish" || feature === "review-findings" || feature === "review-lifecycle";
