@@ -237,6 +237,12 @@ try {
     await page.getByRole("textbox", { name: "Repository", exact: true }).fill("https://github.com/fixture/example");
     await page.getByTestId("task-composer").getByRole("button", { name: "Use", exact: true }).click();
     await page.getByRole("button", { name: "Project: fixture/example", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Thread configuration", exact: true }).click();
+    const configuration = page.getByRole("menu", { name: "Thread configuration", exact: true });
+    const defaultAgent = configuration.getByRole("menuitemradio", { checked: true }).filter({ hasText: "Shiba" });
+    await defaultAgent.waitFor();
+    await defaultAgent.press("Escape");
+    await page.getByRole("tab", { name: "Chat", exact: true }).click();
   });
   await check("run and prompt deep links remain on Threads", async () => {
     await open("/app/?run=ux-run-0");

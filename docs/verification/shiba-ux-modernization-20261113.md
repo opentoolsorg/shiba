@@ -167,7 +167,22 @@ SHIBA_PLAYWRIGHT_MODULE=/absolute/path/to/playwright \
   SHIBA_UX_ORIGIN=http://127.0.0.1:5174 \
   SHIBA_UX_OUTPUT=.verify/ux-local-standin \
   node scripts/verify-ux-local-backend.mjs --standin-unconfigured
+SHIBA_PLAYWRIGHT_MODULE=/absolute/path/to/playwright \
+  SHIBA_UX_ORIGIN=http://127.0.0.1:5174 \
+  SHIBA_UX_OUTPUT=.verify/ux-local-owned \
+  node scripts/verify-ux-local-backend.mjs --owned-standin
 ```
+
+The normal owned-thread path was also exercised through the UI: create a named
+thread, review its Chat draft as Work, queue, reload its frozen approval, click
+Approve and automatically follow the server-linked run. Existing owner
+authorization accepts this separate request without an allowlist change; the
+earlier shared request remains denied. The actual run terminates with
+`Child dispatch signing is not configured (INTERNAL_SIGNING_KEY or MODEL_CREDENTIAL_KEY).`
+Reloaded Diff/Output show the real error and README.md as not captured. No
+signing key was generated and no synthetic success was substituted. Full
+completed-run content remains fixture evidence until an already authorized,
+configured runtime is available.
 
 Container packaging remains blocked by the managed proxy CA missing inside the
 existing Docker build. A one-off probe in the repository's pinned official
@@ -186,6 +201,9 @@ assumption for the Repository text field; the driver now uses its accessible
 label, and the fixture browser checks repository selection. A full-suite run
 also exceeded the new receipt test's default one-second query wait; that
 asynchronous query now allows five seconds. Failed attempts remain recorded.
+The thread-profile driver also follows the saved default profile's current
+Shiba label. Browser helper checks restore Chat mode after repository selection
+so the next draft check starts in its declared mode.
 Generated follow-up evidence records each gate's exact SHA and outcome; the
 earlier 995d2e7d evidence bundle is retained separately in Library as
 `libfile_fde3_f-da49bc95a8108191874f41e2e303386a_4a33f81638ec8191bd57410f2e202f67`.
