@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SUPPORTED_FEATURES, runIdForApproval, pickVerifyApproval, pollCodingRunComplete, pollReviewRoundTerminal, approveMockPublication } from "./journey-lib.mjs";
-import { selectRepositoryTask } from "./composer-target.mjs";
+import { openAppView, selectRepositoryTask } from "./composer-target.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const verifyDir = process.env.VERIFY_DIR || join(root, ".verify");
@@ -67,10 +67,10 @@ try {
   page.setDefaultNavigationTimeout(navigationTimeout);
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: navigationTimeout });
   const skip = page.getByRole("button", { name: "Skip setup" });
-  const work = page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true });
+  const work = page.getByRole("navigation", { name: "Workspace areas", exact: true }).getByRole("button", { name: "Chat", exact: true });
   await skip.or(work).first().waitFor({ timeout: 30000 });
   if (await skip.isVisible()) await skip.click();
-  await work.click();
+  await openAppView(page, "Chats");
   await selectRepositoryTask(page);
   await shot("01-app");
   await page.getByLabel("Task description").fill("verify-shiba: describe the README in one sentence");

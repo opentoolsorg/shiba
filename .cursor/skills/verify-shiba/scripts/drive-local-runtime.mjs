@@ -153,7 +153,7 @@ async function assertThreadProfile(){
   assert.equal(await selected.getAttribute('aria-checked'),'true','The named thread must retain its selected bot.');
   await selected.press('Escape');await configuration.waitFor({state:'hidden'});
 }
-await page.getByRole('button',{name:/^(?:Chats|(?:Chat & )?Threads)$/,exact:true}).click();
+await openAppView(page, "Chats");
 await assertThreadProfile();
 passed('Launch bot opens a real bound conversation');
 async function reopenThread(){

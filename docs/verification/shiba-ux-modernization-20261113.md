@@ -179,6 +179,9 @@ adding per-build CA mounts there would exceed this frontend-only scope.
 The preview workflow was inspected. It provisions a new stack with live provider
 secrets, so it has not been triggered under the current credential restrictions.
 The existing `build:validate` workflow performs CI and fixture verification.
+Its first follow-up browser job exposed one more retired Chats rail selector
+in `drive.mjs`; that driver and the local-runtime driver now use the same
+five-area navigation helper. The failed run remains recorded separately.
 Generated follow-up evidence records each gate's exact SHA and outcome; the
 earlier 995d2e7d evidence bundle is retained separately in Library as
 `libfile_fde3_f-da49bc95a8108191874f41e2e303386a_4a33f81638ec8191bd57410f2e202f67`.
