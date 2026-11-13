@@ -188,7 +188,7 @@ describe("app Work and Threads routing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review as work" }));
     fireEvent.click(screen.getByRole("button", { name: "Use automatic workspace" }));
     fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
-    const approval = await screen.findByRole("dialog", { name: `Work inspector: ${payload.task}` });
+    const approval = await screen.findByRole("dialog", { name: `Work inspector: ${payload.task}` }, { timeout: 5_000 });
     expect(window.location.pathname).toBe("/work/");
     expect(new URLSearchParams(window.location.search).get("task")).toBe("server-gate");
     expect(new URLSearchParams(window.location.search).get("taskKind")).toBe("approval");

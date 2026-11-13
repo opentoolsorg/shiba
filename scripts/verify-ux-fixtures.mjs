@@ -8,7 +8,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import path from "node:path";
-import { openAppView } from "../.cursor/skills/verify-shiba/scripts/composer-target.mjs";
+import { openAppView, selectRepositoryTask } from "../.cursor/skills/verify-shiba/scripts/composer-target.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.SHIBA_PLAYWRIGHT_MODULE || "../.cursor/skills/verify-shiba/node_modules/playwright");
@@ -231,6 +231,12 @@ try {
       await openAppView(page, view);
       await page.waitForURL((url) => url.pathname === pathname);
     }
+    await openAppView(page, "Chats");
+    await selectRepositoryTask(page);
+    await page.getByRole("button", { name: /^Project:/ }).click();
+    await page.getByRole("textbox", { name: "Repository", exact: true }).fill("https://github.com/fixture/example");
+    await page.getByTestId("task-composer").getByRole("button", { name: "Use", exact: true }).click();
+    await page.getByRole("button", { name: "Project: fixture/example", exact: true }).waitFor();
   });
   await check("run and prompt deep links remain on Threads", async () => {
     await open("/app/?run=ux-run-0");
