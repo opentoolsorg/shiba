@@ -83,7 +83,8 @@ target=await launchLifecycleTarget(new URL(origin),chromium);page=target.page;pa
 const browserCookies=signup.res.headers.getSetCookie().map(raw=>{const pair=raw.split(';')[0];const split=pair.indexOf('=');return {name:pair.slice(0,split),value:pair.slice(split+1),url:origin,httpOnly:true,sameSite:'Lax'};});
 await target.context.addCookies(browserCookies);
 const onboardingResponse=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/onboarding/progress'&&response.request().method()==='GET');
-await page.goto(origin+'/app/');
+// Account setup opens on the first Threads load; /app/ canonically opens Work.
+await page.goto(origin+'/threads/');
 const onboarding=await onboardingResponse;assert(onboarding.ok(),'Account setup progress must load before navigation');
 const progress=await onboarding.json();
 if(progress.activatedAt===null&&progress.dismissedAt===null&&!progress.draftTask?.preparedAt){

@@ -204,6 +204,8 @@ asynchronous query now allows five seconds. Failed attempts remain recorded.
 The thread-profile driver also follows the saved default profile's current
 Shiba label. Browser helper checks restore Chat mode after repository selection
 so the next draft check starts in its declared mode.
+The authenticated Marketing fixture starts at `/threads/`, the existing entry
+that opens account setup, rather than expecting its Skip setup button on Work.
 Generated follow-up evidence records each gate's exact SHA and outcome; the
 earlier 995d2e7d evidence bundle is retained separately in Library as
 `libfile_fde3_f-da49bc95a8108191874f41e2e303386a_4a33f81638ec8191bd57410f2e202f67`.
