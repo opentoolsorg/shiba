@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { type ElectronApplication, _electron as electron, type Page } from "playwright-core";
 import { expect, test } from "vitest";
 import { startWorkerFixture } from "../../backend/test/acceptance/worker-fixture.mjs";
+import { openAppView } from "../../../.cursor/skills/verify-shiba/scripts/composer-target.mjs";
 
 interface Progress {
   draftTaskId: string;
@@ -91,12 +92,14 @@ test("actual native shared UI retains goal, thread, approved output and review a
     app = await launch();
     let page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
-    await page.waitForURL(`${fixture.origin}/app/**`);
+    await page.waitForURL((url) => url.origin === fixture.origin && ["/app/", "/work/", "/threads/"].includes(url.pathname));
     await page.getByRole("button", { name: "First sign-in? Create the account" }).click();
     await page.getByLabel("Name", { exact: true }).fill("Native Fixture Owner");
     await page.getByLabel("Email", { exact: true }).fill("native-owner@example.test");
     await page.getByLabel("Password", { exact: true }).fill("native-fixture-only-password-2026!");
     await page.getByRole("button", { name: "Create account", exact: true }).click();
+    await page.getByRole("navigation", { name: "Workspace areas", exact: true }).waitFor();
+    await page.goto(`${fixture.origin}/threads/`);
     const onboarding = page.getByRole("region", { name: "First task setup", exact: true });
     await onboarding.waitFor();
     await page.getByRole("button", { name: /^Start a coding task/ }).click();
@@ -116,7 +119,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
     app = await launch();
     page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
-    await page.waitForURL(`${fixture.origin}/app/**`);
+    await page.waitForURL((url) => url.origin === fixture.origin && ["/app/", "/work/", "/threads/"].includes(url.pathname));
+    await page.goto(`${fixture.origin}/threads/`);
     expect(await api<{ agent: string; auth: string }>(page, "/api/whoami")).toEqual(identity);
     expect(await actorDraft(page, identity.agent, "audience")).toMatchObject({ text: audience });
     await expect
@@ -146,7 +150,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await page.getByRole("button", { name: "Use first task draft in Work", exact: true }).click();
     await page.getByRole("group", { name: "Selected first-task goal", exact: true }).waitFor();
     await expect.poll(() => page.getByLabel("Task description").inputValue()).toContain(goal);
-    await page.getByRole("complementary", { name: "Primary Left Rail" }).getByRole("button", { name: "Chats", exact: true }).click();
+    await openAppView(page, "Chats");
     await page.getByRole("complementary", { name: "Chats", exact: true }).getByRole("button", { name: "New chat", exact: true }).first().click();
     await page.getByRole("button", { name: "Rename thread", exact: true }).click();
     await page.getByLabel("Thread name", { exact: true }).fill(threadName);
@@ -154,7 +158,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await page
       .getByRole("form", { name: "Rename thread", exact: true })
       .waitFor({ state: "detached" });
-    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
+    await openAppView(page, "Chats");
     await page
       .getByRole("region", { name: "Saved first task draft", exact: true })
       .getByRole("button", { name: "Use first task draft", exact: true })
@@ -166,8 +170,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
     app = await launch();
     page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
-    await page.waitForURL(`${fixture.origin}/app/**`);
-    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
+    await page.waitForURL((url) => url.origin === fixture.origin && ["/app/", "/work/", "/threads/"].includes(url.pathname));
+    await openAppView(page, "Chats");
     await page.getByRole("button", { name: "Rename thread", exact: true }).waitFor();
     await page.getByRole("region", { name: "Saved first task draft", exact: true }).waitFor();
     await page.getByRole("group", { name: "Selected first-task goal", exact: true }).waitFor();
@@ -228,8 +232,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
       })
       .toBeTruthy();
     if (!employee) throw new Error("Fixture employee was not persisted");
-    await page.goto(`${fixture.origin}/`);
-    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
+    await page.goto(`${fixture.origin}/threads/`);
+    await openAppView(page, "Chats");
     await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
     await page.getByRole("button", { name: "Edit employee", exact: true }).click();
     await page.getByText("Use an existing employee", { exact: true }).click();
@@ -423,8 +427,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
       }, { timeout: 15_000 })
       .toBeTruthy();
     if (!run) throw new Error("Native fixture run did not complete");
-    await page.goto(`${fixture.origin}/`);
-    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
+    await page.goto(`${fixture.origin}/threads/`);
+    await openAppView(page, "Chats");
     await page.getByLabel("Review decision for reports/native-fixture.md").selectOption("approved");
     await page.getByRole("button", { name: "Save review", exact: true }).click();
     await page.getByText("Current saved review: approved", { exact: true }).waitFor();
@@ -444,7 +448,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     app = await launch();
     page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
-    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
+    await openAppView(page, "Chats");
     await page.getByText("Current saved review: approved", { exact: true }).waitFor();
     expect(await retainedText()).toBe(output);
     expect((await progress(page)).draftTaskId).toBe(executable.draftTaskId);
