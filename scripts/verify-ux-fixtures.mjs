@@ -166,7 +166,7 @@ try {
     allowQueueFixture = true;
     try {
       await work.getByRole("button", { name: "Send task", exact: true }).click();
-      await page.getByText(/^Draft queued — review and approve/).waitFor();
+      await page.getByText(/^Draft queued — review and approve/).first().waitFor();
     } finally { allowQueueFixture = false; }
     assert.equal(evidence.permittedFixtureWrites.length, 1);
     await open("/approvals/");
@@ -232,6 +232,16 @@ try {
     await page.getByRole("region", { name: "Board view", exact: true }).getByText("Running fixture", { exact: true }).waitFor();
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "Document overflows mobile viewport");
     await page.screenshot({ path: path.join(output, "work-mobile.png") });
+  });
+  await check("mobile navigation Escape closes the sheet and restores focus", async () => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open("/work/");
+    const trigger = page.getByRole("button", { name: "Open navigation", exact: true });
+    await trigger.click();
+    await page.getByRole("button", { name: "Close navigation", exact: true }).waitFor();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Close navigation", exact: true }).waitFor({ state: "detached" });
+    assert(await trigger.evaluate((node) => node === document.activeElement));
   });
   for (const theme of ["light", "dark"]) for (const width of [390, 768, 1440]) {
     await check(`responsive ${theme} theme at ${width}px`, async () => {
