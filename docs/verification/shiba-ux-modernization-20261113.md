@@ -90,10 +90,46 @@ its displayed frozen JSON must exactly match the recorded request.
 The initial 11-check dev-browser baseline passes aliases, reloads, mobile
 document width, and absence of unhandled/hydration errors. React's development
 script-tag warning remains recorded; it is not silently called console-clean.
-Expanded production-byte checks and final integration evidence are pending.
+Expanded production-byte checks are recorded separately with their source SHA
+and tracked-change status. A passing dirty-tree development run is not a final
+combined-SHA validation result.
 
 ## Final integration
 
-Worker slices, final combined SHA, final check outcomes, screenshots, CI link,
-and remaining gaps will be recorded here after integration. No merge or deploy
-is part of this task.
+The following worker slices are integrated:
+
+- Shell: `9886b103` plus its verification update `5f0710cd`. All five areas and
+  23 flat destinations remain available. The two-line WorkLeftPanel adapter is
+  retained. Three backend test files follow the relocated navigation metadata
+  and labels; backend production code is unchanged.
+- Work: `d1dd7add`. Personal execution statuses, native modal inspection, scoped
+  workspace details, keyboard navigation, and typed Work URL state are included.
+- Chat/team/Knowledge: `efe031f0`. Draft review, saved employee search and
+  inspection, and Knowledge shortcuts retain the existing handlers.
+
+Integration adapters pass the existing approval callbacks and decisions into
+WorkPeek, scope live output and deliverables to the active session, load retained
+details for Work, and embed StepTimeline only for the selected session with the
+matching identified agent and registry owner. Other threads use the explicit
+full-thread action. Work layout, selection and tab transitions use TanStack
+history entries while preserving unrelated query parameters and fragments.
+
+Integration also fixes two browser-observed problems: prompt URL cleanup now
+runs after commit so render retries retain entry intent, and Knowledge section
+navigation remains available below the desktop breakpoint or with its sidebar
+collapsed. The draft review callback switches the existing composer to Work;
+it does not synthesize a command, decide an approval, or start execution.
+
+Preliminary combined checks pass 154 focused tests, the additional frozen-gate
+app integration test, and 53 real-browser fixture checks. The earlier checkpoint
+`600dae2b` passes all 10 repository test tasks (1,692 frontend tests and 6,238
+backend tests; 3 backend live tests skipped). These are distinct checkpoints.
+The final combined-SHA gate results and screenshots are delivered as generated
+evidence alongside this source report. They must be assessed by their recorded
+SHA, clean-tree status, explicit fixture boundary, and individual outcomes.
+
+Draft PR creation was rejected by automatic approval review because it did not
+find explicit human authorization to open a PR. The denied request did not
+create a PR. The branch is pushed, and the review description is prepared; PR
+creation and its `build:validate` CI run require that blocker to be resolved.
+No merge or deployment is part of this task.

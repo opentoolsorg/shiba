@@ -169,6 +169,33 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
+  it("keeps the Work inspector on the original frozen approval decision path", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=frozen-gate&taskKind=approval&tab=approval");
+    const frozen = Object.freeze({ task: "EXACT_FROZEN_INPUT", repoUrl: "https://github.com/fixture/review", publishPullRequest: false });
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/approvals") return options?.method === "POST"
+        ? Response.json({ result: "rejected" })
+        : Response.json({ approvals: [{ approvalId: "frozen-gate", threadKey: "frozen-thread", task: "Inspect frozen approval", repoUrl: frozen.repoUrl, createdAt: 1, kind: "run", status: "pending", payload: frozen }], decided: [] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const inspector = await screen.findByRole("dialog", { name: "Work inspector: Inspect frozen approval" });
+    expect(JSON.parse(inspector.querySelector("pre")!.textContent!)).toEqual(frozen);
+    expect(window.location.pathname).toBe("/work/");
+    expect(fetch).not.toHaveBeenCalledWith("/api/approvals", expect.objectContaining({ method: "POST" }));
+    fireEvent.click(within(inspector).getByRole("button", { name: "Reject" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/approvals", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ threadKey: "frozen-thread", approvalId: "frozen-gate", approved: false }),
+    })));
+    expect(frozen.task).toBe("EXACT_FROZEN_INPUT");
+    fireEvent.keyDown(inspector, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work inspector: Inspect frozen approval" })).toBeNull());
+    expect(new URLSearchParams(window.location.search).has("task")).toBe(false);
+    expect(new URLSearchParams(window.location.search).get("view")).toBe("board");
+  });
+
   it("keeps a prompt deep link through StrictMode render retries", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/app/?prompt=STRICT_PROMPT_FIXTURE");
@@ -211,18 +238,18 @@ describe("app Work and Threads routing", () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/settings/?section=appearance");
     render(<App />);
-    await screen.findByRole("heading", { name: "Settings", exact: true });
+    await screen.findByRole("heading", { name: "Settings" });
     expect(new URLSearchParams(window.location.search).get("section")).toBe("appearance");
     await act(async () => {
       window.history.pushState(null, "", "/work/?view=timeline");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
-    await screen.findByRole("region", { name: "Timeline view", exact: true });
+    await screen.findByRole("region", { name: "Timeline view" });
     await act(async () => {
       window.history.replaceState(null, "", "/settings/?section=appearance");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
-    await screen.findByRole("heading", { name: "Settings", exact: true });
+    await screen.findByRole("heading", { name: "Settings" });
     expect(new URLSearchParams(window.location.search).get("section")).toBe("appearance");
     expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
   });

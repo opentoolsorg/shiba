@@ -45,6 +45,10 @@ const runs = [
   ["error", "Failed fixture"], ["unknown", "Unknown fixture"],
 ].map(([status, task], index) => ({ runId: `ux-run-${index}`, sandboxId: `ux-sandbox-${index}`, task, status, repoUrl: "https://github.com/fixture/example", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: now - 90000, updatedAt: now - index * 1000 }));
 runs.push({ ...runs[1], runId: "ux-pr", task: "PR fixture", pullUrl: "https://github.com/fixture/example/pull/1" });
+runs[0].signals = [{ kind: "working", at: now - 80000 }];
+runs[1].hasDiff = true;
+runs[1].diff = "diff --git a/fixture.txt b/fixture.txt\n--- a/fixture.txt\n+++ b/fixture.txt\n@@ -1 +1 @@\n-before-fixture\n+after-fixture\n";
+runs[1].summary = "Retained fixture output; no live provider execution occurred.";
 const approval = { approvalId: "ux-approval", threadKey: "", task: "Frozen approval fixture", repoUrl: "https://github.com/fixture/example", kind: "run", status: "pending", createdAt: now, payload: { repoUrl: "https://github.com/fixture/example", task: "FROZEN_UX_PAYLOAD", baseBranch: "main", publishPullRequest: false } };
 const approvals = [approval];
 let allowQueueFixture = false;
@@ -113,6 +117,83 @@ try {
     assert.equal(new URL(page.url()).pathname, "/work/");
     for (const title of ["Completed fixture", "Failed fixture", "Unknown fixture", "PR fixture", "Frozen approval fixture"]) await page.getByText(title, { exact: true }).first().waitFor();
     await page.screenshot({ path: path.join(output, "work-desktop.png") });
+  });
+  await check("Work board/list/timeline retain accurate execution states and Organization", async () => {
+    await open("/work/?view=board");
+    await page.getByTestId("board-column-attention").getByText("Failed fixture", { exact: true }).waitFor();
+    await page.getByTestId("board-column-attention").getByText("Unknown fixture", { exact: true }).waitFor();
+    await page.getByTestId("board-column-pr_open").getByText("PR fixture", { exact: true }).waitFor();
+    await page.getByTestId("board-column-done").getByText("Completed fixture", { exact: true }).waitFor();
+    assert.equal(await page.getByTestId("board-column-done").getByText("Failed fixture", { exact: true }).count(), 0);
+    await open("/work/?view=list");
+    await page.getByRole("region", { name: /^Completed -/ }).getByText("Completed fixture", { exact: true }).waitFor();
+    await page.getByRole("region", { name: /^Needs attention -/ }).getByText("Failed fixture", { exact: true }).waitFor();
+    await open("/work/?view=timeline");
+    const timeline = page.getByRole("list", { name: "Timeline tasks", exact: true });
+    await timeline.getByText("Failed fixture", { exact: true }).waitFor();
+    assert.match(await timeline.locator("li").filter({ hasText: "Failed fixture" }).innerText(), /Error|Failed/i);
+    assert.match(await timeline.locator("li").filter({ hasText: "PR fixture" }).innerText(), /PR linked/i);
+    await open("/work/?view=organization");
+    await page.getByRole("region", { name: "Organization view", exact: true }).waitFor();
+  });
+  await check("Work drawer native focus, Back/Forward, reload and Escape", async () => {
+    await open("/work/?view=board&source=ux#keep");
+    const trigger = page.getByTestId("board-card-run:ux-run-0").getByRole("button", { name: "Running fixture", exact: true });
+    await trigger.click();
+    const drawer = page.getByRole("dialog", { name: "Work inspector: Running fixture", exact: true });
+    await drawer.waitFor();
+    assert(await drawer.evaluate((node) => node.matches(":modal")));
+    assert(await drawer.getByRole("button", { name: "Close task", exact: true }).evaluate((node) => node === document.activeElement));
+    assert.equal(new URL(page.url()).pathname, "/work/");
+    assert.equal(new URL(page.url()).searchParams.get("task"), "ux-run-0");
+    await page.keyboard.press("Shift+Tab");
+    assert(await drawer.evaluate((node) => node.contains(document.activeElement)));
+    await page.keyboard.press("Tab");
+    await drawer.getByRole("list", { name: "Recorded run steps", exact: true }).getByText("working", { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(output, "work-inspector-desktop.png") });
+    await page.goBack();
+    await drawer.waitFor({ state: "detached" });
+    assert(await trigger.evaluate((node) => node === document.activeElement));
+    await page.goForward();
+    await drawer.waitFor();
+    await page.reload();
+    await drawer.waitFor();
+    assert.equal(new URL(page.url()).searchParams.get("source"), "ux");
+    assert.equal(new URL(page.url()).hash, "#keep");
+    await page.keyboard.press("Escape");
+    await drawer.waitFor({ state: "detached" });
+    assert(!new URL(page.url()).searchParams.has("task"));
+    assert.equal(new URL(page.url()).searchParams.get("view"), "board");
+  });
+  await check("Work inspector tabs restore retained diff and output without success inference", async () => {
+    await open("/work/?view=list&task=ux-run-1&taskKind=run&tab=diff");
+    const drawer = page.getByRole("dialog", { name: "Work inspector: Completed fixture", exact: true });
+    await drawer.waitFor();
+    await drawer.getByText("after-fixture", { exact: false }).first().waitFor();
+    await drawer.getByRole("tab", { name: "Output", exact: true }).click();
+    await drawer.getByText(runs[1].summary, { exact: true }).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get("tab"), "output");
+    await page.goBack();
+    await drawer.getByRole("tab", { name: "Diff", exact: true }).waitFor();
+    await page.waitForFunction(() => new URLSearchParams(location.search).get("tab") === "diff");
+    await page.reload();
+    await drawer.getByText("after-fixture", { exact: false }).first().waitFor();
+    await drawer.getByRole("button", { name: "Close task", exact: true }).click();
+    await drawer.waitFor({ state: "detached" });
+  });
+  await check("Work approval drawer reuses the frozen card and original decision controls", async () => {
+    await open("/work/?view=board&task=ux-approval&taskKind=approval");
+    const drawer = page.getByRole("dialog", { name: "Work inspector: Frozen approval fixture", exact: true });
+    await drawer.waitFor();
+    assert.equal(await drawer.getByRole("tab", { name: "Approval", exact: true }).getAttribute("aria-selected"), "true");
+    assert.deepEqual(JSON.parse(await drawer.locator("pre").innerText()), approval.payload);
+    await drawer.getByRole("button", { name: "Approve", exact: true }).waitFor();
+    await drawer.getByRole("button", { name: "Reject", exact: true }).waitFor();
+    assert.equal(await drawer.getByRole("button", { name: /Modify|Edit command/i }).count(), 0);
+    await page.screenshot({ path: path.join(output, "work-frozen-approval-desktop.png") });
+    await drawer.getByRole("button", { name: "Open approval queue", exact: true }).click();
+    await page.waitForURL((url) => url.pathname === "/approvals/");
+    assert(!new URL(page.url()).searchParams.has("task"));
   });
   for (const [target, expected] of [["/app/?tab=run-registry", "/analytics/"], ["/app/?view=mailbox", "/inbox/"], ["/app/?tab=orchestrator", "/activity/"], ["/settings/?section=appearance", "/settings/"], ["/memory/", "/memory/"], ["/spaces/", "/spaces/"], ["/custom-agents/", "/custom-agents/"]]) {
     await check(`reloadable legacy surface ${target}`, async () => {
@@ -249,7 +330,17 @@ try {
       await page.evaluate((value) => localStorage.setItem("shiba-theme", value), theme);
       for (const view of ["work", "custom-agents", "memory"]) {
         await open(view === "work" ? "/work/?view=board" : `/${view}/`);
-        if (view === "work") await page.getByRole("region", { name: "Board view", exact: true }).waitFor();
+        if (view === "work") {
+          await page.getByRole("region", { name: "Board view", exact: true }).waitFor();
+          await page.getByTestId("board-card-approval:ux-approval").getByRole("button", { name: "Frozen approval fixture", exact: true }).click();
+          const drawer = page.getByRole("dialog", { name: "Work inspector: Frozen approval fixture", exact: true });
+          await drawer.waitFor();
+          assert(await drawer.evaluate((node) => node.matches(":modal")));
+          assert((await drawer.boundingBox()).width <= width);
+          await page.screenshot({ path: path.join(output, `inspector-${theme}-${width}.png`) });
+          await page.keyboard.press("Escape");
+          await drawer.waitFor({ state: "detached" });
+        }
         if (view === "custom-agents") await page.getByRole("heading", { name: "Your employee roster", exact: true }).waitFor();
         if (view === "memory") {
           const source = width >= 1024 ? page.getByRole("button", { name: /^Sources/ }).filter({ visible: true }).first() : page.getByRole("button", { name: "Workspace Memory", exact: true });
