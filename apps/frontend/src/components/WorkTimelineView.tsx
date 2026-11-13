@@ -81,12 +81,19 @@ function toneOf(status: string): Tone {
 }
 
 function labelOf(status: string): string {
-  return status === "pr-open" ? "PR open" : statusLabel(status);
+  return status === "pr-open" ? "PR linked" : statusLabel(status);
 }
 
 function parseDay(value?: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? "");
-  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]) - 1;
+  const day = Number(m[3]);
+  const date = new Date(0);
+  date.setFullYear(year, month, day);
+  date.setHours(0, 0, 0, 0);
+  return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day ? date : null;
 }
 
 function addDays(date: Date, days: number): Date {
@@ -304,7 +311,7 @@ export function WorkTimelineView({
                       className={`absolute top-1/2 h-6 -translate-y-1/2 rounded-md opacity-90 hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] motion-reduce:transition-none transition-opacity ${BAR[tone]}`}
                       style={{ left: offset * DAY_W + 2, width: length * DAY_W - 4 }}
                     />
-                  ) : null}
+                  ) : <span className="sticky left-[var(--tl-left)] inline-flex h-full items-center px-3 text-xs text-[var(--muted-foreground-3)]">No dates recorded</span>}
                 </div>
               </li>
             );

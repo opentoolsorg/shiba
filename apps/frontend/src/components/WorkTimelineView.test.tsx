@@ -21,6 +21,12 @@ function bar(name: string): HTMLElement {
 }
 
 describe("WorkTimelineView", () => {
+  it("keeps impossible calendar dates undated instead of drawing a fabricated date", () => {
+    render(<WorkTimelineView tasks={[{ id: "invalid", title: "Invalid date", status: "pending", startDate: "2026-02-30" }]} onOpen={vi.fn()} />);
+    expect(screen.getByText("No dates recorded")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Invalid date, / })).toBeNull();
+    expect(screen.getByRole("button", { name: "Invalid date Pending" })).toBeTruthy();
+  });
   it("renders the empty state when there are no tasks", () => {
     render(<WorkTimelineView tasks={[]} onOpen={vi.fn()} />);
     expect(screen.getByText("No tasks yet")).toBeTruthy();
@@ -124,7 +130,7 @@ describe("WorkTimelineView", () => {
     );
     expect(rows).toHaveLength(3);
     for (const row of rows) expect(within(row).getAllByRole("button")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Investigate latency PR open" }));
+    fireEvent.click(screen.getByRole("button", { name: "Investigate latency PR linked" }));
     expect(onOpen).toHaveBeenCalledWith("u1");
     expect(screen.getAllByRole("img", { name: "Unassigned" })).toHaveLength(2);
     expect(screen.getByRole("img", { name: "Assigned to Prince Pal" }).textContent).toBe("PP");
