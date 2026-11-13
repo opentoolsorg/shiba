@@ -155,6 +155,40 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
+  it.each([
+    ["/app/?tab=run-registry", "/analytics/"],
+    ["/app/?tab=orchestrator", "/activity/"],
+    ["/app/?view=mailbox", "/inbox/"],
+    ["/app/?tab=dashboard", "/dashboard/"],
+    ["/app/?tab=integrations", "/integrations/"],
+  ])("keeps legacy entry %s on its existing standalone surface", async (entry, expected) => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", entry);
+    render(<App />);
+    await waitFor(() => expect(window.location.pathname).toBe(expected));
+    expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("restores the Settings section on history navigation without dispatching work", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/settings/?section=appearance");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Settings", exact: true });
+    expect(new URLSearchParams(window.location.search).get("section")).toBe("appearance");
+    await act(async () => {
+      window.history.pushState(null, "", "/work/?view=timeline");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await screen.findByRole("region", { name: "Timeline view", exact: true });
+    await act(async () => {
+      window.history.replaceState(null, "", "/settings/?section=appearance");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await screen.findByRole("heading", { name: "Settings", exact: true });
+    expect(new URLSearchParams(window.location.search).get("section")).toBe("appearance");
+    expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+  });
+
   it("preserves an explicit local artifact selection instead of silently switching to sandbox", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     localStorage.setItem("shiba:conversation-mode:default", "work");
