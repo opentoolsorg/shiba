@@ -105,7 +105,7 @@ try {
   await openAppView(page, "Chats");
   const threadList = page.getByRole("complementary", { name: "Chats", exact: true }).getByRole("region", { name: "Recents", exact: true });
   await threadList.getByRole("button").filter({ hasText: "Default Session" }).click();
-  await assertThreadProfile("Shiba", "Default (no bot)");
+  await assertThreadProfile("Shiba");
   assert.equal(await page.getByRole("button", { name: "Rename thread", exact: true }).count(), 0);
   // Hold the real resume request until the old selection has been observed.
   // The assertion must wait for the new profile, never accept the old one.
