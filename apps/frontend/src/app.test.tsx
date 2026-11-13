@@ -60,6 +60,20 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
 
+describe("legacy shell URL preservation", () => {
+  it("keeps callback query values and fragments while normalizing a legacy Settings link", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/app/?tab=settings&oauth_return=keep&section=account#callback-state");
+    render(<App />);
+    await screen.findAllByRole("button", { name: "Back to app" });
+    await waitFor(() => expect(window.location.pathname).toBe("/settings/"));
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("oauth_return")).toBe("keep");
+    expect(params.get("section")).toBe("account");
+    expect(window.location.hash).toBe("#callback-state");
+  });
+});
+
 describe("app employee onboarding", () => {
   it("lets navigation leave an invalid room link without switching workspaces", async () => {
     const workspaceId = `ws_${"a".repeat(24)}`;
@@ -112,16 +126,16 @@ describe("app employee onboarding", () => {
     await act(async () => finish(Response.json({}, { status: 503 })));
     expect((await screen.findByText(/Agent created. Start a new thread from its sidebar row/)).textContent).toContain("503");
     expect(screen.queryByRole("heading", { name: "Set up your AI employees" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "Team" }));
     let retry = await screen.findByRole("button", { name: "New thread with Research bot" });
     fireEvent.click(retry);
     fireEvent.click(retry);
-    fireEvent.click(screen.getByRole("button", { name: "Chats" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     fireEvent.click((await screen.findAllByRole("button", { name: "New chat" }))[0]!);
     await waitFor(() => expect(createSession).toHaveBeenCalledTimes(2));
     await act(async () => finish(Response.json({}, { status: 503 })));
     await screen.findByText(/Could not create a bot thread/);
-    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "Team" }));
     retry = await screen.findByRole("button", { name: "New thread with Research bot" });
     fireEvent.click(retry);
     await waitFor(() => expect(createSession).toHaveBeenCalledTimes(3));
@@ -223,7 +237,7 @@ describe("app Work and Threads routing", () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
     await screen.findByRole("heading", { name: /Hand off the work/ });
-    fireEvent.click(screen.getByRole("button", { name: "Chats" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     await screen.findByRole("textbox", { name: "Task draft" });
     act(() => { window.history.replaceState(null, "", "/"); window.dispatchEvent(new PopStateEvent("popstate")); });
     await screen.findByRole("heading", { name: /Hand off the work/ });
@@ -240,7 +254,7 @@ describe("app Work and Threads routing", () => {
       return originalFetch(url, options);
     }));
     render(<App />);
-    await screen.findByRole("button", { name: "Chats" });
+    await screen.findByRole("button", { name: "Chat" });
     await waitFor(() => expect(resolveProgress).toBeTypeOf("function"));
     await act(async () => resolveProgress(Response.json({ revision: 1, activatedAt: null, dismissedAt: null })));
     expect(window.location.pathname).toBe(path);
@@ -345,7 +359,7 @@ describe("app Work and Threads routing", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ method: "POST" })));
     await act(async () => {});
     expect((screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement).value).toBe("Different quick task");
-    fireEvent.click(screen.getByRole("button", { name: "Chats" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     expect((await screen.findByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Original unfinished task");
     expect(readDraft(composerDraftScope("test-operator", "default"))).toBe("Original unfinished task");
   });

@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { APP_NAV_ITEMS } from "../../frontend/src/app-navigation.js";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import worker, { DASHBOARD_VIEWS } from "../src/index.js";
@@ -83,9 +82,7 @@ describe("app host routing", () => {
   });
 
   it("has a server path for every sidebar view", () => {
-    const rail = readFileSync(join(__dirname, "../../frontend/src/components/AppNavRail.tsx"), "utf8");
-    const ids = [...rail.matchAll(/\{ id: "([a-z-]+)", label:/g)].map((m) => m[1]!);
-    expect(ids.length).toBeGreaterThan(10);
-    for (const id of ids) expect(DASHBOARD_VIEWS.has(id), id).toBe(true);
+    expect(APP_NAV_ITEMS.length).toBeGreaterThan(10);
+    for (const { id } of APP_NAV_ITEMS) expect(DASHBOARD_VIEWS.has(id), id).toBe(true);
   });
 });

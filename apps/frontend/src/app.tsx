@@ -1,3 +1,5 @@
+import { AppShell, AppAreaSidebar } from "./layouts/AppShell";
+import { pathForView, readNavigationView } from "./app-navigation";
 /**
  * Complete End-to-End Shiba Dashboard.
  * Approval-gated coding tasks delegated to isolated Cloudflare Sandbox containers running OpenCode.
@@ -386,28 +388,13 @@ const DEFAULT_VIEW: MainView = "tasks";
 const SELF_CARDED_VIEWS: readonly string[] = ["dashboard", "activity", "analytics", "diff", "approvals", "automations", "providers", "spaces", "integrations"];
 const TEAM_WORKSPACE_VIEWS: readonly string[] = ["team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "integrations", "settings"];
 
-const VIEW_ALIASES: Record<string, AppNavView> = {
-  "run-registry": "analytics",
-  orchestrator: "activity",
-  mailbox: "inbox",
-  work: "work",
-};
-
-// Each sidebar view owns a root path (/dashboard/, /skills/ …); legacy ?tab=/?view=/?run= still resolve.
+// Room/run links retain precedence over a view selector, including legacy /app links.
 function viewFromUrl(): AppNavView | null {
   if (typeof window === "undefined") return null;
-  const params = new URLSearchParams(window.location.search);
-  if (readRoomLink(window.location.search) !== null) return "threads";
-  if (params.has("run") || readPromptParam(window.location.search).prompt !== null) return "threads";
-  if (params.has("task") || ["list", "board", "timeline", "organization"].includes(params.get("view") ?? "")) return "work";
-  const toView = (raw: string | null) => {
-    const view = raw ? (VIEW_ALIASES[raw] ?? raw) : null;
-    return APP_NAV_ITEMS.some((item) => item.id === view) ? (view as AppNavView) : null;
-  };
-  return (
-    toView(window.location.pathname.split("/")[1] ?? null) ??
-    toView(params.get("tab") || params.get("view"))
-  );
+  const search = window.location.search;
+  const params = new URLSearchParams(search);
+  if (readRoomLink(search) !== null || params.has("run") || readPromptParam(search).prompt !== null) return "threads";
+  return readNavigationView(window.location.pathname, search);
 }
 
 // WorkView writes ?view=/?task= itself; app state only seeds from them and follows back/forward.
@@ -416,10 +403,6 @@ function workViewFromUrl(): WorkViewMode {
   if (typeof window === "undefined") return "list";
   const view = new URLSearchParams(window.location.search).get("view");
   return WORK_VIEW_MODES.find((mode) => mode === view) ?? "list";
-}
-
-function pathForView(view: MainView): string {
-  return `/${view}/`;
 }
 
 const SETUP_TOTAL_STEPS = 6;
@@ -745,8 +728,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     const path = pathForView(mainView);
     const first = !urlSynced.current;
     if (mainView === "settings") {
-      const target = `${path}?section=${encodeURIComponent(settingsSection)}`;
-      if (window.location.pathname + window.location.search === target) { urlSynced.current = true; return; }
+      const params = new URLSearchParams(first ? window.location.search : "");
+      params.set("section", settingsSection);
+      const target = `${path}?${params.toString()}${first ? window.location.hash : ""}`;
+      if (window.location.pathname + window.location.search + window.location.hash === target) { urlSynced.current = true; return; }
       if (first || window.location.pathname === path) router.history.replace(target);
       else router.history.push(target);
       urlSynced.current = true;
@@ -754,7 +739,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     }
     urlSynced.current = true;
     if (window.location.pathname === path) return;
-    if (first) router.history.replace(path + window.location.search);
+    if (first) router.history.replace(path + window.location.search + window.location.hash);
     else router.history.push(path);
   }, [mainView, settingsSection, router]);
 
@@ -2825,7 +2810,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }
 
   return (
-    <div className="shiba-app-shell h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)] font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-text)] flex pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <AppShell activeView={mainView} onNavigate={openView} pendingApprovalCount={teamWorkspaceId ? 0 : pendingApprovals.length + visibleStoredApprovals.length}>
       {/* LEFT: app navigation rail (lg+; phones use the sheet below) */}
       <AppNavRail
         workspaceSwitcher={<WorkspaceSwitcher workspaces={teamDirectory.workspaces} selectedWorkspaceId={teamWorkspaceId} loading={teamDirectory.loading} onSelect={(id) => { flushDraft(); roomRoute.clear(); teamDirectory.selectWorkspace(id); }} onManage={() => openView("team")} />}
@@ -2833,7 +2818,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         selectedWorkspaceId={teamWorkspaceId}
         onSelectWorkspace={(id) => { flushDraft(); roomRoute.clear(); teamDirectory.selectWorkspace(id); }}
         collapsed={mainView === "work" ? workPanelCollapsed : sessionsCollapsed}
-        sidebarPanelId={mainView === "work" ? "work-panel" : undefined}
+        sidebarPanelId={mainView === "work" ? "work-panel" : "app-context-panel"}
         activeView={mainView}
         onNavigate={openView}
         pendingApprovalCount={teamWorkspaceId ? 0 : pendingApprovals.length + visibleStoredApprovals.length}
@@ -3018,7 +3003,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         ) : null}
 
         <div className={`shiba-app-content flex-1 flex min-w-0 min-h-0 ${mainView === "work" ? "" : "gap-3 p-3"}`}>
-          {destinationPanel && mainView !== "work" && !sessionsCollapsed ? <div className="hidden lg:flex">{destinationPanel}</div> : null}
+          {mainView !== "work" && !sessionsCollapsed ? <div id="app-context-panel" className="hidden min-h-0 lg:flex">{destinationPanel ?? <AppAreaSidebar />}</div> : null}
           <MainCard className={mainView === "work" || mainView === "settings" || (!personalOnlyNotice && SELF_CARDED_VIEWS.includes(mainView) && !(mainView === "integrations" && (teamWorkspaceId || restrictedTeamMember))) ? "!rounded-none !border-0 !bg-transparent !shadow-none" : ""}>
           {inboxMounted && privateDataEnabled ? (
             <div
@@ -3959,6 +3944,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           />
         </div>
       </div>
-    </div>
+    </AppShell>
   );
 }
