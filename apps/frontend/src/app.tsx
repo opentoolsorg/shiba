@@ -1,5 +1,6 @@
 import { AppShell, AppAreaSidebar } from "./layouts/AppShell";
 import { pathForView, readNavigationView } from "./app-navigation";
+import { updateWorkSearch } from "./work-search";
 /**
  * Complete End-to-End Shiba Dashboard.
  * Approval-gated coding tasks delegated to isolated Cloudflare Sandbox containers running OpenCode.
@@ -1309,14 +1310,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       cancelled = true;
     };
   }, [privateDataEnabled, orchestratorName]);
-  // Ordinary views read the lean summary projection; only the diff
-  // inspector pulls the full run payload (diff/receipts/signals/steering).
+  // Inspectors need the retained details; other surfaces use the summary projection.
   const { runs: retainedRuns, error: runsError, detailReady: runsDetailReady, listSettled } =
     useRetainedRuns(
       refreshToken,
       selectedSessionId,
       sessionApiAvailable,
-      mainView === "diff",
+      mainView === "diff" || mainView === "work",
       privateDataEnabled,
     );
   useEffect(() => {
@@ -3073,6 +3073,25 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   sessions={sessions}
                   storedApprovals={visibleStoredApprovals}
                   pendingApprovals={pendingApprovals}
+                  onDecideApproval={decideApproval}
+                  onDecideStoredApproval={decideStoredApproval}
+                  approvalDecisions={{ ...decisions, ...storedDecisions }}
+                  peekSessionId={selectedSessionId}
+                  peekNotice={notice}
+                  renderPeekContent={(task, tab) => {
+                    if (tab !== "steps" || task.kind !== "session" || task.id !== selectedSessionId ||
+                      sessionRegistryOwner !== orchestratorName || agent.name !== chatAgentName ||
+                      !agent.identified || agent.connectionError || !chat.messages.length) return undefined;
+                    return <StepTimeline messages={chat.messages}
+                      isStreaming={chat.isStreaming || chat.status === "streaming"}
+                      pendingApprovals={pendingApprovals} decisions={decisions}
+                      onDecideApproval={decideApproval} reviewAfterPublishById={reviewAfterPublishById} />;
+                  }}
+                  onSearchChange={(state) => {
+                    const query = updateWorkSearch(new URLSearchParams(window.location.search), state).toString();
+                    const target = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+                    if (target !== `${window.location.pathname}${window.location.search}${window.location.hash}`) router.history.push(target);
+                  }}
                   onSelectTask={(id, kind) => {
                     if (kind === "approval") { setMainView("approvals"); return; }
                     void handleSelectSession(id);
