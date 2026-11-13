@@ -48,7 +48,7 @@ runs.push({ ...runs[1], runId: "ux-pr", task: "PR fixture", pullUrl: "https://gi
 const approval = { approvalId: "ux-approval", threadKey: "", task: "Frozen approval fixture", repoUrl: "https://github.com/fixture/example", kind: "run", status: "pending", createdAt: now, payload: { repoUrl: "https://github.com/fixture/example", task: "FROZEN_UX_PAYLOAD", baseBranch: "main", publishPullRequest: false } };
 const empty = { workspaces: [], sessions: [], runs: [], approvals: [], decided: [], agents: [], principals: [], connections: [], computers: [], entries: [], sources: [], projects: [], spaces: [], tasks: [], items: [], members: [], providers: [], facts: [], mailboxes: [], automations: [], events: [], outbox: [], skills: [], servers: [] };
 const setup = { slack: { signingSecret: false, botToken: false, approvers: 0, channelRepos: false }, github: { token: false, app: false, publish: false, webhookSecret: false }, linear: { webhookSecret: false, apiToken: false, defaultRepo: false }, slackVerification: { signingSecret: false }, gateway: { id: "", token: false, reachable: "unknown" }, access: { required: true }, betterAuth: { configured: false }, models: { orchestrator: "", coding: "", harness: "opencode", roles: [] }, automations: { enabled: false, typeSafe: false }, mailbox: { addressOverride: false, sendEnabled: false }, doctor: { ok: false, checkedAt: now, findings: [], roles: [] } };
-const evidence = { sha: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), builtAssets: Boolean(staticServer), fixtureOnly: true, liveProviderE2E: false, checks: [], consoleErrors: [], pageErrors: [], unexpectedWrites: [], externalRequests: [], unavailableFixtureReads: [] };
+const evidence = { sha: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), trackedChanges: execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], { encoding: "utf8" }).trim(), builtAssets: Boolean(staticServer), fixtureOnly: true, liveProviderE2E: false, checks: [], consoleErrors: [], pageErrors: [], unexpectedWrites: [], externalRequests: [], unavailableFixtureReads: [] };
 const browser = await chromium.launch({ executablePath: process.env.SHIBA_CHROMIUM || "/usr/bin/chromium", headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce" });
 await context.addInitScript(() => {
@@ -131,6 +131,67 @@ try {
     await page.locator("textarea").filter({ visible: true }).first().waitFor();
     assert((await page.locator("textarea").evaluateAll((nodes) => nodes.map((node) => node.value))).includes("UX_FIXTURE_DRAFT_ONLY"));
     assert(!new URL(page.url()).searchParams.has("prompt"), "Consumed prompt remains in address");
+  });
+  await check("Chat draft moves to existing Work review without dispatch", async () => {
+    await open("/threads/");
+    const draft = page.getByRole("form", { name: "Chat composer" }).locator("textarea");
+    await draft.fill("@Fixture review the release plan; do not execute yet");
+    await page.screenshot({ path: path.join(output, "chat-draft-desktop.png") });
+    await page.getByRole("button", { name: "Review as work", exact: true }).click();
+    const work = page.getByRole("form", { name: "Task composer", exact: true });
+    await work.waitFor();
+    assert.equal(await work.getByRole("textbox", { name: "Task description", exact: true }).inputValue(), "@Fixture review the release plan; do not execute yet");
+    assert.equal(new URL(page.url()).pathname, "/threads/");
+    await page.screenshot({ path: path.join(output, "chat-work-draft-desktop.png") });
+    await page.getByRole("tab", { name: "Chat", exact: true }).click();
+    assert.equal(await draft.inputValue(), "@Fixture review the release plan; do not execute yet");
+  });
+  await check("saved employee search and profile preserve read-only focus flow", async () => {
+    await open("/custom-agents/");
+    const search = page.getByRole("searchbox", { name: "Search employees", exact: true });
+    const profile = page.getByRole("button", { name: "View profile Fixture employee", exact: true });
+    await profile.waitFor();
+    await search.fill("does-not-match-ux-fixture");
+    assert.equal(await profile.count(), 0);
+    await search.fill("Fixture");
+    await profile.click();
+    const overview = page.getByRole("region", { name: "Fixture employee overview", exact: true });
+    await overview.waitFor();
+    assert(await overview.evaluate((node) => node === document.activeElement));
+    await page.screenshot({ path: path.join(output, "employee-profile-desktop.png") });
+    await page.getByRole("button", { name: "Close profile", exact: true }).click();
+    assert(await profile.evaluate((node) => node === document.activeElement));
+  });
+  await check("Knowledge shortcuts retain unsaved source text and keyboard focus", async () => {
+    await open("/memory/");
+    const text = page.getByRole("textbox", { name: "TEXT TO REMEMBER", exact: true });
+    await text.fill("Unsaved UX fixture architecture note");
+    await page.getByRole("button", { name: /^Search memory/ }).click();
+    const recall = page.getByRole("form", { name: "Recall from memory", exact: true });
+    assert(await recall.evaluate((node) => node === document.activeElement));
+    await page.getByRole("button", { name: /^Add a note/ }).click();
+    assert.equal(await text.inputValue(), "Unsaved UX fixture architecture note");
+    await page.screenshot({ path: path.join(output, "knowledge-draft-desktop.png") });
+  });
+  await check("bootstrap verification keeps its dedicated non-submitting callback", async () => {
+    await open("/app/?verify=bootstrap#bootstrapVerification=INVALID_UX_PROOF");
+    await page.getByRole("heading", { name: "Confirm your dashboard email" }).waitFor();
+    assert.equal(new URL(page.url()).hash, "");
+    assert(!(await page.locator("body").innerText()).includes("INVALID_UX_PROOF"));
+    assert.equal(await page.getByRole("button", { name: "Confirm email", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("navigation", { name: "App Icon Rail" }).count(), 0);
+  });
+  await check("Slack Canvas remains separate and read-only", async () => {
+    await open("/slack-canvas/");
+    await page.getByRole("heading", { name: "Slack run canvas" }).waitFor();
+    await page.getByText("This run link is invalid.", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: /^Approve/ }).count(), 0);
+  });
+  await check("invitation fragment is consumed without exposing or submitting it", async () => {
+    const invitation = "a".repeat(64);
+    await open(`/app/#invite=${invitation}`);
+    await page.waitForFunction(() => !location.hash);
+    assert(!(await page.locator("body").innerText()).includes(invitation));
   });
   await check("mobile workspace fits viewport", async () => {
     await page.setViewportSize({ width: 390, height: 844 });

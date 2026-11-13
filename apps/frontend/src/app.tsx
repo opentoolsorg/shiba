@@ -468,18 +468,19 @@ export function App(): React.JSX.Element {
   const [repoUrl, setRepoUrl] = useState("");
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [baseBranch, setBaseBranch] = useState("main");
-  // T71 — deep-link ?prompt= prefills empty composer task on app load; replaceState strips it.
+  // Read the prompt without consuming it during render: StrictMode and route
+  // retries must see the same entry intent until the component commits.
   const [task, setTask] = useState(() => {
-    const draft = "";
-    if (typeof window === "undefined") return draft;
+    if (typeof window === "undefined") return "";
+    return readPromptParam(window.location.search).prompt ?? "";
+  });
+  useEffect(() => {
     const { prompt, nextSearch } = readPromptParam(window.location.search);
     if (prompt !== null) {
       const nextUrl = window.location.pathname + nextSearch + window.location.hash;
       window.history.replaceState(window.history.state, "", nextUrl);
-      return prompt;
     }
-    return "";
-  });
+  }, []);
   const latestComposerTask = useRef(task);
   latestComposerTask.current = task;
   const [selectedOnboardingDraftRef, setSelectedOnboardingDraftRef] = useState<OnboardingDraftRef | null>(null);
@@ -3618,6 +3619,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         agents={mentionableAgents}
                         value={composerVisible ? task : ""}
                         onChange={setTask}
+                        onPrepareWork={() => setConversationMode("work")}
                         onSubmit={submitTask}
                         onStop={() => { void chat.stop(); }}
                         onRetry={() => { void chat.regenerate(); }}
