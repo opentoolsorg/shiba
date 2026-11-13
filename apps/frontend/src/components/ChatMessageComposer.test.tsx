@@ -31,6 +31,31 @@ describe("ChatMessageComposer", () => {
     expect(onSubmit).toHaveBeenCalledOnce();
   });
 
+  it("hands the existing draft to Work review without sending, changing or approving it", () => {
+    const onPrepareWork = vi.fn();
+    const onSubmit = vi.fn();
+    const onChange = vi.fn();
+    const props = { onChange, onSubmit, onStop: vi.fn(), onRetry: vi.fn(), onPrepareWork, busy: false, streaming: false, failed: false };
+    const view = render(<ChatMessageComposer value="Review the release plan" {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Review as work" }));
+    expect(onPrepareWork).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("Review the release plan");
+    expect(screen.getByText(/Execution requires human approval/)).toBeTruthy();
+    for (const state of [{ value: "" }, { value: "Draft", busy: true }, { value: "Draft", streaming: true }]) {
+      view.rerender(<ChatMessageComposer {...props} {...state} />);
+      expect((screen.getByRole("button", { name: "Review as work" }) as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
+  it("does not submit while an IME is composing Enter", () => {
+    const onSubmit = vi.fn();
+    render(<ChatMessageComposer value="Draft" onChange={vi.fn()} onSubmit={onSubmit} onStop={vi.fn()} onRetry={vi.fn()} busy={false} streaming={false} failed={false} />);
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter", isComposing: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("offers a real stop action while the server response is streaming", () => {
     const onStop = vi.fn();
     render(<ChatMessageComposer value="Draft" onChange={vi.fn()} onSubmit={vi.fn()} onStop={onStop} onRetry={vi.fn()} busy={true} streaming={true} failed={false} />);

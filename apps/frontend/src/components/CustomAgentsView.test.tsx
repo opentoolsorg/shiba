@@ -11,6 +11,34 @@ import { CustomAgentsView, type CustomAgentWire, useCustomAgentOptions } from ".
 import { createAgentThread } from "../agent-threads";
 
 describe("CustomAgentsView", () => {
+  it("searches persisted employee defaults and opens a profile without mutating it", async () => {
+    const agents: CustomAgentWire[] = [
+      { id: "reviewer-1", slug: "reviewer", version: 3, config: { name: "Release reviewer", instructions: "Inspect changes before publication.", harness: "codex", codingModel: "gpt-review", defaultRepoUrl: "https://github.com/example/release" } },
+      { id: "writer-1", slug: "writer", version: 1, config: { name: "Docs writer", instructions: "Write project docs.", harness: "opencode" } },
+    ];
+    const request = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => Response.json({ agents }));
+    vi.stubGlobal("fetch", request);
+    render(<CustomAgentsView />);
+    const roster = await screen.findByRole("list", { name: "Saved employees" });
+    expect(within(roster).getAllByRole("listitem")).toHaveLength(2);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search employees" }), { target: { value: "GPT-REVIEW" } });
+    expect(within(roster).getAllByRole("listitem")).toHaveLength(1);
+    fireEvent.click(within(roster).getByRole("button", { name: "View profile Release reviewer" }));
+    const profile = screen.getByRole("region", { name: "Release reviewer overview" });
+    expect(document.activeElement).toBe(profile);
+    expect(within(profile).getByText("Inspect changes before publication.")).toBeTruthy();
+    expect(within(profile).getByText("https://github.com/example/release")).toBeTruthy();
+    expect(within(profile).getByText("Saved profile · v3")).toBeTruthy();
+    expect(request.mock.calls.every((call) => !call[1]?.method)).toBe(true);
+    fireEvent.click(within(profile).getByRole("button", { name: "Close profile" }));
+    expect(screen.queryByRole("region", { name: "Release reviewer overview" })).toBeNull();
+    expect(document.activeElement).toBe(within(roster).getByRole("button", { name: "View profile Release reviewer" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search employees" }), { target: { value: "unknown" } });
+    expect(screen.getByText("No employees match your search.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear employee search" }));
+    expect(within(roster).getAllByRole("listitem")).toHaveLength(2);
+  });
+
   it("brings the name field into focus for New bot and look starters", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: [] })));
     render(<CustomAgentsView />);
