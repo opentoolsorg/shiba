@@ -212,6 +212,8 @@ production Desktop code is unchanged; native Electron results are recorded by CI
 The local daemon driver waits for each server receipt's Work inspector before
 starting its next navigation, preventing a delayed submit handoff from racing
 the next test click.
+Native intake likewise checks the returned receipt and visible inspector;
+the former toast was outside the modal's accessible subtree after handoff.
 Generated follow-up evidence records each gate's exact SHA and outcome; the
 earlier 995d2e7d evidence bundle is retained separately in Library as
 `libfile_fde3_f-da49bc95a8108191874f41e2e303386a_4a33f81638ec8191bd57410f2e202f67`.

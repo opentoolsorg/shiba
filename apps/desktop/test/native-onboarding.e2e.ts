@@ -326,11 +326,14 @@ test("actual native shared UI retains goal, thread, approved output and review a
       .toBe(1);
     await composer.getByLabel("Local computer", { exact: true }).selectOption(paired.machineId);
     await page.keyboard.press("Escape");
+    const queuedResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/runs" && response.request().method() === "POST");
     await composer.getByRole("button", { name: "Send task", exact: true }).click();
-    await page
-      .getByRole("main")
-      .getByText(/Queued — approve the run card to execute on this computer/)
-      .waitFor();
+    const queued = await queuedResponse;
+    expect(queued.ok()).toBe(true);
+    const receipt = await queued.json() as { approvalId: string };
+    expect(typeof receipt.approvalId).toBe("string");
+    await page.waitForURL((url) => url.pathname === "/work/" && url.searchParams.get("task") === receipt.approvalId && url.searchParams.get("taskKind") === "approval");
+    await page.getByRole("dialog", { name: /^Work inspector:/ }).waitFor();
     const session = threads.sessions.find((thread) => thread.name === threadName);
     if (!session) throw new Error("Named fixture thread missing");
     const sessionQuery = `?session=${encodeURIComponent(session.id)}`;
@@ -341,6 +344,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     expect(approvals.approvals).toHaveLength(1);
     const pendingApproval = approvals.approvals[0];
     if (!pendingApproval) throw new Error("Native fixture approval was not retained");
+    expect(pendingApproval.approvalId).toBe(receipt.approvalId);
     expect(JSON.stringify(approvals.approvals[0])).toContain(executable.draftTaskId);
     expect(JSON.stringify(approvals.approvals[0])).toContain(goal);
     expect(
