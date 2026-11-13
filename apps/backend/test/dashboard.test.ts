@@ -118,7 +118,7 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("No agents currently running.");
     expect(markup).toContain("No tasks in queue.");
     expect(markup).toContain('aria-label="Hand off work"');
-    expect(markup).toContain('aria-label="Chats"');
+    expect(markup).toContain('aria-label="Chat"');
   });
 
   it("shows the task composer when Threads has a saved Work mode preference", () => {
@@ -236,8 +236,8 @@ describe("dashboard rendering", () => {
   it("renders the desktop navigation rail without the retired Architecture view", () => {
     const markup = renderApp();
     expect(markup).toContain('aria-label="Work"');
-    expect(markup).toContain('aria-label="Chats"');
-    expect(markup).toContain('aria-label="More"');
+    expect(markup).toContain('aria-label="Chat"');
+    for (const area of ["Team", "Knowledge", "Settings"]) expect(markup).toContain(`aria-label="${area}"`);
     expect(markup).not.toContain("Architecture");
     // Deduped surfaces stay deep-link reachable but are out of the nav.
     expect(markup).not.toContain("Missions &amp; Standing Goals");
@@ -334,7 +334,7 @@ describe("dashboard rendering", () => {
     expect(markup).toContain('aria-label="Collapse sidebar"');
     expect(markup).toContain('aria-expanded="true"');
     expect(markup).toContain('aria-label="Search tasks"');
-    expect(markup).toContain('aria-label="Chats"');
+    expect(markup).toContain('aria-label="Chat"');
   });
 
   it("renders Tooltip component wrapping trigger elements", () => {
