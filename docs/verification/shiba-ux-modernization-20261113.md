@@ -74,12 +74,18 @@ SHIBA_PLAYWRIGHT_MODULE=/absolute/path/to/playwright \
 ```
 
 The harness runs real local Chromium against production dashboard bytes. It
-intercepts every API and application socket, blocks mutations and external
-HTTP requests, and writes per-check true/false results plus screenshots under
+intercepts every API and application socket, blocks unexpected mutations and
+external HTTP requests, and writes per-check true/false results plus screenshots under
 `.verify/ux-modernization/`. Activity and token-usage report endpoints explicitly
 return fixture-unavailable errors; those checks prove route access and error
 rendering, not report data correctness. The local static host does not replace
 the Worker's route tests (`apps/backend/test/app-host-routing.test.ts`).
+
+One deliberate queue check permits a canned fixture-only `POST /api/runs`,
+records the exact request, and presents it through the existing approval card.
+It does not contact a Worker, execute a sandbox, or decide an approval. All
+other mutations fail closed. The resulting approval must remain pending and
+its displayed frozen JSON must exactly match the recorded request.
 
 The initial 11-check dev-browser baseline passes aliases, reloads, mobile
 document width, and absence of unhandled/hydration errors. React's development

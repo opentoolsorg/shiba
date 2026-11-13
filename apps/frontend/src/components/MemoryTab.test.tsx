@@ -45,6 +45,16 @@ afterEach(() => {
 });
 
 describe("MemoryTab", () => {
+  it("keeps controlled section navigation available when its sidebar is collapsed", async () => {
+    const onSelectView = vi.fn();
+    render(<MemoryTab activeView="facts" onSelectView={onSelectView} sidebarCollapsed initialFacts={[]} initialSessions={[]} />);
+    const sections = screen.getByRole("navigation", { name: "Memory sections" });
+    expect(sections.className).not.toContain("lg:hidden");
+    fireEvent.click(screen.getByRole("button", { name: "Workspace Memory" }));
+    expect(onSelectView).toHaveBeenCalledWith("sources");
+    expect(fetch).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ method: "POST" }));
+  });
+
   it("renders breadcrumb header and banked facts list", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);

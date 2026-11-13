@@ -46,9 +46,11 @@ const runs = [
 ].map(([status, task], index) => ({ runId: `ux-run-${index}`, sandboxId: `ux-sandbox-${index}`, task, status, repoUrl: "https://github.com/fixture/example", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: now - 90000, updatedAt: now - index * 1000 }));
 runs.push({ ...runs[1], runId: "ux-pr", task: "PR fixture", pullUrl: "https://github.com/fixture/example/pull/1" });
 const approval = { approvalId: "ux-approval", threadKey: "", task: "Frozen approval fixture", repoUrl: "https://github.com/fixture/example", kind: "run", status: "pending", createdAt: now, payload: { repoUrl: "https://github.com/fixture/example", task: "FROZEN_UX_PAYLOAD", baseBranch: "main", publishPullRequest: false } };
+const approvals = [approval];
+let allowQueueFixture = false;
 const empty = { workspaces: [], sessions: [], runs: [], approvals: [], decided: [], agents: [], principals: [], connections: [], computers: [], entries: [], sources: [], projects: [], spaces: [], tasks: [], items: [], members: [], providers: [], facts: [], mailboxes: [], automations: [], events: [], outbox: [], skills: [], servers: [] };
 const setup = { slack: { signingSecret: false, botToken: false, approvers: 0, channelRepos: false }, github: { token: false, app: false, publish: false, webhookSecret: false }, linear: { webhookSecret: false, apiToken: false, defaultRepo: false }, slackVerification: { signingSecret: false }, gateway: { id: "", token: false, reachable: "unknown" }, access: { required: true }, betterAuth: { configured: false }, models: { orchestrator: "", coding: "", harness: "opencode", roles: [] }, automations: { enabled: false, typeSafe: false }, mailbox: { addressOverride: false, sendEnabled: false }, doctor: { ok: false, checkedAt: now, findings: [], roles: [] } };
-const evidence = { sha: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), trackedChanges: execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], { encoding: "utf8" }).trim(), builtAssets: Boolean(staticServer), fixtureOnly: true, liveProviderE2E: false, checks: [], consoleErrors: [], pageErrors: [], unexpectedWrites: [], externalRequests: [], unavailableFixtureReads: [] };
+const evidence = { sha: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), trackedChanges: execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], { encoding: "utf8" }).trim(), builtAssets: Boolean(staticServer), fixtureOnly: true, liveProviderE2E: false, checks: [], consoleErrors: [], pageErrors: [], unexpectedWrites: [], permittedFixtureWrites: [], externalRequests: [], unavailableFixtureReads: [] };
 const browser = await chromium.launch({ executablePath: process.env.SHIBA_CHROMIUM || "/usr/bin/chromium", headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce" });
 await context.addInitScript(() => {
@@ -67,6 +69,14 @@ await context.route("**/*", async (route) => {
   }
   if (!url.pathname.startsWith("/api/") && !/^\/agents\/[^/]+\//.test(url.pathname)) return route.continue();
   if (!["GET", "HEAD"].includes(request.method())) {
+    if (allowQueueFixture && request.method() === "POST" && url.pathname === "/api/runs") {
+      const body = request.postDataJSON();
+      if (body.task === "QUEUE_UX_FIXTURE_FOR_HUMAN_REVIEW" && body.executionTarget?.kind === "artifact-workspace") {
+        evidence.permittedFixtureWrites.push({ method: "POST", path: url.pathname, body });
+        approvals.push({ approvalId: "ux-queued-from-chat", threadKey: "", kind: "run", status: "pending", task: body.task, repoUrl: "", createdAt: Date.now(), payload: body, executionTarget: body.executionTarget });
+        return route.fulfill({ json: { ok: true, approvalId: "ux-queued-from-chat" } });
+      }
+    }
     evidence.unexpectedWrites.push({ method: request.method(), path: url.pathname, body: request.postData() });
     return route.fulfill({ status: 403, json: { error: "Fixture harness blocks all mutations" } });
   }
@@ -76,7 +86,7 @@ await context.route("**/*", async (route) => {
   }
   let body = empty;
   if (url.pathname === "/api/whoami") body = { agent: "ux-fixture", auth: "access" };
-  else if (url.pathname === "/api/approvals") body = { approvals: [approval], decided: [] };
+  else if (url.pathname === "/api/approvals") body = { approvals, decided: [] };
   else if (/\/runs$/.test(url.pathname)) body = { runs };
   else if (/\/runs\/ux-/.test(url.pathname)) body = { run: runs.find((run) => url.pathname.endsWith(run.runId)) };
   else if (url.pathname === "/api/custom-agents") body = { agents: [{ id: "ux-employee", slug: "ux-employee", version: 1, config: { name: "Fixture employee", instructions: "Fixture instructions only", harness: "opencode" } }] };
@@ -146,6 +156,28 @@ try {
     await page.getByRole("tab", { name: "Chat", exact: true }).click();
     assert.equal(await draft.inputValue(), "@Fixture review the release plan; do not execute yet");
   });
+  await check("fixture Chat-to-Work queue reaches the existing frozen approval card", async () => {
+    await open("/threads/");
+    const draft = page.getByRole("form", { name: "Chat composer" }).locator("textarea");
+    await draft.fill("QUEUE_UX_FIXTURE_FOR_HUMAN_REVIEW");
+    await page.getByRole("button", { name: "Review as work", exact: true }).click();
+    const work = page.getByRole("form", { name: "Task composer", exact: true });
+    await work.getByRole("combobox", { name: "Work target", exact: true }).selectOption("artifact-workspace");
+    allowQueueFixture = true;
+    try {
+      await work.getByRole("button", { name: "Send task", exact: true }).click();
+      await page.getByText(/^Draft queued — review and approve/).waitFor();
+    } finally { allowQueueFixture = false; }
+    assert.equal(evidence.permittedFixtureWrites.length, 1);
+    await open("/approvals/");
+    await page.getByText("QUEUE_UX_FIXTURE_FOR_HUMAN_REVIEW", { exact: true }).first().waitFor();
+    const frozen = await page.locator("pre").evaluateAll((nodes) => nodes.map((node) => {
+      try { return JSON.parse(node.textContent); } catch { return null; }
+    }));
+    assert(frozen.some((body) => JSON.stringify(body) === JSON.stringify(evidence.permittedFixtureWrites[0].body)), "Frozen approval differs from the queued fixture request");
+    assert.equal(approvals.at(-1).status, "pending");
+    await page.screenshot({ path: path.join(output, "chat-to-approval-fixture.png") });
+  });
   await check("saved employee search and profile preserve read-only focus flow", async () => {
     await open("/custom-agents/");
     const search = page.getByRole("searchbox", { name: "Search employees", exact: true });
@@ -164,6 +196,7 @@ try {
   });
   await check("Knowledge shortcuts retain unsaved source text and keyboard focus", async () => {
     await open("/memory/");
+    await page.getByRole("button", { name: /^Sources/ }).filter({ visible: true }).first().click();
     const text = page.getByRole("textbox", { name: "TEXT TO REMEMBER", exact: true });
     await text.fill("Unsaved UX fixture architecture note");
     await page.getByRole("button", { name: /^Search memory/ }).click();
@@ -200,11 +233,33 @@ try {
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "Document overflows mobile viewport");
     await page.screenshot({ path: path.join(output, "work-mobile.png") });
   });
+  for (const theme of ["light", "dark"]) for (const width of [390, 768, 1440]) {
+    await check(`responsive ${theme} theme at ${width}px`, async () => {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+      await page.evaluate((value) => localStorage.setItem("shiba-theme", value), theme);
+      for (const view of ["work", "custom-agents", "memory"]) {
+        await open(view === "work" ? "/work/?view=board" : `/${view}/`);
+        if (view === "work") await page.getByRole("region", { name: "Board view", exact: true }).waitFor();
+        if (view === "custom-agents") await page.getByRole("heading", { name: "Your employee roster", exact: true }).waitFor();
+        if (view === "memory") {
+          const source = width >= 1024 ? page.getByRole("button", { name: /^Sources/ }).filter({ visible: true }).first() : page.getByRole("button", { name: "Workspace Memory", exact: true });
+          await source.click();
+          await page.getByRole("heading", { name: "Knowledge & context", exact: true }).waitFor();
+        }
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${view} overflows at ${width}px`);
+        assert.equal(await page.evaluate(() => document.documentElement.classList.contains("dark")), theme === "dark");
+        await page.screenshot({ path: path.join(output, `${view}-${theme}-${width}.png`) });
+      }
+    });
+  }
   await check("no unhandled browser or hydration errors", async () => {
     assert.deepEqual(evidence.pageErrors, []);
     assert(!evidence.consoleErrors.some((message) => /hydration|#418|Minified React error/i.test(message)), "Hydration error found");
   });
-  await check("no fixture writes escaped", async () => assert.deepEqual(evidence.unexpectedWrites, []));
+  await check("no unexpected writes or external requests escaped the fixture boundary", async () => {
+    assert.deepEqual(evidence.unexpectedWrites, []);
+    assert.deepEqual(evidence.externalRequests, []);
+  });
 } finally {
   await browser.close();
   if (staticServer) await new Promise((resolve) => staticServer.close(resolve));
