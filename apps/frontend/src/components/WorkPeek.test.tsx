@@ -156,6 +156,19 @@ describe("Work inspector", () => {
     expect(screen.getByRole("region", { name: "Board view" })).toBeTruthy();
   });
 
+  it("adopts a server-confirmed inspection request and still follows later browser history", () => {
+    const { rerender } = render(<WorkView runs={[run]} />);
+    rerender(<WorkView runs={[run]} requestedState={{ view: "board", task: run.runId, taskKind: "run", tab: "output" }} />);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Output" }).getAttribute("aria-selected")).toBe("true");
+    act(() => {
+      window.history.replaceState(null, "", "/work/?view=list");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("region", { name: "List view" })).toBeTruthy();
+  });
+
   it("keeps keyboard focus within the inspector and supports arrow tab navigation", () => {
     render(<WorkView runs={[run]} onSelectTask={vi.fn()} />);
     openRun();

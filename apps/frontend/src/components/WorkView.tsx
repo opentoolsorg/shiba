@@ -80,6 +80,8 @@ export interface WorkViewProps {
   renderPeekContent?: (task: WorkTask, tab: WorkPeekTab) => ReactNode;
   /** Router adapter: receive the complete next Work state, preserving caller-owned search keys. */
   onSearchChange?: (state: WorkSearchState) => void;
+  /** A new server-confirmed handoff may select an item without changing sessions. */
+  requestedState?: WorkSearchState;
 }
 
 // replaceState keeps the app router's own history steps (one per page) untouched.
@@ -173,6 +175,14 @@ export function WorkView(props: WorkViewProps): JSX.Element {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+  useEffect(() => {
+    if (!props.requestedState) return;
+    const state = props.requestedState;
+    setInternalView(state.view);
+    onViewChangeRef.current?.(state.view);
+    setSelection({ task: state.task, taskKind: state.taskKind, tab: state.tab });
+    setUrlReady(true);
+  }, [props.requestedState]);
   const onSearchChangeRef = useRef(props.onSearchChange);
   onSearchChangeRef.current = props.onSearchChange;
   useEffect(() => {

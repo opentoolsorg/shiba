@@ -137,7 +137,7 @@ try {
   const { session } = await sessionCreated.json();
   sessionId = session.id;
   assert.equal(session.metadata.customAgentId, agentId);
-  await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
+  await openAppView(page, "Chats");
   await assertThreadProfile();
   await page.getByLabel("Task description", { exact: true }).fill(task);
   await directory();
@@ -199,8 +199,7 @@ try {
   assert.equal(submitted.commandId, failedSubmission.commandId, "Retry must preserve its original command ID");
   report.submission = { source: "composer UI", method: actualRequest.method(), session: sessionId, ...submitted };
   assert(queued.ok(), `Queue failed ${queued.status()}`);
-  // The UI intentionally does not consume the success body. Read the actual
-  // persisted approval instead of waiting on an unconsumed browser fetch body.
+  // Independently read the persisted approval that the success receipt opens.
   const approvedInput = await waitFor("the UI-submitted bot approval", async () => {
     const body = await json("/api/approvals");
     return body.approvals.find((item) => item.customAgentId === agentId && item.task === `${instructions(2)}\n\n---\n\n${task}`);
