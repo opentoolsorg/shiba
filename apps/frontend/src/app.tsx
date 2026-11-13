@@ -3781,6 +3781,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <MemoryTab
               activeView={memoryView}
               onSelectView={setMemoryView}
+              sidebarCollapsed={sessionsCollapsed}
               scope={scope}
               onCountsChange={handleMemoryCountsChange}
             />

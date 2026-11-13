@@ -59,6 +59,7 @@ export interface MemoryTabProps {
   initialViewMode?: MemoryViewMode;
   activeView?: MemoryViewMode;
   onSelectView?: (view: MemoryViewMode) => void;
+  sidebarCollapsed?: boolean;
   scope?: Scope;
   initialFacts?: MemoryFact[];
   initialSessions?: MemorySession[];
@@ -74,6 +75,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
     onForgetFact,
     activeView: externalView,
     onSelectView,
+    sidebarCollapsed = false,
     scope = "personal",
     onCountsChange,
     className = "",
@@ -259,44 +261,42 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-        {/* Fallback segmented view switcher for standalone mode */}
-        {!externalView ? (
-          <nav aria-label="Memory sections" className="flex items-center gap-1 bg-[#f4f4f5] dark:bg-zinc-800/80 p-1 rounded-lg border border-[#e4e4e7] dark:border-zinc-800">
-            <button
-              type="button"
-              onClick={() => handleSelectView("facts")}
-              className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
-                viewMode === "facts"
-                  ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-xs font-semibold"
-                  : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100"
-              }`}
-            >
-              Banked Facts ({facts.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSelectView("sessions")}
-              className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
-                viewMode === "sessions"
-                  ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-xs font-semibold"
-                  : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100"
-              }`}
-            >
-              Recorded Sessions ({sessions.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSelectView("sources")}
-              className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
-                viewMode === "sources"
-                  ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-xs font-semibold"
-                  : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100"
-              }`}
-            >
-              Workspace Memory
-            </button>
-          </nav>
-        ) : null}
+        {/* Controlled views still need section access when their sidebar is hidden. */}
+        <nav aria-label="Memory sections" className={`${externalView && !sidebarCollapsed ? "lg:hidden " : ""}flex flex-wrap items-center gap-1 bg-[#f4f4f5] dark:bg-zinc-800/80 p-1 rounded-lg border border-[#e4e4e7] dark:border-zinc-800`}>
+          <button
+            type="button"
+            onClick={() => handleSelectView("facts")}
+            className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
+              viewMode === "facts"
+                ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-xs font-semibold"
+                : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100"
+            }`}
+          >
+            Banked Facts ({facts.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSelectView("sessions")}
+            className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
+              viewMode === "sessions"
+                ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-xs font-semibold"
+                : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100"
+            }`}
+          >
+            Recorded Sessions ({sessions.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSelectView("sources")}
+            className={`flex-1 text-xs font-medium py-1 px-3 rounded-md transition-all  touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
+              viewMode === "sources"
+                ? "bg-white dark:bg-zinc-900 text-[#0a0a0a] dark:text-zinc-100 shadow-xs font-semibold"
+                : "text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100"
+            }`}
+          >
+            Workspace Memory
+          </button>
+        </nav>
 
         {/* Search / Recall Bar */}
         {showSearchInput || viewMode !== "sources" ? (
