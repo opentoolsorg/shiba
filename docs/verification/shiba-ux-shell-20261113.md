@@ -32,7 +32,7 @@ Initial URL normalization retains existing callback query parameters and fragmen
 
 - All 23 destinations are covered by mapping/flat-route round-trip tests and desktop/mobile navigation tests.
 - Focused navigation, app, room-link, OAuth and Slack route tests cover the existing behavior and callback preservation. Backend host-routing and dashboard SSR tests pass (59 tests).
-- The final complete frontend suite passes: 199 files, 1,694 tests.
+- Final `pnpm test` passes all 10 package tasks. Frontend: 199 files and 1,694 tests passed. Backend: 427 files and 6,238 tests passed; one file / three live tests skipped.
 - Frontend typecheck, ESLint for the changed components, changed-file Biome checks and `git diff --check` pass.
 - Repository lint and import lint pass. Repository typecheck, root TypeScript build and SDK type synchronization pass. Astro needed `XDG_CONFIG_HOME` under `/tmp` and Turbo `--env-mode=loose` to forward that local environment setting; the default strict invocation could not create `/home/agent/.config/astro`.
 - The main client entry shrank from 2,294,776 to 2,265,523 bytes against a separately built checkout of the base SHA (29,253 bytes smaller; 3,617 bytes smaller with the same gzip compressor). The existing large-chunk build warning remains. Runtime memory was not benchmarked.
