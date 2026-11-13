@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { Suspense, type FormEvent } from "react";
+import { StrictMode, Suspense, type FormEvent } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app";
 import { ONBOARDING_DISMISSED_KEY } from "./components/AgentExperience";
@@ -43,7 +43,7 @@ vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChang
   <output data-testid="selected-runtime">{runTarget}</output>
   <button type="submit" disabled={isSubmitting}>Queue fixture task</button>
 </form> }));
-vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value }: { value: string }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} readOnly /></div> }));
+vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value, onChange, onPrepareWork }: { value: string; onChange?: (value: string) => void; onPrepareWork?: () => void }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} onChange={(event) => onChange?.(event.target.value)} />{onPrepareWork ? <button type="button" onClick={onPrepareWork}>Review as work</button> : null}</div> }));
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/work/");
@@ -155,6 +155,30 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
+  it("keeps a prompt deep link through StrictMode render retries", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/app/?prompt=STRICT_PROMPT_FIXTURE");
+    render(<StrictMode><App /></StrictMode>);
+    const draft = await screen.findByRole("textbox", { name: "Task draft" });
+    expect((draft as HTMLTextAreaElement).value).toBe("STRICT_PROMPT_FIXTURE");
+    expect(window.location.pathname).toBe("/threads/");
+    expect(new URLSearchParams(window.location.search).has("prompt")).toBe(false);
+  });
+
+  it("reviews the Chat draft in the existing Work composer without submitting it", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    render(<App />);
+    const draft = await screen.findByRole("textbox", { name: "Task draft" });
+    fireEvent.change(draft, { target: { value: "@Fixture inspect the release plan" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review as work" }));
+    await screen.findByTestId("task-composer");
+    expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("@Fixture inspect the release plan");
+    expect(window.location.pathname).toBe("/threads/");
+    expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+    expect(localStorage.getItem("shiba:conversation-mode:default")).toBe("work");
+  });
+
   it.each([
     ["/app/?tab=run-registry", "/analytics/"],
     ["/app/?tab=orchestrator", "/activity/"],
