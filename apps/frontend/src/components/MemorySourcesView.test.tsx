@@ -25,6 +25,29 @@ afterEach(() => {
 describe("MemorySourcesView", () => {
   const downloadable = { ...source, version: 2, sha256: "ab".repeat(32), ingestion: { state: "ready", filename: "brand.md", mediaType: "text/markdown", bytes: 12 } };
 
+  it("navigates Knowledge tools with keyboard focus while preserving an unsaved source", async () => {
+    const request = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => json(String(url).endsWith("/projects") ? { projects: [] } : { sources: [source] }));
+    vi.stubGlobal("fetch", request);
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(() => {});
+    render(<MemorySourcesView />);
+    await screen.findByRole("heading", { name: "Launch notes" });
+    const text = screen.getByRole("textbox", { name: "TEXT TO REMEMBER" }) as HTMLTextAreaElement;
+    fireEvent.change(text, { target: { value: "An unsaved architecture decision" } });
+    for (const [button, role, name] of [
+      ["Search memory", "form", "Recall from memory"],
+      ["Add a note", "form", "Save memory source"],
+      ["Project context", "region", "Workspace projects"],
+      ["Upload a file", "form", "Upload source file"],
+    ] as const) {
+      fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${button}`) }));
+      expect(document.activeElement).toBe(screen.getByRole(role, { name }));
+    }
+    expect(text.value).toBe("An unsaved architecture decision");
+    expect(scroll).toHaveBeenCalledTimes(4);
+    expect(request.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+    expect(screen.getByText(/uses local keyword ranking/)).toBeTruthy();
+  });
+
   it("downloads the displayed version once, keeps errors inline, and releases the object URL", async () => {
     const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:private-source");
     const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});

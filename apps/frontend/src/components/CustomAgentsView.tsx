@@ -124,8 +124,13 @@ function ScopedCustomAgentsView({
   const [busy, setBusy] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [directoryQuery, setDirectoryQuery] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const selectedAgent = agents?.find((agent) => agent.id === selectedAgentId);
+  const rosterQuery = directoryQuery.trim().toLocaleLowerCase();
+  const visibleAgents = agents?.filter((agent) => [agent.config.name, agent.slug, agent.config.harness,
+    agent.config.codingModel ?? "", employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))]
+    .some((value) => value.toLocaleLowerCase().includes(rosterQuery)));
   const [form, setForm] = useState(() => readRoleDraft(draftScope));
   const [draftStorageAvailable, setDraftStorageAvailable] = useState(true);
   const [expectedVersion, setExpectedVersion] = useState<number | undefined>(undefined);
@@ -141,6 +146,15 @@ function ScopedCustomAgentsView({
   const appliedInitialTemplate = useRef<EmployeeTemplate["id"] | null>(null);
   const templateTrigger = useRef<HTMLButtonElement | null>(null);
   const keepDraftButton = useRef<HTMLButtonElement | null>(null);
+  const profileSection = useRef<HTMLElement | null>(null);
+  const profileTrigger = useRef<HTMLButtonElement | null>(null);
+  const focusProfile = useRef(false);
+  useEffect(() => {
+    if (!focusProfile.current || !selectedAgentId) return;
+    focusProfile.current = false;
+    profileSection.current?.scrollIntoView?.({ block: "start" });
+    profileSection.current?.focus({ preventScroll: true });
+  }, [selectedAgentId]);
   const nameInput = useRef<HTMLInputElement | null>(null);
   const [focusNameRequest, setFocusNameRequest] = useState(0);
   const focusName = useCallback(() => setFocusNameRequest((request) => request + 1), []);
@@ -437,8 +451,8 @@ function ScopedCustomAgentsView({
   };
 
   return (
-    <div className="employee-directory flex h-full flex-1 flex-col overflow-hidden bg-white text-[#0a0a0a] dark:bg-zinc-900 dark:text-zinc-100 rounded-xl border border-[#e4e4e7] shadow-sm dark:border-zinc-800">
-      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 dark:border-zinc-800 select-none">
+    <div className="employee-directory flex h-full min-w-0 flex-1 flex-col overflow-hidden border border-[var(--line)] bg-[var(--paper)] text-[var(--ink)]">
+      <header className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] bg-[var(--card)] px-4 py-2">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[14px]">
           <span className="text-[#71717a] dark:text-zinc-400">
             {workspaceId ? "Workspace" : "Personal"}
@@ -476,7 +490,155 @@ function ScopedCustomAgentsView({
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
-          {selectedAgent ? <section className="agent-detail-card" aria-label={`${selectedAgent.config.name} overview`}><div className="agent-detail-heading"><AgentAvatar agentId={selectedAgent.id} name={selectedAgent.config.name} mascotPreset={selectedAgent.config.mascotPreset} look={selectedAgent.config.look} slug={selectedAgent.slug} role={employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId)} large /><div><p className="agent-eyebrow">Your persistent teammate</p><h2>{selectedAgent.config.name}</h2><p>{employeeRoleLabel(employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId))}</p><span className="agent-category">{selectedAgent.config.harness} · {selectedAgent.config.codingModel || "Workspace default"}</span></div><button type="button" onClick={() => setSelectedAgentId(null)}>All teammates</button></div><p className="text-sm text-[var(--muted-foreground-2)]">{selectedAgent.config.instructions.slice(0, 240)}</p><div className="agent-detail-threads"><h3>Threads</h3>{threadsLoading ? <p>Loading threads…</p> : threadsUnavailable ? <p>Thread history is unavailable. Try refreshing the page.</p> : agentThreads(threads, selectedAgent.id).map((thread) => <button key={thread.id} type="button" onClick={() => onOpenThread?.(thread.id)}><span>{thread.name || "Untitled thread"}</span><time dateTime={new Date(thread.updatedAt).toISOString()}>{formatTimeAgo(thread.updatedAt)}</time></button>)}{!threadsLoading && !threadsUnavailable && !agentThreads(threads, selectedAgent.id).length ? <p>A fresh start. Give your teammate something to work on.</p> : null}{onStartThread ? <button type="button" disabled={startingAgentId !== null || busy} onClick={() => void startThread(selectedAgent)}>+ Start a thread</button> : null}</div></section> : null}
+          <section aria-label="Employee directory" className="flex flex-wrap items-end justify-between gap-4">
+            <div className="min-w-0">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">Team / Saved employees</p>
+              <h1 className="font-serif text-2xl text-[var(--ink)]">Your employee roster</h1>
+              <p className="mt-1 max-w-2xl text-sm text-[var(--ink-2)]">Find a saved employee, inspect its defaults, or launch a dedicated thread. Work still requires human approval.</p>
+            </div>
+            <label className="flex w-full flex-col gap-1 text-xs text-[var(--ink-2)] sm:w-72">
+              Search employees
+              <input type="search" value={directoryQuery} onChange={(event) => setDirectoryQuery(event.target.value)}
+                placeholder="Name, role, harness or model" className="min-h-11 w-full border border-[var(--input-line)] bg-[var(--card)] px-3 text-sm text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]" />
+            </label>
+          </section>
+          {selectedAgent ? (
+            <section ref={profileSection} tabIndex={-1} aria-label={`${selectedAgent.config.name} overview`} className="border border-[var(--line)] bg-[var(--card)] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <AgentAvatar agentId={selectedAgent.id} name={selectedAgent.config.name} mascotPreset={selectedAgent.config.mascotPreset} look={selectedAgent.config.look} slug={selectedAgent.slug} role={employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId)} large />
+                  <div className="min-w-0"><p className="font-mono text-[10px] uppercase text-[var(--ink-2)]">Saved profile · v{selectedAgent.version}</p><h2 className="break-words font-serif text-xl">{selectedAgent.config.name}</h2><p className="text-xs text-[var(--ink-2)]">{employeeRoleLabel(employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId))}</p></div>
+                </div>
+                <button type="button" className="min-h-11 border border-[var(--line)] px-3 text-xs" onClick={() => { setSelectedAgentId(null); profileTrigger.current?.focus(); }}>Close profile</button>
+              </div>
+              <dl className="my-4 grid gap-3 text-xs sm:grid-cols-2">
+                <div><dt className="text-[var(--ink-2)]">Harness</dt><dd className="break-words font-mono">{selectedAgent.config.harness}</dd></div>
+                <div><dt className="text-[var(--ink-2)]">Model</dt><dd className="break-words font-mono">{selectedAgent.config.codingModel || "Workspace default"}</dd></div>
+                <div><dt className="text-[var(--ink-2)]">Sandbox</dt><dd>{selectedAgent.config.sandboxProvider || "Organization default"}</dd></div>
+                <div><dt className="text-[var(--ink-2)]">Repository</dt><dd className="break-all">{selectedAgent.config.defaultRepoUrl || "Choose when starting work"}</dd></div>
+              </dl>
+              <h3 className="text-xs font-medium">Instructions</h3>
+              <p className="mt-1 whitespace-pre-wrap break-words text-sm text-[var(--ink-2)]">{selectedAgent.config.instructions}</p>
+              {!showArchived ? <button type="button" disabled={busy} onClick={() => startEdit(selectedAgent)} className="mt-3 min-h-11 border border-[var(--line)] px-3 text-xs disabled:opacity-50">Edit profile</button> : null}
+            </section>
+          ) : null}
+          {loadError ? <LoadErrorState message={loadError} onRetry={refresh} /> : null}
+
+          {agents === null && !loadError ? (
+            <div role="status" aria-busy="true" aria-label="Loading bots">
+              <SkeletonLines rows={4} />
+            </div>
+          ) : null}
+
+          {agents && agents.length === 0 ? (
+            <EmptyState
+              title={showArchived ? "No archived bots" : "No bots"}
+              detail={showArchived ? "Archived bots appear here and can be restored." : "Choose New bot to save an employee, then launch it to open a thread."}
+            />
+          ) : null}
+
+          {agents && agents.length > 0 && visibleAgents?.length === 0 ? (
+            <div className="border border-dashed border-[var(--line)] p-5 text-sm text-[var(--ink-2)]">
+              <p>No employees match your search.</p>
+              <button type="button" onClick={() => setDirectoryQuery("")} className="mt-2 min-h-11 border border-[var(--line)] px-3 text-[var(--ink)]">Clear employee search</button>
+            </div>
+          ) : null}
+          {agents && agents.length > 0 ? (
+            <ul aria-label="Saved employees" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {visibleAgents?.map((agent) => (
+                <li
+                  key={agent.id}
+                  className="flex min-w-0 flex-col justify-between gap-4 border border-[var(--line)] bg-[var(--card)] p-4 shadow-[2px_2px_0_var(--paper-shadow)]"
+                >
+                  <div className="min-w-0">
+                    <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} look={agent.config.look} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))}</span></div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button type="button" onClick={(event) => { profileTrigger.current = event.currentTarget; focusProfile.current = true; setSelectedAgentId(agent.id); }} aria-label={`View profile ${agent.config.name}`}
+                        className="min-h-11 break-words text-left font-serif text-xl text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]">{agent.config.name}</button>
+                      <span className="break-all text-[11px] font-mono text-[var(--muted-foreground-2)]">
+                        {agent.slug}
+                        {` · v${agent.version}`}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-[var(--muted-foreground-2)] mt-0.5 line-clamp-2">
+                      {agent.config.instructions}
+                    </div>
+                    <div className="break-words text-[10px] font-mono text-[var(--muted-foreground-3)] mt-1">
+                      Runs on {agent.config.harness}
+                      {agent.config.codingModel ? ` · ${agent.config.codingModel}` : " · Default model"}
+                      {agent.config.sandboxProvider ? ` · ${agent.config.sandboxProvider}` : ""}
+                    </div>
+                    <p className="mt-1 break-all text-xs text-[var(--muted-foreground-2)]">Repository: {agent.config.defaultRepoUrl || "Choose a project repository when starting work"}</p>
+                    {onOpenThread ? (
+                      <div className="mt-3 border-t border-[var(--border-1)] pt-2">
+                        <h3 className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Threads started with this bot</h3>
+                        {threadsLoading ? (
+                          <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">Loading threads…</p>
+                        ) : threadsUnavailable ? (
+                          <p className="mt-1 text-xs text-[var(--warning-fg)]">Thread history is unavailable. Try refreshing the page.</p>
+                        ) : agentThreads(threads, agent.id).length === 0 ? (
+                          <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">No threads yet.</p>
+                        ) : (
+                          <ul aria-label={`${agent.config.name} threads`} className="mt-1 flex flex-col gap-1">
+                            {agentThreads(threads, agent.id).map((thread) => (
+                              <li key={thread.id}>
+                                <button type="button" onClick={() => onOpenThread(thread.id)} className="flex w-full items-center gap-2 rounded-[var(--radius-button)] py-1 text-left text-xs text-[var(--fg)] hover:text-[var(--primary)]">
+                                  <span className="truncate">{thread.name}</span>
+                                  <span className="shrink-0 text-[10px] text-[var(--muted-foreground-3)]">{formatTimeAgo(thread.updatedAt)}</span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                    {onStartThread && !showArchived ? (
+                      <button
+                        type="button"
+                        disabled={startingAgentId !== null || busy}
+                        onClick={() => void startThread(agent)}
+                        aria-label={`Launch bot ${agent.config.name}`}
+                        className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--primary)] text-[var(--primary)] px-2 py-1 disabled:opacity-50"
+                      >
+                        {startingAgentId === agent.id ? "Launching…" : "Launch bot"}
+                      </button>
+                    ) : null}
+                    <button type="button" disabled={busy} onClick={() => void changeLifecycle(agent, showArchived ? "restore" : "archive")}
+                      aria-label={`${showArchived ? "Restore" : "Archive"} bot ${agent.config.name}`}
+                      className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--border-1)] px-2 py-1 disabled:opacity-50">
+                      {showArchived ? "Restore bot" : "Archive bot"}
+                    </button>
+                    {!showArchived ? <button
+                      type="button"
+                      onClick={() => startEdit(agent)}
+                      className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--border-1)] px-2 py-1"
+                    >
+                      Edit bot
+                    </button> : null}
+                    {confirmDeleteId === agent.id ? (
+                      <button
+                        type="button"
+                        onClick={() => void deleteAgent(agent.id)}
+                        className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--destructive)]/40 text-[var(--destructive)] px-2 py-1"
+                      >
+                        Confirm delete bot
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(agent.id)}
+                        className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--destructive)]/40 text-[var(--destructive)] px-2 py-1"
+                      >
+                        Delete bot
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {notice ? <StatusNotice tone={notice.tone}>{notice.text}</StatusNotice> : null}
 
           <AgentTemplatesCatalog workspaceId={workspaceId} onUse={async (template: AgentTemplate, savedConfig?: CustomAgentConfig) => {
@@ -755,117 +917,6 @@ function ScopedCustomAgentsView({
               </div>
               {conflict ? <button type="button" disabled={busy} onClick={() => void reloadEditingAgent()} className="self-start text-xs text-[var(--primary)]">Reload latest bot</button> : null}
             </form>
-          ) : null}
-
-          {loadError ? <LoadErrorState message={loadError} onRetry={refresh} /> : null}
-
-          {agents === null && !loadError ? (
-            <div role="status" aria-busy="true" aria-label="Loading bots">
-              <SkeletonLines rows={4} />
-            </div>
-          ) : null}
-
-          {agents && agents.length === 0 ? (
-            <EmptyState
-              title={showArchived ? "No archived bots" : "No bots"}
-              detail={showArchived ? "Archived bots appear here and can be restored." : "Create a bot above, then launch it to open a thread."}
-            />
-          ) : null}
-
-          {agents && agents.length > 0 ? (
-            <ul className="flex flex-col gap-2">
-              {agents.map((agent) => (
-                <li
-                  key={agent.id}
-                  className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] px-4 py-3 flex flex-col sm:flex-row items-start justify-between gap-3 shadow-[var(--sh-card)]"
-                >
-                  <div className="min-w-0">
-                    <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} look={agent.config.look} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))}</span></div>
-                    <div className="text-sm font-medium text-[var(--fg)]">
-                      {agent.config.name}
-                      <span className="text-[11px] font-mono text-[var(--muted-foreground-2)] ml-2">
-                        {agent.slug}
-                        {` · v${agent.version}`}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-[var(--muted-foreground-2)] mt-0.5 line-clamp-2">
-                      {agent.config.instructions}
-                    </div>
-                    <div className="text-[10px] font-mono text-[var(--muted-foreground-3)] mt-1">
-                      Runs on {agent.config.harness}
-                      {agent.config.codingModel ? ` · ${agent.config.codingModel}` : " · Default model"}
-                      {agent.config.sandboxProvider ? ` · ${agent.config.sandboxProvider}` : ""}
-                    </div>
-                    <p className="mt-1 break-all text-xs text-[var(--muted-foreground-2)]">Repository: {agent.config.defaultRepoUrl || "Choose a project repository when starting work"}</p>
-                    {onOpenThread ? (
-                      <div className="mt-3 border-t border-[var(--border-1)] pt-2">
-                        <h3 className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Threads started with this bot</h3>
-                        {threadsLoading ? (
-                          <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">Loading threads…</p>
-                        ) : threadsUnavailable ? (
-                          <p className="mt-1 text-xs text-[var(--warning-fg)]">Thread history is unavailable. Try refreshing the page.</p>
-                        ) : agentThreads(threads, agent.id).length === 0 ? (
-                          <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">No threads yet.</p>
-                        ) : (
-                          <ul aria-label={`${agent.config.name} threads`} className="mt-1 flex flex-col gap-1">
-                            {agentThreads(threads, agent.id).map((thread) => (
-                              <li key={thread.id}>
-                                <button type="button" onClick={() => onOpenThread(thread.id)} className="flex w-full items-center gap-2 rounded-[var(--radius-button)] py-1 text-left text-xs text-[var(--fg)] hover:text-[var(--primary)]">
-                                  <span className="truncate">{thread.name}</span>
-                                  <span className="shrink-0 text-[10px] text-[var(--muted-foreground-3)]">{formatTimeAgo(thread.updatedAt)}</span>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                    {onStartThread && !showArchived ? (
-                      <button
-                        type="button"
-                        disabled={startingAgentId !== null || busy}
-                        onClick={() => void startThread(agent)}
-                        aria-label={`Launch bot ${agent.config.name}`}
-                        className="text-[11px] border border-[var(--primary)] text-[var(--primary)] px-2 py-1 disabled:opacity-50"
-                      >
-                        {startingAgentId === agent.id ? "Launching…" : "Launch bot"}
-                      </button>
-                    ) : null}
-                    <button type="button" disabled={busy} onClick={() => void changeLifecycle(agent, showArchived ? "restore" : "archive")}
-                      aria-label={`${showArchived ? "Restore" : "Archive"} bot ${agent.config.name}`}
-                      className="text-[11px] border border-[var(--border-1)] px-2 py-1 disabled:opacity-50">
-                      {showArchived ? "Restore bot" : "Archive bot"}
-                    </button>
-                    {!showArchived ? <button
-                      type="button"
-                      onClick={() => startEdit(agent)}
-                      className="text-[11px] border border-[var(--border-1)] px-2 py-1"
-                    >
-                      Edit bot
-                    </button> : null}
-                    {confirmDeleteId === agent.id ? (
-                      <button
-                        type="button"
-                        onClick={() => void deleteAgent(agent.id)}
-                        className="text-[11px] border border-[var(--destructive)]/40 text-[var(--destructive)] px-2 py-1"
-                      >
-                        Confirm delete bot
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeleteId(agent.id)}
-                        className="text-[11px] border border-[var(--destructive)]/40 text-[var(--destructive)] px-2 py-1"
-                      >
-                        Delete bot
-                      </button>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
           ) : null}
         </div>
       </div>

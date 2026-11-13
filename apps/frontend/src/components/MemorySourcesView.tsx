@@ -89,6 +89,15 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [cleanupPending, setCleanupPending] = useState<Array<{ id: string; filename: string }>>([]);
   const [uploadsPending, setUploadsPending] = useState<Array<{ id: string; filename: string }>>([]);
+  const uploadSection = useRef<HTMLFormElement>(null);
+  const noteSection = useRef<HTMLFormElement>(null);
+  const recallSection = useRef<HTMLFormElement>(null);
+  const projectSection = useRef<HTMLElement>(null);
+  const sourcesSection = useRef<HTMLElement>(null);
+  const goToSection = (section: HTMLElement | null) => {
+    section?.scrollIntoView({ block: "start" });
+    section?.focus({ preventScroll: true });
+  };
   const uploadInput = useRef<HTMLInputElement>(null);
   const uploadBusy = useRef(false);
   const recallEpoch = useRef(0);
@@ -374,9 +383,9 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
   return (
     <section
       aria-label="Workspace memory sources"
-      className="flex flex-col gap-4 text-[#0a0a0a] dark:text-zinc-100"
+      className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-4 text-[var(--ink)]"
     >
-      <header className="border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 shadow-xs overflow-hidden">
+      <header className="overflow-hidden border border-[var(--line)] bg-[var(--card)] shadow-[2px_2px_0_var(--paper-shadow)]">
         <div className="flex items-center justify-between border-b border-[#e4e4e7] dark:border-zinc-800 bg-[#fafafa] dark:bg-zinc-800/60 px-4 py-2.5 text-xs font-mono text-[#71717a] dark:text-zinc-400">
           <span>WORKSPACE MEMORY · OWNER PRIVATE</span>
           <button className="text-[11px] underline hover:text-[#0a0a0a] dark:hover:text-zinc-100 transition-colors touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]" onClick={() => void load()} type="button">
@@ -384,6 +393,7 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
           </button>
         </div>
         <div className="p-4 text-sm">
+          <h1 className="mb-2 font-serif text-2xl text-[var(--ink)]">Knowledge &amp; context</h1>
           <p className="text-[13px] text-[#0a0a0a] dark:text-zinc-200">
             Private extracted text is stored in Shiba’s local SQLite-backed Durable Object; uploaded file versions stay in private storage. Retrieval
             uses local keyword ranking; source text is treated as untrusted reference data.
@@ -394,6 +404,22 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
           </p>
         </div>
       </header>
+
+      <nav aria-label="Knowledge tools" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {[
+          { label: "Search memory", detail: "Recall from private sources", section: recallSection },
+          { label: "Saved sources", detail: "Inspect, edit and remove", section: sourcesSection },
+          { label: "Project context", detail: "Group sources and defaults", section: projectSection },
+          { label: "Add a note", detail: "Save reference text", section: noteSection },
+          { label: "Upload a file", detail: "TXT or Markdown", section: uploadSection },
+        ].map((tool) => (
+          <button key={tool.label} type="button" onClick={() => goToSection(tool.section.current)}
+            className="min-h-16 min-w-0 border border-[var(--line)] bg-[var(--card)] p-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--navy)]">
+            <span className="block text-xs font-medium text-[var(--ink)]">{tool.label}</span>
+            <span className="mt-1 block text-[11px] text-[var(--ink-2)]">{tool.detail}</span>
+          </button>
+        ))}
+      </nav>
 
       {error ? (
         <div
@@ -409,7 +435,7 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
         </div>
       ) : null}
 
-      <form onSubmit={(event) => void upload(event)} className="flex flex-col gap-2.5 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs">
+      <form ref={uploadSection} tabIndex={-1} aria-label="Upload source file" onSubmit={(event) => void upload(event)} className="flex flex-col gap-2.5 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs">
         <h3 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100">Upload source file</h3>
         <p className="text-xs text-[#71717a] dark:text-zinc-400">TXT and Markdown only, UTF-8, at most 40000 bytes. PDF, Office, archives, HTML and SVG are unsupported. Files become ready after validation and private storage succeed. Recall expiry excludes text; original files remain stored until Delete.</p>
         <label className="text-xs font-medium text-[#71717a] dark:text-zinc-400 flex flex-col gap-1.5">TXT or Markdown file
@@ -434,6 +460,7 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.8fr)]">
         <form
+          ref={noteSection} tabIndex={-1} aria-label="Save memory source"
           onSubmit={(event) => void save(event)}
           className="flex flex-col gap-2.5 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs"
         >
@@ -517,6 +544,7 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
 
         <div className="flex flex-col gap-3">
           <form
+            ref={recallSection} tabIndex={-1} aria-label="Recall from memory"
             onSubmit={(event) => void recall(event)}
             className="flex flex-col gap-2.5 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs"
           >
@@ -595,6 +623,7 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
       </div>
 
       <section
+        ref={projectSection} tabIndex={-1}
         aria-label="Workspace projects"
         className="flex flex-col gap-3 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs"
       >
@@ -726,7 +755,7 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
         )}
       </section>
 
-      <div className="flex flex-col gap-2.5">
+      <section ref={sourcesSection} tabIndex={-1} aria-label="Saved memory sources" className="flex flex-col gap-2.5">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100">Sources you control</h3>
           <span className="font-mono text-[11px] text-[#71717a] dark:text-zinc-400">{sources.length} stored</span>
@@ -810,7 +839,7 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
             );
           })
         )}
-      </div>
+      </section>
     </section>
   );
 }
