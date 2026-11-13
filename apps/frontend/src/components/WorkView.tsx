@@ -1,30 +1,34 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 import { ListChecks, Search, X } from "lucide-react";
+import { type JSX, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isTeamWorkAssignedToViewer, selectTeamWorkItems, type TeamWorkItem, teamWorkNeedsViewer } from "../team-work-items";
 import type { RetainedRun, StoredApproval } from "../types";
-import { parseRepoName, statusLabel, type PendingApproval as ChatPendingApproval } from "../ui-helpers";
-import type { SessionItem } from "./SessionsSidebar";
-import { ViewGroup, viewButtonClass } from "./ui/ViewChrome";
-import { isTeamWorkAssignedToViewer, selectTeamWorkItems, teamWorkNeedsViewer, type TeamWorkItem } from "../team-work-items";
+import { type PendingApproval as ChatPendingApproval, parseRepoName, statusLabel } from "../ui-helpers";
 import type { WorkTaskPatch } from "../work-mutations";
+import { parseWorkSearch, updateWorkSearch, type WorkPeekTab, type WorkSearchState, type WorkTaskKind } from "../work-search";
+import type { SessionItem } from "./SessionsSidebar";
+import { type TaskDetailAgent, TaskDetailPanel } from "./TaskDetailPanel";
+import { ViewGroup, viewButtonClass } from "./ui/ViewChrome";
+import { WorkBoardView } from "./WorkBoardView";
+import { WorkDetailModal } from "./WorkDetailModal";
 import { WorkHeader, type WorkHeaderViewMode } from "./WorkHeader";
-import { WorkBoardView, deriveKanbanColumn } from "./WorkBoardView";
-import { WorkQuickAdd } from "./WorkQuickAdd";
-import { WorkTimelineView } from "./WorkTimelineView";
-import { WorkOrganizationView, type OrganizationEmployee, type OrganizationUser } from "./WorkOrganizationView";
 import { WorkLeftPanel, type WorkLeftPanelProps, type WorkScope } from "./WorkLeftPanel";
 import { WorkListView, workListGroup } from "./WorkListView";
-import { TaskDetailPanel, type TaskDetailAgent } from "./TaskDetailPanel";
+import { type OrganizationEmployee, type OrganizationUser, WorkOrganizationView } from "./WorkOrganizationView";
+import { WorkPeek, type WorkPeekProps } from "./WorkPeek";
+import { WorkQuickAdd } from "./WorkQuickAdd";
+import { WorkTimelineView } from "./WorkTimelineView";
 
 export type WorkViewMode = WorkHeaderViewMode;
 
 export interface WorkTask {
   id: string;
-  kind: "approval" | "run" | "session";
+  kind: WorkTaskKind;
   title: string;
   repo: string;
-  group: "needs-approval" | "running" | "pr-open" | "attention" | "done";
+  group: "ready" | "needs-approval" | "queued" | "running" | "pr-open" | "attention" | "done";
   stateLabel: string;
   updatedAt: number;
+  createdAt?: number;
   /** Original run/session status, used to keep failure kinds distinct on the board. */
   rawStatus?: string;
 }
@@ -64,23 +68,23 @@ export interface WorkViewProps {
   agents?: readonly TaskDetailAgent[];
   /** Signed-in user for the Organization chart heading. */
   user?: OrganizationUser;
-}
-
-const WORK_VIEWS: readonly WorkViewMode[] = ["list", "board", "timeline", "organization"];
-function readWorkUrl(): { view?: WorkViewMode; task: string | null } {
-  if (typeof window === "undefined") return { task: null };
-  const params = new URLSearchParams(window.location.search);
-  const view = WORK_VIEWS.find((mode) => mode === params.get("view"));
-  return { view, task: params.get("task") };
+  /** Existing approval handlers are passed through unchanged to the existing cards. */
+  onDecideApproval?: WorkPeekProps["onDecideApproval"];
+  onDecideStoredApproval?: WorkPeekProps["onDecideStoredApproval"];
+  approvalDecisions?: Record<string, boolean>;
+  /** Scope used by existing deliverable links; never guessed from a run id. */
+  peekSessionId?: string;
+  /** Existing app feedback must remain visible above the modal's inert background. */
+  peekNotice?: ReactNode;
+  /** Embed the selected thread's existing StepTimeline/RunLivePanel or fully loaded diff. */
+  renderPeekContent?: (task: WorkTask, tab: WorkPeekTab) => ReactNode;
+  /** Router adapter: receive the complete next Work state, preserving caller-owned search keys. */
+  onSearchChange?: (state: WorkSearchState) => void;
 }
 
 // replaceState keeps the app router's own history steps (one per page) untouched.
-function writeWorkUrl(view: WorkViewMode, task: string | null): void {
-  const params = new URLSearchParams(window.location.search);
-  if (view === "list") params.delete("view");
-  else params.set("view", view);
-  if (task) params.set("task", task);
-  else params.delete("task");
+function writeWorkUrl(state: WorkSearchState): void {
+  const params = updateWorkSearch(new URLSearchParams(window.location.search), state);
   const search = params.toString();
   const next = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`;
   if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
@@ -89,6 +93,14 @@ function writeWorkUrl(view: WorkViewMode, task: string | null): void {
 }
 
 type PanelLists = Pick<WorkLeftPanelProps, "needsYou" | "assignedToMe" | "everything" | "selectedId" | "onOpenTask" | "onSearch">;
+const personalTaskKey = (task: WorkTask) => `${task.kind}:${task.id}`;
+function recordedDay(timestamp?: number): string | undefined {
+  if (!timestamp) return undefined;
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return undefined;
+  // Match the Timeline's local calendar and the inspector's local step timestamps.
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
 
 // The shell is nested inside the app frame, so it fills its parent instead of the viewport.
 const SHELL_STYLE = { height: "100%", padding: 0, background: "transparent" } as const;
@@ -96,7 +108,7 @@ const SHELL_STYLE = { height: "100%", padding: 0, background: "transparent" } as
 function workShell(props: WorkViewProps, lists: PanelLists, card: JSX.Element, detail?: { panel: JSX.Element; onClose: () => void }): JSX.Element {
   const showPanel = Boolean(props.onScopeChange) && !props.sidebarCollapsed;
   return (
-    <div className="shiba-work-shell min-w-0 flex-1" style={SHELL_STYLE} data-context={showPanel ? undefined : "collapsed"} data-detail={detail ? "open" : undefined}>
+    <div className="shiba-work-shell min-w-0 flex-1" style={SHELL_STYLE} data-work-surface tabIndex={-1} data-context={showPanel ? undefined : "collapsed"} data-detail={detail ? "open" : undefined}>
       {showPanel && props.onScopeChange ? (
         <WorkLeftPanel
           scope={props.workspaceId ? "workspace" : "personal"}
@@ -108,60 +120,95 @@ function workShell(props: WorkViewProps, lists: PanelLists, card: JSX.Element, d
       ) : null}
       {card}
       {detail ? (
-        <>
-          <button type="button" tabIndex={-1} aria-hidden="true" className="shiba-scrim" onClick={detail.onClose} />
-          <div className="shiba-detail-panel">{detail.panel}</div>
-        </>
+        <WorkDetailModal label="Task inspector" onClose={detail.onClose} compact>{detail.panel}</WorkDetailModal>
       ) : null}
     </div>
   );
 }
 
 const STATUS_GROUPS = [
+  { id: "ready", name: "Ready", dotClass: "bg-[var(--muted-foreground-3)]" },
   { id: "needs-approval", name: "Needs approval", dotClass: "bg-[var(--warning)]" },
+  { id: "queued", name: "Queued", dotClass: "bg-[var(--muted-foreground-2)]" },
   { id: "running", name: "Running", dotClass: "bg-[var(--primary)] animate-pulse-subtle" },
-  { id: "pr-open", name: "PR open", dotClass: "bg-[var(--success)]" },
+  { id: "pr-open", name: "PR linked", dotClass: "bg-[var(--success)]" },
   { id: "attention", name: "Needs attention", dotClass: "bg-[var(--destructive)]" },
-  { id: "done", name: "Done", dotClass: "bg-[var(--muted-foreground-3)]" },
+  { id: "done", name: "Completed", dotClass: "bg-[var(--muted-foreground-3)]" },
 ] as const;
 
 /** One status mapping for Board and Timeline so cancelled, PR open and needs-provider read the same in both. */
 function workStatus(task: WorkTask, approvalStatus: "needs-approval" | "waiting-approval"): string {
-  if (task.group === "needs-approval") return task.rawStatus === "needs-provider" ? "needs-provider" : approvalStatus;
+  if (task.group === "ready") return "ready";
+  if (task.group === "needs-approval") return approvalStatus;
   if (task.group === "running") return "running";
+  if (task.group === "queued") return "pending";
   if (task.group === "pr-open") return "pr-open";
-  if (task.group === "attention") return task.rawStatus && deriveKanbanColumn(task.rawStatus) === "attention" ? task.rawStatus : "error";
+  if (task.group === "attention") return task.rawStatus ?? "unknown";
   return "completed";
 }
 
 export function WorkView(props: WorkViewProps): JSX.Element {
   const { view: controlledView, onViewChange } = props;
-  const [internalView, setInternalView] = useState<WorkViewMode>(() => readWorkUrl().view ?? "list");
-  const [taskId, setTaskId] = useState<string | null>(() => readWorkUrl().task);
+  // Read browser state after hydration so the first client paint matches the server.
+  const [internalView, setInternalView] = useState<WorkViewMode>("list");
+  const [selection, setSelection] = useState<Pick<WorkSearchState, "task" | "taskKind" | "tab">>({ task: null, tab: "steps" });
+  const [urlReady, setUrlReady] = useState(false);
   const view = controlledView ?? internalView;
   const setView = useCallback((mode: WorkViewMode) => {
     setInternalView(mode);
     onViewChange?.(mode);
   }, [onViewChange]);
-  // A deep-linked ?view= wins once over the parent's initial controlled value.
-  const urlView = useRef(readWorkUrl().view);
+  const onViewChangeRef = useRef(onViewChange);
+  onViewChangeRef.current = onViewChange;
   useEffect(() => {
-    const deepLinked = urlView.current;
-    urlView.current = undefined;
-    if (deepLinked && deepLinked !== controlledView) onViewChange?.(deepLinked);
-  }, [controlledView, onViewChange]);
-  useEffect(() => writeWorkUrl(view, taskId), [view, taskId]);
+    const read = (initial = false) => {
+      const state = parseWorkSearch(new URLSearchParams(window.location.search));
+      setInternalView(state.view);
+      setSelection({ task: state.task, taskKind: state.taskKind, tab: state.tab });
+      if (!initial || new URLSearchParams(window.location.search).has("view")) onViewChangeRef.current?.(state.view);
+      setUrlReady(true);
+    };
+    read(true);
+    const onPop = () => read();
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const onSearchChangeRef = useRef(props.onSearchChange);
+  onSearchChangeRef.current = props.onSearchChange;
+  useEffect(() => {
+    if (!urlReady) return;
+    const state = { view, ...selection };
+    if (onSearchChangeRef.current) onSearchChangeRef.current(state);
+    else writeWorkUrl(state);
+  }, [view, selection, urlReady]);
+  const setTaskId = useCallback((task: string | null) => setSelection({ task, tab: "steps" }), []);
+  const setPersonalTask = useCallback((task: WorkTask, tab: WorkPeekTab = task.kind === "approval" ? "approval" : "steps") => {
+    setSelection({ task: task.id, taskKind: task.kind, tab });
+  }, []);
+  const previousScope = useRef(props.workspaceId);
+  useEffect(() => {
+    if (previousScope.current === props.workspaceId) return;
+    previousScope.current = props.workspaceId;
+    setSelection({ task: null, tab: "steps" });
+  }, [props.workspaceId]);
 
   const scoped = { ...props, view, onViewChange: setView };
   // A distinct component/key prevents personal drafts and team filters crossing scopes.
   return props.workspaceId ? (
-    <TeamWorkView key={props.workspaceId} {...scoped} workspaceId={props.workspaceId} taskId={taskId} onTaskChange={setTaskId} />
+    <TeamWorkView key={props.workspaceId} {...scoped} workspaceId={props.workspaceId} taskId={selection.task} onTaskChange={setTaskId} />
   ) : (
-    <PersonalWorkView {...scoped} />
+    <PersonalWorkView {...scoped} selection={selection} onOpenPeek={setPersonalTask} onClosePeek={() => setTaskId(null)} onPeekTabChange={(tab) => setSelection((current) => ({ ...current, tab }))} />
   );
 }
 
-function PersonalWorkView(props: WorkViewProps): JSX.Element {
+interface PersonalWorkViewProps extends WorkViewProps {
+  selection: Pick<WorkSearchState, "task" | "taskKind" | "tab">;
+  onOpenPeek(task: WorkTask, tab?: WorkPeekTab): void;
+  onClosePeek(): void;
+  onPeekTabChange(tab: WorkPeekTab): void;
+}
+
+function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
   const {
     runs = [],
     sessions = [],
@@ -196,32 +243,43 @@ function PersonalWorkView(props: WorkViewProps): JSX.Element {
     }
     for (const r of runs) {
       if (r.archivedAt !== undefined) continue;
-      const group: WorkTask["group"] = r.status === "running" || r.status === "pending" ? "running" : r.status !== "completed" ? "attention" : r.pullUrl ? "pr-open" : "done";
-      map.set(`run-${r.runId}`, { id: r.runId, kind: "run", title: r.task || "Untitled run", repo: parseRepoName(r.repoUrl) || "", group, stateLabel: group === "attention" ? statusLabel(r.status) : STATUS_GROUPS.find((g) => g.id === group)!.name, updatedAt: r.updatedAt || r.createdAt, rawStatus: r.status });
+      const group: WorkTask["group"] = r.status === "pending" ? "queued" : r.status === "running" ? "running" : r.status !== "completed" ? "attention" : r.pullUrl ? "pr-open" : "done";
+      map.set(`run-${r.runId}`, { id: r.runId, kind: "run", title: r.task || "Untitled run", repo: parseRepoName(r.repoUrl) || "", group, stateLabel: group === "attention" ? statusLabel(r.status) : STATUS_GROUPS.find((g) => g.id === group)!.name, createdAt: r.createdAt, updatedAt: r.updatedAt || r.createdAt, rawStatus: r.status });
     }
     const runIds = new Set(runs.map((r) => r.runId));
     for (const s of sessions) {
       if (s.id === "default" || runIds.has(s.id)) continue;
-      const group: WorkTask["group"] = s.status === "waiting-approval" || s.status === "needs-provider" ? "needs-approval" : s.status === "running" || s.live ? "running" : ["error", "failed", "aborted", "cancelled", "unknown"].includes(s.status) ? "attention" : "done";
-      map.set(`session-${s.id}`, { id: s.id, kind: "session", title: s.title || "Untitled thread", repo: s.repoName || "", group, stateLabel: group === "attention" ? statusLabel(s.status) : STATUS_GROUPS.find((g) => g.id === group)!.name, updatedAt: s.updatedAt, rawStatus: s.status });
+      const group: WorkTask["group"] = s.status === "waiting-approval" || s.status === "needs-approval" ? "needs-approval" : s.status === "running" || s.status === "live" || s.live ? "running" : s.status === "pending" || s.status === "queued" ? "queued" : s.status === "completed" ? "done" : s.status === "ready" ? "ready" : "attention";
+      map.set(`session-${s.id}`, { id: s.id, kind: "session", title: s.title || "Untitled thread", repo: s.repoName || "", group, stateLabel: statusLabel(s.status), updatedAt: s.updatedAt, rawStatus: s.status });
     }
     return Array.from(map.values()).sort((a, b) => b.updatedAt - a.updatedAt);
   }, [runs, sessions, storedApprovals, pendingApprovals]);
 
   const q = filterQuery.trim().toLowerCase();
   const filteredTasks = tasks.filter((t) => !q || `${t.title} ${t.repo} ${t.stateLabel}`.toLowerCase().includes(q));
-  const openCount = tasks.filter((t) => t.group === "needs-approval" || t.group === "running" || t.group === "pr-open").length;
+  const openCount = tasks.filter((t) => t.group === "needs-approval" || t.group === "queued" || t.group === "running" || t.group === "pr-open").length;
+  const selected = tasks.find((task) => task.id === props.selection.task && (!props.selection.taskKind || task.kind === props.selection.taskKind));
+  const resolvedSelection = useRef<string | null>(null);
+  const selectionKey = JSON.stringify([props.selection.taskKind, props.selection.task]);
+  useEffect(() => {
+    if (selected) resolvedSelection.current = selectionKey;
+    else if (resolvedSelection.current === selectionKey) props.onClosePeek();
+  }, [selected, selectionKey, props.onClosePeek]);
 
   const handleOpenTask = useCallback((id: string) => {
-    const task = tasks.find((t) => t.id === id);
+    const task = tasks.find((t) => personalTaskKey(t) === id);
     if (task) {
-      onSelectTask?.(task.id, task.kind);
+      props.onOpenPeek(task);
     }
-  }, [tasks, onSelectTask]);
+  }, [tasks, props.onOpenPeek]);
+  const handleReviewTask = (id: string) => {
+    const task = tasks.find((item) => personalTaskKey(item) === id);
+    if (task) props.onOpenPeek(task, "approval");
+  };
 
   const boardTasks = useMemo(() => {
     return filteredTasks.map((t) => ({
-      id: t.id,
+      id: personalTaskKey(t),
       title: t.title,
       status: workStatus(t, "needs-approval"),
       updatedAt: t.updatedAt,
@@ -231,11 +289,13 @@ function PersonalWorkView(props: WorkViewProps): JSX.Element {
 
   const timelineTasks = useMemo(() => {
     return filteredTasks.map((t) => ({
-      id: t.id,
+      id: personalTaskKey(t),
       title: t.title,
       status: workStatus(t, "waiting-approval"),
       updatedAt: t.updatedAt,
       repoName: t.repo,
+      startDate: recordedDay(t.createdAt),
+      endDate: recordedDay(t.updatedAt),
     }));
   }, [filteredTasks]);
 
@@ -246,7 +306,8 @@ function PersonalWorkView(props: WorkViewProps): JSX.Element {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => onSelectTask?.(task.id, task.kind)}
+            onClick={() => props.onOpenPeek(task)}
+            aria-haspopup="dialog"
             className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded px-3 text-left hover:bg-[var(--card-hover)] focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
           >
             <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${dotClass}`} />
@@ -255,7 +316,7 @@ function PersonalWorkView(props: WorkViewProps): JSX.Element {
             <span className="rounded-full bg-[var(--section)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-1)]">{task.stateLabel}</span>
           </button>
           {task.group === "needs-approval" && task.rawStatus !== "needs-provider" && onReviewApproval ? (
-            <button type="button" onClick={() => onReviewApproval(task.id)} className={viewButtonClass}>
+            <button type="button" onClick={() => props.onOpenPeek(task, "approval")} className={viewButtonClass}>
               Review
             </button>
           ) : null}
@@ -266,12 +327,13 @@ function PersonalWorkView(props: WorkViewProps): JSX.Element {
 
   const viewTitle = activeView.charAt(0).toUpperCase() + activeView.slice(1);
   const crumbs = ["Personal", "Work", viewTitle];
-  const panelTask = (t: WorkTask) => ({ id: t.id, title: t.title, status: workStatus(t, "needs-approval") });
+  const panelTask = (t: WorkTask) => ({ id: personalTaskKey(t), title: t.title, status: workStatus(t, "needs-approval") });
   const panelLists: PanelLists = {
     needsYou: tasks.filter((t) => t.group === "needs-approval").map(panelTask),
     // Personal runs and threads carry no human assignee, so this stays a real empty state.
     assignedToMe: [],
     everything: tasks.filter((t) => t.group !== "done").map(panelTask),
+    selectedId: selected ? personalTaskKey(selected) : undefined,
     onOpenTask: handleOpenTask,
     onSearch: () => setSearchOpen(true),
   };
@@ -293,6 +355,10 @@ function PersonalWorkView(props: WorkViewProps): JSX.Element {
         onViewChange={setView}
         className="border-b border-zinc-200 dark:border-zinc-800"
       />
+      {props.selection.task && !selected ? <div role="status" className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2 text-xs">
+        <p>The selected item is not in the currently loaded work list.</p>
+        <button type="button" className={viewButtonClass} onClick={props.onClosePeek}>Clear selection</button>
+      </div> : null}
 
       {searchOpen ? (
         <div className="px-4 py-2 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-2 shrink-0 bg-zinc-50/50 dark:bg-zinc-800/40">
@@ -369,19 +435,21 @@ function PersonalWorkView(props: WorkViewProps): JSX.Element {
       ) : activeView === "board" ? (
         <section aria-label="Board view" className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <WorkBoardView
+            execution
             agents={props.agents}
             tasks={boardTasks}
             onOpen={handleOpenTask}
-            onReview={onReviewApproval}
+            onReview={handleReviewTask}
             className="h-full"
           />
         </section>
       ) : activeView === "timeline" ? (
         <section aria-label="Timeline view" className="flex-1 flex flex-col min-h-0 overflow-y-auto px-4 pb-4">
+          <p className="py-2 text-xs text-[var(--muted-foreground-2)]">Recorded activity dates, from creation to last update. Bars do not indicate scheduled duration or progress.</p>
           <WorkTimelineView
             tasks={timelineTasks}
             onOpen={handleOpenTask}
-            onReview={onReviewApproval}
+            onReview={handleReviewTask}
             className="h-full"
           />
         </section>
@@ -396,7 +464,27 @@ function PersonalWorkView(props: WorkViewProps): JSX.Element {
       )}
     </div>
   );
-  return workShell(props, panelLists, card);
+  return <>
+    {workShell(props, panelLists, card)}
+    {selected ? <WorkPeek
+      key={`${selected.kind}:${selected.id}`}
+      task={selected}
+      run={selected.kind === "run" ? runs.find((run) => run.runId === selected.id) : undefined}
+      storedApproval={selected.kind === "approval" ? storedApprovals.find((approval) => approval.approvalId === selected.id) : undefined}
+      pendingApproval={selected.kind === "approval" ? pendingApprovals.find((approval) => approval.approvalId === selected.id) : undefined}
+      tab={props.selection.tab}
+      onTabChange={props.onPeekTabChange}
+      onClose={props.onClosePeek}
+      onOpenFull={onSelectTask ? () => onSelectTask(selected.id, selected.kind) : undefined}
+      onReviewApproval={onReviewApproval ? () => onReviewApproval(selected.id) : undefined}
+      sessionId={props.peekSessionId}
+      notice={props.peekNotice}
+      decisions={props.approvalDecisions}
+      onDecideApproval={props.onDecideApproval}
+      onDecideStoredApproval={props.onDecideStoredApproval}
+      renderContent={props.renderPeekContent}
+    /> : null}
+  </>;
 }
 
 interface TeamWorkViewProps extends WorkViewProps {
