@@ -169,6 +169,43 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
+  it("opens the returned approval from Chat and follows its server-linked run after approval", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    let queued = false, approved = false;
+    const payload = { task: "END_TO_END_DRAFT", publishPullRequest: false };
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path.startsWith("/api/runs") && options?.method === "POST") { queued = true; return Response.json({ approvalId: "server-gate" }); }
+      if (path === "/api/approvals" && options?.method === "POST") { approved = true; return Response.json({ result: "approved" }); }
+      if (path === "/api/approvals") return Response.json({ approvals: queued && !approved ? [{ approvalId: "server-gate", threadKey: "server-thread", task: payload.task, repoUrl: "", status: "pending", createdAt: 1, kind: "run", payload }] : [], decided: [] });
+      if (path.startsWith("/api/runs")) return Response.json({ runs: approved ? [{ runId: "server-linked-run", task: payload.task, status: "completed", repoUrl: "", sandboxId: "fixture-sandbox", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2, summary: "Captured fixture output", approval: { approvalId: "server-gate" } }] : [] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Task draft" }), { target: { value: payload.task } });
+    fireEvent.click(screen.getByRole("button", { name: "Review as work" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use automatic workspace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
+    const approval = await screen.findByRole("dialog", { name: `Work inspector: ${payload.task}` });
+    expect(window.location.pathname).toBe("/work/");
+    expect(new URLSearchParams(window.location.search).get("task")).toBe("server-gate");
+    expect(new URLSearchParams(window.location.search).get("taskKind")).toBe("approval");
+    expect(approved).toBe(false);
+    fireEvent.click(within(approval).getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("task")).toBe("server-linked-run"));
+    expect(new URLSearchParams(window.location.search).get("taskKind")).toBe("run");
+    fireEvent.click(within(await screen.findByRole("dialog", { name: `Work inspector: ${payload.task}` })).getByRole("tab", { name: "Output" }));
+    expect(await screen.findByText("Captured fixture output")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+    await screen.findByRole("textbox", { name: "Task draft" });
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
+    await screen.findByRole("region", { name: "Board view" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("keeps the Work inspector on the original frozen approval decision path", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/work/?view=board&task=frozen-gate&taskKind=approval&tab=approval");
@@ -279,6 +316,10 @@ describe("app Work and Threads routing", () => {
         if (attempts.length === 1 || attempts.length === 3) throw new TypeError("Accepted response was lost");
         return Response.json({ approvalId: receipts.get(body.commandId) });
       }
+      if (String(url) === "/api/approvals") return Response.json({ approvals: [...receipts].map(([commandId, approvalId]) => ({
+        approvalId, threadKey: "", task: attempts.find((attempt) => attempt.commandId === commandId)?.task,
+        status: "pending", kind: "run", createdAt: 1,
+      })), decided: [] });
       return originalFetch(url, options);
     }));
     render(<App />);
@@ -288,11 +329,15 @@ describe("app Work and Threads routing", () => {
     await screen.findByText(/Accepted response was lost/);
     await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Prepare an output bundle"));
     fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
-    await screen.findByText(/Draft queued/);
+    await screen.findAllByText(/Draft queued/);
     expect(attempts).toHaveLength(2);
     expect(attempts[1]).toEqual(attempts[0]);
     expect(attempts[0]?.executionTarget.workspaceId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(receipts.size).toBe(1);
+    expect(window.location.pathname).toBe("/work/");
+    fireEvent.click(await screen.findByRole("button", { name: "Close task" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+    await screen.findByRole("textbox", { name: "Task draft" });
     fireEvent.change(screen.getByRole("textbox", { name: "Task draft" }), { target: { value: "Prepare an output bundle" } });
     fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
     await screen.findByText(/Accepted response was lost/);
@@ -302,7 +347,7 @@ describe("app Work and Threads routing", () => {
     expect(receipts.size).toBe(2);
     fireEvent.change(screen.getByRole("textbox", { name: "Task draft" }), { target: { value: "Prepare a changed output bundle" } });
     fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
-    await screen.findByText(/Draft queued/);
+    await screen.findAllByText(/Draft queued/);
     expect(attempts).toHaveLength(4);
     expect(attempts[3]?.commandId).not.toBe(attempts[2]?.commandId);
     expect(attempts[3]?.executionTarget.workspaceId).not.toBe(attempts[2]?.executionTarget.workspaceId);

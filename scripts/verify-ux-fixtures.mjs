@@ -8,6 +8,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import path from "node:path";
+import { openAppView } from "../.cursor/skills/verify-shiba/scripts/composer-target.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.SHIBA_PLAYWRIGHT_MODULE || "../.cursor/skills/verify-shiba/node_modules/playwright");
@@ -52,6 +53,7 @@ runs[1].summary = "Retained fixture output; no live provider execution occurred.
 const approval = { approvalId: "ux-approval", threadKey: "", task: "Frozen approval fixture", repoUrl: "https://github.com/fixture/example", kind: "run", status: "pending", createdAt: now, payload: { repoUrl: "https://github.com/fixture/example", task: "FROZEN_UX_PAYLOAD", baseBranch: "main", publishPullRequest: false } };
 const approvals = [approval];
 let allowQueueFixture = false;
+let allowDecisionFixture = false;
 const empty = { workspaces: [], sessions: [], runs: [], approvals: [], decided: [], agents: [], principals: [], connections: [], computers: [], entries: [], sources: [], projects: [], spaces: [], tasks: [], items: [], members: [], providers: [], facts: [], mailboxes: [], automations: [], events: [], outbox: [], skills: [], servers: [] };
 const setup = { slack: { signingSecret: false, botToken: false, approvers: 0, channelRepos: false }, github: { token: false, app: false, publish: false, webhookSecret: false }, linear: { webhookSecret: false, apiToken: false, defaultRepo: false }, slackVerification: { signingSecret: false }, gateway: { id: "", token: false, reachable: "unknown" }, access: { required: true }, betterAuth: { configured: false }, models: { orchestrator: "", coding: "", harness: "opencode", roles: [] }, automations: { enabled: false, typeSafe: false }, mailbox: { addressOverride: false, sendEnabled: false }, doctor: { ok: false, checkedAt: now, findings: [], roles: [] } };
 const evidence = { sha: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), trackedChanges: execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], { encoding: "utf8" }).trim(), builtAssets: Boolean(staticServer), fixtureOnly: true, liveProviderE2E: false, checks: [], consoleErrors: [], pageErrors: [], unexpectedWrites: [], permittedFixtureWrites: [], externalRequests: [], unavailableFixtureReads: [] };
@@ -73,6 +75,16 @@ await context.route("**/*", async (route) => {
   }
   if (!url.pathname.startsWith("/api/") && !/^\/agents\/[^/]+\//.test(url.pathname)) return route.continue();
   if (!["GET", "HEAD"].includes(request.method())) {
+    if (allowDecisionFixture && request.method() === "POST" && url.pathname === "/api/approvals") {
+      const body = request.postDataJSON();
+      const record = approvals.find((item) => item.approvalId === "ux-queued-from-chat");
+      if (record && body.approvalId === record.approvalId && body.threadKey === record.threadKey && body.approved === true) {
+        evidence.permittedFixtureWrites.push({ method: "POST", path: url.pathname, body });
+        record.status = "approved";
+        runs.push({ ...runs[1], runId: "ux-server-approved-run", task: record.task, approval: { approvalId: record.approvalId }, expectedDeliverables: ["deliverables/brief.md"], deliverables: [{ path: "deliverables/brief.md", mediaType: "text/markdown", bytes: 32, sha256: "ab".repeat(32) }], summary: "Completed execution fixture; no live model or container." });
+        return route.fulfill({ json: { result: "approved" } });
+      }
+    }
     if (allowQueueFixture && request.method() === "POST" && url.pathname === "/api/runs") {
       const body = request.postDataJSON();
       if (body.task === "QUEUE_UX_FIXTURE_FOR_HUMAN_REVIEW" && body.executionTarget?.kind === "artifact-workspace") {
@@ -214,6 +226,12 @@ try {
       if (["custom-agents", "memory"].includes(view)) await page.screenshot({ path: path.join(output, `${view}-desktop.png`) });
     });
   }
+  await check("repository browser helpers navigate the five-area shell", async () => {
+    for (const [view, pathname] of [["Agents", "/custom-agents/"], ["Chats", "/threads/"], ["Approvals", "/approvals/"], ["Pull requests", "/diff/"], ["Integrations", "/integrations/"]]) {
+      await openAppView(page, view);
+      await page.waitForURL((url) => url.pathname === pathname);
+    }
+  });
   await check("run and prompt deep links remain on Threads", async () => {
     await open("/app/?run=ux-run-0");
     await page.waitForURL((url) => url.pathname === "/threads/");
@@ -250,14 +268,29 @@ try {
       await page.getByText(/^Draft queued — review and approve/).first().waitFor();
     } finally { allowQueueFixture = false; }
     assert.equal(evidence.permittedFixtureWrites.length, 1);
-    await open("/approvals/");
+    await page.waitForURL((url) => url.pathname === "/work/" && url.searchParams.get("task") === "ux-queued-from-chat");
+    const approvalDrawer = page.getByRole("dialog", { name: "Work inspector: QUEUE_UX_FIXTURE_FOR_HUMAN_REVIEW", exact: true });
+    await approvalDrawer.waitFor();
     await page.getByText("QUEUE_UX_FIXTURE_FOR_HUMAN_REVIEW", { exact: true }).first().waitFor();
-    const frozen = await page.locator("pre").evaluateAll((nodes) => nodes.map((node) => {
+    const frozen = await approvalDrawer.locator("pre").evaluateAll((nodes) => nodes.map((node) => {
       try { return JSON.parse(node.textContent); } catch { return null; }
     }));
     assert(frozen.some((body) => JSON.stringify(body) === JSON.stringify(evidence.permittedFixtureWrites[0].body)), "Frozen approval differs from the queued fixture request");
     assert.equal(approvals.at(-1).status, "pending");
     await page.screenshot({ path: path.join(output, "chat-to-approval-fixture.png") });
+    allowDecisionFixture = true;
+    try { await approvalDrawer.getByRole("button", { name: "Approve", exact: true }).click(); }
+    finally { allowDecisionFixture = false; }
+    await page.waitForURL((url) => url.searchParams.get("task") === "ux-server-approved-run" && url.searchParams.get("taskKind") === "run");
+    const runDrawer = page.getByRole("dialog", { name: "Work inspector: QUEUE_UX_FIXTURE_FOR_HUMAN_REVIEW", exact: true });
+    await runDrawer.waitFor();
+    await page.reload();
+    await runDrawer.waitFor();
+    await runDrawer.getByRole("tab", { name: "Diff", exact: true }).click();
+    await runDrawer.getByText("after-fixture", { exact: false }).first().waitFor();
+    await runDrawer.getByRole("tab", { name: "Output", exact: true }).click();
+    await runDrawer.getByRole("link", { name: "Download deliverables/brief.md", exact: true }).waitFor();
+    await page.screenshot({ path: path.join(output, "chat-approval-to-run-output-fixture.png") });
   });
   await check("saved employee search and profile preserve read-only focus flow", async () => {
     await open("/custom-agents/");
