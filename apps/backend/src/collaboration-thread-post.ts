@@ -113,6 +113,18 @@ export async function postRoomEvent(
        WHERE tenant_id=? AND workspace_id=? AND message_id=?`,
     ).bind(now, scope.tenantId, scope.workspaceId, input.threadRootId).run();
   }
+  if (input.kind === "result" && input.threadRootId) {
+    const { reportPendingHandoff } = await import("./collaboration-handoff-return.js");
+    await reportPendingHandoff(env, scope, {
+      childRoomId: input.roomId,
+      childThreadRootId: input.threadRootId,
+      resultMessageId: messageId,
+      resultBody: input.body ?? "",
+      runId: input.payload?.runId,
+      pr: input.payload?.pr,
+      now,
+    });
+  }
   const members = await roomAudience(env, scope, input.roomId);
   await publishWorkspaceEvent(env, scope.workspaceId, {
     type: "room.message",
