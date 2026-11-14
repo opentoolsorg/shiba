@@ -1,6 +1,8 @@
 import type { JSX } from "react";
 import type { PendingApproval } from "../../ui-helpers";
 import { ApprovalCard } from "../ApprovalCard";
+import { HandoffCard, HandoffReport, handoffReason, type HandoffCardStatus } from "./HandoffCard";
+import { RouterChip, type RouterCandidate } from "./RouterChip";
 
 export interface ThreadCardMessage {
   messageKind?: string;
@@ -8,6 +10,8 @@ export interface ThreadCardMessage {
   fromLabel?: string;
   toLabel?: string;
   approval?: PendingApproval;
+  handoffStatus?: HandoffCardStatus;
+  routerCandidates?: RouterCandidate[];
 }
 
 /**
@@ -18,9 +22,13 @@ export interface ThreadCardMessage {
 export function MessageCards({
   message,
   onDecideApproval,
+  onOpenThread,
+  onReassign,
 }: {
   message: ThreadCardMessage;
   onDecideApproval?: (approvalId: string, approved: boolean) => void;
+  onOpenThread?: () => void;
+  onReassign?: (actorId: string) => void;
 }): JSX.Element | null {
   if (message.messageKind === "approval_card" && message.approval && onDecideApproval) {
     return (
@@ -39,14 +47,30 @@ export function MessageCards({
       </div>
     );
   }
-  if (message.messageKind === "handoff" || message.messageKind === "handoff_report") {
-    const from = message.fromLabel?.trim() || "Fixer";
-    const to = message.toLabel?.trim() || "Reviewer";
+  if (message.messageKind === "handoff") {
+    const reason = handoffReason(message.body);
     return (
-      <p role="status" className="mt-2 text-sm text-[var(--ink)]">
-        {from} → {to}
-      </p>
+      <div>
+        <HandoffCard
+          body={message.body}
+          fromLabel={message.fromLabel}
+          toLabel={message.toLabel}
+          status={message.handoffStatus ?? "pending approval"}
+          onOpenThread={onOpenThread}
+        />
+        {reason && onReassign ? (
+          <RouterChip
+            reason={reason}
+            candidates={message.routerCandidates ?? []}
+            runActive={message.handoffStatus === "working"}
+            onReassign={onReassign}
+          />
+        ) : null}
+      </div>
     );
+  }
+  if (message.messageKind === "handoff_report") {
+    return <HandoffReport body={message.body} onOpenThread={onOpenThread} />;
   }
   return null;
 }
