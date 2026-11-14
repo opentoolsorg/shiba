@@ -1478,12 +1478,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
   // Decide a DO-state approval pointer: POST resolves it in place — the
   // frozen payload executes or the queued draft is released.
+  const [claimConflicts, setClaimConflicts] = useState<Record<string, { actorId: string; branch: string; repo: string; runId: string }>>({});
   const decideStoredApproval = useCallback(
-    async (approval: StoredApproval, approved: boolean) => {
+    async (approval: StoredApproval, approved: boolean, claimAction?: "queue" | "new_branch" | "cancel") => {
       const decisionScope = draftScope.current;
       const decisionSurface = activeSurfaceScopeRef.current;
       const approvalId = approval.approvalId;
-      if (decidedStoredRef.current.has(approvalId)) return;
+      if (!claimAction && decidedStoredRef.current.has(approvalId)) return;
       decidedStoredRef.current.add(approvalId);
       setStoredDecisions((current) => ({ ...current, [approvalId]: approved }));
       try {
@@ -1494,12 +1495,32 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             threadKey: approval.threadKey,
             approvalId,
             approved,
+            ...(claimAction ? { claimAction } : {}),
           }),
         });
         const body = (await response.json().catch(() => ({}))) as {
           result?: string;
           error?: string;
+          code?: string;
+          conflict?: { actorId: string; branch: string; repo: string; runId: string };
         };
+        if (response.status === 409 && body.code === "repo_claim_conflict" && body.conflict) {
+          decidedStoredRef.current.delete(approvalId);
+          setStoredDecisions((current) => {
+            const next = { ...current };
+            delete next[approvalId];
+            return next;
+          });
+          setClaimConflicts((current) => ({ ...current, [approvalId]: body.conflict! }));
+          setNotice("Someone is already working on this branch. Queue, start a new branch, or cancel.");
+          return;
+        }
+        setClaimConflicts((current) => {
+          if (!current[approvalId]) return current;
+          const next = { ...current };
+          delete next[approvalId];
+          return next;
+        });
         if (!response.ok) {
           throw new Error(body.error ?? `Approval request failed: ${response.status}`);
         }
@@ -3133,6 +3154,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   requestedState={workInspectionRequest}
                   onDecideApproval={decideApproval}
                   onDecideStoredApproval={decideStoredApproval}
+                  claimConflicts={claimConflicts}
                   approvalDecisions={{ ...decisions, ...storedDecisions }}
                   peekSessionId={selectedSessionId}
                   peekNotice={notice}
@@ -3178,6 +3200,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
             <TasksHomeView
+              workspaceId={teamWorkspaceId || undefined}
               task={composerVisible ? task : ""}
               onTaskChange={setTask}
               agents={customAgentRecords.map((profile) => ({
@@ -3836,6 +3859,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               decidedStoredApprovals={decidedStoredApprovals}
               storedApprovalsError={storedApprovalsError}
               onDecideStoredApproval={decideStoredApproval}
+              claimConflicts={claimConflicts}
               orchestratorName={orchestratorName}
               onRefresh={refreshRuns}
               reviewAfterPublishById={reviewAfterPublishById}

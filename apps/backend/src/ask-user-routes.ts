@@ -36,7 +36,7 @@ export async function handleAskUser(request: Request, env: Env): Promise<Respons
     const { pending, receipt } = await answerAskUser(env, ownerId, runId, askId, answer);
     const workspaceId = request.headers.get("X-Shiba-Workspace") ?? "";
     if (workspaceId) {
-      await publishWorkspaceEvent(env, workspaceId, { type: "ask_user.answered", resourceId: runId, version: Date.now() });
+      await publishWorkspaceEvent(env, workspaceId, { kind: "ask_user.answered", entityId: runId, payload: { askId } });
     }
     return json({ ok: true, pending, receipt });
   } catch (error) {

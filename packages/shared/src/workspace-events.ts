@@ -1,9 +1,17 @@
-/** Browser-facing shape of the WorkspaceEvents Durable Object frames. */
-export interface WorkspaceEventMessage {
-  type: string;
-  resourceId: string;
-  version: number;
+/** Invalidation frames on the WorkspaceEvents Durable Object. Payloads are ids and counts only. */
+export interface WorkspaceEventAudience {
+  userIds?: string[];
+  roomId?: string;
+}
+
+export interface WorkspaceEvent {
+  id: string;
+  workspaceId: string;
+  kind: string;
+  entityId: string;
   at: number;
+  payload?: Record<string, unknown>;
+  audience?: WorkspaceEventAudience;
 }
 
 export const workspaceEventsPath = (workspaceId: string) =>

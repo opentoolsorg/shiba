@@ -3,13 +3,14 @@
  * `publishWorkspaceEvent`; browsers subscribe at `/api/workspaces/:id/events`.
  */
 import { DurableObject } from "cloudflare:workers";
+import type { WorkspaceEvent } from "@shiba/shared";
 import type { Env } from "../env.js";
 
-export type WorkspaceEventMessage = {
-  type: string;
-  resourceId: string;
-  version: number;
-  at: number;
+export type WorkspaceEventMessage = WorkspaceEvent & {
+  /** Legacy fields kept so older publishers still validate. */
+  type?: string;
+  resourceId?: string;
+  version?: number;
 };
 
 type SocketMeta = { userId: string; joinedAt: number };
@@ -24,12 +25,28 @@ export class WorkspaceEvents extends DurableObject<Env> {
       } catch {
         return Response.json({ error: "Invalid JSON." }, { status: 400 });
       }
-      if (!body?.type || !body.resourceId || !Number.isFinite(body.version)) {
+      const kind = body.kind || body.type;
+      const entityId = body.entityId || body.resourceId;
+      if (!kind || !entityId) {
         return Response.json({ error: "Invalid event." }, { status: 400 });
       }
-      const payload = JSON.stringify({ ...body, at: body.at ?? Date.now() });
+      const frame = {
+        ...body,
+        kind,
+        entityId,
+        at: body.at ?? Date.now(),
+        type: body.type ?? kind,
+        resourceId: body.resourceId ?? entityId,
+        version: body.version ?? body.at ?? Date.now(),
+      };
+      const payload = JSON.stringify(frame);
+      const allowed = new Set((frame.audience?.userIds ?? []).map((id: string) => id.trim().toLowerCase()));
       const sockets = this.ctx.getWebSockets();
       for (const ws of sockets) {
+        if (allowed.size > 0) {
+          const meta = ws.deserializeAttachment() as { userId?: string } | null;
+          if (!meta?.userId || !allowed.has(meta.userId)) continue;
+        }
         try {
           ws.send(payload);
         } catch {
@@ -65,17 +82,26 @@ export function workspaceEventsName(workspaceId: string): string {
 }
 
 export async function publishWorkspaceEvent(
-  env: Env,
+  env: Pick<Env, "WorkspaceEvents">,
   workspaceId: string,
-  event: Omit<WorkspaceEventMessage, "at"> & { at?: number },
+  event: Omit<WorkspaceEvent, "id" | "workspaceId" | "at"> & { id?: string; at?: number },
 ): Promise<void> {
   if (!env.WorkspaceEvents) return;
+  const at = event.at ?? Date.now();
   const stub = env.WorkspaceEvents.getByName(workspaceEventsName(workspaceId));
   await stub.fetch(
     new Request("https://workspace-events.internal/internal/publish", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...event, at: event.at ?? Date.now() }),
+      body: JSON.stringify({
+        ...event,
+        id: event.id ?? `wse_${at}`,
+        workspaceId,
+        at,
+        type: event.kind,
+        resourceId: event.entityId,
+        version: at,
+      }),
     }),
   );
 }

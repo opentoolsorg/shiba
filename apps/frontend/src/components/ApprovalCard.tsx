@@ -17,9 +17,11 @@ export interface ApprovalCardProps {
   agentName?: string;
   /** Frozen composer flag. The tool-call JSON may omit it. */
   reviewAfterPublish?: boolean;
+  conflict?: { actorId: string; branch: string; repo: string; runId: string } | null;
+  onClaimChoice?: (choice: "queue" | "new_branch" | "cancel") => void;
 }
 
-export function ApprovalCard({ approval, decided, decision, onDecideApproval, agentName, reviewAfterPublish }: ApprovalCardProps): JSX.Element {
+export function ApprovalCard({ approval, decided, decision, onDecideApproval, agentName, reviewAfterPublish, conflict, onClaimChoice }: ApprovalCardProps): JSX.Element {
   const rawTestCommand =
     typeof approval.input === "object" && approval.input !== null && !Array.isArray(approval.input)
       ? (approval.input as Record<string, unknown>)["testCommand"]
@@ -72,6 +74,17 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
         <p className="text-[11px] font-mono text-[var(--muted-foreground-2)]">
           <span className="font-semibold text-[var(--fg)]">Tests:</span> {testCommand}
         </p>
+      ) : null}
+
+      {conflict ? (
+        <div className="border border-[var(--warning)] bg-[var(--warning-subtle)] p-3 text-sm" role="status">
+          <p>{conflict.actorId} is already working on `{conflict.branch}` in {conflict.repo} (task {conflict.runId}).</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" className="min-h-11 border px-3" onClick={() => onClaimChoice?.("queue")}>Queue after it</button>
+            <button type="button" className="min-h-11 border px-3" onClick={() => onClaimChoice?.("new_branch")}>Use a new branch</button>
+            <button type="button" className="min-h-11 border px-3" onClick={() => onClaimChoice?.("cancel")}>Cancel</button>
+          </div>
+        </div>
       ) : null}
 
       <pre className="whitespace-pre-wrap font-mono text-xs text-[var(--muted-foreground-2)] bg-[var(--card)] p-3 rounded-[var(--radius-button)] border border-[var(--border-1)] max-h-56 overflow-auto">
