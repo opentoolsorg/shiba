@@ -76,6 +76,7 @@ export async function reportPendingHandoff(
   const messageId = `evt_${randomHex(8)}`;
   const payload = JSON.stringify({
     handoffId: pending.handoff_id,
+    childThreadRootId: input.childThreadRootId,
     resultMessageId: input.resultMessageId,
     ...(input.runId ? { runId: input.runId } : {}),
     ...(input.pr ? { pr: input.pr } : {}),

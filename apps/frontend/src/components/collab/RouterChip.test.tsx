@@ -29,3 +29,13 @@ describe("RouterChip", () => {
     expect(reassign).toHaveBeenCalledWith("agent:fixer");
   });
 });
+
+it("resets the picker and prevents requests while busy", () => {
+  const reassign = vi.fn();
+  const { rerender } = render(<RouterChip reason="Repo edits" candidates={candidates} onReassign={reassign} />);
+  const select = screen.getByRole("combobox", { name: "Reassign" }) as HTMLSelectElement;
+  fireEvent.change(select, { target: { value: "agent:fixer" } });
+  expect(select.value).toBe("");
+  rerender(<RouterChip reason="Repo edits" candidates={candidates} disabled onReassign={reassign} />);
+  expect(select.disabled).toBe(true);
+});

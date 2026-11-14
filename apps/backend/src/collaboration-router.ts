@@ -178,7 +178,7 @@ export async function routeUnaddressedMessage(
     body: `${member.display_name} → ${chosen.name}: ${taskText} · because ${reason}`,
     actorId: primaryId,
     userId: member.user_id,
-    payload: { handoffId: saved.handoffId, actorId: chosen.actorId, ownerActorId: primaryId },
+    payload: { handoffId: saved.handoffId, childThreadRootId: task.rootMessageId, actorId: chosen.actorId, ownerActorId: primaryId },
     now: input.now,
   });
   await recordDecision(env, scope, { roomId: input.roomId, messageId: input.messageId, chosenActorId: chosen.actorId, candidates: ranked, reason, confidence, now: input.now });

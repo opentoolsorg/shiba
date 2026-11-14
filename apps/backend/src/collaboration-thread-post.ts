@@ -28,6 +28,7 @@ function payloadJson(payload: ThreadMessagePayload | undefined): string {
   if (payload?.runId) ids.runId = payload.runId;
   if (payload?.taskId) ids.taskId = payload.taskId;
   if (payload?.handoffId) ids.handoffId = payload.handoffId;
+  if (payload?.childThreadRootId) ids.childThreadRootId = payload.childThreadRootId;
   if (payload?.pr) ids.pr = payload.pr;
   if (payload?.actorId) ids.actorId = payload.actorId;
   if (payload?.ownerActorId) ids.ownerActorId = payload.ownerActorId;

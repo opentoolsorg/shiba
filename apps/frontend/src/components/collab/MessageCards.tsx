@@ -24,10 +24,12 @@ export function MessageCards({
   onDecideApproval,
   onOpenThread,
   onReassign,
+  reassignDisabled,
 }: {
   message: ThreadCardMessage;
   onDecideApproval?: (approvalId: string, approved: boolean) => void;
   onOpenThread?: () => void;
+  reassignDisabled?: boolean;
   onReassign?: (actorId: string) => void;
 }): JSX.Element | null {
   if (message.messageKind === "approval_card" && message.approval && onDecideApproval) {
@@ -60,6 +62,7 @@ export function MessageCards({
         />
         {reason && onReassign ? (
           <RouterChip
+            disabled={reassignDisabled}
             reason={reason}
             candidates={message.routerCandidates ?? []}
             runActive={message.handoffStatus === "working"}

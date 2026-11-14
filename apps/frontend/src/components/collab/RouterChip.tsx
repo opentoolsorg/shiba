@@ -10,15 +10,17 @@ export function RouterChip({
   reason,
   candidates,
   runActive = false,
+  disabled = false,
   onReassign,
 }: {
   reason: string;
   candidates: RouterCandidate[];
   runActive?: boolean;
+  disabled?: boolean;
   onReassign: (actorId: string) => void;
 }): JSX.Element {
   return (
-    <div aria-label="Router decision" className="mt-2 border border-[var(--line)] px-3 py-2 text-sm">
+    <section aria-label="Router decision" className="mt-2 border border-[var(--line)] px-3 py-2 text-sm">
       <p>because {reason}</p>
       {runActive ? (
         <p className="mt-1 text-xs text-[var(--ink-2)]">
@@ -29,7 +31,8 @@ export function RouterChip({
         Reassign
         <select
           aria-label="Reassign"
-          defaultValue=""
+          value=""
+          disabled={disabled || candidates.length === 0}
           onChange={(event) => {
             const actorId = event.target.value;
             if (actorId) onReassign(actorId);
@@ -44,6 +47,6 @@ export function RouterChip({
           ))}
         </select>
       </label>
-    </div>
+    </section>
   );
 }
