@@ -344,7 +344,7 @@ export function RemoteAccessView(): JSX.Element {
               <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 text-center p-6">
                 <Laptop className="size-8 text-[#71717a] dark:text-zinc-500 mb-2" strokeWidth={1.5} />
                 <h4 className="text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100">
-                  {fleet.kind === "disabled" ? "Local runtime is disabled" : "No computers paired"}
+                  {fleet.kind === "disabled" ? "Remote access is off on this deployment" : "No computers paired"}
                 </h4>
                 <p className="text-xs text-[#71717a] dark:text-zinc-400 max-w-sm mt-0.5">
                   {fleet.kind === "disabled" ? (

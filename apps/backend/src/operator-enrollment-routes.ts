@@ -22,8 +22,15 @@ export async function handleOperatorEnrollmentReviews(request: Request, env: Env
     if (denied) return denied;
   }
   const session = await resolveBetterAuthSessionAccount(request, env, redactSecrets);
-  if (!session?.emailVerified || session.policy.kind !== "bootstrap" || !session.sessionId || !session.sessionExpiresAt || session.sessionExpiresAt <= Date.now())
+  if (!session?.sessionId || !session.sessionExpiresAt || session.sessionExpiresAt <= Date.now()) {
     return json({ error: "operator_review_native_personal_owner_required" }, 403);
+  }
+  if (session.policy.kind !== "bootstrap") {
+    return json({ error: "operator_review_native_personal_owner_required" }, 403);
+  }
+  if (!session.emailVerified) {
+    return json({ error: "email_not_verified", code: "email_not_verified" }, 403);
+  }
   const owner: OperatorEnrollmentOwner = { ownerId: session.policy.email, accountId: session.policy.accountId,
     sessionId: session.sessionId, sessionExpiresAt: session.sessionExpiresAt };
   const suffix = url.pathname.slice(BASE.length);

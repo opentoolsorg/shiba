@@ -10,6 +10,8 @@ import { isBetterAuthConfigured } from "./better-auth.js";
 import { readModelConfig } from "./model-policy.js";
 import { isAccessConfigured } from "./request-auth.js";
 import { runSetupDoctor, type SetupDoctorReport } from "./setup-doctor.js";
+import { listMissingSetupSecrets, type SetupSecretRow } from "./setup-missing-secrets.js";
+import { LOCAL_RUNTIME_FLAG } from "@shiba/shared";
 
 export interface SetupStatus {
   slack: {
@@ -27,6 +29,15 @@ export interface SetupStatus {
   models: { orchestrator: string; coding: string; harness: string; roles: RoleModelStatus[] };
   automations: { enabled: boolean; typeSafe: boolean };
   mailbox: { addressOverride: boolean; sendEnabled: boolean };
+  /** Feature flags the dashboard can use without probing dark routes. */
+  deployment: {
+    localRuntime: boolean;
+    openConnectorBound: boolean;
+    openConnectorEnabled: boolean;
+    operatorReviewEnabled: boolean;
+    workspaceEvents: boolean;
+  };
+  missingSecrets: SetupSecretRow[];
   doctor: SetupDoctorReport;
 }
 
@@ -53,7 +64,7 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
     .filter(Boolean);
   const modelSnapshot = await readModelConfig(env);
   const rolePins = modelSnapshot.policy.rolePins;
-  const base: Omit<SetupStatus, "doctor"> = {
+  const base: Omit<SetupStatus, "doctor" | "deployment" | "missingSecrets"> = {
     slack: {
       signingSecret: Boolean(env.SLACK_SIGNING_SECRET),
       botToken: Boolean(env.SLACK_BOT_TOKEN),
@@ -100,5 +111,18 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
     },
   };
   const doctor = await runSetupDoctor(env, { gateway: base.gateway, initiatorUserId });
-  return { ...base, doctor };
+  const missingSecrets = listMissingSetupSecrets(env);
+  const openConnectorBound = Boolean(env.OPEN_CONNECTOR) || Boolean(env.OPEN_CONNECTOR_URL?.trim());
+  return {
+    ...base,
+    deployment: {
+      localRuntime: env[LOCAL_RUNTIME_FLAG] === "1" && env.LocalDispatch !== undefined,
+      openConnectorBound,
+      openConnectorEnabled: env.OPEN_CONNECTOR_ENABLED === "1" || env.OPEN_CONNECTOR_ENABLED === "true" || openConnectorBound,
+      operatorReviewEnabled: env.OPEN_CONNECTOR_OPERATOR_REVIEW_ENABLED === "true",
+      workspaceEvents: env.WorkspaceEvents !== undefined,
+    },
+    missingSecrets,
+    doctor,
+  };
 }
