@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { Suspense, type FormEvent } from "react";
+import { StrictMode, Suspense, type FormEvent } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app";
 import { ONBOARDING_DISMISSED_KEY } from "./components/AgentExperience";
@@ -43,7 +43,7 @@ vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChang
   <output data-testid="selected-runtime">{runTarget}</output>
   <button type="submit" disabled={isSubmitting}>Queue fixture task</button>
 </form> }));
-vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value }: { value: string }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} readOnly /></div> }));
+vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value, onChange, onPrepareWork }: { value: string; onChange?: (value: string) => void; onPrepareWork?: () => void }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} onChange={(event) => onChange?.(event.target.value)} />{onPrepareWork ? <button type="button" onClick={onPrepareWork}>Review as work</button> : null}</div> }));
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/work/");
@@ -59,6 +59,20 @@ beforeEach(() => {
   }));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
+
+describe("legacy shell URL preservation", () => {
+  it("keeps callback query values and fragments while normalizing a legacy Settings link", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/app/?tab=settings&oauth_return=keep&section=account#callback-state");
+    render(<App />);
+    await screen.findAllByRole("button", { name: "Back to app" });
+    await waitFor(() => expect(window.location.pathname).toBe("/settings/"));
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("oauth_return")).toBe("keep");
+    expect(params.get("section")).toBe("account");
+    expect(window.location.hash).toBe("#callback-state");
+  });
+});
 
 describe("app employee onboarding", () => {
   it("lets navigation leave an invalid room link without switching workspaces", async () => {
@@ -112,16 +126,16 @@ describe("app employee onboarding", () => {
     await act(async () => finish(Response.json({}, { status: 503 })));
     expect((await screen.findByText(/Agent created. Start a new thread from its sidebar row/)).textContent).toContain("503");
     expect(screen.queryByRole("heading", { name: "Set up your AI employees" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "Team" }));
     let retry = await screen.findByRole("button", { name: "New thread with Research bot" });
     fireEvent.click(retry);
     fireEvent.click(retry);
-    fireEvent.click(screen.getByRole("button", { name: "Chats" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     fireEvent.click((await screen.findAllByRole("button", { name: "New chat" }))[0]!);
     await waitFor(() => expect(createSession).toHaveBeenCalledTimes(2));
     await act(async () => finish(Response.json({}, { status: 503 })));
     await screen.findByText(/Could not create a bot thread/);
-    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "Team" }));
     retry = await screen.findByRole("button", { name: "New thread with Research bot" });
     fireEvent.click(retry);
     await waitFor(() => expect(createSession).toHaveBeenCalledTimes(3));
@@ -155,6 +169,128 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
+  it("opens the returned approval from Chat and follows its server-linked run after approval", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    let queued = false, approved = false;
+    const payload = { task: "END_TO_END_DRAFT", publishPullRequest: false };
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path.startsWith("/api/runs") && options?.method === "POST") { queued = true; return Response.json({ approvalId: "server-gate" }); }
+      if (path === "/api/approvals" && options?.method === "POST") { approved = true; return Response.json({ result: "approved" }); }
+      if (path === "/api/approvals") return Response.json({ approvals: queued && !approved ? [{ approvalId: "server-gate", threadKey: "server-thread", task: payload.task, repoUrl: "", status: "pending", createdAt: 1, kind: "run", payload }] : [], decided: [] });
+      if (path.startsWith("/api/runs")) return Response.json({ runs: approved ? [{ runId: "server-linked-run", task: payload.task, status: "completed", repoUrl: "", sandboxId: "fixture-sandbox", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2, summary: "Captured fixture output", approval: { approvalId: "server-gate" } }] : [] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Task draft" }), { target: { value: payload.task } });
+    fireEvent.click(screen.getByRole("button", { name: "Review as work" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use automatic workspace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
+    const approval = await screen.findByRole("dialog", { name: `Work inspector: ${payload.task}` }, { timeout: 5_000 });
+    expect(window.location.pathname).toBe("/work/");
+    expect(new URLSearchParams(window.location.search).get("task")).toBe("server-gate");
+    expect(new URLSearchParams(window.location.search).get("taskKind")).toBe("approval");
+    expect(approved).toBe(false);
+    fireEvent.click(within(approval).getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("task")).toBe("server-linked-run"));
+    expect(new URLSearchParams(window.location.search).get("taskKind")).toBe("run");
+    fireEvent.click(within(await screen.findByRole("dialog", { name: `Work inspector: ${payload.task}` })).getByRole("tab", { name: "Output" }));
+    expect(await screen.findByText("Captured fixture output")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+    await screen.findByRole("textbox", { name: "Task draft" });
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
+    await screen.findByRole("region", { name: "Board view" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps the Work inspector on the original frozen approval decision path", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=frozen-gate&taskKind=approval&tab=approval");
+    const frozen = Object.freeze({ task: "EXACT_FROZEN_INPUT", repoUrl: "https://github.com/fixture/review", publishPullRequest: false });
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/approvals") return options?.method === "POST"
+        ? Response.json({ result: "rejected" })
+        : Response.json({ approvals: [{ approvalId: "frozen-gate", threadKey: "frozen-thread", task: "Inspect frozen approval", repoUrl: frozen.repoUrl, createdAt: 1, kind: "run", status: "pending", payload: frozen }], decided: [] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const inspector = await screen.findByRole("dialog", { name: "Work inspector: Inspect frozen approval" });
+    expect(JSON.parse(inspector.querySelector("pre")!.textContent!)).toEqual(frozen);
+    expect(window.location.pathname).toBe("/work/");
+    expect(fetch).not.toHaveBeenCalledWith("/api/approvals", expect.objectContaining({ method: "POST" }));
+    fireEvent.click(within(inspector).getByRole("button", { name: "Reject" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/approvals", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ threadKey: "frozen-thread", approvalId: "frozen-gate", approved: false }),
+    })));
+    expect(frozen.task).toBe("EXACT_FROZEN_INPUT");
+    fireEvent.keyDown(inspector, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work inspector: Inspect frozen approval" })).toBeNull());
+    expect(new URLSearchParams(window.location.search).has("task")).toBe(false);
+    expect(new URLSearchParams(window.location.search).get("view")).toBe("board");
+  });
+
+  it("keeps a prompt deep link through StrictMode render retries", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/app/?prompt=STRICT_PROMPT_FIXTURE");
+    render(<StrictMode><App /></StrictMode>);
+    const draft = await screen.findByRole("textbox", { name: "Task draft" });
+    expect((draft as HTMLTextAreaElement).value).toBe("STRICT_PROMPT_FIXTURE");
+    expect(window.location.pathname).toBe("/threads/");
+    expect(new URLSearchParams(window.location.search).has("prompt")).toBe(false);
+  });
+
+  it("reviews the Chat draft in the existing Work composer without submitting it", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    render(<App />);
+    const draft = await screen.findByRole("textbox", { name: "Task draft" });
+    fireEvent.change(draft, { target: { value: "@Fixture inspect the release plan" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review as work" }));
+    await screen.findByTestId("task-composer");
+    expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("@Fixture inspect the release plan");
+    expect(window.location.pathname).toBe("/threads/");
+    expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+    expect(localStorage.getItem("shiba:conversation-mode:default")).toBe("work");
+  });
+
+  it.each([
+    ["/app/?tab=run-registry", "/analytics/"],
+    ["/app/?tab=orchestrator", "/activity/"],
+    ["/app/?view=mailbox", "/inbox/"],
+    ["/app/?tab=dashboard", "/dashboard/"],
+    ["/app/?tab=integrations", "/integrations/"],
+  ])("keeps legacy entry %s on its existing standalone surface", async (entry, expected) => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", entry);
+    render(<App />);
+    await waitFor(() => expect(window.location.pathname).toBe(expected));
+    expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("restores the Settings section on history navigation without dispatching work", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/settings/?section=appearance");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Settings" });
+    expect(new URLSearchParams(window.location.search).get("section")).toBe("appearance");
+    await act(async () => {
+      window.history.pushState(null, "", "/work/?view=timeline");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await screen.findByRole("region", { name: "Timeline view" });
+    await act(async () => {
+      window.history.replaceState(null, "", "/settings/?section=appearance");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await screen.findByRole("heading", { name: "Settings" });
+    expect(new URLSearchParams(window.location.search).get("section")).toBe("appearance");
+    expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+  });
+
   it("preserves an explicit local artifact selection instead of silently switching to sandbox", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     localStorage.setItem("shiba:conversation-mode:default", "work");
@@ -180,6 +316,10 @@ describe("app Work and Threads routing", () => {
         if (attempts.length === 1 || attempts.length === 3) throw new TypeError("Accepted response was lost");
         return Response.json({ approvalId: receipts.get(body.commandId) });
       }
+      if (String(url) === "/api/approvals") return Response.json({ approvals: [...receipts].map(([commandId, approvalId]) => ({
+        approvalId, threadKey: "", task: attempts.find((attempt) => attempt.commandId === commandId)?.task,
+        status: "pending", kind: "run", createdAt: 1,
+      })), decided: [] });
       return originalFetch(url, options);
     }));
     render(<App />);
@@ -189,11 +329,15 @@ describe("app Work and Threads routing", () => {
     await screen.findByText(/Accepted response was lost/);
     await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Prepare an output bundle"));
     fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
-    await screen.findByText(/Draft queued/);
+    await screen.findAllByText(/Draft queued/);
     expect(attempts).toHaveLength(2);
     expect(attempts[1]).toEqual(attempts[0]);
     expect(attempts[0]?.executionTarget.workspaceId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(receipts.size).toBe(1);
+    expect(window.location.pathname).toBe("/work/");
+    fireEvent.click(await screen.findByRole("button", { name: "Close task" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+    await screen.findByRole("textbox", { name: "Task draft" });
     fireEvent.change(screen.getByRole("textbox", { name: "Task draft" }), { target: { value: "Prepare an output bundle" } });
     fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
     await screen.findByText(/Accepted response was lost/);
@@ -203,7 +347,7 @@ describe("app Work and Threads routing", () => {
     expect(receipts.size).toBe(2);
     fireEvent.change(screen.getByRole("textbox", { name: "Task draft" }), { target: { value: "Prepare a changed output bundle" } });
     fireEvent.click(screen.getByRole("button", { name: "Queue fixture task" }));
-    await screen.findByText(/Draft queued/);
+    await screen.findAllByText(/Draft queued/);
     expect(attempts).toHaveLength(4);
     expect(attempts[3]?.commandId).not.toBe(attempts[2]?.commandId);
     expect(attempts[3]?.executionTarget.workspaceId).not.toBe(attempts[2]?.executionTarget.workspaceId);
@@ -223,7 +367,7 @@ describe("app Work and Threads routing", () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
     await screen.findByRole("heading", { name: /Hand off the work/ });
-    fireEvent.click(screen.getByRole("button", { name: "Chats" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     await screen.findByRole("textbox", { name: "Task draft" });
     act(() => { window.history.replaceState(null, "", "/"); window.dispatchEvent(new PopStateEvent("popstate")); });
     await screen.findByRole("heading", { name: /Hand off the work/ });
@@ -240,7 +384,7 @@ describe("app Work and Threads routing", () => {
       return originalFetch(url, options);
     }));
     render(<App />);
-    await screen.findByRole("button", { name: "Chats" });
+    await screen.findByRole("button", { name: "Chat" });
     await waitFor(() => expect(resolveProgress).toBeTypeOf("function"));
     await act(async () => resolveProgress(Response.json({ revision: 1, activatedAt: null, dismissedAt: null })));
     expect(window.location.pathname).toBe(path);
@@ -345,7 +489,7 @@ describe("app Work and Threads routing", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ method: "POST" })));
     await act(async () => {});
     expect((screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement).value).toBe("Different quick task");
-    fireEvent.click(screen.getByRole("button", { name: "Chats" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     expect((await screen.findByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Original unfinished task");
     expect(readDraft(composerDraftScope("test-operator", "default"))).toBe("Original unfinished task");
   });

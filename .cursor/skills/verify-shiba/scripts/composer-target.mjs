@@ -18,19 +18,19 @@ export async function selectRepositoryTask(page) {
 
 /** Follow the desktop rail and contextual panels used by the shared dashboard. */
 export async function openAppView(page, view) {
-  const rail = page.getByRole("navigation", { name: "App Icon Rail", exact: true });
+  const inspectorClose = page.getByRole("button", { name: "Close task", exact: true });
+  if (await inspectorClose.isVisible()) await inspectorClose.click();
+  const rail = page.getByRole("navigation", { name: "Workspace areas", exact: true }).filter({ visible: true }).first();
   if (["Agents", "Chats", "Work"].includes(view)) {
-    await rail.getByRole("button", { name: view, exact: true }).click();
+    const area = { Agents: "Team", Chats: "Chat", Work: "Work" }[view];
+    await rail.getByRole("button", { name: area, exact: true }).click();
     return;
   }
   if (!["Integrations", "Approvals", "Pull requests"].includes(view)) {
     throw new Error(`Unsupported fixture destination: ${view}`);
   }
-  await rail.getByRole("button", { name: "More", exact: true }).click();
-  await page.getByRole("menu", { name: "Additional views", exact: true })
-    .getByRole("menuitem", { name: view === "Integrations" ? "Extensions" : /^Insights(?:\s+\d+)?$/, exact: true }).click();
-  if (view !== "Integrations") {
-    await page.getByRole("complementary", { name: "Insights", exact: true })
-      .getByRole("button", { name: view === "Approvals" ? /^Approvals(?:\s+\d+(?: pending approvals)?)?$/ : view, exact: true }).click();
-  }
+  const area = view === "Integrations" ? "Settings" : "Work";
+  await rail.getByRole("button", { name: area, exact: true }).click();
+  await page.getByRole("navigation", { name: `${area} destinations`, exact: true }).filter({ visible: true }).first()
+    .getByRole("button", { name: view, exact: true }).click();
 }

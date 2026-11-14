@@ -1,3 +1,4 @@
+import { AppAreaNavigation } from "../../layouts/AppShell";
 import { useState, type ComponentType, type JSX, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 
@@ -21,6 +22,7 @@ export function ContextPanel({ title, actions, children, className = "" }: {
 }): JSX.Element {
   return (
     <aside aria-label={title} className={`shiba-destination-panel flex h-full shrink-0 flex-col overflow-hidden ${className}`.trim()}>
+      <AppAreaNavigation />
       <div className="flex shrink-0 items-center justify-between min-h-14 px-4 py-2">
         <h2 className="text-[14px] font-semibold tracking-tight text-[#0a0a0a] dark:text-zinc-100">{title}</h2>
         <div className="flex items-center gap-1">{actions}</div>

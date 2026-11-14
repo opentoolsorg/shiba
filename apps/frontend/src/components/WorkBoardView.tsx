@@ -1,6 +1,7 @@
 import type { RunStatus } from "@shiba/shared";
 import { type DragEvent, type JSX, useState } from "react";
 import { avatarStatusFromTask } from "../agent-mascots";
+import { statusLabel } from "../ui-helpers";
 import { AgentAvatar } from "./AgentAvatar";
 import type { TaskDetailAgent } from "./TaskDetailPanel";
 import type { TaskHistoryAttempt, TaskHistoryItem, TaskHistoryStatus } from "./TaskHistory";
@@ -37,10 +38,13 @@ export interface WorkBoardViewProps {
   /** Opens the approval review for a needs-approval card. */
   onReview?: (id: string) => void;
   className?: string;
+  /** Personal retained runs use execution states; workspace tasks keep their editable planning columns. */
+  execution?: boolean;
 }
 
 export type KanbanColumnId =
   | "todo"
+  | "queued"
   | "in_progress"
   | "needs_approval"
   | "attention"
@@ -54,8 +58,10 @@ export function deriveKanbanColumn(status: string): KanbanColumnId {
     case "waiting-approval":
     case "needs-approval":
     case "needs_approval":
-    case "needs-provider":
       return "needs_approval";
+    case "pending":
+    case "queued":
+      return "queued";
     case "running":
     case "live":
     case "in_progress":
@@ -65,6 +71,9 @@ export function deriveKanbanColumn(status: string): KanbanColumnId {
     case "pr_open":
       return "pr_open";
     case "error":
+    case "failed":
+    case "blocked":
+    case "needs-provider":
     case "aborted":
     case "cancelled":
     case "rejected":
@@ -74,10 +83,24 @@ export function deriveKanbanColumn(status: string): KanbanColumnId {
     case "completed":
     case "done":
       return "done";
-    default:
+    case "ready":
+    case "todo":
+    case "backlog":
       return "todo";
+    default:
+      return "attention";
   }
 }
+
+const EXECUTION_COLUMNS: readonly { id: KanbanColumnId; label: string; icon: WorkListGroup }[] = [
+  { id: "todo", label: "Ready", icon: "backlog" },
+  { id: "needs_approval", label: "Needs approval", icon: "in_review" },
+  { id: "queued", label: "Queued", icon: "todo" },
+  { id: "in_progress", label: "Running", icon: "in_progress" },
+  { id: "pr_open", label: "PR linked", icon: "in_review" },
+  { id: "attention", label: "Needs attention", icon: "backlog" },
+  { id: "done", label: "Completed", icon: "done" },
+];
 
 /** Maps any task/run status onto the five board columns, matching the List view's groups. */
 /** Hyphenated status as stored on TeamWorkItem; column ids stay underscored internally. */
@@ -168,18 +191,21 @@ export function WorkBoardView({
   onMove,
   onReview,
   className = "",
+  execution = false,
 }: WorkBoardViewProps): JSX.Element {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overColumn, setOverColumn] = useState<WorkListGroup | null>(null);
   const normalized = tasks.map(normalizeBoardTask);
+  const columns = execution ? EXECUTION_COLUMNS : WORK_LIST_GROUPS.map((column) => ({ ...column, icon: column.id }));
+  const movable = execution ? undefined : onMove;
 
   const move = (id: string, to: WorkListGroup) => {
     const task = normalized.find((t) => t.id === id);
-    if (task && boardColumn(task.status) !== to) onMove?.(id, toWireStatus(to));
+    if (task && boardColumn(task.status) !== to) movable?.(id, toWireStatus(to));
   };
 
   const dropProps = (column: WorkListGroup) =>
-    onMove
+    movable
       ? {
           onDragOver: (e: DragEvent) => {
             e.preventDefault();
@@ -204,8 +230,8 @@ export function WorkBoardView({
       className={`flex min-h-0 w-full flex-1 flex-col ${className}`.trim()}
     >
       <div className="flex min-h-0 flex-1 snap-x gap-3 overflow-x-auto p-4">
-        {WORK_LIST_GROUPS.map((col) => {
-          const colTasks = normalized.filter((t) => boardColumn(t.status) === col.id);
+        {columns.map((col) => {
+          const colTasks = normalized.filter((t) => (execution ? deriveKanbanColumn(t.status) : boardColumn(t.status)) === col.id);
           const isOver = overColumn === col.id;
           return (
             <section
@@ -213,10 +239,10 @@ export function WorkBoardView({
               aria-label={col.label}
               data-testid={`board-column-${col.id}`}
               className={`flex w-[min(17rem,calc(100vw-3rem))] shrink-0 snap-start flex-col rounded-xl p-2 motion-safe:transition-colors ${isOver ? "bg-zinc-100 dark:bg-zinc-800/60" : "bg-zinc-50/80 dark:bg-zinc-900/40"}`}
-              {...dropProps(col.id)}
+              {...(execution ? {} : dropProps(col.id as WorkListGroup))}
             >
               <h3 className="flex items-center gap-2 px-1.5 pb-2 pt-1 text-xs font-semibold text-zinc-900 select-none dark:text-zinc-100">
-                <WorkStatusIcon group={col.id} />
+                <WorkStatusIcon group={col.icon} />
                 {col.label}
                 <span className="font-normal tabular-nums text-zinc-500 dark:text-zinc-400">
                   {colTasks.length}
@@ -235,7 +261,7 @@ export function WorkBoardView({
                     <li key={task.id} className="flex flex-col gap-1.5">
                       <article
                         data-testid={`board-card-${task.id}`}
-                        draggable={Boolean(onMove)}
+                        draggable={Boolean(movable)}
                         onDragStart={(e) => {
                           e.dataTransfer?.setData("text/plain", task.id);
                           setDraggingId(task.id);
@@ -244,7 +270,7 @@ export function WorkBoardView({
                           setDraggingId(null);
                           setOverColumn(null);
                         }}
-                        className={`relative rounded-lg border border-zinc-200/80 bg-white p-3 shadow-sm hover:border-zinc-300 focus-within:ring-2 focus-within:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700 motion-safe:transition-colors ${onMove ? "cursor-grab active:cursor-grabbing" : ""} ${draggingId === task.id ? "opacity-50" : ""}`}
+                        className={`relative rounded-lg border border-zinc-200/80 bg-white p-3 shadow-sm hover:border-zinc-300 focus-within:ring-2 focus-within:ring-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700 motion-safe:transition-colors ${movable ? "cursor-grab active:cursor-grabbing" : ""} ${draggingId === task.id ? "opacity-50" : ""}`}
                       >
                         <button
                           type="button"
@@ -259,7 +285,7 @@ export function WorkBoardView({
                           </p>
                         ) : null}
                         <div className="mt-3 flex items-center justify-between gap-2">
-                          {onMove ? (
+                          {movable ? (
                             <label className="relative z-10 inline-flex cursor-pointer rounded-full focus-within:ring-2 focus-within:ring-zinc-400">
                               <WorkStatusIcon group={boardColumn(task.status)} />
                               <select
@@ -275,6 +301,8 @@ export function WorkBoardView({
                                 ))}
                               </select>
                             </label>
+                          ) : execution ? (
+                            <span className="text-[11px] text-[var(--muted-foreground-2)]">{task.status === "pr-open" ? "PR linked" : statusLabel(task.status)}</span>
                           ) : (
                             <WorkStatusIcon group={boardColumn(task.status)} />
                           )}
