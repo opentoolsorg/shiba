@@ -1,6 +1,6 @@
 /**
  * WS08 owns this schema; WS10 registers the `ask_user` tool against it.
- * Overlay parity: questionnaire + connect-app cards (generated-ui patterns).
+ * Questionnaire and connect-app cards.
  */
 import { z } from "zod";
 

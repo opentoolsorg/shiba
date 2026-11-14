@@ -95,6 +95,8 @@ import type { TokenRecord } from "../agent-tokens.js";
 import { postToChatThread } from "../chat-lane.js";
 import { createRunCodeTool, ORCHESTRATOR_PRINCIPAL, ORCHESTRATOR_SCOPES } from "../codemode.js";
 import { isAppToolsOnlyTurn, isChatOnlyTurn, toolsForConversationMode } from "../conversation-mode.js";
+import { createChatAgentMediaTools } from "../tools/chat-agent-tools.js";
+import { closeBrowserSession } from "../tools/browser-sessions.js";
 import { createEmployeeRunTools, employeeCanRetainDraft, employeeRunToolPolicyMode, resolveAppToolsEmployeeContext, resolveEmployeeRunToolContext } from "../employee-run-tools.js";
 import { onboardingRunFields, onboardingSourceInstructions, type OnboardingRunFields } from "@shiba/shared";
 import { readDraftTaskReference, resolveOnboardingTaskBinding, revalidateOnboardingBinding } from "../onboarding-task-binding.js";
@@ -1351,9 +1353,14 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   override getTools(): ToolSet {
     if (this.state?.personalExecutionOnly) return {};
     if (isChatOnlyTurn(this.messages)) {
-      // The mode marker only narrows authority. Work turns still use the
-      // unchanged approval-gated delegate and audited run_code tools below.
-      return toolsForConversationMode("chat", super.getTools()) as ToolSet;
+      const runId = this.name ?? "chat-session";
+      return {
+        ...createChatAgentMediaTools(this.env, {
+          runId,
+          orgId: this.employeeToolOrgId(),
+          onClose: () => void closeBrowserSession(runId),
+        }),
+      };
     }
     if (isAppToolsOnlyTurn(this.messages)) {
       return {

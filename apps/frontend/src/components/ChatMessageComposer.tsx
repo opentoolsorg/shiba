@@ -1,5 +1,6 @@
 import { type FormEvent, type JSX, type KeyboardEvent, type ReactNode, type RefObject, useRef } from "react";
-import { ArrowUp, AtSign, LoaderCircle, Plus, Square } from "lucide-react";
+import { ArrowUp, AtSign, LoaderCircle, Mic, Plus, Square } from "lucide-react";
+import { useVoiceInput } from "../hooks/useVoiceInput";
 
 export function ChatMessageComposer({
   value,
@@ -38,6 +39,10 @@ export function ChatMessageComposer({
   children?: ReactNode;
 }): JSX.Element {
   const formRef = useRef<HTMLFormElement | null>(null);
+  const voice = useVoiceInput({
+    disabled: busy || streaming,
+    onTranscript: (text) => onChange(value.trim() ? `${value.trim()} ${text}` : text),
+  });
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -83,6 +88,15 @@ export function ChatMessageComposer({
             </button>
             <button
               type="button"
+              aria-label={voice.recording ? "Stop voice input" : "Voice input"}
+              disabled={busy || streaming || voice.busy}
+              onClick={voice.toggle}
+              className="inline-flex items-center justify-center size-9 rounded-full border border-[var(--border-1)] hover:bg-[var(--secondary)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:opacity-50"
+            >
+              <Mic aria-hidden="true" className={`size-4 ${voice.recording ? "text-[var(--destructive)]" : ""}`} />
+            </button>
+            <button
+              type="button"
               aria-label="Mention"
               aria-haspopup={onMention ? "menu" : undefined}
               aria-expanded={onMention ? Boolean(mentionOpen) : undefined}
@@ -97,7 +111,7 @@ export function ChatMessageComposer({
                   <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
                   SHIBA IS RESPONDING
                 </span>
-              ) : "CHAT MODE · TASK TOOLS ARE OFF"}
+              ) : "CHAT MODE · MEDIA TOOLS ON"}
             </span>
           </div>
           <div className="flex items-center gap-2">
