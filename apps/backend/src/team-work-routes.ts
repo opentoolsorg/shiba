@@ -19,6 +19,8 @@ import {
   type TeamWorkActivityEntry, type TeamWorkTask, type TeamWorkTaskPriority, type TeamWorkTaskStatus,
 } from "./team-work-tasks-store.js";
 import { getTeamWorkspaceMembership, normalizeTeamWorkspaceEmail } from "./team-workspaces-store.js";
+import { upsertWorkspaceSearchDoc } from "./workspace-search-store.js";
+import { publishWorkspaceEvent, workspaceTaskEvent } from "./workspace-events-client.js";
 
 /** Structural counterpart to the frontend DTO; never imports another app's source. */
 export interface TeamWorkItemDto {
@@ -203,13 +205,20 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
         return json({ error: "Owner and reviewer must be workspace members." }, 400);
       }
     }
-    if (taskId !== undefined) return json({ task: storedItem(await updateTeamWorkTask(env, workspaceId, taskId, actorId, { title, ...fields })) });
+    if (taskId !== undefined) {
+      const updated = await updateTeamWorkTask(env, workspaceId, taskId, actorId, { title, ...fields });
+      void upsertWorkspaceSearchDoc(env, workspaceId, updated.taskId, "task", updated.title, updated.objective ?? "", updated.updatedAt);
+      void publishWorkspaceEvent(env, workspaceTaskEvent(workspaceId, updated.taskId, "task.updated", { title: updated.title }));
+      return json({ task: storedItem(updated) });
+    }
     // Pre-check what the follow-up update would reject so a failed create leaves no half-made task.
     if (fields.startDate && fields.endDate && fields.startDate > fields.endDate) return json({ error: "Start date must be on or before the end date." }, 400);
     const parent = fields.parentId ? await getTeamWorkTask(env, workspaceId, fields.parentId) : null;
     if (fields.parentId && (!parent || parent.archived)) return json({ error: "Parent task not found." }, 400);
     const created = await createTeamWorkTask(env, workspaceId, actorId, title ?? "");
     const task = Object.keys(fields).length ? await updateTeamWorkTask(env, workspaceId, created.taskId, actorId, fields) : created;
+    void upsertWorkspaceSearchDoc(env, workspaceId, task.taskId, "task", task.title, task.objective ?? "", task.updatedAt);
+    void publishWorkspaceEvent(env, workspaceTaskEvent(workspaceId, task.taskId, "task.created", { title: task.title }));
     return json({ task: storedItem(task) }, 201);
   } catch (error) {
     if (error instanceof TeamWorkTaskError) return json({ error: error.message }, error.status);

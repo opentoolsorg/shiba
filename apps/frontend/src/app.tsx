@@ -21,7 +21,7 @@ import { RoomExecutionPanel } from "./components/RoomExecutionPanel";
 import { RoomApprovalReview } from "./components/RoomApprovalReview";
 import { TeamWorkspaceView } from "./components/TeamWorkspaceView";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
-import { lastTeamWorkspace, rememberLastTeamWorkspace, useTeamWorkspaceDirectory } from "./team-workspaces-client";
+import { lastTeamWorkspace, rememberLastTeamWorkspace, teamWorkspaceHeaders, useTeamWorkspaceDirectory } from "./team-workspaces-client";
 import { useWorkTasks } from "./work-mutations";
 import { useFirstRunSeed } from "./first-run-seed";
 import { AnalyticsView } from "./components/AnalyticsView";
@@ -110,6 +110,8 @@ import { useTheme } from "./components/ThemeProvider";
 import { Tooltip } from "./components/Tooltip";
 import { extractPendingApprovals, extractCompletedDiff, parseRepoName, readPromptParam, runsListUrl, statusChipClass, statusLabel } from "./ui-helpers";
 import { createCompletionDrivenPoll, documentVisibilityPause } from "./polling";
+import { useApprovalsState } from "./state/approvals";
+import { useWorkspaceEvents } from "./state/workspace-events";
 import type { AgentPrincipal, RetainedRun, StoredApproval, ToolRunRecord } from "./types";
 
 const ORCHESTRATOR_AGENT = "coding-orchestrator";
@@ -190,74 +192,6 @@ function useRetainedRuns(
   return { runs: enabled ? runs : [], error: enabled ? error : null, detailReady: enabled && detailReady, listSettled };
 }
 
-/**
- * Live approval pointers from the orchestrator DO (`GET /api/approvals`).
- * These are the records Slack-card and queued-email approvals write —
- * separate from chat tool-part approvals, and the only surface where a
- * queued email send can be decided. Polls so cards disappear the moment
- * another surface (or a peer) resolves them.
- */
-function useStoredApprovals(
-  refreshToken: number,
-  enabled: boolean,
-): {
-  approvals: StoredApproval[];
-  decided: StoredApproval[];
-  error: string | null;
-} {
-  const [approvals, setApprovals] = useState<StoredApproval[]>([]);
-  const [decided, setDecided] = useState<StoredApproval[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    // The poll drives DO writes on the backend — only run it while a
-    // view that renders the data is up. Re-enabling loads immediately.
-    if (!enabled) { setApprovals([]); setDecided([]); setError(null); return; }
-    let cancelled = false;
-    // A slow poll landing after a newer one must not repaint a resolved card.
-    let sent = 0;
-    let applied = 0;
-    const load = () => {
-      const seq = ++sent;
-      return fetch("/api/approvals")
-        .then(async (response) => {
-          if (!response.ok) {
-            throw new Error(`Approvals request failed: ${response.status}`);
-          }
-          const body = (await response.json()) as {
-            approvals?: StoredApproval[];
-            decided?: StoredApproval[];
-          };
-          if (!cancelled && seq > applied) {
-            applied = seq;
-            setApprovals(Array.isArray(body.approvals) ? body.approvals : []);
-            setDecided(Array.isArray(body.decided) ? body.decided : []);
-            setError(null);
-          }
-        })
-        .catch((fetchError: unknown) => {
-          if (!cancelled && seq > applied) {
-            setError(fetchError instanceof Error ? fetchError.message : String(fetchError));
-          }
-        });
-    };
-    // Completion-driven fallback (30s): DO state hints bump refreshToken for
-    // real-time refreshes; this poll only catches other sessions' approvals.
-    // The next tick arms after this load settles (single inflight), and a
-    // hidden tab pauses instead of stacking polls.
-    const poll = createCompletionDrivenPoll({
-      intervalMs: 30_000,
-      load,
-      pause: documentVisibilityPause(),
-    });
-    return () => {
-      cancelled = true;
-      poll.stop();
-    };
-  }, [refreshToken, enabled]);
-
-  return { approvals, decided, error };
-}
 
 // Registered MCP-token principals, polled on the same cadence as stored
 // approvals. No error surface: a failed poll just keeps the last list —
@@ -511,6 +445,8 @@ export function App(): React.JSX.Element {
   const [showClearModal, setShowClearModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
+  const [commandSearchItems, setCommandSearchItems] = useState<CommandItem[]>([]);
   const { resolvedTheme, setTheme } = useTheme();
   const theme = (resolvedTheme === "light" ? "light" : "dark") as "dark" | "light";
   const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
@@ -1387,17 +1323,20 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     const timer = window.setInterval(() => void load(), 5_000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [refreshToken, selectedSessionId, sessionApiAvailable, privateDataEnabled, mainView]);
+  const approvalsEnabled =
+    privateDataEnabled && (mainView === "approvals" || mainView === "tasks" || mainView === "threads" || mainView === "dashboard" || mainView === "work");
+  const workspaceEventsEnabled =
+    Boolean(teamWorkspaceId) && (mainView === "tasks" || mainView === "work" || mainView === "threads");
+  const workspaceLive = useWorkspaceEvents({
+    workspaceId: teamWorkspaceId || null,
+    enabled: workspaceEventsEnabled,
+    onEvent: () => refreshRuns(),
+  });
   const {
     approvals: storedApprovals,
     decided: decidedStoredApprovals,
     error: storedApprovalsError,
-  } = useStoredApprovals(
-    refreshToken,
-    // Approvals data renders on the approvals board, the tasks strip, and
-    // the dashboard decided tail — the nav badge between them refreshes
-    // on entry to any of the three.
-    privateDataEnabled && (mainView === "approvals" || mainView === "tasks" || mainView === "threads" || mainView === "dashboard" || mainView === "work"),
-  );
+  } = useApprovalsState(refreshToken, approvalsEnabled, workspaceLive);
   const reviewAfterPublishById = useMemo(() => {
     const map: Record<string, boolean> = {};
     for (const approval of storedApprovals) {
@@ -2695,7 +2634,76 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     chat.status === "streaming" ||
     chat.status === "submitted";
 
+  useEffect(() => {
+    if (!commandMenuOpen) {
+      setCommandQuery("");
+      setCommandSearchItems([]);
+      return;
+    }
+    const trimmed = commandQuery.trim();
+    if (!teamWorkspaceId || trimmed.length < 2) {
+      setCommandSearchItems([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void fetch(`/api/search?q=${encodeURIComponent(trimmed)}`, {
+        credentials: "same-origin",
+        headers: teamWorkspaceHeaders(teamWorkspaceId),
+      })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((raw) => {
+          const body = raw as { tasks?: Array<{ taskId: string; title: string }>; rooms?: Array<{ roomId: string; title: string }> } | null;
+          if (cancelled || !body) return;
+          const items: CommandItem[] = [];
+          for (const task of body.tasks ?? []) {
+            items.push({
+              id: `search-task-${task.taskId}`,
+              label: `Task · ${task.title}`,
+              hint: "Open task",
+              run: () => {
+                const next = updateWorkSearch(new URLSearchParams(window.location.search), {
+                  view: "list",
+                  task: task.taskId,
+                  taskKind: "run",
+                  tab: "steps",
+                });
+                window.history.pushState(null, "", `/work?${next.toString()}`);
+                openView("work");
+              },
+            });
+          }
+          for (const room of body.rooms ?? []) {
+            items.push({
+              id: `search-room-${room.roomId}`,
+              label: `Channel · ${room.title}`,
+              hint: "Open channel",
+              run: () => {
+                setSharedRoomId(room.roomId);
+                openView("threads");
+              },
+            });
+          }
+          setCommandSearchItems(items);
+        })
+        .catch(() => {
+          if (!cancelled) setCommandSearchItems([]);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [commandMenuOpen, commandQuery, teamWorkspaceId]);
+
   const commands: CommandItem[] = [
+    ...commandSearchItems,
+    ...(teamWorkspaceId
+      ? [
+          { id: "new-channel", label: "New channel", hint: "Team chat", run: () => openView("threads") },
+          { id: "connect-app", label: "Connect app", hint: "Integrations", run: () => { setSettingsSection("integrations"); openView("settings"); } },
+        ]
+      : []),
     ...APP_NAV_ITEMS.map((item) => ({
       id: `nav-${item.id}`,
       label: `Go to ${item.label}`,
@@ -4015,6 +4023,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             open={commandMenuOpen}
             onClose={() => setCommandMenuOpen(false)}
             commands={commands}
+            onQueryChange={setCommandQuery}
           />
         </div>
       </div>
