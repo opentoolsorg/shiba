@@ -39,8 +39,12 @@ import {
 } from "./settings-sections";
 import { TeamWorkspaceView, type TeamWorkspaceViewProps } from "./TeamWorkspaceView";
 import { RemoteAccessView } from "./RemoteAccessView";
+import { GroupsSettings } from "./settings/Groups";
+import { SharingSettings } from "./settings/Sharing";
+import { ArchivedSettings } from "./settings/Archived";
+import { AdminSettings } from "./settings/Admin";
 
-export type SettingsPageSectionId = SettingsSectionId | "team" | "remote";
+export type SettingsPageSectionId = SettingsSectionId | "team" | "remote" | "groups" | "sharing" | "archived" | "admin";
 
 export interface SettingsNavGroup {
   heading: string;
@@ -65,6 +69,10 @@ export const SETTINGS_PAGE_NAV_GROUPS: SettingsNavGroup[] = [
     heading: "Workspace",
     items: [
       { id: "team", label: "Team", blurb: "Members, invitations & roles", icon: Users },
+      { id: "groups", label: "Groups", blurb: "Authorization groups & grants", icon: Users },
+      { id: "sharing", label: "Sharing", blurb: "Public links & guest policy", icon: ShieldCheck },
+      { id: "archived", label: "Archived", blurb: "Archived skills, tasks & agents", icon: Box },
+      { id: "admin", label: "Admin", blurb: "Operator console (deployment admin)", icon: ShieldCheck },
       { id: "remote", label: "Remote access", blurb: "Connected computers & daemon", icon: Laptop },
       { id: "models", label: "Models", blurb: SETTINGS_SECTION_LABELS.models.blurb, icon: Cpu },
       { id: "sandbox", label: "Sandbox", blurb: SETTINGS_SECTION_LABELS.sandbox.blurb, icon: Box },
@@ -360,6 +368,14 @@ export function SettingsPage({
           />
         ) : activeSection === "remote" ? (
           <RemoteAccessView />
+        ) : activeSection === "groups" ? (
+          <div className="max-w-4xl mx-auto p-6 lg:p-8"><GroupsSettings workspaceId={workspaceId} /></div>
+        ) : activeSection === "sharing" ? (
+          <div className="max-w-4xl mx-auto p-6 lg:p-8"><SharingSettings workspaceId={workspaceId} /></div>
+        ) : activeSection === "archived" ? (
+          <div className="max-w-4xl mx-auto p-6 lg:p-8"><ArchivedSettings workspaceId={workspaceId} /></div>
+        ) : activeSection === "admin" ? (
+          <div className="max-w-4xl mx-auto p-6 lg:p-8"><AdminSettings /></div>
         ) : (
           <div className="max-w-4xl mx-auto p-6 lg:p-8 flex flex-col gap-6">
             <SettingsSectionBody
