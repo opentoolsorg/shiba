@@ -21,6 +21,17 @@ function invitationFromHash(): string {
   return /^[a-f0-9]{64}$/.test(token) ? token : "";
 }
 
+type AuthMode = "signin" | "signup" | "invite" | "forgot" | "reset";
+
+function initialAuthMode(suppliedInvitation?: string): AuthMode {
+  if (typeof window === "undefined") return "signin";
+  if (/^\/auth\/forgot\/?$/.test(window.location.pathname)) return "forgot";
+  if (/^\/auth\/reset\/?$/.test(window.location.pathname)) return "reset";
+  if (suppliedInvitation && /^[a-f0-9]{64}$/.test(suppliedInvitation)) return "invite";
+  if (invitationFromHash()) return "invite";
+  return "signin";
+}
+
 interface BootstrapPolicy {
   requiresToken: boolean;
   requiresOwnerEmail: boolean;
@@ -60,7 +71,11 @@ export function SessionProblem({
 
 export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: { onSignedIn: () => void; invitationToken?: string }): JSX.Element {
   const initialInvitation = suppliedInvitation && /^[a-f0-9]{64}$/.test(suppliedInvitation) ? suppliedInvitation : invitationFromHash();
-  const [mode, setMode] = useState<"signin" | "signup" | "invite">(() => initialInvitation ? "invite" : "signin");
+  const [mode, setMode] = useState<AuthMode>(() => initialAuthMode(suppliedInvitation));
+  const [resetToken, setResetToken] = useState(() =>
+    typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("token") ?? "",
+  );
+  const [resetSent, setResetSent] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -121,8 +136,61 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
     }
   }
 
+  async function submitForgot(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setError(null);
+    setPending(true);
+    try {
+      const origin = window.location.origin;
+      const response = await withAuthTimeout(fetch("/api/auth/request-password-reset", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), redirectTo: `${origin}/auth/reset` }),
+      }), AUTH_CLIENT_TIMEOUT_MS);
+      if (!response.ok) {
+        setError("Could not send a reset email.");
+        return;
+      }
+      setResetSent(true);
+    } catch (caught) {
+      setError(caught instanceof AuthTimeoutError ? caught.message : "Could not reach the auth service.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function submitReset(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setError(null);
+    setPending(true);
+    const token = resetToken.trim();
+    if (!token) {
+      setError("This reset link is missing a token. Request a new reset email.");
+      setPending(false);
+      return;
+    }
+    try {
+      const response = await withAuthTimeout(fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ newPassword: password, token }),
+      }), AUTH_CLIENT_TIMEOUT_MS);
+      if (!response.ok) {
+        setError("Password could not be reset.");
+        return;
+      }
+      onSignedIn();
+    } catch (caught) {
+      setError(caught instanceof AuthTimeoutError ? caught.message : "Could not reach the auth service.");
+    } finally {
+      setPending(false);
+    }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
+  if (mode === "forgot") return submitForgot(event);
+  if (mode === "reset") return submitReset(event);
     setError(null);
     setPending(true);
     const headers: Record<string, string> = {};
@@ -196,10 +264,14 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
 
   return (
     <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-      <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-center gap-3">
+      <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-sheet)] flex flex-col items-center text-center gap-3">
         <ShibaMark />
         <h1 className="text-xl">
-          {mode === "invite" ? "Join your team" : mode === "signup" ? "Create the dashboard account" : "Sign in to continue"}
+          {mode === "invite" ? "Join your team"
+            : mode === "signup" ? "Create the dashboard account"
+            : mode === "forgot" ? "Forgot your password?"
+            : mode === "reset" ? "Choose a new password"
+            : "Sign in to continue"}
         </h1>
         <p className="text-sm text-[var(--muted-foreground-2)] leading-relaxed">
           {mode === "invite"
@@ -208,10 +280,14 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
             ? policy?.locked
               ? "Owner sign-up is locked. The operator must configure a setup token before the first account can be created."
               : "The first account becomes the dashboard owner. Additional accounts require a workspace invitation and verified email setup."
+            : mode === "forgot"
+            ? "Enter your dashboard email. If it exists, you will receive a reset link."
+            : mode === "reset"
+            ? "Set a new password. Other dashboard sessions will be signed out."
             : "Sign in with your dashboard email and password."}
         </p>
         <form onSubmit={submit} className="w-full flex flex-col gap-2.5 mt-1 text-left">
-          {mode !== "signin" ? (
+          {mode !== "signin" && mode !== "forgot" && mode !== "reset" ? (
             <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
               Name
               <input
@@ -234,6 +310,13 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
               className="w-full min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--input)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]"
             />
           </label>
+          {mode === "reset" ? (
+            <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
+              Reset token
+              <input type="text" required value={resetToken} onChange={(event) => setResetToken(event.target.value)}
+                className="w-full min-h-11 border border-[var(--border-1)] bg-[var(--input)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]" />
+            </label>
+          ) : null}
           {mode === "invite" ? (
             <>
               <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
@@ -259,18 +342,21 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
               />
             </label>
           ) : null}
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
-            Password
-            <input
-              type="password"
-              required
-              minLength={8}
-              autoComplete={mode !== "signin" ? "new-password" : "current-password"}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="w-full min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--input)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]"
-            />
-          </label>
+          {mode !== "forgot" ? (
+            <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
+              Password
+              <input
+                type="password"
+                required
+                minLength={8}
+                autoComplete={mode !== "signin" ? "new-password" : "current-password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="w-full min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--input)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]"
+              />
+            </label>
+          ) : null}
+          {resetSent ? <p role="status" className="text-sm text-[var(--muted-foreground-2)]">If the address exists, a reset link is on its way.</p> : null}
           {error ? (
             <p role="alert" className="text-sm text-[var(--destructive)] ">
               {error}
@@ -290,17 +376,23 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
             }}>Resend verification email</button> : null}
           <button
             type="submit"
-            disabled={pending || (mode === "signup" && policy?.locked === true) || (mode === "invite" && !invitationPolicy?.enabled)}
+            disabled={pending || (mode === "signup" && policy?.locked === true) || (mode === "invite" && !invitationPolicy?.enabled) || (mode === "forgot" && resetSent)}
             className="w-full min-h-11 rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] disabled:opacity-60 text-[var(--primary-text)] text-sm font-semibold transition-colors shadow-[var(--sh-card)] active:scale-[0.98]"
           >
             {pending
               ? "Working…"
               : mode === "invite" ? "Create team account"
-              : mode === "signup"
-                ? "Create account"
-                : "Sign in"}
+              : mode === "signup" ? "Create account"
+              : mode === "forgot" ? "Send reset link"
+              : mode === "reset" ? "Update password"
+              : "Sign in"}
           </button>
         </form>
+        {mode === "signin" ? (
+          <div className="flex flex-col gap-2 w-full">
+            <a href="/auth/forgot" className="text-xs text-[var(--primary)] hover:underline">Forgot password?</a>
+          </div>
+        ) : null}
         {mode === "signin" && socialProviders.length > 0 ? (
           <div className="w-full border-t border-[var(--border-1)] pt-3">
             <p className="mb-2 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">Or sign in with a linked account</p>
@@ -315,19 +407,23 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
             </div>
           </div>
         ) : null}
-        <button
-          type="button"
-          onClick={() => {
-            setMode(mode === "signin" ? "signup" : "signin");
-            setError(null);
-            setVerificationPending(false);
-          }}
-          className="text-xs text-[var(--primary)] hover:underline"
-        >
-          {mode !== "signin"
-            ? "Have an account? Sign in"
-            : "First sign-in? Create the account"}
-        </button>
+        {mode !== "forgot" && mode !== "reset" ? (
+          <button
+            type="button"
+            onClick={() => {
+              setMode(mode === "signin" ? "signup" : "signin");
+              setError(null);
+              setVerificationPending(false);
+            }}
+            className="text-xs text-[var(--primary)] hover:underline"
+          >
+            {mode !== "signin"
+              ? "Have an account? Sign in"
+              : "First sign-in? Create the account"}
+          </button>
+        ) : (
+          <a href="/app/" className="text-xs text-[var(--primary)] hover:underline">Back to sign in</a>
+        )}
         {mode !== "invite" ? <button type="button" className="min-h-11 text-xs text-[var(--primary)] hover:underline"
           onClick={() => { setMode("invite"); setError(null); setVerificationPending(false); }}>Have a team invitation?</button> : null}
       </div>

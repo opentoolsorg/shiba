@@ -11,6 +11,9 @@ export function integrationProviderReadError(status: number, body: unknown, fall
     return "Sign in to Shiba with a verified user session to load private app accounts and the provider catalog. If this is a local or gateway-only session, the operator must configure user authentication first.";
   }
   if (status === 503) {
+    if (body && typeof body === "object" && "code" in body && body.code === "openconnector_not_bound") {
+      return "OpenConnector is not set up on this deployment. Ask the operator to bind OPEN_CONNECTOR or set OPEN_CONNECTOR_URL, then deploy the OpenConnector sibling.";
+    }
     return "OpenConnector is unavailable. Ask the operator to check the sibling service, Shiba's service binding and service credentials, then retry. Reference entries do not confirm provider availability.";
   }
   return body && typeof body === "object" && "error" in body && typeof body.error === "string"
