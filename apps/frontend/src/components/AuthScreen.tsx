@@ -33,6 +33,7 @@ function initialAuthMode(suppliedInvitation?: string): AuthMode {
 }
 
 interface BootstrapPolicy {
+  ownerExists: boolean;
   requiresToken: boolean;
   requiresOwnerEmail: boolean;
   locked: boolean;
@@ -268,7 +269,7 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
         <ShibaMark />
         <h1 className="text-xl">
           {mode === "invite" ? "Join your team"
-            : mode === "signup" ? "Create the dashboard account"
+            : mode === "signup" ? "Create account"
             : mode === "forgot" ? "Forgot your password?"
             : mode === "reset" ? "Choose a new password"
             : "Sign in to continue"}
@@ -277,15 +278,37 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
           {mode === "invite"
             ? "Use your invitation and verify its exact email address. Team membership does not grant deployment administration."
             : mode === "signup"
-            ? policy?.locked
-              ? "Owner sign-up is locked. The operator must configure a setup token before the first account can be created."
-              : "The first account becomes the dashboard owner. Additional accounts require a workspace invitation and verified email setup."
+            ? policy?.ownerExists
+              ? "New members need a workspace invitation."
+              : policy?.locked
+              ? "Ask your operator to configure a setup token to create the first account."
+              : "Create the first account to become the dashboard owner."
             : mode === "forgot"
             ? "Enter your dashboard email. If it exists, you will receive a reset link."
             : mode === "reset"
             ? "Set a new password. Other dashboard sessions will be signed out."
-            : "Sign in with your dashboard email and password."}
+            : "Welcome back to Shiba."}
         </p>
+        {mode === "signin" && socialProviders.includes("google") ? (
+          <>
+            <button type="button" disabled={pending || socialPending !== null}
+              onClick={() => void signInSocial("google")}
+              className="w-full min-h-11 flex items-center justify-center gap-2.5 border border-[var(--line)] bg-[var(--card)] px-3 text-sm font-medium text-[var(--ink)] hover:bg-[var(--panel-2)] disabled:opacity-60">
+              <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 18 18" className="shrink-0">
+                <path fill="#4285F4" d="M17.64 9.20455c0-.63819-.0573-1.25182-.1636-1.84091H9v3.48186h4.8436c-.2086 1.125-.8427 2.0782-1.7959 2.7163v2.2582h2.9091c1.7018-1.5668 2.6832-3.8741 2.6832-6.61545Z" />
+                <path fill="#34A853" d="M9 18c2.43 0 4.4673-.8059 5.9568-2.18l-2.9091-2.2582c-.8059.54-1.8368.8591-3.0477.8591-2.34409 0-4.32818-1.5832-5.03591-3.7105H.956727v2.3318C2.43818 15.9859 5.48182 18 9 18Z" />
+                <path fill="#FBBC05" d="M3.96409 10.7104C3.78409 10.1704 3.68182 9.59318 3.68182 9s.10227-1.17045.28227-1.71045V4.95773H.956727C.347727 6.17273 0 7.54636 0 9s.347727 2.8273.956727 4.0423l3.007363-2.3319Z" />
+                <path fill="#EA4335" d="M9 3.57955c1.3214 0 2.5077.45409 3.4405 1.34591l2.5813-2.58137C13.4632.891818 11.4259 0 9 0 5.48182 0 2.43818 2.01409.956727 4.95773L3.96409 7.28955C4.67182 5.16227 6.65591 3.57955 9 3.57955Z" />
+              </svg>
+              {socialPending === "google" ? "Opening…" : "Continue with Google"}
+            </button>
+            <div className="w-full flex items-center gap-3 text-xs text-[var(--ink-2)]">
+              <span className="flex-1 border-t border-[var(--line)]" />
+              <span>or</span>
+              <span className="flex-1 border-t border-[var(--line)]" />
+            </div>
+          </>
+        ) : null}
         <form onSubmit={submit} className="w-full flex flex-col gap-2.5 mt-1 text-left">
           {mode !== "signin" && mode !== "forgot" && mode !== "reset" ? (
             <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
@@ -330,7 +353,7 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
               </p> : null}
             </>
           ) : null}
-          {mode === "signup" && (policy === null || policy.requiresToken || policy.locked) ? (
+          {mode === "signup" && policy !== null && !policy.ownerExists && (policy.requiresToken || policy.locked) ? (
             <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
               Setup token
               <input
@@ -393,19 +416,12 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
             <a href="/auth/forgot" className="text-xs text-[var(--primary)] hover:underline">Forgot password?</a>
           </div>
         ) : null}
-        {mode === "signin" && socialProviders.length > 0 ? (
-          <div className="w-full border-t border-[var(--border-1)] pt-3">
-            <p className="mb-2 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">Or sign in with a linked account</p>
-            <div className="grid grid-cols-2 gap-2">
-              {socialProviders.map((provider) => (
-                <button key={provider} type="button" disabled={pending || socialPending !== null}
-                  onClick={() => void signInSocial(provider)}
-                  className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 text-sm font-medium text-[var(--fg)] hover:bg-[var(--secondary)] disabled:opacity-60">
-                  {socialPending === provider ? "Opening…" : provider === "google" ? "Google" : "Slack"}
-                </button>
-              ))}
-            </div>
-          </div>
+        {mode === "signin" && socialProviders.includes("slack") ? (
+          <button type="button" disabled={pending || socialPending !== null}
+            onClick={() => void signInSocial("slack")}
+            className="w-full min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-sm text-[var(--ink)] hover:bg-[var(--panel-2)] disabled:opacity-60">
+            {socialPending === "slack" ? "Opening…" : "Slack"}
+          </button>
         ) : null}
         {mode !== "forgot" && mode !== "reset" ? (
           <button
@@ -415,11 +431,11 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
               setError(null);
               setVerificationPending(false);
             }}
-            className="text-xs text-[var(--primary)] hover:underline"
+            className="min-h-11 text-xs text-[var(--ink-2)] hover:underline"
           >
             {mode !== "signin"
               ? "Have an account? Sign in"
-              : "First sign-in? Create the account"}
+              : "Create account"}
           </button>
         ) : (
           <a href="/app/" className="text-xs text-[var(--primary)] hover:underline">Back to sign in</a>
