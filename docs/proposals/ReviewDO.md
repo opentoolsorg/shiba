@@ -20,7 +20,7 @@ Thread-scoped review rounds work when one dashboard thread owns one PR. They str
 | Data | Notes |
 |------|--------|
 | `rounds: ReviewRound[]` | Same wire types as `packages/shared/src/review.ts` |
-| `findingsTriage` | Optional overlay if triage should diverge from last posted round |
+| `findingsTriage` | Optional extra round if triage should diverge from last posted round |
 | `lastHeadSha` | Idempotency for synchronize |
 | `codingRunId?` | Primary thread that opened the PR (hint, not authority) |
 | `wakeCursor` | Last processed delivery id per wake kind |

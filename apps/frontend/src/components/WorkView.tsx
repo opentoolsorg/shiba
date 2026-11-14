@@ -71,6 +71,7 @@ export interface WorkViewProps {
   /** Existing approval handlers are passed through unchanged to the existing cards. */
   onDecideApproval?: WorkPeekProps["onDecideApproval"];
   onDecideStoredApproval?: WorkPeekProps["onDecideStoredApproval"];
+  claimConflicts?: Record<string, { actorId: string; branch: string; repo: string; runId: string }>;
   approvalDecisions?: Record<string, boolean>;
   /** Scope used by existing deliverable links; never guessed from a run id. */
   peekSessionId?: string;
@@ -492,6 +493,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
       decisions={props.approvalDecisions}
       onDecideApproval={props.onDecideApproval}
       onDecideStoredApproval={props.onDecideStoredApproval}
+      claimConflict={selected.kind === "approval" ? props.claimConflicts?.[selected.id] ?? null : null}
       renderContent={props.renderPeekContent}
     /> : null}
   </>;

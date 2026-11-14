@@ -29,7 +29,7 @@ describe("ApprovalCard", () => {
     for (const button of screen.getAllByRole("button")) expect((button as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it.each([[true, "Approved — sandbox starting"], [false, "Rejected — nothing ran"]] as const)("explains settled decision %s", (decision, message) => {
+  it.each([[true, "Approved — sandbox starting"], [false, "Denied. This decision is final."]] as const)("explains settled decision %s", (decision, message) => {
     render(<ApprovalCard approval={approval} decided decision={decision} onDecideApproval={vi.fn()} />);
     expect(screen.getByRole("status").textContent).toBe(message);
     for (const button of screen.getAllByRole("button")) expect((button as HTMLButtonElement).disabled).toBe(true);

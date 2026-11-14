@@ -17,7 +17,8 @@ export interface ApprovalsViewProps {
   storedDecisions: Record<string, boolean>;
   decidedStoredApprovals: StoredApproval[];
   storedApprovalsError: string | null;
-  onDecideStoredApproval: (approval: StoredApproval, ok: boolean) => void;
+  onDecideStoredApproval: (approval: StoredApproval, ok: boolean, claimAction?: "queue" | "new_branch" | "cancel") => void;
+  claimConflicts?: Record<string, { actorId: string; branch: string; repo: string; runId: string }>;
   orchestratorName?: string | null;
   onRefresh?: () => void;
   reviewAfterPublishById?: Record<string, boolean>;
@@ -40,6 +41,7 @@ export function ApprovalsView({
   decidedStoredApprovals,
   storedApprovalsError,
   onDecideStoredApproval,
+  claimConflicts,
   orchestratorName,
   onRefresh,
   reviewAfterPublishById,
@@ -206,6 +208,8 @@ export function ApprovalsView({
                         decided={storedDecisions[approval.approvalId] !== undefined}
                         decision={storedDecisions[approval.approvalId]}
                         onDecide={onDecideStoredApproval}
+                        conflict={claimConflicts?.[approval.approvalId] ?? null}
+                        onClaimChoice={(choice) => onDecideStoredApproval(approval, choice !== "cancel", choice)}
                       />
                     ))}
                   </div>

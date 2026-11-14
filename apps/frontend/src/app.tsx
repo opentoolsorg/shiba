@@ -21,7 +21,7 @@ import { RoomExecutionPanel } from "./components/RoomExecutionPanel";
 import { RoomApprovalReview } from "./components/RoomApprovalReview";
 import { TeamWorkspaceView } from "./components/TeamWorkspaceView";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
-import { lastTeamWorkspace, rememberLastTeamWorkspace, teamWorkspaceHeaders, useTeamWorkspaceDirectory } from "./team-workspaces-client";
+import { lastTeamWorkspace, rememberLastTeamWorkspace, useTeamWorkspaceDirectory } from "./team-workspaces-client";
 import { useWorkTasks } from "./work-mutations";
 import { useFirstRunSeed } from "./first-run-seed";
 import { AnalyticsView } from "./components/AnalyticsView";
@@ -80,6 +80,10 @@ import { ApprovalsView } from "./components/ApprovalsView";
 import { InboxTab } from "./components/InboxTab";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { MemoryTab } from "./components/MemoryTab";
+import { FilesView } from "./components/knowledge/FilesView";
+import { NotesEditor } from "./components/knowledge/NotesEditor";
+import { OutputsView } from "./components/knowledge/OutputsView";
+import { ProjectsView } from "./components/knowledge/ProjectsView";
 import { SettingsPage, SettingsPanel, normalizeSettingsSection } from "./components/SettingsPage";
 import { MainCard, type Scope } from "./components/ui/ContextPanel";
 import { AgentsPanel } from "./components/AgentsPanel";
@@ -104,7 +108,8 @@ import { AppNavRail, APP_NAV_ITEMS, type AppNavView } from "./components/AppNavR
 import { AuthScreen, SessionPending, SessionProblem } from "./components/AuthScreen";
 import { ShibaMark } from "./components/ShibaMark";
 import { authClient } from "./auth-client";
-import { CommandMenu, type CommandItem } from "./components/ui/command-menu";
+import { CommandPalette } from "./components/palette/CommandPalette";
+import { SETTINGS_SECTION_LABELS } from "./components/settings-sections";
 import { ShortcutsDialog, singleKeyShortcutsEnabled } from "./components/ShortcutsDialog";
 import { useTheme } from "./components/ThemeProvider";
 import { Tooltip } from "./components/Tooltip";
@@ -259,7 +264,7 @@ type IdentityResult =
   | { agent: string; auth?: AuthMode; teamMember?: boolean }
   | { issue: IdentityIssue; message: string; auth?: AuthMode };
 
-async function fetchIdentity(): Promise<IdentityResult> {
+async function fetchIdentity(attempt = 0): Promise<IdentityResult> {
   let res: Response;
   try {
     // manual: Cloudflare Access answers an expired session with a cross-origin
@@ -270,6 +275,7 @@ async function fetchIdentity(): Promise<IdentityResult> {
       signal: AbortSignal.timeout(12_000),
     });
   } catch {
+    if (attempt < 1) return fetchIdentity(attempt + 1);
     return { issue: "unreachable", message: "Network error reaching /api/whoami." };
   }
   if (res.type === "opaqueredirect") {
@@ -296,6 +302,7 @@ async function fetchIdentity(): Promise<IdentityResult> {
     res.status === 503 ||
     res.status === 504
   ) {
+    if (attempt < 1) return fetchIdentity(attempt + 1);
     return { issue: "unreachable", message: `GET /api/whoami returned ${res.status}.` };
   }
   if (!res.ok) return { issue: "error", message: `GET /api/whoami failed with ${res.status}.` };
@@ -443,8 +450,6 @@ export function App(): React.JSX.Element {
   const [showClearModal, setShowClearModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
-  const [commandQuery, setCommandQuery] = useState("");
-  const [commandSearchItems, setCommandSearchItems] = useState<CommandItem[]>([]);
   const { resolvedTheme, setTheme } = useTheme();
   const theme = (resolvedTheme === "light" ? "light" : "dark") as "dark" | "light";
   const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
@@ -1476,12 +1481,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
   // Decide a DO-state approval pointer: POST resolves it in place — the
   // frozen payload executes or the queued draft is released.
+  const [claimConflicts, setClaimConflicts] = useState<Record<string, { actorId: string; branch: string; repo: string; runId: string }>>({});
   const decideStoredApproval = useCallback(
-    async (approval: StoredApproval, approved: boolean) => {
+    async (approval: StoredApproval, approved: boolean, claimAction?: "queue" | "new_branch" | "cancel") => {
       const decisionScope = draftScope.current;
       const decisionSurface = activeSurfaceScopeRef.current;
       const approvalId = approval.approvalId;
-      if (decidedStoredRef.current.has(approvalId)) return;
+      if (!claimAction && decidedStoredRef.current.has(approvalId)) return;
       decidedStoredRef.current.add(approvalId);
       setStoredDecisions((current) => ({ ...current, [approvalId]: approved }));
       try {
@@ -1492,12 +1498,32 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             threadKey: approval.threadKey,
             approvalId,
             approved,
+            ...(claimAction ? { claimAction } : {}),
           }),
         });
         const body = (await response.json().catch(() => ({}))) as {
           result?: string;
           error?: string;
+          code?: string;
+          conflict?: { actorId: string; branch: string; repo: string; runId: string };
         };
+        if (response.status === 409 && body.code === "repo_claim_conflict" && body.conflict) {
+          decidedStoredRef.current.delete(approvalId);
+          setStoredDecisions((current) => {
+            const next = { ...current };
+            delete next[approvalId];
+            return next;
+          });
+          setClaimConflicts((current) => ({ ...current, [approvalId]: body.conflict! }));
+          setNotice("Someone is already working on this branch. Queue, start a new branch, or cancel.");
+          return;
+        }
+        setClaimConflicts((current) => {
+          if (!current[approvalId]) return current;
+          const next = { ...current };
+          delete next[approvalId];
+          return next;
+        });
         if (!response.ok) {
           throw new Error(body.error ?? `Approval request failed: ${response.status}`);
         }
@@ -2632,109 +2658,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     chat.status === "streaming" ||
     chat.status === "submitted";
 
-  useEffect(() => {
-    if (!commandMenuOpen) {
-      setCommandQuery("");
-      setCommandSearchItems([]);
-      return;
-    }
-    const trimmed = commandQuery.trim();
-    if (!teamWorkspaceId || trimmed.length < 2) {
-      setCommandSearchItems([]);
-      return;
-    }
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      void fetch(`/api/search?q=${encodeURIComponent(trimmed)}`, {
-        credentials: "same-origin",
-        headers: teamWorkspaceHeaders(teamWorkspaceId),
-      })
-        .then((response) => (response.ok ? response.json() : null))
-        .then((raw) => {
-          const body = raw as { tasks?: Array<{ taskId: string; title: string }>; rooms?: Array<{ roomId: string; title: string }> } | null;
-          if (cancelled || !body) return;
-          const items: CommandItem[] = [];
-          for (const task of body.tasks ?? []) {
-            items.push({
-              id: `search-task-${task.taskId}`,
-              label: `Task · ${task.title}`,
-              hint: "Open task",
-              run: () => {
-                const next = updateWorkSearch(new URLSearchParams(window.location.search), {
-                  view: "list",
-                  task: task.taskId,
-                  taskKind: "run",
-                  tab: "steps",
-                });
-                window.history.pushState(null, "", `/work?${next.toString()}`);
-                openView("work");
-              },
-            });
-          }
-          for (const room of body.rooms ?? []) {
-            items.push({
-              id: `search-room-${room.roomId}`,
-              label: `Channel · ${room.title}`,
-              hint: "Open channel",
-              run: () => {
-                setSharedRoomId(room.roomId);
-                openView("threads");
-              },
-            });
-          }
-          setCommandSearchItems(items);
-        })
-        .catch(() => {
-          if (!cancelled) setCommandSearchItems([]);
-        });
-    }, 200);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [commandMenuOpen, commandQuery, teamWorkspaceId]);
-
-  const commands: CommandItem[] = [
-    ...commandSearchItems,
-    ...(teamWorkspaceId
-      ? [
-          { id: "new-channel", label: "New channel", hint: "Team chat", run: () => openView("threads") },
-          { id: "connect-app", label: "Connect app", hint: "Integrations", run: () => { setSettingsSection("integrations"); openView("settings"); } },
-        ]
-      : []),
-    ...APP_NAV_ITEMS.map((item) => ({
-      id: `nav-${item.id}`,
-      label: `Go to ${item.label}`,
-      hint: item.description,
-      run: () => openView(item.id),
-    })),
-    { id: "new-task", label: "New task", run: handleNewTask },
-    ...(!teamWorkspaceId ? [{ id: "settings-models", label: "Open Settings → Models", hint: "Configure model providers and execution routes", run: () => { setSettingsSection("models"); openView("settings"); } }] : []),
-    {
-      id: "toggle-sessions",
-      label: "Toggle sessions sidebar",
-      hint: "⌘B",
-      run: toggleActiveSidebar,
-    },
-    {
-      id: "toggle-theme",
-      label: theme === "dark" ? "Switch to light theme" : "Switch to dark theme",
-      hint: "D",
-      run: toggleTheme,
-    },
-    {
-      id: "setup-guide",
-      label: "Open setup guide",
-      run: openFirstRun,
-    },
-    {
-      id: "shortcuts",
-      label: "Keyboard shortcuts",
-      hint: "?",
-      run: () => setShowShortcutsModal(true),
-    },
-  ];
-
   if (orchestratorName === null && identityIssue === null) {
     return <SessionPending onRetry={retryIdentity} />;
   }
@@ -3131,6 +3054,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   requestedState={workInspectionRequest}
                   onDecideApproval={decideApproval}
                   onDecideStoredApproval={decideStoredApproval}
+                  claimConflicts={claimConflicts}
                   approvalDecisions={{ ...decisions, ...storedDecisions }}
                   peekSessionId={selectedSessionId}
                   peekNotice={notice}
@@ -3176,6 +3100,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
             <TasksHomeView
+              workspaceId={teamWorkspaceId || undefined}
               task={composerVisible ? task : ""}
               onTaskChange={setTask}
               agents={customAgentRecords.map((profile) => ({
@@ -3834,6 +3759,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               decidedStoredApprovals={decidedStoredApprovals}
               storedApprovalsError={storedApprovalsError}
               onDecideStoredApproval={decideStoredApproval}
+              claimConflicts={claimConflicts}
               orchestratorName={orchestratorName}
               onRefresh={refreshRuns}
               reviewAfterPublishById={reviewAfterPublishById}
@@ -3847,6 +3773,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               scope={scope}
               onCountsChange={handleMemoryCountsChange}
             />
+          ) : mainView === "files" ? (
+            <FilesView />
+          ) : mainView === "notes" ? (
+            <NotesEditor />
+          ) : mainView === "projects" ? (
+            <ProjectsView />
+          ) : mainView === "outputs" ? (
+            <OutputsView />
           ) : mainView === "automations" ? (
             <AutomationsView scope={scope} sidebarCollapsed={sessionsCollapsed} onToggleSidebar={toggleSessionsCollapsed} selectedAutomationId={selectedAutomationId} onSelectAutomation={setSelectedAutomationId} onAutomationsChange={setAutomationList} />
           ) : mainView === "swarm" ? (
@@ -4017,11 +3951,47 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           /> : null}
 
           <ShortcutsDialog open={showShortcutsModal} onClose={() => setShowShortcutsModal(false)} />
-          <CommandMenu
+          <CommandPalette
             open={commandMenuOpen}
             onClose={() => setCommandMenuOpen(false)}
-            commands={commands}
-            onQueryChange={setCommandQuery}
+            workspaceId={teamWorkspaceId || null}
+            roomThreadOpen={Boolean(sharedRoomId)}
+            settings={Object.entries(SETTINGS_SECTION_LABELS).map(([id, item]) => ({ id, label: item.label }))}
+            extraActions={[
+              ...(teamWorkspaceId ? [{ id: "connect-app", label: "Connect app", run: () => { setSettingsSection("integrations"); openView("settings"); } }] : []),
+              ...APP_NAV_ITEMS.map((item) => ({ id: `nav-${item.id}`, label: `Go to ${item.label}`, run: () => openView(item.id) })),
+              { id: "toggle-sessions", label: "Toggle sessions sidebar", run: toggleActiveSidebar },
+              { id: "setup-guide", label: "Open setup guide", run: openFirstRun },
+            ]}
+            onNewTask={() => { void handleNewTask(); }}
+            onNewChannel={() => openView("threads")}
+            onOpenBot={(bot, focusComposer) => {
+              if (bot.roomId) setSharedRoomId(bot.roomId);
+              openView("threads");
+              if (focusComposer) window.setTimeout(() => document.querySelector<HTMLTextAreaElement>("[data-testid='task-composer'] textarea, [data-testid='chat-composer'] textarea")?.focus(), 0);
+            }}
+            onOpenChat={(hit) => { setSharedRoomId(hit.roomId); openView("threads"); }}
+            onOpenTask={(hit) => {
+              const next = updateWorkSearch(new URLSearchParams(window.location.search), { view: "list", task: hit.taskId, taskKind: "run", tab: "steps" });
+              window.history.pushState(null, "", `/work?${next.toString()}`);
+              openView("work");
+            }}
+            onOpenSettings={(section) => { setSettingsSection(section); openView("settings"); }}
+            onOpenNeedsYou={() => openView("work")}
+            onToggleTheme={toggleTheme}
+            onOpenShortcuts={() => setShowShortcutsModal(true)}
+            onInsertAgentMention={(agentId) => setTask((current) => `${current}${current && !current.endsWith(" ") ? " " : ""}@agent:${agentId} `)}
+            onSearchAll={(q) => {
+              const next = new URLSearchParams(window.location.search);
+              next.set("q", q);
+              window.history.pushState(null, "", `/work?${next.toString()}`);
+              openView("work");
+            }}
+            onMessageAbout={(bot, q) => {
+              setTask(q);
+              if (bot.roomId) setSharedRoomId(bot.roomId);
+              openView("threads");
+            }}
           />
         </div>
       </div>

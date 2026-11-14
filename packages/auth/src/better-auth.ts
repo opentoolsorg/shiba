@@ -36,6 +36,7 @@ export interface BetterAuthEnrollmentAdapter {
   validateInvitation(input: { token: string; email: string }): Promise<{ invitationId: string; workspaceId: string } | null>;
   isEnrollmentCurrent(input: { invitationId: string; workspaceId: string; email: string }): Promise<boolean>;
   sendVerificationEmail(input: { email: string; url: string; request?: Request }): Promise<void>;
+  sendPasswordResetEmail(input: { email: string; url: string; request?: Request }): Promise<void>;
 }
 export const BETTER_AUTH_INVITATION_HEADER = "x-shiba-workspace-invitation";
 
@@ -144,14 +145,44 @@ export const BETTER_AUTH_STATEMENTS: readonly string[] = [
 /** D1/database handles whose auth schema is already ensured in this isolate. */
 const schemaInitialized = new WeakSet<object>();
 
-/** Apply the idempotent auth DDL once per isolate per binding. */
+const AUTH_SCHEMA_MARKER = "ws01_better_auth_v1";
+
+async function authSchemaPresent(db: D1Database): Promise<boolean> {
+  const markerTable = await db
+    .prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'shiba_schema_markers' LIMIT 1`)
+    .first<{ ok: number }>();
+  if (markerTable?.ok === 1) {
+    const marker = await db
+      .prepare(`SELECT 1 AS ok FROM shiba_schema_markers WHERE marker_id = ? LIMIT 1`)
+      .bind(AUTH_SCHEMA_MARKER)
+      .first<{ ok: number }>();
+    if (marker?.ok === 1) return true;
+  }
+  const user = await db
+    .prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'user' LIMIT 1`)
+    .first<{ ok: number }>();
+  return user?.ok === 1;
+}
+
+/** True when the request might carry a Better Auth session (cookie or bearer). */
+export function requestHasBetterAuthSessionCredential(request: Request): boolean {
+  const authz = request.headers.get("Authorization")?.trim() ?? "";
+  if (authz.toLowerCase().startsWith("bearer ") && authz.length > 8) return true;
+  const cookie = request.headers.get("Cookie");
+  if (!cookie) return false;
+  return /(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=/i.test(cookie);
+}
+
+/** Apply auth DDL only when migrations have not run yet (tests / pre-migration deploys). */
 export async function ensureBetterAuthSchema(env: {
   AGENT_AUDIT: D1Database;
 }): Promise<void> {
   const db = env.AGENT_AUDIT;
   if (schemaInitialized.has(db)) return;
-  for (const statement of BETTER_AUTH_STATEMENTS) {
-    await db.prepare(statement).run();
+  if (!(await authSchemaPresent(db))) {
+    for (const statement of BETTER_AUTH_STATEMENTS) {
+      await db.prepare(statement).run();
+    }
   }
   await ensureBetterAuthAccountPolicy(db);
   schemaInitialized.add(db);
@@ -294,6 +325,12 @@ async function signupAdmission(request: Request, env: BetterAuthLaneEnv, enrollm
   } else {
     const token = request.headers.get(BETTER_AUTH_INVITATION_HEADER) ?? "";
     if (!enrollment?.enabled || !/^[a-f0-9]{64}$/i.test(token) || !await enrollment.validateInvitation({ token, email })) return denied();
+    const taken = await env.AGENT_AUDIT!.prepare(
+      `SELECT id FROM "user" WHERE lower(trim(email))=? LIMIT 1`,
+    ).bind(email).first<{ id: string }>();
+    if (taken?.id) {
+      return Response.json({ message: "User already exists." }, { status: 422, headers: { "Cache-Control": "no-store" } });
+    }
   }
   const headers = new Headers(request.headers);
   headers.delete("content-length");
@@ -370,8 +407,19 @@ async function createBetterAuth(env: BetterAuthLaneEnv, enrollment?: BetterAuthE
     emailAndPassword: {
       enabled: true,
       autoSignIn: true,
-      requireEmailVerification: false,
+      // Invited enrollment turns this on; bootstrap stays compatible until verified.
+      requireEmailVerification: enrollment?.enabled === true,
       minPasswordLength: 8,
+      revokeSessionsOnPasswordReset: true,
+      sendResetPassword: async ({ user, url }, request) => {
+        try {
+          if (!enrollment?.sendPasswordResetEmail) return;
+          void enrollment.sendPasswordResetEmail({ email: user.email, url, request });
+        } catch {
+          const operation = deliveryOperations.get(request?.headers.get(AUTH_OPERATION_HEADER) ?? "");
+          if (operation) operation.failed = true;
+        }
+      },
     },
     emailVerification: {
       sendOnSignUp: enrollment?.enabled === true,
@@ -435,6 +483,12 @@ async function createBetterAuth(env: BetterAuthLaneEnv, enrollment?: BetterAuthE
               await recordBetterAuthAccountPolicy(env.AGENT_AUDIT!, { accountId, email,
                 kind: "bootstrap", invitationId: null, workspaceId: null });
             } else {
+              const taken = await env.AGENT_AUDIT?.prepare(
+                `SELECT id FROM "user" WHERE lower(trim(email))=? LIMIT 1`,
+              ).bind(email).first<{ id: string }>();
+              if (taken?.id) {
+                throw new APIError("UNPROCESSABLE_ENTITY", { message: "User already exists." });
+              }
               const token = context?.request?.headers.get(BETTER_AUTH_INVITATION_HEADER) ?? "";
               if (!enrollment?.enabled || !/^[a-f0-9]{64}$/.test(token)) {
                 throw new APIError("FORBIDDEN", { message: "Sign-up is closed. A configured, verified-email invitation is required." });
@@ -567,6 +621,7 @@ export async function resolveBetterAuthUserId(
   env: BetterAuthLaneEnv,
   redact: SecretRedactor = identityRedact,
 ): Promise<string | null> {
+  if (!isBetterAuthConfigured(env) || !requestHasBetterAuthSessionCredential(request)) return null;
   const account = await resolveBetterAuthSessionAccount(request, env, redact);
   return account && (account.policy.kind === "bootstrap" || account.emailVerified) ? account.policy.email : null;
 }
@@ -577,7 +632,7 @@ export async function resolveBetterAuthSessionAccount(
   env: BetterAuthLaneEnv,
   redact: SecretRedactor = identityRedact,
 ): Promise<{ policy: BetterAuthAccountPolicy; emailVerified: boolean; sessionId?: string; sessionExpiresAt?: number } | null> {
-  if (!isBetterAuthConfigured(env) || env.AGENT_AUDIT === undefined) {
+  if (!isBetterAuthConfigured(env) || env.AGENT_AUDIT === undefined || !requestHasBetterAuthSessionCredential(request)) {
     return null;
   }
   try {

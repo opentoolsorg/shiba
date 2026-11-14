@@ -16,19 +16,24 @@ export function AskUserCard({ pending, busy, onSubmit }: AskUserCardProps): JSX.
   const { request } = pending;
   const [freeText, setFreeText] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
+  const [other, setOther] = useState(false);
+  const [rememberForRoom, setRememberForRoom] = useState(true);
+  const choices = "choices" in request ? request.choices.slice(0, 4) : [];
+  const truncated = "choices" in request && request.choices.length > 4;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (busy) return;
     if (request.mode === "free_text") {
-      void onSubmit({ mode: "free_text", text: freeText.trim() });
+      void onSubmit({ mode: "free_text", text: freeText.trim(), rememberForRoom });
       return;
     }
-    if (request.mode === "single_choice" && selected[0]) {
+    if (request.mode === "single_choice" && (other ? freeText.trim() : selected[0])) {
       void onSubmit({
         mode: "single_choice",
-        choiceId: selected[0],
-        ...(request.allowFreeText && freeText.trim() ? { freeText: freeText.trim() } : {}),
+        choiceId: other ? "other" : selected[0]!,
+        ...(freeText.trim() ? { freeText: freeText.trim() } : {}),
+        rememberForRoom,
       });
       return;
     }
@@ -37,6 +42,7 @@ export function AskUserCard({ pending, busy, onSubmit }: AskUserCardProps): JSX.
         mode: "multi_choice",
         choiceIds: selected,
         ...(request.allowFreeText && freeText.trim() ? { freeText: freeText.trim() } : {}),
+        rememberForRoom,
       });
     }
     if (request.mode === "connect_app") {
@@ -55,7 +61,7 @@ export function AskUserCard({ pending, busy, onSubmit }: AskUserCardProps): JSX.
       ) : null}
       {(request.mode === "single_choice" || request.mode === "multi_choice") ? (
         <ul className="flex flex-col gap-2">
-          {request.choices.map((choice) => (
+          {choices.map((choice) => (
             <li key={choice.id}>
               <label className="flex items-start gap-2 text-sm">
                 <input
@@ -77,6 +83,17 @@ export function AskUserCard({ pending, busy, onSubmit }: AskUserCardProps): JSX.
           ))}
         </ul>
       ) : null}
+      {truncated ? <p className="text-xs text-[var(--muted-foreground-2)]">Only the first four options are shown.</p> : null}
+      {(request.mode === "single_choice" || request.mode === "multi_choice") ? (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="radio" name={`ask-${request.askId}`} checked={other} onChange={() => { setOther(true); setSelected([]); }} />
+          Other
+        </label>
+      ) : null}
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={rememberForRoom} onChange={(event) => setRememberForRoom(event.target.checked)} />
+        Remember for this room
+      </label>
       {request.mode === "free_text" || request.allowFreeText ? (
         <textarea
           className="min-h-20 w-full border border-[var(--border-1)] bg-[var(--panel)] p-2 text-sm"

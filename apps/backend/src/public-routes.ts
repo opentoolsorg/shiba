@@ -15,11 +15,15 @@ export function isPublicRequest(request: Request): boolean {
   return ((request.method === "GET" || request.method === "HEAD") && isPublicStaticPath(path))
     || (request.method === "GET" && path === "/api/v1/openapi.json")
     || (request.method === "GET" && path === "/api/integrations/provider/callback")
+    || (request.method === "GET" && path === "/api/health")
+    || (request.method === "HEAD" && path === "/api/health")
     || (request.method === "POST" && path === "/api/waitlist")
     // POST-only bypass so a Sentry alert reaches the handler even when the
     // edge Access gate is misconfigured; the handler still verifies the
     // shared secret before queueing anything.
-    || (request.method === "POST" && path === "/api/sentry/webhook");
+    || (request.method === "POST" && path === "/api/sentry/webhook")
+    || (request.method === "GET" && /^\/share\/[cf]\/[^/]+$/.test(path))
+    || (request.method === "GET" && /^\/api\/share\/file\/[^/]+$/.test(path));
 }
 
 /** These route modules verify an org-scoped API key or dashboard session themselves. */

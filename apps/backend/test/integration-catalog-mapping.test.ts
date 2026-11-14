@@ -22,7 +22,7 @@ describe("OpenConnector catalog mappings", () => {
     }
   });
 
-  it("maps every app named in the Overlay README to an exact provider service", () => {
+  it("maps the documented app set to an exact provider service", () => {
     const services = new Set(INTEGRATION_CATALOG.flatMap((entry) => entry.openConnectorServiceIds ?? []));
     for (const service of ["gmail", "googlecalendar", "googlesheets", "googledrive", "notion", "asana", "slack", "github", "linkedin", "twitter", "outlook"]) {
       expect(services.has(service), service).toBe(true);

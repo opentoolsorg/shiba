@@ -3,7 +3,7 @@
  * core (PLAN.md §18.9/§18.11). Account identity keys on the directory
  * holding auth.json — the instanceId is `codex-sub:<effectiveHomePath>`
  * (the shadow home for named accounts, the shared home for "default"), so
- * `clear` on an overlay revokes only that account and never touches the
+ * `clear` on a shadow home revokes only that account and never touches the
  * shared one. The credential (auth.json contents) is a named Worker
  * secret read only at the egress boundary.
  *

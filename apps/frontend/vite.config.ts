@@ -24,6 +24,20 @@ export default defineConfig({
     emptyOutDir: true,
     target: "es2022",
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) {
+            if (id.includes("/components/DiffView") || id.includes("/components/founder-")) return "founder-diff";
+            if (id.includes("/components/HarnessSessionPanel") || id.includes("/components/RemoteAccessView")) return "remote-runtime";
+            return undefined;
+          }
+          if (id.includes("xterm")) return "xterm";
+          if (id.includes("@git-diff-view") || id.includes("diff-match-patch")) return "diff-viewer";
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     port: 5173,

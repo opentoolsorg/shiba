@@ -21,8 +21,6 @@ export interface Env {
   CodingOrchestrator: DurableObjectNamespace<CodingOrchestrator>;
   /** Per-owner, per-session live viewer presence and persisted chat stream deltas. */
   ConversationRoom: DurableObjectNamespace<ConversationRoom>;
-  /** WS01: hibernatable workspace fan-out for tasks, runs, approvals. */
-  WorkspaceEvents?: DurableObjectNamespace;
   OpenCodeAgent: DurableObjectNamespace<OpenCodeAgent>;
   Sandbox: DurableObjectNamespace<Sandbox>;
   /** Optional isolated offline desktop namespace; absent means unavailable. */
@@ -585,12 +583,29 @@ export interface Env {
   OPEN_CONNECTOR_URL?: string;
   OPEN_CONNECTOR_ADMIN_TOKEN?: string;
   OPEN_CONNECTOR_RUNTIME_TOKEN?: string;
-  /** WS10: Tavily, Exa, or Brave web search key — Worker egress only. */
+  /** When "1", the dashboard shows OpenConnector setup; the service binding may still be absent on dev. */
+  OPEN_CONNECTOR_ENABLED?: string;
+  /** WS01 platform queues — consumers attach in later workstreams. */
+  INGEST_QUEUE?: Queue;
+  WEBHOOK_QUEUE?: Queue;
+  EMAIL_QUEUE?: Queue;
+  SLACK_IMPORT_WORKFLOW?: Workflow;
+  AUTOMATION_RUN_WORKFLOW?: Workflow;
+  /** General file storage (WS07); distinct from run-scoped ARTIFACTS. */
+  FILES?: R2Bucket;
+  /** Workspace-scoped live update fan-out (hibernatable WebSockets). */
+  WorkspaceEvents?: DurableObjectNamespace;
+  AUTH_RATE_LIMIT?: RateLimit;
+  UPLOAD_RATE_LIMIT?: RateLimit;
+  /** Maximum single file upload bytes (default 50 MB). */
+  FILES_MAX_UPLOAD_BYTES?: string;
+  /** WS02: optional generic OIDC SSO (per-workspace connections in D1). */
+  SHIBA_SSO_ENABLED?: string;
+
+  /** Web search credentials remain in Worker egress. */
   WEB_SEARCH_API_KEY?: string;
   WEB_SEARCH_PROVIDER?: string;
-  /** Optional file bucket for generated media; falls back to ARTIFACTS. */
-  FILES?: R2Bucket;
-  /** WS10: off by default; video generation through AI Gateway when enabled. */
+  /** Video generation is disabled unless explicitly enabled. */
   SHIBA_VIDEO_GENERATION?: string;
 
 }

@@ -1,6 +1,6 @@
 /**
  * WS08 owns this schema; WS10 registers the `ask_user` tool against it.
- * Questionnaire and connect-app cards.
+ * Choice questions use two to four one-line options.
  */
 import { z } from "zod";
 
@@ -8,7 +8,7 @@ export const ASK_USER_TOOL_NAME = "ask_user" as const;
 
 export const askUserChoiceSchema = z.object({
   id: z.string().min(1).max(120),
-  label: z.string().min(1).max(500),
+  label: z.string().min(1).max(80),
   description: z.string().max(2000).optional(),
 });
 
@@ -74,6 +74,7 @@ export const askUserAnswerSchema = z.discriminatedUnion("mode", [
       mode: z.literal("single_choice"),
       choiceId: z.string().min(1).max(120),
       freeText: z.string().max(8000).optional(),
+      rememberForRoom: z.boolean().optional(),
     })
     .strict(),
   z
@@ -81,9 +82,10 @@ export const askUserAnswerSchema = z.discriminatedUnion("mode", [
       mode: z.literal("multi_choice"),
       choiceIds: z.array(z.string().min(1).max(120)).min(1).max(12),
       freeText: z.string().max(8000).optional(),
+      rememberForRoom: z.boolean().optional(),
     })
     .strict(),
-  z.object({ mode: z.literal("free_text"), text: z.string().min(1).max(8000) }).strict(),
+  z.object({ mode: z.literal("free_text"), text: z.string().min(1).max(8000), rememberForRoom: z.boolean().optional() }).strict(),
   z
     .object({
       mode: z.literal("connect_app"),
