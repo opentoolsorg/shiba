@@ -299,6 +299,44 @@ export async function handleTeamWork(request: Request, env: Env): Promise<Respon
   }
 }
 
+const OWNED_RUN_CAP = 100;
+
+/** Runs on the caller's orchestrator, limited to the workspace they asked about. */
+async function ownedWorkspaceRunIds(env: Env, agentName: string, workspaceId: string | null): Promise<string[]> {
+  if (!env.CodingOrchestrator) return [];
+  try {
+    const stub = await getAgentByName(env.CodingOrchestrator, agentName);
+    const response = await stub.fetch(new Request("https://internal/api/runs"));
+    if (!response.ok) return [];
+    const body = await response.json() as { runs?: Array<{ runId?: string; orgId?: string; createdAt?: number }> };
+    const teamOrg = workspaceId && isTeamWorkspaceId(workspaceId) ? `team:${workspaceId}` : null;
+    return (body.runs ?? [])
+      .filter((run): run is { runId: string; orgId?: string; createdAt?: number } => typeof run.runId === "string" && run.runId.length > 0)
+      .filter((run) => teamOrg ? run.orgId === teamOrg : !String(run.orgId ?? "").startsWith("team:"))
+      .sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0))
+      .slice(0, OWNED_RUN_CAP)
+      .map((run) => run.runId);
+  } catch {
+    return [];
+  }
+}
+
+async function milestoneRows<T extends { run_id: string }>(
+  env: Env,
+  kind: string,
+  runIds: string[],
+  limit: number,
+): Promise<T[]> {
+  if (!env.AGENT_AUDIT || runIds.length === 0) return [];
+  const marks = runIds.map(() => "?").join(",");
+  const rows = await env.AGENT_AUDIT.prepare(
+    `SELECT run_id, text, created_at FROM run_milestones
+     WHERE kind = ? AND run_id IN (${marks})
+     ORDER BY created_at DESC LIMIT ${limit}`,
+  ).bind(kind, ...runIds).all<T>();
+  return rows.results;
+}
+
 async function handleNeedsYou(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
   if (request.headers.has("Authorization") || !(await isAuthorizedRequest(request, env))) {
@@ -308,6 +346,9 @@ async function handleNeedsYou(request: Request, env: Env): Promise<Response> {
   if (!identity) return json({ error: "Authenticated human session required." }, 401);
   const storeTarget = await resolveRunStoreTarget(request, env, new URL(request.url));
   const ownerId = "error" in storeTarget ? identity : storeTarget.userId;
+  const runIds = "error" in storeTarget
+    ? []
+    : await ownedWorkspaceRunIds(env, storeTarget.agentName, request.headers.get("X-Shiba-Workspace"));
   const questions = env.AGENT_AUDIT
     ? (await env.AGENT_AUDIT.prepare(
       `SELECT run_id, ask_id, request_json, created_at FROM ask_user_pending
@@ -339,20 +380,13 @@ async function handleNeedsYou(request: Request, env: Env): Promise<Response> {
     mentions = [];
     handoffs = [];
   }
-  const blocked = env.AGENT_AUDIT
-    ? (await env.AGENT_AUDIT.prepare(
-      `SELECT run_id, text, created_at FROM run_milestones WHERE kind = 'blocked' ORDER BY created_at DESC LIMIT 20`,
-    ).all<{ run_id: string; text: string; created_at: number }>()).results
-    : [];
+  const blocked = await milestoneRows<{ run_id: string; text: string; created_at: number }>(env, "blocked", runIds, 20);
   const progress: Record<string, string> = {};
-  if (env.AGENT_AUDIT) {
-    const statuses = (await env.AGENT_AUDIT.prepare(
-      `SELECT run_id, text FROM run_milestones WHERE kind = 'status' ORDER BY created_at DESC LIMIT 80`,
-    ).all<{ run_id: string; text: string }>()).results;
-    for (const row of statuses) if (!progress[row.run_id]) progress[row.run_id] = row.text;
+  for (const row of await milestoneRows<{ run_id: string; text: string }>(env, "status", runIds, 80)) {
+    if (!progress[row.run_id]) progress[row.run_id] = row.text;
   }
   for (const row of [...blocked, ...questions.map((item) => ({ run_id: item.run_id }))]) {
-    if (progress[row.run_id]) continue;
+    if (!runIds.includes(row.run_id) || progress[row.run_id]) continue;
     const status = await latestStatusText(env, row.run_id);
     if (status) progress[row.run_id] = status;
   }

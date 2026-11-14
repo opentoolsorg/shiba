@@ -1,5 +1,6 @@
-import type { WorkspaceEvent } from "@shiba/shared";
+import type { ThreadMessagePayload, WorkspaceEvent } from "@shiba/shared";
 import { postRoomEvent } from "./collaboration-thread-post.js";
+import { COLLAB_TENANT_ID } from "./collaboration-store.js";
 import type { Env } from "./env.js";
 import { randomHex } from "./mailbox-store.js";
 import { publishWorkspaceEvent } from "./platform/workspace-events-do.js";
@@ -30,6 +31,7 @@ export async function appendRunMilestone(
     payload?: Record<string, unknown>;
     roomId?: string | null;
     threadRootId?: string | null;
+    userId?: string | null;
     at?: number;
   },
 ): Promise<void> {
@@ -57,11 +59,18 @@ export async function appendRunMilestone(
   await publishWorkspaceEvent(env, input.workspaceId, event);
   if (input.roomId) {
     const roomKind = input.kind === "ack" || input.kind === "status" || input.kind === "result" ? input.kind : "milestone";
-    await postRoomEvent(env, {
+    const payload: ThreadMessagePayload = { runId: input.runId };
+    if (typeof input.payload?.pullUrl === "string") payload.pr = input.payload.pullUrl;
+    await postRoomEvent(env as Env, {
+      tenantId: COLLAB_TENANT_ID,
+      workspaceId: input.workspaceId,
+      userId: input.userId ?? input.workspaceId,
+    }, {
       roomId: input.roomId,
-      threadRootId: input.threadRootId,
+      threadRootId: input.threadRootId ?? null,
       kind: roomKind,
-      payload: { runId: input.runId, ...(input.payload ?? {}) },
+      body: input.text,
+      payload,
       ...(input.kind === "status" ? { editKey: "status" } : {}),
     });
   }
