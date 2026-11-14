@@ -264,7 +264,7 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
 
   return (
     <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-      <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-center gap-3">
+      <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-sheet)] flex flex-col items-center text-center gap-3">
         <ShibaMark />
         <h1 className="text-xl">
           {mode === "invite" ? "Join your team"
