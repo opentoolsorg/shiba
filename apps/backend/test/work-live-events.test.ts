@@ -1,23 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
-import { publishWorkspaceEvent, workspaceRunEvent } from "../src/workspace-events-client.js";
+import { publishWorkspaceEvent } from "../src/platform/workspace-events-do.js";
 
 describe("workspace live events publish", () => {
   it("no-ops when WorkspaceEvents binding is absent", async () => {
-    const event = await publishWorkspaceEvent(
-      {},
-      workspaceRunEvent("ws_1", "run_1", "run.updated", { status: "running" }),
-    );
-    expect(event.kind).toBe("run.updated");
-    expect(event.entityId).toBe("run_1");
+    await expect(
+      publishWorkspaceEvent({} as never, "ws_1", { type: "run.updated", resourceId: "run_1", version: 1 }),
+    ).resolves.toBeUndefined();
   });
 
-  it("forwards to the DO stub when bound", async () => {
-    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
-    const ns = { idFromName: (id: string) => id, get: () => ({ fetch }) };
-    await publishWorkspaceEvent(
-      { WorkspaceEvents: ns as never },
-      workspaceRunEvent("ws_1", "run_1", "run.updated"),
-    );
+  it("forwards to the Durable Object stub when bound", async () => {
+    const fetch = vi.fn(async (_request: Request) => new Response(null, { status: 200 }));
+    const env = {
+      WorkspaceEvents: {
+        getByName: () => ({ fetch }),
+      },
+    };
+    await publishWorkspaceEvent(env as never, "ws_1", { type: "run.updated", resourceId: "run_1", version: 2 });
     expect(fetch).toHaveBeenCalledTimes(1);
+    const request = fetch.mock.calls[0]?.[0];
+    expect(request).toBeInstanceOf(Request);
+    expect(new URL((request as Request).url).pathname).toBe("/internal/publish");
   });
 });

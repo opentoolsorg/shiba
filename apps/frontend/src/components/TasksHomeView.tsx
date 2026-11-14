@@ -28,7 +28,8 @@ export interface TasksHomeItem {
   bucket: "needs-you" | "working" | "waiting";
   status: string;
   progressText?: string;
-  source: { kind: "run"; runId: string } | { kind: "approval"; approvalId: string };
+  ownerLabel?: string;
+  source: { kind: "run"; runId: string } | { kind: "approval"; approvalId: string } | { kind: "question"; runId: string; askId: string };
 }
 
 export interface TasksHomeBuckets {
@@ -38,17 +39,27 @@ export interface TasksHomeBuckets {
 }
 
 function runProgressLabel(run: RetainedRun): string | undefined {
-  const latest = [...(run.signals ?? [])].reverse().find((signal) => signal.kind.startsWith("harness.") || signal.kind.startsWith("exec.") || signal.kind === "checkpoint.captured");
+  const latest = [...(run.signals ?? [])].reverse().find((signal) =>
+    signal.kind === "pr.opened" || signal.kind === "checkpoint.captured" || signal.kind === "e2e.failed" || signal.kind === "ask_user.pending",
+  );
   if (latest?.detail?.trim()) return latest.detail.trim();
-  if (latest) return latest.kind.replaceAll(".", " ");
   return run.summary?.trim();
 }
 
 /** Adapt the existing run and approval APIs to the Tasks home queues. */
+export interface TasksHomeQuestion {
+  runId: string;
+  askId: string;
+  prompt: string;
+  updatedAt: number;
+  ownerLabel?: string;
+}
+
 export function buildTasksHomeBuckets(
   runs: RetainedRun[],
   approvals: StoredApproval[],
   chatApprovals: ChatPendingApproval[] = [],
+  questions: TasksHomeQuestion[] = [],
 ): TasksHomeBuckets {
   const buckets: TasksHomeBuckets = { needsYou: [], working: [], waiting: [] };
   const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
@@ -65,6 +76,7 @@ export function buildTasksHomeBuckets(
       bucket: "needs-you",
       status: "Approval",
       progressText: "Waiting for you to approve",
+      ownerLabel: "You",
       source: { kind: "approval", approvalId: approval.approvalId },
     });
   }
@@ -80,7 +92,22 @@ export function buildTasksHomeBuckets(
       bucket: "needs-you",
       status: "Approval",
       progressText: "Waiting for you to approve",
+      ownerLabel: "You",
       source: { kind: "approval", approvalId: approval.approvalId },
+    });
+  }
+
+  for (const question of questions) {
+    buckets.needsYou.push({
+      id: `question:${question.runId}:${question.askId}`,
+      title: question.prompt,
+      repoUrl: "",
+      updatedAt: question.updatedAt,
+      bucket: "needs-you",
+      status: "Question",
+      progressText: "Pick one option to continue",
+      ownerLabel: question.ownerLabel ?? "Agent",
+      source: { kind: "question", runId: question.runId, askId: question.askId },
     });
   }
 
@@ -92,6 +119,7 @@ export function buildTasksHomeBuckets(
       repoUrl: run.repoUrl,
       updatedAt: run.updatedAt || run.createdAt,
       source: { kind: "run", runId: run.runId } as const,
+      ownerLabel: run.queuedBy ? `Agent ${run.queuedBy}` : "Agent",
     };
     if (run.status === "running") {
       buckets.working.push({
@@ -144,8 +172,8 @@ function TaskRow({
   onOpenApproval?: (approvalId: string) => void;
 }): JSX.Element {
   const open = () => {
-    if (item.source.kind === "run") onOpenRun?.(item.source.runId);
-    else onOpenApproval?.(item.source.approvalId);
+    if (item.source.kind === "approval") onOpenApproval?.(item.source.approvalId);
+    else onOpenRun?.(item.source.runId);
   };
   const isWorking = item.bucket === "working";
   const tone = item.status === "Answered"
@@ -168,6 +196,7 @@ function TaskRow({
             {item.repoUrl ? <span className="max-w-full truncate">{item.repoUrl.replace(/^https:\/\/github\.com\//, "")}</span> : null}
             {item.repoUrl ? <span aria-hidden="true">·</span> : null}
             {item.updatedAt > 0 ? <span>{formatTimeAgo(item.updatedAt)}</span> : null}
+            {item.ownerLabel ? <span>Owner {item.ownerLabel}</span> : null}
           </div>
           {item.progressText ? (
             <div className="mt-3 flex items-center gap-2 text-xs text-[var(--muted-foreground-1)]" data-testid="task-progress">
