@@ -363,6 +363,8 @@ export default {
       if (workResponse) return workResponse;
       const searchResponse = await (await import("./search-routes.js")).handleSearch(request, env);
       if (searchResponse) return searchResponse;
+      const paletteResponse = await (await import("./palette-routes.js")).handlePalette(request, env);
+      if (paletteResponse) return paletteResponse;
       const askUserResponse = await (await import("./ask-user-routes.js")).handleAskUser(request, env);
       if (askUserResponse) return askUserResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);
