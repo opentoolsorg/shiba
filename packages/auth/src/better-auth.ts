@@ -144,14 +144,39 @@ export const BETTER_AUTH_STATEMENTS: readonly string[] = [
 /** D1/database handles whose auth schema is already ensured in this isolate. */
 const schemaInitialized = new WeakSet<object>();
 
-/** Apply the idempotent auth DDL once per isolate per binding. */
+const AUTH_SCHEMA_MARKER = "ws01_better_auth_v1";
+
+async function authSchemaPresent(db: D1Database): Promise<boolean> {
+  const marker = await db
+    .prepare(`SELECT 1 AS ok FROM shiba_schema_markers WHERE marker_id = ? LIMIT 1`)
+    .bind(AUTH_SCHEMA_MARKER)
+    .first<{ ok: number }>();
+  if (marker?.ok === 1) return true;
+  const user = await db
+    .prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'user' LIMIT 1`)
+    .first<{ ok: number }>();
+  return user?.ok === 1;
+}
+
+/** True when the request might carry a Better Auth session (cookie or bearer). */
+export function requestHasBetterAuthSessionCredential(request: Request): boolean {
+  const authz = request.headers.get("Authorization")?.trim() ?? "";
+  if (authz.toLowerCase().startsWith("bearer ") && authz.length > 8) return true;
+  const cookie = request.headers.get("Cookie");
+  if (!cookie) return false;
+  return /(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=/i.test(cookie);
+}
+
+/** Apply auth DDL only when migrations have not run yet (tests / pre-migration deploys). */
 export async function ensureBetterAuthSchema(env: {
   AGENT_AUDIT: D1Database;
 }): Promise<void> {
   const db = env.AGENT_AUDIT;
   if (schemaInitialized.has(db)) return;
-  for (const statement of BETTER_AUTH_STATEMENTS) {
-    await db.prepare(statement).run();
+  if (!(await authSchemaPresent(db))) {
+    for (const statement of BETTER_AUTH_STATEMENTS) {
+      await db.prepare(statement).run();
+    }
   }
   await ensureBetterAuthAccountPolicy(db);
   schemaInitialized.add(db);
@@ -567,6 +592,7 @@ export async function resolveBetterAuthUserId(
   env: BetterAuthLaneEnv,
   redact: SecretRedactor = identityRedact,
 ): Promise<string | null> {
+  if (!isBetterAuthConfigured(env) || !requestHasBetterAuthSessionCredential(request)) return null;
   const account = await resolveBetterAuthSessionAccount(request, env, redact);
   return account && (account.policy.kind === "bootstrap" || account.emailVerified) ? account.policy.email : null;
 }
@@ -577,7 +603,7 @@ export async function resolveBetterAuthSessionAccount(
   env: BetterAuthLaneEnv,
   redact: SecretRedactor = identityRedact,
 ): Promise<{ policy: BetterAuthAccountPolicy; emailVerified: boolean; sessionId?: string; sessionExpiresAt?: number } | null> {
-  if (!isBetterAuthConfigured(env) || env.AGENT_AUDIT === undefined) {
+  if (!isBetterAuthConfigured(env) || env.AGENT_AUDIT === undefined || !requestHasBetterAuthSessionCredential(request)) {
     return null;
   }
   try {

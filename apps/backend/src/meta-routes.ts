@@ -22,6 +22,7 @@ import { isAccessConfigured, isAuthorizedRequest, resolveUserId, requireSameOrig
 import { methodNotAllowed } from "./route-utils.js";
 import { readSetupStatus } from "./setup-status.js";
 import { applySetupFix, setupWizardCatalog } from "./setup-fixes.js";
+import { startServerTiming, withServerTiming } from "./platform/server-timing.js";
 
 /**
  * Registered MCP-token principals for `GET /api/agents` — one row per
@@ -56,6 +57,14 @@ async function agentPrincipals(env: Env) {
 
 export async function handleMeta(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
+  if (url.pathname === "/api/health") {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return Response.json({ error: "Method not allowed." }, { status: 405 });
+    }
+    const marks = startServerTiming();
+    const body = Response.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+    return withServerTiming(body, marks);
+  }
   if (url.pathname === "/api/setup/deployment") {
     const headers = { "Cache-Control": "no-store" };
     if (!await isAuthorizedRequest(request, env)) return Response.json({ error: "Authentication required." }, { status: 401, headers });
@@ -70,6 +79,8 @@ export async function handleMeta(request: Request, env: Env): Promise<Response |
     if (request.method !== "GET") {
       return Response.json({ error: "Method not allowed." }, { status: 405 });
     }
+    const marks = startServerTiming();
+  const authStart = performance.now();
     // `auth` tells the dashboard which lane proved this identity so it can
     // offer the matching affordances (e.g. sign-out only for better-auth).
     const auth = isAccessConfigured(env)
@@ -77,12 +88,14 @@ export async function handleMeta(request: Request, env: Env): Promise<Response |
       : isBetterAuthConfigured(env)
         ? "better-auth"
         : "none";
-    return Response.json(
-      { agent: (await resolveUserId(request, env)) ?? "default", auth,
-        ...(await isRestrictedTeamMember(request, env) ? { teamMember: true } : {}) },
-      {
-        headers: { "Cache-Control": "no-store" },
-      },
+    const agent = (await resolveUserId(request, env)) ?? "default";
+    marks.authMs = performance.now() - authStart;
+    return withServerTiming(
+      Response.json(
+        { agent, auth, ...(await isRestrictedTeamMember(request, env) ? { teamMember: true } : {}) },
+        { headers: { "Cache-Control": "no-store" } },
+      ),
+      marks,
     );
   }
   if (url.pathname === "/api/email/openapi.json") {
@@ -93,9 +106,9 @@ export async function handleMeta(request: Request, env: Env): Promise<Response |
     if (request.method !== "GET") {
       return Response.json({ error: "Method not allowed." }, { status: 405 });
     }
-    return Response.json(await readSetupStatus(env, true, (await resolveUserId(request, env)) ?? "default"), {
-      headers: { "Cache-Control": "no-store" },
-    });
+    const marks = startServerTiming();
+    const status = await readSetupStatus(env, true, (await resolveUserId(request, env)) ?? "default");
+    return withServerTiming(Response.json(status, { headers: { "Cache-Control": "no-store" } }), marks);
   }
   if (url.pathname === "/api/setup/wizard") {
     if (request.method !== "GET") {

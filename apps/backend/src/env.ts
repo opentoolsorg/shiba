@@ -583,5 +583,19 @@ export interface Env {
   OPEN_CONNECTOR_URL?: string;
   OPEN_CONNECTOR_ADMIN_TOKEN?: string;
   OPEN_CONNECTOR_RUNTIME_TOKEN?: string;
+  /** When "1", the dashboard shows OpenConnector setup; the service binding may still be absent on dev. */
+  OPEN_CONNECTOR_ENABLED?: string;
+  /** WS01 platform queues — consumers attach in later workstreams. */
+  INGEST_QUEUE?: Queue;
+  WEBHOOK_QUEUE?: Queue;
+  EMAIL_QUEUE?: Queue;
+  SLACK_IMPORT_WORKFLOW?: Workflow;
+  AUTOMATION_RUN_WORKFLOW?: Workflow;
+  /** General file storage (WS07); distinct from run-scoped ARTIFACTS. */
+  FILES?: R2Bucket;
+  /** Workspace-scoped live update fan-out (hibernatable WebSockets). */
+  WorkspaceEvents?: DurableObjectNamespace;
+  AUTH_RATE_LIMIT?: RateLimit;
+  UPLOAD_RATE_LIMIT?: RateLimit;
 
 }

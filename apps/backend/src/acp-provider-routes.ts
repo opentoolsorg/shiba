@@ -6,6 +6,7 @@ import {
   type ProviderDeps,
   ProviderFlowError,
   readProviderSnapshot,
+  resetProvider,
   setDefaultProvider,
   testProvider,
   verifyProvider,
@@ -107,7 +108,7 @@ export async function handleAcpProviders(
         headers: { "Cache-Control": "no-store" },
       });
     }
-    const match = /^\/api\/providers\/([a-z0-9-]+)\/(connect|verify|test|disconnect|default)$/.exec(
+    const match = /^\/api\/providers\/([a-z0-9-]+)\/(connect|verify|test|disconnect|default|reset)$/.exec(
       url.pathname,
     );
     if (match === null) {
@@ -123,7 +124,7 @@ export async function handleAcpProviders(
     const jsonOnly = requireJsonContentType(request);
     if (jsonOnly) return jsonOnly;
     const id = match[1] as string;
-    const action = match[2] as "connect" | "verify" | "test" | "disconnect" | "default";
+    const action = match[2] as "connect" | "verify" | "test" | "disconnect" | "default" | "reset";
     const body = await readBody(request);
     const credential = typeof body.credential === "string" ? body.credential : undefined;
     const requestDeps: ProviderDeps = credential !== undefined ? { ...flowDeps, credential } : flowDeps;
@@ -136,7 +137,9 @@ export async function handleAcpProviders(
             ? await testProvider(env, org, id, flowDeps)
             : action === "disconnect"
               ? await disconnectProvider(env, org, id, flowDeps)
-              : await setDefaultProvider(env, org, id, flowDeps);
+              : action === "reset"
+                ? await resetProvider(env, org, id, flowDeps)
+                : await setDefaultProvider(env, org, id, flowDeps);
     return Response.json(snapshot, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return jsonError(error);

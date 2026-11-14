@@ -15,6 +15,8 @@ export function isPublicRequest(request: Request): boolean {
   return ((request.method === "GET" || request.method === "HEAD") && isPublicStaticPath(path))
     || (request.method === "GET" && path === "/api/v1/openapi.json")
     || (request.method === "GET" && path === "/api/integrations/provider/callback")
+    || (request.method === "GET" && path === "/api/health")
+    || (request.method === "HEAD" && path === "/api/health")
     || (request.method === "POST" && path === "/api/waitlist")
     // POST-only bypass so a Sentry alert reaches the handler even when the
     // edge Access gate is misconfigured; the handler still verifies the

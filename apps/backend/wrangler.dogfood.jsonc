@@ -3,53 +3,369 @@
   "name": "shiba-ai-coworker-dogfood",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-01",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat",
+    "legacy_module_registry"
+  ],
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA"
+  },
   "assets": {
     "binding": "ASSETS",
-    "directory": "../../public",
-    "not_found_handling": "404-page",
+    "directory": "../../app-public",
+    "not_found_handling": "404-page"
   },
   "preview_urls": false,
+  "workers_dev": true,
+  "keep_vars": true,
   "vars": {
+    "MCP_TRUSTED_HOSTS": "",
+    "INTEGRATIONS_PROVIDER": "openconnector",
+    "OPEN_CONNECTOR_ENABLED": "1",
+    "SHIBA_PERSONAL_LOCAL_EXECUTION": "0",
+    "SHIBA_TEAM_MODEL_SESSIONS": "0",
+    "SHIBA_SHARED_COMPUTER": "0",
+    "SHIBA_SHARED_COMPUTER_IMAGE": "",
+    "FOUNDER_AUTOMATIC_READS_ENABLED": "false",
+    "FOUNDER_STRIPE_READS_ENABLED": "false",
+    "FOUNDER_META_READS_ENABLED": "false",
+    "FOUNDER_HUBSPOT_READS_ENABLED": "false",
+    "FOUNDER_RECONCILIATION_SCHEDULES_ENABLED": "false",
+    "FOUNDER_RECONCILIATION_SLACK_ENABLED": "false",
+    "OPEN_CONNECTOR_OPERATOR_REVIEW_ENABLED": "false",
+    "OPEN_CONNECTOR_READ_VERSION_ID": "",
+    "OPEN_CONNECTOR_READ_MANIFEST_SHA256": "",
+    "SLACK_INSTALLATIONS_ENABLED": "false",
+    "SLACK_COWORKER_PRIVATE_STATUS_ENABLED": "false",
+    "SLACK_OAUTH_APP_ID": "",
+    "SLACK_OAUTH_CLIENT_ID": "",
+    "SLACK_OAUTH_REDIRECT_URI": "",
+    "SLACK_OAUTH_PKCE_ENABLED": "false",
+    "SLACK_OAUTH_QUERY_REDACTION_VERIFIED": "false",
+    "SLACK_LEGACY_MODE_ENABLED": "false",
+    "SLACK_LEGACY_TEAM_ID": "",
+    "SLACK_LEGACY_APP_ID": "",
+    "SHIBA_TEAM_MODEL_MODEL": "@cf/zai-org/glm-4.7-flash",
+    "SLACK_CANVAS_OWNERS": "[]",
+    "SLACK_AGENT_SESSIONS_ENABLED": "false",
+    "SLACK_AGENT_SESSIONS_TEAM_ID": "",
     "GATEWAY_ID": "default",
     "ORCHESTRATOR_MODEL": "@cf/zai-org/glm-4.7-flash",
     "CODING_MODEL": "google/gemini-3.5-flash-lite",
     "RUNTIME": "sandbox",
+    "SHIBA_CLAUDE_SUBSCRIPTION": "0",
+    "SHIBA_CODEX_SUBSCRIPTION": "0",
+    "SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH": "0",
+    "SHIBA_CODEX_DEVICE_AUTH": "0",
+    "SHIBA_CURSOR_SUBSCRIPTION": "0",
+    "SHIBA_ANTIGRAVITY_SUBSCRIPTION": "0",
     "INSTANCE_TYPE": "standard-1",
     "WORKER_HOSTNAME": "",
-    "AGENT_HARNESS": "opencode",
+    "BETTER_AUTH_URL": "https://shiba-ai-coworker-dogfood.opentoolsorg.workers.dev",
+    "ROLE_MODEL_MAP": "{\"orchestrator\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"explorer\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"fixer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-sonnet-5-5\"},\"reviewer\":{\"harness\":\"opencode\",\"model\":\"opencode-go/gpt-6.1-sol\"},\"designer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-opus-5-5\"}}"
   },
-  "ai": { "binding": "AI" },
-  "worker_loaders": [{ "binding": "LOADER" }],
-  "browser": { "binding": "BROWSER" },
-  "triggers": { "crons": ["*/5 * * * *"] },
+  "ai": {
+    "binding": "AI"
+  },
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ],
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
   "durable_objects": {
     "bindings": [
-      { "name": "CodingOrchestrator", "class_name": "CodingOrchestrator" },
-      { "name": "OpenCodeAgent", "class_name": "OpenCodeAgent" },
-      { "name": "Sandbox", "class_name": "Sandbox" },
-      { "name": "Automations", "class_name": "Automations" },
-      { "name": "Mailbox", "class_name": "Mailbox" },
-      { "name": "Memory", "class_name": "Memory" },
-      { "name": "Waitlist", "class_name": "Waitlist" },
-      { "name": "ModelConfig", "class_name": "ModelConfig" },
-    ],
+      {
+        "name": "CodingOrchestrator",
+        "class_name": "CodingOrchestrator"
+      },
+      {
+        "name": "OpenCodeAgent",
+        "class_name": "OpenCodeAgent"
+      },
+      {
+        "name": "Sandbox",
+        "class_name": "Sandbox"
+      },
+      {
+        "name": "Automations",
+        "class_name": "Automations"
+      },
+      {
+        "name": "Mailbox",
+        "class_name": "Mailbox"
+      },
+      {
+        "name": "Memory",
+        "class_name": "Memory"
+      },
+      {
+        "name": "Waitlist",
+        "class_name": "Waitlist"
+      },
+      {
+        "name": "ModelConfig",
+        "class_name": "ModelConfig"
+      },
+      {
+        "name": "LocalDispatch",
+        "class_name": "LocalDispatch"
+      },
+      {
+        "name": "ChatGptAuth",
+        "class_name": "ChatGptAuth"
+      },
+      {
+        "name": "UserProviderOAuth",
+        "class_name": "UserProviderOAuth"
+      },
+      {
+        "name": "Spaces",
+        "class_name": "Spaces"
+      },
+      {
+        "name": "ConversationRoom",
+        "class_name": "ConversationRoom"
+      },
+      {
+        "name": "WorkspaceEvents",
+        "class_name": "WorkspaceEvents"
+      }
+    ]
   },
-  "r2_buckets": [{ "binding": "ATTACHMENTS", "bucket_name": "shiba-attachments-dogfood" }],
-  "kv_namespaces": [{ "binding": "AGENT_TOKENS", "id": "b218feeb42cf4c3a8000031d5e8bc431" }],
-  "d1_databases": [
-    { "binding": "AGENT_AUDIT", "database_name": "shiba-audit-dogfood", "database_id": "ccd931df-85e2-407c-8f62-22e491684c18" },
+  "r2_buckets": [
+    {
+      "binding": "ATTACHMENTS",
+      "bucket_name": "shiba-attachments-dogfood"
+    },
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "shiba-artifacts-dogfood"
+    },
+    {
+      "binding": "FILES",
+      "bucket_name": "shiba-files-dogfood"
+    }
   ],
-  "vectorize": [{ "binding": "MEMORY_VECTORS", "index_name": "shiba-memory-dogfood" }],
-  "send_email": [{ "name": "SEND_EMAIL" }],
+  "kv_namespaces": [
+    {
+      "binding": "AGENT_TOKENS",
+      "id": "b218feeb42cf4c3a8000031d5e8bc431"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "AGENT_AUDIT",
+      "database_name": "shiba-audit-dogfood",
+      "database_id": "ccd931df-85e2-407c-8f62-22e491684c18",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "MCP_RATE_LIMIT",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 100,
+        "period": 60
+      }
+    },
+    {
+      "name": "AUTH_RATE_LIMIT",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 30,
+        "period": 60
+      }
+    },
+    {
+      "name": "UPLOAD_RATE_LIMIT",
+      "namespace_id": "1003",
+      "simple": {
+        "limit": 20,
+        "period": 60
+      }
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "INGEST_QUEUE",
+        "queue": "shiba-ingest-dogfood"
+      },
+      {
+        "binding": "WEBHOOK_QUEUE",
+        "queue": "shiba-webhooks-dogfood"
+      },
+      {
+        "binding": "EMAIL_QUEUE",
+        "queue": "shiba-email-dogfood"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "shiba-ingest-dogfood",
+        "dead_letter_queue": "shiba-ingest-dlq-dogfood",
+        "max_batch_size": 10,
+        "max_retries": 5
+      },
+      {
+        "queue": "shiba-webhooks-dogfood",
+        "dead_letter_queue": "shiba-webhooks-dlq-dogfood",
+        "max_batch_size": 10,
+        "max_retries": 5
+      },
+      {
+        "queue": "shiba-email-dogfood",
+        "dead_letter_queue": "shiba-email-dlq-dogfood",
+        "max_batch_size": 5,
+        "max_retries": 5
+      }
+    ]
+  },
+  "workflows": [
+    {
+      "binding": "SLACK_IMPORT_WORKFLOW",
+      "name": "shiba-slack-import-dogfood",
+      "class_name": "SlackImportWorkflow"
+    },
+    {
+      "binding": "AUTOMATION_RUN_WORKFLOW",
+      "name": "shiba-automation-run-dogfood",
+      "class_name": "AutomationRunWorkflow"
+    }
+  ],
+  "vectorize": [
+    {
+      "binding": "MEMORY_VECTORS",
+      "index_name": "shiba-memory-dogfood"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "SEND_EMAIL"
+    }
+  ],
   "containers": [
     {
       "class_name": "Sandbox",
       "name": "shiba-ai-coworker-sandbox-dogfood",
-      "image": "registry.cloudflare.com/202ca2bee300067a918a67a4d17d2178/shiba-ai-coworker-sandbox-dogfood:boot",
-      "instance_type": "standard-1",
-      "max_instances": 10,
-    },
+      "scheduling_policy": "durable_object",
+      "images": {
+        "sandbox": {
+          "dockerfile": "./Dockerfile"
+        }
+      }
+    }
   ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "CodingOrchestrator",
+        "OpenCodeAgent",
+        "Sandbox"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "Automations"
+      ]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": [
+        "Mailbox"
+      ]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": [
+        "McpGateway"
+      ]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": [
+        "Memory"
+      ]
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": [
+        "Waitlist"
+      ]
+    },
+    {
+      "tag": "v7",
+      "new_sqlite_classes": [
+        "ModelConfig"
+      ]
+    },
+    {
+      "tag": "v8",
+      "deleted_classes": [
+        "McpGateway"
+      ]
+    },
+    {
+      "tag": "v9",
+      "new_sqlite_classes": [
+        "LocalDispatch"
+      ]
+    },
+    {
+      "tag": "alchemy:v10"
+    },
+    {
+      "tag": "alchemy:v11"
+    },
+    {
+      "tag": "v12",
+      "new_sqlite_classes": [
+        "ChatGptAuth"
+      ]
+    },
+    {
+      "tag": "alchemy:v22"
+    },
+    {
+      "tag": "v13",
+      "new_sqlite_classes": [
+        "UserProviderOAuth"
+      ]
+    },
+    {
+      "tag": "v14",
+      "new_sqlite_classes": [
+        "Spaces"
+      ]
+    },
+    {
+      "tag": "v15",
+      "new_sqlite_classes": [
+        "ConversationRoom"
+      ]
+    },
+    {
+      "tag": "v16",
+      "new_sqlite_classes": [
+        "WorkspaceEvents"
+      ]
+    }
+  ],
+  "services": [
+    {
+      "binding": "OPEN_CONNECTOR",
+      "service": "shiba-openconnector-dogfood"
+    }
+  ]
 }
-
