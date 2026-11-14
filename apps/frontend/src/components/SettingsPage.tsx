@@ -59,6 +59,7 @@ export const SETTINGS_PAGE_NAV_GROUPS: SettingsNavGroup[] = [
       { id: "account", label: "Account", blurb: SETTINGS_SECTION_LABELS.account.blurb, icon: User },
       { id: "api-keys", label: "API keys", blurb: SETTINGS_SECTION_LABELS["api-keys"].blurb, icon: Key },
       { id: "appearance", label: "Appearance", blurb: SETTINGS_SECTION_LABELS.appearance.blurb, icon: Palette },
+      { id: "connected-apps", label: "Connected apps", blurb: SETTINGS_SECTION_LABELS["connected-apps"].blurb, icon: ShieldCheck },
     ],
   },
   {

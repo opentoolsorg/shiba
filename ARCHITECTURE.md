@@ -273,7 +273,7 @@ branches that bypass AI Gateway):
 | Harness | Binary | Default model | Credential |
 |---|---|---|---|
 | `claude-subscription` | `claude` | `anthropic-subscription/claude-sonnet-4-6` | `CLAUDE_SUBSCRIPTION_TOKEN[_<ACCOUNT>]` secret |
-| `codex-subscription` | `codex` | `openai-subscription/gpt-5.3-codex` | `CODEX_SUBSCRIPTION_AUTH_JSON` secret (auth.json contents) on a dedicated chatgpt.com egress branch; container CODEX_HOME gets a stub auth.json in a per-account shadow overlay |
+| `codex-subscription` | `codex` | `openai-subscription/gpt-5.3-codex` | `CODEX_SUBSCRIPTION_AUTH_JSON` secret (auth.json contents) on a dedicated chatgpt.com egress branch; container CODEX_HOME gets a stub auth.json in a per-account shadow home |
 | `antigravity-subscription` | `agy` (ACP server, pinned in image) | `google-subscription/gemini-3-pro` | In-container OAuth — no Worker credential. `POST /api/auth/antigravity-subscription/begin` boots an auth sandbox that prints the Google URL; the operator signs in and pastes the dead `127.0.0.1` redirect into `POST /api/antigravity/callback`, which forwards it to the container listener. Tokens live only in the per-account profile under `/root/.shiba/antigravity/` |
 | `cursor-subscription` | `cursor-agent` | `cursor-subscription/auto` | `CURSOR_SUBSCRIPTION_TOKEN[_<ACCOUNT>]` on the CLI's two egress hosts |
 | `devin-subscription` | `devin` | `devin-subscription/swe-2-medium` | `DEVIN_SUBSCRIPTION_TOKEN[_<ACCOUNT>]` on api.devin.ai + server.codeium.com |

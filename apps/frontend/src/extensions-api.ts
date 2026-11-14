@@ -132,10 +132,6 @@ export const extensionsApi = {
   },
 
   listConnectors(view: ExtensionView): Promise<{ connectors: WorkspaceConnector[] }> {
-    if (!forceStubMode) {
-      if (view !== "personal") return Promise.reject(new Error("Shared and archived app registries are unavailable. App accounts stay private; configure employee resource grants separately."));
-      return extensionsApi.listOpenConnectorConnections().then(({ connections }) => ({ connectors: connections.map((connection) => ({ ...connection, scope: "personal" as const })) }));
-    }
     return requestJson<{ connectors: WorkspaceConnector[] }>(
       `${connectorsBase}?view=${view}`,
       undefined,
@@ -157,7 +153,6 @@ export const extensionsApi = {
     scope: ExtensionScope;
     identityLabel?: string | null;
   }): Promise<{ connector: WorkspaceConnector }> {
-    if (!forceStubMode) return Promise.reject(new Error("App account linking uses verified OpenConnector consent. Configure employee resource grants separately."));
     return requestJson<{ connector: WorkspaceConnector }>(
       connectorsBase,
       { method: "POST", body: JSON.stringify({ ...input, provider: "openconnector" }) },
@@ -188,7 +183,6 @@ export const extensionsApi = {
   },
 
   archiveConnector(id: string): Promise<{ ok: true }> {
-    if (!forceStubMode) return Promise.reject(new Error("Provider accounts cannot be archived here. Use the explicit Disconnect action to revoke a connection."));
     return requestJson<{ ok: true }>(
       `${connectorsBase}/${encodeURIComponent(id)}/archive`,
       { method: "POST" },
@@ -203,7 +197,6 @@ export const extensionsApi = {
   },
 
   restoreConnector(id: string): Promise<{ ok: true }> {
-    if (!forceStubMode) return Promise.reject(new Error("Provider accounts require a new verified sign-in; local restore is unavailable."));
     return requestJson<{ ok: true }>(
       `${connectorsBase}/${encodeURIComponent(id)}/restore`,
       { method: "POST" },
@@ -216,7 +209,6 @@ export const extensionsApi = {
   },
 
   removeConnector(id: string): Promise<{ ok: true }> {
-    if (!forceStubMode) return Promise.reject(new Error("Use the explicit Disconnect action for the owned OpenConnector account."));
     return requestJson<{ ok: true }>(
       `${connectorsBase}/${encodeURIComponent(id)}`,
       { method: "DELETE" },
@@ -229,7 +221,6 @@ export const extensionsApi = {
   },
 
   moveConnector(id: string, scope: ExtensionScope): Promise<{ connector: WorkspaceConnector }> {
-    if (!forceStubMode) return Promise.reject(new Error("App credentials cannot be moved between people or workspaces. Configure employee resource grants separately."));
     return requestJson<{ connector: WorkspaceConnector }>(
       `${connectorsBase}/${encodeURIComponent(id)}`,
       { method: "PATCH", body: JSON.stringify({ scope }) },
@@ -259,12 +250,24 @@ export const extensionsApi = {
   },
 
   async listOpenConnectorConnections(): Promise<{ connections: OpenConnectorConnection[] }> {
-    const body = await requestJson<{ connections: OpenConnectorConnection[] }>(
-      "/api/integrations/provider/connections",
-      undefined,
-      () => ({ connections: [] }),
-    );
-    if (forceStubMode) return body;
+    const response = await fetch("/api/integrations/provider/connections", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const code = body && typeof body === "object" && "code" in body ? body.code : undefined;
+      throw new Error(
+        response.status === 503 && code === "openconnector_not_bound"
+          ? "OpenConnector is not set up on this deployment. Ask the operator to bind OPEN_CONNECTOR or set OPEN_CONNECTOR_URL."
+          : response.status === 503
+            ? "OpenConnector is unavailable. Ask the operator to check the sibling service and service binding."
+            : `App accounts unavailable (${response.status}).`,
+      );
+    }
+    if (forceStubMode) {
+      return { connections: [] };
+    }
     const parsed = integrationProviderConnectionsResponseSchema.safeParse(body);
     if (!parsed.success) throw new Error("The owned app account response could not be verified.");
     return { connections: parsed.data.connections };
