@@ -80,8 +80,9 @@ describe("handoff return", () => {
     expect(reports[0]?.body.length).toBeLessThanOrEqual(280);
     const report = reports[0];
     if (!report) throw new Error("missing handoff report");
-    const payload = JSON.parse(report.payload_json) as { handoffId: string; actorId: string; pr?: string };
+    const payload = JSON.parse(report.payload_json) as { handoffId: string; childThreadRootId: string; actorId: string; pr?: string };
     expect(payload.handoffId).toBe("handoff_report_once");
+    expect(payload.childThreadRootId).toBe(childId);
     expect(payload.actorId).toBe("agent:parent");
     expect(payload.pr).toBe("12");
     const status = sqlite.prepare("SELECT status FROM collaboration_handoff_returns").get() as { status: string };

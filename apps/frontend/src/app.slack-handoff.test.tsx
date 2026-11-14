@@ -9,6 +9,7 @@ vi.mock('agents/react',()=>({useAgent:()=>mocks.agent,useAgentToolEvents:()=>({r
 vi.mock('@cloudflare/ai-chat/react',()=>({useAgentChat:()=>mocks.chat}));
 vi.mock('./conversation-room-realtime',()=>({useConversationRoomRealtime:()=>({viewerId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',status:'offline',viewers:[],remoteStream:null,startStream:()=>'',finishStream:vi.fn()})}));
 vi.mock('@tanstack/react-router',()=>({useRouter:()=>mocks.router}));
+vi.mock('./state/workspace-events',()=>({useWorkspaceEvents:()=>false}));
 vi.mock('./socket-liveness',()=>({useSocketLiveness:vi.fn()}));
 vi.mock('./auth-client',()=>({authClient:{signOut:vi.fn()}}));
 vi.mock('./components/FirstRunWizard',()=>({FirstRunWizard:()=>null,ONBOARDING_STORAGE_KEY:'onboarding'}));
@@ -29,6 +30,7 @@ beforeEach(()=>{
   const path=String(input);calls.push({path,init});
   if(path==='/api/whoami')return Response.json({agent:actor,auth:'better-auth',teamMember:true});
   if(path==='/api/workspaces')return Response.json({workspaces});
+  if(path==='/api/palette/bots')return Response.json({bots:[{agentId:'fixer',actorId:'agent:fixer',name:'Fixer',state:'idle',avatar:null,pinnedSlot:null,preview:null,previewAt:null,roomId:null,threadRootId:null,unread:null}]});
   if(path==='/api/slack/coworker')return Response.json({bindings:[],challenges:[],grants:[],executionAvailable:false});
   if(path==='/api/slack/coworker/drafts')return Response.json({drafts:[draft]});
   if(path==='/api/slack/coworker/drafts/adopt'){if(holdAdopt)return new Promise<Response>(resolve=>{releaseAdopt=resolve;});return Response.json(draft);}
@@ -68,4 +70,18 @@ describe('App Slack draft handoff',()=>{
   expect(screen.getByLabelText('Employee task request')).toHaveProperty('value','');
   expect(calls.filter(({init})=>init?.method==='POST').map(({path})=>path)).toEqual(['/api/slack/coworker/drafts/adopt']);
  });
+});
+
+it('inserts a palette bot mention into the visible room composer without submitting work',async()=>{
+ fireEvent.click(await openDraft());
+ await screen.findByRole('heading',{name:'Team room'});
+ fireEvent.change(screen.getByRole('textbox',{name:'Message'}),{target:{value:'Please review'}});
+ fireEvent.keyDown(window,{key:'k',metaKey:true});
+ await screen.findByRole('option',{name:'Fixer, idle'});
+ fireEvent.click(screen.getByRole('option',{name:'@bot in this thread'}));
+ fireEvent.click(await screen.findByRole('option',{name:'Fixer, idle'}));
+ await waitFor(()=>expect(screen.getByRole('textbox',{name:'Message'})).toHaveProperty('value','Please review @agent:fixer '));
+ expect(screen.queryByRole('dialog',{name:'Search'})).toBeNull();
+ expect(calls.filter(({init})=>init?.method==='POST').map(({path})=>path)).toEqual(['/api/slack/coworker/drafts/adopt']);
+ expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
 });

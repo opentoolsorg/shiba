@@ -12,6 +12,7 @@ import {
 import type { CollabRoomKind, TeamWorkspaceDetail, TeamWorkspaceMembership } from "@shiba/shared";
 import { useCollaborationRoomRealtime } from "../collaboration-room-realtime";
 import { NotificationsPanel } from "./notifications/NotificationsPanel";
+import { resolveHandoffStatus, type HandoffCardStatus } from "./collab/HandoffCard";
 import { MessageCards } from "./collab/MessageCards";
 import { MessageList } from "./collab/MessageList";
 import { MessageRow } from "./collab/MessageRow";
@@ -232,6 +233,41 @@ function request(method: string, body?: unknown): RequestInit {
   return { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) };
 }
 
+function messagePayload(raw: string | null | undefined): Record<string, unknown> {
+  try {
+    const value: unknown = JSON.parse(raw ?? "null");
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function messageHandoffId(raw: string | null | undefined): string | undefined {
+  const value = messagePayload(raw).handoffId;
+  return typeof value === "string" ? value : undefined;
+}
+
+function cardThreadId(item: Message, detail: RoomDetail): string | undefined {
+  const payload = messagePayload(item.payloadJson);
+  const childId = payload.childThreadRootId;
+  if (typeof childId === "string" && detail.messages.some((message) =>
+    message.messageId === childId || message.threadRootId === childId)) return childId;
+  const result = detail.messages.find((message) => message.messageId === payload.resultMessageId);
+  return result?.threadRootId || item.threadRootId || undefined;
+}
+
+function handoffCardStatus(item: Message, detail: RoomDetail): HandoffCardStatus {
+  const handoffId = messageHandoffId(item.payloadJson);
+  const handoff = handoffId ? detail.handoffs.find((row) => row.handoffId === handoffId) : undefined;
+  const reported = Boolean(handoffId && detail.messages.some((message) =>
+    message.messageKind === "handoff_report" && messageHandoffId(message.payloadJson) === handoffId));
+  return resolveHandoffStatus({
+    handoffStatus: handoff?.status,
+    reported,
+    runStarted: Boolean(handoff && hasApprovedRoomRun(handoff)),
+  });
+}
+
 export type CollaborationExecutionHandoff = Handoff & { roomId: string };
 export type IncomingTaskDraft = { id: string; workspaceId: string; actorId: string; text: string; source?: "slack" | "team-onboarding"; draftTaskId?: string; draftTaskVersion?: number; progressRevision?: number; expiresAt?: number };
 
@@ -242,6 +278,8 @@ export interface CollaborationViewProps {
   initialEmployeeId?: string;
   onRoomChange?: (roomId: string) => void;
   incomingTaskDraft?: IncomingTaskDraft | null;
+  incomingMention?: { id: string; roomId: string; agentId: string };
+  onMentionConsumed?: (id: string) => void;
   onTaskDraftConsumed?: (id: string) => void;
   renderExecution?: (handoff: CollaborationExecutionHandoff) => ReactNode;
   renderApproval?: (handoff: CollaborationExecutionHandoff) => ReactNode;
@@ -275,6 +313,8 @@ function ScopedCollaborationView({
   initialEmployeeId,
   onRoomChange,
   incomingTaskDraft,
+  incomingMention,
+  onMentionConsumed,
   onTaskDraftConsumed,
   renderExecution,
   renderApproval,
@@ -304,6 +344,16 @@ function ScopedCollaborationView({
   const [roomVisibility, setRoomVisibility] = useState<"private" | "shared">("private");
   const [inviteUserId, setInviteUserId] = useState("");
   const [message, setMessage] = useState("");
+  const messageInput = useRef<HTMLTextAreaElement>(null);
+  const insertedMention = useRef<string | null>(null);
+  useEffect(() => {
+    if (!incomingMention || insertedMention.current === incomingMention.id ||
+      incomingMention.roomId !== activeRoomId || detail?.room.roomId !== activeRoomId) return;
+    insertedMention.current = incomingMention.id;
+    setMessage((current) => `${current}${current && !/\s$/.test(current) ? " " : ""}@agent:${incomingMention.agentId} `);
+    messageInput.current?.focus();
+    onMentionConsumed?.(incomingMention.id);
+  }, [incomingMention, activeRoomId, detail, onMentionConsumed]);
   const [taskId, setTaskId] = useState("");
   const [task, setTask] = useState("");
   const [draftReplacement, setDraftReplacement] = useState<{ id: string; roomId: string; previousTask: string; text: string; provenance: string } | null>(null);
@@ -356,6 +406,7 @@ function ScopedCollaborationView({
 
   const clearRoomDrafts = useCallback(() => {
     setMessage("");
+    setOpenThreadId("");
     setCopyLinkStatus("");
     setTask("");
     setDraftReplacement(null);
@@ -895,6 +946,7 @@ function ScopedCollaborationView({
         `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/messages`,
         request("POST", {
           body: message,
+          ...(openThreadId ? { threadRootMessageId: openThreadId } : {}),
         }),
       );
       setMessage("");
@@ -974,6 +1026,23 @@ function ScopedCollaborationView({
       setHandoffRequestId("");
       setSelectedMemoryIds([]);
       setSelectedMessageIds([]);
+    });
+  };
+
+  const reassignHandoff = (recipientActorId: string, item: Message) => {
+    const source = detail?.messages.find((message) => message.messageId === item.threadRootId);
+    if (busy || !activeRoomId || !source?.body.trim()) return;
+    void mutate(async () => {
+      await api(
+        `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/handoffs`,
+        request("POST", {
+          handoffId: `ho_${crypto.randomUUID()}`,
+          taskId: `reassign_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`,
+          recipientActorId,
+          task: source.body,
+          contextMessageIds: [source.messageId],
+        }),
+      );
     });
   };
 
@@ -1181,8 +1250,16 @@ function ScopedCollaborationView({
                               messageKind: item.messageKind,
                               body: item.body,
                               fromLabel: item.senderKind === "agent" ? (members.find((member) => member.actorId === item.senderActorId)?.displayName ?? "Fixer") : undefined,
-                              toLabel: item.messageKind === "handoff" || item.messageKind === "handoff_report" ? "Reviewer" : undefined,
+                              toLabel: members.find((member) => member.actorId === messagePayload(item.payloadJson).actorId)?.displayName,
+                              handoffStatus: item.messageKind === "handoff" ? handoffCardStatus(item, detail) : undefined,
+                              routerCandidates: members
+                                .filter((member) => member.actorKind === "agent" && member.status === "active")
+                                .map((member) => ({ actorId: member.actorId, name: member.displayName })),
                             }}
+                            onOpenThread={cardThreadId(item, detail) ? () => setOpenThreadId(cardThreadId(item, detail) ?? "") : undefined}
+                            reassignDisabled={busy}
+                            onReassign={detail.messages.some((message) => message.messageId === item.threadRootId && message.body.trim())
+                              ? (actorId) => reassignHandoff(actorId, item) : undefined}
                           />
                           {!item.threadRootId ? (
                             <button
@@ -1313,6 +1390,7 @@ function ScopedCollaborationView({
                     </MessageList>
                     {openThreadId ? (
                       <ThreadPane title="Thread">
+                        <button type="button" className="min-h-11 self-start text-xs underline" onClick={() => setOpenThreadId("")}>Close thread</button>
                         {detail.messages.filter((item) => item.threadRootId === openThreadId).map((item) => (
                           <p key={item.messageId} className="text-sm">{item.body}</p>
                         ))}
@@ -1326,12 +1404,13 @@ function ScopedCollaborationView({
                       className="sticky bottom-0 flex flex-wrap gap-2 border-t border-[var(--line)] bg-[var(--card)] p-3"
                     >
                       <textarea
+                        ref={messageInput}
                         aria-label="Message"
                         value={message}
                         onChange={(event) => setMessage(event.target.value)}
                         maxLength={5000}
                         rows={2}
-                        placeholder="Message this group…"
+                        placeholder={openThreadId ? "Reply in this thread…" : "Message this group…"}
                         className="min-w-0 flex-1 resize-y rounded-none border border-[var(--line)] bg-[var(--card)] px-3 py-2 text-sm"
                       />
                       <button

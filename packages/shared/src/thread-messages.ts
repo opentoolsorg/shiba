@@ -15,6 +15,7 @@ export const THREAD_MESSAGE_KINDS = [
 export type ThreadMessageKind = (typeof THREAD_MESSAGE_KINDS)[number];
 
 export interface ThreadMessagePayload {
+  childThreadRootId?: string;
   approvalId?: string;
   askId?: string;
   runId?: string;

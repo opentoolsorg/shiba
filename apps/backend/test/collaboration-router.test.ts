@@ -87,11 +87,16 @@ describe("collaboration router", () => {
       expect(routed.action).toBe("handoff");
       expect(routed.handoffs).toHaveLength(1);
       expect(routed.handoffs[0]?.runId ?? null).toBeNull();
-      const cards = sqlite.prepare("SELECT body FROM collaboration_messages WHERE message_kind='handoff'").all() as { body: string }[];
+      const cards = sqlite.prepare("SELECT body, payload_json FROM collaboration_messages WHERE message_kind='handoff'").all() as { body: string; payload_json: string }[];
       expect(cards).toHaveLength(1);
       expect(cards[0]?.body).toContain("Shiba → Fixer");
       expect(cards[0]?.body).toContain("because");
       expect(cards[0]?.body).toContain("repo edits");
+      const child = sqlite.prepare("SELECT child_thread_root_id FROM collaboration_handoff_returns WHERE handoff_id=?").get(routed.handoffs[0]?.handoffId ?? "") as { child_thread_root_id: string };
+      expect(JSON.parse(cards[0]?.payload_json ?? "{}")).toMatchObject({
+        handoffId: routed.handoffs[0]?.handoffId,
+        childThreadRootId: child.child_thread_root_id,
+      });
       const runs = sqlite.prepare("SELECT COUNT(*) AS n FROM collaboration_handoffs WHERE run_id IS NOT NULL").get() as { n: number };
       expect(runs.n).toBe(0);
       expect(fetchSpy).not.toHaveBeenCalled();
@@ -133,6 +138,9 @@ describe("collaboration router", () => {
     const { database, sqlite } = customAgentD1();
     const env = { AGENT_AUDIT: database } as unknown as Env;
     const workspace = await createTeamWorkspace(env, OWNER, { name: "Bots" });
+    await createCustomAgent(env, collaborationEmployeeOrgId(workspace), "fixer", {
+      name: "Fixer", instructions: "Fix repository issues", harness: "opencode",
+    });
     sqlite.prepare(
       `INSERT INTO team_workspace_memberships (tenant_id, workspace_id, user_id, role, status, version, joined_at)
        VALUES (?, ?, 'member@example.test', 'member', 'active', 1, 1)`,
@@ -147,5 +155,30 @@ describe("collaboration router", () => {
     authState.userId = "member@example.test";
     const denied = await handlePrimaryBot(new Request(`https://worker.test/api/workspaces/${workspace.workspaceId}/primary-bot`), env);
     expect(denied?.status).toBe(403);
+  });
+
+  it("rejects missing, foreign, archived and deleted primary bot profiles without changing the saved bot", async () => {
+    const { database, sqlite } = customAgentD1();
+    const env = { AGENT_AUDIT: database } as unknown as Env;
+    const workspace = await createTeamWorkspace(env, OWNER, { name: "Bots" });
+    const orgId = collaborationEmployeeOrgId(workspace);
+    const config = { name: "Bot", instructions: "Help with work", harness: "opencode" as const };
+    const active = await createCustomAgent(env, orgId, "active", config);
+    const archived = await createCustomAgent(env, orgId, "archived", config);
+    const deleted = await createCustomAgent(env, orgId, "deleted", config);
+    const foreign = await createCustomAgent(env, "team:another-workspace", "foreign", config);
+    sqlite.prepare("UPDATE org_custom_agents SET archived_at=1 WHERE id=?").run(archived.id);
+    sqlite.prepare("UPDATE org_custom_agents SET deleted_at=1 WHERE id=?").run(deleted.id);
+    const put = (actorId: string) => handlePrimaryBot(new Request(`https://worker.test/api/workspaces/${workspace.workspaceId}/primary-bot`, {
+      method: "PUT",
+      headers: { origin: "https://worker.test", "content-type": "application/json" },
+      body: JSON.stringify({ actorId }),
+    }), env);
+    expect((await put(`agent:${active.id}`))?.status).toBe(200);
+    for (const profile of ["missing", foreign.id, foreign.slug, archived.id, archived.slug, deleted.id, deleted.slug]) {
+      expect((await put(`agent:${profile}`))?.status).toBe(404);
+    }
+    const saved = await handlePrimaryBot(new Request(`https://worker.test/api/workspaces/${workspace.workspaceId}/primary-bot`), env);
+    expect(await saved?.json()).toMatchObject({ actorId: `agent:${active.id}`, source: "saved" });
   });
 });
