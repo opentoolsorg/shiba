@@ -33,6 +33,8 @@ import { handleReasonNetwork } from "./reason-network/routes.js";
 import { handleSubscriptionAuth } from "./auth-routes.js";
 import { handleUserOpenAiSubscription } from "./subscription-auth-routes.js";
 import { handleAudit } from "./audit-routes.js";
+import { handleGovernance } from "./governance-routes.js";
+import { handleShare } from "./share-routes.js";
 import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
 import { handleGitHubWebhook } from "./github-webhook-routes.js";
@@ -46,6 +48,11 @@ import { handleLocalAdapter, isLocalRuntimePath } from "./local-routes.js";
 import { LocalDispatch } from "./local-dispatch.js";
 import { handleMcp } from "./mcp-routes.js";
 import { handleMemory } from "./memory-routes.js";
+import { handleFiles } from "./files/files-routes.js";
+import { handleNotes } from "./notes/notes-routes.js";
+import { handleKnowledge } from "./knowledge/knowledge-routes.js";
+import { handleKnowledgeOutputs } from "./knowledge/knowledge-outputs-routes.js";
+import { handleKnowledgeProjects } from "./knowledge/knowledge-projects-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
 import { handleAcpProviders } from "./acp-provider-routes.js";
 import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
@@ -76,6 +83,8 @@ import { handleWebSessions } from "./sessions-routes.js";
 import { handleSlackCanvas } from "./slack-canvas-routes.js";
 import { redactSecrets } from "./security.js";
 import { handleBetterAuth, isBetterAuthConfigured } from "./better-auth.js";
+import "./email/delivery.js";
+import { handleEmailDeliveryRoutes } from "./email/routes.js";
 import { getUserId, isAccessConfigured, isAuthenticated, isAuthorizedRequest, resolveUserId, SIGNATURE_AUTHENTICATED } from "./request-auth.js";
 import { handleSlackInteract } from "./slack-approval.js";
 import { handleSlackEvents } from "./slack-events.js";
@@ -97,6 +106,7 @@ import { ConversationRoom } from "./conversation-room-do.js";
 import { WorkspaceEvents } from "./platform/workspace-events-do.js";
 import { SlackImportWorkflow, AutomationRunWorkflow } from "./platform/workflows.js";
 import { dispatchQueueBatch } from "./platform/queues.js";
+import "./knowledge/knowledge-ingest-queue.js";
 import {
   isAuthorizedSessionAgent,
   parseSessionAgentName,
@@ -170,6 +180,10 @@ export const DASHBOARD_VIEWS = new Set([
   "agents",
   "inbox",
   "memory",
+  "files",
+  "notes",
+  "projects",
+  "outputs",
   "automations",
   "providers",
   "employee-tools",
@@ -315,10 +329,19 @@ export default {
         if (DASHBOARD_VIEWS.has(section) && /^\/[^/]*\/?$/.test(url.pathname)) {
           return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
         }
+        // WS02: password reset surfaces share the dashboard shell.
+        if (/^\/auth\/(?:forgot|reset)\/?$/.test(url.pathname)) {
+          return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
+        }
         if (/^\/spaces\/[^/]+\/?$/.test(url.pathname)) {
           return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
         }
+        if (/^\/share\/[cf]\/[^/]+\/?$/.test(url.pathname)) {
+          return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
+        }
       }
+      const publicShareResponse = await handleShare(request, env);
+      if (publicShareResponse) return publicShareResponse;
       if (!isPublicRequest(request) && !isOrgApiPath(url.pathname) && !(await isAuthorizedRequest(request, env))) {
         // A signed-out browser on the consent screen goes to sign-in and
         // comes back; MCP clients and fetch() keep the JSON 401.
@@ -363,6 +386,13 @@ export default {
       if (workResponse) return workResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);
       if (workspaceResponse) return workspaceResponse;
+      const governanceResponse = await handleGovernance(request, env);
+      if (governanceResponse) return governanceResponse;
+      const shareResponse = await handleShare(request, env);
+      if (shareResponse) return shareResponse;
+      // WS02: operator email delivery status (no message bodies).
+      const emailDeliveryResponse = await handleEmailDeliveryRoutes(request, env);
+      if (emailDeliveryResponse) return emailDeliveryResponse;
       const seedResponse = await (await import("./first-run-seed.js")).handleFirstRunSeed(request, env);
       if (seedResponse) return seedResponse;
       const bundleResponse = await handleEmployeeBundles(request, env);
@@ -517,6 +547,16 @@ export default {
       if (memoryResponse) {
         return memoryResponse;
       }
+      const filesResponse = await handleFiles(request, env);
+      if (filesResponse) return filesResponse;
+      const notesResponse = await handleNotes(request, env);
+      if (notesResponse) return notesResponse;
+      const knowledgeResponse = await handleKnowledge(request, env);
+      if (knowledgeResponse) return knowledgeResponse;
+      const projectsResponse = await handleKnowledgeProjects(request, env);
+      if (projectsResponse) return projectsResponse;
+      const outputsResponse = await handleKnowledgeOutputs(request, env);
+      if (outputsResponse) return outputsResponse;
       const auditResponse = await handleAudit(request, env);
       if (auditResponse) {
         return auditResponse;

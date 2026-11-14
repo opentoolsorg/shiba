@@ -11,7 +11,12 @@ import {
 } from "@shiba/auth/better-auth";
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
-import { nativeEnrollmentEmailConfiguration, sendNativeBootstrapVerification, sendNativeEnrollmentVerification } from "./native-enrollment-email.js";
+import {
+  nativeEnrollmentEmailConfiguration,
+  sendNativeBootstrapVerification,
+  sendNativeEnrollmentVerification,
+  sendNativePasswordReset,
+} from "./native-enrollment-email.js";
 import { isPendingTeamEnrollmentCurrent, validatePendingTeamInvitation } from "./team-workspaces-store.js";
 
 export {
@@ -27,29 +32,53 @@ export {
 } from "@shiba/auth/better-auth";
 export type { BetterAuthLaneEnv } from "@shiba/auth/better-auth";
 
-const enrollmentAdapters = new WeakMap<Env, BetterAuthEnrollmentAdapter>();
+const enrollmentAdapters = new WeakMap<Env, Map<boolean, BetterAuthEnrollmentAdapter>>();
 function bootstrapVerificationAdapter(env: Env): BootstrapVerificationAdapter {
   const enabled = nativeEnrollmentEmailConfiguration(env) !== null;
   return { enabled,
     ...(enabled ? {} : { unavailableReason: "The operator must configure a verified BETTER_AUTH_VERIFICATION_FROM sender, SEND_EMAIL, and canonical HTTPS BETTER_AUTH_URL." }),
     sendVerificationEmail: input => sendNativeBootstrapVerification(env, input) };
 }
-const disabledAdapter = (reason: string): BetterAuthEnrollmentAdapter => ({ enabled: false, unavailableReason: reason,
-  validateInvitation: async () => null, isEnrollmentCurrent: async () => false,
-  sendVerificationEmail: async () => { throw new Error("Verified invitation enrollment is not configured."); } });
-const policyDisabled = disabledAdapter("Native team enrollment is unavailable until the team-member API policy is enabled.");
+const disabledAdapter = (reason: string): BetterAuthEnrollmentAdapter => ({
+  enabled: false,
+  unavailableReason: reason,
+  validateInvitation: async () => null,
+  isEnrollmentCurrent: async () => false,
+  sendVerificationEmail: async () => { throw new Error("Verified invitation enrollment is not configured."); },
+  sendPasswordResetEmail: async () => { throw new Error("Password reset email is not configured."); },
+});
 const senderUnavailable = disabledAdapter("The operator must configure a verified BETTER_AUTH_VERIFICATION_FROM sender, SEND_EMAIL, and HTTPS BETTER_AUTH_URL.");
+
+function senderAdapter(env: Env): BetterAuthEnrollmentAdapter {
+  return {
+    enabled: false,
+    validateInvitation: async () => null,
+    isEnrollmentCurrent: async () => false,
+    sendVerificationEmail: async () => { throw new Error("Invitation enrollment is disabled."); },
+    sendPasswordResetEmail: (input) => sendNativePasswordReset(env, input),
+  };
+}
+
 function enrollmentAdapter(env: Env, enabled: boolean): BetterAuthEnrollmentAdapter {
   const configuration = nativeEnrollmentEmailConfiguration(env);
-  if (!enabled) return policyDisabled;
   if (!configuration) return senderUnavailable;
-  let adapter = enrollmentAdapters.get(env);
+  let byPolicy = enrollmentAdapters.get(env);
+  if (!byPolicy) {
+    byPolicy = new Map();
+    enrollmentAdapters.set(env, byPolicy);
+  }
+  let adapter = byPolicy.get(enabled);
   if (!adapter) {
-    adapter = { enabled: true,
-      validateInvitation: ({ token, email }) => validatePendingTeamInvitation(env, token, email),
-      isEnrollmentCurrent: (input) => isPendingTeamEnrollmentCurrent(env, input),
-      sendVerificationEmail: (input) => sendNativeEnrollmentVerification(env, input) };
-    enrollmentAdapters.set(env, adapter);
+    adapter = enabled
+      ? {
+          enabled: true,
+          validateInvitation: ({ token, email }) => validatePendingTeamInvitation(env, token, email),
+          isEnrollmentCurrent: (input) => isPendingTeamEnrollmentCurrent(env, input),
+          sendVerificationEmail: (input) => sendNativeEnrollmentVerification(env, input),
+          sendPasswordResetEmail: (input) => sendNativePasswordReset(env, input),
+        }
+      : senderAdapter(env);
+    byPolicy.set(enabled, adapter);
   }
   return adapter;
 }

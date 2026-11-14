@@ -5,6 +5,7 @@ import {
   createTeamWorkspaceInvitation, getTeamWorkspace, listTeamWorkspaces,
   normalizeTeamWorkspaceEmail, renameTeamWorkspace, revokeTeamWorkspaceInvitation, TeamWorkspaceError,
 } from "./team-workspaces-store.js";
+import { sendWorkspaceInvitationEmail } from "./native-enrollment-email.js";
 
 const PREFIX = "/api/workspaces";
 const BODY_LIMIT = 4096;
@@ -79,7 +80,13 @@ export async function handleTeamWorkspaces(request: Request, env: Env): Promise<
     if (match[2] === "invitations") {
       if (!match[3] && request.method === "POST") {
         const body = await readBody(request); exact(body, ["email", "role"]);
-        return json(await createTeamWorkspaceInvitation(env, workspaceId, user, { email: body.email, role: body.role }), 201);
+        const created = await createTeamWorkspaceInvitation(env, workspaceId, user, { email: body.email, role: body.role });
+        void sendWorkspaceInvitationEmail(env, {
+          email: created.invitation.email,
+          token: created.token,
+          workspaceName: workspace.name,
+        }).catch(() => {});
+        return json(created, 201);
       }
       if (match[3] && request.method === "DELETE") {
         await revokeTeamWorkspaceInvitation(env, workspaceId, user, match[3]);

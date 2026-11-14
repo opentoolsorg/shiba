@@ -29,6 +29,8 @@ export interface SetupStatus {
   models: { orchestrator: string; coding: string; harness: string; roles: RoleModelStatus[] };
   automations: { enabled: boolean; typeSafe: boolean };
   mailbox: { addressOverride: boolean; sendEnabled: boolean };
+  /** WS02 transactional email lane (verification, reset, invitations). */
+  transactionalEmail: { senderConfigured: boolean; queueBound: boolean };
   /** Feature flags the dashboard can use without probing dark routes. */
   deployment: {
     localRuntime: boolean;
@@ -108,6 +110,10 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
     mailbox: {
       addressOverride: Boolean(env.AGENT_MAILBOX?.trim()),
       sendEnabled: env.SEND_EMAIL !== undefined,
+    },
+    transactionalEmail: {
+      senderConfigured: Boolean(env.BETTER_AUTH_VERIFICATION_FROM?.trim()),
+      queueBound: env.EMAIL_QUEUE !== undefined,
     },
   };
   const doctor = await runSetupDoctor(env, { gateway: base.gateway, initiatorUserId });
