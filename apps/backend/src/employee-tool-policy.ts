@@ -222,3 +222,18 @@ function boundedLimit(value: number | undefined): number {
 export function isEmployeeToolName(name: string): boolean {
   return /^[a-z][a-z0-9_]{0,63}$/.test(name) || name === "integrations.search_actions" || name === "integrations.execute";
 }
+
+export type AgentMediaToolRisk = "read" | "mutate" | "approval_required";
+
+/** Default policy posture for WS10 agent media tools (search/read open; submit gated). */
+export const AGENT_MEDIA_TOOL_DEFAULTS: Record<string, { risk: AgentMediaToolRisk; description: string }> = {
+  web_search: { risk: "read", description: "Public web search" },
+  browser_open: { risk: "read", description: "Open a browser session" },
+  browser_read: { risk: "read", description: "Read page text" },
+  browser_screenshot: { risk: "read", description: "Capture screenshot to Outputs" },
+  browser_click: { risk: "approval_required", description: "Click; submit-like selectors need approval" },
+  browser_type: { risk: "approval_required", description: "Type text; password/submit fields need approval" },
+  generate_image: { risk: "mutate", description: "Generate PNG with Workers AI" },
+  knowledge_search: { risk: "read", description: "Workspace knowledge search (WS07)" },
+  ask_user: { risk: "mutate", description: "Ask the user a question (WS08)" },
+};

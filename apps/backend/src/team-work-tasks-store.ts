@@ -16,12 +16,14 @@ export interface TeamWorkTask {
   ownerId: string | null; reviewerId: string | null; startDate: string | null; endDate: string | null; parentId: string | null;
   blocked: boolean; objective: string | null; waitingOn: string[]; context: string[]; doneWhen: string[];
   activity: TeamWorkActivityEntry[]; archived: boolean; createdBy: string; version: number; createdAt: number; updatedAt: number;
+  roomId: string | null; threadRootMessageId: string | null;
 }
 interface Row {
   task_id: string; workspace_id: string; title: string; status: TeamWorkTaskStatus; priority: TeamWorkTaskPriority;
   owner_id: string | null; reviewer_id: string | null; start_date: string | null; end_date: string | null; parent_id: string | null;
   blocked: number; objective: string | null; waiting_on_json: string; context_json: string; done_when_json: string;
   activity_json: string; archived: number; created_by: string; version: number; created_at: number; updated_at: number;
+  room_id?: string | null; thread_root_message_id?: string | null;
 }
 
 export class TeamWorkTaskError extends Error {
@@ -42,12 +44,17 @@ const SCHEMA = [
     version INTEGER NOT NULL CHECK(version>0),created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,
     PRIMARY KEY(tenant_id,workspace_id,task_id))`,
   `CREATE INDEX IF NOT EXISTS team_work_tasks_open ON team_work_tasks(tenant_id,workspace_id,archived,updated_at)`,
+  `ALTER TABLE team_work_tasks ADD COLUMN room_id TEXT`,
+  `ALTER TABLE team_work_tasks ADD COLUMN thread_root_message_id TEXT`,
 ];
 
 async function ensureSchema(env: StoreEnv): Promise<D1Database> {
   if (!env.AGENT_AUDIT) throw new TeamWorkTaskError("Workspace storage is unavailable.", 503);
   if (!initialized.has(env.AGENT_AUDIT)) {
-    for (const sql of SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
+    for (const sql of SCHEMA) {
+      try { await env.AGENT_AUDIT.prepare(sql).run(); }
+      catch (error) { if (!sql.startsWith("ALTER")) throw error; }
+    }
     initialized.add(env.AGENT_AUDIT);
   }
   return env.AGENT_AUDIT;
@@ -60,6 +67,7 @@ function toTask(row: Row): TeamWorkTask {
     blocked: row.blocked === 1, objective: row.objective, waitingOn: JSON.parse(row.waiting_on_json), context: JSON.parse(row.context_json),
     doneWhen: JSON.parse(row.done_when_json), activity: JSON.parse(row.activity_json), archived: row.archived === 1,
     createdBy: row.created_by, version: row.version, createdAt: row.created_at, updatedAt: row.updated_at,
+    roomId: row.room_id ?? null, threadRootMessageId: row.thread_root_message_id ?? null,
   };
 }
 

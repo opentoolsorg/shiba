@@ -30,6 +30,9 @@ export const RUN_SIGNAL_KINDS = [
   "local.dispatched",
   "local.claimed",
   "local.settled",
+  // WS08: operator questionnaire pause until answered.
+  "ask_user.pending",
+  "ask_user.answered",
 ] as const;
 
 export type RunSignalKind = (typeof RUN_SIGNAL_KINDS)[number];
