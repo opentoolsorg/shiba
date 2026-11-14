@@ -6,7 +6,7 @@ import { createExternalMcpServer, discoverExternalMcpServer, getExternalMcpServe
   setExternalMcpAccess, setExternalMcpToolEnabled, validateExternalMcpEndpoint } from "../src/external-mcp.js";
 import { listCapabilityInvocations } from "../src/capability-invocations.js";
 import { listEmployeeActionApprovals } from "../src/employee-tool-store.js";
-import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { externalMcpD1 } from "./fixtures/external-mcp-schema.js";
 import { handleMcp as handleMcpV1 } from "../src/v1/mcp.js";
 import type { V1Context } from "../src/v1/context.js";
 import { createToken, orgIdForRecord, verifyToken } from "../src/agent-tokens.js";
@@ -19,7 +19,7 @@ const agent = { kind: "agent" as const, principal: "assistant-agent", orgId: "or
 const owner = { principal: "owner@example.test", orgId: "org-a", scopes: ["api:read" as const, "api:write" as const] };
 
 function environment() {
-  const { database, sqlite } = customAgentD1();
+  const { database, sqlite } = externalMcpD1();
   const tokens = new Map<string, { value: string; metadata?: unknown }>();
   const AGENT_TOKENS = {
     put: async (key: string, value: string, options?: { metadata?: unknown }) => tokens.set(key, { value, metadata: options?.metadata }),

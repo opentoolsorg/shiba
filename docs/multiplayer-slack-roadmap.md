@@ -1,14 +1,13 @@
 # Multiplayer + Slack coworker: phased goal
 
 Requested on November 6, 2026: preserve Shiba's existing features and stack while
-using [Overlay](https://github.com/LayerNorm/overlay-web) and
-[Viktor](https://viktor.com/) as product references.
+using comparable multiplayer products, including [Viktor](https://viktor.com/), as product references.
 
 ## Product and implementation constraints
 
 Keep React/TanStack, the Cloudflare Worker, D1, Durable Objects, the existing
 harnesses, integrations, and approval contracts. Do not replace the application
-with Overlay's Next.js/Convex stack. Overlay's repository identifies its
+with a Next.js/Convex stack from an outside product. That repository identifies its
 first-party code as AGPL-3.0-only; this work uses feature concepts, not copied
 source. Keep personal context, credentials, billing authority, room membership,
 and Slack publication permissions distinct.

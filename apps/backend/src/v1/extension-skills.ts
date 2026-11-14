@@ -1,4 +1,11 @@
-import type { ExtensionSkillRecord, ExtensionSkillScope, ExtensionSkillView } from "@shiba/shared";
+import {
+  DEFAULT_EXTENSION_SCOPE_POLICY,
+  type ExtensionScopeRole,
+  type ExtensionSkillRecord,
+  type ExtensionSkillScope,
+  type ExtensionSkillView,
+  setScope,
+} from "@shiba/shared";
 import type { V1Context } from "./context.js";
 import { rejectCrossOriginMutation, rejectNonJsonMutation } from "../dashboard-mutation.js";
 import { resolveOrgForApiRequest, type ResolvedOrgAuth } from "../org-request-auth.js";
@@ -163,6 +170,26 @@ async function handleSkillRoutes(ctx: V1Context, teamAuth: ResolvedOrgAuth | nul
     if (request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405 });
     const body = await jsonBody(request);
     if (!body || !scopes.includes(body.to as ExtensionSkillScope)) return badRequest("to must be personal or workspace");
+    const current = await getExtensionSkill(env, orgId, userId, id, { workspaceId });
+    const role: ExtensionScopeRole | null = team
+      ? team.role
+      : canManageWorkspace ? "admin" : "member";
+    const planned = setScope(
+      current ? {
+        id: current._id,
+        userId: current.userId,
+        workspaceId: current.workspaceId,
+        scope: current.scope,
+        archivedAt: current.archivedAt,
+        archivedFromScope: current.archivedFromScope,
+      } : null,
+      body.to as ExtensionSkillScope,
+      { userId, role, policy: DEFAULT_EXTENSION_SCOPE_POLICY },
+    );
+    if (!planned.ok) {
+      const status = planned.reason === "not_found" ? 404 : planned.reason === "forbidden" || planned.reason === "not_creator" || planned.reason === "move_disabled" || planned.reason === "workspace_creation_restricted" ? 403 : 409;
+      return Response.json({ ok: false, error: planned.reason }, { status });
+    }
     const result = await setExtensionSkillScope(env, orgId, userId, id, body.to as ExtensionSkillScope, { teamGrant });
     return result.ok ? Response.json({ ok: true }) : scopeFailure(result);
   }

@@ -17,7 +17,7 @@ const bundleRequest = (action: string, body: unknown) => new Request(`https://sh
   method: "POST", headers: { Origin: "https://shiba.test", "Content-Type": "application/json" }, body: JSON.stringify(body),
 });
 function fixture() {
-  const db = customAgentD1();
+  const db = customAgentD1({ bare: true });
   const env = { AGENT_AUDIT: db.database } as Env;
   for (const name of ["CodingOrchestrator", "Sandbox", "GITHUB_TOKEN", "OPENCONNECTOR_ADMIN_KEY", "SLACK_BOT_TOKEN"])
     Object.defineProperty(env, name, { get: () => { throw new Error(`Setup must not access ${name}`); } });
@@ -99,7 +99,7 @@ describe("founder skill drafts", () => {
     expect(employee?.config.expectedDeliverables).toEqual(recipe.profile.expectedDeliverables);
     expect(employee?.config.toolScopes).toBeUndefined();
     expect(await getSkill(env, auth.orgId, auth.owner, result.skillIds[0]!)).toMatchObject({ status: "draft", version: 1 });
-    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name IN ('employee_tool_grants','external_mcp_servers','automations')").all()).toEqual([]);
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name IN ('employee_tool_grants','automations')").all()).toEqual([]);
     expect(await (await handleEmployeeBundles(bundleRequest("import", input), env))?.json()).toMatchObject(result);
     auth.owner = "other@example.test";
     expect((await handleEmployeeBundles(bundleRequest("import", { ...input, importId: "foreign-founder-setup" }), env))?.status).toBe(409);
