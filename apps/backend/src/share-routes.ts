@@ -22,8 +22,9 @@ export async function handleShare(request: Request, env: Env): Promise<Response 
     if (!row) return json({ error: "Share link not found." }, 404);
     if (publicFile || apiFile) {
       if (row.resourceKind !== "file") return json({ error: "Share link not found." }, 404);
-      if (!env.ARTIFACTS) return json({ error: "File storage unavailable." }, 503);
-      const object = await env.ARTIFACTS.get(`files/${row.workspaceId}/${row.resourceId}`);
+      const bucket = env.FILES ?? env.ARTIFACTS;
+      if (!bucket) return json({ error: "File storage unavailable." }, 503);
+      const object = await bucket.get(`files/${row.workspaceId}/${row.resourceId}`);
       if (!object) return json({ error: "Share link not found." }, 404);
       const headers = new Headers();
       headers.set("Content-Type", object.httpMetadata?.contentType ?? "application/octet-stream");

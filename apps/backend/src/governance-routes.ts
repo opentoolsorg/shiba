@@ -29,6 +29,7 @@ import {
   requireSameOriginBrowserMutation,
   resolveUserId,
 } from "./request-auth.js";
+import { publishWorkspaceEvent } from "./platform/workspace-events-do.js";
 import { normalizeTeamWorkspaceEmail } from "./team-workspaces-store.js";
 
 const PREFIX = "/api/governance";
@@ -105,10 +106,13 @@ export async function handleGovernance(request: Request, env: Env): Promise<Resp
       const contentError = requireJsonContentType(request);
       if (contentError) return contentError;
       const body = await readBody(request);
-      return json(
-        { group: await createWorkspaceGroup(env, workspaceId, user, { name: body.name }) },
-        201,
-      );
+      const group = await createWorkspaceGroup(env, workspaceId, user, { name: body.name });
+      await publishWorkspaceEvent(env, workspaceId, {
+        type: "governance.group",
+        resourceId: group.groupId,
+        version: group.version,
+      });
+      return json({ group }, 201);
     }
     const groupMemberMatch = /^groups\/([^/]+)\/members(?:\/([^/]+))?$/.exec(rest);
     if (groupMemberMatch?.[2] && request.method === "DELETE") {

@@ -1,6 +1,7 @@
 import { COLLAB_TENANT_ID } from "../collaboration-store.js";
 import type { Env } from "../env.js";
 import { randomHex } from "../mailbox-store.js";
+import { enqueue } from "../platform/queues.js";
 import {
   getTeamWorkspaceMembership,
   normalizeTeamWorkspaceEmail,
@@ -13,7 +14,7 @@ import {
   upsertResourceGrant,
 } from "./governance-store.js";
 
-type StoreEnv = Pick<Env, "AGENT_AUDIT">;
+type StoreEnv = Pick<Env, "AGENT_AUDIT" | "EMAIL_QUEUE">;
 
 export async function inviteWorkspaceGuest(
   env: StoreEnv,
@@ -62,7 +63,20 @@ export async function inviteWorkspaceGuest(
     },
     now,
   );
-  // WS02 delivers invitation email; we only persist the outbox-shaped hook here.
+  // WS02's EMAIL_QUEUE consumer sends the invitation. Missing binding is not a failure.
+  if (env.EMAIL_QUEUE) {
+    await enqueue(
+      "EMAIL_QUEUE",
+      {
+        template: "workspace_guest_invite",
+        workspaceId,
+        guestId,
+        email,
+        invitedBy: actorId,
+      },
+      env as Env,
+    ).catch(() => {});
+  }
   return { guestId, token };
 }
 
