@@ -147,7 +147,7 @@ New, and specific to the broker:
 
 Codex is the reference implementation, because the peer product shipped it first.
 
-- `CODEX_HOME` shadow layout (shared home + per-instance auth overlay) as designed
+- `CODEX_HOME` shadow layout (shared home + per-instance auth shadow home) as designed
   in the previous Phase 11. Keep the continuation-key-versus-account-key
   distinction: continuation identity follows the effective home, account identity
   follows the directory holding `auth.json`.
@@ -162,7 +162,7 @@ Codex is the reference implementation, because the peer product shipped it first
   AI Gateway. `GATEWAY_PROVIDERS` will not have a slug and `forwardProvider` will
   reject it. That rejection is correct. Add a dedicated branch that attaches the
   grant and forwards nothing else.
-- Updater runs against the **shared** home, not the overlay. Getting this backwards
+- Updater runs against the **shared** home, not the shadow home. Getting this backwards
   makes updates silently no-op.
 
 ---
