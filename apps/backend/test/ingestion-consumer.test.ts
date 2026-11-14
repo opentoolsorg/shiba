@@ -26,7 +26,7 @@ describe("ingestion consumer", () => {
         })),
       },
       MEMORY_VECTORS: { upsert, query: vi.fn(async () => ({ matches: [] })) },
-    } as unknown as Env;
+    } as unknown as Env & { FILES: R2Bucket };
     const bytes = new TextEncoder().encode("Alpha bravo unique phrase PAGE3_MARKER for retrieval.");
     await env.FILES.put("files/ws_fixture/workspace/brief.md", bytes);
     const file = await insertFileRecord(env, {

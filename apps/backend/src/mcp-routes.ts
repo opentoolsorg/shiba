@@ -6,6 +6,7 @@
  * which the tool registry reads per call. Extracted from index.ts.
  */
 import { verifyToken } from "./agent-tokens.js";
+import { activeMcpGrantForClient, touchMcpGrantUsage } from "./mcp-grants.js";
 import { verifyOAuthAccessToken } from "./oauth-mcp.js";
 import type { Env } from "./env.js";
 import { createShibaMcpHandler, encodePrincipal, MCP_PRINCIPAL_HEADER } from "./mcp-gateway.js";
@@ -61,6 +62,18 @@ export async function handleMcp(request: Request, env: Env, _ctx: ExecutionConte
         "WWW-Authenticate": `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource"`,
       } },
     );
+  }
+  if (record.principal.startsWith("oauth:")) {
+    const [, clientId, ...ownerParts] = record.principal.split(":");
+    const ownerUserId = ownerParts.join(":");
+    if (!clientId || !ownerUserId) {
+      return Response.json({ error: "Authentication required." }, { status: 401 });
+    }
+    const grant = await activeMcpGrantForClient(env, { userId: ownerUserId, clientId });
+    if (!grant) {
+      return Response.json({ error: "Connected app grant revoked." }, { status: 401 });
+    }
+    await touchMcpGrantUsage(env, { userId: ownerUserId, clientId });
   }
   // Any client-supplied copy must go first — only the worker-verified
   // record may reach the MCP handler under this name.
