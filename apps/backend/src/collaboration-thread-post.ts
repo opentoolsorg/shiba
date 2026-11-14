@@ -1,18 +1,15 @@
 /**
  * Seam for room thread posts. The rooms workstream owns the real writer.
- * This stub keeps the call site typed until that module replaces it.
+ * This stub matches that signature and does not write.
  */
-export interface RoomThreadPost {
-  roomId: string;
-  threadRootId?: string | null;
-  kind: "ack" | "status" | "milestone" | "result" | "question_card" | "approval_card";
-  payload: Record<string, unknown>;
-  editKey?: string;
-}
+import type { PostRoomEventInput } from "@shiba/shared";
+import type { CollaborationScope } from "./collaboration-store.js";
+import type { Env } from "./env.js";
 
 export async function postRoomEvent(
-  _env: unknown,
-  _event: RoomThreadPost,
+  _env: Env,
+  _scope: CollaborationScope,
+  _input: PostRoomEventInput & { actorId?: string; userId?: string; now?: number },
 ): Promise<{ posted: false }> {
   return { posted: false };
 }
