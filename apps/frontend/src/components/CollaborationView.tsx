@@ -9,8 +9,16 @@ import {
   useRef,
   useState,
 } from "react";
-import type { TeamWorkspaceDetail, TeamWorkspaceMembership } from "@shiba/shared";
+import type { CollabRoomKind, TeamWorkspaceDetail, TeamWorkspaceMembership } from "@shiba/shared";
 import { useCollaborationRoomRealtime } from "../collaboration-room-realtime";
+import { NotificationsPanel } from "./notifications/NotificationsPanel";
+import { MessageCards } from "./collab/MessageCards";
+import { MessageList } from "./collab/MessageList";
+import { MessageRow } from "./collab/MessageRow";
+import { OwnerChip } from "./collab/OwnerChip";
+import { PresenceChip, type PresenceState } from "./collab/PresenceChip";
+import { RoomRail } from "./collab/RoomRail";
+import { ThreadPane } from "./collab/ThreadPane";
 import { PersonalExecutionSetup } from "./PersonalExecutionSetup";
 import { TeamModelSessions } from "./TeamModelSessions";
 import { SharedComputerSessions } from "./SharedComputerSessions";
@@ -22,6 +30,31 @@ interface Room {
   title: string;
   visibility: "private" | "shared";
   memberCount?: number;
+  kind?: CollabRoomKind;
+  unreadCount?: number;
+  lastMessageSeq?: number;
+}
+
+type RoomListTab = CollabRoomKind | "saved";
+
+interface SavedMessageRef {
+  roomId: string;
+  messageId: string;
+  savedAt: number;
+}
+
+async function loadRoomsForTab<T extends { rooms: Room[] }>(
+  api: <R>(path: string, init?: RequestInit) => Promise<R>,
+  tab: CollabRoomKind,
+): Promise<Room[]> {
+  try {
+    const listed = await api<T>(`/api/collaboration/rooms?kind=${encodeURIComponent(tab)}`);
+    if (Array.isArray(listed.rooms)) return listed.rooms;
+  } catch {
+    // Older deployments and test mocks may omit the kind query route.
+  }
+  const listed = await api<T>("/api/collaboration/rooms");
+  return (listed.rooms ?? []).filter((room) => (room.kind ?? "room") === tab);
 }
 
 interface Member {
@@ -41,6 +74,9 @@ interface Message {
   senderKind: "human" | "agent";
   body: string;
   createdAt: number;
+  threadRootId?: string | null;
+  messageKind?: string;
+  payloadJson?: string | null;
   sourceRunId?: string;
   sourceHandoffId?: string;
   sourceArtifactRefs?: Array<{
@@ -252,8 +288,18 @@ function ScopedCollaborationView({
     [workspaceId],
   );
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [roomListTab, setRoomListTab] = useState<RoomListTab>("room");
+  const [tabUnread, setTabUnread] = useState<Record<CollabRoomKind, number>>({
+    channel: 0,
+    dm: 0,
+    room: 0,
+  });
+  const [savedItems, setSavedItems] = useState<SavedMessageRef[]>([]);
   const [activeRoomId, setActiveRoomId] = useState(initialRoomId ?? "");
   const [detail, setDetail] = useState<RoomDetail | null>(null);
+  const [presence, setPresence] = useState<Array<{ actorId: string; label: string; state: PresenceState }>>([]);
+  const [roomOwner, setRoomOwner] = useState("");
+  const [openThreadId, setOpenThreadId] = useState("");
   const [roomTitle, setRoomTitle] = useState("");
   const [roomVisibility, setRoomVisibility] = useState<"private" | "shared">("private");
   const [inviteUserId, setInviteUserId] = useState("");
@@ -405,12 +451,20 @@ function ScopedCollaborationView({
       const previousRoomId = activeRoomRef.current;
       let selected = previousRoomId;
       try {
-        const listed = await api<{ rooms: Room[] }>("/api/collaboration/rooms");
+        if (roomListTab === "saved") {
+          const saved = await api<{ saved: SavedMessageRef[] }>("/api/collaboration/saved");
+          if (!isCurrentRoomRead(epoch, previousRoomId)) return;
+          setSavedItems(saved.saved ?? []);
+          return;
+        }
+        const loadedRooms = await loadRoomsForTab<{ rooms: Room[] }>(api, roomListTab);
         if (!isCurrentRoomRead(epoch, previousRoomId)) return;
-        const availableRooms = listed.rooms.filter(
-          (room) => !revokedRooms.current.has(room.roomId),
-        );
+        const availableRooms = loadedRooms.filter((room) => !revokedRooms.current.has(room.roomId));
         setRooms(availableRooms);
+        setTabUnread((current) => ({
+          ...current,
+          [roomListTab]: availableRooms.reduce((sum, room) => sum + (room.unreadCount ?? 0), 0),
+        }));
         selected = roomId || (revokedRooms.current.size ? "" : availableRooms[0]?.roomId) || "";
         if (revokedRooms.current.has(selected)) return;
         activeRoomRef.current = selected;
@@ -433,7 +487,7 @@ function ScopedCollaborationView({
         }
       }
     },
-    [api, isCurrentRoomRead, loseRoomAccess],
+    [api, isCurrentRoomRead, loseRoomAccess, roomListTab],
   );
 
   useEffect(() => {
@@ -442,12 +496,19 @@ function ScopedCollaborationView({
       const epoch = ++roomReadEpoch.current;
       let selected = activeRoomId;
       try {
-        const listed = await api<{ rooms: Room[] }>("/api/collaboration/rooms");
+        if (roomListTab === "saved") {
+          const saved = await api<{ saved: SavedMessageRef[] }>("/api/collaboration/saved");
+          if (!cancelled) setSavedItems(saved.saved ?? []);
+          return;
+        }
+        const loadedRooms = await loadRoomsForTab<{ rooms: Room[] }>(api, roomListTab);
         if (cancelled || !isCurrentRoomRead(epoch, activeRoomId)) return;
-        const availableRooms = listed.rooms.filter(
-          (room) => !revokedRooms.current.has(room.roomId),
-        );
+        const availableRooms = loadedRooms.filter((room) => !revokedRooms.current.has(room.roomId));
         setRooms(availableRooms);
+        setTabUnread((current) => ({
+          ...current,
+          [roomListTab]: availableRooms.reduce((sum, room) => sum + (room.unreadCount ?? 0), 0),
+        }));
         selected = activeRoomId || (revokedRooms.current.size ? "" : availableRooms[0]?.roomId) || "";
         if (revokedRooms.current.has(selected)) return;
         activeRoomRef.current = selected;
@@ -472,15 +533,66 @@ function ScopedCollaborationView({
       }
     };
     void load();
-    const timer = window.setInterval(() => {
-      void load();
-    }, 5_000);
+    const live = workspaceId && typeof WebSocket !== "undefined";
+    const timer = live
+      ? undefined
+      : window.setInterval(() => {
+          void load();
+        }, 5_000);
     return () => {
       cancelled = true;
       roomReadEpoch.current++;
-      window.clearInterval(timer);
+      if (timer !== undefined) window.clearInterval(timer);
     };
-  }, [activeRoomId, api, isCurrentRoomRead, loseRoomAccess]);
+  }, [activeRoomId, api, isCurrentRoomRead, loseRoomAccess, roomListTab, workspaceId]);
+
+  useEffect(() => {
+    if (!activeRoomId) return;
+    let cancelled = false;
+    const loadPresence = () => {
+      void api<{ presence?: Array<{ actorId: string; label: string; state: PresenceState }> }>(
+        `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/presence`,
+      )
+        .then((body) => {
+          if (!cancelled && Array.isArray(body.presence)) setPresence(body.presence);
+        })
+        .catch(() => {});
+      void api<{ tasks?: Array<{ ownerActorId?: string; status?: string }> }>(
+        `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/tasks`,
+      )
+        .then((body) => {
+          if (cancelled || !Array.isArray(body.tasks)) return;
+          const open = body.tasks.find((task) => task.status !== "done" && task.ownerActorId);
+          setRoomOwner(open?.ownerActorId ?? "");
+        })
+        .catch(() => {});
+    };
+    loadPresence();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRoomId, api]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const kinds: CollabRoomKind[] = ["channel", "dm", "room"];
+      const totals = { channel: 0, dm: 0, room: 0 };
+      for (const kind of kinds) {
+        try {
+          const listed = await loadRoomsForTab<{ rooms: Room[] }>(api, kind);
+          if (cancelled) return;
+          totals[kind] = listed.reduce((sum, room) => sum + (room.unreadCount ?? 0), 0);
+        } catch {
+          // Unread totals are ancillary.
+        }
+      }
+      if (!cancelled) setTabUnread(totals);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, workspaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -726,6 +838,55 @@ function ScopedCollaborationView({
     );
   };
 
+  const reactToMessage = (messageId: string) => {
+    if (!activeRoomId) return;
+    void mutate(async () => {
+      await api("/api/collaboration/reactions", {
+        method: "POST",
+        body: JSON.stringify({ roomId: activeRoomId, messageId, emoji: "👍" }),
+      });
+    });
+  };
+
+  const pinMessage = (messageId: string) => {
+    if (!activeRoomId) return;
+    void mutate(async () => {
+      await api("/api/collaboration/pins", {
+        method: "POST",
+        body: JSON.stringify({ roomId: activeRoomId, messageId }),
+      });
+    });
+  };
+
+  const saveMessage = (messageId: string) => {
+    if (!activeRoomId) return;
+    void mutate(async () => {
+      await api("/api/collaboration/saved", {
+        method: "POST",
+        body: JSON.stringify({ roomId: activeRoomId, messageId }),
+      });
+    });
+  };
+
+  const followMessageThread = (messageId: string) => {
+    if (!activeRoomId) return;
+    void mutate(async () => {
+      await api("/api/collaboration/follows", {
+        method: "POST",
+        body: JSON.stringify({ roomId: activeRoomId, threadRootMessageId: messageId }),
+      });
+    });
+  };
+
+  const openSavedMessage = (roomId: string) => {
+    if (revokedRooms.current.has(roomId)) return;
+    roomReadEpoch.current++;
+    activeRoomRef.current = roomId;
+    setRoomListTab("room");
+    setDetail(null);
+    setActiveRoomId(roomId);
+  };
+
   const sendMessage = (event: FormEvent) => {
     event.preventDefault();
     if (!activeRoomId || !message.trim()) return;
@@ -829,9 +990,12 @@ function ScopedCollaborationView({
             </p>
             <h1 className="font-serif text-2xl">Team conversations</h1>
           </div>
-          <p className="max-w-sm text-xs text-[var(--ink-2)]">
-            Chat with your team. Request employee work separately for human approval.
-          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="max-w-sm text-xs text-[var(--ink-2)]">
+              Chat with your team. Request employee work separately for human approval.
+            </p>
+            <NotificationsPanel workspaceId={workspaceId} />
+          </div>
         </header>
 
         {error && (
@@ -853,76 +1017,35 @@ function ScopedCollaborationView({
         )}
 
         <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[220px_minmax(0,1fr)] min-h-[70vh]">
-          <aside
-            aria-label="Group chats"
-            className="flex min-w-0 flex-col gap-3 border border-[var(--line)] bg-[var(--card)] p-3"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="font-mono text-[10px] uppercase tracking-[0.12em]">Group chats</h2>
-              <span className="font-mono text-[10px] text-[var(--ink-2)]">{rooms.length}</span>
-            </div>
-            <form onSubmit={createRoom} className="flex flex-col gap-2">
-              <input
-                aria-label="New room title"
-                value={roomTitle}
-                onChange={(event) => setRoomTitle(event.target.value)}
-                placeholder="Name a group chat"
-                maxLength={120}
-                className="min-h-11 min-w-0 rounded-none border border-[var(--line)] bg-[var(--card)] px-2 py-2 text-sm"
-              />
-              <div className="flex gap-2">
-                <select
-                  aria-label="Room visibility"
-                  value={roomVisibility}
-                  onChange={(event) =>
-                    setRoomVisibility(event.target.value as "private" | "shared")
-                  }
-                  className="min-h-11 min-w-0 flex-1 rounded-none border border-[var(--line)] bg-[var(--card)] px-2 py-2 text-xs"
-                >
-                  <option value="private">Private</option>
-                  <option value="shared">Shared (membership required)</option>
-                </select>
-                <button
-                  type="submit"
-                  disabled={busy || !roomTitle.trim()}
-                  className="min-h-11 rounded-none bg-[var(--navy)] px-3 py-2 text-xs font-semibold text-[var(--paper-title-fg)] disabled:opacity-50"
-                >
-                  Create
-                </button>
-              </div>
-            </form>
-            <ul
-              aria-label="Rooms"
-              className="flex max-h-60 flex-col gap-1 overflow-y-auto lg:max-h-none"
-            >
-              {rooms.map((room) => (
-                <li key={room.roomId}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (activeRoomRef.current === room.roomId) return;
-                      roomReadEpoch.current++;
-                      activeRoomRef.current = room.roomId;
-                      setDetail(null);
-                      setActiveRoomId(room.roomId);
-                    }}
-                    aria-current={room.roomId === activeRoomId ? "page" : undefined}
-                    className={`min-h-11 w-full border-l-2 px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] ${room.roomId === activeRoomId ? "border-[var(--navy)] bg-[var(--panel-2)] text-[var(--ink)]" : "border-transparent text-[var(--ink-2)] hover:bg-[var(--panel-2)]"}`}
-                  >
-                    <span className="block truncate font-medium">{room.title}</span>
-                    <span className="block text-[10px] text-[var(--ink-2)]">
-                      {room.visibility} · {room.memberCount ?? 0} members
-                    </span>
-                  </button>
-                </li>
-              ))}
-              {rooms.length === 0 && (
-                <li className="px-2 py-4 text-xs text-[var(--ink-2)]">
-                  Create a group chat, then choose who can join.
-                </li>
-              )}
-            </ul>
-          </aside>
+          <RoomRail
+            roomListTab={roomListTab}
+            tabUnread={tabUnread}
+            rooms={rooms}
+            savedItems={savedItems}
+            activeRoomId={activeRoomId}
+            roomTitle={roomTitle}
+            roomVisibility={roomVisibility}
+            busy={busy}
+            onTab={(tab) => {
+              setRoomListTab(tab);
+              if (tab === "saved") {
+                setDetail(null);
+                activeRoomRef.current = "";
+                setActiveRoomId("");
+              }
+            }}
+            onCreate={createRoom}
+            onTitle={setRoomTitle}
+            onVisibility={setRoomVisibility}
+            onOpenSaved={openSavedMessage}
+            onSelectRoom={(roomId) => {
+              if (activeRoomRef.current === roomId) return;
+              roomReadEpoch.current++;
+              activeRoomRef.current = roomId;
+              setDetail(null);
+              setActiveRoomId(roomId);
+            }}
+          />
 
           <main className="flex min-h-0 min-w-0 flex-col border border-[var(--line)] bg-[var(--card)]">
             {detail ? (
@@ -966,6 +1089,16 @@ function ScopedCollaborationView({
                         : "Checking for updates"}
                       {realtime.viewers.length > 0 && ` · ${realtime.viewers.length} online`}
                     </p>
+                    {roomOwner ? <OwnerChip owner={roomOwner} /> : null}
+                    {presence.length > 0 ? (
+                      <ul aria-label="Room presence" className="mt-1 flex flex-wrap gap-x-3">
+                        {presence.map((person) => (
+                          <li key={person.actorId}>
+                            <PresenceChip state={person.state} label={person.label} />
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                     {realtime.viewers.length > 0 && (
                       <ul
                         aria-label="Online room members"
@@ -1012,16 +1145,9 @@ function ScopedCollaborationView({
                         return <div key={viewer.viewerId} data-room-cursor-viewer={viewer.viewerId} className="absolute text-[var(--navy)]" style={{ left: `${cursor.x * 100}%`, top: `${cursor.y * 100}%` }}><svg aria-hidden="true" width="16" height="19" viewBox="0 0 16 19" className="block"><path d="M1 1V14L5 10L8 17L11 15L7 9H14Z" fill="currentColor" stroke="var(--paper)" strokeWidth="1" /></svg><span className="ml-3 block max-w-40 truncate border border-[var(--line)] bg-[var(--card)] px-1 py-0.5 font-mono text-[9px]">{viewer.label}</span></div>;
                       })}
                     </div>
-                    <div
-                      role="log"
-                      aria-label="Conversation messages"
-                      className="flex min-h-64 flex-1 flex-col gap-4 overflow-y-auto p-4 xl:max-h-[60vh]"
-                    >
+                    <MessageList>
                       {detail.messages.map((item) => (
-                        <article
-                          key={item.messageId}
-                          className={`min-w-0 border-l-2 p-3 ${item.senderKind === "agent" ? "border-[var(--navy)] bg-[var(--panel-2)]" : "border-[var(--line)]"}`}
-                        >
+                        <MessageRow key={item.messageId} agent={item.senderKind === "agent"}>
                           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] text-[var(--ink-2)]">
                             <span className="font-semibold text-[var(--ink)]">
                               {item.sourceSlackUserId
@@ -1050,6 +1176,61 @@ function ScopedCollaborationView({
                             </time>
                           </div>
                           <p className="whitespace-pre-wrap break-words text-sm">{item.body}</p>
+                          <MessageCards
+                            message={{
+                              messageKind: item.messageKind,
+                              body: item.body,
+                              fromLabel: item.senderKind === "agent" ? (members.find((member) => member.actorId === item.senderActorId)?.displayName ?? "Fixer") : undefined,
+                              toLabel: item.messageKind === "handoff" || item.messageKind === "handoff_report" ? "Reviewer" : undefined,
+                            }}
+                          />
+                          {!item.threadRootId ? (
+                            <button
+                              type="button"
+                              className="mt-2 min-h-11 px-2 text-[10px] underline"
+                              onClick={() => setOpenThreadId(item.messageId)}
+                            >
+                              Open thread
+                            </button>
+                          ) : null}
+                          <div
+                            role="toolbar"
+                            aria-label="Message actions"
+                            className="mt-2 flex flex-wrap gap-1 border-t border-[var(--line)] pt-2"
+                          >
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => reactToMessage(item.messageId)}
+                              className="min-h-11 px-2 text-[10px] underline disabled:opacity-50"
+                            >
+                              React
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => pinMessage(item.messageId)}
+                              className="min-h-11 px-2 text-[10px] underline disabled:opacity-50"
+                            >
+                              Pin
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => saveMessage(item.messageId)}
+                              className="min-h-11 px-2 text-[10px] underline disabled:opacity-50"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => followMessageThread(item.messageId)}
+                              className="min-h-11 px-2 text-[10px] underline disabled:opacity-50"
+                            >
+                              Follow thread
+                            </button>
+                          </div>
                           <label className="mt-2 flex min-h-11 items-center gap-2 text-[10px] text-[var(--ink-2)]">
                             <input
                               type="checkbox"
@@ -1122,14 +1303,24 @@ function ScopedCollaborationView({
                                     : `Slack delivery disabled for #${link.channelId}`}
                                 </button>
                               ))}
-                        </article>
+                        </MessageRow>
                       ))}
                       {detail.messages.length === 0 && (
                         <p className="m-auto text-sm text-[var(--ink-2)]">
                           No messages yet. Share an update to bring the team together.
                         </p>
                       )}
-                    </div>
+                    </MessageList>
+                    {openThreadId ? (
+                      <ThreadPane title="Thread">
+                        {detail.messages.filter((item) => item.threadRootId === openThreadId).map((item) => (
+                          <p key={item.messageId} className="text-sm">{item.body}</p>
+                        ))}
+                        {detail.messages.every((item) => item.threadRootId !== openThreadId) ? (
+                          <p className="text-xs text-[var(--ink-2)]">No replies yet.</p>
+                        ) : null}
+                      </ThreadPane>
+                    ) : null}
                     <form
                       onSubmit={sendMessage}
                       className="sticky bottom-0 flex flex-wrap gap-2 border-t border-[var(--line)] bg-[var(--card)] p-3"
