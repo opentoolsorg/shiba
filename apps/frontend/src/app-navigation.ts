@@ -15,6 +15,8 @@ export type AppNavView =
   | "memory"
   | "files"
   | "notes"
+  | "projects"
+  | "outputs"
   | "automations"
   | "providers"
   | "integrations"
@@ -58,6 +60,8 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "memory", label: "Memory", description: "Vectorize Long-Term Semantic Memory" },
   { id: "files", label: "Files", description: "Folders, uploads and document previews" },
   { id: "notes", label: "Notes", description: "Markdown notes with slash commands" },
+  { id: "projects", label: "Projects", description: "Group files and notes" },
+  { id: "outputs", label: "Outputs", description: "Run deliverables and generated media" },
   {
     id: "integrations",
     label: "Integrations",
@@ -87,7 +91,7 @@ export const APP_AREAS: readonly {
     defaultView: "custom-agents",
     views: ["custom-agents", "employee-tools", "providers", "skills", "agents", "team"],
   },
-  { id: "knowledge", label: "Knowledge", defaultView: "memory", views: ["memory", "files", "notes", "spaces"] },
+  { id: "knowledge", label: "Knowledge", defaultView: "memory", views: ["memory", "files", "notes", "projects", "outputs", "spaces"] },
   {
     id: "settings",
     label: "Settings",

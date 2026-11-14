@@ -49,6 +49,8 @@ import { handleMemory } from "./memory-routes.js";
 import { handleFiles } from "./files/files-routes.js";
 import { handleNotes } from "./notes/notes-routes.js";
 import { handleKnowledge } from "./knowledge/knowledge-routes.js";
+import { handleKnowledgeOutputs } from "./knowledge/knowledge-outputs-routes.js";
+import { handleKnowledgeProjects } from "./knowledge/knowledge-projects-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
 import { handleAcpProviders } from "./acp-provider-routes.js";
 import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
@@ -178,6 +180,8 @@ export const DASHBOARD_VIEWS = new Set([
   "memory",
   "files",
   "notes",
+  "projects",
+  "outputs",
   "automations",
   "providers",
   "employee-tools",
@@ -536,6 +540,10 @@ export default {
       if (notesResponse) return notesResponse;
       const knowledgeResponse = await handleKnowledge(request, env);
       if (knowledgeResponse) return knowledgeResponse;
+      const projectsResponse = await handleKnowledgeProjects(request, env);
+      if (projectsResponse) return projectsResponse;
+      const outputsResponse = await handleKnowledgeOutputs(request, env);
+      if (outputsResponse) return outputsResponse;
       const auditResponse = await handleAudit(request, env);
       if (auditResponse) {
         return auditResponse;
