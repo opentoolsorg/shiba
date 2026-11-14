@@ -50,3 +50,15 @@ CREATE TABLE IF NOT EXISTS slack_imported_messages (
 
 CREATE INDEX IF NOT EXISTS slack_imported_messages_job
   ON slack_imported_messages(tenant_id, workspace_id, job_id);
+
+CREATE TABLE IF NOT EXISTS slack_thread_mirror (
+  tenant_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  slack_channel_id TEXT NOT NULL,
+  thread_ts TEXT NOT NULL,
+  message_kind TEXT NOT NULL,
+  edit_key TEXT NOT NULL DEFAULT '',
+  slack_ts TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (tenant_id, workspace_id, slack_channel_id, thread_ts, message_kind, edit_key)
+);
