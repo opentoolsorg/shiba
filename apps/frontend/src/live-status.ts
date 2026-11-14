@@ -22,6 +22,7 @@ export interface SetupStatus {
   models: { orchestrator: string; coding: string; harness: string; roles: RoleModelWire[] };
   automations: { enabled: boolean; typeSafe: boolean };
   mailbox: { addressOverride: boolean; sendEnabled: boolean };
+  transactionalEmail: { senderConfigured: boolean; queueBound: boolean };
   doctor: SetupDoctorWire;
 }
 

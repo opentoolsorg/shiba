@@ -26,7 +26,7 @@ describe("knowledge ingest queue", () => {
         })),
       },
       MEMORY_VECTORS: { upsert: vi.fn(async () => {}), query: vi.fn(async () => ({ matches: [] })) },
-    } as unknown as Env;
+    } as unknown as Env & { FILES: R2Bucket };
     const bytes = new TextEncoder().encode("queued body");
     await env.FILES.put("files/ws_q/workspace/queued.md", bytes);
     const file = await insertFileRecord(env, {

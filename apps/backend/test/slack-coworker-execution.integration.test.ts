@@ -9,6 +9,7 @@ import {
   type PersonalExecutionSnapshot,
   type LocalRunEnvelope,
 } from "@shiba/shared";
+import { applyEmailOutboxSchema } from "./fixtures/email-outbox-schema.js";
 import { handleBetterAuth } from "../src/better-auth.js";
 import type { Env } from "../src/env.js";
 import { handlePersonalExecution } from "../src/personal-execution-routes.js";
@@ -128,6 +129,7 @@ const cookie = (response: Response) =>
 
 async function fixture() {
   const sqlite = new DatabaseSync(":memory:");
+  applyEmailOutboxSchema(sqlite);
   databases.push(sqlite);
   const value = (input: unknown): never =>
     (input instanceof Date

@@ -599,5 +599,7 @@ export interface Env {
   UPLOAD_RATE_LIMIT?: RateLimit;
   /** Maximum single file upload bytes (default 50 MB). */
   FILES_MAX_UPLOAD_BYTES?: string;
+  /** WS02: optional generic OIDC SSO (per-workspace connections in D1). */
+  SHIBA_SSO_ENABLED?: string;
 
 }
