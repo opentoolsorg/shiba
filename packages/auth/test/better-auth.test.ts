@@ -64,8 +64,12 @@ async function linkOAuth(f: Fixture, provider: "google" | "slack", expectedEmail
     name: "Local", email: expectedEmail, password: "fixture-password-123",
   }));
   expect(signup.status).toBe(200);
-  const cookies = cookieHeader(signup);
   f.sqlite.prepare('UPDATE "user" SET emailVerified=1 WHERE email=?').run(expectedEmail);
+  const signin = await f.auth.handler(post("sign-in/email", {
+    email: expectedEmail, password: "fixture-password-123",
+  }));
+  expect(signin.status).toBe(200);
+  const cookies = cookieHeader(signup, signin);
   const runtime = (await f.auth.$context).socialProviders.find(p => p.id === provider);
   if (!runtime) throw new Error(`Missing provider ${provider}`);
   runtime.validateAuthorizationCode = vi.fn(async () => ({ accessToken: "fixture-token", scopes: ["openid", "email", "profile"] }));
@@ -177,7 +181,11 @@ describe.each(["google", "slack"] as const)("%s social account policy", provider
     denied.sqlite.prepare('UPDATE "user" SET emailVerified=1 WHERE email=?').run("local@example.test");
     denied.sqlite.prepare("DELETE FROM shiba_auth_account_policy").run();
     const accountCountBefore = denied.sqlite.prepare('SELECT COUNT(*) AS c FROM "account"').get()?.c;
-    const cookie = cookieHeader(signup);
+    const signin = await denied.auth.handler(post("sign-in/email", {
+      email: "local@example.test", password: "fixture-password-123",
+    }));
+    expect(signin.status).toBe(200);
+    const cookie = cookieHeader(signup, signin);
     const context = await denied.auth.$context;
     const runtime = context.socialProviders.find(item => item.id === provider);
     if (!runtime) throw new Error(`Missing provider ${provider}`);
