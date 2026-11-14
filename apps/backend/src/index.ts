@@ -78,6 +78,8 @@ import { handleWebSessions } from "./sessions-routes.js";
 import { handleSlackCanvas } from "./slack-canvas-routes.js";
 import { redactSecrets } from "./security.js";
 import { handleBetterAuth, isBetterAuthConfigured } from "./better-auth.js";
+import "./email/delivery.js";
+import { handleEmailDeliveryRoutes } from "./email/routes.js";
 import { getUserId, isAccessConfigured, isAuthenticated, isAuthorizedRequest, resolveUserId, SIGNATURE_AUTHENTICATED } from "./request-auth.js";
 import { handleSlackInteract } from "./slack-approval.js";
 import { handleSlackEvents } from "./slack-events.js";
@@ -317,6 +319,10 @@ export default {
         if (DASHBOARD_VIEWS.has(section) && /^\/[^/]*\/?$/.test(url.pathname)) {
           return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
         }
+        // WS02: password reset surfaces share the dashboard shell.
+        if (/^\/auth\/(?:forgot|reset)\/?$/.test(url.pathname)) {
+          return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
+        }
         if (/^\/spaces\/[^/]+\/?$/.test(url.pathname)) {
           return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
         }
@@ -374,6 +380,9 @@ export default {
       if (governanceResponse) return governanceResponse;
       const shareResponse = await handleShare(request, env);
       if (shareResponse) return shareResponse;
+      // WS02: operator email delivery status (no message bodies).
+      const emailDeliveryResponse = await handleEmailDeliveryRoutes(request, env);
+      if (emailDeliveryResponse) return emailDeliveryResponse;
       const seedResponse = await (await import("./first-run-seed.js")).handleFirstRunSeed(request, env);
       if (seedResponse) return seedResponse;
       const bundleResponse = await handleEmployeeBundles(request, env);

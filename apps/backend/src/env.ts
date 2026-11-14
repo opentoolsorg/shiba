@@ -597,5 +597,7 @@ export interface Env {
   WorkspaceEvents?: DurableObjectNamespace;
   AUTH_RATE_LIMIT?: RateLimit;
   UPLOAD_RATE_LIMIT?: RateLimit;
+  /** WS02: optional generic OIDC SSO (per-workspace connections in D1). */
+  SHIBA_SSO_ENABLED?: string;
 
 }

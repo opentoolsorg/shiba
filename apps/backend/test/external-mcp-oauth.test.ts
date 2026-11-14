@@ -27,7 +27,7 @@ import { CURATED_MCP_VENDORS, curatedMcpVendorByCatalogId, recommendedExternalMc
 import { createToolRegistry, visibleToolsForPrincipal } from "../src/mcp-gateway.js";
 import { registerExternalMcpTools } from "../src/external-mcp.js";
 import { listAuditEntries } from "../src/audit.js";
-import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { externalMcpD1 } from "./fixtures/external-mcp-schema.js";
 import { handleMcp as handleMcpV1 } from "../src/v1/mcp.js";
 import type { V1Context } from "../src/v1/context.js";
 
@@ -41,7 +41,7 @@ const remoteTools = [
 ];
 
 function environment(clientId = "shiba_test_stripe_client") {
-  const { database, sqlite } = customAgentD1();
+  const { database, sqlite } = externalMcpD1();
   return {
     sqlite,
     env: {
