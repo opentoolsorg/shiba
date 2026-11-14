@@ -31,6 +31,7 @@ export function NotificationsPanel({ workspaceId, className = "" }: Notification
   const [items, setItems] = useState<WorkspaceNotification[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [needsYouOnly, setNeedsYouOnly] = useState(false);
 
   const unreadCount = useMemo(() => items.filter((item) => item.readAt == null).length, [items]);
 
@@ -127,13 +128,23 @@ export function NotificationsPanel({ workspaceId, className = "" }: Notification
               {error}
             </p>
           ) : null}
+          <div className="flex gap-2 border-b border-[var(--line)] px-3 py-2">
+            <button
+              type="button"
+              aria-pressed={needsYouOnly}
+              onClick={() => setNeedsYouOnly((value) => !value)}
+              className={`min-h-11 px-2 text-[10px] font-semibold uppercase ${needsYouOnly ? "text-[var(--ink)]" : "text-[var(--ink-2)]"}`}
+            >
+              Needs you
+            </button>
+          </div>
           <ul className="max-h-80 overflow-y-auto">
             {loading && items.length === 0 ? (
               <li className="px-3 py-4 text-xs text-[var(--ink-2)]">Loading…</li>
-            ) : items.length === 0 ? (
+            ) : items.filter((item) => !needsYouOnly || item.kind === "needs_you" || item.kind === "approval" || item.kind === "ask_user").length === 0 ? (
               <li className="px-3 py-4 text-xs text-[var(--ink-2)]">No notifications yet.</li>
             ) : (
-              items.map((item) => (
+              items.filter((item) => !needsYouOnly || item.kind === "needs_you" || item.kind === "approval" || item.kind === "ask_user").map((item) => (
                 <li key={item.notificationId} className="border-b border-[var(--line)] last:border-b-0">
                   <button
                     type="button"

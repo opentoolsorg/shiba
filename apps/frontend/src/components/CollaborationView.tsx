@@ -12,6 +12,13 @@ import {
 import type { CollabRoomKind, TeamWorkspaceDetail, TeamWorkspaceMembership } from "@shiba/shared";
 import { useCollaborationRoomRealtime } from "../collaboration-room-realtime";
 import { NotificationsPanel } from "./notifications/NotificationsPanel";
+import { MessageCards } from "./collab/MessageCards";
+import { MessageList } from "./collab/MessageList";
+import { MessageRow } from "./collab/MessageRow";
+import { OwnerChip } from "./collab/OwnerChip";
+import { PresenceChip, type PresenceState } from "./collab/PresenceChip";
+import { RoomRail } from "./collab/RoomRail";
+import { ThreadPane } from "./collab/ThreadPane";
 import { PersonalExecutionSetup } from "./PersonalExecutionSetup";
 import { TeamModelSessions } from "./TeamModelSessions";
 import { SharedComputerSessions } from "./SharedComputerSessions";
@@ -67,6 +74,9 @@ interface Message {
   senderKind: "human" | "agent";
   body: string;
   createdAt: number;
+  threadRootId?: string | null;
+  messageKind?: string;
+  payloadJson?: string | null;
   sourceRunId?: string;
   sourceHandoffId?: string;
   sourceArtifactRefs?: Array<{
@@ -287,6 +297,9 @@ function ScopedCollaborationView({
   const [savedItems, setSavedItems] = useState<SavedMessageRef[]>([]);
   const [activeRoomId, setActiveRoomId] = useState(initialRoomId ?? "");
   const [detail, setDetail] = useState<RoomDetail | null>(null);
+  const [presence, setPresence] = useState<Array<{ actorId: string; label: string; state: PresenceState }>>([]);
+  const [roomOwner, setRoomOwner] = useState("");
+  const [openThreadId, setOpenThreadId] = useState("");
   const [roomTitle, setRoomTitle] = useState("");
   const [roomVisibility, setRoomVisibility] = useState<"private" | "shared">("private");
   const [inviteUserId, setInviteUserId] = useState("");
@@ -520,15 +533,45 @@ function ScopedCollaborationView({
       }
     };
     void load();
-    const timer = window.setInterval(() => {
-      void load();
-    }, 5_000);
+    const live = workspaceId && typeof WebSocket !== "undefined";
+    const timer = live
+      ? undefined
+      : window.setInterval(() => {
+          void load();
+        }, 5_000);
     return () => {
       cancelled = true;
       roomReadEpoch.current++;
-      window.clearInterval(timer);
+      if (timer !== undefined) window.clearInterval(timer);
     };
-  }, [activeRoomId, api, isCurrentRoomRead, loseRoomAccess, roomListTab]);
+  }, [activeRoomId, api, isCurrentRoomRead, loseRoomAccess, roomListTab, workspaceId]);
+
+  useEffect(() => {
+    if (!activeRoomId) return;
+    let cancelled = false;
+    const loadPresence = () => {
+      void api<{ presence?: Array<{ actorId: string; label: string; state: PresenceState }> }>(
+        `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/presence`,
+      )
+        .then((body) => {
+          if (!cancelled && Array.isArray(body.presence)) setPresence(body.presence);
+        })
+        .catch(() => {});
+      void api<{ tasks?: Array<{ ownerActorId?: string; status?: string }> }>(
+        `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/tasks`,
+      )
+        .then((body) => {
+          if (cancelled || !Array.isArray(body.tasks)) return;
+          const open = body.tasks.find((task) => task.status !== "done" && task.ownerActorId);
+          setRoomOwner(open?.ownerActorId ?? "");
+        })
+        .catch(() => {});
+    };
+    loadPresence();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRoomId, api]);
 
   useEffect(() => {
     let cancelled = false;
@@ -974,157 +1017,35 @@ function ScopedCollaborationView({
         )}
 
         <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[220px_minmax(0,1fr)] min-h-[70vh]">
-          <aside
-            aria-label="Group chats"
-            className="flex min-w-0 flex-col gap-3 border border-[var(--line)] bg-[var(--card)] p-3"
-          >
-            <div
-              role="tablist"
-              aria-label="Conversation kinds"
-              className="flex flex-wrap gap-1 border-b border-[var(--line)] pb-2"
-            >
-              {(
-                [
-                  { id: "channel" as const, label: "Channels" },
-                  { id: "dm" as const, label: "DMs" },
-                  { id: "room" as const, label: "Rooms" },
-                  { id: "saved" as const, label: "Saved" },
-                ] as const
-              ).map((tab) => {
-                const unread =
-                  tab.id === "saved" ? 0 : tabUnread[tab.id as CollabRoomKind] ?? 0;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={roomListTab === tab.id}
-                    onClick={() => {
-                      setRoomListTab(tab.id);
-                      if (tab.id === "saved") {
-                        setDetail(null);
-                        activeRoomRef.current = "";
-                        setActiveRoomId("");
-                      }
-                    }}
-                    className={`min-h-11 flex-1 px-1 py-1 text-[10px] font-semibold uppercase tracking-wide focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] ${roomListTab === tab.id ? "border-b-2 border-[var(--navy)] text-[var(--ink)]" : "text-[var(--ink-2)]"}`}
-                  >
-                    {tab.label}
-                    {unread > 0 ? (
-                      <span className="ml-1 font-mono text-[9px] text-[var(--navy)]">({unread})</span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="font-mono text-[10px] uppercase tracking-[0.12em]">
-                {roomListTab === "saved" ? "Saved messages" : roomListTab}
-              </h2>
-              <span className="font-mono text-[10px] text-[var(--ink-2)]">
-                {roomListTab === "saved" ? savedItems.length : rooms.length}
-              </span>
-            </div>
-            {roomListTab !== "saved" ? (
-            <form onSubmit={createRoom} className="flex flex-col gap-2">
-              <input
-                aria-label="New room title"
-                value={roomTitle}
-                onChange={(event) => setRoomTitle(event.target.value)}
-                placeholder="Name a group chat"
-                maxLength={120}
-                className="min-h-11 min-w-0 rounded-none border border-[var(--line)] bg-[var(--card)] px-2 py-2 text-sm"
-              />
-              <div className="flex gap-2">
-                <select
-                  aria-label="Room visibility"
-                  value={roomVisibility}
-                  onChange={(event) =>
-                    setRoomVisibility(event.target.value as "private" | "shared")
-                  }
-                  className="min-h-11 min-w-0 flex-1 rounded-none border border-[var(--line)] bg-[var(--card)] px-2 py-2 text-xs"
-                >
-                  <option value="private">Private</option>
-                  <option value="shared">Shared (membership required)</option>
-                </select>
-                <button
-                  type="submit"
-                  disabled={busy || !roomTitle.trim()}
-                  className="min-h-11 rounded-none bg-[var(--navy)] px-3 py-2 text-xs font-semibold text-[var(--paper-title-fg)] disabled:opacity-50"
-                >
-                  Create
-                </button>
-              </div>
-            </form>
-            ) : null}
-            {roomListTab === "saved" ? (
-              <ul
-                aria-label="Saved messages"
-                className="flex max-h-60 flex-col gap-1 overflow-y-auto lg:max-h-none"
-              >
-                {savedItems.map((item) => (
-                  <li key={`${item.roomId}-${item.messageId}`}>
-                    <button
-                      type="button"
-                      onClick={() => openSavedMessage(item.roomId)}
-                      className="min-h-11 w-full border-l-2 border-transparent px-3 py-2 text-left text-sm hover:bg-[var(--panel-2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]"
-                    >
-                      <span className="block truncate font-mono text-xs text-[var(--ink)]">
-                        {item.messageId}
-                      </span>
-                      <span className="block text-[10px] text-[var(--ink-2)]">
-                        Room {item.roomId} · {new Date(item.savedAt).toLocaleString()}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-                {savedItems.length === 0 ? (
-                  <li className="px-2 py-4 text-xs text-[var(--ink-2)]">
-                    Save messages from a conversation to find them here.
-                  </li>
-                ) : null}
-              </ul>
-            ) : (
-            <ul
-              aria-label="Rooms"
-              className="flex max-h-60 flex-col gap-1 overflow-y-auto lg:max-h-none"
-            >
-              {rooms.map((room) => (
-                <li key={room.roomId}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (activeRoomRef.current === room.roomId) return;
-                      roomReadEpoch.current++;
-                      activeRoomRef.current = room.roomId;
-                      setDetail(null);
-                      setActiveRoomId(room.roomId);
-                    }}
-                    aria-current={room.roomId === activeRoomId ? "page" : undefined}
-                    className={`min-h-11 w-full border-l-2 px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] ${room.roomId === activeRoomId ? "border-[var(--navy)] bg-[var(--panel-2)] text-[var(--ink)]" : "border-transparent text-[var(--ink-2)] hover:bg-[var(--panel-2)]"}`}
-                  >
-                    <span className="flex items-center gap-2 truncate font-medium">
-                      <span className="truncate">{room.title}</span>
-                      {(room.unreadCount ?? 0) > 0 ? (
-                        <span className="shrink-0 font-mono text-[9px] text-[var(--navy)]">
-                          {room.unreadCount}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="block text-[10px] text-[var(--ink-2)]">
-                      {room.visibility} · {room.memberCount ?? 0} members
-                    </span>
-                  </button>
-                </li>
-              ))}
-              {rooms.length === 0 && (
-                <li className="px-2 py-4 text-xs text-[var(--ink-2)]">
-                  Create a group chat, then choose who can join.
-                </li>
-              )}
-            </ul>
-            )}
-          </aside>
+          <RoomRail
+            roomListTab={roomListTab}
+            tabUnread={tabUnread}
+            rooms={rooms}
+            savedItems={savedItems}
+            activeRoomId={activeRoomId}
+            roomTitle={roomTitle}
+            roomVisibility={roomVisibility}
+            busy={busy}
+            onTab={(tab) => {
+              setRoomListTab(tab);
+              if (tab === "saved") {
+                setDetail(null);
+                activeRoomRef.current = "";
+                setActiveRoomId("");
+              }
+            }}
+            onCreate={createRoom}
+            onTitle={setRoomTitle}
+            onVisibility={setRoomVisibility}
+            onOpenSaved={openSavedMessage}
+            onSelectRoom={(roomId) => {
+              if (activeRoomRef.current === roomId) return;
+              roomReadEpoch.current++;
+              activeRoomRef.current = roomId;
+              setDetail(null);
+              setActiveRoomId(roomId);
+            }}
+          />
 
           <main className="flex min-h-0 min-w-0 flex-col border border-[var(--line)] bg-[var(--card)]">
             {detail ? (
@@ -1168,6 +1089,16 @@ function ScopedCollaborationView({
                         : "Checking for updates"}
                       {realtime.viewers.length > 0 && ` · ${realtime.viewers.length} online`}
                     </p>
+                    {roomOwner ? <OwnerChip owner={roomOwner} /> : null}
+                    {presence.length > 0 ? (
+                      <ul aria-label="Room presence" className="mt-1 flex flex-wrap gap-x-3">
+                        {presence.map((person) => (
+                          <li key={person.actorId}>
+                            <PresenceChip state={person.state} label={person.label} />
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                     {realtime.viewers.length > 0 && (
                       <ul
                         aria-label="Online room members"
@@ -1214,16 +1145,9 @@ function ScopedCollaborationView({
                         return <div key={viewer.viewerId} data-room-cursor-viewer={viewer.viewerId} className="absolute text-[var(--navy)]" style={{ left: `${cursor.x * 100}%`, top: `${cursor.y * 100}%` }}><svg aria-hidden="true" width="16" height="19" viewBox="0 0 16 19" className="block"><path d="M1 1V14L5 10L8 17L11 15L7 9H14Z" fill="currentColor" stroke="var(--paper)" strokeWidth="1" /></svg><span className="ml-3 block max-w-40 truncate border border-[var(--line)] bg-[var(--card)] px-1 py-0.5 font-mono text-[9px]">{viewer.label}</span></div>;
                       })}
                     </div>
-                    <div
-                      role="log"
-                      aria-label="Conversation messages"
-                      className="flex min-h-64 flex-1 flex-col gap-4 overflow-y-auto p-4 xl:max-h-[60vh]"
-                    >
+                    <MessageList>
                       {detail.messages.map((item) => (
-                        <article
-                          key={item.messageId}
-                          className={`min-w-0 border-l-2 p-3 ${item.senderKind === "agent" ? "border-[var(--navy)] bg-[var(--panel-2)]" : "border-[var(--line)]"}`}
-                        >
+                        <MessageRow key={item.messageId} agent={item.senderKind === "agent"}>
                           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] text-[var(--ink-2)]">
                             <span className="font-semibold text-[var(--ink)]">
                               {item.sourceSlackUserId
@@ -1252,6 +1176,23 @@ function ScopedCollaborationView({
                             </time>
                           </div>
                           <p className="whitespace-pre-wrap break-words text-sm">{item.body}</p>
+                          <MessageCards
+                            message={{
+                              messageKind: item.messageKind,
+                              body: item.body,
+                              fromLabel: item.senderKind === "agent" ? (members.find((member) => member.actorId === item.senderActorId)?.displayName ?? "Fixer") : undefined,
+                              toLabel: item.messageKind === "handoff" || item.messageKind === "handoff_report" ? "Reviewer" : undefined,
+                            }}
+                          />
+                          {!item.threadRootId ? (
+                            <button
+                              type="button"
+                              className="mt-2 min-h-11 px-2 text-[10px] underline"
+                              onClick={() => setOpenThreadId(item.messageId)}
+                            >
+                              Open thread
+                            </button>
+                          ) : null}
                           <div
                             role="toolbar"
                             aria-label="Message actions"
@@ -1362,14 +1303,24 @@ function ScopedCollaborationView({
                                     : `Slack delivery disabled for #${link.channelId}`}
                                 </button>
                               ))}
-                        </article>
+                        </MessageRow>
                       ))}
                       {detail.messages.length === 0 && (
                         <p className="m-auto text-sm text-[var(--ink-2)]">
                           No messages yet. Share an update to bring the team together.
                         </p>
                       )}
-                    </div>
+                    </MessageList>
+                    {openThreadId ? (
+                      <ThreadPane title="Thread">
+                        {detail.messages.filter((item) => item.threadRootId === openThreadId).map((item) => (
+                          <p key={item.messageId} className="text-sm">{item.body}</p>
+                        ))}
+                        {detail.messages.every((item) => item.threadRootId !== openThreadId) ? (
+                          <p className="text-xs text-[var(--ink-2)]">No replies yet.</p>
+                        ) : null}
+                      </ThreadPane>
+                    ) : null}
                     <form
                       onSubmit={sendMessage}
                       className="sticky bottom-0 flex flex-wrap gap-2 border-t border-[var(--line)] bg-[var(--card)] p-3"
