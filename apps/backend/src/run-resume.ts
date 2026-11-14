@@ -27,3 +27,32 @@ export function restartDisposition(run: DelegatedRun): RestartDisposition {
   if (run.checkpoint !== undefined && PRE_SANDBOX.has(run.checkpoint)) return "resume";
   return "unknown";
 }
+
+/** ask_user pause marker stored on the run until the operator answers. */
+export interface AskUserPauseState {
+  askId: string;
+  pausedAt: number;
+}
+
+export function runPausedForAskUser(run: DelegatedRun): AskUserPauseState | null {
+  const signal = [...(run.signals ?? [])].reverse().find((item) => item.kind === "ask_user.pending");
+  if (!signal) return null;
+  const askId = typeof signal.detail === "string" && signal.detail.trim() ? signal.detail.trim() : null;
+  if (!askId) return null;
+  return { askId, pausedAt: signal.at };
+}
+
+/**
+ * Whether a resumed run may dispatch after an ask_user answer.
+ * Fail-closed when the run already left the active lane or has side effects.
+ */
+export function askUserResumeDisposition(
+  run: DelegatedRun,
+  answeredAskId: string,
+): RestartDisposition {
+  const pause = runPausedForAskUser(run);
+  if (!pause || pause.askId !== answeredAskId) return "unknown";
+  if (!isActiveStatus(run.status)) return "unknown";
+  if (run.signals?.some((signal) => SIDE_EFFECT_SIGNALS.has(signal.kind))) return "unknown";
+  return "resume";
+}

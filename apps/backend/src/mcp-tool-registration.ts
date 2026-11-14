@@ -8,6 +8,7 @@ import { registerExtensionSkillMcpTools } from "./extension-skills-tools.js";
 import { registerMemoryTools } from "./mcp-memory-tools.js";
 import { registerRunTools } from "./mcp-run-tools.js";
 import { registerScreenTools } from "./mcp-screen-tools.js";
+import { registerAgentMediaMcpTools } from "./tools/register-mcp.js";
 
 /** Register precisely the set of built-in handlers served on `/mcp`. */
 export function registerAllMcpTools(registry: ToolRegistry, env: Env): void {
@@ -18,4 +19,5 @@ export function registerAllMcpTools(registry: ToolRegistry, env: Env): void {
   registerMemoryTools(registry, env);
   registerRunTools(registry, env);
   registerScreenTools(registry, env);
+  registerAgentMediaMcpTools(registry, env);
 }

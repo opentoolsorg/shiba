@@ -108,12 +108,15 @@ import { AppNavRail, APP_NAV_ITEMS, type AppNavView } from "./components/AppNavR
 import { AuthScreen, SessionPending, SessionProblem } from "./components/AuthScreen";
 import { ShibaMark } from "./components/ShibaMark";
 import { authClient } from "./auth-client";
-import { CommandMenu, type CommandItem } from "./components/ui/command-menu";
+import { CommandPalette } from "./components/palette/CommandPalette";
+import { SETTINGS_SECTION_LABELS } from "./components/settings-sections";
 import { ShortcutsDialog, singleKeyShortcutsEnabled } from "./components/ShortcutsDialog";
 import { useTheme } from "./components/ThemeProvider";
 import { Tooltip } from "./components/Tooltip";
 import { extractPendingApprovals, extractCompletedDiff, parseRepoName, readPromptParam, runsListUrl, statusChipClass, statusLabel } from "./ui-helpers";
 import { createCompletionDrivenPoll, documentVisibilityPause } from "./polling";
+import { useApprovalsState } from "./state/approvals";
+import { useWorkspaceEvents } from "./state/workspace-events";
 import type { AgentPrincipal, RetainedRun, StoredApproval, ToolRunRecord } from "./types";
 
 const ORCHESTRATOR_AGENT = "coding-orchestrator";
@@ -194,74 +197,6 @@ function useRetainedRuns(
   return { runs: enabled ? runs : [], error: enabled ? error : null, detailReady: enabled && detailReady, listSettled };
 }
 
-/**
- * Live approval pointers from the orchestrator DO (`GET /api/approvals`).
- * These are the records Slack-card and queued-email approvals write —
- * separate from chat tool-part approvals, and the only surface where a
- * queued email send can be decided. Polls so cards disappear the moment
- * another surface (or a peer) resolves them.
- */
-function useStoredApprovals(
-  refreshToken: number,
-  enabled: boolean,
-): {
-  approvals: StoredApproval[];
-  decided: StoredApproval[];
-  error: string | null;
-} {
-  const [approvals, setApprovals] = useState<StoredApproval[]>([]);
-  const [decided, setDecided] = useState<StoredApproval[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    // The poll drives DO writes on the backend — only run it while a
-    // view that renders the data is up. Re-enabling loads immediately.
-    if (!enabled) { setApprovals([]); setDecided([]); setError(null); return; }
-    let cancelled = false;
-    // A slow poll landing after a newer one must not repaint a resolved card.
-    let sent = 0;
-    let applied = 0;
-    const load = () => {
-      const seq = ++sent;
-      return fetch("/api/approvals")
-        .then(async (response) => {
-          if (!response.ok) {
-            throw new Error(`Approvals request failed: ${response.status}`);
-          }
-          const body = (await response.json()) as {
-            approvals?: StoredApproval[];
-            decided?: StoredApproval[];
-          };
-          if (!cancelled && seq > applied) {
-            applied = seq;
-            setApprovals(Array.isArray(body.approvals) ? body.approvals : []);
-            setDecided(Array.isArray(body.decided) ? body.decided : []);
-            setError(null);
-          }
-        })
-        .catch((fetchError: unknown) => {
-          if (!cancelled && seq > applied) {
-            setError(fetchError instanceof Error ? fetchError.message : String(fetchError));
-          }
-        });
-    };
-    // Completion-driven fallback (30s): DO state hints bump refreshToken for
-    // real-time refreshes; this poll only catches other sessions' approvals.
-    // The next tick arms after this load settles (single inflight), and a
-    // hidden tab pauses instead of stacking polls.
-    const poll = createCompletionDrivenPoll({
-      intervalMs: 30_000,
-      load,
-      pause: documentVisibilityPause(),
-    });
-    return () => {
-      cancelled = true;
-      poll.stop();
-    };
-  }, [refreshToken, enabled]);
-
-  return { approvals, decided, error };
-}
 
 // Registered MCP-token principals, polled on the same cadence as stored
 // approvals. No error surface: a failed poll just keeps the last list —
@@ -1391,17 +1326,20 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     const timer = window.setInterval(() => void load(), 5_000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [refreshToken, selectedSessionId, sessionApiAvailable, privateDataEnabled, mainView]);
+  const approvalsEnabled =
+    privateDataEnabled && (mainView === "approvals" || mainView === "tasks" || mainView === "threads" || mainView === "dashboard" || mainView === "work");
+  const workspaceEventsEnabled =
+    Boolean(teamWorkspaceId) && (mainView === "tasks" || mainView === "work" || mainView === "threads");
+  const workspaceLive = useWorkspaceEvents({
+    workspaceId: teamWorkspaceId || null,
+    enabled: workspaceEventsEnabled,
+    onEvent: () => refreshRuns(),
+  });
   const {
     approvals: storedApprovals,
     decided: decidedStoredApprovals,
     error: storedApprovalsError,
-  } = useStoredApprovals(
-    refreshToken,
-    // Approvals data renders on the approvals board, the tasks strip, and
-    // the dashboard decided tail — the nav badge between them refreshes
-    // on entry to any of the three.
-    privateDataEnabled && (mainView === "approvals" || mainView === "tasks" || mainView === "threads" || mainView === "dashboard" || mainView === "work"),
-  );
+  } = useApprovalsState(refreshToken, approvalsEnabled, workspaceLive);
   const reviewAfterPublishById = useMemo(() => {
     const map: Record<string, boolean> = {};
     for (const approval of storedApprovals) {
@@ -1543,12 +1481,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
   // Decide a DO-state approval pointer: POST resolves it in place — the
   // frozen payload executes or the queued draft is released.
+  const [claimConflicts, setClaimConflicts] = useState<Record<string, { actorId: string; branch: string; repo: string; runId: string }>>({});
   const decideStoredApproval = useCallback(
-    async (approval: StoredApproval, approved: boolean) => {
+    async (approval: StoredApproval, approved: boolean, claimAction?: "queue" | "new_branch" | "cancel") => {
       const decisionScope = draftScope.current;
       const decisionSurface = activeSurfaceScopeRef.current;
       const approvalId = approval.approvalId;
-      if (decidedStoredRef.current.has(approvalId)) return;
+      if (!claimAction && decidedStoredRef.current.has(approvalId)) return;
       decidedStoredRef.current.add(approvalId);
       setStoredDecisions((current) => ({ ...current, [approvalId]: approved }));
       try {
@@ -1559,12 +1498,32 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             threadKey: approval.threadKey,
             approvalId,
             approved,
+            ...(claimAction ? { claimAction } : {}),
           }),
         });
         const body = (await response.json().catch(() => ({}))) as {
           result?: string;
           error?: string;
+          code?: string;
+          conflict?: { actorId: string; branch: string; repo: string; runId: string };
         };
+        if (response.status === 409 && body.code === "repo_claim_conflict" && body.conflict) {
+          decidedStoredRef.current.delete(approvalId);
+          setStoredDecisions((current) => {
+            const next = { ...current };
+            delete next[approvalId];
+            return next;
+          });
+          setClaimConflicts((current) => ({ ...current, [approvalId]: body.conflict! }));
+          setNotice("Someone is already working on this branch. Queue, start a new branch, or cancel.");
+          return;
+        }
+        setClaimConflicts((current) => {
+          if (!current[approvalId]) return current;
+          const next = { ...current };
+          delete next[approvalId];
+          return next;
+        });
         if (!response.ok) {
           throw new Error(body.error ?? `Approval request failed: ${response.status}`);
         }
@@ -2699,40 +2658,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     chat.status === "streaming" ||
     chat.status === "submitted";
 
-  const commands: CommandItem[] = [
-    ...APP_NAV_ITEMS.map((item) => ({
-      id: `nav-${item.id}`,
-      label: `Go to ${item.label}`,
-      hint: item.description,
-      run: () => openView(item.id),
-    })),
-    { id: "new-task", label: "New task", run: handleNewTask },
-    ...(!teamWorkspaceId ? [{ id: "settings-models", label: "Open Settings → Models", hint: "Configure model providers and execution routes", run: () => { setSettingsSection("models"); openView("settings"); } }] : []),
-    {
-      id: "toggle-sessions",
-      label: "Toggle sessions sidebar",
-      hint: "⌘B",
-      run: toggleActiveSidebar,
-    },
-    {
-      id: "toggle-theme",
-      label: theme === "dark" ? "Switch to light theme" : "Switch to dark theme",
-      hint: "D",
-      run: toggleTheme,
-    },
-    {
-      id: "setup-guide",
-      label: "Open setup guide",
-      run: openFirstRun,
-    },
-    {
-      id: "shortcuts",
-      label: "Keyboard shortcuts",
-      hint: "?",
-      run: () => setShowShortcutsModal(true),
-    },
-  ];
-
   if (orchestratorName === null && identityIssue === null) {
     return <SessionPending onRetry={retryIdentity} />;
   }
@@ -3129,6 +3054,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   requestedState={workInspectionRequest}
                   onDecideApproval={decideApproval}
                   onDecideStoredApproval={decideStoredApproval}
+                  claimConflicts={claimConflicts}
                   approvalDecisions={{ ...decisions, ...storedDecisions }}
                   peekSessionId={selectedSessionId}
                   peekNotice={notice}
@@ -3174,6 +3100,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
             <TasksHomeView
+              workspaceId={teamWorkspaceId || undefined}
               task={composerVisible ? task : ""}
               onTaskChange={setTask}
               agents={customAgentRecords.map((profile) => ({
@@ -3832,6 +3759,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               decidedStoredApprovals={decidedStoredApprovals}
               storedApprovalsError={storedApprovalsError}
               onDecideStoredApproval={decideStoredApproval}
+              claimConflicts={claimConflicts}
               orchestratorName={orchestratorName}
               onRefresh={refreshRuns}
               reviewAfterPublishById={reviewAfterPublishById}
@@ -4023,10 +3951,47 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           /> : null}
 
           <ShortcutsDialog open={showShortcutsModal} onClose={() => setShowShortcutsModal(false)} />
-          <CommandMenu
+          <CommandPalette
             open={commandMenuOpen}
             onClose={() => setCommandMenuOpen(false)}
-            commands={commands}
+            workspaceId={teamWorkspaceId || null}
+            roomThreadOpen={Boolean(sharedRoomId)}
+            settings={Object.entries(SETTINGS_SECTION_LABELS).map(([id, item]) => ({ id, label: item.label }))}
+            extraActions={[
+              ...(teamWorkspaceId ? [{ id: "connect-app", label: "Connect app", run: () => { setSettingsSection("integrations"); openView("settings"); } }] : []),
+              ...APP_NAV_ITEMS.map((item) => ({ id: `nav-${item.id}`, label: `Go to ${item.label}`, run: () => openView(item.id) })),
+              { id: "toggle-sessions", label: "Toggle sessions sidebar", run: toggleActiveSidebar },
+              { id: "setup-guide", label: "Open setup guide", run: openFirstRun },
+            ]}
+            onNewTask={() => { void handleNewTask(); }}
+            onNewChannel={() => openView("threads")}
+            onOpenBot={(bot, focusComposer) => {
+              if (bot.roomId) setSharedRoomId(bot.roomId);
+              openView("threads");
+              if (focusComposer) window.setTimeout(() => document.querySelector<HTMLTextAreaElement>("[data-testid='task-composer'] textarea, [data-testid='chat-composer'] textarea")?.focus(), 0);
+            }}
+            onOpenChat={(hit) => { setSharedRoomId(hit.roomId); openView("threads"); }}
+            onOpenTask={(hit) => {
+              const next = updateWorkSearch(new URLSearchParams(window.location.search), { view: "list", task: hit.taskId, taskKind: "run", tab: "steps" });
+              window.history.pushState(null, "", `/work?${next.toString()}`);
+              openView("work");
+            }}
+            onOpenSettings={(section) => { setSettingsSection(section); openView("settings"); }}
+            onOpenNeedsYou={() => openView("work")}
+            onToggleTheme={toggleTheme}
+            onOpenShortcuts={() => setShowShortcutsModal(true)}
+            onInsertAgentMention={(agentId) => setTask((current) => `${current}${current && !current.endsWith(" ") ? " " : ""}@agent:${agentId} `)}
+            onSearchAll={(q) => {
+              const next = new URLSearchParams(window.location.search);
+              next.set("q", q);
+              window.history.pushState(null, "", `/work?${next.toString()}`);
+              openView("work");
+            }}
+            onMessageAbout={(bot, q) => {
+              setTask(q);
+              if (bot.roomId) setSharedRoomId(bot.roomId);
+              openView("threads");
+            }}
           />
         </div>
       </div>
