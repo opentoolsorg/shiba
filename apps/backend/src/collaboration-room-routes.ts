@@ -71,6 +71,7 @@ export async function handleCollaborationWithRealtime(request: Request, env: Env
           await env.ConversationRoom.getByName(collaborationRoomName(identity)).notifyCollaborationChange(identity);
           await publishWorkspaceEvent(env, scope.workspaceId, {
             type: "collaboration.change",
+            audience: { roomId },
             resourceId: roomId,
             version: Date.now(),
           });
