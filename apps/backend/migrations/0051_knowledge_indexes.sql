@@ -18,3 +18,11 @@ CREATE TABLE notes (
   ingestion_error TEXT
 );
 CREATE INDEX notes_workspace ON notes(workspace_id, scope, updated_at DESC);
+
+CREATE TABLE knowledge_projects (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX knowledge_projects_workspace ON knowledge_projects(workspace_id, created_at DESC);

@@ -92,3 +92,10 @@ export const knowledgeSearchToolArgsSchema = z.object({
 export type KnowledgeSearchToolArgs = z.infer<typeof knowledgeSearchToolArgsSchema>;
 
 export const KNOWLEDGE_SEARCH_TOOL_NAME = "knowledge_search" as const;
+export const knowledgeProjectSchema = z.object({
+  id: z.string(),
+  workspaceId: z.string(),
+  name: z.string(),
+  createdAt: z.number().int(),
+});
+export type KnowledgeProject = z.infer<typeof knowledgeProjectSchema>;
