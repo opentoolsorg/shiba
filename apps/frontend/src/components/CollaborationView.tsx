@@ -12,6 +12,7 @@ import {
 import type { CollabRoomKind, TeamWorkspaceDetail, TeamWorkspaceMembership } from "@shiba/shared";
 import { useCollaborationRoomRealtime } from "../collaboration-room-realtime";
 import { NotificationsPanel } from "./notifications/NotificationsPanel";
+import { handoffTaskText, resolveHandoffStatus, type HandoffCardStatus } from "./collab/HandoffCard";
 import { MessageCards } from "./collab/MessageCards";
 import { MessageList } from "./collab/MessageList";
 import { MessageRow } from "./collab/MessageRow";
@@ -230,6 +231,28 @@ function hasApprovedRoomRun(handoff: Handoff): boolean {
 
 function request(method: string, body?: unknown): RequestInit {
   return { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) };
+}
+
+function messageHandoffId(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const value = JSON.parse(raw) as { handoffId?: unknown };
+    return typeof value.handoffId === "string" ? value.handoffId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function handoffCardStatus(item: Message, detail: RoomDetail): HandoffCardStatus {
+  const handoffId = messageHandoffId(item.payloadJson);
+  const handoff = handoffId ? detail.handoffs.find((row) => row.handoffId === handoffId) : undefined;
+  const reported = Boolean(handoffId && detail.messages.some((message) =>
+    message.messageKind === "handoff_report" && messageHandoffId(message.payloadJson) === handoffId));
+  return resolveHandoffStatus({
+    handoffStatus: handoff?.status,
+    reported,
+    runStarted: Boolean(handoff && hasApprovedRoomRun(handoff)),
+  });
 }
 
 export type CollaborationExecutionHandoff = Handoff & { roomId: string };
@@ -977,6 +1000,21 @@ function ScopedCollaborationView({
     });
   };
 
+  const reassignHandoff = (recipientActorId: string, task: string) => {
+    if (!activeRoomId || !task.trim()) return;
+    void mutate(async () => {
+      await api(
+        `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/handoffs`,
+        request("POST", {
+          handoffId: `ho_${crypto.randomUUID()}`,
+          taskId: `reassign_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`,
+          recipientActorId,
+          task: task.trim(),
+        }),
+      );
+    });
+  };
+
   return (
     <section
       aria-label="Team conversations"
@@ -1182,7 +1220,17 @@ function ScopedCollaborationView({
                               body: item.body,
                               fromLabel: item.senderKind === "agent" ? (members.find((member) => member.actorId === item.senderActorId)?.displayName ?? "Fixer") : undefined,
                               toLabel: item.messageKind === "handoff" || item.messageKind === "handoff_report" ? "Reviewer" : undefined,
+                              handoffStatus: item.messageKind === "handoff" ? handoffCardStatus(item, detail) : undefined,
+                              routerCandidates: members
+                                .filter((member) => member.actorKind === "agent" && member.status === "active")
+                                .map((member) => ({ actorId: member.actorId, name: member.displayName })),
                             }}
+                            onOpenThread={() => {
+                              const parentId = item.threadRootId || item.messageId;
+                              const child = detail.messages.find((message) => message.body === `Parent thread ${parentId}.`);
+                              if (child?.threadRootId) setOpenThreadId(child.threadRootId);
+                            }}
+                            onReassign={(actorId) => reassignHandoff(actorId, handoffTaskText(item.body))}
                           />
                           {!item.threadRootId ? (
                             <button

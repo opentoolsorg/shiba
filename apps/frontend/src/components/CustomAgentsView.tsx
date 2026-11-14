@@ -12,6 +12,7 @@ import { AgentAvatar as MascotAvatar } from "./AgentAvatar";
 import { AgentTemplatesCatalog } from "./AgentTemplatesCatalog";
 import { AgentAvatar } from "./AgentExperience";
 import type { AgentTemplate } from "@shiba/shared";
+import { PrimaryBotPicker } from "./collab/PrimaryBotPicker";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
 
 const FIELD =
@@ -502,6 +503,15 @@ function ScopedCustomAgentsView({
                 placeholder="Name, role, harness or model" className="min-h-11 w-full border border-[var(--input-line)] bg-[var(--card)] px-3 text-sm text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]" />
             </label>
           </section>
+          {workspaceId ? (
+            <PrimaryBotPicker
+              workspaceId={workspaceId}
+              agents={(agents ?? []).filter((agent) => !agent.archivedAt).map((agent) => ({
+                slug: agent.slug,
+                name: agent.config.name,
+              }))}
+            />
+          ) : null}
           {selectedAgent ? (
             <section ref={profileSection} tabIndex={-1} aria-label={`${selectedAgent.config.name} overview`} className="border border-[var(--line)] bg-[var(--card)] p-4">
               <div className="flex flex-wrap items-start justify-between gap-4">
