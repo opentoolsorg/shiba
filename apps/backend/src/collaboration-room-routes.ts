@@ -8,6 +8,7 @@ import type { Env } from "./env.js";
 import { isAuthorizedRequest } from "./request-auth.js";
 import { authenticatedRoomViewerId } from "./run-room-events.js";
 import { resolveTeamCollaborationScope } from "./team-collaboration-scope.js";
+import { publishWorkspaceEvent } from "./platform/workspace-events-do.js";
 
 const VIEWER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -68,6 +69,12 @@ export async function handleCollaborationWithRealtime(request: Request, env: Env
         if (scope) {
           const identity = { tenantId: scope.tenantId, workspaceId: scope.workspaceId, roomId };
           await env.ConversationRoom.getByName(collaborationRoomName(identity)).notifyCollaborationChange(identity);
+          await publishWorkspaceEvent(env, scope.workspaceId, {
+            type: "collaboration.change",
+            audience: { roomId },
+            resourceId: roomId,
+            version: Date.now(),
+          });
         }
       } catch {
         // D1 is authoritative. A failed hint never rolls back an accepted write;

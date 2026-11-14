@@ -87,7 +87,7 @@ function teamMemberSql(scope: Pick<CollaborationScope, "workspaceId">, alias: st
       AND team_member.user_id=${alias}.user_id AND team_member.status='active')`;
 }
 
-async function ensureMember(
+export async function ensureMember(
   env: Pick<Env, "AGENT_AUDIT">,
   scope: CollaborationScope,
   roomId: string,
@@ -357,13 +357,14 @@ export async function listRoomsByKind(
   const rows = await env.AGENT_AUDIT.prepare(
     `SELECT r.*,
       COALESCE((SELECT MAX(m.seq) FROM collaboration_messages m WHERE m.tenant_id=r.tenant_id AND m.workspace_id=r.workspace_id AND m.room_id=r.room_id),0) AS last_message_seq,
-      0 AS unread_count
+      COALESCE((SELECT MAX(m.seq) FROM collaboration_messages m WHERE m.tenant_id=r.tenant_id AND m.workspace_id=r.workspace_id AND m.room_id=r.room_id),0)
+        - COALESCE((SELECT c.last_read_seq FROM collaboration_read_cursors c WHERE c.tenant_id=r.tenant_id AND c.workspace_id=r.workspace_id AND c.room_id=r.room_id AND c.user_id=? AND c.thread_root_id=''),0) AS unread_count
      FROM collaboration_rooms r
      JOIN collaboration_memberships mine ON mine.tenant_id=r.tenant_id AND mine.workspace_id=r.workspace_id AND mine.room_id=r.room_id
      WHERE r.tenant_id=? AND r.workspace_id=? AND r.kind=? AND mine.user_id=? AND mine.status='active'${publicFilter}
      ORDER BY r.created_at DESC LIMIT 100`,
   )
-    .bind(scope.tenantId, scope.workspaceId, kind, scope.userId)
+    .bind(scope.userId, scope.tenantId, scope.workspaceId, kind, scope.userId)
     .all<Record<string, unknown>>();
   return (rows.results ?? []).map((row) => {
     const mapped = rowRoom(row);
@@ -432,6 +433,48 @@ export async function finalizeMessageV2(
       input.roomId,
     )
     .run();
+}
+
+const PRESENCE_FRESH_MS = 5 * 60 * 1000;
+
+export async function listRoomPresence(
+  env: Pick<Env, "AGENT_AUDIT">,
+  scope: CollaborationScope,
+  roomId: string,
+  now = Date.now(),
+): Promise<Array<{ actorId: string; label: string; state: "online" | "away" | "working" }>> {
+  await ensureMember(env, scope, roomId);
+  const rows = await env.AGENT_AUDIT.prepare(
+    `SELECT m.actor_id, m.display_name, m.actor_kind, p.state AS presence_state, p.updated_at
+     FROM collaboration_memberships m
+     LEFT JOIN collaboration_presence p
+       ON p.tenant_id=m.tenant_id AND p.workspace_id=m.workspace_id AND p.actor_id=m.actor_id
+     WHERE m.tenant_id=? AND m.workspace_id=? AND m.room_id=? AND m.status='active'`,
+  ).bind(scope.tenantId, scope.workspaceId, roomId).all<Record<string, unknown>>();
+  return (rows.results ?? []).map((row) => {
+    const updated = row.updated_at == null ? 0 : Number(row.updated_at);
+    const stored = row.presence_state === "online" || row.presence_state === "working" ? row.presence_state : "away";
+    const fresh = now - updated < PRESENCE_FRESH_MS;
+    const state = stored === "working" ? "working" : fresh && stored === "online" ? "online" : "away";
+    return { actorId: String(row.actor_id), label: String(row.display_name), state };
+  });
+}
+
+export async function touchRoomPresence(
+  env: Pick<Env, "AGENT_AUDIT">,
+  scope: CollaborationScope,
+  roomId: string,
+  state: "online" | "away" | "working",
+  now = Date.now(),
+): Promise<void> {
+  await ensureMember(env, scope, roomId);
+  const actorId = humanActorId(scope.userId);
+  await env.AGENT_AUDIT.prepare(
+    `INSERT INTO collaboration_presence (tenant_id,workspace_id,user_id,actor_id,state,updated_at)
+     VALUES (?,?,?,?,?,?)
+     ON CONFLICT(tenant_id,workspace_id,actor_id)
+     DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at, user_id=excluded.user_id`,
+  ).bind(scope.tenantId, scope.workspaceId, scope.userId, actorId, state, now).run();
 }
 
 export { COLLAB_TENANT_ID };

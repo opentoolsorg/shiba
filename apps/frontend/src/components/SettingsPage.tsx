@@ -15,6 +15,7 @@ import {
   Key,
   Webhook,
   Laptop,
+  Bell,
   Mail,
   Palette,
   Search,
@@ -88,6 +89,7 @@ export const SETTINGS_PAGE_NAV_GROUPS: SettingsNavGroup[] = [
     items: [
       { id: "automations", label: "Automations", blurb: SETTINGS_SECTION_LABELS.automations.blurb, icon: Zap },
       { id: "mailbox", label: "Mailbox", blurb: SETTINGS_SECTION_LABELS.mailbox.blurb, icon: Mail },
+      { id: "notifications", label: "Notifications", blurb: SETTINGS_SECTION_LABELS.notifications.blurb, icon: Bell },
     ],
   },
   {
