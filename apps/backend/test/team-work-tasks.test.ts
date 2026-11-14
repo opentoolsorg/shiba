@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { humanActorId } from "../src/collaboration-store.js";
@@ -17,9 +18,15 @@ const OWNER = "owner@example.test", MEMBER = "member@example.test", OTHER = "oth
 const databases: DatabaseSync[] = [];
 afterEach(() => { state.userId = MEMBER; for (const database of databases.splice(0)) database.close(); });
 
-async function fixture() {
+async function fixture(withEvents = false) {
   const { database, sqlite } = customAgentD1(); databases.push(sqlite);
+  sqlite.exec(readFileSync(new URL("../migrations/0052_search_fts.sql", import.meta.url), "utf8"));
   const env = { AGENT_AUDIT: database } as unknown as Env;
+  const frames: Array<{ kind: string; audience: { userIds: string[] } }> = [];
+  if (withEvents) env.WorkspaceEvents = { getByName: () => ({ fetch: async (request: Request) => {
+    frames.push(await request.json() as typeof frames[number]);
+    return Response.json({ ok: true });
+  } }) } as unknown as NonNullable<Env["WorkspaceEvents"]>;
   const workspace = await createTeamWorkspace(env, OWNER, { name: "Product" }, 1);
   const invite = await createTeamWorkspaceInvitation(env, workspace.workspaceId, OWNER, { email: MEMBER, role: "member" }, 2);
   await acceptTeamWorkspaceInvitation(env, MEMBER, invite.token, 3);
@@ -36,10 +43,19 @@ async function fixture() {
     expect(created.status).toBe(201);
     return created.body.task;
   };
-  return { send, create };
+  return { send, create, frames };
 }
 
 describe("writable shared Work tasks", () => {
+  it("names current workspace members for task live events", async () => {
+    const f = await fixture(true);
+    const task = await f.create();
+    await f.send("PATCH", `/${task.id}`, { patch: { status: "done" } });
+    await vi.waitFor(() => expect(f.frames).toHaveLength(2));
+    expect(f.frames.map((frame) => frame.kind)).toEqual(["task.created", "task.updated"]);
+    for (const frame of f.frames) expect(frame.audience.userIds.sort()).toEqual([MEMBER, OWNER].sort());
+  });
+
   it("creates, edits, comments on and archives a task with recorded activity", async () => {
     const f = await fixture();
     const task = await f.create();

@@ -18,7 +18,11 @@ import {
   archiveTeamWorkTask, commentTeamWorkTask, createTeamWorkTask, getTeamWorkTask, listTeamWorkTasks, TeamWorkTaskError, updateTeamWorkTask,
   type TeamWorkActivityEntry, type TeamWorkTask, type TeamWorkTaskPriority, type TeamWorkTaskStatus,
 } from "./team-work-tasks-store.js";
-import { getTeamWorkspaceMembership, normalizeTeamWorkspaceEmail } from "./team-workspaces-store.js";
+import { getTeamWorkspace, getTeamWorkspaceMembership, normalizeTeamWorkspaceEmail } from "./team-workspaces-store.js";
+import { upsertWorkspaceSearchDoc } from "./workspace-search-store.js";
+import { publishWorkspaceEvent } from "./platform/workspace-events-do.js";
+import { latestStatusText } from "./run-milestones.js";
+import { resolveRunStoreTarget } from "./runs-routes.js";
 
 /** Structural counterpart to the frontend DTO; never imports another app's source. */
 export interface TeamWorkItemDto {
@@ -192,6 +196,7 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
     catch { return json({ error: "Authenticated email identity required." }, 403); }
     if (!await getTeamWorkspaceMembership(env, workspaceId, userId)) return json({ error: "Workspace membership required." }, 403);
     const actorId = humanActorId(userId), body = await readJson(request);
+    const audience = { userIds: env.WorkspaceEvents ? (await getTeamWorkspace(env, workspaceId, userId))?.members.map((member) => member.userId) ?? [] : [] };
     if (action === "archive") return json({ task: storedItem(await archiveTeamWorkTask(env, workspaceId, taskId ?? "", actorId)) });
     if (action === "comments") {
       const { text } = parse(COMMENT_BODY, body);
@@ -203,13 +208,20 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
         return json({ error: "Owner and reviewer must be workspace members." }, 400);
       }
     }
-    if (taskId !== undefined) return json({ task: storedItem(await updateTeamWorkTask(env, workspaceId, taskId, actorId, { title, ...fields })) });
+    if (taskId !== undefined) {
+      const updated = await updateTeamWorkTask(env, workspaceId, taskId, actorId, { title, ...fields });
+      void upsertWorkspaceSearchDoc(env, workspaceId, updated.taskId, "task", updated.title, updated.objective ?? "", updated.updatedAt);
+      if (audience.userIds.length) void publishWorkspaceEvent(env, workspaceId, { audience, kind: "task.updated", entityId: updated.taskId, payload: { version: updated.version } });
+      return json({ task: storedItem(updated) });
+    }
     // Pre-check what the follow-up update would reject so a failed create leaves no half-made task.
     if (fields.startDate && fields.endDate && fields.startDate > fields.endDate) return json({ error: "Start date must be on or before the end date." }, 400);
     const parent = fields.parentId ? await getTeamWorkTask(env, workspaceId, fields.parentId) : null;
     if (fields.parentId && (!parent || parent.archived)) return json({ error: "Parent task not found." }, 400);
     const created = await createTeamWorkTask(env, workspaceId, actorId, title ?? "");
     const task = Object.keys(fields).length ? await updateTeamWorkTask(env, workspaceId, created.taskId, actorId, fields) : created;
+    void upsertWorkspaceSearchDoc(env, workspaceId, task.taskId, "task", task.title, task.objective ?? "", task.updatedAt);
+    if (audience.userIds.length) void publishWorkspaceEvent(env, workspaceId, { audience, kind: "task.created", entityId: task.taskId, payload: { version: task.version } });
     return json({ task: storedItem(task) }, 201);
   } catch (error) {
     if (error instanceof TeamWorkTaskError) return json({ error: error.message }, error.status);
@@ -219,7 +231,9 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
 
 /** Current explicit room grants are the sole source; personal histories are never enumerated. */
 export async function handleTeamWork(request: Request, env: Env): Promise<Response | null> {
-  const url = new URL(request.url), match = ROUTE.exec(url.pathname);
+  const url = new URL(request.url);
+  if (url.pathname === "/api/needs-you") return handleNeedsYou(request, env);
+  const match = ROUTE.exec(url.pathname);
   if (!match) return null;
   if (request.headers.has("Authorization") || !await isAuthorizedRequest(request, env)) return json({ error: "Authenticated human session required." }, 401);
   const [, routeWorkspaceId = "", taskId, action] = match;
@@ -284,4 +298,116 @@ export async function handleTeamWork(request: Request, env: Env): Promise<Respon
   } catch {
     return json({ error: "Workspace work is temporarily unavailable." }, 503);
   }
+}
+
+const OWNED_RUN_CAP = 100;
+
+/** Runs on the caller's orchestrator, limited to the workspace they asked about. */
+async function ownedWorkspaceRunIds(env: Env, agentName: string, workspaceId: string | null): Promise<string[]> {
+  if (!env.CodingOrchestrator) return [];
+  try {
+    const stub = await getAgentByName(env.CodingOrchestrator, agentName);
+    const response = await stub.fetch(new Request("https://internal/api/runs"));
+    if (!response.ok) return [];
+    const body = await response.json() as { runs?: Array<{ runId?: string; orgId?: string; createdAt?: number }> };
+    const teamOrg = workspaceId && isTeamWorkspaceId(workspaceId) ? `team:${workspaceId}` : null;
+    return (body.runs ?? [])
+      .filter((run): run is { runId: string; orgId?: string; createdAt?: number } => typeof run.runId === "string" && run.runId.length > 0)
+      .filter((run) => teamOrg ? run.orgId === teamOrg : !String(run.orgId ?? "").startsWith("team:"))
+      .sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0))
+      .slice(0, OWNED_RUN_CAP)
+      .map((run) => run.runId);
+  } catch {
+    return [];
+  }
+}
+
+async function milestoneRows<T extends { run_id: string }>(
+  env: Env,
+  kind: string,
+  runIds: string[],
+  limit: number,
+): Promise<T[]> {
+  if (!env.AGENT_AUDIT || runIds.length === 0) return [];
+  const marks = runIds.map(() => "?").join(",");
+  const rows = await env.AGENT_AUDIT.prepare(
+    `SELECT run_id, text, created_at FROM run_milestones
+     WHERE kind = ? AND run_id IN (${marks})
+     ORDER BY created_at DESC LIMIT ${limit}`,
+  ).bind(kind, ...runIds).all<T>();
+  return rows.results;
+}
+
+async function handleNeedsYou(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+  if (request.headers.has("Authorization") || !(await isAuthorizedRequest(request, env))) {
+    return json({ error: "Authenticated human session required." }, 401);
+  }
+  const identity = await resolveUserId(request, env);
+  if (!identity) return json({ error: "Authenticated human session required." }, 401);
+  const storeTarget = await resolveRunStoreTarget(request, env, new URL(request.url));
+  const ownerId = "error" in storeTarget ? identity : storeTarget.userId;
+  const runIds = "error" in storeTarget
+    ? []
+    : await ownedWorkspaceRunIds(env, storeTarget.agentName, request.headers.get("X-Shiba-Workspace"));
+  const questions = env.AGENT_AUDIT
+    ? (await env.AGENT_AUDIT.prepare(
+      `SELECT run_id, ask_id, request_json, created_at FROM ask_user_pending
+       WHERE owner_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 50`,
+    ).bind(ownerId).all<{ run_id: string; ask_id: string; request_json: string; created_at: number }>()).results
+    : [];
+  let approvals: unknown[] = [];
+  try {
+    const listed = await fetch(new Request(new URL("/api/approvals", request.url), { headers: request.headers }));
+    if (listed.ok) {
+      const body = await listed.json() as { approvals?: unknown[] };
+      approvals = body.approvals ?? [];
+    }
+  } catch {
+    approvals = [];
+  }
+  let mentions: unknown[] = [];
+  let handoffs: unknown[] = [];
+  try {
+    const noteUrl = new URL("/api/notifications?unread=1&kind=mention,handoff", request.url);
+    const notes = await fetch(new Request(noteUrl, { headers: request.headers }));
+    if (notes.ok) {
+      const body = await notes.json() as { notifications?: Array<{ kind?: string }> };
+      const rows = body.notifications ?? [];
+      mentions = rows.filter((row) => row.kind === "mention");
+      handoffs = rows.filter((row) => row.kind === "handoff");
+    }
+  } catch {
+    mentions = [];
+    handoffs = [];
+  }
+  const blocked = await milestoneRows<{ run_id: string; text: string; created_at: number }>(env, "blocked", runIds, 20);
+  const progress: Record<string, string> = {};
+  for (const row of await milestoneRows<{ run_id: string; text: string }>(env, "status", runIds, 80)) {
+    if (!progress[row.run_id]) progress[row.run_id] = row.text;
+  }
+  for (const row of [...blocked, ...questions.map((item) => ({ run_id: item.run_id }))]) {
+    if (!runIds.includes(row.run_id) || progress[row.run_id]) continue;
+    const status = await latestStatusText(env, row.run_id);
+    if (status) progress[row.run_id] = status;
+  }
+  return json({
+    approvals,
+    questions: questions.map((row) => ({
+      runId: row.run_id,
+      askId: row.ask_id,
+      prompt: (() => { try { return String((JSON.parse(row.request_json) as { prompt?: string }).prompt ?? "Question"); } catch { return "Question"; } })(),
+      updatedAt: row.created_at,
+      progressText: progress[row.run_id] ?? null,
+    })),
+    mentions,
+    handoffs,
+    progress,
+    blocked: blocked.map((row) => ({
+      runId: row.run_id,
+      title: row.text,
+      updatedAt: row.created_at,
+      progressText: progress[row.run_id] ?? row.text,
+    })),
+  });
 }

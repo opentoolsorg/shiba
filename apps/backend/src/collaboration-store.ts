@@ -273,6 +273,20 @@ export async function ensureCollaborationSchema(env: Pick<Env, "AGENT_AUDIT">): 
       }
     }
   }
+  const executorColumn = await env.AGENT_AUDIT.prepare(
+    "SELECT 1 FROM pragma_table_info('collaboration_handoffs') WHERE name='executor_agent_name'",
+  ).first();
+  if (!executorColumn) {
+    await env.AGENT_AUDIT.prepare(
+      "ALTER TABLE collaboration_handoffs ADD COLUMN executor_agent_name TEXT",
+    ).run();
+  }
+  await env.AGENT_AUDIT.prepare(
+    "CREATE UNIQUE INDEX IF NOT EXISTS collaboration_messages_source_run ON collaboration_messages(tenant_id,workspace_id,source_run_id) WHERE source_run_id IS NOT NULL",
+  ).run();
+  await env.AGENT_AUDIT.prepare(
+    "CREATE UNIQUE INDEX IF NOT EXISTS collaboration_messages_slack_event ON collaboration_messages(tenant_id,workspace_id,source_slack_team_id,source_slack_event_id) WHERE source_slack_event_id IS NOT NULL",
+  ).run();
   initialized.add(env.AGENT_AUDIT);
 }
 

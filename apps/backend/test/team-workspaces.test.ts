@@ -17,8 +17,8 @@ vi.mock("../src/request-auth.js", async (importOriginal) => ({
   resolveUserId: vi.fn(async () => auth.userId),
 }));
 const alice = "alice@example.test", bob = "bob@example.test", eve = "eve@example.test";
-async function fixture() {
-  const { database, sqlite } = customAgentD1();
+async function fixture(options?: { bare?: boolean }) {
+  const { database, sqlite } = customAgentD1(options);
   const env = { AGENT_AUDIT: database } as unknown as Env;
   const workspace = await createTeamWorkspace(env, alice, { name: "Product" }, 100);
   return { env, sqlite, workspace, workspaceId: workspace.workspaceId };
@@ -37,7 +37,7 @@ beforeEach(() => { auth.userId = alice; auth.authorized = true; });
 
 describe("explicit team workspace grants", () => {
   it("creates a separate owner scope without importing legacy rooms or private memory", async () => {
-    const f = await fixture();
+    const f = await fixture({ bare: true });
     expect(f.workspace).toMatchObject({ name: "Product", version: 1, members: [{ userId: alice, role: "owner", version: 1 }] });
     expect(f.workspaceId).toMatch(/^ws_[a-f0-9]{24}$/);
     expect(await listTeamWorkspaces(f.env, bob)).toEqual([]);
