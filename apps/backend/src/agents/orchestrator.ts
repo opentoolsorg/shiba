@@ -158,6 +158,8 @@ import { makeReceipt } from "../receipts.js";
 import { logStructured } from "../log.js";
 import { runTimedOut } from "../public-error.js";
 import { restartDisposition } from "../run-resume.js";
+import { recordQueuedAck, syncRunMilestones } from "../run-milestones.js";
+import { releaseRepoClaim } from "../repo-work-claims.js";
 import { PARENT_RECOVERY_PREFIX, parentRecoveryKey, validateParentExecutionRecovery, type ParentExecutionRecovery } from "../parent-execution-recovery.js";
 import { fetchAgentsMd } from "../review/agents-md.js";
 import { decideChain } from "../review/chain.js";
@@ -2164,6 +2166,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         if (threadText) {
           this.postToThread(threadText, { runId, ...(pointer?.threadKey ? { threadKey: pointer.threadKey } : {}) });
         }
+        const milestoneWorkspace = reserved.orgId || pointer?.orgId || "personal";
+        void syncRunMilestones(this.env, milestoneWorkspace, updated, { userId: initiatorUserIdFromOrchestratorName(this.name) }).catch(() => undefined);
+        void releaseRepoClaim(this.env, milestoneWorkspace, updated.approval?.approvalId ?? runId).catch(() => undefined);
         // Megaplan T10: a retained run landing completed/error distills its
         // transcript into long-term memory — best-effort under waitUntil.
         if (status === "completed" || status === "error") {
@@ -2194,6 +2199,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return `Run ${runId} did not start — it is already ${this.store.get(runId)?.status ?? "missing"}.`;
       }
       if (!recovery) this.relayChildLifecycle(runId, "running", "Shiba Fixer is running the approved task.", running.parentRunId ?? runId);
+      void syncRunMilestones(this.env, reserved.orgId || pointer?.orgId || "personal", running, { userId: initiatorUserIdFromOrchestratorName(this.name) }).catch(() => undefined);
       this.stampCheckpoint(runId, "executing");
       logStructured("info", {
         event: "run.executing",
@@ -3355,6 +3361,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
               }),
             }
           : {}),
+      });
+      void recordQueuedAck(this.env, {
+        workspaceId: intakeOrgId || "personal",
+        userId: initiatorUserIdFromOrchestratorName(this.name),
+        approvalId,
+        task,
       });
     } catch (error) {
       return Response.json(

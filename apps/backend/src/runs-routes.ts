@@ -14,6 +14,7 @@ import { collaborationExecutorIdentity } from "./collaboration-executor.js";
 import { COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID } from "./collaboration-store.js";
 import { isRestrictedTeamMember } from "./team-member-auth.js";
 import { deliverableStorageKey } from "./run-deliverables.js";
+import { buildRunProof } from "./run-proof.js";
 import { signInternalRequest } from "./edge-identity.js";
 
 import {
@@ -191,11 +192,13 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   const isSpine = url.pathname === "/api/spine";
   const taskPath = /^\/api\/tasks(?:\/[^/]+\/(?:retry|cancel))?$/.test(url.pathname);
   const employeeDraftPath = /^\/api\/employee-drafts(?:\/draft_[a-f0-9]{64}(?:\/(?:download|review))?)?$/.test(url.pathname);
+  const proofMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/proof$/);
   const deliverableMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)$/);
   const artifactActionMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)\/(review|history|revision)$/);
   // The DO serves two-segment subroutes under /api/runs/<id>/: fork, screen.
   if (
     !isSpine &&
+    !proofMatch &&
     !deliverableMatch &&
     !artifactActionMatch &&
     !taskPath &&
@@ -244,7 +247,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
       return Response.json({ error: "Same-origin request required." }, { status: 403 });
     }
   }
-  if ((isSpine || deliverableMatch || artifactActionMatch?.[3] === "history") && request.method !== "GET") {
+  if ((isSpine || proofMatch || deliverableMatch || artifactActionMatch?.[3] === "history") && request.method !== "GET") {
     return Response.json({ error: "Method not allowed." }, { status: 405 });
   }
   if ((artifactActionMatch?.[3] === "review" || artifactActionMatch?.[3] === "revision") && request.method !== "POST") {
@@ -451,6 +454,23 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
     const forwarded = new Request(new URL(url.pathname + url.search, request.url), rewritten);
     await signInternalRequest(forwarded, env);
     return stub.fetch(forwarded);
+  }
+  if (proofMatch && request.method === "GET") {
+    let runId: string;
+    try {
+      runId = decodeURIComponent(proofMatch[1]!);
+    } catch {
+      return Response.json({ error: "Invalid run identity." }, { status: 400 });
+    }
+    const lookup = new Request(new URL(`/api/runs/${encodeURIComponent(runId)}`, request.url), rewritten);
+    await signInternalRequest(lookup, env);
+    const found = await stub.fetch(lookup);
+    if (!found.ok) return found;
+    const { run } = await found.json() as { run?: import("@shiba/shared").DelegatedRun };
+    if (!run || isTeamScopedRecord(run)) {
+      return Response.json({ error: "Proof not found. Use its shared room." }, { status: 404 });
+    }
+    return Response.json({ ok: true, proof: buildRunProof(run) });
   }
   if (deliverableMatch) {
     let runId: string;

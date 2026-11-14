@@ -31,7 +31,8 @@ export type WorkspaceEvent = {
 
 /** Canonical event, or the previous `{type, resourceId, version}` body. */
 export type PublishWorkspaceEventInput =
-  | (Omit<WorkspaceEvent, "workspaceId" | "payload"> & {
+  | (Omit<WorkspaceEvent, "id" | "workspaceId" | "payload"> & {
+      id?: string;
       workspaceId?: string;
       payload?: unknown;
       at?: number;
@@ -170,7 +171,7 @@ export function workspaceEventsName(workspaceId: string): string {
 }
 
 export async function publishWorkspaceEvent(
-  env: Env,
+  env: Pick<Env, "WorkspaceEvents">,
   workspaceId: string,
   event: PublishWorkspaceEventInput,
 ): Promise<void> {
@@ -184,6 +185,7 @@ export async function publishWorkspaceEvent(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         ...event,
+        ...("kind" in event ? { id: event.id ?? `wse_${crypto.randomUUID()}` } : {}),
         workspaceId: name,
         at: event.at ?? Date.now(),
       }),

@@ -54,17 +54,20 @@ export function CommandMenu({
   open,
   onClose,
   commands,
+  onQueryChange,
 }: {
   open: boolean;
   onClose: () => void;
   commands: CommandItem[];
+  onQueryChange?: (query: string) => void;
 }): JSX.Element | null {
   return (
     <CommandDialog open={open} onClose={onClose}>
-      <Command label="Command menu">
+      <Command label="Command menu" shouldFilter={onQueryChange === undefined}>
         <Command.Input
           placeholder="Type a command or search…"
           className="w-full bg-transparent px-4 py-3 text-base text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] border-b border-[var(--border-1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[var(--primary)]"
+          onValueChange={onQueryChange}
         />
         <Command.List className="max-h-72 overflow-y-auto py-1.5">
           <Command.Empty className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
