@@ -13,6 +13,9 @@ export type AppNavView =
   | "agents"
   | "inbox"
   | "memory"
+  | "files"
+  | "notes"
+  | "outputs"
   | "automations"
   | "providers"
   | "integrations"
@@ -54,6 +57,9 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "agents", label: "MCP", description: "Client configuration, gateway & agent tokens" },
   { id: "inbox", label: "Mailbox", description: "Cloudflare Email Routing & Send" },
   { id: "memory", label: "Memory", description: "Vectorize Long-Term Semantic Memory" },
+  { id: "files", label: "Files", description: "Folders, uploads and document previews" },
+  { id: "notes", label: "Notes", description: "Markdown notes with slash commands" },
+  { id: "outputs", label: "Outputs", description: "Run deliverables and generated media" },
   {
     id: "integrations",
     label: "Integrations",
@@ -83,7 +89,12 @@ export const APP_AREAS: readonly {
     defaultView: "custom-agents",
     views: ["custom-agents", "employee-tools", "providers", "skills", "agents", "team"],
   },
-  { id: "knowledge", label: "Knowledge", defaultView: "memory", views: ["memory", "spaces"] },
+  {
+    id: "knowledge",
+    label: "Knowledge",
+    defaultView: "memory",
+    views: ["memory", "files", "notes", "outputs", "spaces"],
+  },
   {
     id: "settings",
     label: "Settings",
