@@ -33,6 +33,8 @@ import { handleReasonNetwork } from "./reason-network/routes.js";
 import { handleSubscriptionAuth } from "./auth-routes.js";
 import { handleUserOpenAiSubscription } from "./subscription-auth-routes.js";
 import { handleAudit } from "./audit-routes.js";
+import { handleGovernance } from "./governance-routes.js";
+import { handleShare } from "./share-routes.js";
 import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
 import { handleGitHubWebhook } from "./github-webhook-routes.js";
@@ -56,6 +58,8 @@ import { handleAcpProviders } from "./acp-provider-routes.js";
 import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
 import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import { handleApiKeys } from "./api-keys-routes.js";
+import { handleOutboundWebhooks } from "./webhooks/routes.js";
+import { registerWebhookQueueConsumers } from "./webhooks/consumer.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
 import { handleEmployeeTools } from "./employee-tool-routes.js";
 import { handleSkillLibrary } from "./skill-library-routes.js";
@@ -144,6 +148,8 @@ export { assertLiveCodingModel } from "./coding-model.js";
 export { isBetterAuthConfigured } from "./better-auth.js";
 export { getUserId, isAuthenticated, isAuthorizedRequest, resolveUserId, SIGNATURE_AUTHENTICATED } from "./request-auth.js";
 export { handleWebSessions } from "./sessions-routes.js";
+
+registerWebhookQueueConsumers();
 
 let claudeSubscriptionDeprecationWarned = false;
 
@@ -334,7 +340,12 @@ export default {
         if (/^\/spaces\/[^/]+\/?$/.test(url.pathname)) {
           return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
         }
+        if (/^\/share\/[cf]\/[^/]+\/?$/.test(url.pathname)) {
+          return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
+        }
       }
+      const publicShareResponse = await handleShare(request, env);
+      if (publicShareResponse) return publicShareResponse;
       if (!isPublicRequest(request) && !isOrgApiPath(url.pathname) && !(await isAuthorizedRequest(request, env))) {
         // A signed-out browser on the consent screen goes to sign-in and
         // comes back; MCP clients and fetch() keep the JSON 401.
@@ -383,6 +394,10 @@ export default {
       if (askUserResponse) return askUserResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);
       if (workspaceResponse) return workspaceResponse;
+      const governanceResponse = await handleGovernance(request, env);
+      if (governanceResponse) return governanceResponse;
+      const shareResponse = await handleShare(request, env);
+      if (shareResponse) return shareResponse;
       // WS02: operator email delivery status (no message bodies).
       const emailDeliveryResponse = await handleEmailDeliveryRoutes(request, env);
       if (emailDeliveryResponse) return emailDeliveryResponse;
@@ -413,6 +428,8 @@ export default {
       if (capabilityCatalogResponse) return capabilityCatalogResponse;
       const apiKeysResponse = await handleApiKeys(request, env);
       if (apiKeysResponse) return apiKeysResponse;
+      const outboundWebhooksResponse = await handleOutboundWebhooks(request, env);
+      if (outboundWebhooksResponse) return outboundWebhooksResponse;
       const customAgentsResponse = await handleCustomAgents(request, env);
       if (customAgentsResponse) return customAgentsResponse;
       const employeeToolsResponse = await handleEmployeeTools(request, env);
@@ -485,6 +502,10 @@ export default {
       }
       const collaborationResponse = await (await import("./collaboration-room-routes.js")).handleCollaborationWithRealtime(request, env);
       if (collaborationResponse) return collaborationResponse;
+      const notificationsResponse = await (await import("./notifications/notifications-routes.js")).handleNotifications(request, env);
+      if (notificationsResponse) return notificationsResponse;
+      const slackImportResponse = await (await import("./slack-import/routes.js")).handleSlackImport(request, env);
+      if (slackImportResponse) return slackImportResponse;
       const computersResponse = await handleComputers(request, env);
       if (computersResponse) {
         return computersResponse;

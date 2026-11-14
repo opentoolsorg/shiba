@@ -156,6 +156,10 @@ export interface CollaborationMessageRow {
   sourceSlackChannelId?: string | null;
   sourceSlackThreadTs?: string | null;
   sourceSlackUserId?: string | null;
+  threadRootId?: string | null;
+  messageKind?: string | null;
+  payloadJson?: string | null;
+  alsoInChannel?: boolean;
   createdAt: number;
 }
 
@@ -366,6 +370,10 @@ function rowMessage(row: Record<string, unknown>): CollaborationMessageRow {
           sourceSlackUserId: String(row.source_slack_user_id ?? ""),
         }
       : {}),
+    ...(typeof row.thread_root_id === "string" ? { threadRootId: row.thread_root_id } : {}),
+    ...(typeof row.message_kind === "string" ? { messageKind: row.message_kind } : {}),
+    ...(typeof row.payload_json === "string" ? { payloadJson: row.payload_json } : {}),
+    ...(row.also_in_channel ? { alsoInChannel: true } : {}),
     createdAt: Number(row.created_at),
   };
 }
