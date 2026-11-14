@@ -464,6 +464,8 @@ export default {
       if (collaborationResponse) return collaborationResponse;
       const notificationsResponse = await (await import("./notifications/notifications-routes.js")).handleNotifications(request, env);
       if (notificationsResponse) return notificationsResponse;
+      const slackImportResponse = await (await import("./slack-import/routes.js")).handleSlackImport(request, env);
+      if (slackImportResponse) return slackImportResponse;
       const computersResponse = await handleComputers(request, env);
       if (computersResponse) {
         return computersResponse;
