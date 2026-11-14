@@ -9,8 +9,9 @@ import {
   useRef,
   useState,
 } from "react";
-import type { TeamWorkspaceDetail, TeamWorkspaceMembership } from "@shiba/shared";
+import type { CollabRoomKind, TeamWorkspaceDetail, TeamWorkspaceMembership } from "@shiba/shared";
 import { useCollaborationRoomRealtime } from "../collaboration-room-realtime";
+import { NotificationsPanel } from "./notifications/NotificationsPanel";
 import { PersonalExecutionSetup } from "./PersonalExecutionSetup";
 import { TeamModelSessions } from "./TeamModelSessions";
 import { SharedComputerSessions } from "./SharedComputerSessions";
@@ -22,6 +23,31 @@ interface Room {
   title: string;
   visibility: "private" | "shared";
   memberCount?: number;
+  kind?: CollabRoomKind;
+  unreadCount?: number;
+  lastMessageSeq?: number;
+}
+
+type RoomListTab = CollabRoomKind | "saved";
+
+interface SavedMessageRef {
+  roomId: string;
+  messageId: string;
+  savedAt: number;
+}
+
+async function loadRoomsForTab<T extends { rooms: Room[] }>(
+  api: <R>(path: string, init?: RequestInit) => Promise<R>,
+  tab: CollabRoomKind,
+): Promise<Room[]> {
+  try {
+    const listed = await api<T>(`/api/collaboration/rooms?kind=${encodeURIComponent(tab)}`);
+    if (Array.isArray(listed.rooms)) return listed.rooms;
+  } catch {
+    // Older deployments and test mocks may omit the kind query route.
+  }
+  const listed = await api<T>("/api/collaboration/rooms");
+  return (listed.rooms ?? []).filter((room) => (room.kind ?? "room") === tab);
 }
 
 interface Member {
@@ -252,6 +278,13 @@ function ScopedCollaborationView({
     [workspaceId],
   );
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [roomListTab, setRoomListTab] = useState<RoomListTab>("room");
+  const [tabUnread, setTabUnread] = useState<Record<CollabRoomKind, number>>({
+    channel: 0,
+    dm: 0,
+    room: 0,
+  });
+  const [savedItems, setSavedItems] = useState<SavedMessageRef[]>([]);
   const [activeRoomId, setActiveRoomId] = useState(initialRoomId ?? "");
   const [detail, setDetail] = useState<RoomDetail | null>(null);
   const [roomTitle, setRoomTitle] = useState("");
@@ -405,12 +438,20 @@ function ScopedCollaborationView({
       const previousRoomId = activeRoomRef.current;
       let selected = previousRoomId;
       try {
-        const listed = await api<{ rooms: Room[] }>("/api/collaboration/rooms");
+        if (roomListTab === "saved") {
+          const saved = await api<{ saved: SavedMessageRef[] }>("/api/collaboration/saved");
+          if (!isCurrentRoomRead(epoch, previousRoomId)) return;
+          setSavedItems(saved.saved ?? []);
+          return;
+        }
+        const loadedRooms = await loadRoomsForTab<{ rooms: Room[] }>(api, roomListTab);
         if (!isCurrentRoomRead(epoch, previousRoomId)) return;
-        const availableRooms = listed.rooms.filter(
-          (room) => !revokedRooms.current.has(room.roomId),
-        );
+        const availableRooms = loadedRooms.filter((room) => !revokedRooms.current.has(room.roomId));
         setRooms(availableRooms);
+        setTabUnread((current) => ({
+          ...current,
+          [roomListTab]: availableRooms.reduce((sum, room) => sum + (room.unreadCount ?? 0), 0),
+        }));
         selected = roomId || (revokedRooms.current.size ? "" : availableRooms[0]?.roomId) || "";
         if (revokedRooms.current.has(selected)) return;
         activeRoomRef.current = selected;
@@ -433,7 +474,7 @@ function ScopedCollaborationView({
         }
       }
     },
-    [api, isCurrentRoomRead, loseRoomAccess],
+    [api, isCurrentRoomRead, loseRoomAccess, roomListTab],
   );
 
   useEffect(() => {
@@ -442,12 +483,19 @@ function ScopedCollaborationView({
       const epoch = ++roomReadEpoch.current;
       let selected = activeRoomId;
       try {
-        const listed = await api<{ rooms: Room[] }>("/api/collaboration/rooms");
+        if (roomListTab === "saved") {
+          const saved = await api<{ saved: SavedMessageRef[] }>("/api/collaboration/saved");
+          if (!cancelled) setSavedItems(saved.saved ?? []);
+          return;
+        }
+        const loadedRooms = await loadRoomsForTab<{ rooms: Room[] }>(api, roomListTab);
         if (cancelled || !isCurrentRoomRead(epoch, activeRoomId)) return;
-        const availableRooms = listed.rooms.filter(
-          (room) => !revokedRooms.current.has(room.roomId),
-        );
+        const availableRooms = loadedRooms.filter((room) => !revokedRooms.current.has(room.roomId));
         setRooms(availableRooms);
+        setTabUnread((current) => ({
+          ...current,
+          [roomListTab]: availableRooms.reduce((sum, room) => sum + (room.unreadCount ?? 0), 0),
+        }));
         selected = activeRoomId || (revokedRooms.current.size ? "" : availableRooms[0]?.roomId) || "";
         if (revokedRooms.current.has(selected)) return;
         activeRoomRef.current = selected;
@@ -480,7 +528,28 @@ function ScopedCollaborationView({
       roomReadEpoch.current++;
       window.clearInterval(timer);
     };
-  }, [activeRoomId, api, isCurrentRoomRead, loseRoomAccess]);
+  }, [activeRoomId, api, isCurrentRoomRead, loseRoomAccess, roomListTab]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const kinds: CollabRoomKind[] = ["channel", "dm", "room"];
+      const totals = { channel: 0, dm: 0, room: 0 };
+      for (const kind of kinds) {
+        try {
+          const listed = await loadRoomsForTab<{ rooms: Room[] }>(api, kind);
+          if (cancelled) return;
+          totals[kind] = listed.reduce((sum, room) => sum + (room.unreadCount ?? 0), 0);
+        } catch {
+          // Unread totals are ancillary.
+        }
+      }
+      if (!cancelled) setTabUnread(totals);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, workspaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -726,6 +795,55 @@ function ScopedCollaborationView({
     );
   };
 
+  const reactToMessage = (messageId: string) => {
+    if (!activeRoomId) return;
+    void mutate(async () => {
+      await api("/api/collaboration/reactions", {
+        method: "POST",
+        body: JSON.stringify({ roomId: activeRoomId, messageId, emoji: "👍" }),
+      });
+    });
+  };
+
+  const pinMessage = (messageId: string) => {
+    if (!activeRoomId) return;
+    void mutate(async () => {
+      await api("/api/collaboration/pins", {
+        method: "POST",
+        body: JSON.stringify({ roomId: activeRoomId, messageId }),
+      });
+    });
+  };
+
+  const saveMessage = (messageId: string) => {
+    if (!activeRoomId) return;
+    void mutate(async () => {
+      await api("/api/collaboration/saved", {
+        method: "POST",
+        body: JSON.stringify({ roomId: activeRoomId, messageId }),
+      });
+    });
+  };
+
+  const followMessageThread = (messageId: string) => {
+    if (!activeRoomId) return;
+    void mutate(async () => {
+      await api("/api/collaboration/follows", {
+        method: "POST",
+        body: JSON.stringify({ roomId: activeRoomId, threadRootMessageId: messageId }),
+      });
+    });
+  };
+
+  const openSavedMessage = (roomId: string) => {
+    if (revokedRooms.current.has(roomId)) return;
+    roomReadEpoch.current++;
+    activeRoomRef.current = roomId;
+    setRoomListTab("room");
+    setDetail(null);
+    setActiveRoomId(roomId);
+  };
+
   const sendMessage = (event: FormEvent) => {
     event.preventDefault();
     if (!activeRoomId || !message.trim()) return;
@@ -829,9 +947,12 @@ function ScopedCollaborationView({
             </p>
             <h1 className="font-serif text-2xl">Team conversations</h1>
           </div>
-          <p className="max-w-sm text-xs text-[var(--ink-2)]">
-            Chat with your team. Request employee work separately for human approval.
-          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="max-w-sm text-xs text-[var(--ink-2)]">
+              Chat with your team. Request employee work separately for human approval.
+            </p>
+            <NotificationsPanel workspaceId={workspaceId} />
+          </div>
         </header>
 
         {error && (
@@ -857,10 +978,54 @@ function ScopedCollaborationView({
             aria-label="Group chats"
             className="flex min-w-0 flex-col gap-3 border border-[var(--line)] bg-[var(--card)] p-3"
           >
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="font-mono text-[10px] uppercase tracking-[0.12em]">Group chats</h2>
-              <span className="font-mono text-[10px] text-[var(--ink-2)]">{rooms.length}</span>
+            <div
+              role="tablist"
+              aria-label="Conversation kinds"
+              className="flex flex-wrap gap-1 border-b border-[var(--line)] pb-2"
+            >
+              {(
+                [
+                  { id: "channel" as const, label: "Channels" },
+                  { id: "dm" as const, label: "DMs" },
+                  { id: "room" as const, label: "Rooms" },
+                  { id: "saved" as const, label: "Saved" },
+                ] as const
+              ).map((tab) => {
+                const unread =
+                  tab.id === "saved" ? 0 : tabUnread[tab.id as CollabRoomKind] ?? 0;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={roomListTab === tab.id}
+                    onClick={() => {
+                      setRoomListTab(tab.id);
+                      if (tab.id === "saved") {
+                        setDetail(null);
+                        activeRoomRef.current = "";
+                        setActiveRoomId("");
+                      }
+                    }}
+                    className={`min-h-11 flex-1 px-1 py-1 text-[10px] font-semibold uppercase tracking-wide focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] ${roomListTab === tab.id ? "border-b-2 border-[var(--navy)] text-[var(--ink)]" : "text-[var(--ink-2)]"}`}
+                  >
+                    {tab.label}
+                    {unread > 0 ? (
+                      <span className="ml-1 font-mono text-[9px] text-[var(--navy)]">({unread})</span>
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-mono text-[10px] uppercase tracking-[0.12em]">
+                {roomListTab === "saved" ? "Saved messages" : roomListTab}
+              </h2>
+              <span className="font-mono text-[10px] text-[var(--ink-2)]">
+                {roomListTab === "saved" ? savedItems.length : rooms.length}
+              </span>
+            </div>
+            {roomListTab !== "saved" ? (
             <form onSubmit={createRoom} className="flex flex-col gap-2">
               <input
                 aria-label="New room title"
@@ -891,6 +1056,35 @@ function ScopedCollaborationView({
                 </button>
               </div>
             </form>
+            ) : null}
+            {roomListTab === "saved" ? (
+              <ul
+                aria-label="Saved messages"
+                className="flex max-h-60 flex-col gap-1 overflow-y-auto lg:max-h-none"
+              >
+                {savedItems.map((item) => (
+                  <li key={`${item.roomId}-${item.messageId}`}>
+                    <button
+                      type="button"
+                      onClick={() => openSavedMessage(item.roomId)}
+                      className="min-h-11 w-full border-l-2 border-transparent px-3 py-2 text-left text-sm hover:bg-[var(--panel-2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]"
+                    >
+                      <span className="block truncate font-mono text-xs text-[var(--ink)]">
+                        {item.messageId}
+                      </span>
+                      <span className="block text-[10px] text-[var(--ink-2)]">
+                        Room {item.roomId} · {new Date(item.savedAt).toLocaleString()}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+                {savedItems.length === 0 ? (
+                  <li className="px-2 py-4 text-xs text-[var(--ink-2)]">
+                    Save messages from a conversation to find them here.
+                  </li>
+                ) : null}
+              </ul>
+            ) : (
             <ul
               aria-label="Rooms"
               className="flex max-h-60 flex-col gap-1 overflow-y-auto lg:max-h-none"
@@ -909,7 +1103,14 @@ function ScopedCollaborationView({
                     aria-current={room.roomId === activeRoomId ? "page" : undefined}
                     className={`min-h-11 w-full border-l-2 px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] ${room.roomId === activeRoomId ? "border-[var(--navy)] bg-[var(--panel-2)] text-[var(--ink)]" : "border-transparent text-[var(--ink-2)] hover:bg-[var(--panel-2)]"}`}
                   >
-                    <span className="block truncate font-medium">{room.title}</span>
+                    <span className="flex items-center gap-2 truncate font-medium">
+                      <span className="truncate">{room.title}</span>
+                      {(room.unreadCount ?? 0) > 0 ? (
+                        <span className="shrink-0 font-mono text-[9px] text-[var(--navy)]">
+                          {room.unreadCount}
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="block text-[10px] text-[var(--ink-2)]">
                       {room.visibility} · {room.memberCount ?? 0} members
                     </span>
@@ -922,6 +1123,7 @@ function ScopedCollaborationView({
                 </li>
               )}
             </ul>
+            )}
           </aside>
 
           <main className="flex min-h-0 min-w-0 flex-col border border-[var(--line)] bg-[var(--card)]">
@@ -1050,6 +1252,44 @@ function ScopedCollaborationView({
                             </time>
                           </div>
                           <p className="whitespace-pre-wrap break-words text-sm">{item.body}</p>
+                          <div
+                            role="toolbar"
+                            aria-label="Message actions"
+                            className="mt-2 flex flex-wrap gap-1 border-t border-[var(--line)] pt-2"
+                          >
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => reactToMessage(item.messageId)}
+                              className="min-h-11 px-2 text-[10px] underline disabled:opacity-50"
+                            >
+                              React
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => pinMessage(item.messageId)}
+                              className="min-h-11 px-2 text-[10px] underline disabled:opacity-50"
+                            >
+                              Pin
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => saveMessage(item.messageId)}
+                              className="min-h-11 px-2 text-[10px] underline disabled:opacity-50"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => followMessageThread(item.messageId)}
+                              className="min-h-11 px-2 text-[10px] underline disabled:opacity-50"
+                            >
+                              Follow thread
+                            </button>
+                          </div>
                           <label className="mt-2 flex min-h-11 items-center gap-2 text-[10px] text-[var(--ink-2)]">
                             <input
                               type="checkbox"

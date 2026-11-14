@@ -7,6 +7,7 @@ import {
 } from "./collaboration-store.js";
 import { agentMayReply } from "./collaboration-addressing.js";
 import { openTaskThread, postTaskReply } from "./collaboration-task-threads.js";
+import { createWorkspaceNotification, getWorkspaceNotificationPrefs } from "./notifications/notifications-store.js";
 import type { Env } from "./env.js";
 import { randomHex } from "./mailbox-store.js";
 
@@ -68,6 +69,34 @@ export async function handleCollaborationMentions(
   },
 ): Promise<{ handoffs: CollaborationHandoffRow[]; taskId?: string }> {
   const parsed = parseCollaborationMentions(input.body);
+  const prefs = await getWorkspaceNotificationPrefs(env, scope);
+  if (prefs.mentions) {
+    for (const userId of parsed.users) {
+      if (userId === scope.userId) continue;
+      await createWorkspaceNotification(env, {
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+        userId,
+        kind: "mention",
+        title: "You were mentioned",
+        body: input.body.slice(0, 500),
+        roomId: input.roomId,
+        messageId: input.messageId,
+        createdAt: input.now,
+      });
+      await createWorkspaceNotification(env, {
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+        userId,
+        kind: "needs_you",
+        title: "Needs you",
+        body: input.body.slice(0, 500),
+        roomId: input.roomId,
+        messageId: input.messageId,
+        createdAt: input.now,
+      });
+    }
+  }
   if (parsed.agents.length === 0) return { handoffs: [] };
   const handoffs: CollaborationHandoffRow[] = [];
   let taskId: string | undefined;
@@ -119,7 +148,21 @@ export async function handleCollaborationMentions(
       cancelledAt: null,
     };
     const saved = await createRootCollaborationHandoff(env, scope, row, undefined);
-    if (saved) handoffs.push(saved);
+    if (saved) {
+      handoffs.push(saved);
+      await createWorkspaceNotification(env, {
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+        userId: scope.userId,
+        kind: "needs_you",
+        title: "Approve agent",
+        body: `Approve ${actorId} before any run starts.`,
+        roomId: input.roomId,
+        messageId: input.messageId,
+        metadata: { handoffId: saved.handoffId, taskId: task.taskId },
+        createdAt: input.now,
+      });
+    }
   }
   return { handoffs, taskId };
 }
