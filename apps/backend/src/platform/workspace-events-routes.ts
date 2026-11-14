@@ -1,7 +1,7 @@
 import type { Env } from "../env.js";
 import { isTeamWorkspaceMember } from "../team-workspaces-store.js";
 import { isAuthorizedRequest, resolveUserId } from "../request-auth.js";
-import { workspaceEventsName } from "./workspace-events-do.js";
+import { VERIFIED_SUBSCRIBER_HEADER, workspaceEventsName } from "./workspace-events-do.js";
 
 const PATH = /^\/api\/workspaces\/([^/]+)\/events$/;
 
@@ -28,5 +28,8 @@ export async function handleWorkspaceEvents(request: Request, env: Env): Promise
     return Response.json({ error: "WebSocket upgrade required." }, { status: 426 });
   }
   const stub = env.WorkspaceEvents.getByName(workspaceEventsName(workspaceId));
-  return stub.fetch(new Request(`https://workspace-events.internal/subscribe?userId=${encodeURIComponent(userId)}`, request));
+  const headers = new Headers(request.headers);
+  headers.delete(VERIFIED_SUBSCRIBER_HEADER);
+  headers.set(VERIFIED_SUBSCRIBER_HEADER, userId);
+  return stub.fetch(new Request("https://workspace-events.internal/subscribe", { method: "GET", headers }));
 }
