@@ -94,6 +94,9 @@ import { ModelConfig } from "./model-config-do.js";
 import { ChatGptAuth } from "./chatgpt-auth-do.js";
 import { UserProviderOAuth } from "./user-provider-oauth-do.js";
 import { ConversationRoom } from "./conversation-room-do.js";
+import { WorkspaceEvents } from "./platform/workspace-events-do.js";
+import { SlackImportWorkflow, AutomationRunWorkflow } from "./platform/workflows.js";
+import { dispatchQueueBatch } from "./platform/queues.js";
 import {
   isAuthorizedSessionAgent,
   parseSessionAgentName,
@@ -124,6 +127,9 @@ export {
   ContainerProxy,
   Waitlist,
   Spaces,
+  WorkspaceEvents,
+  SlackImportWorkflow,
+  AutomationRunWorkflow,
 };
 export { assertLiveCodingModel } from "./coding-model.js";
 // Kept public for consumers that import the auth surface from the entry.
@@ -176,6 +182,9 @@ export const DASHBOARD_VIEWS = new Set([
 ]);
 
 export default {
+  async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
+    await dispatchQueueBatch(batch, env, ctx);
+  },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
       try { await (await import("./founder-stripe-runtime.js")).tickFounderStripeReads(env); }
@@ -369,6 +378,8 @@ export default {
       }
       const metaResponse = await handleMeta(request, env);
       if (metaResponse) return metaResponse;
+      const workspaceEventsResponse = await (await import("./platform/workspace-events-routes.js")).handleWorkspaceEvents(request, env);
+      if (workspaceEventsResponse) return workspaceEventsResponse;
       const teamOnboardingTask = await (await import("./team-onboarding-task.js")).handleTeamOnboardingTask(request, env);
       if (teamOnboardingTask) return teamOnboardingTask;
       const onboardingResponse = await handleOnboardingProgress(request, env);

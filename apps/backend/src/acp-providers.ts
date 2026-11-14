@@ -373,6 +373,46 @@ function presentCredential(env: Env, names: readonly string[]): string | null {
 
 const STALE_FAILURE = /AI_GATEWAY_TOKEN|SHIBA_CLAUDE_SUBSCRIPTION|CLAUDE_SUBSCRIPTION_TOKEN|No credential is provisioned|not enabled/;
 
+function credentialsPresentForProvider(env: Env, provider: ProviderDefinition): boolean {
+  if (presentCredential(env, provider.credentialEnv) !== null) return true;
+  const pasteKind = pasteProviderKind(provider.id);
+  return pasteKind !== null;
+}
+
+function shouldReprobeStaleFailure(env: Env, provider: ProviderDefinition, record: StoredConnection): boolean {
+  if (record.phase !== "failed") return false;
+  if (STALE_FAILURE.test(record.message ?? "")) return true;
+  if (credentialsPresentForProvider(env, provider)) return true;
+  const deployedAt = env.CF_VERSION_METADATA?.timestamp ? Date.parse(env.CF_VERSION_METADATA.timestamp) : NaN;
+  if (Number.isFinite(deployedAt) && record.updatedAt !== undefined && record.updatedAt < deployedAt) return true;
+  return false;
+}
+
+async function maybeRefreshStaleFailure(
+  env: Env,
+  org: string,
+  provider: ProviderDefinition,
+  record: StoredConnection | null,
+  deps: ProviderDeps,
+): Promise<StoredConnection | null> {
+  if (record === null || !shouldReprobeStaleFailure(env, provider, record)) return record;
+  await deleteRecord(env, org, provider.id);
+  if (record.phase === "failed" && credentialsPresentForProvider(env, provider)) {
+    const name = presentCredential(env, provider.credentialEnv);
+    if (name) {
+      const now = nowMs(deps);
+      await writeRecord(env, org, provider.id, {
+        phase: "connected",
+        authMode: "api-key",
+        message: `Using ${name} after a stale failure was cleared.`,
+        updatedAt: now,
+      });
+      return readRecord(env, org, provider.id);
+    }
+  }
+  return readRecord(env, org, provider.id);
+}
+
 function publicConnection(record: StoredConnection | null, now: number): AcpProviderConnection {
   if (record === null) return DISCONNECTED;
   const retired =
@@ -479,11 +519,31 @@ export async function readProviderSnapshot(
   const now = nowMs(deps);
   const defaultId = await readDefault(env, org);
   const providers = await Promise.all(
-    ACP_PROVIDER_REGISTRY.map(async (provider) =>
-      toCard(provider, await readRecord(env, org, provider.id), defaultId, now),
-    ),
+    ACP_PROVIDER_REGISTRY.map(async (provider) => {
+      const record = await maybeRefreshStaleFailure(
+        env,
+        org,
+        provider,
+        await readRecord(env, org, provider.id),
+        deps,
+      );
+      return toCard(provider, record, defaultId, now);
+    }),
   );
   return { org, defaultProviderId: defaultId, providers };
+}
+
+export async function resetProvider(
+  env: Env,
+  org: string,
+  id: string,
+  deps: ProviderDeps = {},
+): Promise<AcpProvidersSnapshot> {
+  const provider = acpProvider(id);
+  await deleteRecord(env, org, provider.id);
+  const currentDefault = await readDefault(env, org);
+  if (currentDefault === provider.id) await writeDefault(env, org, null);
+  return readProviderSnapshot(env, org, deps);
 }
 
 function storedFromSession(session: SignInSession, now: number): StoredConnection {
