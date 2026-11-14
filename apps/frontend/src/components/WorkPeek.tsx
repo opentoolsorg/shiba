@@ -25,7 +25,8 @@ export interface WorkPeekProps {
   notice?: ReactNode;
   decisions?: Record<string, boolean>;
   onDecideApproval?: (id: string, approved: boolean) => void;
-  onDecideStoredApproval?: (approval: StoredApproval, approved: boolean) => void;
+  onDecideStoredApproval?: (approval: StoredApproval, approved: boolean, claimAction?: "queue" | "new_branch" | "cancel") => void;
+  claimConflict?: { actorId: string; branch: string; repo: string; runId: string } | null;
   /** Supply existing thread/live components for the selected task, with their original scope and handlers. */
   renderContent?: (task: WorkTask, tab: WorkPeekTab) => ReactNode;
 }
@@ -67,6 +68,8 @@ export function WorkPeek(props: WorkPeekProps) {
           decided={decision !== undefined || storedApproval.status !== "pending"}
           decision={decision}
           onDecide={props.onDecideStoredApproval}
+          conflict={props.claimConflict}
+          onClaimChoice={(choice) => props.onDecideStoredApproval?.(storedApproval, choice !== "cancel", choice)}
         />
       ) : pendingApproval && props.onDecideApproval ? (
         <ApprovalCard

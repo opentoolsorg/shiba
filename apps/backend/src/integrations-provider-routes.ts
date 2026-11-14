@@ -10,6 +10,32 @@ import type { Env } from "./env.js";
 import { isAuthorizedRequest } from "./request-auth.js";
 import { hasSameOriginIntent } from "./route-utils.js";
 import { getIntegrationProvider } from "./integrations/runtime.js";
+import { OpenConnectorIntegrationProviderError } from "./integrations/openconnector-provider.js";
+import { resolveOrgForApiRequest } from "./org-request-auth.js";
+import { resolveConnectorWorkspaceId, syncPersonalConnectorsFromProvider } from "./extensions/connectors-store.js";
+
+export function openConnectorGate(env: Env): Response | null {
+  const bound = Boolean(env.OPEN_CONNECTOR) || Boolean(env.OPEN_CONNECTOR_URL?.trim());
+  const enabled =
+    env.OPEN_CONNECTOR_ENABLED === "1" ||
+    env.OPEN_CONNECTOR_ENABLED === "true" ||
+    bound;
+  if (!enabled || !bound) {
+    return json({ ok: false, code: "openconnector_not_bound", error: "Set up OpenConnector." }, 503);
+  }
+  return null;
+}
+
+function integrationUnavailable(error: unknown): Response {
+  if (error instanceof OpenConnectorIntegrationProviderError) {
+    const message = error.message;
+    if (/OPEN_CONNECTOR|OpenConnector/i.test(message)) {
+      return json({ ok: false, code: "openconnector_not_bound", error: "Set up OpenConnector." }, 503);
+    }
+    return json({ ok: false, error: message }, 503);
+  }
+  return json({ ok: false, error: "Integration connections unavailable." }, 503);
+}
 
 const PROVIDER_BASE = "/api/integrations/provider";
 
@@ -147,17 +173,31 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
   }
 
   if (suffix === "/connections" && request.method === "GET") {
+    const gate = openConnectorGate(env);
+    if (gate) return gate;
     try {
       const connections = await provider.listConnections({ userId: owner, ...(url.searchParams.get("includeUnavailable") === "1" ? { includeUnavailable: true } : {}) });
+      const orgAuth = await resolveOrgForApiRequest(request, env);
+      if (!(orgAuth instanceof Response) && env.AGENT_AUDIT) {
+        const teamWorkspaceId = orgAuth.workspace?.workspaceId;
+        const registryWorkspaceId = resolveConnectorWorkspaceId(orgAuth.orgId);
+        try {
+          await syncPersonalConnectorsFromProvider(env, registryWorkspaceId, owner, teamWorkspaceId);
+        } catch {
+          /* Registry sync is best-effort when OpenConnector is partially available. */
+        }
+      }
       return json({ ok: true, provider: selectedId, connections });
-    } catch {
-      return json({ ok: false, error: "Integration connections unavailable." }, 503);
+    } catch (error) {
+      return integrationUnavailable(error);
     }
   }
 
   if (suffix === "/catalog" && request.method === "GET") {
     const readiness = parseReadiness(url.searchParams.get("readiness"));
     if (readiness === null) return json({ ok: false, error: "readiness must be ready, needs_configuration, unsupported or unverified." }, 400);
+    const gate = openConnectorGate(env);
+    if (gate) return gate;
     try {
       const page = await provider.listCatalog({
         userId: owner,
@@ -176,8 +216,8 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
         total: page.total,
         oauthCapable: page.oauthCapable,
       });
-    } catch {
-      return json({ ok: false, error: "Integration catalog unavailable." }, 503);
+    } catch (error) {
+      return integrationUnavailable(error);
     }
   }
 

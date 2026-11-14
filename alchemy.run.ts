@@ -57,6 +57,7 @@ import type { Sandbox } from "./apps/backend/src/sandbox.js";
 import type { Waitlist } from "./apps/backend/src/waitlist-do.js";
 import type { Spaces } from "./apps/backend/src/spaces-do.js";
 import type { ConversationRoom } from "./apps/backend/src/conversation-room-do.js";
+import type { WorkspaceEvents } from "./apps/backend/src/platform/workspace-events-do.js";
 import type { ModelConfig } from "./apps/backend/src/model-config-do.js";
 
 // alchemy loads .env into its own config store, not process.env — which
@@ -174,6 +175,7 @@ export const Worker = Cloudflare.Worker("Worker", {
   env: {
     GATEWAY_ID: "default",
     INTEGRATIONS_PROVIDER: "openconnector",
+    OPEN_CONNECTOR_ENABLED: "0",
     SHIBA_PERSONAL_LOCAL_EXECUTION: "0",
     SHIBA_TEAM_MODEL_SESSIONS: "0",
     SHIBA_SHARED_COMPUTER: "0",
@@ -268,12 +270,18 @@ export const Worker = Cloudflare.Worker("Worker", {
     ConversationRoom: Cloudflare.DurableObject<ConversationRoom>("ConversationRoom", {
       className: "ConversationRoom",
     }),
+    WorkspaceEvents: Cloudflare.DurableObject<WorkspaceEvents>("WorkspaceEvents", {
+      className: "WorkspaceEvents",
+    }),
 
     // Megaplan stores — wrangler keeps `__PENDING__` ids until the resources
     // are created; alchemy provisions them on first deploy.
     AGENT_TOKENS: AgentTokens,
     ATTACHMENTS: Cloudflare.R2.Bucket("ATTACHMENTS", {
       name: `shiba-attachments${resSuffix}`,
+    }),
+    FILES: Cloudflare.R2.Bucket("FILES", {
+      name: `shiba-files${resSuffix}`,
     }),
     ARTIFACTS: Cloudflare.R2.Bucket("ARTIFACTS", {
       name: `shiba-artifacts${resSuffix}`,
@@ -296,6 +304,27 @@ export const Worker = Cloudflare.Worker("Worker", {
       namespaceId: "1001",
       simple: { limit: 100, period: 60 },
     }),
+    AUTH_RATE_LIMIT: Cloudflare.RateLimit("AUTH_RATE_LIMIT", {
+      namespaceId: "1002",
+      simple: { limit: 30, period: 60 },
+    }),
+    UPLOAD_RATE_LIMIT: Cloudflare.RateLimit("UPLOAD_RATE_LIMIT", {
+      namespaceId: "1003",
+      simple: { limit: 20, period: 60 },
+    }),
+
+  INGEST_QUEUE: Cloudflare.Queues.Queue("INGEST_QUEUE", { name: `shiba-ingest${resSuffix}` }),
+  WEBHOOK_QUEUE: Cloudflare.Queues.Queue("WEBHOOK_QUEUE", { name: `shiba-webhooks${resSuffix}` }),
+  EMAIL_QUEUE: Cloudflare.Queues.Queue("EMAIL_QUEUE", { name: `shiba-email${resSuffix}` }),
+
+  SLACK_IMPORT_WORKFLOW: Cloudflare.Workflow("SlackImportWorkflow", {
+    className: "SlackImportWorkflow",
+    workflowName: `shiba-slack-import${resSuffix}`,
+  }),
+  AUTOMATION_RUN_WORKFLOW: Cloudflare.Workflow("AutomationRunWorkflow", {
+    className: "AutomationRunWorkflow",
+    workflowName: `shiba-automation-run${resSuffix}`,
+  }),
 
     // wrangler durable_objects.bindings Sandbox + containers[0]: the
     // Container decl is the DO namespace binding plus its container app.

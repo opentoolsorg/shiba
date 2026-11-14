@@ -1,4 +1,5 @@
 import { type JSX, type ReactNode } from "react";
+import type { RunThreadMessage } from "@shiba/shared";
 import type { RetainedRun } from "../types";
 import type { RunThreadTab } from "../run-thread-search";
 import { DiffViewer } from "./DiffViewer";
@@ -29,6 +30,7 @@ export interface RunThreadPanelProps {
   proof?: RunProofSnapshot | null;
   conversation?: ReactNode;
   stopReason?: string | null;
+  thread?: RunThreadMessage[];
 }
 
 export function RunThreadPanel(props: RunThreadPanelProps): JSX.Element {
@@ -53,6 +55,25 @@ export function RunThreadPanel(props: RunThreadPanelProps): JSX.Element {
       </div>
       {stopReason ? <p className="text-xs text-[var(--warning-fg)]" role="status">Stopped: {stopReason}</p> : null}
       {tab === "conversation" ? conversation ?? <p className="text-sm text-[var(--muted-foreground-2)]">No conversation loaded.</p> : null}
+      {tab === "timeline" && props.thread?.length ? (
+        <ol className="flex flex-col gap-2 text-sm">
+          {props.thread.map((message) => (
+            <li key={message.id} className="border border-[var(--border-1)] px-3 py-2">
+              <span className="font-mono text-[10px] uppercase text-[var(--muted-foreground-2)]">{message.kind}</span>
+              <p className="mt-1 whitespace-pre-wrap">
+                {"text" in message ? message.text : message.kind === "question" ? message.prompt : message.kind === "approval" ? "Approval" : ""}
+              </p>
+              {message.kind === "question" ? (
+                <ul className="mt-2 list-disc pl-4">{message.options.map((option) => <li key={option}>{option}</li>)}</ul>
+              ) : null}
+              {message.kind === "approval" ? (
+                <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(message.frozenPayload, null, 2)}</pre>
+              ) : null}
+              {message.kind === "denial" ? <p className="mt-1 text-xs">This denial is final.</p> : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
       {tab === "timeline" && run && sessionId ? (
         <RunLivePanel runId={run.runId} sessionId={sessionId} />
       ) : tab === "timeline" ? (

@@ -25,6 +25,7 @@ afterEach(() => { vi.restoreAllMocks(); });
 type Account = { id: string; service: string; connectionName: string; configured: boolean; virtual: boolean; oauthAuthorizationId: string; profile: { displayName: string } };
 async function fixture(service = "github", inputSchema: Record<string, unknown> = { type: "object", properties: { title: { type: "string" } } }) {
   const db = customAgentD1();
+  db.sqlite.exec(readFileSync(new URL("../migrations/0042_workspace_connectors_v2.sql", import.meta.url), "utf8"));
   db.sqlite.exec('CREATE TABLE "user" (id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy (account_id TEXT PRIMARY KEY,email TEXT)');
   for (const email of [OWNER, MEMBER, ADMIN, "other-owner@example.test"]) {
     const accountId = crypto.randomUUID(); actor.accounts[email] = accountId;

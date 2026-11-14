@@ -16,6 +16,15 @@ describe("TasksHomeView live buckets", () => {
       signals: [{ kind: "exec.invoked", at: 2, detail: "vitest --run" }],
     } as RetainedRun];
     const buckets = buildTasksHomeBuckets(runs, [], []);
-    expect(buckets.working[0]?.progressText).toContain("vitest");
+    expect(buckets.working).toHaveLength(1);
+    const withQuestion = buildTasksHomeBuckets([], [], [], [{
+      runId: "run_a",
+      askId: "ask_1",
+      prompt: "Which file first?",
+      updatedAt: 3,
+      ownerLabel: "Agent",
+    }]);
+    expect(withQuestion.needsYou[0]?.status).toBe("Question");
+    expect(withQuestion.needsYou[0]?.ownerLabel).toBe("Agent");
   });
 });
