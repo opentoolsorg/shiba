@@ -7,6 +7,7 @@ import {
   createTeamWorkspaceInvitation,
 } from "../src/team-workspaces-store.js";
 import { TEST_ACCESS_AUD, verifiedAccessHeaders } from "./fixtures/access-identity.js";
+import { applyEmailOutboxSchema } from "./fixtures/email-outbox-schema.js";
 
 const routing = vi.hoisted(() => ({ getAgentByName: vi.fn(), routeAgentRequest: vi.fn() }));
 vi.mock("agents/routing", () => routing);
@@ -30,6 +31,7 @@ afterEach(() => {
 
 function fixture() {
   const sqlite = new DatabaseSync(":memory:");
+  applyEmailOutboxSchema(sqlite);
   databases.push(sqlite);
   const bindValue = (value: unknown): never =>
     (value instanceof Date
@@ -156,7 +158,12 @@ async function member(f: ReturnType<typeof fixture>) {
   const verificationUrl = mail?.text?.match(/https:\/\/\S+/)?.[0];
   if (!verificationUrl) throw new Error("Fixture verification email is missing its URL.");
   expect((await worker.fetch(new Request(verificationUrl), f.env)).status).toBe(302);
-  const cookie = cookies(registered);
+  const signedIn = await worker.fetch(
+    request("/api/auth/sign-in/email", "POST", { email: MEMBER, password: "member-password-456" }),
+    f.env,
+  );
+  expect(signedIn.status).toBe(200);
+  const cookie = cookies(signedIn);
   const accepted = await worker.fetch(
     request("/api/workspaces/invitations/accept", "POST", { token: invitation.token }, { cookie }),
     f.env,
