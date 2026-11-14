@@ -82,6 +82,8 @@ import { IntegrationsView } from "./components/IntegrationsView";
 import { MemoryTab } from "./components/MemoryTab";
 import { FilesView } from "./components/knowledge/FilesView";
 import { NotesEditor } from "./components/knowledge/NotesEditor";
+import { OutputsView } from "./components/knowledge/OutputsView";
+import { ProjectsView } from "./components/knowledge/ProjectsView";
 import { SettingsPage, SettingsPanel, normalizeSettingsSection } from "./components/SettingsPage";
 import { MainCard, type Scope } from "./components/ui/ContextPanel";
 import { AgentsPanel } from "./components/AgentsPanel";
@@ -3847,6 +3849,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <FilesView />
           ) : mainView === "notes" ? (
             <NotesEditor />
+          ) : mainView === "projects" ? (
+            <ProjectsView />
+          ) : mainView === "outputs" ? (
+            <OutputsView />
           ) : mainView === "automations" ? (
             <AutomationsView scope={scope} sidebarCollapsed={sessionsCollapsed} onToggleSidebar={toggleSessionsCollapsed} selectedAutomationId={selectedAutomationId} onSelectAutomation={setSelectedAutomationId} onAutomationsChange={setAutomationList} />
           ) : mainView === "swarm" ? (
