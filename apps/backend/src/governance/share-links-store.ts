@@ -3,6 +3,7 @@ import { COLLAB_TENANT_ID } from "../collaboration-store.js";
 import type { Env } from "../env.js";
 import { randomHex } from "../mailbox-store.js";
 import { getTeamWorkspaceMembership } from "../team-workspaces-store.js";
+import { canAccess } from "./resource-access.js";
 import {
   GovernanceError,
   getWorkspaceSharingPolicy,
@@ -29,6 +30,13 @@ export async function createShareLink(
     throw new GovernanceError("Workspace not found.", 404);
   const membership = await getTeamWorkspaceMembership(env, workspaceId, userId);
   if (!membership) throw new GovernanceError("Workspace not found.", 404);
+  const access = await canAccess(env, {
+    actor: { workspaceId, userId },
+    resourceKind: input.resourceKind,
+    resourceId: input.resourceId,
+    access: "view",
+  });
+  if (!access.allowed) throw new GovernanceError("Resource not found.", 404);
   const policy = await getWorkspaceSharingPolicy(env, workspaceId, userId);
   if (!policy.publicLinksAllowed)
     throw new GovernanceError("Public share links are disabled for this workspace.", 403);
@@ -73,6 +81,7 @@ interface ShareRow {
   workspaceId: string;
   resourceKind: GovernanceResourceKind;
   resourceId: string;
+  createdBy: string;
   createdAt: number;
   expiresAt: number | null;
   revokedAt: number | null;
@@ -88,13 +97,20 @@ export async function resolveShareLinkByToken(
   const row = await env
     .AGENT_AUDIT!.prepare(
       `SELECT link_id AS linkId, workspace_id AS workspaceId, resource_kind AS resourceKind, resource_id AS resourceId,
-            created_at AS createdAt, expires_at AS expiresAt, revoked_at AS revokedAt
+            created_by AS createdBy, created_at AS createdAt, expires_at AS expiresAt, revoked_at AS revokedAt
      FROM share_links WHERE tenant_id=? AND token_hash=? LIMIT 1`,
     )
     .bind(COLLAB_TENANT_ID, tokenHash)
     .first<ShareRow>();
   if (!row || row.revokedAt !== null) return null;
   if (row.expiresAt !== null && row.expiresAt <= now) return null;
+  const access = await canAccess(env, {
+    actor: { workspaceId: row.workspaceId, userId: row.createdBy },
+    resourceKind: row.resourceKind,
+    resourceId: row.resourceId,
+    access: "view",
+  });
+  if (!access.allowed) return null;
   return row;
 }
 
