@@ -4,6 +4,7 @@ import { COLLAB_TENANT_ID } from "./collaboration-store.js";
 import { ensureTeamWorkspacesSchema, getTeamWorkspaceMembership } from "./team-workspaces-store.js";
 import { getCustomAgentById, listCustomAgents } from "./custom-agents-store.js";
 import { getIntegrationProvider } from "./integrations/runtime.js";
+import { promoteConnectorToWorkspaceScope } from "./extensions/connectors-store.js";
 import { isWorkspaceNativeAccountCurrent, nativeWorkspaceAccountSql, resolveWorkspaceNativeGrantTarget, type WorkspaceNativeMember } from "./workspace-native-authority.js";
 
 export class WorkspaceIntegrationError extends Error {
@@ -146,7 +147,16 @@ export async function reconcileWorkspaceConnection(env: Env, member: WorkspaceNa
     identity_label: selected[0]!.identityLabel ?? null, version: row.version + 1, updated_at: Date.now() },
     `id=? AND workspace_id=? AND version=? AND state='pending' AND pending_id=? AND fingerprint=? AND pending_expires_at>? AND ${guard.sql}`,
     [id, member.workspaceId, row.version, pendingId, fingerprint, Date.now(), ...guard.values]).run());
-  return requireWorkspaceConnection(env, member.workspaceId, id);
+  const active = await requireWorkspaceConnection(env, member.workspaceId, id);
+  if (active.provider_connection_id) {
+    const registryWorkspaceId = member.workspaceId;
+    await promoteConnectorToWorkspaceScope(env, registryWorkspaceId, member.userId, {
+      providerKey: active.provider_key,
+      connectedAccountId: active.provider_connection_id,
+      workspaceAppConnectionId: active.id,
+    });
+  }
+  return active;
 }
 export async function disconnectWorkspaceConnection(env: Env, member: WorkspaceNativeMember, id: string, expectedVersion: number) {
   const row = await requireWorkspaceConnection(env, member.workspaceId, id, expectedVersion);
@@ -181,6 +191,8 @@ export async function currentWorkspaceGrant(env: Env, row: WorkspaceGrantRow) {
 }
 export async function assertWorkspaceIntegrationGrant(env: Env, input: { workspaceId: string; actorId: string; employeeId: string; employeeVersion: number; connectionId: string; permission: "discover" | "execute" }) {
   await ensureWorkspaceIntegrationSchema(env);
+  const { assertConnectorRegistryAllowsRuntime } = await import("./extensions/connectors-store.js");
+  await assertConnectorRegistryAllowsRuntime(env, input.connectionId);
   const row = await env.AGENT_AUDIT.prepare("SELECT * FROM workspace_app_grants WHERE workspace_id=? AND connection_id=? AND employee_id=? AND actor_id=? AND state='active'")
     .bind(input.workspaceId, input.connectionId, input.employeeId, input.actorId).first<WorkspaceGrantRow>();
   if (!row || row.employee_version !== input.employeeVersion || !(JSON.parse(row.permissions_json) as string[]).includes(input.permission)) throw new WorkspaceIntegrationError("workspace_connection_grant_missing", 403);

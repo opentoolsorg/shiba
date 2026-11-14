@@ -15,6 +15,7 @@ import {
   type SkillRecord,
   updateSkill,
 } from "./skills-store.js";
+import { createExtensionSkill } from "./extension-skills-store.js";
 
 const MAX_NAME = 100;
 const MAX_INSTRUCTIONS = 16_000;
@@ -85,7 +86,7 @@ export async function handleSkills(request: Request, env: Env): Promise<Response
 async function handleSkillRoutes(request: Request, env: Env, auth: ResolvedOrgAuth): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/skills")) return null;
-  const match = url.pathname.match(/^\/api\/skills(?:\/([^/]+)(?:\/(versions|review|activate|disable))?)?\/?$/);
+  const match = url.pathname.match(/^\/api\/skills(?:\/([^/]+)(?:\/(versions|review|activate|disable|publish-extension))?)?\/?$/);
   if (!match) return Response.json({ ok: false, error: "not_found" }, { status: 404 });
   if (!env.AGENT_AUDIT) return Response.json({ ok: false, error: "skill_storage_unavailable" }, { status: 503 });
 
@@ -171,6 +172,23 @@ async function handleSkillRoutes(request: Request, env: Env, auth: ResolvedOrgAu
       if (error instanceof Error && error.message === "version_conflict") return Response.json({ ok: false, error: "version_conflict" }, { status: 409 });
       throw error;
     }
+  }
+
+  if (subroute === "publish-extension" && request.method === "POST") {
+    const reviewedVersion = existing.reviewedVersion ?? existing.activeVersion ?? existing.version;
+    const instructions = existing.reviewedInstructions ?? existing.content.instructions;
+    if (!instructions || reviewedVersion === undefined) {
+      return Response.json({ ok: false, error: "review_required" }, { status: 409 });
+    }
+    const extensionId = await createExtensionSkill(env, auth.orgId, ownerId, {
+      name: existing.content.name,
+      description: existing.content.sourceUrl ? `Published from reviewed run skill ${existing.id}` : `Published from reviewed run skill ${existing.id}`,
+      instructions,
+      enabled: false,
+      workspaceId: auth.orgId.startsWith("team:") ? auth.orgId.slice("team:".length) : auth.orgId,
+      scope: "personal",
+    }, Date.now(), mutationOptions);
+    return Response.json({ ok: true, extensionSkillId: extensionId, version: reviewedVersion }, { status: 201, headers: { "cache-control": "no-store" } });
   }
 
   if (subroute === "review" || subroute === "activate") {
