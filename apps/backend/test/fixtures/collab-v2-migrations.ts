@@ -12,5 +12,5 @@ function apply(sqlite: DatabaseSync, file: string, marker: string): void {
 export function applyCollabV2Migrations(sqlite: DatabaseSync): void {
   apply(sqlite, "0046_collab_v2.sql", "collaboration_task_threads");
   apply(sqlite, "0047_collab_engagement.sql", "collaboration_reactions");
-  apply(sqlite, "0048_slack_import.sql", "slack_import_jobs");
+  apply(sqlite, "0058_slack_import.sql", "slack_import_jobs");
 }
