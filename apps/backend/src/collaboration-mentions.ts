@@ -6,7 +6,9 @@ import {
   type CollaborationHandoffRow,
 } from "./collaboration-store.js";
 import { agentMayReply } from "./collaboration-addressing.js";
+import { claimReply } from "./collaboration-reply-claims.js";
 import { openTaskThread, postTaskReply } from "./collaboration-task-threads.js";
+import { postRoomEvent } from "./collaboration-thread-post.js";
 import { createWorkspaceNotification, getWorkspaceNotificationPrefs } from "./notifications/notifications-store.js";
 import type { Env } from "./env.js";
 import { randomHex } from "./mailbox-store.js";
@@ -65,6 +67,7 @@ export async function handleCollaborationMentions(
     messageId: string;
     body: string;
     channelKind?: "room" | "channel" | "dm";
+    sourceSlackEventId?: string | null;
     now: number;
   },
 ): Promise<{ handoffs: CollaborationHandoffRow[]; taskId?: string }> {
@@ -79,17 +82,6 @@ export async function handleCollaborationMentions(
         userId,
         kind: "mention",
         title: "You were mentioned",
-        body: input.body.slice(0, 500),
-        roomId: input.roomId,
-        messageId: input.messageId,
-        createdAt: input.now,
-      });
-      await createWorkspaceNotification(env, {
-        tenantId: scope.tenantId,
-        workspaceId: scope.workspaceId,
-        userId,
-        kind: "needs_you",
-        title: "Needs you",
         body: input.body.slice(0, 500),
         roomId: input.roomId,
         messageId: input.messageId,
@@ -111,6 +103,24 @@ export async function handleCollaborationMentions(
       receivedHandoff: false,
       listenMode: "mentions",
     })) continue;
+    const claimed = await claimReply(env, scope, {
+      roomId: input.roomId,
+      triggerMessageId: input.messageId,
+      slot: actorId,
+      actorId,
+      sourceSlackEventId: input.sourceSlackEventId,
+      claimedAt: input.now,
+    });
+    if (!claimed) continue;
+    await postRoomEvent(env, { ...scope, userId: recipient.userId }, {
+      roomId: input.roomId,
+      threadRootId: input.messageId,
+      kind: "ack",
+      body: `${recipient.displayName} acknowledged.`,
+      actorId,
+      userId: recipient.userId,
+      now: input.now,
+    });
     const task = await openTaskThread(env, scope, {
       roomId: input.roomId,
       title: input.body.slice(0, 240),
