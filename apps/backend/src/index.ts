@@ -46,6 +46,7 @@ import { handleLocalAdapter, isLocalRuntimePath } from "./local-routes.js";
 import { LocalDispatch } from "./local-dispatch.js";
 import { handleMcp } from "./mcp-routes.js";
 import { handleMemory } from "./memory-routes.js";
+import { handleFiles } from "./files/files-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
 import { handleAcpProviders } from "./acp-provider-routes.js";
 import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
@@ -99,6 +100,7 @@ import { ConversationRoom } from "./conversation-room-do.js";
 import { WorkspaceEvents } from "./platform/workspace-events-do.js";
 import { SlackImportWorkflow, AutomationRunWorkflow } from "./platform/workflows.js";
 import { dispatchQueueBatch } from "./platform/queues.js";
+import "./knowledge/knowledge-ingest-queue.js";
 import {
   isAuthorizedSessionAgent,
   parseSessionAgentName,
@@ -172,6 +174,7 @@ export const DASHBOARD_VIEWS = new Set([
   "agents",
   "inbox",
   "memory",
+  "files",
   "automations",
   "providers",
   "employee-tools",
@@ -524,6 +527,8 @@ export default {
       if (memoryResponse) {
         return memoryResponse;
       }
+      const filesResponse = await handleFiles(request, env);
+      if (filesResponse) return filesResponse;
       const auditResponse = await handleAudit(request, env);
       if (auditResponse) {
         return auditResponse;
