@@ -26,7 +26,7 @@ function outcomeClass(outcome: string): string {
   return "text-[var(--muted-foreground-2)]";
 }
 
-export function AuditPanel(): JSX.Element {
+export function AuditPanel({ workspaceId }: { workspaceId?: string } = {}): JSX.Element {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,14 +52,34 @@ export function AuditPanel(): JSX.Element {
     <div className="flex flex-col gap-2">
       <h4 className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground-2)] border-t border-[var(--border-1)] pt-3 flex items-center justify-between">
         <span>Audit log</span>
-        <button
-          type="button"
-          onClick={() => void load()}
-          title="Refresh audit log"
-          className="text-[11px] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] font-normal normal-case tracking-normal transition-colors"
-        >
-          Refresh
-        </button>
+        <span className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void load()}
+            title="Refresh audit log"
+            className="text-[11px] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] font-normal normal-case tracking-normal transition-colors"
+          >
+            Refresh
+          </button>
+          {workspaceId ? (
+            <button
+              type="button"
+              title="Export audit log (owner)"
+              className="text-[11px] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] font-normal normal-case tracking-normal transition-colors"
+              onClick={() => {
+                void fetch(`/api/governance/${workspaceId}/audit-export`, { method: "POST", headers: { "X-Shiba-Workspace": workspaceId } })
+                  .then(async (response) => {
+                    const body = await response.json() as { downloadPath?: string; error?: string };
+                    if (!response.ok || !body.downloadPath) throw new Error(body.error ?? "Export failed.");
+                    window.location.assign(body.downloadPath);
+                  })
+                  .catch(() => {});
+              }}
+            >
+              Export
+            </button>
+          ) : null}
+        </span>
       </h4>
 
       {error !== null ? (

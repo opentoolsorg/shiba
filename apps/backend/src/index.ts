@@ -33,6 +33,8 @@ import { handleReasonNetwork } from "./reason-network/routes.js";
 import { handleSubscriptionAuth } from "./auth-routes.js";
 import { handleUserOpenAiSubscription } from "./subscription-auth-routes.js";
 import { handleAudit } from "./audit-routes.js";
+import { handleGovernance } from "./governance-routes.js";
+import { handleShare } from "./share-routes.js";
 import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
 import { handleGitHubWebhook } from "./github-webhook-routes.js";
@@ -318,7 +320,12 @@ export default {
         if (/^\/spaces\/[^/]+\/?$/.test(url.pathname)) {
           return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
         }
+        if (/^\/share\/[cf]\/[^/]+\/?$/.test(url.pathname)) {
+          return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
+        }
       }
+      const publicShareResponse = await handleShare(request, env);
+      if (publicShareResponse) return publicShareResponse;
       if (!isPublicRequest(request) && !isOrgApiPath(url.pathname) && !(await isAuthorizedRequest(request, env))) {
         // A signed-out browser on the consent screen goes to sign-in and
         // comes back; MCP clients and fetch() keep the JSON 401.
@@ -363,6 +370,10 @@ export default {
       if (workResponse) return workResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);
       if (workspaceResponse) return workspaceResponse;
+      const governanceResponse = await handleGovernance(request, env);
+      if (governanceResponse) return governanceResponse;
+      const shareResponse = await handleShare(request, env);
+      if (shareResponse) return shareResponse;
       const seedResponse = await (await import("./first-run-seed.js")).handleFirstRunSeed(request, env);
       if (seedResponse) return seedResponse;
       const bundleResponse = await handleEmployeeBundles(request, env);
