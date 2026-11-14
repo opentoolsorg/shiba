@@ -178,6 +178,8 @@ export interface Env {
   CODEX_MODEL?: string;
   /** Optional default model for the grok harness, e.g. xai/grok-4.6. */
   GROK_MODEL?: string;
+  /** When "1", a close routing margin may call grok-4.7 once at temperature 0. Default off. */
+  SHIBA_ROUTER_CLASSIFY?: string;
   /** Optional default model for the pi harness, e.g. anthropic/claude-sonnet-4-6. */
   PI_MODEL?: string;
   /**

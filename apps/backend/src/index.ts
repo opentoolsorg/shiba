@@ -26,6 +26,7 @@ import { handleWorkspaceIntegrations } from "./workspace-integrations-routes.js"
 import { handlePersonalExecution } from "./personal-execution-routes.js";
 import { handleOnboardingProgress } from "./onboarding-progress.js";
 import { handleTeamWorkspaces } from "./team-workspaces-routes.js";
+import { handlePrimaryBot } from "./collaboration-primary-bot-routes.js";
 import { handleTeamWork } from "./team-work-routes.js";
 import { handleEmployeeBundles } from "./employee-bundles-routes.js";
 import { enforceTeamMemberApiPolicy } from "./team-member-auth.js";
@@ -389,6 +390,8 @@ export default {
       if (teamModelResponse) return teamModelResponse;
       const workResponse = await handleTeamWork(request, env);
       if (workResponse) return workResponse;
+      const primaryBotResponse = await handlePrimaryBot(request, env);
+      if (primaryBotResponse) return primaryBotResponse;
       const searchResponse = await (await import("./search-routes.js")).handleSearch(request, env);
       if (searchResponse) return searchResponse;
       const paletteResponse = await (await import("./palette-routes.js")).handlePalette(request, env);

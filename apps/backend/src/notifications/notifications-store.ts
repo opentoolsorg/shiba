@@ -102,8 +102,18 @@ export async function listWorkspaceNotifications(
 ): Promise<WorkspaceNotificationRow[]> {
   await ensureCollabV2Migrated(env);
   const rows = await env.AGENT_AUDIT.prepare(
-    `SELECT * FROM workspace_notifications WHERE tenant_id=? AND workspace_id=? AND user_id=?
-     ORDER BY created_at DESC LIMIT ?`,
+    `WITH ranked AS (
+       SELECT notification_id,
+         ROW_NUMBER() OVER (
+           PARTITION BY user_id, CASE WHEN message_id IS NULL OR message_id = '' THEN notification_id ELSE message_id END
+           ORDER BY CASE kind WHEN 'mention' THEN 0 WHEN 'handoff' THEN 1 ELSE 2 END, created_at
+         ) AS keep_rank
+       FROM workspace_notifications
+       WHERE tenant_id=? AND workspace_id=? AND user_id=?
+     )
+     SELECT n.* FROM workspace_notifications n
+     JOIN ranked r ON r.notification_id = n.notification_id AND r.keep_rank = 1
+     ORDER BY n.created_at DESC LIMIT ?`,
   )
     .bind(scope.tenantId, scope.workspaceId, scope.userId, limit)
     .all<Record<string, unknown>>();
