@@ -1,5 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+
+const emailOutboxMigration = readFileSync(new URL("../migrations/0040_email_outbox.sql", import.meta.url), "utf8");
 import { BETTER_AUTH_STATEMENTS, ensureBetterAuthSchema, handleBetterAuth, resolveBetterAuthUserId } from "../src/better-auth.js";
 import type { Env } from "../src/env.js";
 import { sendNativeEnrollmentVerification } from "../src/native-enrollment-email.js";
@@ -10,6 +13,7 @@ const BASE = "https://team.example.test";
 const owner = "owner@example.test", member = "member@example.test";
 function fixture() {
   const sqlite = new DatabaseSync(":memory:");
+  sqlite.exec(emailOutboxMigration);
   const bindValue = (value: unknown): never => (value instanceof Date ? value.getTime() : typeof value === "boolean" ? Number(value) : value ?? null) as never;
   const prepared = (sql: string, params: unknown[] = []) => ({
     bind: (...args: unknown[]) => prepared(sql, args),
@@ -29,11 +33,12 @@ const request = (path: string, method = "GET", body?: unknown, headers: Record<s
   method, headers: { origin: BASE, "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
 });
 const native = (req: Request, env: Env) => handleBetterAuth(req, env, { teamMemberPolicyEnabled: true });
+const ownerAuth = (req: Request, env: Env) => handleBetterAuth(req, env);
 function cookies(response: Response): string {
   return response.headers.getSetCookie().map((cookie) => cookie.split(";")[0]).join("; ");
 }
 async function bootstrap(f: ReturnType<typeof fixture>) {
-  const response = (await native(request("/api/auth/sign-up/email", "POST", { name: "Owner", email: owner, password: "password-123" }, { "x-shiba-bootstrap-token": "local-fixture-bootstrap" }), f.env))!;
+  const response = (await ownerAuth(request("/api/auth/sign-up/email", "POST", { name: "Owner", email: owner, password: "password-123" }, { "x-shiba-bootstrap-token": "local-fixture-bootstrap" }), f.env))!;
   expect(response.status).toBe(200);
   expect(f.send).not.toHaveBeenCalled();
   return cookies(response);
@@ -57,13 +62,17 @@ describe("invitation-only verified native enrollment", () => {
   it("preserves only the bootstrap owner and denies a raw invite's unverified email identity", async () => {
     const f = fixture();
     const setup = await invited(f);
-    const sessionRequest = request("/api/whoami", "GET", undefined, { cookie: setup.cookie });
-    expect(await resolveBetterAuthUserId(sessionRequest, f.env)).toBeNull();
-    expect(await isRestrictedTeamMember(sessionRequest, f.env)).toBe(true);
-    expect(await isTeamDeploymentOperator(sessionRequest, f.env)).toBe(false);
+    expect(await resolveBetterAuthUserId(request("/api/whoami", "GET", undefined, { cookie: setup.cookie }), f.env)).toBeNull();
+    expect(f.sqlite.prepare(`SELECT kind FROM shiba_auth_account_policy WHERE email=?`).get(member)?.kind).toBe("invited");
+    expect(await isTeamDeploymentOperator(request("/api/whoami", "GET", undefined, { cookie: setup.cookie }), f.env)).toBe(false);
     expect(f.sqlite.prepare(`SELECT emailVerified FROM "user" WHERE email=?`).get(member)?.emailVerified).toBe(0);
     await verify(f, setup.verificationUrl);
+    const signedIn = (await native(request("/api/auth/sign-in/email", "POST", { email: member, password: "password-456" }), f.env))!;
+    expect(signedIn.status).toBe(200);
+    const memberCookie = cookies(signedIn);
+    const sessionRequest = request("/api/whoami", "GET", undefined, { cookie: memberCookie });
     expect(await resolveBetterAuthUserId(sessionRequest, f.env)).toBe(member);
+    expect(await isRestrictedTeamMember(sessionRequest, f.env)).toBe(true);
     // The same signed cached cookie must not override fresh verification revocation.
     f.sqlite.prepare(`UPDATE "user" SET emailVerified=0 WHERE email=?`).run(member);
     expect(await resolveBetterAuthUserId(sessionRequest, f.env)).toBeNull();
@@ -141,31 +150,33 @@ describe("invitation-only verified native enrollment", () => {
     expect(f.sqlite.prepare(`SELECT COUNT(*) AS c FROM "user"`).get()?.c).toBe(1);
   });
 
-  it("fails closed when verification transport fails after account creation", async () => {
+  it("keeps sign-up available when verification delivery fails and leaves the invite unverified", async () => {
     const f = fixture(); await bootstrap(f);
     const workspace = await createTeamWorkspace(f.env, owner, { name: "Team" });
     const invitation = await createTeamWorkspaceInvitation(f.env, workspace.workspaceId, owner, { email: member, role: "member" });
     f.send.mockRejectedValueOnce(new Error("fixture transport unavailable"));
     const response = await native(request("/api/auth/sign-up/email", "POST", { name: "Member", email: member, password: "password-456" },
       { "x-shiba-workspace-invitation": invitation.token }), f.env);
-    expect(response?.status).toBe(503);
-    expect(response?.headers.has("set-cookie")).toBe(false);
+    expect(response?.status).toBe(200);
+    expect(f.sqlite.prepare("SELECT status FROM email_outbox LIMIT 1").get()?.status).toBe("failed");
     const signedIn = (await native(request("/api/auth/sign-in/email", "POST", { email: member, password: "password-456" }), f.env))!;
-    expect(signedIn.status).toBe(200);
+    expect(signedIn.status).toBe(403);
     expect(await resolveBetterAuthUserId(request("/api/whoami", "GET", undefined, { cookie: cookies(signedIn) }), f.env)).toBeNull();
     expect(f.sqlite.prepare("SELECT COUNT(*) AS c FROM team_workspace_memberships WHERE user_id=?").get(member)?.c).toBe(0);
   });
 
   it("keeps deployment administration denied even after verified membership and workspace owner promotion", async () => {
-    const f = fixture(), setup = await invited(f); await verify(f, setup.verificationUrl);
+    const f = fixture(), setup = await invited(f);
+    await verify(f, setup.verificationUrl);
     await acceptTeamWorkspaceInvitation(f.env, member, setup.invitation.token);
-    const req = (path: string, headers: Record<string, string> = {}) => request(path, "GET", undefined, { cookie: setup.cookie, ...headers });
+    const signedIn = (await native(request("/api/auth/sign-in/email", "POST", { email: member, password: "password-456" }), f.env))!;
+    const req = (path: string, headers: Record<string, string> = {}) => request(path, "GET", undefined, { cookie: cookies(signedIn), ...headers });
     for (const path of ["/api/api-keys", "/api/agents", "/api/org/model-keys", "/api/org/sandbox", "/api/setup/fix", "/api/unknown-admin", "/oauth/authorize", "/mcp", "/api/approvals", "/api/spine", "/api/runs", "/api/sessions", "/api/employee-tools"]) {
       expect((await enforceTeamMemberApiPolicy(req(path), f.env))?.status).toBe(403);
     }
     expect(await enforceTeamMemberApiPolicy(req("/api/memory/facts"), f.env)).toBeNull();
     expect(await enforceTeamMemberApiPolicy(req("/api/providers"), f.env)).toBeNull();
-    expect((await enforceTeamMemberApiPolicy(request("/api/providers/codex/connect", "POST", { mode: "api-key" }, { cookie: setup.cookie }), f.env))?.status).toBe(403);
+    expect((await enforceTeamMemberApiPolicy(request("/api/providers/codex/connect", "POST", { mode: "api-key" }, { cookie: cookies(signedIn) }), f.env))?.status).toBe(403);
     expect((await enforceTeamMemberApiPolicy(req("/api/custom-agents"), f.env))?.status).toBe(403);
     expect(await enforceTeamMemberApiPolicy(req("/api/custom-agents", { "X-Shiba-Workspace": setup.workspace.workspaceId }), f.env)).toBeNull();
     const workspaceId = setup.workspace.workspaceId, roomPath = `/api/collaboration/rooms/room_${"a".repeat(24)}`;

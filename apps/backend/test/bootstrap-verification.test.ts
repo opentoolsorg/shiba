@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+
+const emailOutboxMigration = readFileSync(new URL("../migrations/0040_email_outbox.sql", import.meta.url), "utf8");
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleBetterAuth, resolveBetterAuthUserId } from "../src/better-auth.js";
 import { resolveBetterAuthSessionAccount } from "@shiba/auth/better-auth";
@@ -12,6 +15,7 @@ const databases: DatabaseSync[] = [];
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); for (const db of databases.splice(0)) db.close(); });
 function fixture() {
   const sqlite = new DatabaseSync(":memory:"); databases.push(sqlite);
+  sqlite.exec(emailOutboxMigration);
   const value = (item: unknown): never => (item instanceof Date ? item.getTime() : typeof item === "boolean" ? Number(item) : item ?? null) as never;
   const statement = (sql: string, values: unknown[] = []) => ({
     bind: (...args: unknown[]) => statement(sql, args),
