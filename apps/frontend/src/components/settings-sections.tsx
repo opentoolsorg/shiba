@@ -19,6 +19,7 @@ import { ToneChip } from "./ToneChip";
 import { useTheme } from "./ThemeProvider";
 import { useSavedRepos, saveRepo, removeRepo } from "../saved";
 import { NotificationPrefsSection } from "./settings/NotificationPrefsSection";
+import { SlackImportSection } from "./settings/SlackImportSection";
 
 export type SettingsSectionId =
   | "account"
@@ -32,7 +33,8 @@ export type SettingsSectionId =
   | "environments"
   | "experimental"
   | "deployment"
-  | "notifications";
+  | "notifications"
+  | "slack-import";
 
 /** Single source for section labels — the modal nav groups render from this. */
 export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string; blurb: string }> =
@@ -52,6 +54,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string;
     experimental: { label: "Experimental", blurb: "Opt-in feature flags (wrangler vars)" },
     deployment: { label: "Deployment", blurb: "Serving host, models & harness" },
     notifications: { label: "Notifications", blurb: "Mentions and Needs you inbox" },
+    "slack-import": { label: "Slack import", blurb: "Copy a Slack channel into a room, including threads" },
   };
 
 function SectionShell({
@@ -949,6 +952,14 @@ export function SettingsSectionBody({
         description="GitHub repos you've saved — they show up as picks in the task composer and fill in automatically when you reuse one."
       >
         <RepositoriesSection />
+      </SectionShell>
+    );
+  }
+
+  if (section === "slack-import") {
+    return (
+      <SectionShell title="Slack import" description="Import selected Slack channel history into a room. Thread replies stay on the same thread root.">
+        <SlackImportSection />
       </SectionShell>
     );
   }
