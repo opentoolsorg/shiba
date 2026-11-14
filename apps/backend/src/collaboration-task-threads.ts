@@ -42,18 +42,23 @@ async function stamp(
   scope: CollaborationScope,
   messageId: string,
   roomId: string,
-  role: string,
+  kind: string,
   threadRoot: string | null,
-  replyTo: string | null,
 ): Promise<void> {
   const seq = await nextMessageSeq(env, scope, roomId);
   await finalizeMessageV2(env, scope, messageId, {
     roomId,
     messageSeq: seq,
     threadRootMessageId: threadRoot,
-    replyToMessageId: replyTo,
-    messageRole: role,
+    messageKind: kind,
+    alsoInChannel: kind === "result",
   });
+  if (threadRoot && threadRoot !== messageId) {
+    await env.AGENT_AUDIT.prepare(
+      `UPDATE collaboration_messages SET reply_count=reply_count+1, last_reply_at=?
+       WHERE tenant_id=? AND workspace_id=? AND message_id=?`,
+    ).bind(Date.now(), scope.tenantId, scope.workspaceId, threadRoot).run();
+  }
 }
 
 export async function openTaskThread(
@@ -78,7 +83,7 @@ export async function openTaskThread(
     createdAt: input.createdAt,
   });
   if (!saved) throw new CollaborationStoreError("Room membership required.", 403);
-  await stamp(env, scope, rootMessageId, input.roomId, "task_root", rootMessageId, null);
+  await stamp(env, scope, rootMessageId, input.roomId, "text", rootMessageId);
   await env.AGENT_AUDIT.prepare(
     `INSERT INTO collaboration_task_threads
       (tenant_id,workspace_id,task_id,room_id,root_message_id,title,owner_user_id,owner_actor_id,status,created_at,updated_at)
@@ -167,7 +172,8 @@ export async function postTaskReply(
     createdAt: input.createdAt,
   });
   if (!saved) throw new CollaborationStoreError("Room membership required.", 403);
-  await stamp(env, scope, messageId, input.roomId, input.role, task.rootMessageId, task.rootMessageId);
+  const kind = input.role === "progress" ? "milestone" : input.role === "approval" ? "approval_card" : input.role;
+  await stamp(env, scope, messageId, input.roomId, kind, task.rootMessageId);
   let channelMessageId: string | undefined;
   let status: TaskThreadStatus = input.role === "handoff" ? "working" : task.status;
   let ownerActorId = task.ownerActorId;
@@ -189,7 +195,7 @@ export async function postTaskReply(
       createdAt: input.createdAt,
     });
     if (channel) {
-      await stamp(env, scope, channelMessageId, input.roomId, "result", null, task.rootMessageId);
+      await stamp(env, scope, channelMessageId, input.roomId, "result", task.rootMessageId);
     }
   }
   await env.AGENT_AUDIT.prepare(
