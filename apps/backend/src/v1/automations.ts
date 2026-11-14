@@ -1,4 +1,5 @@
-import type { Automation, AutomationTrigger } from "../automations.js";
+import type { Automation, AutomationTrigger, ScheduleTrigger } from "../automations.js";
+import { computeNextRunAt, normalizeScheduleTrigger, type StructuredSchedule } from "../automation-schedules.js";
 import { automationsStub } from "../automations-stub.js";
 import type { V1Context } from "./context.js";
 
@@ -58,7 +59,12 @@ function toPublicAutomation(automation: PublicAutomation, projectId: string) {
     name: automation.prompt.split("\n")[0]!.trim().slice(0, 120), enabled: automation.enabled, prompt: automation.prompt,
     triggerKind: first?.triggerKind ?? "webhook", eventKind: first?.eventKind ?? null, schedule: first?.schedule ?? null, triggers,
     modelId: null, workflow: null, conditions: null, sentryBindingId: null, sentryTriggerPolicy: null, targetThreadId: null,
-    isDraft: false, maxSpendPerThreadMicros: null, webhookTokenPrefix: null, nextRunAt: null, lastRunAt: iso(automation.lastTriggeredAt) };
+    isDraft: false, maxSpendPerThreadMicros: null, webhookTokenPrefix: null,
+    nextRunAt: (() => {
+      const schedule = automation.triggers.find((t): t is ScheduleTrigger => t.kind === "schedule");
+      return schedule ? iso(computeNextRunAt(schedule) ?? undefined) : null;
+    })(),
+    lastRunAt: iso(automation.lastTriggeredAt) };
 }
 
 // The DO keeps no execution log: the last fire and the last gate skip are the only persisted outcomes.
@@ -83,16 +89,54 @@ function toTrigger(raw: Record<string, unknown>): AutomationTrigger | Response {
     const schedule = raw.schedule;
     if (raw.eventKind !== undefined && raw.eventKind !== null) return invalid();
     if (!isObject(schedule)) return invalid("schedule triggers need a schedule.");
-    if (schedule.mode === "interval") return notImplemented("Interval schedules are not supported; use a five-field cron.");
-    if (schedule.mode !== "cron" || typeof schedule.expression !== "string" || typeof schedule.timezone !== "string") return invalid();
-    const tz = schedule.timezone.trim();
+    const tz = typeof schedule.timezone === "string" ? schedule.timezone.trim() : "";
     if (!tz) return invalid("schedule.timezone is required.");
     try {
       Intl.DateTimeFormat(undefined, { timeZone: tz });
     } catch {
       return invalid(`Unknown schedule timezone: ${tz}`);
     }
-    return { kind: "schedule", cron: schedule.expression, timezone: tz };
+    if (schedule.mode === "cron") {
+      if (typeof schedule.expression !== "string") return invalid();
+      return { kind: "schedule", cron: schedule.expression, timezone: tz };
+    }
+  if (schedule.mode === "interval") {
+      const minutes = Number(schedule.everyMinutes ?? schedule.minutes);
+      if (!Number.isFinite(minutes)) return invalid("schedule.everyMinutes is required.");
+      const structured: StructuredSchedule = { mode: "interval", everyMinutes: minutes, timezone: tz };
+      const compiled = normalizeScheduleTrigger({ kind: "schedule", cron: "0 9 * * *", structured, timezone: tz });
+      return compiled;
+    }
+    if (schedule.mode === "daily") {
+      const structured: StructuredSchedule = {
+        mode: "daily",
+        hour: Number(schedule.hour),
+        minute: Number(schedule.minute ?? 0),
+        timezone: tz,
+      };
+      return normalizeScheduleTrigger({ kind: "schedule", cron: "0 9 * * *", structured, timezone: tz });
+    }
+    if (schedule.mode === "weekly") {
+      const structured: StructuredSchedule = {
+        mode: "weekly",
+        weekday: Number(schedule.weekday ?? schedule.dayOfWeek),
+        hour: Number(schedule.hour),
+        minute: Number(schedule.minute ?? 0),
+        timezone: tz,
+      };
+      return normalizeScheduleTrigger({ kind: "schedule", cron: "0 9 * * 1", structured, timezone: tz });
+    }
+    if (schedule.mode === "monthly") {
+      const structured: StructuredSchedule = {
+        mode: "monthly",
+        dayOfMonth: Number(schedule.dayOfMonth ?? schedule.dom),
+        hour: Number(schedule.hour),
+        minute: Number(schedule.minute ?? 0),
+        timezone: tz,
+      };
+      return normalizeScheduleTrigger({ kind: "schedule", cron: "0 9 1 * *", structured, timezone: tz });
+    }
+    return invalid("Unsupported schedule.mode");
   }
   if (raw.triggerKind !== "webhook") return invalid();
   if (raw.schedule !== undefined && raw.schedule !== null) return invalid();

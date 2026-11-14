@@ -127,20 +127,11 @@ export async function reportPendingHandoff(
       .bind(input.now, scope.tenantId, scope.workspaceId, pending.parent_thread_root_id)
       .run();
   }
-  const members = await db.prepare(
-    `SELECT user_id FROM collaboration_memberships
-     WHERE tenant_id=? AND workspace_id=? AND room_id=? AND status='active'`,
-  )
-    .bind(scope.tenantId, scope.workspaceId, pending.parent_room_id)
-    .all<{ user_id: string }>();
   await publishWorkspaceEvent(env, scope.workspaceId, {
     type: "room.message",
     resourceId: pending.parent_room_id,
     version: input.now,
-    audience: {
-      userIds: (members.results ?? []).map((row) => row.user_id),
-      roomId: pending.parent_room_id,
-    },
+    audience: { roomId: pending.parent_room_id },
   });
   return { reported: true, messageId };
 }

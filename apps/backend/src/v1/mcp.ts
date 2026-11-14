@@ -12,12 +12,18 @@ import {
   saveExternalMcpBearerToken,
 } from "../external-mcp-oauth.js";
 import { CURATED_MCP_VENDORS, curatedMcpVendorByCatalogId } from "@shiba/shared";
+import { listMcpGrants, revokeMcpGrant } from "../mcp-grants.js";
 import { decideEmployeeActionApproval as decideApproval, getEmployeeActionApproval, listEmployeeActionApprovals } from "../employee-tool-store.js";
 import { resolveCapabilityInvocationApproval } from "../capability-invocations.js";
 import { executeApprovedExternalMcpAction } from "../external-mcp.js";
 
 const BUILTIN_ID = "shiba";
 const response = (value: unknown, status = 200) => Response.json(value, { status, headers: { "cache-control": "no-store" } });
+
+function publicExternalMcpServer<T extends { credentialRef?: string | null }>(server: T) {
+  const { credentialRef, ...rest } = server;
+  return { ...rest, hasCredential: credentialRef !== null && credentialRef !== undefined };
+}
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 async function body(ctx: V1Context): Promise<Record<string, unknown> | null> {
@@ -62,8 +68,34 @@ function validCredentialRef(value: unknown): value is string | null {
 }
 
 export async function handleMcp(ctx: V1Context): Promise<Response | null> {
+  if (ctx.url.pathname === "/api/v1/extensions/mcp/directory" && ctx.request.method === "GET") {
+    return response({ ok: true, vendors: CURATED_MCP_VENDORS });
+  }
   if (ctx.url.pathname === "/api/v1/mcp/vendors" && ctx.request.method === "GET") {
     return response({ ok: true, vendors: CURATED_MCP_VENDORS });
+  }
+  if (ctx.url.pathname === "/api/v1/mcp/connected-apps" && ctx.request.method === "GET") {
+    const grants = await listMcpGrants(ctx.env, ctx.principal.principal);
+    return response({
+      ok: true,
+      grants: grants.map((grant) => ({
+        id: grant.id,
+        clientName: grant.clientName,
+        clientId: grant.clientId,
+        kind: grant.kind,
+        access: grant.access,
+        lastUsedAt: grant.lastUsedAt,
+        createdAt: grant.createdAt,
+        updatedAt: grant.updatedAt,
+      })),
+    });
+  }
+  const connectedRevoke = ctx.url.pathname.match(/^\/api\/v1\/mcp\/connected-apps\/([^/]+)\/revoke$/);
+  if (connectedRevoke && ctx.request.method === "POST") {
+    let grantId: string;
+    try { grantId = decodeURIComponent(connectedRevoke[1]!); } catch { return response({ ok: false, error: "invalid_grant_id" }, 400); }
+    const revoked = await revokeMcpGrant(ctx.env, { userId: ctx.principal.principal, grantId });
+    return revoked ? response({ ok: true, revoked: true }) : response({ ok: false, error: "grant_not_found" }, 404);
   }
   if (ctx.url.pathname === "/api/v1/mcp/catalog-connections" && ctx.request.method === "GET") {
     return response({ ok: true, connections: await listExternalMcpCatalogConnections(ctx.env, ctx.principal.orgId, ctx.principal.principal) });
@@ -83,9 +115,22 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
   if (!match) return null;
   const part = match[1];
   if (!part) {
-    if (ctx.request.method === "GET") return response({ ok: true, servers: await listExternalMcpServers(ctx.env, ctx.principal.orgId, ctx.principal.principal), builtin: {
-      id: BUILTIN_ID, projectId: null, name: "shiba", config: { transport: "http", url: `${ctx.url.origin}/mcp`, needsAuth: true }, enabled: true,
-    } });
+    if (ctx.request.method === "GET") {
+      const servers = (await listExternalMcpServers(ctx.env, ctx.principal.orgId, ctx.principal.principal))
+        .map((server) => publicExternalMcpServer({
+          ...server,
+          tools: server.tools.map((tool) => ({ ...tool })),
+        }));
+      return response({
+        ok: true,
+        servers,
+        builtin: {
+          id: BUILTIN_ID, projectId: null, name: "shiba",
+          config: { transport: "http", url: `${ctx.url.origin}/mcp`, needsAuth: true },
+          enabled: true,
+        },
+      });
+    }
     if (ctx.request.method !== "POST") return response({ ok: false, error: "method_not_allowed" }, 405);
     const input = await body(ctx); if (!input || !knownKeys(input, ["name", "transport", "url", "credentialRef", "catalogId", "connectionLabel", "visibility", "authMode"]) ||
       (input.name !== undefined && typeof input.name !== "string") ||

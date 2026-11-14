@@ -52,7 +52,7 @@ export const addCommentRequest = (ws: string, id: string, text: string) =>
 
 export function useWorkTasks(actorId: string | null, workspaceId: string, enabled: boolean) {
   const polled = useTeamWorkItems(actorId, workspaceId, enabled);
-  const [overlay, setOverlay] = useState<{ scope: string; items: Record<string, TeamWorkItem> }>({
+  const [optimistic, setOptimistic] = useState<{ scope: string; items: Record<string, TeamWorkItem> }>({
     scope: "",
     items: {},
   });
@@ -60,7 +60,7 @@ export function useWorkTasks(actorId: string | null, workspaceId: string, enable
   const scope = `${actorId}|${workspaceId}`;
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
-  const items = overlay.scope === scope ? overlay.items : {};
+  const items = optimistic.scope === scope ? optimistic.items : {};
   const itemsRef = useRef(items);
   itemsRef.current = items;
   // In-flight ids keep their optimistic row even if an older poll lands meanwhile.
@@ -69,7 +69,7 @@ export function useWorkTasks(actorId: string | null, workspaceId: string, enable
 
   const put = useCallback(
     (task: TeamWorkItem | null, id: string) =>
-      setOverlay((prev) => {
+      setOptimistic((prev) => {
         const next = { ...(prev.scope === scopeRef.current ? prev.items : {}) };
         if (task) next[id] = task;
         else delete next[id];
@@ -78,7 +78,7 @@ export function useWorkTasks(actorId: string | null, workspaceId: string, enable
     [],
   );
 
-  // Drop confirmed overlay rows once polling has caught up with them.
+  // Drop confirmed optimistic rows once polling has caught up with them.
   useEffect(() => {
     const caughtUp = Object.values(items).filter(
       (o) =>
@@ -86,7 +86,7 @@ export function useWorkTasks(actorId: string | null, workspaceId: string, enable
         polled.tasks.some((p) => p.id === o.id && p.updatedAt >= o.updatedAt),
     );
     if (caughtUp.length)
-      setOverlay((prev) => {
+      setOptimistic((prev) => {
         const next = { ...prev.items };
         for (const o of caughtUp) delete next[o.id];
         return { scope: prev.scope, items: next };
