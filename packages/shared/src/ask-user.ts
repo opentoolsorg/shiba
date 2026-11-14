@@ -1,6 +1,6 @@
 /**
  * WS08 owns this schema; WS10 registers the `ask_user` tool against it.
- * Overlay parity: questionnaire + connect-app cards (generated-ui patterns).
+ * Choice questions use two to four one-line options.
  */
 import { z } from "zod";
 
@@ -8,7 +8,7 @@ export const ASK_USER_TOOL_NAME = "ask_user" as const;
 
 export const askUserChoiceSchema = z.object({
   id: z.string().min(1).max(120),
-  label: z.string().min(1).max(500),
+  label: z.string().min(1).max(80),
   description: z.string().max(2000).optional(),
 });
 
@@ -29,7 +29,7 @@ export const askUserSingleChoiceSchema = z
   .object({
     ...askUserCommon,
     mode: z.literal("single_choice"),
-    choices: z.array(askUserChoiceSchema).min(1).max(12),
+    choices: z.array(askUserChoiceSchema).min(2).max(4),
   })
   .strict();
 
@@ -37,9 +37,9 @@ export const askUserMultiChoiceSchema = z
   .object({
     ...askUserCommon,
     mode: z.literal("multi_choice"),
-    choices: z.array(askUserChoiceSchema).min(1).max(12),
-    minSelections: z.number().int().min(0).max(12).optional(),
-    maxSelections: z.number().int().min(1).max(12).optional(),
+    choices: z.array(askUserChoiceSchema).min(2).max(4),
+    minSelections: z.number().int().min(0).max(4).optional(),
+    maxSelections: z.number().int().min(1).max(4).optional(),
   })
   .strict();
 
@@ -79,7 +79,7 @@ export const askUserAnswerSchema = z.discriminatedUnion("mode", [
   z
     .object({
       mode: z.literal("multi_choice"),
-      choiceIds: z.array(z.string().min(1).max(120)).min(1).max(12),
+      choiceIds: z.array(z.string().min(1).max(120)).min(1).max(4),
       freeText: z.string().max(8000).optional(),
     })
     .strict(),

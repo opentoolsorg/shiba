@@ -1,43 +1,46 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { workspaceEventsStreamPath, type WorkspaceEvent } from "@shiba/shared";
+import { useEffect, useRef, useState } from "react";
+import { workspaceEventsPath, type WorkspaceEventMessage } from "@shiba/shared";
 
 export interface UseWorkspaceEventsOptions {
   workspaceId: string | null;
   enabled: boolean;
-  onEvent: (event: WorkspaceEvent) => void;
+  onEvent: (event: WorkspaceEventMessage) => void;
 }
 
-/** Subscribe to workspace live updates (SSE); replaces polling when connected. */
+/** WebSocket subscriber for the WorkspaceEvents Durable Object. */
 export function useWorkspaceEvents({ workspaceId, enabled, onEvent }: UseWorkspaceEventsOptions): boolean {
   const handler = useRef(onEvent);
   handler.current = onEvent;
   const [connected, setConnected] = useState(false);
 
-  const parse = useCallback((raw: string) => {
-    try {
-      const event = JSON.parse(raw) as WorkspaceEvent;
-      if (typeof event.kind === "string" && typeof event.entityId === "string") handler.current(event);
-    } catch {
-      // Ignore malformed frames.
-    }
-  }, []);
-
   useEffect(() => {
-    if (!enabled || !workspaceId) {
+    if (!enabled || !workspaceId || typeof WebSocket === "undefined") {
       setConnected(false);
       return;
     }
-    const source = new EventSource(workspaceEventsStreamPath(workspaceId));
-    source.onopen = () => setConnected(true);
-    source.onmessage = (message) => {
-      if (message.data) parse(message.data);
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(`${proto}//${window.location.host}${workspaceEventsPath(workspaceId)}`);
+    socket.onopen = () => setConnected(true);
+    socket.onclose = () => setConnected(false);
+    socket.onerror = () => setConnected(false);
+    socket.onmessage = (message) => {
+      if (typeof message.data !== "string" || message.data === "pong") return;
+      try {
+        const event = JSON.parse(message.data) as WorkspaceEventMessage;
+        if (typeof event.type === "string" && typeof event.resourceId === "string") handler.current(event);
+      } catch {
+        // Ignore malformed frames.
+      }
     };
-    source.onerror = () => setConnected(false);
+    const ping = window.setInterval(() => {
+      if (socket.readyState === WebSocket.OPEN) socket.send("ping");
+    }, 25_000);
     return () => {
-      source.close();
+      window.clearInterval(ping);
+      socket.close();
       setConnected(false);
     };
-  }, [enabled, workspaceId, parse]);
+  }, [enabled, workspaceId]);
 
   return connected;
 }

@@ -34,7 +34,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
     <div className="bg-[var(--bg)] overflow-hidden">
       <div className="flex items-center px-4 min-h-11 text-xs text-[var(--muted-foreground-2)]" role="status">
         {decided && decision !== undefined
-          ? decision ? "Approved — sandbox starting" : "Rejected — nothing ran"
+          ? decision ? "Approved — sandbox starting" : "Denied. This decision is final."
           : decided ? "Decision recorded" : "Waiting for your approval"}
       </div>
       <div className="p-4 flex flex-col gap-3">
