@@ -31,6 +31,8 @@ export const KEYBOARD_SHORTCUT_GROUPS: ShortcutGroup[] = [
     group: "Global",
     items: [
       { id: "command", label: "Command menu", keys: "⌘K" },
+      { id: "palette-jump", label: "Jump to a pinned bot", keys: "⌃1–9 or Alt+Shift+1–9" },
+      { id: "palette-pin", label: "Pin the selected bot", keys: "⌘⇧P" },
       { id: "help", label: "Shortcut list", keys: "?" },
       { id: "theme", label: "Toggle theme", keys: "D" },
       { id: "settings", label: "Settings", keys: "⌘," },
