@@ -13,6 +13,7 @@ import { handleCollaboration } from "../src/collaboration-routes.js";
 import { handleRuns } from "../src/runs-routes.js";
 import { createCustomAgent } from "../src/custom-agents-store.js";
 import { verifyInternalRequest } from "../src/edge-identity.js";
+import { applyEmailOutboxSchema } from "./fixtures/email-outbox-schema.js";
 
 const claim = vi.hoisted(() => ({ allowed: true, calls: 0, hook: undefined as (() => void | Promise<void>) | undefined }));
 const sourceFence = vi.hoisted(() => ({ allowed: true, calls: 0 }));
@@ -41,7 +42,9 @@ function req(path: string, method = "GET", body?: unknown, headers: Record<strin
 const cookie = (response: Response) => response.headers.getSetCookie().map((item) => item.split(";")[0]).join("; ");
 
 async function fixture() {
-  const sqlite = new DatabaseSync(":memory:"); databases.push(sqlite);
+  const sqlite = new DatabaseSync(":memory:");
+  applyEmailOutboxSchema(sqlite);
+  databases.push(sqlite);
   const value = (input: unknown): never => (input instanceof Date ? input.getTime() : typeof input === "boolean" ? Number(input) : input ?? null) as never;
   const prepared = (sql: string, values: unknown[] = []) => ({
     bind: (...input: unknown[]) => prepared(sql, input),

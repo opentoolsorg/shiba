@@ -5,8 +5,53 @@ import { postRoomEvent } from "../src/collaboration-thread-post.js";
 import { COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID } from "../src/collaboration-store.js";
 import type { Env } from "../src/env.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { WorkspaceEvents } from "../src/platform/workspace-events-do.js";
 
 describe("thread events", () => {
+  it.each([
+    ["private room", `room_${"ab".repeat(12)}`],
+    ["private channel", `chn_${"cd".repeat(10)}`],
+    ["dm", `dm_${"ef".repeat(10)}`],
+  ])("delivers %s inserts and status edits only to current members", async (_kind, roomId) => {
+    const { database, sqlite } = customAgentD1();
+    const socket = (userId: string) => ({
+      sent: [] as string[],
+      deserializeAttachment: () => ({ userId }),
+      send(value: string) { this.sent.push(value); },
+    });
+    const owner = socket("owner@example.test");
+    const outsider = socket("outsider@example.test");
+    const env = { AGENT_AUDIT: database } as unknown as Env;
+    const hub = new WorkspaceEvents({ getWebSockets: () => [owner, outsider] } as never, env);
+    const published: Array<{ audience: unknown; workspaceId: string }> = [];
+    env.WorkspaceEvents = {
+      getByName: () => ({ fetch: async (request: Request) => {
+        published.push(await request.clone().json());
+        const response = await hub.fetch(request);
+        expect(response.status).toBe(200);
+        return response;
+      } }),
+    } as unknown as Env["WorkspaceEvents"];
+    const scope = { tenantId: COLLAB_TENANT_ID, workspaceId: COLLAB_WORKSPACE_ID, userId: "owner@example.test" };
+    await createCollaborationRoom(env, scope, { roomId, title: "Private", visibility: "private", createdAt: 1 });
+    const root = await postRoomEvent(env, scope, { roomId, threadRootId: null, kind: "text", body: "Start" });
+    const status = { roomId, threadRootId: root.messageId, kind: "status" as const, body: "Working" };
+    await postRoomEvent(env, scope, status);
+    await postRoomEvent(env, scope, { ...status, body: "Finished" });
+    expect(owner.sent).toHaveLength(3);
+    expect(outsider.sent).toEqual([]);
+    expect(published).toHaveLength(3);
+    for (const event of published) {
+      expect(event.audience).toEqual({ roomId });
+      expect(event.workspaceId).toBe(scope.workspaceId);
+    }
+    sqlite.prepare("UPDATE collaboration_memberships SET status='removed' WHERE room_id=? AND user_id=?")
+      .run(roomId, scope.userId);
+    await postRoomEvent(env, scope, { ...status, body: "Changed after removal" });
+    expect(owner.sent).toHaveLength(3);
+    expect(outsider.sent).toEqual([]);
+  });
+
   it("upserts a single status row per thread", async () => {
     const { database, sqlite } = customAgentD1();
     const env = { AGENT_AUDIT: database } as unknown as Env;

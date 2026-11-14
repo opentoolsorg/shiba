@@ -4,6 +4,7 @@ import { handleBetterAuth } from "../src/better-auth.js";
 import { handleCollaborationWithRealtime } from "../src/collaboration-room-routes.js";
 import { handleTeamWorkspaces } from "../src/team-workspaces-routes.js";
 import type { Env } from "../src/env.js";
+import { applyCollabV2Migrations } from "./fixtures/collab-v2-migrations.js";
 
 const databases: DatabaseSync[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
@@ -18,6 +19,7 @@ describe("shared rooms with independent cookie-authenticated members", () => {
   it("keeps two signed sessions distinct, shares persisted context, and revokes the member without trusting identity headers", async () => {
     const sqlite = new DatabaseSync(":memory:");
     databases.push(sqlite);
+    applyCollabV2Migrations(sqlite);
     const prepare = (sql: string, values: unknown[] = []) => ({
       bind: (...args: unknown[]) => prepare(sql, args.map((value) => value instanceof Date ? value.getTime() : typeof value === "boolean" ? Number(value) : value ?? null)),
       execute() {

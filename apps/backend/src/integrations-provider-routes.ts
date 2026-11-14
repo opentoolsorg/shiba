@@ -11,8 +11,10 @@ import { isAuthorizedRequest } from "./request-auth.js";
 import { hasSameOriginIntent } from "./route-utils.js";
 import { getIntegrationProvider } from "./integrations/runtime.js";
 import { OpenConnectorIntegrationProviderError } from "./integrations/openconnector-provider.js";
+import { resolveOrgForApiRequest } from "./org-request-auth.js";
+import { resolveConnectorWorkspaceId, syncPersonalConnectorsFromProvider } from "./extensions/connectors-store.js";
 
-function openConnectorGate(env: Env): Response | null {
+export function openConnectorGate(env: Env): Response | null {
   const bound = Boolean(env.OPEN_CONNECTOR) || Boolean(env.OPEN_CONNECTOR_URL?.trim());
   const enabled =
     env.OPEN_CONNECTOR_ENABLED === "1" ||
@@ -175,6 +177,16 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
     if (gate) return gate;
     try {
       const connections = await provider.listConnections({ userId: owner, ...(url.searchParams.get("includeUnavailable") === "1" ? { includeUnavailable: true } : {}) });
+      const orgAuth = await resolveOrgForApiRequest(request, env);
+      if (!(orgAuth instanceof Response) && env.AGENT_AUDIT) {
+        const teamWorkspaceId = orgAuth.workspace?.workspaceId;
+        const registryWorkspaceId = resolveConnectorWorkspaceId(orgAuth.orgId);
+        try {
+          await syncPersonalConnectorsFromProvider(env, registryWorkspaceId, owner, teamWorkspaceId);
+        } catch {
+          /* Registry sync is best-effort when OpenConnector is partially available. */
+        }
+      }
       return json({ ok: true, provider: selectedId, connections });
     } catch (error) {
       return integrationUnavailable(error);

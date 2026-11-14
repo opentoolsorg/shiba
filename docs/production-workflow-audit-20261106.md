@@ -2,7 +2,7 @@
 
 ## Verdict
 
-Shiba is not yet an end-to-end Overlay-equivalent browser/computer product.
+Shiba is not yet an end-to-end browser/computer product matching the intended coworker loop.
 Read-only Cloudflare MCP inspection and public production browser checks found
 configuration gaps. The current local production build passes browser journeys
 with explicitly synthetic execution. No production configuration, deployment,
@@ -51,7 +51,7 @@ computer, bot, model, or Slack operation. An authorized native test session and
 two consenting workspace members are still needed for production acceptance.
 No auth bypass, bootstrap token, fabricated cookie, or customer data was used.
 
-## Why computers and bots differ from Overlay
+## Why computers and bots differ from a full coworker desktop
 
 The shared-computer entry is inside a team room's Work surface, behind
 **Open shared computer** (`CollaborationView.tsx:1590`). Its contract is an
