@@ -8,9 +8,11 @@ import {
 } from "react";
 import {
   ArrowLeft,
+  Bell,
   Box,
   ChevronRight,
   Cpu,
+  Download,
   GitBranch,
   Key,
   Laptop,
@@ -70,6 +72,7 @@ export const SETTINGS_PAGE_NAV_GROUPS: SettingsNavGroup[] = [
       { id: "sandbox", label: "Sandbox", blurb: SETTINGS_SECTION_LABELS.sandbox.blurb, icon: Box },
       { id: "repositories", label: "Repositories", blurb: SETTINGS_SECTION_LABELS.repositories.blurb, icon: GitBranch },
       { id: "environments", label: "Environments", blurb: SETTINGS_SECTION_LABELS.environments.blurb, icon: Server },
+      { id: "slack-import", label: "Slack import", blurb: SETTINGS_SECTION_LABELS["slack-import"].blurb, icon: Download },
     ],
   },
   {
@@ -77,6 +80,7 @@ export const SETTINGS_PAGE_NAV_GROUPS: SettingsNavGroup[] = [
     items: [
       { id: "automations", label: "Automations", blurb: SETTINGS_SECTION_LABELS.automations.blurb, icon: Zap },
       { id: "mailbox", label: "Mailbox", blurb: SETTINGS_SECTION_LABELS.mailbox.blurb, icon: Mail },
+      { id: "notifications", label: "Notifications", blurb: SETTINGS_SECTION_LABELS.notifications.blurb, icon: Bell },
     ],
   },
   {

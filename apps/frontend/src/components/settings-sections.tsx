@@ -18,6 +18,8 @@ import { Card } from "./settings-ui";
 import { ToneChip } from "./ToneChip";
 import { useTheme } from "./ThemeProvider";
 import { useSavedRepos, saveRepo, removeRepo } from "../saved";
+import { NotificationPrefsSection } from "./settings/NotificationPrefsSection";
+import { SlackImportSection } from "./settings/SlackImportSection";
 
 export type SettingsSectionId =
   | "account"
@@ -30,7 +32,9 @@ export type SettingsSectionId =
   | "sandbox"
   | "environments"
   | "experimental"
-  | "deployment";
+  | "deployment"
+  | "notifications"
+  | "slack-import";
 
 /** Single source for section labels — the modal nav groups render from this. */
 export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string; blurb: string }> =
@@ -49,6 +53,8 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string;
     },
     experimental: { label: "Experimental", blurb: "Opt-in feature flags (wrangler vars)" },
     deployment: { label: "Deployment", blurb: "Serving host, models & harness" },
+    notifications: { label: "Notifications", blurb: "Mentions, threads & approval alerts" },
+    "slack-import": { label: "Slack import", blurb: "Backfill Slack channel history into rooms" },
   };
 
 function SectionShell({
@@ -957,6 +963,28 @@ export function SettingsSectionBody({
   if (section === "models") return <ModelsSettingsSection />;
 
   if (section === "sandbox") return <SandboxOrgSettingsSection onNavigate={onNavigate} />;
+
+  if (section === "notifications") {
+    return (
+      <SectionShell
+        title="Notifications"
+        description="Choose which workspace events create inbox notifications — stored per user in the current workspace scope."
+      >
+        <NotificationPrefsSection />
+      </SectionShell>
+    );
+  }
+
+  if (section === "slack-import") {
+    return (
+      <SectionShell
+        title="Slack import"
+        description="Queue a one-time history import from a linked Slack channel into a collaboration room."
+      >
+        <SlackImportSection />
+      </SectionShell>
+    );
+  }
 
   if (section === "experimental") {
     return (
