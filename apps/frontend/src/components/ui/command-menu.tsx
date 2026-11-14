@@ -54,7 +54,6 @@ export function CommandDialog({
   );
 }
 
-// TODO: wire "@bot in this thread" so an open room thread can insert @agent:<id> into its composer.
 export function CommandMenu({
   open,
   onClose,

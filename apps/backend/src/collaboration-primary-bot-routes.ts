@@ -1,5 +1,6 @@
 import type { Env } from "./env.js";
-import { COLLAB_TENANT_ID, type CollaborationScope } from "./collaboration-store.js";
+import { COLLAB_TENANT_ID, collaborationEmployeeOrgId, type CollaborationScope } from "./collaboration-store.js";
+import { getCustomAgentById, getCustomAgentBySlug } from "./custom-agents-store.js";
 import { getWorkspacePrimaryBot, setWorkspacePrimaryBot } from "./collaboration-router.js";
 import { isAuthorizedRequest, requireJsonContentType, requireSameOriginBrowserMutation, resolveUserId } from "./request-auth.js";
 import { getTeamWorkspaceMembership, normalizeTeamWorkspaceEmail, TeamWorkspaceError } from "./team-workspaces-store.js";
@@ -43,6 +44,10 @@ export async function handlePrimaryBot(request: Request, env: Env): Promise<Resp
   const record = body as Record<string, unknown>;
   if (Object.keys(record).some((key) => key !== "actorId")) return json({ error: "Unknown request field." }, 400);
   if (typeof record.actorId !== "string" || !ACTOR.test(record.actorId)) return json({ error: "A bot actor id is required." }, 400);
+  const profileId = record.actorId.slice("agent:".length);
+  const orgId = collaborationEmployeeOrgId(scope);
+  const profile = await getCustomAgentById(env, orgId, profileId) ?? await getCustomAgentBySlug(env, orgId, profileId);
+  if (!profile) return json({ error: "Choose an active bot in this workspace." }, 404);
   await setWorkspacePrimaryBot(env, scope, record.actorId, Date.now());
   return json(await getWorkspacePrimaryBot(env, scope));
 }

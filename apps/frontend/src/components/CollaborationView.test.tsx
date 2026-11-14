@@ -1424,3 +1424,71 @@ describe("workspace room deep links", () => {
     expect(nextCallback).not.toHaveBeenCalled();
   });
 });
+
+
+describe("coordination cards", () => {
+  const sourceText = `Fix the README. ${"Keep every requirement. ".repeat(15)}\nPreserve this final instruction.`;
+  const card = {
+    messageId: "handoff-card", senderUserId: "member@example.test", senderActorId: "agent:shiba",
+    senderKind: "agent", body: "Shiba → Fixer: Fix the README. · because Repo edits", createdAt: 2,
+    messageKind: "handoff", threadRootId: "m1",
+    payloadJson: JSON.stringify({ handoffId: "route-1", childThreadRootId: "child-root" }),
+  };
+  function setup() {
+    const detail = { ...roomDetail, members: [...roomDetail.members,
+      { actorId: "agent:fixer", userId: "member@example.test", actorKind: "agent", role: "agent", status: "active", displayName: "Fixer" },
+      { actorId: "agent:removed", userId: "member@example.test", actorKind: "agent", role: "agent", status: "removed", displayName: "Removed" }],
+      messages: [{ ...roomDetail.messages[0]!, body: sourceText }, card,
+        { ...card, messageId: "child-root", messageKind: "text", body: "Child task", threadRootId: "child-root", payloadJson: null },
+        { ...card, messageId: "report-card", messageKind: "handoff_report", body: "Done", payloadJson: JSON.stringify({ handoffId: "route-1", childThreadRootId: "child-root" }) }],
+    };
+    const writes = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (init?.method === "POST") { writes(path, JSON.parse(String(init.body)), init.headers); return Response.json({}); }
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [detail.room] });
+      if (path === "/api/collaboration/rooms/room-1") return Response.json(detail);
+      return Response.json({ agents: [], tasks: [], presence: [] });
+    }));
+    return writes;
+  }
+
+  it("reassigns full source instructions through the existing handoff endpoint", async () => {
+    const writes = setup();
+    render(<CollaborationView workspaceId="ws_test" />);
+    const picker = await screen.findByRole("combobox", { name: "Reassign" });
+    expect(picker.textContent).not.toContain("Removed");
+    fireEvent.change(picker, { target: { value: "agent:fixer" } });
+    await waitFor(() => expect(writes).toHaveBeenCalledOnce());
+    expect(writes).toHaveBeenCalledWith("/api/collaboration/rooms/room-1/handoffs", expect.objectContaining({
+      recipientActorId: "agent:fixer", task: sourceText, contextMessageIds: ["m1"],
+    }), expect.objectContaining({ "X-Shiba-Workspace": "ws_test" }));
+  });
+
+  it("opens the structured child thread from handoff and report cards", async () => {
+    setup();
+    render(<CollaborationView />);
+    fireEvent.click(await screen.findByRole("button", { name: /Shiba → Fixer: Fix the README/ }));
+    expect(screen.getByLabelText("Thread").textContent).toContain("Child task");
+    fireEvent.click(screen.getByRole("button", { name: "Close thread" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reported result: Done" }));
+    expect(screen.getByLabelText("Thread").textContent).toContain("Child task");
+  });
+
+  it("inserts a palette mention into the room composer and sends to the open thread", async () => {
+    const writes = setup();
+    const { rerender } = render(<CollaborationView />);
+    fireEvent.click(await screen.findByRole("button", { name: /Shiba → Fixer: Fix the README/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "Please review" } });
+    const incomingMention = { id: "mention-1", roomId: "room-1", agentId: "fixer" };
+    rerender(<CollaborationView incomingMention={incomingMention} />);
+    expect((screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement).value).toBe("Please review @agent:fixer ");
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(writes).toHaveBeenCalledWith("/api/collaboration/rooms/room-1/messages", {
+      body: "Please review @agent:fixer ", threadRootMessageId: "child-root",
+    }, expect.anything()));
+    rerender(<CollaborationView incomingMention={{ ...incomingMention, id: "wrong-room", roomId: "other" }} />);
+    expect((screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement).value).toBe("");
+  });
+});

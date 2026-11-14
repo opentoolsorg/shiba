@@ -29,10 +29,6 @@ export function parseHandoffBody(
   };
 }
 
-export function handoffTaskText(body: string): string {
-  return parseHandoffBody(body).task;
-}
-
 export function resolveHandoffStatus(input: {
   handoffStatus?: "active" | "cancelled";
   reported: boolean;
@@ -64,6 +60,7 @@ export function HandoffCard({
     <button
       type="button"
       onClick={onOpenThread}
+      disabled={!onOpenThread}
       className="mt-2 flex min-h-11 w-full items-center justify-between gap-3 border border-[var(--line)] px-3 py-2 text-left text-sm"
     >
       <span>{label}</span>
@@ -84,6 +81,7 @@ export function HandoffReport({
     <button
       type="button"
       onClick={onOpenThread}
+      disabled={!onOpenThread}
       className="mt-2 min-h-11 text-left text-sm underline"
     >
       Reported result: {body}
