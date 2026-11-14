@@ -186,17 +186,16 @@ OpenConnector OAuth accounts use an opaque Shiba connection identifier derived f
 
 The adapter verifies the approved generation immediately before dispatch and supplies the server-derived raw connection pin to the upstream action request. Pinned upstream OpenConnector has no atomic expected-consent condition on action execution. A simultaneous out-of-band operator mutation of credentials in the same row is therefore outside this verified guarantee; this implementation does not claim atomic vendor-account substitution protection.
 
-## Overlay-inspired workflow expansion (November 7)
+## Workflow template expansion (November 7)
 
 Six original instruction templates add inbox triage, meeting preparation, document
 research, task planning, weekly summaries and social drafts to the existing skill
 library. They use the same draft, review and activation path; they do not add
 provider adapters, OAuth grants, scheduled jobs or automatic publishing.
 
-Overlay's [feature inventory](https://github.com/LayerNorm/overlay-web/blob/main/FEATURES.md)
-describes integrations, MCP servers and skills as separate capabilities and does
+A public feature inventory describes integrations, MCP servers and skills as separate capabilities and does
 not enumerate bundled skill names. These Shiba templates are independently written
-workflows, not copied Overlay skills or a claim of complete feature parity.
+workflows, not copied skills from another product or a claim of complete feature parity.
 Six additional role-focused templates cover marketing campaign briefs, sales
 account briefs, product specifications, design review notes, operations runbooks
 and QA test plans. They produce review-first drafts from supplied or explicitly
@@ -210,9 +209,9 @@ metadata ingestion and service-binding activation are not wired. Enrollment
 review acceptance does not grant execution consent. See the
 [remaining mutation migration gates](verification/operator-legacy-mutation-fences-20261107.md).
 
-## Overlay-named integration coverage
+## Named integration coverage
 
-All eleven apps named by Overlay's README have exact OpenConnector mappings:
+All eleven apps from that product README have exact OpenConnector mappings:
 Gmail, Google Calendar, Google Sheets, Google Drive, Notion, Asana, Slack,
 GitHub, LinkedIn, X/Twitter and Outlook. Outlook Calendar, Instagram and YouTube
 are mapped too. Service IDs were checked against provider definitions at pinned

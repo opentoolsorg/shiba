@@ -70,7 +70,7 @@ async function handleClaudeSubscriptionAuth(request: Request, env: Env): Promise
  * T49: operator surface for the codex-subscription auth flow (T47
  * controller). Same verbs as claude-subscription; the instanceId keys on
  * the auth.json-holding directory (`codex-sub:<effectiveHomePath>`) so a
- * named account's `clear` revokes only its shadow overlay, never the
+ * named account's `clear` revokes only its shadow home, never the
  * shared CODEX_HOME or a sibling account (§18.11).
  *   GET  /api/auth/codex-subscription?account=<name>  → snapshot
  *   POST /api/auth/codex-subscription/begin|verify|clear  → {account}
