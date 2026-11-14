@@ -35,3 +35,27 @@ export interface TaskThread {
   createdAt: number;
   updatedAt: number;
 }
+
+export interface CollabReactionToggle {
+  roomId: string;
+  messageId: string;
+  emoji: string;
+  added: boolean;
+}
+
+export interface WorkspaceNotification {
+  notificationId: string;
+  kind: string;
+  title: string;
+  body: string;
+  roomId?: string | null;
+  messageId?: string | null;
+  readAt?: number | null;
+  createdAt: number;
+}
+
+export interface WorkspaceNotificationPrefs {
+  mentions: boolean;
+  threadReplies: boolean;
+  agentApprovals: boolean;
+}

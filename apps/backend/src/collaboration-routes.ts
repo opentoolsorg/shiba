@@ -81,6 +81,17 @@ import {
   listRoomsByKind,
   openDm,
 } from "./collaboration-v2-store.js";
+import {
+  followThread,
+  listSavedMessages,
+  pinMessage,
+  saveMessage,
+  toggleReaction,
+  unfollowThread,
+  unpinMessage,
+  unsaveMessage,
+  upsertReadCursor,
+} from "./collaboration-engagement-store.js";
 import { getTaskThread, listRoomTasks, openTaskThread, postTaskReply } from "./collaboration-task-threads.js";
 
 const PREFIX = "/api/collaboration";
@@ -420,6 +431,93 @@ export async function handleCollaboration(
       }
       const dm = await openDm(env, scope, body.userId.trim().toLowerCase(), Date.now());
       return json({ dm }, 201);
+    }
+
+    if (path.length === 1 && path[0] === "saved" && request.method === "GET") {
+      return json({ saved: await listSavedMessages(env, scope) });
+    }
+    if (path.length === 1 && path[0] === "reactions" && request.method === "POST") {
+      const body = await bodyObject(request);
+      const roomId = typeof body.roomId === "string" ? body.roomId : "";
+      const messageId = typeof body.messageId === "string" ? body.messageId : "";
+      const emoji = typeof body.emoji === "string" ? body.emoji.trim() : "";
+      if (!roomId || !messageId || !emoji) return invalidBody("roomId, messageId and emoji are required.");
+      const result = await toggleReaction(env, scope, { roomId, messageId, emoji, createdAt: Date.now() });
+      return json(result, result.added ? 201 : 200);
+    }
+    if (path.length === 1 && path[0] === "reactions" && request.method === "DELETE") {
+      const body = await bodyObject(request);
+      const roomId = typeof body.roomId === "string" ? body.roomId : "";
+      const messageId = typeof body.messageId === "string" ? body.messageId : "";
+      const emoji = typeof body.emoji === "string" ? body.emoji.trim() : "";
+      if (!roomId || !messageId || !emoji) return invalidBody("roomId, messageId and emoji are required.");
+      const result = await toggleReaction(env, scope, { roomId, messageId, emoji, createdAt: Date.now() });
+      return json({ removed: !result.added });
+    }
+    if (path.length === 1 && path[0] === "pins" && request.method === "POST") {
+      const body = await bodyObject(request);
+      const roomId = typeof body.roomId === "string" ? body.roomId : "";
+      const messageId = typeof body.messageId === "string" ? body.messageId : "";
+      if (!roomId || !messageId) return invalidBody("roomId and messageId are required.");
+      await pinMessage(env, scope, roomId, messageId, Date.now());
+      return json({ pinned: true }, 201);
+    }
+    if (path.length === 1 && path[0] === "pins" && request.method === "DELETE") {
+      const body = await bodyObject(request);
+      const roomId = typeof body.roomId === "string" ? body.roomId : "";
+      const messageId = typeof body.messageId === "string" ? body.messageId : "";
+      if (!roomId || !messageId) return invalidBody("roomId and messageId are required.");
+      const unpinned = await unpinMessage(env, scope, roomId, messageId);
+      if (!unpinned) return json({ error: "Pin not found." }, 404);
+      return json({ unpinned: true });
+    }
+    if (path.length === 1 && path[0] === "saved" && request.method === "POST") {
+      const body = await bodyObject(request);
+      const roomId = typeof body.roomId === "string" ? body.roomId : "";
+      const messageId = typeof body.messageId === "string" ? body.messageId : "";
+      if (!roomId || !messageId) return invalidBody("roomId and messageId are required.");
+      await saveMessage(env, scope, roomId, messageId, Date.now());
+      return json({ saved: true }, 201);
+    }
+    if (path.length === 1 && path[0] === "saved" && request.method === "DELETE") {
+      const body = await bodyObject(request);
+      const messageId = typeof body.messageId === "string" ? body.messageId : "";
+      if (!messageId) return invalidBody("messageId is required.");
+      const removed = await unsaveMessage(env, scope, messageId);
+      if (!removed) return json({ error: "Saved message not found." }, 404);
+      return json({ removed: true });
+    }
+    if (path.length === 1 && path[0] === "follows" && request.method === "POST") {
+      const body = await bodyObject(request);
+      const roomId = typeof body.roomId === "string" ? body.roomId : "";
+      const threadRootMessageId = typeof body.threadRootMessageId === "string" ? body.threadRootMessageId : "";
+      if (!roomId || !threadRootMessageId) return invalidBody("roomId and threadRootMessageId are required.");
+      await followThread(env, scope, roomId, threadRootMessageId, Date.now());
+      return json({ following: true }, 201);
+    }
+    if (path.length === 1 && path[0] === "follows" && request.method === "DELETE") {
+      const body = await bodyObject(request);
+      const roomId = typeof body.roomId === "string" ? body.roomId : "";
+      const threadRootMessageId = typeof body.threadRootMessageId === "string" ? body.threadRootMessageId : "";
+      if (!roomId || !threadRootMessageId) return invalidBody("roomId and threadRootMessageId are required.");
+      const removed = await unfollowThread(env, scope, roomId, threadRootMessageId);
+      if (!removed) return json({ error: "Thread follow not found." }, 404);
+      return json({ removed: true });
+    }
+    if (path.length === 1 && path[0] === "read-cursors" && request.method === "PUT") {
+      const body = await bodyObject(request);
+      const roomId = typeof body.roomId === "string" ? body.roomId : "";
+      const lastReadSeq = Number(body.lastReadSeq);
+      if (!roomId || !Number.isSafeInteger(lastReadSeq) || lastReadSeq < 0) {
+        return invalidBody("roomId and lastReadSeq are required.");
+      }
+      await upsertReadCursor(env, scope, {
+        roomId,
+        lastReadSeq,
+        threadRootMessageId: typeof body.threadRootMessageId === "string" ? body.threadRootMessageId : undefined,
+        updatedAt: Date.now(),
+      });
+      return json({ updated: true });
     }
 
     if (path.length === 4 && path[0] === "rooms" && path[2] === "tasks" && request.method === "GET") {

@@ -18,6 +18,7 @@ import { Card } from "./settings-ui";
 import { ToneChip } from "./ToneChip";
 import { useTheme } from "./ThemeProvider";
 import { useSavedRepos, saveRepo, removeRepo } from "../saved";
+import { NotificationPrefsSection } from "./settings/NotificationPrefsSection";
 
 export type SettingsSectionId =
   | "account"
@@ -30,7 +31,8 @@ export type SettingsSectionId =
   | "sandbox"
   | "environments"
   | "experimental"
-  | "deployment";
+  | "deployment"
+  | "notifications";
 
 /** Single source for section labels — the modal nav groups render from this. */
 export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string; blurb: string }> =
@@ -49,6 +51,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string;
     },
     experimental: { label: "Experimental", blurb: "Opt-in feature flags (wrangler vars)" },
     deployment: { label: "Deployment", blurb: "Serving host, models & harness" },
+    notifications: { label: "Notifications", blurb: "Mentions and Needs you inbox" },
   };
 
 function SectionShell({
@@ -946,6 +949,14 @@ export function SettingsSectionBody({
         description="GitHub repos you've saved — they show up as picks in the task composer and fill in automatically when you reuse one."
       >
         <RepositoriesSection />
+      </SectionShell>
+    );
+  }
+
+  if (section === "notifications") {
+    return (
+      <SectionShell title="Notifications" description="In-app alerts for mentions, thread replies, and approvals.">
+        <NotificationPrefsSection />
       </SectionShell>
     );
   }
