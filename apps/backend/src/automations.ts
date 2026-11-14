@@ -45,6 +45,8 @@ export interface ScheduleTrigger extends TriggerBase {
   cron: string;
   /** IANA timezone for cron evaluation. Defaults to UTC. */
   timezone?: string;
+  /** Optional Overlay-style schedule (daily/weekly/monthly/interval). */
+  structured?: import("./automation-schedules.js").StructuredSchedule;
 }
 
 export interface GitHubTrigger extends TriggerBase {
@@ -78,6 +80,8 @@ export interface WebhookTrigger extends TriggerBase {
    * The Automations DO flushes the batch on the next cron tick after the window.
    */
   batchWindowSeconds?: number;
+  /** When true, emit WS09 outbound `automation.finished` after a terminal run. */
+  terminalWebhook?: boolean;
 }
 
 export interface LinearTrigger extends TriggerBase {
@@ -139,6 +143,8 @@ export interface Automation {
   skillPins?: ReviewedSkillPin[];
   /** Bounded occurrence history for reload/recovery. */
   occurrences?: ScheduleOccurrence[];
+  /** Emit outbound WS09 `automation.finished` when the run reaches a terminal state. */
+  terminalWebhook?: boolean;
 }
 
 export interface ReviewedSkillPin {
