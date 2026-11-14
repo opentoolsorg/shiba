@@ -18,11 +18,13 @@ import { AccountSettings } from "./account/AccountSettings";
 import { ToneChip } from "./ToneChip";
 import { useTheme } from "./ThemeProvider";
 import { useSavedRepos, saveRepo, removeRepo } from "../saved";
+import { ConnectedApps } from "./settings/ConnectedApps";
 
 export type SettingsSectionId =
   | "account"
   | "api-keys"
   | "appearance"
+  | "connected-apps"
   | "repositories"
   | "automations"
   | "mailbox"
@@ -38,6 +40,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string;
     account: { label: "Account", blurb: "Identity, auth lane & sign out" },
     "api-keys": { label: "API keys", blurb: "Org-scoped /api/v1 bearer keys" },
     appearance: { label: "Appearance", blurb: "Theme" },
+    "connected-apps": { label: "Connected apps", blurb: "External MCP clients authorized for /mcp" },
     repositories: { label: "Repositories", blurb: "Saved GitHub targets" },
     automations: { label: "Automations", blurb: "Kill switch & TypeSafe key" },
     mailbox: { label: "Mailbox", blurb: "Agent mailbox & email sending" },
@@ -938,6 +941,17 @@ export function SettingsSectionBody({
         description="Dashboard theme — stored per browser, shared with the nav rail toggle and the D shortcut."
       >
         <AppearanceSection />
+      </SectionShell>
+    );
+  }
+
+  if (section === "connected-apps") {
+    return (
+      <SectionShell
+        title="Connected apps"
+        description="External MCP clients that can call this deployment's /mcp endpoint after OAuth consent."
+      >
+        <ConnectedApps />
       </SectionShell>
     );
   }
