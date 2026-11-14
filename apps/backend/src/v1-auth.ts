@@ -56,6 +56,9 @@ export async function authorizeV1Request(request: Request, env: Env): Promise<V1
     if (!record.scopes.some((scope) => (API_KEY_SCOPES as readonly string[]).includes(scope))) {
       return null;
     }
+    if (await apiKeyRateLimited(env, record, request)) {
+      return null;
+    }
     return {
       principal: record.principal,
       orgId: orgIdForRecord(record),
@@ -91,4 +94,35 @@ export function v1Unauthorized(): Response {
 
 export function v1Forbidden(): Response {
   return Response.json({ _tag: "shiba/Forbidden" }, { status: 403 });
+}
+
+export function v1TooManyRequests(): Response {
+  return Response.json({ _tag: "shiba/TooManyRequests" }, { status: 429 });
+}
+
+const API_KEY_RATE_LIMIT = 120;
+const API_KEY_RATE_WINDOW_MS = 60_000;
+
+/** Returns true when the API key has exceeded its per-minute request budget. */
+export async function apiKeyRateLimited(env: Env, record: TokenRecord, request: Request): Promise<boolean> {
+  const kv = env.AGENT_TOKENS;
+  if (!kv || record.kind !== "api_key" || !record.keyId) return false;
+  const window = Math.floor(Date.now() / API_KEY_RATE_WINDOW_MS);
+  const key = `rl_api_key:${record.keyId}:${window}`;
+  try {
+    const raw = await kv.get(key, { type: "text" });
+    const count = raw === null ? 0 : Number.parseInt(raw, 10);
+    if (!Number.isFinite(count) || count >= API_KEY_RATE_LIMIT) return true;
+    await kv.put(key, String(count + 1), {
+      expirationTtl: Math.ceil((API_KEY_RATE_WINDOW_MS * 2) / 1000),
+    });
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+export function apiKeyAllowsHttpMethod(principal: V1Principal, method: string): boolean {
+  const readOnly = method === "GET" || method === "HEAD";
+  return readOnly ? requireV1Read(principal) : requireV1Write(principal);
 }
