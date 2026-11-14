@@ -47,6 +47,8 @@ import { LocalDispatch } from "./local-dispatch.js";
 import { handleMcp } from "./mcp-routes.js";
 import { handleMemory } from "./memory-routes.js";
 import { handleFiles } from "./files/files-routes.js";
+import { handleNotes } from "./notes/notes-routes.js";
+import { handleKnowledge } from "./knowledge/knowledge-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
 import { handleAcpProviders } from "./acp-provider-routes.js";
 import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
@@ -175,6 +177,7 @@ export const DASHBOARD_VIEWS = new Set([
   "inbox",
   "memory",
   "files",
+  "notes",
   "automations",
   "providers",
   "employee-tools",
@@ -529,6 +532,10 @@ export default {
       }
       const filesResponse = await handleFiles(request, env);
       if (filesResponse) return filesResponse;
+      const notesResponse = await handleNotes(request, env);
+      if (notesResponse) return notesResponse;
+      const knowledgeResponse = await handleKnowledge(request, env);
+      if (knowledgeResponse) return knowledgeResponse;
       const auditResponse = await handleAudit(request, env);
       if (auditResponse) {
         return auditResponse;
