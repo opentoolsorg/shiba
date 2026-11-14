@@ -55,7 +55,7 @@ type PublishedEvent = {
 
 const USER_MAX = 320;
 const TEXT_MAX = 200;
-const ROOM_ID = /^room_[a-f0-9]{24}$/;
+const ROOM_ID = /^(?:room_[a-f0-9]{24}|(?:chn|dm)_[a-f0-9]{20})$/;
 
 function cleanUserId(value: unknown): string | null {
   if (typeof value !== "string") return null;
