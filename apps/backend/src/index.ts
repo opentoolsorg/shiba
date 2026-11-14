@@ -361,6 +361,12 @@ export default {
       if (teamModelResponse) return teamModelResponse;
       const workResponse = await handleTeamWork(request, env);
       if (workResponse) return workResponse;
+      const searchResponse = await (await import("./search-routes.js")).handleSearch(request, env);
+      if (searchResponse) return searchResponse;
+      const workspaceEventsResponse = await (await import("./workspace-events-routes.js")).handleWorkspaceEvents(request, env);
+      if (workspaceEventsResponse) return workspaceEventsResponse;
+      const askUserResponse = await (await import("./ask-user-routes.js")).handleAskUser(request, env);
+      if (askUserResponse) return askUserResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);
       if (workspaceResponse) return workspaceResponse;
       const seedResponse = await (await import("./first-run-seed.js")).handleFirstRunSeed(request, env);
