@@ -4,7 +4,7 @@
  *   1. opt-in: absent SHIBA_CODEX_SUBSCRIPTION the harness is unregistered,
  *      uncataloged, unselectable;
  *   2. the two-level CODEX_HOME: a shared home holds the verbatim known-
- *      shared list; per-account shadows overlay auth.json via symlinks and
+ *      shared list; per-account shadows cover auth.json via symlinks and
  *      keep log/memories/tmp local — continuation key (shared) ≠ account
  *      key (effective home);
  *   3. private-entry refusal: a symlinked auth.json in a shadow is a
@@ -111,7 +111,7 @@ describe("opt-in gate (§18.11 constraints)", () => {
 });
 
 describe("two-level CODEX_HOME (the §18.11 port)", () => {
-  it("default account is direct mode — no overlay, shared home is effective", () => {
+  it("default account is direct mode — no shadow home, shared home is effective", () => {
     const layout = resolveCodexSubscriptionHome({ sharedHomePath: CODEX_SUBSCRIPTION_SHARED_HOME });
     expect(layout.mode).toBe("direct");
     expect(layout.effectiveHomePath).toBeUndefined();
@@ -120,9 +120,9 @@ describe("two-level CODEX_HOME (the §18.11 port)", () => {
     expect(codexSubscriptionHomeDir(input())).toBe(CODEX_SUBSCRIPTION_SHARED_HOME);
   });
 
-  it("a named account gets a shadow; continuation key stays shared, account key is the overlay", () => {
+  it("a named account gets a shadow; continuation key stays shared, account key is the shadow home", () => {
     const layout = codexSubscriptionHome(input({ authAccount: "work" }));
-    expect(layout.mode).toBe("authOverlay");
+    expect(layout.mode).toBe("shadowHome");
     expect(layout.sharedHomePath).toBe(CODEX_SUBSCRIPTION_SHARED_HOME);
     expect(layout.effectiveHomePath).toBe("/root/.shiba/codex/acc-work");
     // The §18.11 invariant: continuation key ≠ account key.
@@ -188,7 +188,7 @@ describe("two-level CODEX_HOME (the §18.11 port)", () => {
     expect(isCodexShadowLocalEntry("tmp")).toBe(true);
   });
 
-  it("codex updates run against the shared home — the overlay has no install", () => {
+  it("codex updates run against the shared home — the shadow home has no install", () => {
     expect(codexUpdateHomePath(codexSubscriptionHome(input({ authAccount: "work" })))).toBe(
       CODEX_SUBSCRIPTION_SHARED_HOME,
     );
@@ -402,7 +402,7 @@ describe("admission gate (T47 controller, account-keyed)", () => {
     await expect(assertHarnessAuthorized(env, codexSubscriptionHarness, input())).resolves.toBeUndefined();
   });
 
-  it("clearing an overlay refuses that account only — the shared account is untouched", async () => {
+  it("clearing a shadow home refuses that account only — the shared account is untouched", async () => {
     const env = kvEnv();
     const { codexSubscriptionAuth } = await import("@shiba/auth");
     const original = globalThis.fetch;

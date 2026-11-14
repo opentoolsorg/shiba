@@ -4,13 +4,9 @@
 
 Implemented on PR #199 checkpoint `22edd8b709a9f14176bc5a5ee6a5463eb1bdf256`.
 
-The reference was Overlay's stable primary navigation, contextual sidebar, and focused content canvas, reviewed in source at `8c57d1c521a9ffb332bad1def201ab29d9869066`:
+The layout follows a stable primary navigation, contextual sidebar, and focused content canvas. The notes were taken from an external app shell at commit `8c57d1c521a9ffb332bad1def201ab29d9869066` (app shell, sidebar composition, and contextual Work navigation). Those paths are not vendored here.
 
-- [App shell](https://github.com/LayerNorm/overlay-web/blob/8c57d1c521a9ffb332bad1def201ab29d9869066/src/app/_components/AppShellLayout.tsx)
-- [Sidebar composition](https://github.com/LayerNorm/overlay-web/blob/8c57d1c521a9ffb332bad1def201ab29d9869066/src/components/layout/AppSidebar.tsx)
-- [Contextual Work navigation](https://github.com/LayerNorm/overlay-web/blob/8c57d1c521a9ffb332bad1def201ab29d9869066/src/features/work/components/WorkSidebarSection.tsx)
-
-This is an independent Shiba implementation. No Overlay brand, asset, dependency, or source component was imported. It retains the current PR's neutral light/dark tokens, Shiba mascot, routes, account isolation, and execution contracts.
+This is an independent Shiba implementation. No outside brand, asset, dependency, or source component was imported. It retains the current PR's neutral light/dark tokens, Shiba mascot, routes, account isolation, and execution contracts.
 
 ## Changes
 
