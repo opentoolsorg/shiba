@@ -14,6 +14,7 @@ const SCOPES = [
   "email:delete",
   "memory:read",
   "memory:write",
+  "knowledge:read",
   "runs:read",
   "sandbox:exec",
   "mcp:external",

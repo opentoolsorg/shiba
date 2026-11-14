@@ -4,7 +4,7 @@ import { ensureCollaborationSchema } from "../src/collaboration-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 it.each([false, true])("initializes collaboration executor pinning and source deduplication (existing executor column: %s)", async (existingExecutor) => {
-  const { database, sqlite } = customAgentD1();
+  const { database, sqlite } = customAgentD1({ bare: true });
   try {
     sqlite.exec(readFileSync(new URL("../migrations/0046_collab_v2.sql", import.meta.url), "utf8"));
     if (existingExecutor) sqlite.exec("ALTER TABLE collaboration_handoffs ADD COLUMN executor_agent_name TEXT");
