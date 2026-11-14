@@ -28,6 +28,12 @@ import {
   type Scope, type TokenRecord, type AgentTokensEnv,
 } from "./agent-tokens.js";
 import { audit, type AuditEnv } from "./audit.js";
+import {
+  consumeMcpGrantRefresh,
+  detectMcpGrantRefreshReplay,
+  noteRotatedRefreshHash,
+  upsertOAuthMcpGrant,
+} from "./mcp-grants.js";
 import { randomHex } from "./mailbox-store.js";
 import { redactSecrets } from "./security.js";
 
@@ -66,6 +72,9 @@ interface RefreshRecord {
   revoked: boolean;
   clientId: string;
   consumeTicket?: string;
+  grantId: string;
+  refreshVersion: number;
+  ownerUserId: string;
 }
 
 /**
@@ -105,9 +114,7 @@ const ACCESS_TOKEN_RE = /^sho_[0-9a-f]{16}_[0-9a-f]{48}$/;
 const REFRESH_TOKEN_RE = /^shr_[0-9a-f]{16}_[0-9a-f]{48}$/;
 const S256_RE = /^[A-Za-z0-9_-]{43}$/;
 
-export interface OAuthEnv extends AgentTokensEnv, AuditEnv {
-  AGENT_TOKENS: KVNamespace;
-}
+export interface OAuthEnv extends AgentTokensEnv, AuditEnv {}
 
 // ---------------------------------------------------------------------------
 // KV helpers — every read fails closed like agent-tokens.
@@ -147,8 +154,9 @@ async function kvGetStrict(env: OAuthEnv, key: string): Promise<KvReadResult> {
 /** Exclusive refresh consumption — concurrent replays must not mint two pairs. */
 async function claimRefreshRecord(env: OAuthEnv, key: string): Promise<RefreshRecord | null> {
   for (let attempt = 0; attempt < 4; attempt++) {
-    const record = asRecord<RefreshRecord>(await kvGet(env, key), ["principal", "expiresAt", "revoked", "clientId"]);
+    const record = asRecord<RefreshRecord>(await kvGet(env, key), ["principal", "expiresAt", "revoked", "clientId", "grantId", "refreshVersion", "ownerUserId"]);
     if (record === null || record.revoked || record.expiresAt < Date.now()) return null;
+    if (!record.grantId || !Number.isFinite(record.refreshVersion) || !record.ownerUserId) return null;
     const ticket = randomHex(16);
     await kvPut(env, key, { ...record, revoked: true, consumeTicket: ticket }, REFRESH_TOKEN_TTL_MS);
     const verified = asRecord<RefreshRecord>(
@@ -460,7 +468,13 @@ async function issueTokenPair(
   clientId: string,
   owner: string,
   scopes: Scope[],
+  grantSeed?: { refreshVersion: number; grantId: string },
 ): Promise<Response> {
+  const client = asRecord<ClientRecord>(await kvGet(env, `${CLIENT_PREFIX}${clientId}`), ["name"]);
+  const clientName = client?.name ?? "mcp-client";
+  const grant = grantSeed
+    ? { id: grantSeed.grantId, refreshVersion: grantSeed.refreshVersion }
+    : await upsertOAuthMcpGrant(env, { userId: owner, clientId, clientName, access: "full" });
   const access = `sho_${randomHex(8)}_${randomHex(24)}`;
   const refresh = `shr_${randomHex(8)}_${randomHex(24)}`;
   const now = Date.now();
@@ -470,6 +484,7 @@ async function issueTokenPair(
   } satisfies AccessRecord, ACCESS_TOKEN_TTL_MS);
   await kvPut(env, `${REFRESH_PREFIX}${await sha256Hex(refresh)}`, {
     principal, scopes, created: now, expiresAt: now + REFRESH_TOKEN_TTL_MS, revoked: false, clientId,
+    grantId: grant.id, refreshVersion: grant.refreshVersion, ownerUserId: owner,
   } satisfies RefreshRecord, REFRESH_TOKEN_TTL_MS);
   await audit(env, {
     principal, tool: "oauth.token",
@@ -527,16 +542,31 @@ async function handleToken(request: Request, env: OAuthEnv): Promise<Response> {
     if (!REFRESH_TOKEN_RE.test(refresh)) {
       return jsonError(400, "invalid_grant", "unknown refresh token.");
     }
-    const key = `${REFRESH_PREFIX}${await sha256Hex(refresh)}`;
+    const refreshHash = await sha256Hex(refresh);
+    const key = `${REFRESH_PREFIX}${refreshHash}`;
     const claimed = await claimRefreshRecord(env, key);
     if (claimed === null) {
+      if (await detectMcpGrantRefreshReplay(env, { refreshHash })) {
+        return jsonError(401, "invalid_grant", "refresh token replay detected; grant revoked.");
+      }
       return jsonError(400, "invalid_grant", "refresh token is unknown, revoked, or expired.");
     }
+    const ownerUserId = claimed.ownerUserId ?? claimed.principal.replace(/^oauth:[^:]+:/, "");
+    const nextVersion = await consumeMcpGrantRefresh(env, {
+      userId: ownerUserId,
+      clientId: claimed.clientId,
+      expectedVersion: claimed.refreshVersion,
+    });
+    if (nextVersion === null) {
+      return jsonError(401, "invalid_grant", "refresh token replay detected; grant revoked.");
+    }
+    await noteRotatedRefreshHash(env, { grantId: claimed.grantId, refreshHash });
     return issueTokenPair(
       env,
       claimed.clientId,
-      claimed.principal.replace(/^oauth:[^:]+:/, ""),
+      ownerUserId,
       claimed.scopes,
+      { grantId: claimed.grantId, refreshVersion: nextVersion },
     );
   }
 

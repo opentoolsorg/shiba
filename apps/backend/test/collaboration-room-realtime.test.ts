@@ -268,9 +268,19 @@ describe("authenticated shared-room realtime", () => {
       await room.notifyCollaborationChange(identity);
     });
     env.ConversationRoom = { getByName: () => ({ notifyCollaborationChange: notify }) } as unknown as Env["ConversationRoom"];
+    const published: Array<Record<string, unknown>> = [];
+    env.WorkspaceEvents = { getByName: () => ({ fetch: async (request: Request) => {
+      published.push(await request.json() as Record<string, unknown>);
+      return Response.json({ ok: true });
+    } }) } as unknown as Env["WorkspaceEvents"];
     const response = await handleCollaborationWithRealtime(new Request(`https://worker.test/api/collaboration/rooms/${identity.roomId}/messages`, { method: "POST", headers: { Origin: "https://worker.test", "Content-Type": "application/json" }, body: JSON.stringify({ body: "Durable shared note" }) }), env);
     expect(response?.status).toBe(201);
     expect(notify).toHaveBeenCalledOnce();
+    expect(published).toEqual([expect.objectContaining({
+      type: "collaboration.change",
+      resourceId: identity.roomId,
+      audience: { roomId: identity.roomId },
+    })]);
     for (const socket of [owner, teammate]) {
       expect(socket.events).toContainEqual({ type: "collaboration:refresh", roomId: identity.roomId });
       expect(JSON.stringify(socket.events)).not.toContain("Durable shared note");
@@ -278,6 +288,7 @@ describe("authenticated shared-room realtime", () => {
     const denied = await handleCollaborationWithRealtime(new Request(`https://worker.test/api/collaboration/rooms/${identity.roomId}/messages`, { method: "POST", headers: { Origin: "https://attacker.test", "Content-Type": "application/json" }, body: JSON.stringify({ body: "Denied" }) }), env);
     expect(denied?.status).toBe(403);
     expect(notify).toHaveBeenCalledOnce();
+    expect(published).toHaveLength(1);
   });
 
   it("invalidates the exact room after cancellation and an internal settlement hint", async () => {
