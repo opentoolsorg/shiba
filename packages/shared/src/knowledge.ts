@@ -47,3 +47,48 @@ export const ingestQueueMessageSchema = z.object({
   mime: z.string(),
 });
 export type IngestQueueMessage = z.infer<typeof ingestQueueMessageSchema>;
+
+export const knowledgeNoteSchema = z.object({
+  id: z.string(),
+  workspaceId: z.string(),
+  scope: knowledgeScopeSchema,
+  title: z.string(),
+  sha256: z.string(),
+  projectId: z.string().nullable(),
+  version: z.number().int().positive(),
+  createdBy: z.string(),
+  createdAt: z.number().int(),
+  updatedAt: z.number().int(),
+  archivedAt: z.number().int().nullable().optional(),
+  ingestion: z.object({
+    state: ingestionStateSchema,
+    error: z.string().nullable().optional(),
+  }),
+});
+export type KnowledgeNote = z.infer<typeof knowledgeNoteSchema>;
+
+export const knowledgeSearchHitSchema = z.object({
+  chunkId: z.string(),
+  sourceKind: knowledgeSourceKindSchema,
+  sourceId: z.string(),
+  ordinal: z.number().int().nonnegative(),
+  text: z.string(),
+  score: z.number(),
+  rank: z.number().int().positive(),
+});
+export type KnowledgeSearchHit = z.infer<typeof knowledgeSearchHitSchema>;
+
+export const knowledgeSearchResultSchema = z.object({
+  query: z.string(),
+  hits: z.array(knowledgeSearchHitSchema),
+});
+export type KnowledgeSearchResult = z.infer<typeof knowledgeSearchResultSchema>;
+
+/** Tool args the agent catalog registers via `registerKnowledgeSearchTool`. */
+export const knowledgeSearchToolArgsSchema = z.object({
+  query: z.string().min(1).max(2000),
+  limit: z.number().int().min(1).max(20).optional(),
+});
+export type KnowledgeSearchToolArgs = z.infer<typeof knowledgeSearchToolArgsSchema>;
+
+export const KNOWLEDGE_SEARCH_TOOL_NAME = "knowledge_search" as const;
