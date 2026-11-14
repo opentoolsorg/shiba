@@ -2167,7 +2167,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           this.postToThread(threadText, { runId, ...(pointer?.threadKey ? { threadKey: pointer.threadKey } : {}) });
         }
         const milestoneWorkspace = reserved.orgId || pointer?.orgId || "personal";
-        void syncRunMilestones(this.env, milestoneWorkspace, updated).catch(() => undefined);
+        void syncRunMilestones(this.env, milestoneWorkspace, updated, { userId: initiatorUserIdFromOrchestratorName(this.name) }).catch(() => undefined);
         void releaseRepoClaim(this.env, milestoneWorkspace, updated.approval?.approvalId ?? runId).catch(() => undefined);
         // Megaplan T10: a retained run landing completed/error distills its
         // transcript into long-term memory — best-effort under waitUntil.
@@ -2199,7 +2199,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return `Run ${runId} did not start — it is already ${this.store.get(runId)?.status ?? "missing"}.`;
       }
       if (!recovery) this.relayChildLifecycle(runId, "running", "Shiba Fixer is running the approved task.", running.parentRunId ?? runId);
-      void syncRunMilestones(this.env, reserved.orgId || pointer?.orgId || "personal", running).catch(() => undefined);
+      void syncRunMilestones(this.env, reserved.orgId || pointer?.orgId || "personal", running, { userId: initiatorUserIdFromOrchestratorName(this.name) }).catch(() => undefined);
       this.stampCheckpoint(runId, "executing");
       logStructured("info", {
         event: "run.executing",
@@ -3364,6 +3364,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       });
       void recordQueuedAck(this.env, {
         workspaceId: intakeOrgId || "personal",
+        userId: initiatorUserIdFromOrchestratorName(this.name),
         approvalId,
         task,
       });

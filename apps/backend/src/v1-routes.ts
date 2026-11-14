@@ -34,6 +34,7 @@ import { handleRuns, runDeliverableFields } from "./v1/runs.js";
 import { handleSystem } from "./v1/system.js";
 import { handleOrgAgents } from "./v1/org-agents.js";
 import { handleExtensionSkills } from "./v1/extension-skills.js";
+import { handleExtensionConnectors } from "./extensions/connectors-routes.js";
 import { handleThreads } from "./v1/threads.js";
 import { publicRunMessage, runTimedOut } from "./public-error.js";
 import { reviewerTask } from "./review/prompt.js";
@@ -144,6 +145,7 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
     handleAutomations,
     handleOrgAgents,
     handleExtensionSkills,
+    handleExtensionConnectors,
   ]) {
     // Handlers read the body; give each its own copy so the legacy path below still can.
     const handled = await group({ ...ctx, request: request.clone() as typeof request });

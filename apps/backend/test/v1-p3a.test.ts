@@ -17,7 +17,7 @@ import { handleAutomations } from "../src/v1/automations.js";
 import type { V1Context } from "../src/v1/context.js";
 import { handleMcp } from "../src/v1/mcp.js";
 import { handleRepositories } from "../src/v1/repositories.js";
-import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { externalMcpD1 } from "./fixtures/external-mcp-schema.js";
 
 function makeDo() {
   const storage = new Map<string, unknown>();
@@ -36,7 +36,7 @@ function makeDo() {
 }
 
 function fixture(path: string, method = "GET", body?: unknown, env: Partial<Env> = { GITHUB_TOKEN: "t" }, headers: Record<string, string> = {}) {
-  const { database } = customAgentD1();
+  const { database } = externalMcpD1();
   const bindings = { AGENT_AUDIT: database, MCP_TRUSTED_HOSTS: "", ...env };
   const request = new Request(`https://worker.test/api/v1${path}`, { method,
     headers: { "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });

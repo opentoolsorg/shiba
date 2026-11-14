@@ -161,7 +161,7 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
         } else if (body.approved === true) {
           const target = claimAction === "new_branch" ? freshBranchName(String(body.approvalId)) : branch;
           await claimRepoWork(env, { workspaceId, repo, branch: target, runId: String(body.approvalId), actorId: decidedBy });
-          void appendRunMilestone(env, { workspaceId, runId: String(body.approvalId), kind: "status", text: "Working" }).catch(() => undefined);
+          void appendRunMilestone(env, { workspaceId, userId: decidedBy, runId: String(body.approvalId), kind: "status", text: "Working" }).catch(() => undefined);
         }
       }
     }

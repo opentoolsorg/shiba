@@ -18,7 +18,7 @@ import {
   archiveTeamWorkTask, commentTeamWorkTask, createTeamWorkTask, getTeamWorkTask, listTeamWorkTasks, TeamWorkTaskError, updateTeamWorkTask,
   type TeamWorkActivityEntry, type TeamWorkTask, type TeamWorkTaskPriority, type TeamWorkTaskStatus,
 } from "./team-work-tasks-store.js";
-import { getTeamWorkspaceMembership, normalizeTeamWorkspaceEmail } from "./team-workspaces-store.js";
+import { getTeamWorkspace, getTeamWorkspaceMembership, normalizeTeamWorkspaceEmail } from "./team-workspaces-store.js";
 import { upsertWorkspaceSearchDoc } from "./workspace-search-store.js";
 import { publishWorkspaceEvent } from "./platform/workspace-events-do.js";
 import { latestStatusText } from "./run-milestones.js";
@@ -196,6 +196,7 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
     catch { return json({ error: "Authenticated email identity required." }, 403); }
     if (!await getTeamWorkspaceMembership(env, workspaceId, userId)) return json({ error: "Workspace membership required." }, 403);
     const actorId = humanActorId(userId), body = await readJson(request);
+    const audience = { userIds: env.WorkspaceEvents ? (await getTeamWorkspace(env, workspaceId, userId))?.members.map((member) => member.userId) ?? [] : [] };
     if (action === "archive") return json({ task: storedItem(await archiveTeamWorkTask(env, workspaceId, taskId ?? "", actorId)) });
     if (action === "comments") {
       const { text } = parse(COMMENT_BODY, body);
@@ -210,7 +211,7 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
     if (taskId !== undefined) {
       const updated = await updateTeamWorkTask(env, workspaceId, taskId, actorId, { title, ...fields });
       void upsertWorkspaceSearchDoc(env, workspaceId, updated.taskId, "task", updated.title, updated.objective ?? "", updated.updatedAt);
-      void publishWorkspaceEvent(env, workspaceId, { kind: "task.updated", entityId: updated.taskId, payload: { version: updated.version } });
+      if (audience.userIds.length) void publishWorkspaceEvent(env, workspaceId, { audience, kind: "task.updated", entityId: updated.taskId, payload: { version: updated.version } });
       return json({ task: storedItem(updated) });
     }
     // Pre-check what the follow-up update would reject so a failed create leaves no half-made task.
@@ -220,7 +221,7 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
     const created = await createTeamWorkTask(env, workspaceId, actorId, title ?? "");
     const task = Object.keys(fields).length ? await updateTeamWorkTask(env, workspaceId, created.taskId, actorId, fields) : created;
     void upsertWorkspaceSearchDoc(env, workspaceId, task.taskId, "task", task.title, task.objective ?? "", task.updatedAt);
-    void publishWorkspaceEvent(env, workspaceId, { kind: "task.created", entityId: task.taskId, payload: { version: task.version } });
+    if (audience.userIds.length) void publishWorkspaceEvent(env, workspaceId, { audience, kind: "task.created", entityId: task.taskId, payload: { version: task.version } });
     return json({ task: storedItem(task) }, 201);
   } catch (error) {
     if (error instanceof TeamWorkTaskError) return json({ error: error.message }, error.status);

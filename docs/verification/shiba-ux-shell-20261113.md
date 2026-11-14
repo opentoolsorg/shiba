@@ -26,7 +26,7 @@ Initial URL normalization retains existing callback query parameters and fragmen
 - `components/WorkLeftPanel.tsx` has only a two-line shell adapter: import `AppAreaNavigation` and render it before the existing header. Preserve this slot when integrating Work changes. No WorkView, task inspector or Chat feature implementation was changed by this slice.
 - `app.tsx` owns the shell wrapper, routing helper extraction, callback URL preservation and the fallback area sidebar for views without a dedicated context panel.
 - Three backend **test** files follow the relocated navigation data and five-area labels. Backend production code is unchanged.
-- No new runtime dependencies, Overlay code/assets, provider logic or memory behavior were added. Existing hard-coded demo workflow rows and the unconditional “Worker Online” navigation claim disappeared with the old navigation renderer.
+- No new runtime dependencies, outside product code/assets, provider logic or memory behavior were added. Existing hard-coded demo workflow rows and the unconditional “Worker Online” navigation claim disappeared with the old navigation renderer.
 
 ## Verification
 

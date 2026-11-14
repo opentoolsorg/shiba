@@ -32,7 +32,7 @@ function fillSignIn(): void {
 describe("AuthScreen", () => {
   function policies(enabled = true, restricted = false) {
     const fetcher = vi.fn(async (url: string) => ({ ok: true,
-      json: async () => url.endsWith("invitation-policy") ? { enabled, reason: enabled ? undefined : "The operator must configure email verification." }
+      json: async () => url.endsWith("invitation-policy") ? { enabled, reason: enabled ? undefined : "Invitation enrollment is currently unavailable. Contact your workspace owner." }
         : url.endsWith("social-providers") ? { providers: { google: true, slack: true } }
         : url.endsWith("enrollment-status") ? { restricted, emailVerified: !restricted }
         : { requiresToken: false, requiresOwnerEmail: false, locked: false } }));
@@ -62,7 +62,7 @@ describe("AuthScreen", () => {
   it("keeps invitation signup disabled when verified email enrollment is unavailable", async () => {
     policies(false);
     render(<AuthScreen onSignedIn={vi.fn()} invitationToken={"c".repeat(64)} />);
-    expect(await screen.findByText(/operator must configure email verification/i)).toBeTruthy();
+    expect(await screen.findByText(/Invitation enrollment is currently unavailable/i)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Create team account" }) as HTMLButtonElement).disabled).toBe(true);
     expect(signUp).not.toHaveBeenCalled();
   });

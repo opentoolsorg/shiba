@@ -54,9 +54,11 @@ export async function appendRunMilestone(
     entityId: input.runId,
     at: now,
     payload: { milestone: input.kind, seq },
-    ...(input.roomId ? { audience: { roomId: input.roomId } } : {}),
+    audience: input.roomId ? { roomId: input.roomId } : { userIds: input.userId ? [input.userId] : [] },
   };
-  await publishWorkspaceEvent(env, input.workspaceId, event);
+  if (input.roomId || input.userId?.trim()) {
+    await publishWorkspaceEvent(env, input.workspaceId, event);
+  }
   if (input.roomId) {
     const roomKind = input.kind === "ack" || input.kind === "status" || input.kind === "result" ? input.kind : "milestone";
     const payload: ThreadMessagePayload = { runId: input.runId };
@@ -78,13 +80,14 @@ export async function appendRunMilestone(
 
 export async function recordQueuedAck(
   env: StoreEnv,
-  input: { workspaceId: string; approvalId: string; task: string; roomId?: string | null; threadRootId?: string | null },
+  input: { workspaceId: string; approvalId: string; task: string; userId?: string | null; roomId?: string | null; threadRootId?: string | null },
 ): Promise<void> {
   const first = input.task.trim().split(/[.\n]/)[0]?.trim() || "read the repository";
   try {
     await appendRunMilestone(env, {
       workspaceId: input.workspaceId,
       runId: input.approvalId,
+      userId: input.userId,
       kind: "ack",
       text: `On it: first I'll ${first.replace(/^first I'll /i, "")}.`,
       roomId: input.roomId,
@@ -99,7 +102,7 @@ export async function syncRunMilestones(
   env: StoreEnv,
   workspaceId: string,
   run: DelegatedRun,
-  room?: { roomId?: string | null; threadRootId?: string | null },
+  room?: { roomId?: string | null; threadRootId?: string | null; userId?: string | null },
 ): Promise<void> {
   try {
     if (run.status === "running") {
@@ -108,6 +111,7 @@ export async function syncRunMilestones(
         runId: run.runId,
         kind: "status",
         text: run.summary?.trim() || "Working",
+        userId: room?.userId,
         roomId: room?.roomId,
         threadRootId: room?.threadRootId,
       });
@@ -119,6 +123,7 @@ export async function syncRunMilestones(
         runId: run.runId,
         kind: "milestone",
         text: run.signals?.find((signal) => signal.kind === "ask_user.pending")?.detail || "Blocked",
+        userId: room?.userId,
         roomId: room?.roomId,
         threadRootId: room?.threadRootId,
       });
@@ -131,6 +136,7 @@ export async function syncRunMilestones(
         kind: run.status === "completed" ? "result" : "blocked",
         text: run.summary?.trim() || (run.status === "completed" ? "Result ready" : "Stopped"),
         payload: { pullUrl: proof.pullUrl, screenshotUrl: proof.screenshotUrl, previewUrl: proof.previewUrl },
+        userId: room?.userId,
         roomId: room?.roomId,
         threadRootId: room?.threadRootId,
       });

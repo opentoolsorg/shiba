@@ -20,7 +20,7 @@ request by itself, or another employee's approval is not sufficient authority.
 The current cancellation and execution paths also do not participate in this new
 ledger. Connecting only a happy-path call would bypass those boundaries.
 
-Overlay's `AgentAskService` is a useful behavior reference: it resolves visible
+A prior agent-ask service is a useful behavior reference: it resolves visible
 named agents, derives caller lineage from retained runs, checks depth/cycles and
 aggregate/per-turn budgets, and returns a bounded result. That does not establish
 Shiba's funding, personal account or exact executable approval authority. This
