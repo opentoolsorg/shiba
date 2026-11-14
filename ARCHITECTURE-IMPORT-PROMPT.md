@@ -450,17 +450,17 @@ moment an operator has two. t3code's answer is a two-level layout:
 
   - a SHARED home holding everything that is not account-specific (sessions,
     config, installed binaries)
-  - a per-instance SHADOW home that overlays only auth plus a few local entries,
+  - a per-instance SHADOW home that covers only auth plus a few local entries,
     materialized from the shared home at run start
 
 The subtlety worth getting right, and the reason this is called out separately:
 the CONTINUATION key and the ACCOUNT key are different keys. Continuation identity
 follows the effective home so a conversation resumes against the same history.
 Account identity follows the directory that actually holds `auth.json`, because an
-auth-overlay instance owns its account under the shadow home while a plain
+shadow-home instance owns its account under the shadow home while a plain
 instance still shares the common one. Keying usage, quota, or sign-out on the
 continuation key conflates the two and either double-counts a shared credit pool
-or fails to revoke an overlay account. t3code's CodexDriver comments call this
+or fails to revoke a shadow-home account. t3code's CodexDriver comments call this
 out explicitly; read them before writing the key derivation.
 
 Constraints:
@@ -480,7 +480,7 @@ That rejection is correct. Give the subscription hosts their own egress branch,
 same as Phase 10, and keep it deny-by-default.
 
 Update path: t3code runs the updater against the SHARED home, not the instance's
-effective home, because the overlay does not contain the installation. Getting
+effective home, because the shadow home does not contain the installation. Getting
 this backwards makes updates silently no-op. Copy that decision and the comment
 explaining it.
 
