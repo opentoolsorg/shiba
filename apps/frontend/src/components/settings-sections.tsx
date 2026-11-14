@@ -16,6 +16,7 @@ import { PurposeRoutingCard, RolePinsCard } from "./ModelRoutingSection";
 import { Card } from "./settings-ui";
 import { AccountSettings } from "./account/AccountSettings";
 import { ApiKeysSettingsPanel } from "./settings/ApiKeys";
+import { WebhooksSettingsPanel } from "./settings/Webhooks";
 import { ToneChip } from "./ToneChip";
 import { useTheme } from "./ThemeProvider";
 import { useSavedRepos, saveRepo, removeRepo } from "../saved";
@@ -24,6 +25,7 @@ import { ConnectedApps } from "./settings/ConnectedApps";
 export type SettingsSectionId =
   | "account"
   | "api-keys"
+  | "webhooks"
   | "appearance"
   | "connected-apps"
   | "repositories"
@@ -40,6 +42,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string;
   {
     account: { label: "Account", blurb: "Identity, auth lane & sign out" },
     "api-keys": { label: "API keys", blurb: "Org-scoped /api/v1 bearer keys" },
+    webhooks: { label: "Webhooks", blurb: "Signed outbound event deliveries" },
     appearance: { label: "Appearance", blurb: "Theme" },
     "connected-apps": { label: "Connected apps", blurb: "External MCP clients authorized for /mcp" },
     repositories: { label: "Repositories", blurb: "Saved GitHub targets" },
@@ -755,6 +758,17 @@ function LiveSettingsSectionBody({
   );
 }
 
+function WebhooksSettingsSection(): JSX.Element {
+  return (
+    <SectionShell
+      title="Webhooks"
+      description="HTTPS endpoints that receive signed Shiba events."
+    >
+      <WebhooksSettingsPanel />
+    </SectionShell>
+  );
+}
+
 function ApiKeysSettingsSection(): JSX.Element {
   return (
     <SectionShell
@@ -810,6 +824,7 @@ export function SettingsSectionBody({
   }
 
   if (section === "api-keys") return <ApiKeysSettingsSection />;
+  if (section === "webhooks") return <WebhooksSettingsSection />;
 
   if (section === "appearance") {
     return (
