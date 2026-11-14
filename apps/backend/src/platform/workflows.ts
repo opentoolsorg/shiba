@@ -4,7 +4,12 @@
  */
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import type { Env } from "../env.js";
-import { getSlackImportJob, mockSlackHistoryPager, processSlackImportPage } from "../slack-import/store.js";
+import {
+  getSlackImportJob,
+  mockSlackHistoryPager,
+  processSlackImportPage,
+  type SlackImportJobRow,
+} from "../slack-import/store.js";
 
 export type SlackImportWorkflowParams = {
   jobId: string;
@@ -17,11 +22,11 @@ export type AutomationRunInput = { automationId: string; runId: string };
 export class SlackImportWorkflow extends WorkflowEntrypoint<Env, SlackImportWorkflowParams> {
   async run(event: WorkflowEvent<SlackImportWorkflowParams>, step: WorkflowStep): Promise<void> {
     const { jobId, tenantId, workspaceId } = event.payload;
-    let job = await getSlackImportJob(this.env, tenantId, workspaceId, jobId);
+    let job: SlackImportJobRow | null = await getSlackImportJob(this.env, tenantId, workspaceId, jobId);
     if (!job) return;
     for (let guard = 0; guard < 64; guard += 1) {
-      const current = job;
-      job = await step.do(`page-${guard}`, async () =>
+      const current: SlackImportJobRow = job;
+      job = await step.do(`page-${guard}`, async (): Promise<SlackImportJobRow> =>
         processSlackImportPage(
           this.env,
           current,
