@@ -29,7 +29,8 @@ export interface TasksHomeItem {
   status: string;
   progressText?: string;
   ownerLabel?: string;
-  source: { kind: "run"; runId: string } | { kind: "approval"; approvalId: string } | { kind: "question"; runId: string; askId: string };
+  href?: string;
+  source: { kind: "run"; runId: string } | { kind: "approval"; approvalId: string } | { kind: "question"; runId: string; askId: string } | { kind: "link"; href: string };
 }
 
 export interface TasksHomeBuckets {
@@ -53,6 +54,7 @@ export interface TasksHomeQuestion {
   prompt: string;
   updatedAt: number;
   ownerLabel?: string;
+  progressText?: string | null;
 }
 
 export function buildTasksHomeBuckets(
@@ -172,8 +174,10 @@ function TaskRow({
   onOpenApproval?: (approvalId: string) => void;
 }): JSX.Element {
   const open = () => {
+    const href = item.href ?? (item.source.kind === "link" ? item.source.href : undefined);
+    if (href) { window.location.assign(href); return; }
     if (item.source.kind === "approval") onOpenApproval?.(item.source.approvalId);
-    else onOpenRun?.(item.source.runId);
+    else if (item.source.kind !== "link") onOpenRun?.(item.source.runId);
   };
   const isWorking = item.bucket === "working";
   const tone = item.status === "Answered"
@@ -270,6 +274,7 @@ export function TasksHomeView({
   onOpenModels,
   submitError,
   submitNotice,
+  workspaceId,
 }: {
   task: string;
   onTaskChange: (value: string) => void;
@@ -289,12 +294,74 @@ export function TasksHomeView({
   onOpenModels?: () => void;
   submitError?: string | null;
   submitNotice?: string | null;
+  workspaceId?: string;
   onOpenRun?: (runId: string) => void;
   onOpenApproval?: (approvalId: string) => void;
   onToggleAgents?: () => void;
   agentsOpen?: boolean;
 }): JSX.Element {
-  const buckets = buildTasksHomeBuckets(runs, approvals, pendingApprovals);
+  const [liveQuestions, setLiveQuestions] = useState<TasksHomeQuestion[]>([]);
+  const [liveExtras, setLiveExtras] = useState<TasksHomeItem[]>([]);
+  const [statusText, setStatusText] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!workspaceId) return;
+    let cancelled = false;
+    void fetch("/api/needs-you", { credentials: "same-origin", headers: { "X-Shiba-Workspace": workspaceId } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((raw) => {
+        const body = raw as {
+          questions?: TasksHomeQuestion[];
+          progress?: Record<string, string>;
+          blocked?: Array<{ runId: string; title?: string; updatedAt?: number; progressText?: string; roomId?: string; threadId?: string }>;
+          mentions?: Array<{ id?: string; title?: string; text?: string; roomId?: string; threadId?: string; createdAt?: number }>;
+          handoffs?: Array<{ id?: string; title?: string; text?: string; roomId?: string; threadId?: string; createdAt?: number }>;
+        } | null;
+        if (cancelled || !body) return;
+        setLiveQuestions(body.questions ?? []);
+        setStatusText(body.progress ?? {});
+        const threadHref = (roomId?: string, threadId?: string) => {
+          if (!roomId) return undefined;
+          const params = new URLSearchParams({ view: "chat", room: roomId });
+          if (threadId) params.set("thread", threadId);
+          return `/?${params.toString()}`;
+        };
+        const extras: TasksHomeItem[] = [];
+        for (const row of body.blocked ?? []) {
+          extras.push({
+            id: `blocked:${row.runId}`,
+            title: row.title || "Blocked run",
+            repoUrl: "",
+            updatedAt: row.updatedAt ?? 0,
+            bucket: "needs-you",
+            status: "Blocked",
+            progressText: row.progressText,
+            ownerLabel: "You",
+            href: threadHref(row.roomId, row.threadId),
+            source: { kind: "run", runId: row.runId },
+          });
+        }
+        for (const row of [...(body.mentions ?? []), ...(body.handoffs ?? [])]) {
+          const href = threadHref(row.roomId, row.threadId);
+          extras.push({
+            id: `note:${row.id ?? row.title ?? href ?? "item"}`,
+            title: row.title || row.text || "Needs you",
+            repoUrl: "",
+            updatedAt: row.createdAt ?? 0,
+            bucket: "needs-you",
+            status: "Needs you",
+            ownerLabel: "You",
+            href,
+            source: href ? { kind: "link", href } : { kind: "run", runId: row.id ?? "" },
+          });
+        }
+        setLiveExtras(extras);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [workspaceId, runs.length, approvals.length]);
+  const decoratedRuns = runs.map((run) => statusText[run.runId] ? { ...run, summary: statusText[run.runId] } : run);
+  const built = buildTasksHomeBuckets(decoratedRuns, approvals, pendingApprovals, liveQuestions);
+  const buckets = { ...built, needsYou: [...liveExtras, ...built.needsYou] };
   const setup = useSetupStatus();
   const readiness = taskReadiness(setup.state, route);
   const [repoError, setRepoError] = useState<string | null>(null);

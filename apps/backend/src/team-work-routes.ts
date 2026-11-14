@@ -21,6 +21,8 @@ import {
 import { getTeamWorkspaceMembership, normalizeTeamWorkspaceEmail } from "./team-workspaces-store.js";
 import { upsertWorkspaceSearchDoc } from "./workspace-search-store.js";
 import { publishWorkspaceEvent } from "./platform/workspace-events-do.js";
+import { latestStatusText } from "./run-milestones.js";
+import { resolveRunStoreTarget } from "./runs-routes.js";
 
 /** Structural counterpart to the frontend DTO; never imports another app's source. */
 export interface TeamWorkItemDto {
@@ -208,7 +210,7 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
     if (taskId !== undefined) {
       const updated = await updateTeamWorkTask(env, workspaceId, taskId, actorId, { title, ...fields });
       void upsertWorkspaceSearchDoc(env, workspaceId, updated.taskId, "task", updated.title, updated.objective ?? "", updated.updatedAt);
-      void publishWorkspaceEvent(env, workspaceId, { type: "task.updated", resourceId: updated.taskId, version: updated.version });
+      void publishWorkspaceEvent(env, workspaceId, { kind: "task.updated", entityId: updated.taskId, payload: { version: updated.version } });
       return json({ task: storedItem(updated) });
     }
     // Pre-check what the follow-up update would reject so a failed create leaves no half-made task.
@@ -218,7 +220,7 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
     const created = await createTeamWorkTask(env, workspaceId, actorId, title ?? "");
     const task = Object.keys(fields).length ? await updateTeamWorkTask(env, workspaceId, created.taskId, actorId, fields) : created;
     void upsertWorkspaceSearchDoc(env, workspaceId, task.taskId, "task", task.title, task.objective ?? "", task.updatedAt);
-    void publishWorkspaceEvent(env, workspaceId, { type: "task.created", resourceId: task.taskId, version: task.version });
+    void publishWorkspaceEvent(env, workspaceId, { kind: "task.created", entityId: task.taskId, payload: { version: task.version } });
     return json({ task: storedItem(task) }, 201);
   } catch (error) {
     if (error instanceof TeamWorkTaskError) return json({ error: error.message }, error.status);
@@ -228,7 +230,9 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
 
 /** Current explicit room grants are the sole source; personal histories are never enumerated. */
 export async function handleTeamWork(request: Request, env: Env): Promise<Response | null> {
-  const url = new URL(request.url), match = ROUTE.exec(url.pathname);
+  const url = new URL(request.url);
+  if (url.pathname === "/api/needs-you") return handleNeedsYou(request, env);
+  const match = ROUTE.exec(url.pathname);
   if (!match) return null;
   if (request.headers.has("Authorization") || !await isAuthorizedRequest(request, env)) return json({ error: "Authenticated human session required." }, 401);
   const [, routeWorkspaceId = "", taskId, action] = match;
@@ -293,4 +297,82 @@ export async function handleTeamWork(request: Request, env: Env): Promise<Respon
   } catch {
     return json({ error: "Workspace work is temporarily unavailable." }, 503);
   }
+}
+
+async function handleNeedsYou(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+  if (request.headers.has("Authorization") || !(await isAuthorizedRequest(request, env))) {
+    return json({ error: "Authenticated human session required." }, 401);
+  }
+  const identity = await resolveUserId(request, env);
+  if (!identity) return json({ error: "Authenticated human session required." }, 401);
+  const storeTarget = await resolveRunStoreTarget(request, env, new URL(request.url));
+  const ownerId = "error" in storeTarget ? identity : storeTarget.userId;
+  const questions = env.AGENT_AUDIT
+    ? (await env.AGENT_AUDIT.prepare(
+      `SELECT run_id, ask_id, request_json, created_at FROM ask_user_pending
+       WHERE owner_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 50`,
+    ).bind(ownerId).all<{ run_id: string; ask_id: string; request_json: string; created_at: number }>()).results
+    : [];
+  let approvals: unknown[] = [];
+  try {
+    const listed = await fetch(new Request(new URL("/api/approvals", request.url), { headers: request.headers }));
+    if (listed.ok) {
+      const body = await listed.json() as { approvals?: unknown[] };
+      approvals = body.approvals ?? [];
+    }
+  } catch {
+    approvals = [];
+  }
+  let mentions: unknown[] = [];
+  let handoffs: unknown[] = [];
+  try {
+    const noteUrl = new URL("/api/notifications?unread=1&kind=mention,handoff", request.url);
+    const notes = await fetch(new Request(noteUrl, { headers: request.headers }));
+    if (notes.ok) {
+      const body = await notes.json() as { notifications?: Array<{ kind?: string }> };
+      const rows = body.notifications ?? [];
+      mentions = rows.filter((row) => row.kind === "mention");
+      handoffs = rows.filter((row) => row.kind === "handoff");
+    }
+  } catch {
+    mentions = [];
+    handoffs = [];
+  }
+  const blocked = env.AGENT_AUDIT
+    ? (await env.AGENT_AUDIT.prepare(
+      `SELECT run_id, text, created_at FROM run_milestones WHERE kind = 'blocked' ORDER BY created_at DESC LIMIT 20`,
+    ).all<{ run_id: string; text: string; created_at: number }>()).results
+    : [];
+  const progress: Record<string, string> = {};
+  if (env.AGENT_AUDIT) {
+    const statuses = (await env.AGENT_AUDIT.prepare(
+      `SELECT run_id, text FROM run_milestones WHERE kind = 'status' ORDER BY created_at DESC LIMIT 80`,
+    ).all<{ run_id: string; text: string }>()).results;
+    for (const row of statuses) if (!progress[row.run_id]) progress[row.run_id] = row.text;
+  }
+  for (const row of [...blocked, ...questions.map((item) => ({ run_id: item.run_id }))]) {
+    if (progress[row.run_id]) continue;
+    const status = await latestStatusText(env, row.run_id);
+    if (status) progress[row.run_id] = status;
+  }
+  return json({
+    approvals,
+    questions: questions.map((row) => ({
+      runId: row.run_id,
+      askId: row.ask_id,
+      prompt: (() => { try { return String((JSON.parse(row.request_json) as { prompt?: string }).prompt ?? "Question"); } catch { return "Question"; } })(),
+      updatedAt: row.created_at,
+      progressText: progress[row.run_id] ?? null,
+    })),
+    mentions,
+    handoffs,
+    progress,
+    blocked: blocked.map((row) => ({
+      runId: row.run_id,
+      title: row.text,
+      updatedAt: row.created_at,
+      progressText: progress[row.run_id] ?? row.text,
+    })),
+  });
 }

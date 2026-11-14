@@ -21,12 +21,38 @@ export async function handleWorkspaceEvents(request: Request, env: Env): Promise
   if (!await isTeamWorkspaceMember(env, workspaceId, userId)) {
     return Response.json({ error: "Forbidden.", code: "workspace_membership_required" }, { status: 403 });
   }
-  if (!env.WorkspaceEvents) {
-    return Response.json({ error: "Live updates are not enabled on this deployment.", code: "workspace_events_unbound" }, { status: 503 });
-  }
+  if (!env.WorkspaceEvents) return unboundEventStream(request);
   if (request.headers.get("Upgrade") !== "websocket") {
     return Response.json({ error: "WebSocket upgrade required." }, { status: 426 });
   }
   const stub = env.WorkspaceEvents.getByName(workspaceEventsName(workspaceId));
   return stub.fetch(new Request(`https://workspace-events.internal/subscribe?userId=${encodeURIComponent(userId)}`, request));
+}
+
+/** Used only when the WorkspaceEvents binding is absent. */
+function unboundEventStream(request: Request): Response {
+  const encoder = new TextEncoder();
+  let closed = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const timer = setInterval(() => {
+        if (closed || request.signal.aborted) {
+          clearInterval(timer);
+          if (!closed) controller.close();
+          closed = true;
+          return;
+        }
+        controller.enqueue(encoder.encode(": heartbeat\n\n"));
+      }, 15_000);
+      controller.enqueue(encoder.encode("event: unbound\ndata: {}\n\n"));
+      request.signal.addEventListener("abort", () => {
+        closed = true;
+        clearInterval(timer);
+      });
+    },
+    cancel() {
+      closed = true;
+    },
+  });
+  return new Response(body, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
 }

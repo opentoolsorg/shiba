@@ -4,7 +4,7 @@ import { publishWorkspaceEvent } from "../src/platform/workspace-events-do.js";
 describe("workspace live events publish", () => {
   it("no-ops when WorkspaceEvents binding is absent", async () => {
     await expect(
-      publishWorkspaceEvent({} as never, "ws_1", { type: "run.updated", resourceId: "run_1", version: 1 }),
+      publishWorkspaceEvent({} as never, "ws_1", { kind: "run.updated", entityId: "run_1" }),
     ).resolves.toBeUndefined();
   });
 
@@ -15,7 +15,7 @@ describe("workspace live events publish", () => {
         getByName: () => ({ fetch }),
       },
     };
-    await publishWorkspaceEvent(env as never, "ws_1", { type: "run.updated", resourceId: "run_1", version: 2 });
+    await publishWorkspaceEvent(env as never, "ws_1", { kind: "run.updated", entityId: "run_1" });
     expect(fetch).toHaveBeenCalledTimes(1);
     const request = fetch.mock.calls[0]?.[0];
     expect(request).toBeInstanceOf(Request);
