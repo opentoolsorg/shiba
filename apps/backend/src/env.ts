@@ -604,4 +604,10 @@ export interface Env {
   /** WS02: optional generic OIDC SSO (per-workspace connections in D1). */
   SHIBA_SSO_ENABLED?: string;
 
+  /** Web search credentials remain in Worker egress. */
+  WEB_SEARCH_API_KEY?: string;
+  WEB_SEARCH_PROVIDER?: string;
+  /** Video generation is disabled unless explicitly enabled. */
+  SHIBA_VIDEO_GENERATION?: string;
+
 }

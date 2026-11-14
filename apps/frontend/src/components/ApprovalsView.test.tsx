@@ -84,7 +84,7 @@ describe("ApprovalsView", () => {
   it("does not count locally resolved approvals as open", () => {
     renderApprovals({ storedApprovals: [pending], storedDecisions: { "ap-1": false } });
     expect(screen.getByText("0 open")).toBeTruthy();
-    expect(screen.getByText("Rejected — nothing ran").getAttribute("role")).toBe("status");
+    expect(screen.getByText("Denied. This decision is final.").getAttribute("role")).toBe("status");
   });
 
   it("filters decided rows", () => {

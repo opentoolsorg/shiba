@@ -79,6 +79,7 @@ import { handleRuns } from "./runs-routes.js";
 import { handleSwarm } from "./swarm-routes.js";
 import { handleDenRoutes } from "./den-routes.js";
 import { handleUsage } from "./usage-routes.js";
+import { handleVoiceRoutes } from "./voice-routes.js";
 import { handleScreenshot } from "./screenshots-routes.js";
 import { handleE2eEvidence } from "./e2e-evidence-routes.js";
 import { handleDevOAuthLoopback } from "./dev-oauth-loopback-routes.js";
@@ -391,6 +392,12 @@ export default {
       if (workResponse) return workResponse;
       const primaryBotResponse = await handlePrimaryBot(request, env);
       if (primaryBotResponse) return primaryBotResponse;
+      const searchResponse = await (await import("./search-routes.js")).handleSearch(request, env);
+      if (searchResponse) return searchResponse;
+      const paletteResponse = await (await import("./palette-routes.js")).handlePalette(request, env);
+      if (paletteResponse) return paletteResponse;
+      const askUserResponse = await (await import("./ask-user-routes.js")).handleAskUser(request, env);
+      if (askUserResponse) return askUserResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);
       if (workspaceResponse) return workspaceResponse;
       const governanceResponse = await handleGovernance(request, env);
@@ -533,6 +540,10 @@ export default {
       const usageResponse = await handleUsage(request, env);
       if (usageResponse) {
         return usageResponse;
+      }
+      const voiceResponse = await handleVoiceRoutes(request, env);
+      if (voiceResponse) {
+        return voiceResponse;
       }
       const activityResponse = await handleActivity(request, env);
       if (activityResponse) {
