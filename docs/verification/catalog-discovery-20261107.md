@@ -14,7 +14,7 @@ The directory placement and unclear error states are UI defects. Missing owner a
 - Keep 401 owner sign-in and 503 service-setup failures visible. Failed catalogs are not described as empty; the catalog dialog offers retry.
 - Keep connection progress, errors and successful confirmation visible inside the catalog dialog. Prevent concurrent Connect clicks and refresh catalog rows only after a verified owner-account revision.
 
-Overlay's compact connected/available sections and reusable cards informed the hierarchy. No Overlay code or assets were copied. Reference: `LayerNorm/overlay-web` at `1799597ac60ea02fe6479a517acdce5138f2aee0`, `packages/overlay-modules-react/src/extensions/integrations.tsx` and `catalog.tsx`.
+Compact connected/available sections and reusable cards informed the hierarchy. No outside product code or assets were copied. Notes were taken at commit `1799597ac60ea02fe6479a517acdce5138f2aee0` from that tree's integrations and catalog modules.
 
 ## Verification
 
