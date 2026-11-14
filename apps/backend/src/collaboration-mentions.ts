@@ -84,17 +84,6 @@ export async function handleCollaborationMentions(
         messageId: input.messageId,
         createdAt: input.now,
       });
-      await createWorkspaceNotification(env, {
-        tenantId: scope.tenantId,
-        workspaceId: scope.workspaceId,
-        userId,
-        kind: "needs_you",
-        title: "Needs you",
-        body: input.body.slice(0, 500),
-        roomId: input.roomId,
-        messageId: input.messageId,
-        createdAt: input.now,
-      });
     }
   }
   if (parsed.agents.length === 0) return { handoffs: [] };

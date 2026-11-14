@@ -68,7 +68,8 @@ describe("mentions and notifications", () => {
       env,
     );
     const body = await listed!.json() as { notifications: Array<{ kind: string }> };
-    expect(body.notifications.some((item) => item.kind === "mention")).toBe(true);
+    expect(body.notifications.filter((item) => item.kind === "mention")).toHaveLength(1);
+    expect(body.notifications.some((item) => item.kind === "needs_you")).toBe(false);
     const handoffCount = sqlite.prepare("SELECT COUNT(*) AS count FROM collaboration_handoffs").get() as { count: number };
     expect(handoffCount.count).toBe(1);
   });
