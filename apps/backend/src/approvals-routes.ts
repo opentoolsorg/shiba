@@ -5,6 +5,8 @@ import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { jsonObjectBody } from "./route-utils.js";
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
+import { claimRepoWork, freshBranchName, peekRepoClaim } from "./repo-work-claims.js";
+import { appendRunMilestone } from "./run-milestones.js";
 import {
   buildSessionAgentName,
   isAuthorizedSessionAgent,
@@ -140,6 +142,28 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
         { error: "Not authorized to resolve shared approvals." },
         { status: 403 },
       );
+    }
+    if (body.approved === true) {
+      const workspaceId = request.headers.get("X-Shiba-Workspace") || "personal";
+      const listed = await userStub.fetch(new Request("https://internal/api/approvals"));
+      const stored = listed.ok ? await listed.json() as { approvals?: Array<{ approvalId: string; repoUrl?: string; baseBranch?: string; task?: string }> } : { approvals: [] };
+      const approval = (stored.approvals ?? []).find((item) => item.approvalId === body.approvalId);
+      const repo = approval?.repoUrl?.trim();
+      const branch = approval?.baseBranch?.trim() || "main";
+      const claimAction = body.claimAction;
+      if (repo) {
+        const conflict = claimAction === "new_branch" ? null : await peekRepoClaim(env, workspaceId, repo, branch);
+        if (claimAction === "cancel") body.approved = false;
+        else if (conflict && claimAction === "queue") {
+          return Response.json({ result: "queued", code: "repo_claim_queued", conflict });
+        } else if (conflict && claimAction !== "new_branch") {
+          return Response.json({ error: "Someone is already working on this branch.", code: "repo_claim_conflict", conflict }, { status: 409 });
+        } else if (body.approved === true) {
+          const target = claimAction === "new_branch" ? freshBranchName(String(body.approvalId)) : branch;
+          await claimRepoWork(env, { workspaceId, repo, branch: target, runId: String(body.approvalId), actorId: decidedBy });
+          void appendRunMilestone(env, { workspaceId, userId: decidedBy, runId: String(body.approvalId), kind: "status", text: "Working" }).catch(() => undefined);
+        }
+      }
     }
     let probeFailure: Response | null = null;
     for (const stub of decisionStubs) {

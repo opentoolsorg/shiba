@@ -53,12 +53,16 @@ export function StoredApprovalCard({
   decided,
   decision,
   onDecide,
+  conflict,
+  onClaimChoice,
 }: {
   approval: StoredApproval;
   decided: boolean;
   /** Outcome when decided — mirrors the chat ApprovalCard. */
   decision?: boolean;
   onDecide: (approval: StoredApproval, ok: boolean) => void;
+  conflict?: { actorId: string; branch: string; repo: string; runId: string } | null;
+  onClaimChoice?: (choice: "queue" | "new_branch" | "cancel") => void;
 }): JSX.Element {
   const frozen =
     approval.payload ??
@@ -85,7 +89,7 @@ export function StoredApprovalCard({
         {decided && decision !== undefined
           ? decision
             ? approval.kind === undefined || approval.kind === "run" ? "Approved — sandbox starting" : "Approved — queued for execution"
-            : "Rejected — nothing ran"
+            : "Denied. This decision is final."
           : "Waiting for your approval"}
       </p>
       <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -137,6 +141,16 @@ export function StoredApprovalCard({
         <p className="text-[11px] font-mono text-[var(--muted-foreground-2)] break-words mb-1">
           <span className="font-semibold text-[var(--fg)]">Tests:</span> {approval.testCommand.join(" ")}
         </p>
+      ) : null}
+      {conflict ? (
+        <div className="border border-[var(--warning)] bg-[var(--warning-subtle)] p-3 text-sm mb-2" role="status">
+          <p>{conflict.actorId} is already working on {conflict.branch} in {conflict.repo} (task {conflict.runId}).</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" className="min-h-11 border px-3" onClick={() => onClaimChoice?.("queue")}>Queue after it</button>
+            <button type="button" className="min-h-11 border px-3" onClick={() => onClaimChoice?.("new_branch")}>Use a new branch</button>
+            <button type="button" className="min-h-11 border px-3" onClick={() => onClaimChoice?.("cancel")}>Cancel</button>
+          </div>
+        </div>
       ) : null}
       <pre className="font-mono text-[10px] text-[var(--muted-foreground-2)] bg-[var(--card)] p-2 rounded-[var(--radius-button)] border border-[var(--border-1)] whitespace-pre-wrap break-words max-h-32 overflow-auto mb-2">
         {JSON.stringify(frozen, null, 2)}

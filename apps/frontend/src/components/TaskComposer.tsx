@@ -47,6 +47,7 @@ import type { SavedSkill } from "../saved";
 import { HARNESS_REASONING_EFFORTS, type ConnectedComputer, type CustomAgentRoleTemplateId, type ReasoningEffort } from "@shiba/shared";
 import { hasComposerInput, parseArtifactDeliverables } from "../execution-target-input";
 import { describeTaskRoute } from "../supported-task-routes";
+import { useVoiceInput } from "../hooks/useVoiceInput";
 
 // Ambient types for browser Web Speech API.
 interface SpeechRecognitionResultItem {
@@ -411,13 +412,20 @@ export function TaskComposer({
   const baseId = useId();
   const idFor = (name: string) => `${baseId}-${name}`;
 
-  // T87 — voice dictation via Web Speech API.
+  // T87 — voice dictation via Web Speech API (fallback when MediaRecorder is unavailable).
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const taskRef = useRef(task);
   taskRef.current = task;
   const onTaskChangeRef = useRef(onTaskChange);
   onTaskChangeRef.current = onTaskChange;
+
+  const cloudVoice = useVoiceInput({
+    onTranscript: (text) => {
+      const currentTask = taskRef.current;
+      onTaskChangeRef.current(currentTask.trimEnd() ? `${currentTask.trimEnd()} ${text}` : text);
+    },
+  });
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {
@@ -1887,7 +1895,24 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
         ) : null}
 
         {/* Voice dictation */}
-        {getSpeechRecognitionClass() ? (
+        {typeof MediaRecorder !== "undefined" ? (
+          <Tooltip content="Dictate — transcribed with Workers AI Whisper" side="top">
+            <button
+              type="button"
+              onClick={cloudVoice.toggle}
+              aria-label={cloudVoice.recording ? "Stop voice input" : "Voice input"}
+              aria-pressed={cloudVoice.recording}
+              disabled={cloudVoice.busy}
+              className={`inline-flex items-center justify-center size-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] rounded-[var(--radius-button)] border transition-colors cursor-pointer ${
+                cloudVoice.recording
+                  ? "bg-[var(--primary)] text-[var(--primary-text)] border-[var(--primary)]"
+                  : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border-[var(--border-1)]"
+              }`}
+            >
+              <Mic aria-hidden="true" className="size-4" />
+            </button>
+          </Tooltip>
+        ) : getSpeechRecognitionClass() ? (
           <Tooltip content="Dictate — uses your browser's speech recognition" side="top">
             <button
               type="button"
