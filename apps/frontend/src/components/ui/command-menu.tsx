@@ -9,14 +9,18 @@ export interface CommandItem {
 }
 
 // A native modal keeps keyboard focus inside and makes the page behind it inert.
-function CommandDialog({
+export function CommandDialog({
   open,
   onClose,
   children,
+  wide = false,
+  label = "Command menu",
 }: {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  wide?: boolean;
+  label?: string;
 }): JSX.Element | null {
   const dialogRef = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -34,13 +38,13 @@ function CommandDialog({
   return (
     <dialog
       ref={dialogRef}
-      aria-label="Command menu"
+      aria-label={label}
       onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); onClose(); } }}
       onCancel={(event) => { event.preventDefault(); onClose(); }}
       onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
       className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none border-0 bg-transparent p-4 pt-[15vh] text-[var(--fg)] backdrop:bg-[var(--overlay)]"
     >
-      <div className="relative mx-auto bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-md w-full shadow-[var(--sh-overlay)] overflow-hidden">
+      <div className="relative mx-auto bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-md w-full shadow-[var(--sh-overlay)] overflow-hidden" style={wide ? { maxWidth: "36rem" } : undefined}>
         {children}
         <button type="button" onClick={onClose} className="min-h-11 w-full border-t border-[var(--border-1)] px-4 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]">
           Close command menu
