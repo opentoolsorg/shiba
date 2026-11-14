@@ -78,8 +78,10 @@ import {
   joinChannel,
   leaveChannel,
   listPublicChannels,
+  listRoomPresence,
   listRoomsByKind,
   openDm,
+  touchRoomPresence,
 } from "./collaboration-v2-store.js";
 import {
   followThread,
@@ -517,6 +519,16 @@ export async function handleCollaboration(
         threadRootMessageId: typeof body.threadRootMessageId === "string" ? body.threadRootMessageId : undefined,
         updatedAt: Date.now(),
       });
+      return json({ updated: true });
+    }
+
+    if (path.length === 3 && path[0] === "rooms" && path[2] === "presence" && request.method === "GET") {
+      return json({ presence: await listRoomPresence(env, scope, path[1]!) });
+    }
+    if (path.length === 3 && path[0] === "rooms" && path[2] === "presence" && request.method === "POST") {
+      const body = await bodyObject(request);
+      const state = body.state === "away" || body.state === "working" ? body.state : "online";
+      await touchRoomPresence(env, scope, path[1]!, state);
       return json({ updated: true });
     }
 
