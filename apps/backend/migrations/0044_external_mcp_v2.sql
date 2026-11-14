@@ -1,5 +1,5 @@
 -- WS04: outbound MCP schema (moved off cold-start runtime DDL) + execution log.
--- Replaces dead Overlay-parity tables from 0008_extensions.sql for MCP.
+-- Drops unused MCP tables from 0008_extensions.sql.
 
 DROP TABLE IF EXISTS mcp_tool_executions;
 DROP TABLE IF EXISTS mcp_oauth_sessions;
