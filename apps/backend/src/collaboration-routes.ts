@@ -69,8 +69,9 @@ import { redactSecrets } from "./security.js";
 import { employeeCoordinationUnavailable } from "./employee-coordination.js";
 import {
   attachMessageV2Metadata,
-  handleCollaborationMentions,
 } from "./collaboration-mentions.js";
+import { coordinateHumanMessage } from "./collaboration-router.js";
+import { cancelHandoffReturn } from "./collaboration-handoff-return.js";
 import {
   CollabV2StoreError,
   createChannel,
@@ -1164,14 +1165,15 @@ export async function handleCollaboration(
         )
           .bind(scope.tenantId, scope.workspaceId, roomId)
           .first<{ kind: string }>();
-        const mentions = await handleCollaborationMentions(env, scope, {
+        const coordinated = await coordinateHumanMessage(env, scope, {
           roomId,
           messageId: saved.messageId,
           body: message.body,
           channelKind: roomKind?.kind === "channel" ? "channel" : roomKind?.kind === "dm" ? "dm" : "room",
+          threadRootId: typeof body.threadRootMessageId === "string" ? body.threadRootMessageId : null,
           now: message.createdAt,
         });
-        mentionHandoffs = mentions.handoffs;
+        mentionHandoffs = coordinated.handoffs;
       } catch (error) {
         if (!(error instanceof CollabV2StoreError)) throw error;
       }
@@ -1636,6 +1638,7 @@ export async function handleCollaboration(
       if ((target.approvalId || target.runId) && scope.userId !== target.senderUserId)
         return json({ error: "Only the request owner can cancel its linked employee run." }, 403);
       const changed = await cancelCollaborationHandoff(env, scope, handoffId, Date.now());
+      if (changed) await cancelHandoffReturn(env, scope, handoffId, Date.now());
       if (!changed && target.status !== "cancelled")
         return json({ error: "Handoff could not be cancelled." }, 409);
       const lineage = await listCollaborationHandoffsForRoot(
