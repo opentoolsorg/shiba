@@ -9,24 +9,60 @@ import {
   type TokenRecord,
 } from "./agent-tokens.js";
 import type { Env } from "./env.js";
-import { authorizeV1Request, requireV1Scope, v1Forbidden, v1Unauthorized } from "./v1-auth.js";
+import {
+  apiKeyAllowsHttpMethod,
+  authorizeV1Request,
+  requireV1Scope,
+  v1Forbidden,
+  v1Unauthorized,
+} from "./v1-auth.js";
+import { getAgentByName } from "agents/routing";
+import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 import { isAuthorizedRequest } from "./request-auth.js";
 import { InputError } from "./security.js";
 
 function publicKeyRow(record: TokenRecord) {
+  const prefix = record.keyId ? `${record.keyId.slice(0, 12)}…` : "";
   return {
     keyId: record.keyId ?? "",
+    tokenPrefix: prefix,
     label: record.label ?? record.principal,
     principal: record.principal,
     orgId: orgIdForRecord(record),
     scopes: record.scopes,
     createdAt: record.created,
+    lastUsedAt: record.lastUsedAt ?? null,
     revoked: record.revoked,
     expiresAt: record.expiresAt ?? null,
   };
 }
 
+async function handleV1RunsApiKey(request: Request, env: Env): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (url.pathname !== "/api/v1/runs") return null;
+  const principal = await authorizeV1Request(request, env);
+  if (!principal?.apiKey) return null;
+  if (!apiKeyAllowsHttpMethod(principal, request.method)) return v1Forbidden();
+  if (request.method === "POST") {
+    return v1Forbidden();
+  }
+  if (request.method !== "GET") {
+    return Response.json({ error: "Method not allowed." }, { status: 405 });
+  }
+  const stub = await getAgentByName(env.CodingOrchestrator, ORCHESTRATOR_NAME);
+  const internal = new Request(new URL("/api/runs", request.url), {
+    method: "GET",
+    headers: { authorization: request.headers.get("authorization") ?? "" },
+  });
+  const response = await stub.fetch(internal);
+  if (!response.ok) return response;
+  const body = await response.json() as { runs?: unknown[] };
+  return Response.json({ ok: true, runs: body.runs ?? [] });
+}
+
 export async function handleApiKeys(request: Request, env: Env): Promise<Response | null> {
+  const v1Runs = await handleV1RunsApiKey(request, env);
+  if (v1Runs) return v1Runs;
   const url = new URL(request.url);
   if (url.pathname !== "/api/api-keys") return null;
   const dashboard = !request.headers.has("authorization") && await isAuthorizedRequest(request, env);
@@ -59,7 +95,7 @@ export async function handleApiKeys(request: Request, env: Env): Promise<Respons
         : (v1?.principal ?? "api-integration");
     const scopes = Array.isArray(body.scopes)
       ? body.scopes.filter((scope): scope is string => typeof scope === "string")
-      : ["api:read", "api:write"];
+      : ["api:read"];
     try {
       const minted = await createApiKey(env, { orgId, label, principal, scopes });
       return Response.json(
