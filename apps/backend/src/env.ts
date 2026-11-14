@@ -21,6 +21,8 @@ export interface Env {
   CodingOrchestrator: DurableObjectNamespace<CodingOrchestrator>;
   /** Per-owner, per-session live viewer presence and persisted chat stream deltas. */
   ConversationRoom: DurableObjectNamespace<ConversationRoom>;
+  /** WS01: hibernatable workspace fan-out for tasks, runs, approvals. */
+  WorkspaceEvents?: DurableObjectNamespace;
   OpenCodeAgent: DurableObjectNamespace<OpenCodeAgent>;
   Sandbox: DurableObjectNamespace<Sandbox>;
   /** Optional isolated offline desktop namespace; absent means unavailable. */

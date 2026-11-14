@@ -37,6 +37,13 @@ export interface TasksHomeBuckets {
   waiting: TasksHomeItem[];
 }
 
+function runProgressLabel(run: RetainedRun): string | undefined {
+  const latest = [...(run.signals ?? [])].reverse().find((signal) => signal.kind.startsWith("harness.") || signal.kind.startsWith("exec.") || signal.kind === "checkpoint.captured");
+  if (latest?.detail?.trim()) return latest.detail.trim();
+  if (latest) return latest.kind.replaceAll(".", " ");
+  return run.summary?.trim();
+}
+
 /** Adapt the existing run and approval APIs to the Tasks home queues. */
 export function buildTasksHomeBuckets(
   runs: RetainedRun[],
@@ -91,9 +98,7 @@ export function buildTasksHomeBuckets(
         ...base,
         bucket: "working",
         status: "Working",
-        // The current run summary is the only live text the summary API exposes.
-        // TODO: bind this to streamed phase/tool progress when the run API exposes it.
-        progressText: run.summary?.trim() || "Working…",
+        progressText: runProgressLabel(run) || "Working…",
       });
     } else if (run.status === "pending") {
       buckets.waiting.push({ ...base, bucket: "waiting", status: "Queued", progressText: run.summary?.trim() || "Waiting to start" });
