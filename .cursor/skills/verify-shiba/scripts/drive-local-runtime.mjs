@@ -83,7 +83,8 @@ target=await launchLifecycleTarget(new URL(origin),chromium);page=target.page;pa
 const browserCookies=signup.res.headers.getSetCookie().map(raw=>{const pair=raw.split(';')[0];const split=pair.indexOf('=');return {name:pair.slice(0,split),value:pair.slice(split+1),url:origin,httpOnly:true,sameSite:'Lax'};});
 await target.context.addCookies(browserCookies);
 const onboardingResponse=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/onboarding/progress'&&response.request().method()==='GET');
-await page.goto(origin+'/app/');
+// Account setup opens on the first Threads load; /app/ canonically opens Work.
+await page.goto(origin+'/threads/');
 const onboarding=await onboardingResponse;assert(onboarding.ok(),'Account setup progress must load before navigation');
 const progress=await onboarding.json();
 if(progress.activatedAt===null&&progress.dismissedAt===null&&!progress.draftTask?.preparedAt){
@@ -153,7 +154,7 @@ async function assertThreadProfile(){
   assert.equal(await selected.getAttribute('aria-checked'),'true','The named thread must retain its selected bot.');
   await selected.press('Escape');await configuration.waitFor({state:'hidden'});
 }
-await page.getByRole('button',{name:/^(?:Chats|(?:Chat & )?Threads)$/,exact:true}).click();
+await openAppView(page, "Chats");
 await assertThreadProfile();
 passed('Launch bot opens a real bound conversation');
 async function reopenThread(){
@@ -175,6 +176,10 @@ async function queue(task){
   assert.equal(approval.customAgentVersion,1);assert.equal(approval.customAgentId,profile.id);assert.equal(approval.runtime,'local');assert.equal(approval.targetMachineId,machine.machineId);
   assert.equal(approval.threadKey,session.agentName,'Worker derives queue owner from the verified named session');
   if(marketing)assert.deepEqual(approval.expectedDeliverables,marketingFiles.map(file=>file.path),'Approval freezes the role requirements');
+  // The response and read model can settle before React opens the receipt.
+  // Wait for that real handoff before another helper tries to close/navigate it.
+  await page.waitForURL(url=>url.pathname==='/work/'&&url.searchParams.get('task')===approval.approvalId&&url.searchParams.get('taskKind')==='approval');
+  await page.getByRole('dialog',{name:/^Work inspector:/}).filter({hasText:task}).waitFor();
   passed('Send task UI queues a frozen local bot approval');
   return approval;
 }

@@ -16,8 +16,20 @@ describe("ConversationModeSwitch", () => {
     expect(screen.getByText("CONVERSATION · NO TASK TOOLS")).toBeTruthy();
   });
 
+  it("keeps human review visible in Work mode and can return to Chat", () => {
+    const onChange = vi.fn();
+    render(<ConversationModeSwitch value="work" onChange={onChange} />);
+    expect(screen.getByRole("tab", { name: "Work" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText(/Submitting work requests human approval before execution/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Chat" }));
+    expect(onChange).toHaveBeenCalledWith("chat");
+  });
+
   it("locks mode switching while the current reply is streaming", () => {
-    render(<ConversationModeSwitch value="chat" onChange={vi.fn()} disabled />);
+    const onChange = vi.fn();
+    render(<ConversationModeSwitch value="chat" onChange={onChange} disabled />);
     expect((screen.getByRole("tab", { name: "Work" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

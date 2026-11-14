@@ -8,7 +8,7 @@ afterEach(cleanup);
 
 const agents: MentionableAgent[] = [{ id: "coding-coworker", name: "Agni" }, { id: "pr-reviewer", name: "Ved" }];
 
-function Harness({ initial = "", onSubmit = vi.fn(), list = agents }: { initial?: string; onSubmit?: () => void; list?: MentionableAgent[] }) {
+function Harness({ initial = "", onSubmit = vi.fn(), list = agents, onPrepareWork }: { initial?: string; onSubmit?: () => void; list?: MentionableAgent[]; onPrepareWork?: () => void }) {
   const [value, setValue] = useState(initial);
   return (
     <AgentComposerShell
@@ -19,6 +19,7 @@ function Harness({ initial = "", onSubmit = vi.fn(), list = agents }: { initial?
       onSubmit={(event) => { event.preventDefault(); onSubmit(); }}
       onStop={vi.fn()}
       onRetry={vi.fn()}
+      onPrepareWork={onPrepareWork}
       busy={false}
       streaming={false}
       failed={false}
@@ -40,6 +41,16 @@ describe("AgentComposerShell", () => {
     expect(send.disabled).toBe(false);
     fireEvent.click(send);
     expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
+  it("forwards the saved-draft review action without submitting or changing mention text", () => {
+    const onPrepareWork = vi.fn();
+    const onSubmit = vi.fn();
+    render(<Harness initial="Ask @Ved to inspect the release plan" onPrepareWork={onPrepareWork} onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole("button", { name: "Review as work" }));
+    expect(onPrepareWork).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textbox().value).toBe("Ask @Ved to inspect the release plan");
   });
 
   it("inserts @ and replaces it with the chosen agent from the mention list", async () => {

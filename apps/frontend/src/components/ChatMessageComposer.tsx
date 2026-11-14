@@ -16,6 +16,7 @@ export function ChatMessageComposer({
   onMention,
   mentionOpen,
   textareaRef,
+  onPrepareWork,
   children,
 }: {
   value: string;
@@ -32,12 +33,14 @@ export function ChatMessageComposer({
   onMention?: () => void;
   mentionOpen?: boolean;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  /** Opens the existing Work editor with this same draft; never submits or approves it. */
+  onPrepareWork?: () => void;
   children?: ReactNode;
 }): JSX.Element {
   const formRef = useRef<HTMLFormElement | null>(null);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       if (!busy && !streaming && value.trim() !== "") {
         formRef.current?.requestSubmit();
@@ -131,6 +134,15 @@ export function ChatMessageComposer({
           </div>
         </div>
         {children}
+        {onPrepareWork ? (
+          <aside aria-label="Turn this draft into work" className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--line)] pt-3 text-xs text-[var(--ink-2)]">
+            <p className="min-w-0 flex-1 basis-48">Ready to delegate? Review this draft’s target, employee and instructions in Work. Execution requires human approval.</p>
+            <button type="button" onClick={onPrepareWork} disabled={busy || streaming || !value.trim()}
+              className="min-h-11 shrink-0 border border-[var(--line)] bg-[var(--paper)] px-3 text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--navy)]">
+              Review as work
+            </button>
+          </aside>
+        ) : null}
       </form>
       <p className="mt-2 text-center text-xs text-[var(--muted-foreground-2)]">
         {agentName} can make mistakes. Check important info.

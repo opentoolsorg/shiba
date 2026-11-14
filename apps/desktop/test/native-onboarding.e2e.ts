@@ -39,6 +39,13 @@ async function api<T>(
 
 const progress = (page: Page) => api<Progress>(page, "/api/onboarding/progress");
 
+async function openChat(page: Page) {
+  const close = page.getByRole("button", { name: "Close task", exact: true });
+  if (await close.isVisible()) await close.click();
+  await page.getByRole("navigation", { name: "Workspace areas", exact: true })
+    .filter({ visible: true }).first().getByRole("button", { name: "Chat", exact: true }).click();
+}
+
 async function actorDraft(page: Page, actorId: string, step: string) {
   return page.evaluate(({ key, scope }) => {
     const stored = JSON.parse(localStorage.getItem(key) ?? "{}") as Record<string, { text: string; updatedAt: number }>;
@@ -91,12 +98,14 @@ test("actual native shared UI retains goal, thread, approved output and review a
     app = await launch();
     let page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
-    await page.waitForURL(`${fixture.origin}/app/**`);
+    await page.waitForURL((url) => url.origin === fixture.origin && ["/app/", "/work/", "/threads/"].includes(url.pathname));
     await page.getByRole("button", { name: "First sign-in? Create the account" }).click();
     await page.getByLabel("Name", { exact: true }).fill("Native Fixture Owner");
     await page.getByLabel("Email", { exact: true }).fill("native-owner@example.test");
     await page.getByLabel("Password", { exact: true }).fill("native-fixture-only-password-2026!");
     await page.getByRole("button", { name: "Create account", exact: true }).click();
+    await page.getByRole("navigation", { name: "Workspace areas", exact: true }).waitFor();
+    await page.goto(`${fixture.origin}/threads/`);
     const onboarding = page.getByRole("region", { name: "First task setup", exact: true });
     await onboarding.waitFor();
     await page.getByRole("button", { name: /^Start a coding task/ }).click();
@@ -116,7 +125,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
     app = await launch();
     page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
-    await page.waitForURL(`${fixture.origin}/app/**`);
+    await page.waitForURL((url) => url.origin === fixture.origin && ["/app/", "/work/", "/threads/"].includes(url.pathname));
+    await page.goto(`${fixture.origin}/threads/`);
     expect(await api<{ agent: string; auth: string }>(page, "/api/whoami")).toEqual(identity);
     expect(await actorDraft(page, identity.agent, "audience")).toMatchObject({ text: audience });
     await expect
@@ -146,7 +156,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await page.getByRole("button", { name: "Use first task draft in Work", exact: true }).click();
     await page.getByRole("group", { name: "Selected first-task goal", exact: true }).waitFor();
     await expect.poll(() => page.getByLabel("Task description").inputValue()).toContain(goal);
-    await page.getByRole("complementary", { name: "Primary Left Rail" }).getByRole("button", { name: "Chats", exact: true }).click();
+    await openChat(page);
     await page.getByRole("complementary", { name: "Chats", exact: true }).getByRole("button", { name: "New chat", exact: true }).first().click();
     await page.getByRole("button", { name: "Rename thread", exact: true }).click();
     await page.getByLabel("Thread name", { exact: true }).fill(threadName);
@@ -154,7 +164,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await page
       .getByRole("form", { name: "Rename thread", exact: true })
       .waitFor({ state: "detached" });
-    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
+    await openChat(page);
     await page
       .getByRole("region", { name: "Saved first task draft", exact: true })
       .getByRole("button", { name: "Use first task draft", exact: true })
@@ -166,8 +176,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
     app = await launch();
     page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
-    await page.waitForURL(`${fixture.origin}/app/**`);
-    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
+    await page.waitForURL((url) => url.origin === fixture.origin && ["/app/", "/work/", "/threads/"].includes(url.pathname));
+    await openChat(page);
     await page.getByRole("button", { name: "Rename thread", exact: true }).waitFor();
     await page.getByRole("region", { name: "Saved first task draft", exact: true }).waitFor();
     await page.getByRole("group", { name: "Selected first-task goal", exact: true }).waitFor();
@@ -228,8 +238,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
       })
       .toBeTruthy();
     if (!employee) throw new Error("Fixture employee was not persisted");
-    await page.goto(`${fixture.origin}/`);
-    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
+    await page.goto(`${fixture.origin}/threads/`);
+    await openChat(page);
     await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
     await page.getByRole("button", { name: "Edit employee", exact: true }).click();
     await page.getByText("Use an existing employee", { exact: true }).click();
@@ -316,11 +326,14 @@ test("actual native shared UI retains goal, thread, approved output and review a
       .toBe(1);
     await composer.getByLabel("Local computer", { exact: true }).selectOption(paired.machineId);
     await page.keyboard.press("Escape");
+    const queuedResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/runs" && response.request().method() === "POST");
     await composer.getByRole("button", { name: "Send task", exact: true }).click();
-    await page
-      .getByRole("main")
-      .getByText(/Queued — approve the run card to execute on this computer/)
-      .waitFor();
+    const queued = await queuedResponse;
+    expect(queued.ok()).toBe(true);
+    const receipt = await queued.json() as { approvalId: string };
+    expect(typeof receipt.approvalId).toBe("string");
+    await page.waitForURL((url) => url.pathname === "/work/" && url.searchParams.get("task") === receipt.approvalId && url.searchParams.get("taskKind") === "approval");
+    await page.getByRole("dialog", { name: /^Work inspector:/ }).waitFor();
     const session = threads.sessions.find((thread) => thread.name === threadName);
     if (!session) throw new Error("Named fixture thread missing");
     const sessionQuery = `?session=${encodeURIComponent(session.id)}`;
@@ -331,6 +344,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     expect(approvals.approvals).toHaveLength(1);
     const pendingApproval = approvals.approvals[0];
     if (!pendingApproval) throw new Error("Native fixture approval was not retained");
+    expect(pendingApproval.approvalId).toBe(receipt.approvalId);
     expect(JSON.stringify(approvals.approvals[0])).toContain(executable.draftTaskId);
     expect(JSON.stringify(approvals.approvals[0])).toContain(goal);
     expect(
@@ -423,8 +437,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
       }, { timeout: 15_000 })
       .toBeTruthy();
     if (!run) throw new Error("Native fixture run did not complete");
-    await page.goto(`${fixture.origin}/`);
-    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
+    await page.goto(`${fixture.origin}/threads/`);
+    await openChat(page);
     await page.getByLabel("Review decision for reports/native-fixture.md").selectOption("approved");
     await page.getByRole("button", { name: "Save review", exact: true }).click();
     await page.getByText("Current saved review: approved", { exact: true }).waitFor();
@@ -444,7 +458,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     app = await launch();
     page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
-    await page.getByRole("button", { name: /^(?:Chats|(?:Chat & )?Threads)$/, exact: true }).click();
+    await openChat(page);
     await page.getByText("Current saved review: approved", { exact: true }).waitFor();
     expect(await retainedText()).toBe(output);
     expect((await progress(page)).draftTaskId).toBe(executable.draftTaskId);

@@ -1,3 +1,4 @@
+import { AppAreaNavigation } from "../layouts/AppShell";
 import { type JSX, useState } from "react";
 import { ChevronRight, Clock, LayoutGrid, List, Network, Search } from "lucide-react";
 import { WorkStatusIcon, workListGroup } from "./WorkListView";
@@ -64,6 +65,7 @@ export function WorkLeftPanel({
 
   return (
     <aside aria-label="Work" className={`shiba-context-panel text-[var(--fg)] ${className}`.trim()}>
+      <AppAreaNavigation />
       <div className="flex shrink-0 items-center justify-between px-1">
         <h2 className="text-[14px] font-semibold tracking-tight">Work</h2>
         {onSearch ? (

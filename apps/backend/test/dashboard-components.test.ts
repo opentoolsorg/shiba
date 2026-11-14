@@ -208,9 +208,9 @@ describe("dashboard components SSR (T14 sweep)", () => {
     expect(html).toContain("Threads");
     expect(html).toContain("Pull requests");
     expect(html).toContain("Automations");
-    expect(html).toContain("More");
+    for (const area of ["Work", "Chat", "Team", "Knowledge", "Settings"]) expect(html).toContain(area);
     expect(html).not.toContain("Architecture");
-    expect(html).toContain("3"); // Pending approval badge on the More button
+    expect(html).toContain("3"); // Real pending approval badge on the Work area
     expect(html).toContain("aria-current");
   });
 

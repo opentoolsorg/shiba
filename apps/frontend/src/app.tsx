@@ -1,3 +1,6 @@
+import { AppShell, AppAreaSidebar } from "./layouts/AppShell";
+import { pathForView, readNavigationView } from "./app-navigation";
+import { updateWorkSearch, type WorkSearchState } from "./work-search";
 /**
  * Complete End-to-End Shiba Dashboard.
  * Approval-gated coding tasks delegated to isolated Cloudflare Sandbox containers running OpenCode.
@@ -386,28 +389,13 @@ const DEFAULT_VIEW: MainView = "tasks";
 const SELF_CARDED_VIEWS: readonly string[] = ["dashboard", "activity", "analytics", "diff", "approvals", "automations", "providers", "spaces", "integrations"];
 const TEAM_WORKSPACE_VIEWS: readonly string[] = ["team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "integrations", "settings"];
 
-const VIEW_ALIASES: Record<string, AppNavView> = {
-  "run-registry": "analytics",
-  orchestrator: "activity",
-  mailbox: "inbox",
-  work: "work",
-};
-
-// Each sidebar view owns a root path (/dashboard/, /skills/ …); legacy ?tab=/?view=/?run= still resolve.
+// Room/run links retain precedence over a view selector, including legacy /app links.
 function viewFromUrl(): AppNavView | null {
   if (typeof window === "undefined") return null;
-  const params = new URLSearchParams(window.location.search);
-  if (readRoomLink(window.location.search) !== null) return "threads";
-  if (params.has("run") || readPromptParam(window.location.search).prompt !== null) return "threads";
-  if (params.has("task") || ["list", "board", "timeline", "organization"].includes(params.get("view") ?? "")) return "work";
-  const toView = (raw: string | null) => {
-    const view = raw ? (VIEW_ALIASES[raw] ?? raw) : null;
-    return APP_NAV_ITEMS.some((item) => item.id === view) ? (view as AppNavView) : null;
-  };
-  return (
-    toView(window.location.pathname.split("/")[1] ?? null) ??
-    toView(params.get("tab") || params.get("view"))
-  );
+  const search = window.location.search;
+  const params = new URLSearchParams(search);
+  if (readRoomLink(search) !== null || params.has("run") || readPromptParam(search).prompt !== null) return "threads";
+  return readNavigationView(window.location.pathname, search);
 }
 
 // WorkView writes ?view=/?task= itself; app state only seeds from them and follows back/forward.
@@ -416,10 +404,6 @@ function workViewFromUrl(): WorkViewMode {
   if (typeof window === "undefined") return "list";
   const view = new URLSearchParams(window.location.search).get("view");
   return WORK_VIEW_MODES.find((mode) => mode === view) ?? "list";
-}
-
-function pathForView(view: MainView): string {
-  return `/${view}/`;
 }
 
 const SETUP_TOTAL_STEPS = 6;
@@ -468,18 +452,19 @@ export function App(): React.JSX.Element {
   const [repoUrl, setRepoUrl] = useState("");
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [baseBranch, setBaseBranch] = useState("main");
-  // T71 — deep-link ?prompt= prefills empty composer task on app load; replaceState strips it.
+  // Read the prompt without consuming it during render: StrictMode and route
+  // retries must see the same entry intent until the component commits.
   const [task, setTask] = useState(() => {
-    const draft = "";
-    if (typeof window === "undefined") return draft;
+    if (typeof window === "undefined") return "";
+    return readPromptParam(window.location.search).prompt ?? "";
+  });
+  useEffect(() => {
     const { prompt, nextSearch } = readPromptParam(window.location.search);
     if (prompt !== null) {
       const nextUrl = window.location.pathname + nextSearch + window.location.hash;
       window.history.replaceState(window.history.state, "", nextUrl);
-      return prompt;
     }
-    return "";
-  });
+  }, []);
   const latestComposerTask = useRef(task);
   latestComposerTask.current = task;
   const [selectedOnboardingDraftRef, setSelectedOnboardingDraftRef] = useState<OnboardingDraftRef | null>(null);
@@ -700,6 +685,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       : false,
   );
   const [workViewMode, setWorkViewMode] = useState<WorkViewMode>(workViewFromUrl);
+  const [workInspectionRequest, setWorkInspectionRequest] = useState<WorkSearchState>();
+  const [awaitingWorkRun, setAwaitingWorkRun] = useState<{ approvalId: string; scope: string }>();
+  useEffect(() => {
+    if (mainView !== "work") setWorkInspectionRequest(undefined);
+  }, [mainView]);
 
   const toggleSessionsCollapsed = useCallback(() => {
     setSessionsCollapsed((current) => {
@@ -740,13 +730,28 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
   // The first sync rewrites a legacy /app/ URL in place (query kept for any reader); later view changes are history steps.
   const router = useRouter();
+  const inspectWork = useCallback((task: string, taskKind: "approval" | "run", tab: "approval" | "steps") => {
+    const state: WorkSearchState = { view: "board", task, taskKind, tab };
+    const search = new URLSearchParams(window.location.search);
+    search.delete("run");
+    search.delete("prompt");
+    const query = updateWorkSearch(search, state).toString();
+    // Put the receipt in the URL before the route changes: a route remount must
+    // restore the same inspector rather than depend on transient React state.
+    router.history.push(`${pathForView("work")}?${query}${window.location.hash}`);
+    setWorkViewMode("board");
+    setWorkInspectionRequest(state);
+    setMainView("work");
+  }, [router]);
   const urlSynced = useRef(false);
   useEffect(() => {
     const path = pathForView(mainView);
     const first = !urlSynced.current;
     if (mainView === "settings") {
-      const target = `${path}?section=${encodeURIComponent(settingsSection)}`;
-      if (window.location.pathname + window.location.search === target) { urlSynced.current = true; return; }
+      const params = new URLSearchParams(first ? window.location.search : "");
+      params.set("section", settingsSection);
+      const target = `${path}?${params.toString()}${first ? window.location.hash : ""}`;
+      if (window.location.pathname + window.location.search + window.location.hash === target) { urlSynced.current = true; return; }
       if (first || window.location.pathname === path) router.history.replace(target);
       else router.history.push(target);
       urlSynced.current = true;
@@ -754,7 +759,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     }
     urlSynced.current = true;
     if (window.location.pathname === path) return;
-    if (first) router.history.replace(path + window.location.search);
+    if (first) router.history.replace(path + window.location.search + window.location.hash);
     else router.history.push(path);
   }, [mainView, settingsSection, router]);
 
@@ -878,6 +883,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // Per-session composer draft: a scope change loads that scope's draft
   // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
   const composerScope = privateDataEnabled && orchestratorName ? composerDraftScope(orchestratorName, selectedSessionId) : null;
+  useEffect(() => {
+    setWorkInspectionRequest(undefined);
+    setAwaitingWorkRun(undefined);
+  }, [orchestratorName, teamWorkspaceId, selectedSessionId]);
   const quickDraft = useRef<{ scope: string; text: string } | null>(null);
   const draftScope = useRef<string | null>(null);
   const [restoredComposerScope, setRestoredComposerScope] = useState<string | null>(null);
@@ -1323,16 +1332,26 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       cancelled = true;
     };
   }, [privateDataEnabled, orchestratorName]);
-  // Ordinary views read the lean summary projection; only the diff
-  // inspector pulls the full run payload (diff/receipts/signals/steering).
+  // Inspectors need the retained details; other surfaces use the summary projection.
   const { runs: retainedRuns, error: runsError, detailReady: runsDetailReady, listSettled } =
     useRetainedRuns(
       refreshToken,
       selectedSessionId,
       sessionApiAvailable,
-      mainView === "diff",
+      mainView === "diff" || mainView === "work",
       privateDataEnabled,
     );
+  useEffect(() => {
+    if (!awaitingWorkRun) return;
+    if (!privateDataEnabled || composerScope !== awaitingWorkRun.scope || mainView !== "work") {
+      setAwaitingWorkRun(undefined);
+      return;
+    }
+    const run = retainedRuns.find((item) => item.approval?.approvalId === awaitingWorkRun.approvalId);
+    if (!run) return;
+    setAwaitingWorkRun(undefined);
+    inspectWork(run.runId, "run", "steps");
+  }, [awaitingWorkRun, retainedRuns, composerScope, privateDataEnabled, mainView, inspectWork]);
   useEffect(() => {
     if (!privateDataEnabled) {
       setTaskHistoryItems([]); setTaskHistoryError(null); setTaskHistoryLoading(false);
@@ -1520,6 +1539,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // frozen payload executes or the queued draft is released.
   const decideStoredApproval = useCallback(
     async (approval: StoredApproval, approved: boolean) => {
+      const decisionScope = draftScope.current;
+      const decisionSurface = activeSurfaceScopeRef.current;
       const approvalId = approval.approvalId;
       if (decidedStoredRef.current.has(approvalId)) return;
       decidedStoredRef.current.add(approvalId);
@@ -1543,6 +1564,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         }
         if (body.result === "unknown") {
           throw new Error("The approval is gone — it expired or was already decided elsewhere.");
+        }
+        if (approved && body.result === "approved" && (approval.kind === undefined || approval.kind === "run") &&
+          decisionScope && draftScope.current === decisionScope && activeSurfaceScopeRef.current === decisionSurface && currentNavigation.current.view === "work") {
+          setAwaitingWorkRun({ approvalId, scope: decisionScope });
         }
         setApprovalAnnouncement(
           approved ? "Approved — the request is executing." : "Rejected — nothing will execute.",
@@ -1752,6 +1777,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         };
         const draft = task;
         const draftSession = composerScope;
+        const dispatchSurface = activeSurfaceScopeRef.current;
         setTask("");
         submitInFlight.current = true;
         setIsSubmitting(true);
@@ -1777,6 +1803,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             }
             throw new Error(detail || `Run request failed with ${res.status}`);
           }
+          const receipt = await res.json().catch(() => null) as { approvalId?: unknown } | null;
+          const approvalId = typeof receipt?.approvalId === "string" && receipt.approvalId.trim() ? receipt.approvalId : null;
+          if (!approvalId) throw new Error("The server did not return an approval receipt. Retry to recover the same request.");
           runCommand.current = null;
           if (executionTargetKind === "repository") saveRepo(normalizedRepoUrl ?? repoUrl.trim(), orchestratorName);
           setNotice(runTarget === "local"
@@ -1785,6 +1814,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               ? "Draft queued — review and approve the run card before the cloud sandbox starts."
               : "Bot task queued — review and approve the run card to launch it.");
           refreshRuns();
+          if (draftScope.current === draftSession && activeSurfaceScopeRef.current === dispatchSurface && currentNavigation.current.view === "threads") {
+            inspectWork(approvalId, "approval", "approval");
+          }
         } catch (error) {
           restoreDraft(draftSession, draft, activeOnboardingRef);
           setNotice(
@@ -1976,6 +2008,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       orchestratorName,
       identityError,
       refreshRuns,
+      inspectWork,
       selectableSkills,
       selectedSkillIds,
       runTarget,
@@ -2825,7 +2858,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }
 
   return (
-    <div className="shiba-app-shell h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)] font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-text)] flex pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <AppShell activeView={mainView} onNavigate={openView} pendingApprovalCount={teamWorkspaceId ? 0 : pendingApprovals.length + visibleStoredApprovals.length}>
       {/* LEFT: app navigation rail (lg+; phones use the sheet below) */}
       <AppNavRail
         workspaceSwitcher={<WorkspaceSwitcher workspaces={teamDirectory.workspaces} selectedWorkspaceId={teamWorkspaceId} loading={teamDirectory.loading} onSelect={(id) => { flushDraft(); roomRoute.clear(); teamDirectory.selectWorkspace(id); }} onManage={() => openView("team")} />}
@@ -2833,7 +2866,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         selectedWorkspaceId={teamWorkspaceId}
         onSelectWorkspace={(id) => { flushDraft(); roomRoute.clear(); teamDirectory.selectWorkspace(id); }}
         collapsed={mainView === "work" ? workPanelCollapsed : sessionsCollapsed}
-        sidebarPanelId={mainView === "work" ? "work-panel" : undefined}
+        sidebarPanelId={mainView === "work" ? "work-panel" : "app-context-panel"}
         activeView={mainView}
         onNavigate={openView}
         pendingApprovalCount={teamWorkspaceId ? 0 : pendingApprovals.length + visibleStoredApprovals.length}
@@ -3018,7 +3051,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         ) : null}
 
         <div className={`shiba-app-content flex-1 flex min-w-0 min-h-0 ${mainView === "work" ? "" : "gap-3 p-3"}`}>
-          {destinationPanel && mainView !== "work" && !sessionsCollapsed ? <div className="hidden lg:flex">{destinationPanel}</div> : null}
+          {mainView !== "work" && !sessionsCollapsed ? <div id="app-context-panel" className="hidden min-h-0 lg:flex">{destinationPanel ?? <AppAreaSidebar />}</div> : null}
           <MainCard className={mainView === "work" || mainView === "settings" || (!personalOnlyNotice && SELF_CARDED_VIEWS.includes(mainView) && !(mainView === "integrations" && (teamWorkspaceId || restrictedTeamMember))) ? "!rounded-none !border-0 !bg-transparent !shadow-none" : ""}>
           {inboxMounted && privateDataEnabled ? (
             <div
@@ -3087,6 +3120,28 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   sessions={sessions}
                   storedApprovals={visibleStoredApprovals}
                   pendingApprovals={pendingApprovals}
+                  requestedState={workInspectionRequest}
+                  onDecideApproval={decideApproval}
+                  onDecideStoredApproval={decideStoredApproval}
+                  approvalDecisions={{ ...decisions, ...storedDecisions }}
+                  peekSessionId={selectedSessionId}
+                  peekNotice={notice}
+                  renderPeekContent={(task, tab) => {
+                    if (tab !== "steps" || task.kind !== "session" || task.id !== selectedSessionId ||
+                      sessionRegistryOwner !== orchestratorName || agent.name !== chatAgentName ||
+                      !agent.identified || agent.connectionError || !chat.messages.length) return undefined;
+                    return <StepTimeline messages={chat.messages}
+                      isStreaming={chat.isStreaming || chat.status === "streaming"}
+                      pendingApprovals={pendingApprovals} decisions={decisions}
+                      onDecideApproval={decideApproval} reviewAfterPublishById={reviewAfterPublishById} />;
+                  }}
+                  onSearchChange={(state) => {
+                    const query = updateWorkSearch(new URLSearchParams(window.location.search), state).toString();
+                    // TanStack may still be flushing a handoff from Threads;
+                    // Work search always belongs to the canonical Work path.
+                    const target = `${pathForView("work")}${query ? `?${query}` : ""}${window.location.hash}`;
+                    if (target !== `${window.location.pathname}${window.location.search}${window.location.hash}`) router.history.push(target);
+                  }}
                   onSelectTask={(id, kind) => {
                     if (kind === "approval") { setMainView("approvals"); return; }
                     void handleSelectSession(id);
@@ -3618,6 +3673,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         agents={mentionableAgents}
                         value={composerVisible ? task : ""}
                         onChange={setTask}
+                        onPrepareWork={() => setConversationMode("work")}
                         onSubmit={submitTask}
                         onStop={() => { void chat.stop(); }}
                         onRetry={() => { void chat.regenerate(); }}
@@ -3779,6 +3835,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <MemoryTab
               activeView={memoryView}
               onSelectView={setMemoryView}
+              sidebarCollapsed={sessionsCollapsed}
               scope={scope}
               onCountsChange={handleMemoryCountsChange}
             />
@@ -3959,6 +4016,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           />
         </div>
       </div>
-    </div>
+    </AppShell>
   );
 }
