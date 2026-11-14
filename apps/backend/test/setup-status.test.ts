@@ -29,6 +29,18 @@ describe("readSetupStatus mailbox signals", () => {
 
     expect(status.mailbox).toEqual({ addressOverride: false, sendEnabled: false });
   });
+
+  it("reports transactional email booleans for auth mail", async () => {
+    const status = await readSetupStatus(
+      setupStatusEnv({
+        BETTER_AUTH_VERIFICATION_FROM: "auth@example.test",
+        EMAIL_QUEUE: {} as never,
+      }),
+      false,
+    );
+    expect(status.transactionalEmail).toEqual({ senderConfigured: true, queueBound: true });
+    expect(JSON.stringify(status)).not.toContain("auth@example.test");
+  });
 });
 
 describe("GET /api/setup/status subscription diagnostics", () => {

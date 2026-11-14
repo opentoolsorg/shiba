@@ -1,8 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
+import { applyExternalMcpMigrations } from "./audit-migrations.js";
+
+export { applyExternalMcpMigrations } from "./audit-migrations.js";
 
 /** Real SQLite statements and transactions behind the D1 interface. */
-export function customAgentD1() {
+export function customAgentD1(options?: { bare?: boolean }) {
   const sqlite = new DatabaseSync(":memory:");
+  if (!options?.bare) applyExternalMcpMigrations(sqlite);
   const statement = (sql: string, values: unknown[] = []) => ({
     bind: (...args: unknown[]) => statement(sql, args),
     execute() {

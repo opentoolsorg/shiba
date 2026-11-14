@@ -9,7 +9,7 @@
  *   - a *shared* home holding everything non-account-specific (sessions,
  *     sqlite, worktrees, ...) — conversation history and the install live
  *     here;
- *   - a per-instance *shadow* home overlaying it: `auth.json` is a REAL
+ *   - a per-instance *shadow* home covering it: `auth.json` is a REAL
  *     file in the shadow (never a symlink into the shared home), every
  *     shared entry is linked in, and the shadow-local list stays private.
  *
@@ -17,13 +17,13 @@
  * Continuation identity follows the SHARED home (`codex:home:<sharedPath>`)
  * — a conversation resumes against the same history across account
  * switches. Account identity follows the directory that actually holds
- * `auth.json` — `effectiveHomePath ?? sharedHomePath` — because an overlay
+ * `auth.json` — `effectiveHomePath ?? sharedHomePath` — because a shadow-home
  * instance owns its account under the shadow while a plain instance shares
  * the common one. Keying usage/sign-out on the continuation key would
- * double-count a shared credit pool or fail to revoke an overlay account.
+ * double-count a shared credit pool or fail to revoke a shadow-home account.
  *
  * Update path (ported verbatim): updates run against the SHARED home, not
- * the effective home — the overlay does not contain the installation, and
+ * the effective home — the shadow home does not contain the installation, and
  * running the updater against it silently no-ops.
  */
 
@@ -51,9 +51,9 @@ export const CODEX_SHADOW_LOCAL_ENTRY_NAMES = ["log", "memories", "tmp"] as cons
 export const CODEX_REPLACEABLE_SHARED_RUNTIME_DIRECTORIES = ["mcp-oauth-locks"] as const;
 
 export interface CodexHomeLayout {
-  readonly mode: "direct" | "authOverlay";
+  readonly mode: "direct" | "shadowHome";
   readonly sharedHomePath: string;
-  /** Set in authOverlay mode only; the directory `CODEX_HOME` points at. */
+  /** Set in shadowHome mode only; the directory `CODEX_HOME` points at. */
   readonly effectiveHomePath: string | undefined;
   /** `codex:home:<sharedHomePath>` — the conversation's home across account switches. */
   readonly continuationKey: string;
@@ -85,8 +85,8 @@ export function isCodexShadowLocalEntry(entryName: string): boolean {
 
 /**
  * Resolve the two-level layout. `shadowHomePath` empty/absent → direct mode:
- * the account lives in the shared home itself. Otherwise the shadow overlays
- * it and owns `auth.json`. Paths are normalized against trailing slashes;
+ * the account lives in the shared home itself. Otherwise the shadow home
+ * covers it and owns `auth.json`. Paths are normalized against trailing slashes;
  * callers pass already-absolute sandbox paths.
  */
 export function resolveCodexSubscriptionHome(input: {
@@ -109,7 +109,7 @@ export function resolveCodexSubscriptionHome(input: {
     throw new CodexHomePathConflictError(sharedHomePath, effectiveHomePath);
   }
   return {
-    mode: "authOverlay",
+    mode: "shadowHome",
     sharedHomePath,
     effectiveHomePath,
     continuationKey: `codex:home:${sharedHomePath}`,
@@ -123,7 +123,7 @@ function normalizeHomePath(path: string): string {
 }
 
 /**
- * The materialization plan for an overlay home, as ordered argv ops the
+ * The materialization plan for a shadow home, as ordered argv ops the
  * runtime adapter executes through scoped exec. Pure: observable shared
  * entries come in as `extraSharedEntries` (the materializer may list the
  * shared home and add unknown entries; known/observed entries are linked,
@@ -146,7 +146,7 @@ export function codexShadowHomeOps(
   for (const dir of CODEX_KNOWN_SHARED_DIRECTORIES) {
     ops.push({ op: "mkdir", path: `${layout.sharedHomePath}/${dir}` });
   }
-  if (layout.mode !== "authOverlay" || layout.effectiveHomePath === undefined) {
+  if (layout.mode !== "shadowHome" || layout.effectiveHomePath === undefined) {
     return ops;
   }
   const effective = layout.effectiveHomePath;

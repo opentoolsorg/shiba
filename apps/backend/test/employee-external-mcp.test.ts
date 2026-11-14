@@ -5,7 +5,7 @@ vi.mock("../src/request-auth.js", async (original) => ({ ...await original<typeo
 vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: async () => ({ orgId: "self-hosted" }) }));
 
 import type { Env } from "../src/env.js";
-import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { externalMcpD1 } from "./fixtures/external-mcp-schema.js";
 import { createCustomAgent } from "../src/custom-agents-store.js";
 import { createWebSession } from "../src/web-sessions.js";
 import { handleEmployeeTools } from "../src/employee-tool-routes.js";
@@ -25,7 +25,7 @@ const endpoint = "https://mcp.example.com/mcp";
 afterEach(() => vi.unstubAllGlobals());
 
 async function fixture() {
-  const { database, sqlite } = customAgentD1();
+  const { database, sqlite } = externalMcpD1();
   const env = { AGENT_AUDIT: database, CodingOrchestrator: {}, MCP_TRUSTED_HOSTS: "mcp.example.com" } as unknown as Env;
   const schema = { type: "object", properties: { resourceId: { type: "string" }, body: { type: "string" } }, required: ["resourceId"], additionalProperties: false };
   let remote = [

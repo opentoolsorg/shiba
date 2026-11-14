@@ -14,6 +14,8 @@ export * from "./run-signals.js";
 export * from "./mailbox.js";
 export * from "./mcp.js";
 export * from "./memory.js";
+export * from "./knowledge.js";
+export * from "./governance.js";
 export * from "./model.js";
 export * from "./receipts.js";
 export * from "./roles.js";
@@ -49,6 +51,8 @@ export * from "./container-budget.js";
 
 export * from "./deliverables.js";
 export * from "./collaboration-contract.js";
+export * from "./collaboration-v2.js";
+export * from "./thread-messages.js";
 export * from "./team-workspaces.js";
 export * from "./employee-bundles.js";
 export * from "./capability-catalog.js";

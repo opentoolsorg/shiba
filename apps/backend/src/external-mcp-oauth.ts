@@ -255,32 +255,31 @@ async function loadPendingByState(env: Env, state: string): Promise<(ExternalMcp
   };
 }
 
+const oauthSchemaReady = new WeakSet<D1Database>();
+
 export async function ensureExternalMcpOAuthSchema(env: Env): Promise<void> {
-  await env.AGENT_AUDIT.prepare(
-    `CREATE TABLE IF NOT EXISTS external_mcp_oauth_pending (
-      state_hash TEXT PRIMARY KEY,
-      server_id TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      owner_id TEXT NOT NULL,
-      catalog_id TEXT NOT NULL,
-      redirect_uri TEXT NOT NULL,
-      code_verifier_cipher TEXT NOT NULL,
-      authorization_endpoint TEXT NOT NULL,
-      token_endpoint TEXT NOT NULL,
-      client_id TEXT NOT NULL,
-      scopes TEXT NOT NULL,
-      expires_at INTEGER NOT NULL,
-      created_at INTEGER NOT NULL
-    )`,
-  ).run();
-  await env.AGENT_AUDIT.prepare(
-    `CREATE TABLE IF NOT EXISTS external_mcp_oauth_refresh_locks (
-      server_id TEXT PRIMARY KEY,
-      lease_id TEXT NOT NULL,
-      expires_at INTEGER NOT NULL
-    )`,
-  ).run();
+  if (oauthSchemaReady.has(env.AGENT_AUDIT)) return;
+  const tables = await env.AGENT_AUDIT.prepare(
+    `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('external_mcp_oauth_pending','external_mcp_oauth_refresh_locks')`,
+  ).all<{ name: string }>();
+  const names = new Set((tables.results ?? []).map((row) => row.name));
+  if (!names.has("external_mcp_oauth_pending") || !names.has("external_mcp_oauth_refresh_locks")) {
+    throw new Error("external_mcp_oauth_schema_missing");
+  }
+  oauthSchemaReady.add(env.AGENT_AUDIT);
   await ensureSubscriptionCredentialSchema(env);
+}
+
+async function markExternalMcpOAuthConnected(env: Env, serverId: string, orgId: string, ownerId: string): Promise<void> {
+  await env.AGENT_AUDIT.prepare(
+    `UPDATE external_mcp_servers SET oauth_status = 'connected', tool_catalog_error = NULL, updated_at = ? WHERE id = ? AND org_id = ? AND owner_id = ?`,
+  ).bind(Date.now(), serverId, orgId, ownerId).run();
+}
+
+async function markExternalMcpOAuthNeedsReauth(env: Env, serverId: string, orgId: string, ownerId: string, error = "oauth_refresh_failed"): Promise<void> {
+  await env.AGENT_AUDIT.prepare(
+    `UPDATE external_mcp_servers SET oauth_status = 'needs_reauth', tool_catalog_error = ?, updated_at = ? WHERE id = ? AND org_id = ? AND owner_id = ?`,
+  ).bind(error, Date.now(), serverId, orgId, ownerId).run();
 }
 
 export async function beginExternalMcpOAuthConnect(
@@ -415,6 +414,7 @@ export async function exchangeExternalMcpOAuthCode(
   };
   if (!await persistExternalMcpOAuthTokens(env, pending.orgId, pending.ownerId, pending.serverId, tokens,
     { serverGeneration: pending.serverGeneration })) throw new Error("oauth_state_invalid");
+  await markExternalMcpOAuthConnected(env, pending.serverId, pending.orgId, pending.ownerId);
   await audit(env, {
     principal: pending.ownerId,
     tool: "external_mcp.connect",
@@ -436,10 +436,11 @@ export async function saveExternalMcpOAuthTokens(
 
 async function persistExternalMcpOAuthTokens(
   env: Env, orgId: string, ownerId: string, serverId: string, tokens: ExternalMcpOAuthTokens,
-  guard?: { previousCipher?: string; serverGeneration?: number },
+  guard?: { previousCipher?: string; serverGeneration?: number; expectedTokenVersion?: number },
 ): Promise<boolean> {
   if (!oauthReady(env)) throw new Error("oauth_storage_unavailable");
   await ensureSubscriptionCredentialSchema(env);
+  await ensureExternalMcpOAuthSchema(env);
   const cipher = await encryptAuthJson(
     JSON.stringify(tokens),
     env.MODEL_CREDENTIAL_KEY!,
@@ -448,10 +449,23 @@ async function persistExternalMcpOAuthTokens(
     TOKEN_KIND(serverId),
   );
   if (guard?.previousCipher !== undefined) {
-    const changed = await env.AGENT_AUDIT.prepare(`UPDATE user_subscription_credentials SET auth_cipher=?,expires_at=?,saved_at=?
+    const credentialUpdate = env.AGENT_AUDIT.prepare(`UPDATE user_subscription_credentials SET auth_cipher=?,expires_at=?,saved_at=?
       WHERE workspace_id=? AND user_id=? AND kind=? AND auth_cipher=?`)
-      .bind(cipher, tokens.expiresAt, Date.now(), orgId, ownerId, TOKEN_KIND(serverId), guard.previousCipher).run();
-    return changed.meta.changes === 1;
+      .bind(cipher, tokens.expiresAt, Date.now(), orgId, ownerId, TOKEN_KIND(serverId), guard.previousCipher);
+    const serverRow = await env.AGENT_AUDIT.prepare(
+      "SELECT 1 AS ok FROM external_mcp_servers WHERE id = ? AND org_id = ? AND owner_id = ? LIMIT 1",
+    ).bind(serverId, orgId, ownerId).first<{ ok: number }>();
+    if (serverRow?.ok !== 1) {
+      return (await credentialUpdate.run()).meta.changes === 1;
+    }
+    const tokenVersion = guard.expectedTokenVersion ?? 0;
+    const changed = await env.AGENT_AUDIT.batch([
+      credentialUpdate,
+      env.AGENT_AUDIT.prepare(`UPDATE external_mcp_servers SET oauth_token_version = oauth_token_version + 1, oauth_status = 'connected', updated_at = ?
+        WHERE id = ? AND org_id = ? AND owner_id = ? AND oauth_token_version = ?`)
+        .bind(Date.now(), serverId, orgId, ownerId, tokenVersion),
+    ]);
+    return changed[0]?.meta?.changes === 1 && changed[1]?.meta?.changes === 1;
   }
   const written = await env.AGENT_AUDIT.prepare(
     `INSERT INTO user_subscription_credentials
@@ -624,7 +638,11 @@ export async function resolveExternalMcpBearer(
         redirect: "error",
         signal: AbortSignal.timeout(8_000),
       });
-      if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new Error("oauth_token_exchange_failed"); }
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => {});
+        await markExternalMcpOAuthNeedsReauth(env, serverId, orgId, ownerId);
+        throw new Error("oauth_token_exchange_failed");
+      }
       const token = parseOAuthTokenResponse(await readBoundedObject(response, "oauth_token_exchange_failed"));
       const updated: ExternalMcpOAuthTokens = {
         ...current,
@@ -634,8 +652,21 @@ export async function resolveExternalMcpBearer(
         scope: token.scope ?? current.scope,
         tokenType: token.token_type ?? current.tokenType,
       };
-      return await persistExternalMcpOAuthTokens(env, orgId, ownerId, serverId, updated, { previousCipher: stored.cipher })
-        ? updated.accessToken : undefined;
+      const versionRow = await env.AGENT_AUDIT.prepare(
+        "SELECT oauth_token_version FROM external_mcp_servers WHERE id = ? AND org_id = ? AND owner_id = ?",
+      ).bind(serverId, orgId, ownerId).first<{ oauth_token_version: number }>();
+      const expectedVersion = versionRow?.oauth_token_version ?? 0;
+      const persisted = await persistExternalMcpOAuthTokens(env, orgId, ownerId, serverId, updated, {
+        previousCipher: stored.cipher,
+        expectedTokenVersion: expectedVersion,
+      });
+      if (!persisted) {
+        const after = await loadStoredTokens(env, orgId, ownerId, serverId);
+        if (!after || after.cipher !== stored.cipher) return undefined;
+        await markExternalMcpOAuthNeedsReauth(env, serverId, orgId, ownerId, "oauth_token_version_conflict");
+        throw new Error("oauth_token_exchange_failed");
+      }
+      return updated.accessToken;
     } finally {
       await env.AGENT_AUDIT.prepare("DELETE FROM external_mcp_oauth_refresh_locks WHERE server_id = ? AND lease_id = ?")
         .bind(serverId, leaseId).run();

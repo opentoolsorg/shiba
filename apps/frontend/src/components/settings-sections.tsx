@@ -7,7 +7,6 @@ import { normalizeRepositoryInput, REPOSITORY_INPUT_ERROR } from "../repository-
  */
 import { type JSX, type ReactNode, useCallback, useEffect, useState } from "react";
 import { version as dashboardVersion } from "../../package.json";
-import { authClient } from "../auth-client";
 import { type RoleModelWire, type SetupStatus, useSetupStatus, useWhoami } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
@@ -15,15 +14,18 @@ import { SkeletonLines, StatusNotice } from "./surface";
 import { ChatGptSubscriptionCard } from "./ChatGptSubscriptionCard";
 import { PurposeRoutingCard, RolePinsCard } from "./ModelRoutingSection";
 import { Card } from "./settings-ui";
+import { AccountSettings } from "./account/AccountSettings";
 import { ApiKeysSettingsPanel } from "./settings/ApiKeys";
 import { ToneChip } from "./ToneChip";
 import { useTheme } from "./ThemeProvider";
 import { useSavedRepos, saveRepo, removeRepo } from "../saved";
+import { ConnectedApps } from "./settings/ConnectedApps";
 
 export type SettingsSectionId =
   | "account"
   | "api-keys"
   | "appearance"
+  | "connected-apps"
   | "repositories"
   | "automations"
   | "mailbox"
@@ -39,6 +41,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string;
     account: { label: "Account", blurb: "Identity, auth lane & sign out" },
     "api-keys": { label: "API keys", blurb: "Org-scoped /api/v1 bearer keys" },
     appearance: { label: "Appearance", blurb: "Theme" },
+    "connected-apps": { label: "Connected apps", blurb: "External MCP clients authorized for /mcp" },
     repositories: { label: "Repositories", blurb: "Saved GitHub targets" },
     automations: { label: "Automations", blurb: "Kill switch & TypeSafe key" },
     mailbox: { label: "Mailbox", blurb: "Agent mailbox & email sending" },
@@ -122,6 +125,66 @@ function ChecklistRow({
         <div className="font-mono text-[11px] text-[var(--muted-foreground-2)]">{detail}</div>
       </div>
     </div>
+  );
+}
+
+interface EmailDeliveryWire {
+  suppressions: { to: string; reason: string; lastError: string | null; updatedAt: number }[];
+  recent: {
+    outboxId: string;
+    to: string;
+    kind: string;
+    status: string;
+    attempts: number;
+    lastError: string | null;
+    updatedAt: number;
+  }[];
+}
+
+/** Operator-only summary from GET /api/email/delivery-status (no message bodies). */
+function EmailDeliveryStatusPanel(): JSX.Element | null {
+  const [health, setHealth] = useState<{ suppressions: number; failed: number } | null>(null);
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/email/delivery-status", { credentials: "include" });
+        if (response.status === 403) {
+          if (!cancelled) setHidden(true);
+          return;
+        }
+        if (!response.ok) return;
+        const body = (await response.json()) as EmailDeliveryWire;
+        if (!cancelled) {
+          setHealth({
+            suppressions: body.suppressions.length,
+            failed: body.recent.filter((row) => row.status === "failed" || row.status === "dead").length,
+          });
+        }
+      } catch {
+        /* non-operator or transient — omit panel */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (hidden) return null;
+  if (!health) {
+    return (
+      <div className="px-4 py-3 text-xs text-[var(--muted-foreground-2)]" role="status">
+        Reading email delivery status…
+      </div>
+    );
+  }
+  const healthy = health.suppressions === 0 && health.failed === 0;
+  return (
+    <ChecklistRow
+      label="Delivery health"
+      ok={healthy}
+      detail={`${health.suppressions} suppressed address(es); ${health.failed} recent failed or dead message(s).`}
+    />
   );
 }
 
@@ -306,111 +369,43 @@ const AUTH_LANE_LABEL: Record<string, string> = {
 /** Account — the identity the Worker proves via /api/whoami plus sign-out. */
 function AccountSection({ onSignOut }: { onSignOut?: () => Promise<void> }): JSX.Element {
   const whoami = useWhoami();
-  const [signingOut, setSigningOut] = useState(false);
-  const [socialProviders, setSocialProviders] = useState<Array<"google" | "slack">>([]);
-  const [linking, setLinking] = useState<"google" | "slack" | null>(null);
-  const [linkError, setLinkError] = useState<string | null>(null);
   const identity = whoami.state.kind === "data" ? whoami.state.data : undefined;
-
-  useEffect(() => {
-    if (identity?.auth !== "better-auth") return;
-    let cancelled = false;
-    void fetch("/api/auth/social-providers", { credentials: "same-origin", cache: "no-store" })
-      .then(async (response) => response.ok ? await response.json() as { providers?: { google?: boolean; slack?: boolean } } : null)
-      .then((result) => {
-        if (!cancelled && result?.providers) {
-          setSocialProviders((["google", "slack"] as const).filter((provider) => result.providers?.[provider] === true));
-        }
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [identity?.auth]);
-
-  const linkSocial = async (provider: "google" | "slack") => {
-    setLinking(provider);
-    setLinkError(null);
-    try {
-      const result = await authClient.linkSocial({ provider, callbackURL: "/app/?auth_linked=1", errorCallbackURL: "/app/?auth_link_error=1" });
-      if (result.error) setLinkError("The account could not be linked. Use the provider with the same verified email as this Shiba account.");
-    } catch {
-      setLinkError("The account link could not be confirmed. Reload this page and check the sign-in method before retrying.");
-    } finally {
-      setLinking(null);
-    }
-  };
-
-  const signOut = async () => {
-    setSigningOut(true);
-    try {
-      if (onSignOut) {
-        await onSignOut();
-      } else {
-        await authClient.signOut().catch(() => {});
-        window.location.reload();
-      }
-    } finally {
-      setSigningOut(false);
-    }
-  };
-
-  return (
-    <Card>
-      {whoami.state.kind === "error" ? (
+  if (whoami.state.kind === "error") {
+    return (
+      <Card>
         <div className="px-4 py-5">
           <LoadErrorState message={whoami.state.message} onRetry={whoami.reload} />
         </div>
-      ) : !identity ? (
+      </Card>
+    );
+  }
+  if (!identity) {
+    return (
+      <Card>
         <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Reading /api/whoami…</div>
-      ) : (
-        <>
-          <div className="flex items-center gap-3 border-b border-[var(--border-1)] px-4 py-3.5">
-            <span
-              aria-hidden="true"
-              className="flex size-10 shrink-0 items-center justify-center rounded-[var(--radius-button)] border border-[var(--primary)]/40 bg-[var(--primary-soft)] text-sm font-bold uppercase text-[var(--primary)]"
-            >
-              {identity.agent.slice(0, 2)}
-            </span>
-            <div className="min-w-0">
-              <div className="truncate text-[13px] font-semibold text-[var(--fg)]">
-                {identity.agent}
-              </div>
-              <div className="font-mono text-[11px] text-[var(--muted-foreground-2)]">
-                {AUTH_LANE_LABEL[identity.auth ?? ""] ?? identity.auth ?? "Unknown lane"}
-              </div>
+      </Card>
+    );
+  }
+  return (
+    <>
+      <Card>
+        <div className="flex items-center gap-3 px-4 py-3.5">
+          <span
+            aria-hidden="true"
+            className="flex size-10 shrink-0 items-center justify-center rounded-[var(--radius-button)] border border-[var(--primary)]/40 bg-[var(--primary-soft)] text-sm font-bold uppercase text-[var(--primary)]"
+          >
+            {identity.agent.slice(0, 2)}
+          </span>
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-semibold text-[var(--fg)]">{identity.agent}</div>
+            <div className="font-mono text-[11px] text-[var(--muted-foreground-2)]">
+              {AUTH_LANE_LABEL[identity.auth ?? ""] ?? identity.auth ?? "Unknown lane"}
             </div>
           </div>
-          {identity.auth === "better-auth" ? (
-            <>
-              {socialProviders.length > 0 ? <div className="border-b border-[var(--border-1)] px-4 py-3">
-                <div className="text-xs font-semibold text-[var(--fg)]">Sign-in methods</div>
-                <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">Link a verified Google or Slack identity to this account so you can use it at the next sign-in. Slack login does not install a Slack app or grant workspace access.</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {socialProviders.map((provider) => <button key={provider} type="button" disabled={linking !== null}
-                    onClick={() => void linkSocial(provider)}
-                    className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-semibold text-[var(--fg)] hover:bg-[var(--secondary)] disabled:opacity-60">
-                    {linking === provider ? "Opening…" : `Link ${provider === "google" ? "Google" : "Slack"}`}
-                  </button>)}
-                </div>
-                {linkError ? <p role="alert" className="mt-2 text-xs text-[var(--destructive)]">{linkError}</p> : null}
-              </div> : null}
-              <div className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="text-xs text-[var(--muted-foreground-2)]">
-                  Signs out of this dashboard session only.
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void signOut()}
-                  disabled={signingOut}
-                  className="shrink-0 rounded-[var(--radius-button)] border border-[var(--destructive)]/50 bg-[var(--destructive-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/20 disabled:opacity-60"
-                >
-                  {signingOut ? "Signing out…" : "Sign out"}
-                </button>
-              </div>
-            </>
-          ) : null}
-        </>
-      )}
-    </Card>
+        </div>
+      </Card>
+      <AccountSettings identity={identity} onSignOut={onSignOut} />
+    </>
   );
 }
 
@@ -705,6 +700,17 @@ function LiveSettingsSectionBody({
             ok={status.mailbox.sendEnabled}
             detail="SEND_EMAIL binding required for approved email sends."
           />
+          <ChecklistRow
+            label="Auth verification sender"
+            ok={status.transactionalEmail.senderConfigured}
+            detail="BETTER_AUTH_VERIFICATION_FROM — transactional verification, reset, and invitation mail."
+          />
+          <ChecklistRow
+            label="Transactional email queue"
+            ok={status.transactionalEmail.queueBound}
+            detail="EMAIL_QUEUE binding (WS01) for durable delivery and retries."
+          />
+          <EmailDeliveryStatusPanel />
         </Card>
       ) : (
         <EnvironmentsSection status={status} />
@@ -812,6 +818,17 @@ export function SettingsSectionBody({
         description="Dashboard theme — stored per browser, shared with the nav rail toggle and the D shortcut."
       >
         <AppearanceSection />
+      </SectionShell>
+    );
+  }
+
+  if (section === "connected-apps") {
+    return (
+      <SectionShell
+        title="Connected apps"
+        description="External MCP clients that can call this deployment's /mcp endpoint after OAuth consent."
+      >
+        <ConnectedApps />
       </SectionShell>
     );
   }
