@@ -51,7 +51,7 @@ describe("slack import workflow paging", () => {
     });
     expect(duplicate).toBe(false);
     const reply = sqlite.prepare(
-      "SELECT thread_root_message_id AS root FROM collaboration_messages WHERE message_id='slack_import_2'",
+      "SELECT thread_root_id AS root FROM collaboration_messages WHERE message_id='slack_import_2'",
     ).get() as { root: string | null };
     expect(reply.root).toBe("slack_import_1");
   });

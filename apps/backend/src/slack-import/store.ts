@@ -251,8 +251,7 @@ async function mirrorSlackMessageIntoRoom(
     roomId: job.roomId,
     messageSeq: seq,
     threadRootMessageId: threadRoot,
-    replyToMessageId: threadRoot,
-    messageRole: threadRoot ? "progress" : "chat",
+    messageKind: threadRoot ? "text" : "text",
   });
 }
 
