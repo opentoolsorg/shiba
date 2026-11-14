@@ -10,6 +10,30 @@ import type { Env } from "./env.js";
 import { isAuthorizedRequest } from "./request-auth.js";
 import { hasSameOriginIntent } from "./route-utils.js";
 import { getIntegrationProvider } from "./integrations/runtime.js";
+import { OpenConnectorIntegrationProviderError } from "./integrations/openconnector-provider.js";
+
+function openConnectorGate(env: Env): Response | null {
+  const bound = Boolean(env.OPEN_CONNECTOR) || Boolean(env.OPEN_CONNECTOR_URL?.trim());
+  const enabled =
+    env.OPEN_CONNECTOR_ENABLED === "1" ||
+    env.OPEN_CONNECTOR_ENABLED === "true" ||
+    bound;
+  if (!enabled || !bound) {
+    return json({ ok: false, code: "openconnector_not_bound", error: "Set up OpenConnector." }, 503);
+  }
+  return null;
+}
+
+function integrationUnavailable(error: unknown): Response {
+  if (error instanceof OpenConnectorIntegrationProviderError) {
+    const message = error.message;
+    if (/OPEN_CONNECTOR|OpenConnector/i.test(message)) {
+      return json({ ok: false, code: "openconnector_not_bound", error: "Set up OpenConnector." }, 503);
+    }
+    return json({ ok: false, error: message }, 503);
+  }
+  return json({ ok: false, error: "Integration connections unavailable." }, 503);
+}
 
 const PROVIDER_BASE = "/api/integrations/provider";
 
@@ -147,17 +171,21 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
   }
 
   if (suffix === "/connections" && request.method === "GET") {
+    const gate = openConnectorGate(env);
+    if (gate) return gate;
     try {
       const connections = await provider.listConnections({ userId: owner, ...(url.searchParams.get("includeUnavailable") === "1" ? { includeUnavailable: true } : {}) });
       return json({ ok: true, provider: selectedId, connections });
-    } catch {
-      return json({ ok: false, error: "Integration connections unavailable." }, 503);
+    } catch (error) {
+      return integrationUnavailable(error);
     }
   }
 
   if (suffix === "/catalog" && request.method === "GET") {
     const readiness = parseReadiness(url.searchParams.get("readiness"));
     if (readiness === null) return json({ ok: false, error: "readiness must be ready, needs_configuration, unsupported or unverified." }, 400);
+    const gate = openConnectorGate(env);
+    if (gate) return gate;
     try {
       const page = await provider.listCatalog({
         userId: owner,
@@ -176,8 +204,8 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
         total: page.total,
         oauthCapable: page.oauthCapable,
       });
-    } catch {
-      return json({ ok: false, error: "Integration catalog unavailable." }, 503);
+    } catch (error) {
+      return integrationUnavailable(error);
     }
   }
 

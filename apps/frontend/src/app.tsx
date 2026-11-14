@@ -325,7 +325,7 @@ type IdentityResult =
   | { agent: string; auth?: AuthMode; teamMember?: boolean }
   | { issue: IdentityIssue; message: string; auth?: AuthMode };
 
-async function fetchIdentity(): Promise<IdentityResult> {
+async function fetchIdentity(attempt = 0): Promise<IdentityResult> {
   let res: Response;
   try {
     // manual: Cloudflare Access answers an expired session with a cross-origin
@@ -336,6 +336,7 @@ async function fetchIdentity(): Promise<IdentityResult> {
       signal: AbortSignal.timeout(12_000),
     });
   } catch {
+    if (attempt < 1) return fetchIdentity(attempt + 1);
     return { issue: "unreachable", message: "Network error reaching /api/whoami." };
   }
   if (res.type === "opaqueredirect") {
@@ -362,6 +363,7 @@ async function fetchIdentity(): Promise<IdentityResult> {
     res.status === 503 ||
     res.status === 504
   ) {
+    if (attempt < 1) return fetchIdentity(attempt + 1);
     return { issue: "unreachable", message: `GET /api/whoami returned ${res.status}.` };
   }
   if (!res.ok) return { issue: "error", message: `GET /api/whoami failed with ${res.status}.` };
