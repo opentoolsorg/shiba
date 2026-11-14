@@ -258,6 +258,7 @@ export class Automations {
       globalEnabled: automationsEnabled(this.env.AUTOMATIONS_ENABLED),
       canPublishPullRequest: isGitHubPublishConfigured(this.env),
       queueRun: (input) => queueOnOrchestrator(orchestrator, input),
+      env: this.env,
       resolveCustomAgentPin: async (pin) => {
         if (!this.env.AGENT_AUDIT) return null;
         const current = await getCustomAgentById(this.env, pin.orgId, pin.id);
