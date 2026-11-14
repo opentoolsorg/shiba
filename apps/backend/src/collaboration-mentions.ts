@@ -5,6 +5,7 @@ import {
   humanActorId,
   type CollaborationHandoffRow,
 } from "./collaboration-store.js";
+import { agentMayReply } from "./collaboration-addressing.js";
 import { openTaskThread, postTaskReply } from "./collaboration-task-threads.js";
 import type { Env } from "./env.js";
 import { randomHex } from "./mailbox-store.js";
@@ -46,8 +47,7 @@ export async function attachMessageV2Metadata(
     roomId: input.roomId,
     messageSeq: seq,
     threadRootMessageId: input.threadRootMessageId ?? input.replyToMessageId ?? null,
-    replyToMessageId: input.replyToMessageId ?? null,
-    messageRole: input.threadRootMessageId || input.replyToMessageId ? "progress" : "chat",
+    messageKind: input.threadRootMessageId || input.replyToMessageId ? "text" : "text",
   });
   return seq;
 }
@@ -75,6 +75,13 @@ export async function handleCollaborationMentions(
     const actorId = `agent:${profileId}`;
     const recipient = await getActiveCollaborationMembership(env, scope, input.roomId, actorId);
     if (!recipient) continue;
+    if (!agentMayReply({
+      mentioned: true,
+      ownsThread: false,
+      soleAgentInDm: input.channelKind === "dm",
+      receivedHandoff: false,
+      listenMode: "mentions",
+    })) continue;
     const task = await openTaskThread(env, scope, {
       roomId: input.roomId,
       title: input.body.slice(0, 240),

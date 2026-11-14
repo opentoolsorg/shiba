@@ -356,7 +356,7 @@ export async function listRoomsByKind(
   const publicFilter = options.publicOnly ? " AND r.is_private=0 " : "";
   const rows = await env.AGENT_AUDIT.prepare(
     `SELECT r.*,
-      COALESCE((SELECT MAX(m.message_seq) FROM collaboration_messages m WHERE m.tenant_id=r.tenant_id AND m.workspace_id=r.workspace_id AND m.room_id=r.room_id),0) AS last_message_seq,
+      COALESCE((SELECT MAX(m.seq) FROM collaboration_messages m WHERE m.tenant_id=r.tenant_id AND m.workspace_id=r.workspace_id AND m.room_id=r.room_id),0) AS last_message_seq,
       0 AS unread_count
      FROM collaboration_rooms r
      JOIN collaboration_memberships mine ON mine.tenant_id=r.tenant_id AND mine.workspace_id=r.workspace_id AND mine.room_id=r.room_id
@@ -379,7 +379,7 @@ async function getCollabRoom(
 ): Promise<CollabV2RoomRow | null> {
   const row = await env.AGENT_AUDIT.prepare(
     `SELECT r.*,
-      COALESCE((SELECT MAX(m.message_seq) FROM collaboration_messages m WHERE m.tenant_id=r.tenant_id AND m.workspace_id=r.workspace_id AND m.room_id=r.room_id),0) AS last_message_seq,
+      COALESCE((SELECT MAX(m.seq) FROM collaboration_messages m WHERE m.tenant_id=r.tenant_id AND m.workspace_id=r.workspace_id AND m.room_id=r.room_id),0) AS last_message_seq,
       0 AS unread_count
      FROM collaboration_rooms r
      WHERE r.tenant_id=? AND r.workspace_id=? AND r.room_id=?
@@ -397,7 +397,7 @@ export async function nextMessageSeq(
 ): Promise<number> {
   await ensureCollabV2Migrated(env);
   const row = await env.AGENT_AUDIT.prepare(
-    "SELECT COALESCE(MAX(message_seq),0)+1 AS next FROM collaboration_messages WHERE tenant_id=? AND workspace_id=? AND room_id=?",
+    "SELECT COALESCE(MAX(seq),0)+1 AS next FROM collaboration_messages WHERE tenant_id=? AND workspace_id=? AND room_id=?",
   )
     .bind(scope.tenantId, scope.workspaceId, roomId)
     .first<{ next: number }>();
@@ -412,20 +412,20 @@ export async function finalizeMessageV2(
     roomId: string;
     messageSeq: number;
     threadRootMessageId?: string | null;
-    replyToMessageId?: string | null;
-    messageRole?: string | null;
+    messageKind?: string | null;
+    alsoInChannel?: boolean;
   },
 ): Promise<void> {
   await ensureCollabV2Migrated(env);
   await env.AGENT_AUDIT.prepare(
-    `UPDATE collaboration_messages SET message_seq=?, thread_root_message_id=?, reply_to_message_id=?, message_role=COALESCE(?, message_role)
+    `UPDATE collaboration_messages SET seq=?, thread_root_id=?, message_kind=COALESCE(?, message_kind), also_in_channel=?
      WHERE tenant_id=? AND workspace_id=? AND message_id=? AND room_id=?`,
   )
     .bind(
       input.messageSeq,
       input.threadRootMessageId ?? null,
-      input.replyToMessageId ?? null,
-      input.messageRole ?? null,
+      input.messageKind ?? null,
+      input.alsoInChannel ? 1 : 0,
       scope.tenantId,
       scope.workspaceId,
       messageId,

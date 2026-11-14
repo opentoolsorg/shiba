@@ -59,7 +59,7 @@ describe("collab v2 channels and dms", () => {
     expect(first.dm.dmKey).toMatch(/^dm:/);
   });
 
-  it("returns 503 before v2 migration", async () => {
+  it("applies the migration file instead of embedding table DDL", async () => {
     const { database, sqlite } = customAgentD1();
     const env = { AGENT_AUDIT: database } as unknown as Env;
     await ensureCollaborationSchema(env);
@@ -67,8 +67,10 @@ describe("collab v2 channels and dms", () => {
       new Request("https://worker.test/api/collaboration/channels/public", { method: "GET" }),
       env,
     );
-    expect(response?.status).toBe(503);
-    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name='collaboration_task_threads'").get()).toBeUndefined();
+    expect(response?.status).toBe(200);
+    expect(sqlite.prepare("SELECT name FROM pragma_table_info('collaboration_messages') WHERE name='thread_root_id'").get()).toBeTruthy();
+    const source = await import("node:fs").then((fs) => fs.readFileSync(new URL("../src/collaboration-store.ts", import.meta.url), "utf8"));
+    expect(source.includes("CREATE TABLE")).toBe(false);
   });
 
   it("keeps task progress in the thread and posts the result on the channel", async () => {

@@ -10,6 +10,8 @@ export type WorkspaceEventMessage = {
   resourceId: string;
   version: number;
   at: number;
+  /** Private rooms and DMs set userIds so other sockets do not receive the event. */
+  audience?: { userIds?: string[]; roomId?: string };
 };
 
 type SocketMeta = { userId: string; joinedAt: number };
@@ -28,8 +30,13 @@ export class WorkspaceEvents extends DurableObject<Env> {
         return Response.json({ error: "Invalid event." }, { status: 400 });
       }
       const payload = JSON.stringify({ ...body, at: body.at ?? Date.now() });
+      const allowed = body.audience?.userIds?.map((id) => id.trim().toLowerCase()).filter(Boolean);
       const sockets = this.ctx.getWebSockets();
       for (const ws of sockets) {
+        if (allowed && allowed.length > 0) {
+          const meta = ws.deserializeAttachment() as SocketMeta | null;
+          if (!meta?.userId || !allowed.includes(meta.userId.trim().toLowerCase())) continue;
+        }
         try {
           ws.send(payload);
         } catch {
@@ -67,7 +74,7 @@ export function workspaceEventsName(workspaceId: string): string {
 export async function publishWorkspaceEvent(
   env: Env,
   workspaceId: string,
-  event: Omit<WorkspaceEventMessage, "at"> & { at?: number },
+  event: Omit<WorkspaceEventMessage, "at"> & { at?: number; audience?: WorkspaceEventMessage["audience"] },
 ): Promise<void> {
   if (!env.WorkspaceEvents) return;
   const stub = env.WorkspaceEvents.getByName(workspaceEventsName(workspaceId));

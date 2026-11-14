@@ -50,6 +50,7 @@ export * from "./container-budget.js";
 export * from "./deliverables.js";
 export * from "./collaboration-contract.js";
 export * from "./collaboration-v2.js";
+export * from "./thread-messages.js";
 export * from "./team-workspaces.js";
 export * from "./employee-bundles.js";
 export * from "./capability-catalog.js";
