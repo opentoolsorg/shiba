@@ -73,6 +73,8 @@ export interface TokenRecord {
   keyId?: string;
   /** Epoch ms; absent means no expiry. */
   expiresAt?: number;
+  /** Epoch ms of the last successful API key authentication. */
+  lastUsedAt?: number;
 }
 
 /** Narrow env surface — the KV binding wired in wrangler.jsonc. */
@@ -252,6 +254,14 @@ export async function verifyToken(
   }
   if (record.expiresAt !== undefined && Date.now() >= record.expiresAt) {
     return null;
+  }
+  if (record.kind === "api_key" && !record.revoked) {
+    record.lastUsedAt = Date.now();
+    try {
+      await env.AGENT_TOKENS.put(await tokenKey(bearer), JSON.stringify(record), { metadata: tokenMetadata(record) });
+    } catch {
+      // Best-effort last-used stamp; auth still succeeds.
+    }
   }
   return record;
 }

@@ -58,6 +58,8 @@ import { handleAcpProviders } from "./acp-provider-routes.js";
 import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
 import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import { handleApiKeys } from "./api-keys-routes.js";
+import { handleOutboundWebhooks } from "./webhooks/routes.js";
+import { registerWebhookQueueConsumers } from "./webhooks/consumer.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
 import { handleEmployeeTools } from "./employee-tool-routes.js";
 import { handleSkillLibrary } from "./skill-library-routes.js";
@@ -146,6 +148,8 @@ export { assertLiveCodingModel } from "./coding-model.js";
 export { isBetterAuthConfigured } from "./better-auth.js";
 export { getUserId, isAuthenticated, isAuthorizedRequest, resolveUserId, SIGNATURE_AUTHENTICATED } from "./request-auth.js";
 export { handleWebSessions } from "./sessions-routes.js";
+
+registerWebhookQueueConsumers();
 
 let claudeSubscriptionDeprecationWarned = false;
 
@@ -420,6 +424,8 @@ export default {
       if (capabilityCatalogResponse) return capabilityCatalogResponse;
       const apiKeysResponse = await handleApiKeys(request, env);
       if (apiKeysResponse) return apiKeysResponse;
+      const outboundWebhooksResponse = await handleOutboundWebhooks(request, env);
+      if (outboundWebhooksResponse) return outboundWebhooksResponse;
       const customAgentsResponse = await handleCustomAgents(request, env);
       if (customAgentsResponse) return customAgentsResponse;
       const employeeToolsResponse = await handleEmployeeTools(request, env);
