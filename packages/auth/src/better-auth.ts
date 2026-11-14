@@ -250,13 +250,15 @@ function isLoopbackRequest(request: Request | undefined): boolean {
 }
 
 /** Public description of first-account rules. Does not include the token or the email. */
-export function publicBootstrap(
-  env: BetterAuthLaneEnv,
+export async function publicBootstrap(
+  env: BetterAuthLaneEnv & { AGENT_AUDIT: D1Database },
   request: Request,
-): { requiresToken: boolean; requiresOwnerEmail: boolean; locked: boolean } {
+): Promise<{ requiresToken: boolean; requiresOwnerEmail: boolean; locked: boolean; ownerExists: boolean }> {
   const requirements = bootstrapRequirements(env);
+  const row = await env.AGENT_AUDIT.prepare('SELECT COUNT(*) AS c FROM "user"').first<{ c: number }>();
   return {
     ...requirements,
+    ownerExists: Number(row?.c ?? 0) > 0,
     locked: !isLoopbackRequest(request) && !requirements.requiresToken,
   };
 }
@@ -542,11 +544,6 @@ export async function handleBetterAuth(
   if (!isBetterAuthPath(url.pathname) || !isBetterAuthConfigured(env)) {
     return null;
   }
-  if (url.pathname === `${BETTER_AUTH_BASE_PATH}/bootstrap` && request.method === "GET") {
-    return Response.json(publicBootstrap(env, request), {
-      headers: { "Cache-Control": "no-store" },
-    });
-  }
   if (url.pathname === `${BETTER_AUTH_BASE_PATH}/social-providers` && request.method === "GET") {
     const enabled = enabledBetterAuthProviderIds(env);
     return Response.json({ providers: { google: enabled.includes("google"), slack: enabled.includes("slack") } }, {
@@ -574,6 +571,11 @@ export async function handleBetterAuth(
     return await withDeadline(
       (async () => {
         await ensureBetterAuthSchema(env as { AGENT_AUDIT: D1Database });
+        if (url.pathname === `${BETTER_AUTH_BASE_PATH}/bootstrap` && request.method === "GET") {
+          return Response.json(await publicBootstrap(env as BetterAuthLaneEnv & { AGENT_AUDIT: D1Database }, request), {
+            headers: { "Cache-Control": "no-store" },
+          });
+        }
         const admitted = await signupAdmission(request, env, enrollment);
         if (admitted instanceof Response) return admitted;
         request = admitted;

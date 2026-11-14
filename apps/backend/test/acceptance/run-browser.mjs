@@ -273,7 +273,7 @@ try {
   page.on("console", (message) => recordBrowserEvent({ kind: "console", level: message.type(), text: message.text().slice(0, 500) }));
   page.on("pageerror", (error) => logs.push(`browser pageerror: ${error.message}`));
   await page.goto(`${workerOrigin}/app/`, { waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: "First sign-in? Create the account" }).click();
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
   assert.deepEqual(externalFontRequests, [], "App bootstrap must not request external fonts.");
   await page.getByLabel("Name").fill("Shiba Acceptance Owner");
   await page.getByLabel("Email").fill("acceptance-owner@example.test");
