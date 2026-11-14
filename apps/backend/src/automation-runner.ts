@@ -49,6 +49,8 @@ export interface FireAutomationDeps {
   globalEnabled: boolean;
   /** False when GITHUB_TOKEN is unset: runs still queue, without a pull request. */
   canPublishPullRequest?: boolean;
+  /** When set, durable automation workflow rows are written around queueRun. */
+  env?: import("./env.js").Env;
   queueRun: (input: QueueAutomationRunInput) => Promise<{ approvalId: string }>;
   resolveCustomAgentPin?: (pin: NonNullable<Automation["customAgentPin"]>) => Promise<{ version: number; configSha256: string } | null>;
   resolveApproval?: (input: {
@@ -368,7 +370,7 @@ async function commitAutomationFire(
     if (event.kind === "webhook" && event.batchedBodies && event.batchedBodies.length > 0) {
       task += `\n\n---\nWebhook payloads (${event.batchedBodies.length}):\n${event.batchedBodies.join("\n---\n")}`;
     }
-    const queued = await deps.queueRun({
+    const queueInput: QueueAutomationRunInput = {
       repoUrl: automation.repoUrl,
       ...(automation.executionTarget !== undefined ? { executionTarget: automation.executionTarget } : {}),
       task,
@@ -380,15 +382,35 @@ async function commitAutomationFire(
         expectedCustomAgentVersion: automation.customAgentPin.version,
         orgId: automation.customAgentPin.orgId,
       } : {}),
-    });
+    };
+    let resolvedQueued: { approvalId: string };
+    if (deps.env?.AGENT_AUDIT) {
+      const { startAutomationRunWorkflow } = await import("./platform/automation-run-runner.js");
+      const result = await startAutomationRunWorkflow(deps.env, {
+        automation,
+        commandId,
+        threadKey,
+        repoUrl: automation.repoUrl,
+        task,
+        publishPullRequest,
+        unattendedApproved: false,
+        queueRun: async (input) => deps.queueRun(input),
+      });
+      if (!result.approvalId) {
+        throw new Error(result.status === "failed" ? "workflow_failed" : "queue_failed");
+      }
+      resolvedQueued = { approvalId: result.approvalId };
+    } else {
+      resolvedQueued = await deps.queueRun(queueInput);
+    }
     const scheduleKey = recheck.trigger.kind === "schedule" ? `t${recheck.triggerIndex}` : undefined;
     const next = recordTrigger(automation, nowMs, scheduleKey);
-    const queuedOccurrence = occurrence("queued", "approval-pending", nowMs, queued.approvalId);
+    const queuedOccurrence = occurrence("queued", "approval-pending", nowMs, resolvedQueued.approvalId);
     return {
       fired: true,
       automation: queuedOccurrence ? withOccurrence(next, queuedOccurrence) : next,
       reason,
-      approvalId: queued.approvalId,
+      approvalId: resolvedQueued.approvalId,
     };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);

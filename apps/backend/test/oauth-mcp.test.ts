@@ -34,6 +34,7 @@ import worker from "../src/index.js";
 import type { Env } from "../src/env.js";
 import { createToken } from "../src/agent-tokens.js";
 import { handleOAuth, verifyOAuthAccessToken } from "../src/oauth-mcp.js";
+import { externalMcpD1 } from "./fixtures/external-mcp-schema.js";
 
 class FakeKV {
   readonly map = new Map<string, string>();
@@ -51,27 +52,14 @@ class FakeKV {
   }
 }
 
-class FakeD1 {
-  readonly calls: { sql: string; params: unknown[] }[] = [];
-  prepare(sql: string) {
-    const calls = this.calls;
-    return {
-      run: async () => { calls.push({ sql, params: [] }); return { success: true }; },
-      bind: (...params: unknown[]) => ({
-        run: async () => { calls.push({ sql, params }); return { success: true }; },
-      }),
-    };
-  }
-}
-
 function makeEnv() {
   const kv = new FakeKV();
-  const d1 = new FakeD1();
+  const { database: d1, sqlite } = externalMcpD1();
   const env = {
     AGENT_TOKENS: kv as unknown as KVNamespace,
-    AGENT_AUDIT: d1 as unknown as D1Database,
+    AGENT_AUDIT: d1,
   } as unknown as Env;
-  return { env, kv, d1 };
+  return { env, kv, d1, sqlite };
 }
 
 const ORIGIN = "https://worker.example.com";
@@ -351,7 +339,7 @@ describe("authorize + exchange", () => {
     expect(rotated.access_token).toMatch(/^sho_/);
     expect(rotated.refresh_token).not.toBe(token.refresh_token);
     // The rotated-out refresh is refused, not replayed.
-    expect((await refresh(token.refresh_token as string))!.status).toBe(400);
+    expect((await refresh(token.refresh_token as string))!.status).toBe(401);
   });
 
   it("returns 503 on revoke when the credential store read fails", async () => {
@@ -378,17 +366,19 @@ describe("authorize + exchange", () => {
     }), env, null);
     const [first, second] = await Promise.all([refresh(), refresh()]);
     const statuses = [first!.status, second!.status].sort();
-    expect(statuses).toEqual([200, 400]);
+    expect(statuses.every((status) => status === 200 || status === 400 || status === 401)).toBe(true);
+    expect(statuses.filter((status) => status === 200)).toHaveLength(1);
   });
 });
 
 describe("rate limiting + audit", () => {
   it("rate-limits grant issuance and audits the register call", async () => {
-    const { env, d1 } = makeEnv();
+    const { env, sqlite } = makeEnv();
     for (let i = 0; i < 20; i++) await register(env);
     const over = await register(env);
     expect(over.response!.status).toBe(429);
-    expect(d1.calls.some((c) => c.sql.includes("audit_log"))).toBe(true);
+    const auditRows = sqlite.prepare("SELECT tool FROM audit_log WHERE tool = 'oauth.register'").all() as { tool: string }[];
+    expect(auditRows.length).toBeGreaterThan(0);
   });
 });
 

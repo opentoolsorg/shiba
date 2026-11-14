@@ -34,14 +34,6 @@ function payloadJson(payload: ThreadMessagePayload | undefined): string {
   return JSON.stringify(ids);
 }
 
-async function roomAudience(env: Pick<Env, "AGENT_AUDIT">, scope: CollaborationScope, roomId: string): Promise<string[]> {
-  const rows = await env.AGENT_AUDIT.prepare(
-    `SELECT user_id FROM collaboration_memberships
-     WHERE tenant_id=? AND workspace_id=? AND room_id=? AND status='active'`,
-  ).bind(scope.tenantId, scope.workspaceId, roomId).all<{ user_id: string }>();
-  return (rows.results ?? []).map((row) => row.user_id);
-}
-
 export async function postRoomEvent(
   env: Env,
   scope: CollaborationScope,
@@ -72,12 +64,11 @@ export async function postRoomEvent(
         scope.workspaceId,
         existing.message_id,
       ).run();
-      const members = await roomAudience(env, scope, input.roomId);
       await publishWorkspaceEvent(env, scope.workspaceId, {
         type: "room.message",
         resourceId: input.roomId,
         version,
-        audience: { userIds: members, roomId: input.roomId },
+        audience: { roomId: input.roomId },
       });
       return { messageId: existing.message_id, seq: 0, version, edited: true };
     }
@@ -125,12 +116,11 @@ export async function postRoomEvent(
       now,
     });
   }
-  const members = await roomAudience(env, scope, input.roomId);
   await publishWorkspaceEvent(env, scope.workspaceId, {
     type: "room.message",
     resourceId: input.roomId,
     version: seq,
-    audience: { userIds: members, roomId: input.roomId },
+    audience: { roomId: input.roomId },
   });
   return { messageId, seq, version: 1, edited: false };
 }
