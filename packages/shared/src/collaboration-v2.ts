@@ -59,3 +59,15 @@ export interface WorkspaceNotificationPrefs {
   threadReplies: boolean;
   agentApprovals: boolean;
 }
+
+export type SlackImportJobStatus = "pending" | "running" | "completed" | "cancelled" | "failed";
+
+export interface SlackImportJob {
+  jobId: string;
+  roomId: string;
+  slackTeamId: string;
+  slackChannelId: string;
+  status: SlackImportJobStatus;
+  importedCount: number;
+  cursorTs?: string | null;
+}
