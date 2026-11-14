@@ -461,9 +461,15 @@ describe("account-scoped employee directory", () => {
 
   it("drops a deferred view directory response after changing actors without requiring an outer key", async () => {
     const old = pendingAgentResponse();
-    const fetcher = vi.fn()
-      .mockImplementationOnce(() => old.promise)
-      .mockResolvedValueOnce(Response.json({ agents: [scopedAgent("Current employee")] }));
+    let directoryRequests = 0;
+    const fetcher = vi.fn(async (path: RequestInfo | URL) => {
+      if (String(path).endsWith("/primary-bot")) return Response.json({ actorId: null, source: "default" });
+      if (path === "/api/custom-agents") {
+        directoryRequests++;
+        return directoryRequests === 1 ? old.promise : Response.json({ agents: [scopedAgent("Current employee")] });
+      }
+      throw new Error(`Unexpected request: ${String(path)}`);
+    });
     vi.stubGlobal("fetch", fetcher);
     const view = render(<CustomAgentsView actorId="a@example.test" workspaceId={scopeWorkspace} />);
     view.rerender(<CustomAgentsView actorId="b@example.test" workspaceId={scopeWorkspace} />);
@@ -478,9 +484,13 @@ describe("account-scoped employee directory", () => {
     const fresh = scopedAgent("Current account employee");
     const pending = pendingAgentResponse();
     let currentActor = "a";
-    const fetcher = vi.fn(async (_path: RequestInfo | URL, init?: RequestInit) => {
-      if (init?.method) return pending.promise;
-      return Response.json({ agents: [currentActor === "a" ? old : fresh] });
+    const fetcher = vi.fn(async (path: RequestInfo | URL, init?: RequestInit) => {
+      if (String(path).endsWith("/primary-bot")) return Response.json({ actorId: null, source: "default" });
+      if (String(path).startsWith("/api/custom-agents")) {
+        if (init?.method) return pending.promise;
+        return Response.json({ agents: [currentActor === "a" ? old : fresh] });
+      }
+      throw new Error(`Unexpected request: ${String(path)}`);
     });
     vi.stubGlobal("fetch", fetcher);
     const view = render(<CustomAgentsView actorId="a@example.test" workspaceId={scopeWorkspace} />);
