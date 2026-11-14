@@ -76,8 +76,8 @@ export function CommandPalette({
     if (!open || !workspaceId || needsYouCount != null) return;
     let cancelled = false;
     void fetch("/api/needs-you", { credentials: "same-origin", headers: teamWorkspaceHeaders(workspaceId) })
-      .then((response) => response.ok ? response.json() : null)
-      .then((body: { approvals?: unknown[]; questions?: unknown[]; mentions?: unknown[]; handoffs?: unknown[]; blocked?: unknown[] } | null) => {
+      .then(async (response) => response.ok ? await response.json() as { approvals?: unknown[]; questions?: unknown[]; mentions?: unknown[]; handoffs?: unknown[]; blocked?: unknown[] } : null)
+      .then((body) => {
         if (cancelled || !body) return;
         setNeeds((body.approvals?.length ?? 0) + (body.questions?.length ?? 0) + (body.mentions?.length ?? 0) + (body.handoffs?.length ?? 0) + (body.blocked?.length ?? 0));
       }).catch(() => undefined);

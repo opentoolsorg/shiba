@@ -78,6 +78,7 @@ import { handleRuns } from "./runs-routes.js";
 import { handleSwarm } from "./swarm-routes.js";
 import { handleDenRoutes } from "./den-routes.js";
 import { handleUsage } from "./usage-routes.js";
+import { handleVoiceRoutes } from "./voice-routes.js";
 import { handleScreenshot } from "./screenshots-routes.js";
 import { handleE2eEvidence } from "./e2e-evidence-routes.js";
 import { handleDevOAuthLoopback } from "./dev-oauth-loopback-routes.js";
@@ -536,6 +537,10 @@ export default {
       const usageResponse = await handleUsage(request, env);
       if (usageResponse) {
         return usageResponse;
+      }
+      const voiceResponse = await handleVoiceRoutes(request, env);
+      if (voiceResponse) {
+        return voiceResponse;
       }
       const activityResponse = await handleActivity(request, env);
       if (activityResponse) {
