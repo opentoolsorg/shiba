@@ -141,6 +141,8 @@ export function aggregateUsageByDay(
     .sort((a, b) => b.date.localeCompare(a.date));
 }
 
+export { DEFAULT_WEB_SEARCH_BUDGET, incrementToolUsage } from "./tools/tool-usage-store.js";
+
 export function buildUsageReport(
   runs: DelegatedRun[],
   env: Pick<Env, "USAGE_BUDGET_USD">,

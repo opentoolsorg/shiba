@@ -585,5 +585,12 @@ export interface Env {
   OPEN_CONNECTOR_URL?: string;
   OPEN_CONNECTOR_ADMIN_TOKEN?: string;
   OPEN_CONNECTOR_RUNTIME_TOKEN?: string;
+  /** WS10: Tavily, Exa, or Brave web search key — Worker egress only. */
+  WEB_SEARCH_API_KEY?: string;
+  WEB_SEARCH_PROVIDER?: string;
+  /** Optional file bucket for generated media; falls back to ARTIFACTS. */
+  FILES?: R2Bucket;
+  /** WS10: off by default; video generation through AI Gateway when enabled. */
+  SHIBA_VIDEO_GENERATION?: string;
 
 }
