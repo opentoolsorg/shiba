@@ -67,6 +67,21 @@ import { resolvePersonalExecutionOwner, resolvePersonalExecutionGrant } from "./
 import { parseAgentResult } from "./opencode-input.js";
 import { redactSecrets } from "./security.js";
 import { employeeCoordinationUnavailable } from "./employee-coordination.js";
+import {
+  attachMessageV2Metadata,
+  handleCollaborationMentions,
+} from "./collaboration-mentions.js";
+import {
+  CollabV2StoreError,
+  createChannel,
+  ensureCollabV2Migrated,
+  joinChannel,
+  leaveChannel,
+  listPublicChannels,
+  listRoomsByKind,
+  openDm,
+} from "./collaboration-v2-store.js";
+import { getTaskThread, listRoomTasks, openTaskThread, postTaskReply } from "./collaboration-task-threads.js";
 
 const PREFIX = "/api/collaboration";
 const BODY_LIMIT = 16 * 1024;
@@ -368,6 +383,95 @@ export async function handleCollaboration(
   if (path.some((part) => !part)) return invalidBody("Invalid path.");
 
   try {
+    if (path.length === 2 && path[0] === "channels" && path[1] === "public" && request.method === "GET") {
+      return json({ channels: await listPublicChannels(env, scope) });
+    }
+
+    if (path.length === 1 && path[0] === "channels" && request.method === "POST") {
+      const body = await bodyObject(request);
+      const title = typeof body.title === "string" ? body.title.trim() : "";
+      if (!title || title.length > 120) return invalidBody("Channel title is required.");
+      const channel = await createChannel(env, scope, {
+        roomId: `chn_${randomHex(10)}`,
+        title,
+        topic: typeof body.topic === "string" ? body.topic.slice(0, 240) : undefined,
+        isPrivate: body.isPrivate === true,
+        createdAt: Date.now(),
+      });
+      return json({ channel }, 201);
+    }
+
+    if (path.length === 3 && path[0] === "channels" && path[2] === "join" && request.method === "POST") {
+      const joined = await joinChannel(env, scope, path[1]!, Date.now());
+      if (!joined) return json({ error: "Already a channel member." }, 409);
+      return json({ joined: true }, 201);
+    }
+
+    if (path.length === 3 && path[0] === "channels" && path[2] === "leave" && request.method === "POST") {
+      const left = await leaveChannel(env, scope, path[1]!, Date.now());
+      if (!left) return json({ error: "Cannot leave this channel." }, 409);
+      return json({ left: true });
+    }
+
+    if (path.length === 1 && path[0] === "dms" && request.method === "POST") {
+      const body = await bodyObject(request);
+      if (typeof body.userId !== "string" || !body.userId.trim()) {
+        return invalidBody("Peer userId is required.");
+      }
+      const dm = await openDm(env, scope, body.userId.trim().toLowerCase(), Date.now());
+      return json({ dm }, 201);
+    }
+
+    if (path.length === 4 && path[0] === "rooms" && path[2] === "tasks" && request.method === "GET") {
+      const task = await getTaskThread(env, scope, path[1]!, path[3]!);
+      if (!task) return json({ error: "Task thread not found." }, 404);
+      return json({ task });
+    }
+
+    if (path.length === 3 && path[0] === "rooms" && path[2] === "tasks" && request.method === "GET") {
+      return json({ tasks: await listRoomTasks(env, scope, path[1]!) });
+    }
+
+    if (path.length === 3 && path[0] === "rooms" && path[2] === "tasks" && request.method === "POST") {
+      const body = await bodyObject(request);
+      const title = typeof body.title === "string" ? body.title.trim() : "";
+      if (!title) return invalidBody("Task title is required.");
+      const task = await openTaskThread(env, scope, {
+        roomId: path[1]!,
+        title,
+        ownerActorId: typeof body.ownerActorId === "string" ? body.ownerActorId : undefined,
+        createdAt: Date.now(),
+      });
+      return json({ task }, 201);
+    }
+
+    if (path.length === 5 && path[0] === "rooms" && path[2] === "tasks" && path[4] === "replies" && request.method === "POST") {
+      const body = await bodyObject(request);
+      const text = typeof body.body === "string" ? body.body.trim() : "";
+      const role = body.role === "progress" || body.role === "result" || body.role === "handoff" || body.role === "approval"
+        ? body.role
+        : "progress";
+      if (!text) return invalidBody("Reply body is required.");
+      const reply = await postTaskReply(env, scope, {
+        roomId: path[1]!,
+        taskId: path[3]!,
+        body: text,
+        role,
+        assigneeActorId: typeof body.assigneeActorId === "string" ? body.assigneeActorId : undefined,
+        createdAt: Date.now(),
+      });
+      return json({ reply }, 201);
+    }
+
+    if (path.length === 1 && path[0] === "rooms" && request.method === "GET" && url.searchParams.has("kind")) {
+      const kind = url.searchParams.get("kind");
+      if (kind !== "room" && kind !== "channel" && kind !== "dm") {
+        return invalidBody("kind must be room, channel or dm.");
+      }
+      await ensureCollabV2Migrated(env);
+      return json({ rooms: await listRoomsByKind(env, scope, kind) });
+    }
+
     if (path.length === 1 && path[0] === "rooms" && request.method === "GET") {
       const rooms = await listCollaborationRooms(env, scope);
       const visible = await Promise.all(rooms.map(async (room) =>
@@ -937,7 +1041,31 @@ export async function handleCollaboration(
         createdAt: message.createdAt,
       });
       if (!saved) return json({ error: "Membership was removed." }, 403);
-      return json({ message: saved }, 201);
+      let mentionHandoffs: unknown[] = [];
+      try {
+        await attachMessageV2Metadata(env, scope, {
+          roomId,
+          messageId: saved.messageId,
+          replyToMessageId: typeof body.replyToMessageId === "string" ? body.replyToMessageId : null,
+          threadRootMessageId: typeof body.threadRootMessageId === "string" ? body.threadRootMessageId : null,
+        });
+        const roomKind = await env.AGENT_AUDIT.prepare(
+          "SELECT kind FROM collaboration_rooms WHERE tenant_id=? AND workspace_id=? AND room_id=?",
+        )
+          .bind(scope.tenantId, scope.workspaceId, roomId)
+          .first<{ kind: string }>();
+        const mentions = await handleCollaborationMentions(env, scope, {
+          roomId,
+          messageId: saved.messageId,
+          body: message.body,
+          channelKind: roomKind?.kind === "channel" ? "channel" : roomKind?.kind === "dm" ? "dm" : "room",
+          now: message.createdAt,
+        });
+        mentionHandoffs = mentions.handoffs;
+      } catch (error) {
+        if (!(error instanceof CollabV2StoreError)) throw error;
+      }
+      return json({ message: saved, mentionHandoffs }, 201);
     }
 
     if (
@@ -1415,6 +1543,8 @@ export async function handleCollaboration(
 
     return json({ error: "Collaboration route or method not found." }, 404);
   } catch (error) {
+    if (error instanceof CollabV2StoreError)
+      return json({ error: error.message }, error.status);
     if (error instanceof CollaborationStoreError)
       return json({ error: error.message }, error.status);
     const message = error instanceof Error ? error.message : String(error);

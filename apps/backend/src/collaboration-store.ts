@@ -87,7 +87,7 @@ export function collaborationEmployeeOrgId(scope: Pick<CollaborationScope, "work
   return isTeamWorkspaceId(scope.workspaceId) ? `team:${scope.workspaceId}` : "self-hosted";
 }
 
-async function ensureCollaborationScopeSchema(env: Pick<Env, "AGENT_AUDIT">, scope: Pick<CollaborationScope, "workspaceId">): Promise<void> {
+export async function ensureCollaborationScopeSchema(env: Pick<Env, "AGENT_AUDIT">, scope: Pick<CollaborationScope, "workspaceId">): Promise<void> {
   if (scope.workspaceId === COLLAB_WORKSPACE_ID) return;
   if (!isTeamWorkspaceId(scope.workspaceId)) throw new CollaborationStoreError("Workspace not found.", 404);
   // Imported lazily: the workspace store uses the collaboration schema during atomic revocation.
