@@ -12,7 +12,7 @@ import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useConversationRoomRealtime, type ConversationRoomMessage } from "./conversation-room-realtime";
 import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HARNESS_REASONING_EFFORTS, MAX_RUN_ATTACHMENTS, MAX_RUN_ATTACHMENT_BYTES, MAX_RUN_ATTACHMENTS_TOTAL_BYTES, onboardingTaskText, type ReasoningEffort, type RunAttachment, type TeamOnboardingTask, type AcpProvidersSnapshot } from "@shiba/shared";
+import { HARNESS_REASONING_EFFORTS, MAX_RUN_ATTACHMENTS, MAX_RUN_ATTACHMENT_BYTES, MAX_RUN_ATTACHMENTS_TOTAL_BYTES, onboardingTaskText, deriveOnboardingStatus, type OnboardingStepStatus, type ReasoningEffort, type RunAttachment, type TeamOnboardingTask, type AcpProvidersSnapshot } from "@shiba/shared";
 import { normalizeRunStatus, type VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
 import { ActivityReportView } from "./components/ActivityReportView";
@@ -58,6 +58,8 @@ import { OnboardingModal, detectSetupSteps } from "./components/OnboardingModal"
 import { FirstRunWizard, type FirstRunProgressSnapshot, type FirstRunStepId } from "./components/FirstRunWizard";
 import { OnboardingProgressClient, type FirstRunProgressUpdate } from "./onboarding-progress-client";
 import { ConversationalOnboarding } from "./components/ConversationalOnboarding";
+import { OnboardingNudgeBanner } from "./components/OnboardingNudgeBanner";
+import { OnboardingNudgePopup } from "./components/OnboardingNudgePopup";
 import { TeamOnboardingDraft } from "./components/TeamOnboardingDraft";
 import type { OnboardingDraftRef, SelectedOnboardingDraft } from "./onboarding-draft";
 import { SessionsSidebar, type SessionItem } from "./components/SessionsSidebar";
@@ -119,6 +121,16 @@ import { createCompletionDrivenPoll, documentVisibilityPause } from "./polling";
 import { useApprovalsState } from "./state/approvals";
 import { useWorkspaceEvents } from "./state/workspace-events";
 import type { AgentPrincipal, RetainedRun, StoredApproval, ToolRunRecord } from "./types";
+
+function readNudgeFlag(owner: string, flag: "banner-dismissed" | "popup-shown"): boolean {
+  try { return sessionStorage.getItem(`shiba:onboarding-nudge:${flag}:${owner}`) === "true"; }
+  catch { return false; }
+}
+function rememberNudgeFlag(owner: string, flag: "banner-dismissed" | "popup-shown"): void {
+  try { sessionStorage.setItem(`shiba:onboarding-nudge:${flag}:${owner}`, "true"); }
+  catch { /* Keep this visit usable when browser storage is unavailable. */ }
+}
+
 
 const ORCHESTRATOR_AGENT = "coding-orchestrator";
 
@@ -993,6 +1005,24 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const [storedFirstRunProgress, setFirstRunProgress] = useState<FirstRunProgressSnapshot | null>(null);
   const [firstRunProgressOwner, setFirstRunProgressOwner] = useState<string | null>(null);
   const firstRunProgress = firstRunProgressOwner === orchestratorName ? storedFirstRunProgress : null;
+  const [nudgeSession, setNudgeSession] = useState<{ owner: string; bannerDismissed: boolean; popupPending: boolean; popupOpen: boolean } | null>(null);
+  const nudgeScope = useRef("");
+  nudgeScope.current = JSON.stringify([orchestratorName, teamWorkspaceId, privateDataEnabled]);
+  const nudgeStatus = firstRunProgress ? deriveOnboardingStatus(firstRunProgress) : null;
+  const nudgeVisible = authMode === "better-auth" && privateDataEnabled && identityIssue !== "signin" &&
+    !!orchestratorName && nudgeSession?.owner === orchestratorName && !!nudgeStatus && !nudgeStatus.complete &&
+    !teamWorkspaceId && !showFirstRun && !showLegacyFirstRun && !showOnboardingModal;
+  useEffect(() => {
+    if (!nudgeVisible || !nudgeSession?.popupPending) return;
+    rememberNudgeFlag(nudgeSession.owner, "popup-shown");
+    setNudgeSession((session) => session ? { ...session, popupPending: false, popupOpen: true } : session);
+  }, [nudgeVisible, nudgeSession]);
+  const closeNudgePopup = () => setNudgeSession((session) => session ? { ...session, popupOpen: false } : session);
+  const dismissNudgeBanner = () => {
+    if (!orchestratorName) return;
+    rememberNudgeFlag(orchestratorName, "banner-dismissed");
+    setNudgeSession((session) => session ? { ...session, bannerDismissed: true } : session);
+  };
   const firstRunProgressClient = useRef<OnboardingProgressClient | null>(null);
   if (!firstRunProgressClient.current) {
     firstRunProgressClient.current = new OnboardingProgressClient((input, init) => fetch(input, init), setFirstRunProgress);
@@ -1050,20 +1080,50 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     setMainView("threads");
     setConversationMode("work");
   }, [firstRunProgress, task, composerScope, openFirstRun, setConversationMode]);
+  const resumeNudgeStep = async (step: OnboardingStepStatus): Promise<void> => {
+    closeNudgePopup();
+    const scope = nudgeScope.current;
+    const navigation = currentNavigation.current;
+    const stillCurrent = () => scope === nudgeScope.current && navigation === currentNavigation.current;
+    const target = step.target;
+    try {
+      if (target.kind === "setup") {
+        if (firstRunProgress?.draftTask?.currentStep !== target.outcomeStep) {
+          await updateFirstRunProgress({ action: "save-draft", draftTask: { currentStep: target.outcomeStep } });
+        }
+        if (stillCurrent()) openFirstRun();
+      } else if (target.view === "custom-agents") {
+        setInitialEmployeeTemplateId(firstRunProgress?.draftTask?.employeeTemplateId ?? null);
+        openView("custom-agents");
+      } else if ((target.view === "threads" || target.view === "work") && preparedOnboardingSelection) {
+        applyOnboardingDraft(preparedOnboardingSelection);
+      } else {
+        openView(target.view);
+      }
+    } catch {
+      if (stillCurrent()) setNotice("Setup could not be opened. Please try again.");
+    }
+  };
   useEffect(() => {
     if (authMode !== "better-auth" || !privateDataEnabled || orchestratorName === null) {
       firstRunProgressClient.current?.reset();
       setFirstRunProgressOwner(null);
+      setNudgeSession(null);
       setShowFirstRun(false);
       return;
     }
     firstRunProgressClient.current?.reset();
     setFirstRunProgressOwner(orchestratorName);
+    setNudgeSession({ owner: orchestratorName, bannerDismissed: readNudgeFlag(orchestratorName, "banner-dismissed"), popupPending: false, popupOpen: false });
     const navigation = currentNavigation.current;
     let cancelled = false;
     void firstRunProgressClient.current!.read().then((progress) => {
       if (!cancelled && progress) {
         const show = progress.activatedAt === null && progress.dismissedAt === null && !progress.draftTask?.preparedAt;
+        const autoOpened = show && navigation === currentNavigation.current && navigation.view === "threads";
+        setNudgeSession((session) => session?.owner === orchestratorName ? {
+          ...session, popupPending: !autoOpened && !readNudgeFlag(orchestratorName, "popup-shown"),
+        } : session);
         if (navigation === currentNavigation.current && navigation.view === "threads") {
           setShowFirstRun(show);
         }
@@ -2156,6 +2216,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         setCommandMenuOpen(false);
         return;
       }
+      if (nudgeVisible && nudgeSession?.popupOpen) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setCommandMenuOpen((prev) => !prev);
@@ -2235,6 +2296,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     closeSettings,
     openView,
     commandMenuOpen,
+    nudgeVisible,
+    nudgeSession?.popupOpen,
     showShortcutsModal,
     showClearModal,
     showOnboardingModal,
@@ -2990,6 +3053,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             </button>
           </div>
         ) : null}
+
+        {nudgeVisible && nudgeStatus ? <>
+          {!nudgeSession?.bannerDismissed ? <OnboardingNudgeBanner key={orchestratorName} status={nudgeStatus} onResume={(step) => { void resumeNudgeStep(step); }} onDismiss={dismissNudgeBanner} /> : null}
+          <OnboardingNudgePopup status={nudgeStatus} open={nudgeSession?.popupOpen ?? false} onResume={(step) => { void resumeNudgeStep(step); }} onDismiss={closeNudgePopup} />
+        </> : null}
 
         <div className={`shiba-app-content flex-1 flex min-w-0 min-h-0 ${mainView === "work" ? "" : "gap-3 p-3"}`}>
           {mainView !== "work" && !sessionsCollapsed ? <div id="app-context-panel" className="hidden min-h-0 lg:flex">{destinationPanel ?? <AppAreaSidebar />}</div> : null}

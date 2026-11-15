@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { deriveOnboardingStatus } from "@shiba/shared";
 import { handleOnboardingProgress, readAcceptedDeliverableEvidence, readSuccessfulRunEvidence, resolvePreparedOnboardingDraft, readOnboardingSourceRefs, type OnboardingIdentity, type OnboardingProgress, type OnboardingSourceRef } from "../src/onboarding-progress.js";
 import { createCustomAgent, updateCustomAgent } from "../src/custom-agents-store.js";
 import { ensureBetterAuthSchema } from "../src/better-auth.js";
@@ -52,6 +53,32 @@ async function prepareDraft(ctx: ReturnType<typeof context>) {
 }
 
 describe("server-owned onboarding progress", () => {
+  it("returns the shared status for an incomplete account", async () => {
+    const ctx = context();
+    const progress = await (await call(ctx)).json();
+    expect(progress.status).toEqual(deriveOnboardingStatus(progress));
+    expect(progress.status).toMatchObject({ complete: false, nextStep: { id: "goal" } });
+    expect(progress.status.remaining.map((step) => step.id)).toContain("accept-deliverable");
+  });
+
+  it("dismisses setup without completing the reminder checklist", async () => {
+    const ctx = context();
+    const progress = await (await call(ctx, "POST", { action: "dismiss", expectedRevision: 0 })).json();
+    expect(progress.dismissedAt).toBe(100);
+    expect(progress.status).toEqual(deriveOnboardingStatus(progress));
+    expect(progress.status.complete).toBe(false);
+    expect(progress.status.remaining.length).toBeGreaterThan(0);
+  });
+
+  it("returns a complete status only after accepted prepared output activates the account", async () => {
+    const ctx = context();
+    await prepareDraft(ctx);
+    ctx.setEvidence(true, true, true);
+    const progress = await (await call(ctx)).json();
+    expect(progress.activatedAt).toBe(100);
+    expect(progress.status).toEqual(deriveOnboardingStatus(progress));
+    expect(progress.status).toMatchObject({ complete: true, nextStep: null, remaining: [] });
+  });
   it.each(["engineering", "design", "marketing", "gtm", "sales", "operations", "hr", "finance", "product", "research"])(
     "retains an optional %s role selection without creating an employee or claiming readiness", async (employeeTemplateId) => {
       const ctx = context();
