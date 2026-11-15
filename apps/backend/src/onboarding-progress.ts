@@ -1,5 +1,5 @@
 import { getAgentByName } from "agents/routing";
-import { CUSTOM_AGENT_ROLE_TEMPLATE_IDS, onboardingTaskText, type AcpProviderCard } from "@shiba/shared";
+import { CUSTOM_AGENT_ROLE_TEMPLATE_IDS, deriveOnboardingStatus, onboardingTaskText, type AcpProviderCard, type OnboardingStatus } from "@shiba/shared";
 import { z } from "zod";
 import type { Env } from "./env.js";
 import { readProviderSnapshot } from "./acp-providers.js";
@@ -56,6 +56,7 @@ export interface OnboardingIdentity {
 }
 
 export interface OnboardingProgress {
+  status: OnboardingStatus;
   schemaVersion: 2;
   draftTaskId: string | null;
   draftTask: DraftTask | null;
@@ -151,7 +152,7 @@ function isStep(value: unknown): value is OnboardingStep {
 }
 
 function toProgress(row: StoredProgress, evidence: OnboardingProgress["evidence"] = { connectedProvider: null, successfulRun: null, acceptedDeliverable: null }): OnboardingProgress {
-  return {
+  const progress: Omit<OnboardingProgress, "status"> = {
     schemaVersion: 2,
     draftTaskId: row.draft_task_id,
     draftTask: row.draft_task_json ? JSON.parse(row.draft_task_json) as DraftTask : null,
@@ -164,6 +165,7 @@ function toProgress(row: StoredProgress, evidence: OnboardingProgress["evidence"
     revision: row.revision,
     evidence,
   };
+  return { ...progress, status: deriveOnboardingStatus(progress) };
 }
 
 async function resolveIdentity(request: Request, env: Env): Promise<OnboardingIdentity | null> {
