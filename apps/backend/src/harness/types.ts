@@ -55,6 +55,9 @@ export const PROVIDER_HOSTS: Record<string, string> = {
   anthropic: "api.anthropic.com",
   openai: "api.openai.com",
   xai: "api.x.ai",
+  openrouter: "openrouter.ai",
+  groq: "api.groq.com",
+  "github-copilot": "api.githubcopilot.com",
   // OpenCode Go is a key-authenticated subscription endpoint (spec
   // MODEL-CONNECTIONS-ARCHITECTURE.md §3). Its API key is held as an AI
   // Gateway BYOK credential for the opencode-go custom provider; the
@@ -119,6 +122,9 @@ export const PROVIDER_KEY_ENV: Record<string, string> = {
   anthropic: "ANTHROPIC_API_KEY",
   openai: "OPENAI_API_KEY",
   xai: "XAI_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+  groq: "GROQ_API_KEY",
+  "github-copilot": "COPILOT_API_KEY",
   // OpenCode Go authenticates with its issued API key; the container holds
   // the dummy and the gateway injects the real one at egress.
   "opencode-go": "OPENCODE_GO_API_KEY",

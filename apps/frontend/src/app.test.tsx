@@ -32,7 +32,8 @@ vi.mock("./auth-client", () => ({ authClient: { signOut: vi.fn() } }));
 vi.mock("./components/FirstRunWizard", () => ({ FirstRunWizard: () => null, ONBOARDING_STORAGE_KEY: "onboarding" }));
 vi.mock("./components/ThemeProvider", () => ({ useTheme: () => ({ resolvedTheme: "light", setTheme: vi.fn() }) }));
 vi.mock("./components/InboxTab", () => ({ InboxTab: () => <div data-testid="private-mailbox">PRIVATE-MAILBOX-CONTENT</div> }));
-vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChange, onSubmit, onExecutionTargetKindChange, onArtifactDeliverablesChange, isSubmitting, runTarget, onRunTargetChange }: {
+vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChange, onSubmit, onExecutionTargetKindChange, onArtifactDeliverablesChange, isSubmitting, runTarget, onRunTargetChange, harness, onHarnessChange }: {
+  harness?: string; onHarnessChange?: (value: string) => void;
   runTarget?: "sandbox" | "local"; onRunTargetChange?: (value: "sandbox" | "local") => void;
   task: string; onTaskChange: (value: string) => void; onSubmit: (event: FormEvent) => void;
   onExecutionTargetKindChange?: (kind: "repository" | "artifact-workspace") => void; onArtifactDeliverablesChange?: (value: string) => void; isSubmitting?: boolean;
@@ -41,6 +42,8 @@ vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChang
   <button type="button" onClick={() => { onExecutionTargetKindChange?.("artifact-workspace"); onArtifactDeliverablesChange?.(""); }}>Use automatic workspace</button>
   <button type="button" onClick={() => onRunTargetChange?.("local")}>Use local computer</button>
   <output data-testid="selected-runtime">{runTarget}</output>
+  <output data-testid="selected-harness">{harness}</output>
+  <button type="button" onClick={() => onHarnessChange?.("claude-code")}>Choose Claude API</button>
   <button type="submit" disabled={isSubmitting}>Queue fixture task</button>
 </form> }));
 vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value, onChange, onPrepareWork }: { value: string; onChange?: (value: string) => void; onPrepareWork?: () => void }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} onChange={(event) => onChange?.(event.target.value)} />{onPrepareWork ? <button type="button" onClick={onPrepareWork}>Review as work</button> : null}</div> }));
@@ -987,5 +990,26 @@ describe("app Work and Threads routing", () => {
     await screen.findByRole("group", { name: "Work views" });
     expect(screen.queryByRole("region", { name: "Workspace verification" })).toBeNull();
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url) === "/api/workspaces")).toBe(false);
+  });
+});
+
+describe("personal provider task selection", () => {
+  it("prefills the connected default while preserving an explicit task choice", async () => {
+    window.history.replaceState(null, "", "/threads/");
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const priorFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/providers") return Response.json({ defaultProviderId: "codex", providers: [{
+        id: "codex", harness: "codex-subscription", defaultModel: "openai/example", connection: { phase: "connected" },
+      }] });
+      return priorFetch(url, options);
+    }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review as work" }));
+    await waitFor(() => expect(screen.getByTestId("selected-harness").textContent).toBe("codex-subscription"));
+    fireEvent.click(screen.getByRole("button", { name: "Choose Claude API" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Back to app" }))[0]!);
+    await waitFor(() => expect(screen.getByTestId("selected-harness").textContent).toBe("claude-code"));
   });
 });

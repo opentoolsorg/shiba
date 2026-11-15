@@ -406,9 +406,8 @@ export interface Env {
    */
   INTERNAL_SIGNING_KEY?: string;
   /**
-   * T48 opt-in flag (§18.10): "1" registers the claude-subscription harness.
-   * Absent it is unregistered, uncataloged, and unselectable — the
-   * subscription path is dark unless the deployment owner enables it.
+   * Personal Claude subscription kill switch: exactly "0" disables the lane.
+   * Unset allows per-user storage. Legacy operator routes still require "1".
    */
   SHIBA_CLAUDE_SUBSCRIPTION?: string;
   /**
@@ -422,9 +421,8 @@ export interface Env {
   /** T48: per-deploy model override for the claude-subscription harness. */
   CLAUDE_SUBSCRIPTION_MODEL?: string;
   /**
-   * T49 opt-in flag (§18.11): "1" registers the codex-subscription harness.
-   * A distinct var so an operator can enable one subscription provider
-   * without the other; absent it is unregistered and unselectable.
+   * Personal ChatGPT subscription kill switch: exactly "0" disables the lane.
+   * Unset allows per-user storage. Legacy operator routes still require "1".
    */
   SHIBA_CODEX_SUBSCRIPTION?: string;
   /**
@@ -440,7 +438,7 @@ export interface Env {
   /**
    * AES-256 key (64 hex chars) for per-user subscription auth.json blobs on
    * AGENT_AUDIT D1. When set, codex-subscription is registered and users
-   * connect via Settings → Models → ChatGPT subscription.
+   * connect via Settings → Providers (unless the subscription kill switch is 0).
    */
   MODEL_CREDENTIAL_KEY?: string;
   /**
@@ -464,18 +462,15 @@ export interface Env {
    */
   SHIBA_SINGLE_USER?: string;
   /**
-   * T50 opt-in flag (§18.12): "1" registers the antigravity-subscription
-   * harness and opens the /api/auth/antigravity-subscription verbs plus the
-   * /api/antigravity/callback route. No credential var exists — Google
-   * OAuth tokens are written by the ACP process into the container
-   * profile, never stored on the Worker.
+   * Personal Antigravity subscription kill switch: exactly "0" disables the lane.
+   * Unset allows ready per-user OAuth storage. Operator routes require "1".
    */
   SHIBA_ANTIGRAVITY_SUBSCRIPTION?: string;
   /** T50: per-deploy model override for the antigravity-subscription harness. */
   ANTIGRAVITY_SUBSCRIPTION_MODEL?: string;
   /**
-   * Opt-in flag: "1" opens the /api/auth/cursor-subscription lane.
-   * Absent the surface is dark — 404 as if unregistered.
+   * Personal Cursor subscription kill switch: exactly "0" disables the lane.
+   * Unset allows ready per-user OAuth storage. Operator routes require "1".
    */
   SHIBA_CURSOR_SUBSCRIPTION?: string;
   /**

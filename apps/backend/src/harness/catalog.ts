@@ -108,7 +108,7 @@ export function agentCliCatalog(
           ? {
               kind: "worker-secret",
               label: "CLAUDE_SUBSCRIPTION_TOKEN",
-              configured: Boolean(env.CLAUDE_SUBSCRIPTION_TOKEN),
+              configured: Boolean(env.CLAUDE_SUBSCRIPTION_TOKEN) || modelCredentialKeyConfigured(env),
               setupHint: "claude setup-token, then npx wrangler secret put CLAUDE_SUBSCRIPTION_TOKEN",
             }
           : id === "codex-subscription"
@@ -133,7 +133,7 @@ export function agentCliCatalog(
               ? {
                   kind: "worker-secret",
                   label: "CURSOR_SUBSCRIPTION_TOKEN",
-                  configured: Boolean(env.CURSOR_SUBSCRIPTION_TOKEN),
+                  configured: Boolean(env.CURSOR_SUBSCRIPTION_TOKEN) || modelCredentialKeyConfigured(env),
                   setupHint: "Cursor Agent API key from cursor.com settings, then npx wrangler secret put CURSOR_SUBSCRIPTION_TOKEN",
                 }
           : {

@@ -1,3 +1,4 @@
+import { encryptAuthJson } from "../src/subscription-credentials.js";
 /**
  * Shared `setState` for CodingOrchestrator test hosts.
  *
@@ -45,7 +46,10 @@ export function setStateLikeProduction(host: unknown, next: OrchestratorState): 
  * into each host's env literal: `env: { ...productionEnvStubs(), Sandbox: {} }`.
  */
 const testKv = {
-  get: async () => null,
+  get: async (key: string) => {
+    const match = /^user_provider_secret:([^:]+):(google|xai|opencode|openai-api|anthropic-api|openrouter|groq|copilot)$/.exec(key);
+    return match ? encryptAuthJson(crypto.randomUUID(), "ab".repeat(32), "installation", decodeURIComponent(match[1]!), match[2]!) : null;
+  },
   put: async () => undefined,
   delete: async () => undefined,
   list: async () => ({ keys: [] }),

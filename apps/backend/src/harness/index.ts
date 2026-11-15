@@ -122,32 +122,30 @@ const REGISTRY = {
 
 export const HARNESSES: Record<string, AgentHarness> = REGISTRY;
 
-/** The env surface the opt-in gate reads. */
+/** The env surface the subscription gates read. */
 type HarnessGateEnv = {
   SHIBA_CLAUDE_SUBSCRIPTION?: string;
   SHIBA_CODEX_SUBSCRIPTION?: string;
   SHIBA_ANTIGRAVITY_SUBSCRIPTION?: string;
   SHIBA_CURSOR_SUBSCRIPTION?: string;
+  MODEL_CREDENTIAL_KEY?: string;
+  CLAUDE_SUBSCRIPTION_TOKEN?: string;
+  CODEX_SUBSCRIPTION_AUTH_JSON?: string;
+  CURSOR_SUBSCRIPTION_TOKEN?: string;
   ACP_REGISTRY_ALLOWLIST?: string;
   ACP_REGISTRY_JSON?: string;
 } | undefined;
 
-/**
- * T48: opt-in subscription harnesses are *unregistered* unless the
- * deployment explicitly enables them — absent the var they are not
- * resolvable, not cataloged, not selectable (§18.10). The default is
- * closed: a caller that threads no env cannot select a gated harness.
- */
+/** Personal subscription lanes are available with storage unless explicitly disabled. */
 const HARNESS_GATES: Partial<Record<AgentHarnessName, (env: HarnessGateEnv) => boolean>> = {
-  "claude-subscription": (env) => env?.SHIBA_CLAUDE_SUBSCRIPTION === "1",
-  "codex-subscription": (env) =>
-    env?.SHIBA_CODEX_SUBSCRIPTION === "1" || modelCredentialKeyConfigured(env as Env),
-  // T50: the OAuth-in-container flow is opt-in separately (§18.12).
-  "antigravity-subscription": (env) =>
-    env?.SHIBA_ANTIGRAVITY_SUBSCRIPTION === "1" || userProviderOAuthReady(env as Env),
-  // Worker-secret subscription keys (CURSOR_SUBSCRIPTION_TOKEN), opt-in like
-  // the other subscription harnesses.
-  "cursor-subscription": (env) => env?.SHIBA_CURSOR_SUBSCRIPTION === "1" || userProviderOAuthReady(env as Env),
+  "claude-subscription": (env) => env?.SHIBA_CLAUDE_SUBSCRIPTION !== "0" &&
+    (modelCredentialKeyConfigured(env as Env) || Boolean(env?.CLAUDE_SUBSCRIPTION_TOKEN)),
+  "codex-subscription": (env) => env?.SHIBA_CODEX_SUBSCRIPTION !== "0" &&
+    (env?.SHIBA_CODEX_SUBSCRIPTION === "1" || modelCredentialKeyConfigured(env as Env)),
+  "antigravity-subscription": (env) => env?.SHIBA_ANTIGRAVITY_SUBSCRIPTION !== "0" &&
+    (env?.SHIBA_ANTIGRAVITY_SUBSCRIPTION === "1" || userProviderOAuthReady(env as Env)),
+  "cursor-subscription": (env) => env?.SHIBA_CURSOR_SUBSCRIPTION !== "0" &&
+    (env?.SHIBA_CURSOR_SUBSCRIPTION === "1" || userProviderOAuthReady(env as Env)),
   // Registry agents are arbitrary binaries — the lane stays dark until an
   // operator pins a snapshot (ACP_REGISTRY_JSON) AND names allowed ids.
   acp: (env) => acpRegistryEnabled(env),
@@ -184,7 +182,7 @@ export function resolveHarness(name: string | undefined, env?: HarnessGateEnv): 
       harness !== undefined && harnessIsGated(harness)
         ? key === "acp"
           ? "; it is not enabled (set ACP_REGISTRY_ALLOWLIST, optionally with ACP_REGISTRY_JSON pinned)"
-          : `; it is not enabled (set ${subscriptionFlagName(harness.name as AgentHarnessName)}=1)`
+          : `; it is unavailable (configure sign-in storage and ensure ${subscriptionFlagName(harness.name as AgentHarnessName)} is not 0)`
         : "";
     throw new Error(
       `Unknown agent harness ${JSON.stringify(name)}${gateMessage}: expected one of ${selectable}.`,

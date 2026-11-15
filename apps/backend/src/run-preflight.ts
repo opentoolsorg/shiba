@@ -1,3 +1,5 @@
+import { userOAuthStatus, userProviderOAuthReady } from "./user-provider-oauth-store.js";
+import { readUserProviderSecret, type UserSecretKind } from "./user-provider-keys.js";
 /**
  * Fail-closed checks before a run is queued or an approval card is minted.
  * Surfaces the same credential gaps the setup doctor reports — never after
@@ -82,11 +84,26 @@ export async function assertRunPreflight(
   }
 
   const localDaemon = params.runtime === "local";
+  const personalKinds: Record<string, UserSecretKind> = {
+    openai: "openai-api", anthropic: "anthropic-api", google: "google", xai: "xai",
+    openrouter: "openrouter", groq: "groq", "github-copilot": "copilot", opencode: "opencode",
+  };
+  const keyKind = personalKinds[params.codingModel.split("/")[0]!];
+  const personalKey = params.initiatorUserId && keyKind
+    ? await readUserProviderSecret(env, params.initiatorUserId, keyKind) : null;
+  const personalOAuth = params.initiatorUserId && keyKind === "xai" && userProviderOAuthReady(env)
+    ? (await userOAuthStatus(env, params.initiatorUserId, "xai")).connected : false;
+  if (params.initiatorUserId && keyKind && !personalKey && !personalOAuth &&
+    params.route.connectionId === null && !localDaemon && !verifyStandinEnabled(env)) {
+    throw new Error("Connect this provider in Settings → Providers before starting this task.");
+  }
   if (
     catalog?.credential.kind === "ai-gateway-byok" &&
     !env.AI_GATEWAY_TOKEN?.trim() &&
     !verifyStandinEnabled(env) &&
-    !localDaemon
+    !localDaemon &&
+    !personalKey &&
+    !personalOAuth
   ) {
     throw new Error(
       "AI Gateway is not configured (AI_GATEWAY_TOKEN is unset). " +

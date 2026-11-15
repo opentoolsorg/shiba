@@ -150,3 +150,17 @@ sequenceDiagram
 ## opencodex token storage (contrast)
 
 opencodex stores OAuth credentials locally (`src/oauth/store.ts`) on the operator machine. Shiba never writes tokens into the sandbox filesystem for these Providers flows; only encrypted D1 + egress injection.
+
+## Personal API-key connections
+
+Settings → Providers also supports OpenAI API, Anthropic API, OpenRouter,
+Groq, and GitHub Copilot API access tokens. These are distinct from ChatGPT
+and Claude subscription sign-in. Keys use the existing AES-GCM per-user KV
+store and are attached by the Worker only to the selected provider host.
+Anthropic API keys and Claude setup-tokens occupy separate encrypted records.
+
+OpenRouter and Groq run through OpenCode ACP. Copilot accepts an existing
+Copilot **API access token**, rather than a GitHub personal access token;
+short-lived tokens must be replaced when they expire. TODO: add Copilot
+OAuth device sign-in and refresh in a follow-up. There is no browser sign-in
+button for this card yet.

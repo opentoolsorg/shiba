@@ -1,3 +1,4 @@
+import { putUserProviderSecret } from "../src/user-provider-keys.js";
 /**
  * T48 — `claude-subscription` harness (PLAN.md §18.10). Proves the three
  * non-negotiables without a live credential:
@@ -39,7 +40,7 @@ import { claudeSubscriptionSecretName } from "@shiba/auth";
 import { outboundHandlers } from "../src/sandbox.js";
 import type { CodingTaskInput } from "../src/opencode-input.js";
 
-const ENABLED = { SHIBA_CLAUDE_SUBSCRIPTION: "1" };
+const ENABLED = { SHIBA_CLAUDE_SUBSCRIPTION: "1", MODEL_CREDENTIAL_KEY: "ab".repeat(32) };
 const SUB_MODEL = "anthropic-subscription/claude-sonnet-4-6";
 
 const input = (extra: Partial<CodingTaskInput> = {}): CodingTaskInput => ({
@@ -69,7 +70,7 @@ describe("opt-in gate (§18.10 non-negotiable 2)", () => {
     const entry = agentCliCatalog({ ...ENABLED }).find((a) => a.id === "claude-subscription");
     expect(entry).toBeDefined();
     expect(entry?.credential?.label).toBe("CLAUDE_SUBSCRIPTION_TOKEN");
-    expect(entry?.credential?.configured).toBe(false);
+    expect(entry?.credential?.configured).toBe(true);
     expect(entry?.credential?.setupHint).toContain("claude setup-token");
     const configured = agentCliCatalog({
       ...ENABLED,
@@ -364,5 +365,24 @@ describe("resume-same-key is a decider rule", () => {
     expect("events" in decision && decision.events[0]?.type).toBe("run.queued");
     const run = "events" in decision ? (decision.events[0] as { run: DelegatedRun }).run : null;
     expect(run?.continuationKey).toBe("claude:home:/root/.shiba/claude/default");
+  });
+});
+
+
+describe("personal Claude admission", () => {
+  it("accepts the owner's encrypted setup-token and refuses another owner", async () => {
+    const records = new Map<string, string>();
+    const env = {
+      MODEL_CREDENTIAL_KEY: "ab".repeat(32),
+      AGENT_TOKENS: {
+        get: async (key: string) => records.get(key) ?? null,
+        put: async (key: string, value: string) => { records.set(key, value); },
+      } as unknown as KVNamespace,
+    };
+    await putUserProviderSecret(env, "connected-owner", "claude-setup", crypto.randomUUID());
+    await expect(assertHarnessAuthorized(env, claudeSubscriptionHarness,
+      input({ initiatorUserId: "connected-owner" }))).resolves.toBeUndefined();
+    await expect(assertHarnessAuthorized(env, claudeSubscriptionHarness,
+      input({ initiatorUserId: "other-owner" }))).rejects.toThrow(/Settings → Providers/);
   });
 });
