@@ -2411,3 +2411,49 @@ describe("bounded child approval queue", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 });
+
+
+describe("personal provider routing", () => {
+  function providerHost(connected: boolean) {
+    const instance = agent();
+    const userId = "provider-owner";
+    instance.name = userId;
+    const records = new Map<string, string>();
+    if (connected) {
+      records.set(`acp_provider:${userId}:codex`, JSON.stringify({
+        phase: "connected", authMode: "oauth", signInKind: "chatgpt-device", updatedAt: Date.now(),
+      }));
+      records.set(`acp_provider_default:${userId}`, "codex");
+    }
+    const identities: string[] = [];
+    Object.assign(instance.env, {
+      AGENT_TOKENS: { get: async (key: string) => records.get(key) ?? null },
+      ChatGptAuth: {
+        idFromName: (name: string) => { identities.push(name); return name; },
+        get: () => ({ fetch: async () => Response.json({ connected }) }),
+      },
+    });
+    const route = (input: Record<string, unknown>) => (instance as unknown as {
+      resolveRoute(input: unknown): Promise<{ harness: string; codingModel: string; route: { connectionId: string | null } }>;
+    }).resolveRoute(input);
+    return { instance, identities, route };
+  }
+
+  it("uses the owner's connected Codex default and carries that identity to subscription admission", async () => {
+    const host = providerHost(true);
+    const selected = await host.route({ task: "fix", publishPullRequest: false });
+    expect(selected.harness).toBe("codex-subscription");
+    expect(selected.codingModel).toMatch(/^openai-subscription\//);
+    expect(selected.route.connectionId).toBeNull();
+    expect(host.identities).toContain("provider-owner");
+  });
+
+  it("keeps a pinned subscription on that lane and refuses an unconnected owner", async () => {
+    const host = providerHost(false);
+    Object.assign(host.instance.env, {
+      CODEX_SUBSCRIPTION_AUTH_JSON: "{}",
+      ROLE_MODEL_MAP: JSON.stringify({ reviewer: { harness: "codex-subscription", model: "openai-subscription/gpt-5.3-codex" } }),
+    });
+    await expect(host.route({ role: "reviewer", task: "review" })).rejects.toThrow(/Connect this provider in Settings/);
+  });
+});

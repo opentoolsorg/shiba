@@ -1,3 +1,4 @@
+import { readUserProviderSecret } from "../user-provider-keys.js";
 /**
  * T47/T48 — worker-side auth registry: instanceId → provider controller.
  * This file is Worker wiring, not a service: it maps backend harness
@@ -96,6 +97,11 @@ export async function assertHarnessAuthorized<Env extends AuthRegistryEnv>(
       const status = await userOAuthStatus(workerEnv, userId, "antigravity");
       if (status.connected) return;
     }
+  }
+  if (userId !== "" && harness.name === "claude-subscription" &&
+    await readUserProviderSecret(env as unknown as WorkerEnv, userId, "claude-setup")) return;
+  if (userId !== "" && ["codex-subscription", "claude-subscription", "antigravity-subscription", "cursor-subscription"].includes(harness.name)) {
+    throw new Error(`Connect this provider in Settings → Providers before using ${harness.name}.`);
   }
   const controller = authControllerFor(env, harness, input);
   if (controller === null) return;

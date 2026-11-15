@@ -25,7 +25,7 @@ import {
 import type { RunUsage } from "@shiba/shared";
 
 /** OpenCode is multi-provider; the gateway decides which are actually reachable. */
-export const OPENCODE_PROVIDERS = ["google", "anthropic", "openai", "xai", "opencode-go"] as const;
+export const OPENCODE_PROVIDERS = ["google", "anthropic", "openai", "xai", "opencode-go", "openrouter", "groq", "github-copilot"] as const;
 
 /** Thrown when a streamed OpenCode event line is malformed. */
 export class OpenCodeEventError extends Error {}
@@ -128,8 +128,13 @@ export function buildOpencodeConfig(input: CodingTaskInput): Record<string, unkn
     autoupdate: false,
     provider: {
       [provider]: {
+        ...(provider === "github-copilot" ? {
+          npm: "@ai-sdk/openai-compatible", name: "GitHub Copilot",
+          models: { [model.slice(model.indexOf("/") + 1)]: { name: "Copilot" } },
+        } : {}),
         options: {
           apiKey: DUMMY_PROVIDER_KEY,
+          ...(provider === "github-copilot" ? { baseURL: "https://api.githubcopilot.com" } : {}),
         },
       },
     },

@@ -110,6 +110,11 @@ function OperatorSteps({
 const PASTE_KEY_LABEL: Record<string, string> = {
   gemini: "Gemini API key",
   grok: "xAI API key",
+  openai: "OpenAI API key",
+  anthropic: "Anthropic API key",
+  openrouter: "OpenRouter API key",
+  groq: "Groq API key",
+  copilot: "GitHub Copilot token",
 };
 
 function WaitingSignIn({
@@ -402,7 +407,7 @@ function DisconnectedActions({
             onClick={() => onConnectSetupToken(card.id)}
             className={SECONDARY}
           >
-            {actionLabel(busy, action, "setup-token", "Legacy setup-token (deployment opt-in)", "Checking…")}
+            {actionLabel(busy, action, "setup-token", "Connect with setup-token", "Checking…")}
           </button>
         ) : null}
         {card.capabilities.apiKey ? (
@@ -460,7 +465,7 @@ function ConnectedActions({
           onClick={() => onDefault(card.id)}
           className={SECONDARY}
         >
-          {actionLabel(busy, action, "default", "Set as org default", "Working…")}
+          {actionLabel(busy, action, "default", "Set as my default", "Working…")}
         </button>
       )}
       <button
@@ -726,6 +731,7 @@ export function ProvidersBoard({
   onDisconnect,
   onDefault,
   scope = "personal",
+  embedded = false,
 }: {
   snapshot: AcpProvidersSnapshot | null;
   loading: boolean;
@@ -742,6 +748,7 @@ export function ProvidersBoard({
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
   scope?: Scope;
+  embedded?: boolean;
 }): JSX.Element {
   const ready =
     snapshot?.providers.filter((provider) => provider.connection.phase === "connected").length ?? 0;
@@ -754,12 +761,14 @@ export function ProvidersBoard({
   const scopeCrumb = scope === "workspace" ? "Workspace" : "Personal";
   const crumbs = [scopeCrumb, "Extensions", "Providers"];
 
+  const Container = embedded ? "div" : MainCard;
+
   return (
-    <MainCard
+    <Container
       data-testid="providers-page"
       className="bg-white dark:bg-zinc-900"
     >
-      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+      {!embedded ? <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
           <ol className="flex items-center gap-1.5 min-w-0">
             {crumbs.map((crumb, idx) => {
@@ -787,16 +796,16 @@ export function ProvidersBoard({
               data-testid="providers-org-default"
               className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#71717a] dark:text-zinc-400"
             >
-              Org default · {defaultLabel}
+              My default · {defaultLabel}
             </span>
           ) : null}
           <span className="border border-[#e4e4e7] bg-[#fafafa] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[#71717a] dark:border-zinc-800 dark:bg-zinc-800/50 dark:text-zinc-400">
             {snapshot ? `${ready} of ${total} connected` : "—"}
           </span>
         </div>
-      </header>
+      </header> : null}
 
-      <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+      <div className={embedded ? "" : "flex-1 overflow-y-auto p-4 lg:p-8"}>
         <div className="mx-auto flex max-w-6xl flex-col gap-8">
           {error ? <LoadErrorState message={error} onRetry={onRetry} /> : null}
           {actionError ? (
@@ -810,7 +819,7 @@ export function ProvidersBoard({
               <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[var(--border-1)] pb-2">
                 <h3 className="text-sm font-semibold text-[var(--fg)]">Coding connections</h3>
                 <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-                  Org default is recorded here. A run still uses the harness for that task.
+                  Your default is used for tasks unless a task choice or operator role pin takes precedence.
                 </p>
               </div>
               <AdapterBody
@@ -829,7 +838,7 @@ export function ProvidersBoard({
             </section>
           )}
 
-          <section className="flex flex-col gap-3">
+          {!embedded ? <section className="flex flex-col gap-3">
             <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[var(--border-1)] pb-2">
               <h3 className="text-sm font-semibold text-[var(--fg)]">Model connections</h3>
               <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
@@ -837,18 +846,19 @@ export function ProvidersBoard({
               </p>
             </div>
             <ConnectionsCard />
-          </section>
+          </section> : null}
         </div>
       </div>
-    </MainCard>
+    </Container>
   );
 }
 
 export interface ProvidersViewProps {
+  embedded?: boolean;
   scope?: Scope;
 }
 
-export function ProvidersView({ scope = "personal" }: ProvidersViewProps = {}): JSX.Element {
+export function ProvidersView({ scope = "personal", embedded = false }: ProvidersViewProps = {}): JSX.Element {
   const [snapshot, setSnapshot] = useState<AcpProvidersSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -940,6 +950,7 @@ export function ProvidersView({ scope = "personal" }: ProvidersViewProps = {}): 
         void run(id, "default", () => postProvider(`/api/providers/${id}/default`, {}))
       }
       scope={scope}
+      embedded={embedded}
     />
   );
 }

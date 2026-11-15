@@ -2,7 +2,7 @@
  * Pasted provider keys leave the Worker at egress, aimed at the provider host.
  */
 import { describe, expect, it } from "vitest";
-import { forwardClaudeSubscription, forwardDeepSeek, type EgressEnv } from "../src/egress.js";
+import { forwardClaudeSubscription, forwardCursorSubscription, forwardDeepSeek, type EgressEnv } from "../src/egress.js";
 import { dispatchOutboundRequest } from "../src/sandbox/outbound-dispatch.js";
 import { loadOutboundConfig } from "../src/sandbox/outbound-config.js";
 import { putUserProviderSecret, readProviderSecretForOrg } from "../src/user-provider-keys.js";
@@ -37,6 +37,39 @@ function env(kv: FakeKV): EgressEnv {
 }
 
 describe("user provider key egress", () => {
+  it("refuses the deployment Cursor token when an initiator is present", async () => {
+    const deployment = { ...env(new FakeKV()), CURSOR_SUBSCRIPTION_TOKEN: crypto.randomUUID() };
+    const response = await forwardCursorSubscription(new Request("https://api2.cursor.sh/models"), deployment, {
+      initiatorUserId: "alice",
+    });
+    expect(response.status).toBe(503);
+  });
+  it("round trips an encrypted OpenRouter key only through its approved host and owner", async () => {
+    const kv = new FakeKV();
+    const deployment = env(kv);
+    const secret = crypto.randomUUID();
+    await putUserProviderSecret(deployment, "ada", "openrouter", secret);
+    expect([...kv.map.values()].some((value) => value === secret)).toBe(false);
+    let attached = false;
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      attached = new Headers(init?.headers).get("authorization") === `Bearer ${secret}`;
+      return new Response("ok");
+    }) as typeof fetch;
+    try {
+      const config = loadOutboundConfig({
+        orgId: "workspace", initiatorUserId: "ada", allowedHosts: ["openrouter.ai"],
+        outboundByHost: { "openrouter.ai": { kind: "builtin", host: "openrouter.ai" } },
+      });
+      expect((await dispatchOutboundRequest(new Request("https://openrouter.ai/api/v1/chat/completions"), deployment, config)).status).toBe(200);
+      expect(attached).toBe(true);
+      expect((await dispatchOutboundRequest(new Request("https://api.groq.com/openai/v1/models"), deployment, config)).status).toBe(403);
+      attached = false;
+      expect((await dispatchOutboundRequest(new Request("https://openrouter.ai/api/v1/models"), deployment, { ...config, initiatorUserId: "bob" })).status).toBe(503);
+      expect(attached).toBe(false);
+    } finally { globalThis.fetch = original; }
+  });
+
   it("sends a saved Gemini key to Google and not the gateway", async () => {
     const kv = new FakeKV();
     const deployment = env(kv);
@@ -109,6 +142,27 @@ describe("user provider key egress", () => {
     }
   });
 
+  it("never substitutes a worker Claude token for a missing or disconnected personal token", async () => {
+    const kv = new FakeKV();
+    const deployment = { ...env(kv), CLAUDE_SUBSCRIPTION_TOKEN: crypto.randomUUID() };
+    await kv.put("auth_flow_claude-sub:default", JSON.stringify({ phase: "succeeded" }));
+    const original = globalThis.fetch;
+    let sent = false;
+    globalThis.fetch = (async () => { sent = true; return new Response("ok"); }) as typeof fetch;
+    try {
+      const response = await forwardClaudeSubscription(new Request("https://api.anthropic.com/v1/messages"), deployment, {
+        orgId: "self-hosted", initiatorUserId: "bob",
+      });
+      expect(response.status).toBe(503);
+      expect(sent).toBe(false);
+      await putUserProviderSecret(deployment, "bob", "claude-setup", crypto.randomUUID());
+      await kv.put("auth_flow_claude-sub:default", JSON.stringify({ phase: "cleared" }));
+      expect((await forwardClaudeSubscription(new Request("https://api.anthropic.com/v1/messages"), deployment, {
+        orgId: "self-hosted", initiatorUserId: "bob",
+      })).status).toBe(200);
+    } finally { globalThis.fetch = original; }
+  });
+
   it("refuses Claude subscription egress after the auth flow is cleared", async () => {
     const kv = new FakeKV();
     const deployment = env(kv);
@@ -120,7 +174,7 @@ describe("user provider key egress", () => {
     const response = await forwardClaudeSubscription(
       new Request("https://api.anthropic.com/v1/messages", { method: "POST", body: "{}" }),
       deployment,
-      { orgId: "self-hosted" },
+      undefined,
     );
     expect(response.status).toBe(403);
   });

@@ -478,3 +478,17 @@ describe("resume-same-key is a decider rule", () => {
     expect(run?.authAccount).toBe("work");
   });
 });
+
+
+describe("personal subscription kill switches", () => {
+  it.each([
+    ["claude-subscription", "SHIBA_CLAUDE_SUBSCRIPTION"],
+    ["codex-subscription", "SHIBA_CODEX_SUBSCRIPTION"],
+    ["antigravity-subscription", "SHIBA_ANTIGRAVITY_SUBSCRIPTION"],
+    ["cursor-subscription", "SHIBA_CURSOR_SUBSCRIPTION"],
+  ])("enables %s with storage and refuses an explicit kill switch", (harness, flag) => {
+    const ready = { MODEL_CREDENTIAL_KEY: "ab".repeat(32), UserProviderOAuth: {} };
+    expect(resolveHarness(harness!, ready).name).toBe(harness);
+    expect(() => resolveHarness(harness!, { ...ready, [flag!]: "0" })).toThrow(/Unknown agent harness/);
+  });
+});

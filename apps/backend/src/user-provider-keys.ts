@@ -5,7 +5,7 @@
 import type { Env } from "./env.js";
 import { decryptAuthJson, encryptAuthJson, modelCredentialKeyConfigured } from "./subscription-credentials.js";
 
-export const USER_SECRET_KINDS = ["google", "xai", "opencode", "claude-setup"] as const;
+export const USER_SECRET_KINDS = ["google", "xai", "opencode", "claude-setup", "openai-api", "anthropic-api", "openrouter", "groq", "copilot"] as const;
 export type UserSecretKind = (typeof USER_SECRET_KINDS)[number];
 
 const SECRET_PREFIX = "user_provider_secret:";
@@ -28,6 +28,9 @@ export function pasteProviderKind(id: string): UserSecretKind | null {
   if (id === "gemini") return "google";
   if (id === "grok") return "xai";
   if (id === "opencode") return "opencode";
+  if (id === "openai") return "openai-api";
+  if (id === "anthropic") return "anthropic-api";
+  if (id === "openrouter" || id === "groq" || id === "copilot") return id;
   return null;
 }
 
@@ -35,7 +38,11 @@ export function kindForHost(host: string): UserSecretKind | null {
   if (host === "generativelanguage.googleapis.com") return "google";
   if (host === "api.x.ai") return "xai";
   if (host === "opencode.ai" || host === "api.deepseek.com") return "opencode";
-  if (host === "api.anthropic.com") return "claude-setup";
+  if (host === "api.anthropic.com") return "anthropic-api";
+  if (host === "api.openai.com") return "openai-api";
+  if (host === "openrouter.ai") return "openrouter";
+  if (host === "api.groq.com") return "groq";
+  if (host === "api.githubcopilot.com") return "copilot";
   return null;
 }
 
@@ -84,10 +91,8 @@ export async function readProviderSecretForOrg(
   credentialUserId?: string,
 ): Promise<string | null> {
   const org = orgId?.trim() || "self-hosted";
-  // Self-hosted runs use the authenticated initiator’s own saved key.
-  if (org === "self-hosted" && credentialUserId?.trim()) {
-    const personal = await readUserProviderSecret(env, credentialUserId.trim(), kind);
-    if (personal) return personal;
+  if (credentialUserId?.trim()) {
+    return readUserProviderSecret(env, credentialUserId.trim(), kind);
   }
   const direct = await readUserProviderSecret(env, org, kind);
   if (direct) return direct;

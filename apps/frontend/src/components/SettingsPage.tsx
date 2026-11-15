@@ -63,6 +63,7 @@ export const SETTINGS_PAGE_NAV_GROUPS: SettingsNavGroup[] = [
   {
     heading: "Your account",
     items: [
+      { id: "providers", label: "Providers", blurb: SETTINGS_SECTION_LABELS.providers.blurb, icon: Cpu },
       { id: "account", label: "Account", blurb: SETTINGS_SECTION_LABELS.account.blurb, icon: User },
       { id: "api-keys", label: "API keys", blurb: SETTINGS_SECTION_LABELS["api-keys"].blurb, icon: Key },
       { id: "webhooks", label: "Webhooks", blurb: SETTINGS_SECTION_LABELS.webhooks.blurb, icon: Webhook },
@@ -235,6 +236,7 @@ export interface SettingsPageProps extends Partial<TeamWorkspaceViewProps> {
   onOpenPersonalWorkspace?: () => void;
   /** When private data is not available, only Team settings render. */
   personalDataBlocked?: boolean;
+  providersBlocked?: boolean;
   className?: string;
 }
 
@@ -281,6 +283,7 @@ export function SettingsPage({
   showSectionSwitcher = false,
   onOpenPersonalWorkspace,
   personalDataBlocked = false,
+  providersBlocked = false,
   className = "",
 }: SettingsPageProps): JSX.Element {
   const [internalSection, setInternalSection] = useState(initialSection);
@@ -373,6 +376,11 @@ export function SettingsPage({
             onOpenWork={onOpenWork}
             onOpenApps={onOpenApps}
           />
+        ) : activeSection === "providers" && providersBlocked ? (
+          <section aria-label="Personal provider setup unavailable" className="m-6 text-sm text-[var(--fg)]">
+            <h2 className="text-base font-medium">Personal provider setup needs an explicit account grant</h2>
+            <p className="mt-2">Connecting providers is unavailable for invited accounts until an owned provider and its billing permissions are verified.</p>
+          </section>
         ) : activeSection === "remote" ? (
           <RemoteAccessView />
         ) : activeSection === "groups" ? (
@@ -389,6 +397,7 @@ export function SettingsPage({
               section={activeSection as SettingsSectionId}
               onNavigate={onNavigate}
               onSignOut={onSignOut}
+              onSelectSection={handleSectionChange}
             />
           </div>
         )}

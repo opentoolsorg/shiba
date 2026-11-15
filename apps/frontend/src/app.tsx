@@ -1,5 +1,6 @@
 import { AppShell, AppAreaSidebar } from "./layouts/AppShell";
 import { pathForView, readNavigationView } from "./app-navigation";
+import { connectedTaskDefault } from "./supported-task-routes";
 import { updateWorkSearch, type WorkSearchState } from "./work-search";
 /**
  * Complete End-to-End Shiba Dashboard.
@@ -11,7 +12,7 @@ import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useConversationRoomRealtime, type ConversationRoomMessage } from "./conversation-room-realtime";
 import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HARNESS_REASONING_EFFORTS, MAX_RUN_ATTACHMENTS, MAX_RUN_ATTACHMENT_BYTES, MAX_RUN_ATTACHMENTS_TOTAL_BYTES, onboardingTaskText, type ReasoningEffort, type RunAttachment, type TeamOnboardingTask } from "@shiba/shared";
+import { HARNESS_REASONING_EFFORTS, MAX_RUN_ATTACHMENTS, MAX_RUN_ATTACHMENT_BYTES, MAX_RUN_ATTACHMENTS_TOTAL_BYTES, onboardingTaskText, type ReasoningEffort, type RunAttachment, type TeamOnboardingTask, type AcpProvidersSnapshot } from "@shiba/shared";
 import { normalizeRunStatus, type VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
 import { ActivityReportView } from "./components/ActivityReportView";
@@ -419,6 +420,7 @@ export function App(): React.JSX.Element {
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
   const [runSetup, setRunSetup] = useState(false);
   const [harness, setHarness] = useState("opencode");
+  const taskRouteChosen = useRef(false);
   const [customAgentId, setCustomAgentId] = useState("");
   const [agentDetailsOpen, setAgentDetailsOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1280);
   const [employeeOnboardingDismissed, setEmployeeOnboardingDismissed] = useState(() => {
@@ -958,6 +960,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             : undefined;
         const connected = Array.isArray(list) && list.some((provider) => provider.connection?.phase === "connected");
         setLaunchBlocked(!gateway && !connected);
+        const personalDefault = connectedTaskDefault(providers as AcpProvidersSnapshot | null);
+        if (!taskRouteChosen.current) {
+          setHarness(personalDefault?.harness ?? "opencode");
+          setCodingModel(personalDefault?.defaultModel ?? "");
+        }
       })
       .catch(() => {
         if (!cancelled) setLaunchBlocked(false);
@@ -965,7 +972,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     return () => {
       cancelled = true;
     };
-  }, [privateDataEnabled]);
+  }, [privateDataEnabled, mainView]);
   // Header setup pill: count deployment-proven steps only after whoami.
   useEffect(() => {
     if (showOnboardingModal || !privateDataEnabled) return;
@@ -1160,6 +1167,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [selectedSessionId, sessionCustomAgentId]);
   const builtinTaskDefaults = useRef<{ harness: string; codingModel: string; connectionId: string; repoUrl: string; runTarget: "sandbox" | "local" } | null>(null);
   const applyThreadProfile = useCallback((profile: CustomAgentWire) => {
+    taskRouteChosen.current = true;
     setHarness(profile.config.harness);
     setCodingModel(profile.config.codingModel ?? "");
     setConnectionId(profile.config.connectionId ?? "");
@@ -3656,7 +3664,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     artifactDeliverables={artifactDeliverables}
                     onArtifactDeliverablesChange={setArtifactDeliverables}
                     runTarget={runTarget}
-                    onRunTargetChange={setRunTarget}
+                    onRunTargetChange={(value) => { taskRouteChosen.current = true; setRunTarget(value); }}
                     localRunAvailable={localRunAvailable}
                     localComputers={localComputers}
                     targetMachineId={selectedLocalMachineId}
@@ -3678,7 +3686,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     attachmentsUploading={attachmentsUploading}
                     onAttachFiles={attachFiles}
                     onRemoveAttachment={removeAttachment}
-                    onHarnessChange={setHarness}
+                    onHarnessChange={(value) => { taskRouteChosen.current = true; setHarness(value); }}
                     customAgents={customAgentPickerOptions}
                     customAgentId={customAgentId}
                     projects={projectContexts}
@@ -3686,15 +3694,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     onProjectContextChange={setProjectContextId}
                     onApplyProjectDefaults={(project) => {
                       if (project.defaultCustomAgentId) setCustomAgentId(project.defaultCustomAgentId);
-                      if (project.defaultHarness) setHarness(project.defaultHarness);
+                      if (project.defaultHarness) { taskRouteChosen.current = true; setHarness(project.defaultHarness); }
                     }}
                     customAgentsLoading={customAgentsLoading}
                     onCustomAgentChange={setCustomAgentId}
                     routing={{
                       codingModel,
                       connectionId,
-                      onCodingModelChange: setCodingModel,
-                      onConnectionChange: setConnectionId,
+                      onCodingModelChange: (value) => { taskRouteChosen.current = true; setCodingModel(value); },
+                      onConnectionChange: (value) => { taskRouteChosen.current = true; setConnectionId(value); },
                       reasoningEffort,
                       onReasoningEffortChange: setReasoningEffort,
                       modelSuggestions: codingModelSuggestions,
@@ -3869,6 +3877,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               showSectionSwitcher={sessionsCollapsed}
               onOpenPersonalWorkspace={teamWorkspaceId ? () => teamDirectory.selectWorkspace("") : undefined}
               personalDataBlocked={!privateDataEnabled}
+              providersBlocked={restrictedTeamMember}
               section={settingsSection}
               onSectionChange={setSettingsSection}
               onBack={closeSettings}
@@ -3948,6 +3957,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             onSelectStarterTask={(repo, t, h) => {
               setRepoUrl(repo);
               setTask(t);
+              taskRouteChosen.current = true;
               setHarness(h);
             }}
           /> : null}

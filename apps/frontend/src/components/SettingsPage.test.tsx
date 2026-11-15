@@ -30,6 +30,8 @@ describe("SettingsPanel", () => {
     expect(screen.getByRole("button", { name: "Back to app" })).toBeTruthy();
     expect(screen.getByRole("searchbox", { name: "Search settings" })).toBeTruthy();
 
+    expect(screen.getByRole("button", { name: "Providers" })).toBeTruthy();
+
     // Verify sections under Workspace: Team and Remote access
     expect(screen.getByRole("button", { name: "Team" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remote access" })).toBeTruthy();
@@ -144,15 +146,33 @@ describe("SettingsPage", () => {
 
     expect(screen.getByRole("heading", { name: "Experimental features" })).toBeTruthy();
     expect(screen.getByText(/cannot change deployment settings or check which options are currently turned on/i)).toBeTruthy();
-    expect(screen.getByText("Claude subscription sign-in")).toBeTruthy();
+    expect(screen.queryByText("Claude subscription sign-in")).toBeNull();
+    expect(screen.getByText(/subscription kill switch to 0/)).toBeTruthy();
     expect(screen.getByText("Use a connected computer")).toBeTruthy();
     expect(screen.getByText("Memory summaries")).toBeTruthy();
-    expect(screen.getAllByText("Setup details for admins")).toHaveLength(5);
+    expect(screen.getAllByText("Setup details for admins")).toHaveLength(2);
     const adminDetails = screen.getAllByText("Setup details for admins")[0]!;
     expect(adminDetails.closest("details")?.open).toBe(false);
     fireEvent.click(adminDetails);
     expect(adminDetails.closest("details")?.open).toBe(true);
-    expect(screen.getByText("SHIBA_CLAUDE_SUBSCRIPTION=1")).toBeTruthy();
+    expect(screen.getByText("SHIBA_LOCAL_RUNTIME=1")).toBeTruthy();
+  });
+
+  it("opens the shared provider cards from the Experimental link", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ providers: [], defaultProviderId: null })));
+    render(<SettingsPage initialSection="experimental" />);
+    fireEvent.click(screen.getByRole("button", { name: "Manage in Providers →" }));
+    expect(await screen.findByTestId("providers-page")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Providers" })).toBeTruthy();
+    expect(screen.getByText(/Tokens are encrypted for you/)).toBeTruthy();
+  });
+
+  it("keeps provider setup unavailable for invited accounts without a grant", () => {
+    const fetcher = vi.fn(async () => Response.json({}));
+    vi.stubGlobal("fetch", fetcher);
+    render(<SettingsPage section="providers" providersBlocked />);
+    expect(screen.getByRole("region", { name: "Personal provider setup unavailable" })).toBeTruthy();
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("renders with panel side-by-side when withPanel is true", () => {

@@ -1,4 +1,11 @@
-import type { AcpProviderCard } from "@shiba/shared";
+import type { AcpProviderCard, AcpProvidersSnapshot } from "@shiba/shared";
+
+/** Match the server's personal default selection without using a disconnected account. */
+export function connectedTaskDefault(snapshot: AcpProvidersSnapshot | null | undefined): AcpProviderCard | null {
+  const connected = snapshot?.providers?.filter((card) => card.connection.phase === "connected" && card.connection.signInKind !== "claude-daemon") ?? [];
+  return connected.find((card) => card.id === snapshot?.defaultProviderId) ??
+    (connected.length === 1 ? connected[0]! : null);
+}
 
 export interface TaskConnectionSelection {
   id: string;
@@ -51,12 +58,12 @@ export function describeTaskRoute(input: {
     billing: local
       ? "Determined by the local CLI credentials; check the account on that computer."
       : chatgpt ? "ChatGPT plan; requires an attributed human initiator."
-      : legacyClaude ? "Legacy setup-token account; requires deployment opt-in."
+      : legacyClaude ? "Your saved Claude setup-token account."
       : "Provider API or gateway account selected by the approved route.",
     note: local
       ? "CLI presence does not verify account access or quota. This task does not reuse a cloud credential."
       : legacyClaude
-        ? "Legacy cloud Claude token support is deployment-gated. Prefer Claude Code on a paired computer or the API credential route."
+        ? "Your saved setup-token is attached by Shiba when this task calls Claude, unless an admin disables the subscription lane."
         : "Provider access, model support and quota are validated when used. Starting work still requires human approval.",
     blockedReason,
   };
@@ -75,10 +82,10 @@ export function describeProviderRoute(card: AcpProviderCard) {
   }
   if (card.id === "claude" && connection.signInKind === "claude-setup-token") {
     return {
-      harness: "claude-subscription (legacy opt-in)",
-      runtime: "Sandbox · deployment-gated",
-      account: "Legacy setup-token credential; account identity is not reported.",
-      note: "Storing a token does not enable this runtime. The deployment must explicitly enable the legacy harness. Prefer local Claude Code or the API credential route.",
+      harness: "claude-subscription",
+      runtime: "Sandbox · repositories and artifacts",
+      account: "Your saved setup-token credential; account identity is not reported.",
+      note: "Connect with a Claude setup-token, then set Claude as your default for tasks. An admin can disable this subscription lane.",
     };
   }
   if (card.id === "codex" && connection.authMode === "oauth") {

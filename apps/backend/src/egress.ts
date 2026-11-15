@@ -25,6 +25,10 @@ export type EgressEnv = Pick<
   | "CURSOR_SUBSCRIPTION_TOKEN"
   | "MODEL_CREDENTIAL_KEY"
   | "SHIBA_SINGLE_USER"
+  | "SHIBA_CLAUDE_SUBSCRIPTION"
+  | "SHIBA_CODEX_SUBSCRIPTION"
+  | "SHIBA_ANTIGRAVITY_SUBSCRIPTION"
+  | "SHIBA_CURSOR_SUBSCRIPTION"
   | "AGENT_AUDIT"
   | "ChatGptAuth"
   | "UserProviderOAuth"
@@ -69,6 +73,11 @@ function approvedPath(ctx?: OutboundHandlerCtx): string | undefined {
 function applyUserKey(headers: Headers, kind: UserSecretKind, secret: string): void {
   if (kind === "google") {
     headers.set("x-goog-api-key", secret);
+    return;
+  }
+  if (kind === "anthropic-api") {
+    headers.set("x-api-key", secret);
+    headers.set("anthropic-version", "2023-06-01");
     return;
   }
   headers.set("Authorization", `Bearer ${secret}`);
@@ -173,10 +182,13 @@ async function forwardProvider(
   if (kind) {
     const secret = await readProviderSecretForOrg(env, orgId, kind, providerCredentialUser(ctx));
     if (secret) return fetchWithUserKey(request, host, kind, secret);
+    if (typeof ctx === "object" && ctx?.initiatorUserId) {
+      return new Response("Connect this provider in Settings → Providers.", { status: 503 });
+    }
   }
   const slug = GATEWAY_PROVIDERS[host];
   if (!slug) {
-    if (host === "api.deepseek.com") {
+    if (["api.deepseek.com", "openrouter.ai", "api.groq.com", "api.githubcopilot.com"].includes(host)) {
       return new Response("No saved key for this provider. Paste one on the Providers page.", { status: 503 });
     }
     return new Response("Invalid provider destination.", { status: 403 });
@@ -281,6 +293,17 @@ export function forwardDeepSeek(
   return forwardProvider(request, env, "api.deepseek.com", ctx);
 }
 
+/** Fixed API-key destinations; allowedHosts remains scoped to the selected model. */
+export function forwardOpenRouter(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "openrouter.ai", ctx);
+}
+export function forwardGroq(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "api.groq.com", ctx);
+}
+export function forwardCopilot(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "api.githubcopilot.com", ctx);
+}
+
 /**
  * T48 — the claude-subscription egress branch. The container holds only a
  * placeholder credentials.json; the real `claude setup-token` bearer is
@@ -295,14 +318,9 @@ export async function forwardClaudeSubscription(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx,
 ): Promise<Response> {
+  if (env.SHIBA_CLAUDE_SUBSCRIPTION === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
   const account = typeof params.account === "string" && params.account !== "" ? params.account : "default";
-  if (env.AGENT_TOKENS) {
-    const instanceId = `claude-sub:${account}`;
-    if (!(await authFlowPermitsSubscriptionEgress({ AGENT_TOKENS: env.AGENT_TOKENS }, instanceId))) {
-      return new Response("Subscription sign-in is not active.", { status: 403 });
-    }
-  }
   const secretName =
     account === "default"
       ? "CLAUDE_SUBSCRIPTION_TOKEN"
@@ -317,7 +335,14 @@ export async function forwardClaudeSubscription(
         )
       : undefined;
   const configured = (env as Record<string, unknown>)[secretName];
-  const token = saved ?? (typeof configured === "string" ? configured : undefined);
+  const personal = providerCredentialUser(ctx);
+  const token = personal ? saved : saved ?? (typeof configured === "string" ? configured : undefined);
+  if (!personal && env.AGENT_TOKENS) {
+    const instanceId = `claude-sub:${account}`;
+    if (!(await authFlowPermitsSubscriptionEgress({ AGENT_TOKENS: env.AGENT_TOKENS }, instanceId))) {
+      return new Response("Subscription sign-in is not active.", { status: 403 });
+    }
+  }
   const target = new URL(request.url);
   if (
     target.protocol !== "https:" ||
@@ -370,6 +395,7 @@ export async function forwardCodexPlan(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx,
 ): Promise<Response> {
+  if (env.SHIBA_CODEX_SUBSCRIPTION === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
   const target = new URL(request.url);
   if (
     target.protocol !== "https:" ||
@@ -420,6 +446,7 @@ export async function forwardCodexSubscription(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx,
 ): Promise<Response> {
+  if (env.SHIBA_CODEX_SUBSCRIPTION === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
   const account = typeof params.account === "string" && params.account !== "" ? params.account : "default";
   const userId = typeof params.userId === "string" && params.userId !== "" ? params.userId : undefined;
@@ -495,7 +522,11 @@ export async function forwardCursorSubscription(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx,
 ): Promise<Response> {
+  if (env.SHIBA_CURSOR_SUBSCRIPTION === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
+  if (ctx?.initiatorUserId || (typeof params.userId === "string" && params.userId.trim())) {
+    return new Response("Connect Cursor in Settings → Providers.", { status: 503 });
+  }
   const account = typeof params.account === "string" && params.account !== "" ? params.account : "default";
   const secretName =
     account === "default"
@@ -562,6 +593,7 @@ export async function forwardAntigravityUser(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx,
 ): Promise<Response> {
+  if (env.SHIBA_ANTIGRAVITY_SUBSCRIPTION === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
   const userId = typeof params.userId === "string" ? params.userId.trim() : "";
   const auth = await loadUserOAuthAccess(env, userId, "antigravity");
@@ -618,6 +650,7 @@ export async function forwardCursorUser(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx,
 ): Promise<Response> {
+  if (env.SHIBA_CURSOR_SUBSCRIPTION === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
   const userId = typeof params.userId === "string" ? params.userId.trim() : "";
   const auth = await loadUserOAuthAccess(env, userId, "cursor");
