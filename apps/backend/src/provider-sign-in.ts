@@ -14,6 +14,7 @@ import { LOCAL_RUNTIME_FLAG, type AcpSignInKind, type ConnectedComputer } from "
 import { CODEX_DEVICE_VERIFICATION_URL } from "./chatgpt/device-auth.js";
 import { mintDaemonPairing } from "./computers-routes.js";
 import type { Env } from "./env.js";
+import { checkAnthropicCredential } from "./provider-credential-check.js";
 import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { localDispatchStub } from "./local-dispatch.js";
 import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
@@ -44,12 +45,14 @@ export interface SignInSession {
 
 export interface SignInVerdict {
   ok: boolean;
+  reason?: "rejected" | "unreachable";
   pending?: boolean;
   message: string;
   operatorSteps?: string[];
 }
 
 export interface SignInLanes {
+  fetchImpl?: typeof fetch;
   forwardClaude?: SubscriptionForwarder;
 }
 
@@ -396,7 +399,13 @@ function claudePasteSession(ctx: SignInContext): SignInSession {
   };
 }
 
-async function storeClaudeSetupToken(env: Env, org: string, credential: string): Promise<SignInVerdict> {
+async function storeClaudeSetupToken(
+  env: Env,
+  org: string,
+  credential: string,
+  fetchImpl?: typeof fetch,
+  canStore?: () => Promise<boolean>,
+): Promise<SignInVerdict> {
   let secret: string;
   try {
     secret = assertPastableSecret(credential);
@@ -407,6 +416,13 @@ async function storeClaudeSetupToken(env: Env, org: string, credential: string):
       message: error instanceof Error ? error.message : "Paste the token from claude setup-token.",
       operatorSteps: CLAUDE_SETUP_STEPS,
     };
+  }
+  const checked = await checkAnthropicCredential(env, secret, "setup-token", fetchImpl);
+  if (!checked.ok) {
+    return { ...checked, pending: true, operatorSteps: CLAUDE_SETUP_STEPS };
+  }
+  if (canStore && !(await canStore())) {
+    return { ok: false, pending: true, message: "Sign-in changed. Start again." };
   }
   try {
     await putUserProviderSecret(env, org, "claude-setup", secret);
@@ -555,9 +571,20 @@ async function inspectUserOAuth(env: Env, org: string, provider: UserOAuthProvid
   return { ok: false, message: "No OAuth account is connected for this user.", operatorSteps: steps };
 }
 
-async function inspectClaude(env: Env, org: string): Promise<SignInVerdict> {
-  if (await readUserProviderSecret(env, org, "claude-setup")) {
-    return { ok: true, message: "Your Claude setup-token is saved encrypted and attached at egress." };
+async function inspectClaude(env: Env, org: string, fetchImpl?: typeof fetch): Promise<SignInVerdict> {
+  const saved = await readUserProviderSecret(env, org, "claude-setup");
+  if (saved) {
+    const checked = await checkAnthropicCredential(env, saved, "setup-token", fetchImpl);
+    if (!checked.ok) {
+      return {
+        ...checked,
+        message: checked.reason === "rejected"
+          ? "Anthropic rejected the saved token. Paste a new one."
+          : checked.message,
+        operatorSteps: CLAUDE_SETUP_STEPS,
+      };
+    }
+    return { ok: true, message: "Anthropic accepted your saved Claude setup-token." };
   }
   const ready = readyClaudeDaemon(await listComputers(env));
   if (ready) {
@@ -629,6 +656,8 @@ export async function completeProviderSignIn(
   org: string,
   callbackUrl: string | null,
   credential?: string | null,
+  fetchImpl?: typeof fetch,
+  canStore?: () => Promise<boolean>,
 ): Promise<SignInVerdict> {
   if (subscriptionSignInDisabled(env, provider.id)) {
     return { ok: false, message: "This subscription lane is disabled by the deployment administrator." };
@@ -639,7 +668,7 @@ export async function completeProviderSignIn(
   }
   if (provider.id === "claude") {
     if (typeof credential === "string" && credential.trim() !== "") {
-      return storeClaudeSetupToken(env, org, credential);
+      return storeClaudeSetupToken(env, org, credential, fetchImpl, canStore);
     }
     if (env[LOCAL_RUNTIME_FLAG] === "1" && env.LocalDispatch !== undefined) {
       const daemon = await completeClaudeDaemon(env);
@@ -669,7 +698,7 @@ export async function inspectProviderSignIn(
     return { ok: false, message: "This subscription lane is disabled by the deployment administrator." };
   }
   if (provider.id === "codex") return inspectCodex(env, org);
-  if (provider.id === "claude") return inspectClaude(env, org);
+  if (provider.id === "claude") return inspectClaude(env, org, _lanes.fetchImpl);
   const oauthProvider = userOAuthProvider(provider.id);
   if (oauthProvider !== null) return inspectUserOAuth(env, org, oauthProvider);
   return { ok: false, message: `${provider.label} has no subscription lane.` };
