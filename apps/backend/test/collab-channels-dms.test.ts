@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ensureCollaborationSchema } from "../src/collaboration-store.js";
+import { COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID, ensureCollaborationSchema } from "../src/collaboration-store.js";
+import { canReadCollaborationRoom } from "../src/collaboration-room-access.js";
 import { handleCollaboration } from "../src/collaboration-routes.js";
 import type { Env } from "../src/env.js";
 import { applyCollabV2Migrations } from "./fixtures/collab-v2-migrations.js";
@@ -42,6 +43,9 @@ describe("collab v2 channels and dms", () => {
     const f = fixture();
     const created = await (await f.send("/channels", "POST", { title: "Engineering", topic: "Build" }))!.json() as { channel: { roomId: string; kind: string } };
     expect(created.channel.kind).toBe("channel");
+    const identity = { tenantId: COLLAB_TENANT_ID, workspaceId: COLLAB_WORKSPACE_ID, roomId: created.channel.roomId };
+    expect(await canReadCollaborationRoom(f.env, identity, authState.userId)).toBe(true);
+    expect(await canReadCollaborationRoom(f.env, identity, "outsider@example.test")).toBe(false);
     const listed = await (await f.send("/channels/public"))!.json() as { channels: Array<{ roomId: string }> };
     expect(listed.channels.map((c) => c.roomId)).toContain(created.channel.roomId);
     authState.userId = "member@example.test";
@@ -57,6 +61,33 @@ describe("collab v2 channels and dms", () => {
     const second = await (await f.send("/dms", "POST", { userId: "member@example.test" }))!.json() as { dm: { roomId: string } };
     expect(second.dm.roomId).toBe(first.dm.roomId);
     expect(first.dm.dmKey).toMatch(/^dm:/);
+  });
+
+  it("keeps DM messages, unread counts and realtime authority private to its members", async () => {
+    const f = fixture();
+    const created = await f.send("/dms", "POST", { userId: "member@example.test" });
+    expect(created?.status).toBe(201);
+    const { dm } = await created!.json() as { dm: { roomId: string } };
+    const identity = { tenantId: COLLAB_TENANT_ID, workspaceId: COLLAB_WORKSPACE_ID, roomId: dm.roomId };
+    expect((await f.send(`/rooms/${dm.roomId}/messages`, "POST", { body: "Private DM message" }))?.status).toBe(201);
+    authState.userId = "member@example.test";
+    const detail = await (await f.send(`/rooms/${dm.roomId}`))!.json() as { messages: Array<{ body: string }> };
+    expect(detail.messages.some((message) => message.body === "Private DM message")).toBe(true);
+    const listed = await (await f.send("/rooms?kind=dm"))!.json() as { rooms: Array<{ roomId: string; unreadCount: number; lastMessageSeq: number }> };
+    const room = listed.rooms.find((item) => item.roomId === dm.roomId)!;
+    expect(room.unreadCount).toBe(1);
+    expect((await f.send("/read-cursors", "PUT", { roomId: dm.roomId, lastReadSeq: room.lastMessageSeq }))?.status).toBe(200);
+    const read = await (await f.send("/rooms?kind=dm"))!.json() as { rooms: Array<{ unreadCount: number }> };
+    expect(read.rooms[0]?.unreadCount).toBe(0);
+    expect(await canReadCollaborationRoom(f.env, identity, authState.userId)).toBe(true);
+    expect(await canReadCollaborationRoom(f.env, identity, "owner@example.test")).toBe(true);
+
+    authState.userId = "outsider@example.test";
+    const hidden = await (await f.send("/rooms?kind=dm"))!.json() as { rooms: unknown[] };
+    expect(hidden.rooms).toEqual([]);
+    expect((await f.send(`/rooms/${dm.roomId}`))?.status).toBe(404);
+    expect((await f.send(`/rooms/${dm.roomId}/messages`, "POST", { body: "Intrusion" }))?.status).toBe(404);
+    expect(await canReadCollaborationRoom(f.env, identity, authState.userId)).toBe(false);
   });
 
   it("applies the migration file instead of embedding table DDL", async () => {

@@ -481,6 +481,22 @@ function ScopedCollaborationView({
     },
   });
 
+  const presenceScope = JSON.stringify([workspaceId ?? "default", activeRoomId]);
+  const [memberLastSeen, setMemberLastSeen] = useState<{ scope: string; seen: Record<string, number> }>({ scope: "", seen: {} });
+  useEffect(() => {
+    setMemberLastSeen((current) => {
+      const seen = current.scope === presenceScope ? { ...current.seen } : {};
+      let changed = current.scope !== presenceScope;
+      for (const viewer of realtime.viewers) {
+        if (viewer.lastSeenAt > (seen[viewer.label] ?? 0)) {
+          seen[viewer.label] = viewer.lastSeenAt;
+          changed = true;
+        }
+      }
+      return changed ? { scope: presenceScope, seen } : current;
+    });
+  }, [presenceScope, realtime.viewers]);
+
   useEffect(() => {
     clearRoomDrafts();
   }, [activeRoomId, clearRoomDrafts]);
@@ -834,6 +850,29 @@ function ScopedCollaborationView({
     })();
   };
 
+  const startDirectMessage = async (userId: string) => {
+    const sourceRoomId = activeRoomRef.current;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api<{ dm: Room }>("/api/collaboration/dms", request("POST", { userId }));
+      if (activeRoomRef.current !== sourceRoomId) return;
+      if (result.dm.roomId === sourceRoomId && roomListTab === "dm") {
+        await refresh(sourceRoomId);
+        return;
+      }
+      roomReadEpoch.current++;
+      activeRoomRef.current = result.dm.roomId;
+      setDetail(null);
+      setRoomListTab("dm");
+      setActiveRoomId(result.dm.roomId);
+    } catch (cause) {
+      if (activeRoomRef.current === sourceRoomId) setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const inviteMember = (event: FormEvent) => {
     event.preventDefault();
     if (!activeRoomId || !inviteUserId.trim()) return;
@@ -1096,6 +1135,7 @@ function ScopedCollaborationView({
             roomListTab={roomListTab}
             tabUnread={tabUnread}
             rooms={rooms}
+            activePresenceCount={new Set(realtime.viewers.filter((viewer) => viewer.status === "online").map((viewer) => viewer.label)).size}
             savedItems={savedItems}
             activeRoomId={activeRoomId}
             roomTitle={roomTitle}
@@ -1485,7 +1525,18 @@ function ScopedCollaborationView({
                             <span className="truncate">
                               {member.displayName}{" "}
                               <span className="text-[var(--ink-2)]">· {member.role}</span>
+                              {member.actorKind === "human" && member.status !== "removed" && memberLastSeen.scope === presenceScope && memberLastSeen.seen[member.userId] ? (
+                                <span className="block text-[10px] text-[var(--ink-2)]">
+                                  {realtime.viewers.some((viewer) => viewer.label === member.userId && viewer.status === "online") ? "online" : realtime.viewers.some((viewer) => viewer.label === member.userId) ? "away" : "offline"} · Last seen {new Date(memberLastSeen.seen[member.userId]!).toLocaleString()}
+                                </span>
+                              ) : null}
                             </span>
+                            {member.actorKind === "human" && member.status !== "removed" && member.userId !== detail.currentUserId && (
+                              <button type="button" disabled={busy} onClick={() => void startDirectMessage(member.userId)}
+                                aria-label={`Message ${member.displayName}`} className="min-h-11 px-2 text-[var(--navy)]">
+                                Message
+                              </button>
+                            )}
                             {canManageMembers && member.role !== "owner" && (
                               <button
                                 type="button"
@@ -2039,6 +2090,10 @@ function ScopedCollaborationView({
                               <strong className="truncate">{handoff.taskId}</strong>
                               <span>{handoff.status}</span>
                             </div>
+                            <p className="mt-1 break-words text-[var(--ink-2)]">
+                              {members.find((member) => member.actorId === handoff.senderActorId)?.displayName ?? handoff.senderActorId}
+                              {" handed to @"}{members.find((member) => member.actorId === handoff.recipientActorId)?.displayName ?? handoff.recipientActorId}
+                            </p>
                             {handoff.humanRequest && (
                               <div className="my-2 border-t border-[var(--line)] pt-2">
                                 <p className="font-semibold">Human assignment</p>
@@ -2096,7 +2151,7 @@ function ScopedCollaborationView({
                                 }
                                 className="mt-1 min-h-11 px-2 text-[var(--danger)]"
                               >
-                                Cancel handoff
+                                Take it back
                               </button>
                             )}
                             {handoff.status === "active" && handoff.approvalId && handoff.execution?.approvalStatus === "pending" && renderApproval?.({ ...handoff, roomId: activeRoomId })}

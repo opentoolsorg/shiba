@@ -47,7 +47,7 @@ export function useMentionAutocomplete(opts: {
   };
   return {
     open, options, active, insert,
-    onChange: (next: string, position: number) => { setValue(next); setCaret(position); setIndex(0); },
+    onChange: (next: string, position: number) => { setValue(next); setCaret(position); setIndex(0); setDismissed(null); },
     onSelect: (position: number) => setCaret(position),
     onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => {
       if (!open) return;

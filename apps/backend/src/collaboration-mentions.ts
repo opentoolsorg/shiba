@@ -3,6 +3,7 @@ import {
   createRootCollaborationHandoff,
   getActiveCollaborationMembership,
   humanActorId,
+  isCollaborationSlackRoomAudienceAuthorized,
   type CollaborationHandoffRow,
 } from "./collaboration-store.js";
 import { agentMayReply } from "./collaboration-addressing.js";
@@ -76,6 +77,9 @@ export async function handleCollaborationMentions(
   if (prefs.mentions) {
     for (const userId of parsed.users) {
       if (userId === scope.userId) continue;
+      const recipient = await getActiveCollaborationMembership(env, scope, input.roomId, humanActorId(userId));
+      if (!recipient || recipient.actorKind !== "human" || recipient.userId !== userId ||
+        !await isCollaborationSlackRoomAudienceAuthorized(env, { ...scope, userId }, input.roomId)) continue;
       await createWorkspaceNotification(env, {
         tenantId: scope.tenantId,
         workspaceId: scope.workspaceId,

@@ -389,7 +389,14 @@ export class ConversationRoom extends DurableObject<Env> {
     const updateTyping = hasTyping && (event.typing === false ? latest.typing : !latest.typing || now - latest.typingAt >= TYPING_REFRESH_MS);
     const updateStatus = hasStatus && event.status !== (latest.status ?? "online");
     if (hasCursor && event.cursor !== null && !updateCursor) return;
-    if (!updateTyping && !updateCursor && !updateStatus) { this.touch(socket, latest, now); return; }
+    if (!updateTyping && !updateCursor && !updateStatus) {
+      this.touch(socket, latest, now);
+      if (latest.lastSeenAt !== undefined && latest.lastSeenAt + PRESENCE_TTL_MS <= now) {
+        this.broadcastCollaborationPresence(authorized, latest.collaboration.roomId);
+        await this.scheduleMaintenanceAlarm();
+      }
+      return;
+    }
     socket.serializeAttachment({ ...latest, lastSeenAt: now,
       ...(updateStatus ? { status: event.status as PresenceStatus } : {}),
       ...(updateTyping ? { typing: Boolean(event.typing), typingAt: event.typing ? now : 0 } : {}),
@@ -1007,6 +1014,8 @@ export class ConversationRoom extends DurableObject<Env> {
       .filter((attachment): attachment is RoomSocketAttachment => attachment !== null);
     const expiries = attachments.flatMap((attachment) => [
       ...(attachment.collaboration ? [Date.now() + MEMBERSHIP_RECHECK_MS] : []),
+      ...(attachment.collaboration && attachment.lastSeenAt !== undefined && attachment.lastSeenAt + PRESENCE_TTL_MS > Date.now()
+        ? [attachment.lastSeenAt + PRESENCE_TTL_MS] : []),
       ...(attachment.typing ? [attachment.typingAt + TYPING_TTL_MS] : []),
       ...(attachment.cursor ? [attachment.cursorAt + CURSOR_TTL_MS] : []),
     ]);

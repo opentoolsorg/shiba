@@ -48,7 +48,7 @@ async function fixture() {
   const room = new ConversationRoom(ctx, env);
   const addSocket = async (userId: string, nonce = "22222222-2222-4222-8222-222222222222", roomIdentity = identity) => {
     const socket = new Socket();
-    socket.serializeAttachment({ ownerId: `collaboration:${roomIdentity.tenantId}:${roomIdentity.workspaceId}`, actorId: userId, sessionId: roomIdentity.roomId, viewerId: await authenticatedRoomViewerId(userId, nonce), joinedAt: 1, typing: false, typingAt: 0, connectionId: crypto.randomUUID(), cursor: null, cursorAt: 0, collaboration: roomIdentity });
+    socket.serializeAttachment({ ownerId: `collaboration:${roomIdentity.tenantId}:${roomIdentity.workspaceId}`, actorId: userId, sessionId: roomIdentity.roomId, viewerId: await authenticatedRoomViewerId(userId, nonce), joinedAt: 1, status: "online", lastSeenAt: Date.now(), typing: false, typingAt: 0, connectionId: crypto.randomUUID(), cursor: null, cursorAt: 0, collaboration: roomIdentity });
     sockets.push(socket);
     return socket;
   };
@@ -85,6 +85,24 @@ describe("authenticated shared-room realtime", () => {
     await send(teammate, "ping");
     now += 1; await send(teammate, { type: "client_presence", status: "online" });
     expect(seen().find((viewer) => viewer.label === "teammate@example.test")).toMatchObject({ status: "online", lastSeenAt: now });
+  });
+  it("keeps the stale peer expiry deadline under active heartbeats and publishes an unchanged-status return", async () => {
+    const { room, addSocket, ctx } = await fixture();
+    let now = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => now);
+    const owner = await addSocket(scope.userId), teammate = await addSocket("teammate@example.test");
+    const startedAt = now;
+    const heartbeat = () => room.webSocketMessage(owner as unknown as WebSocket, "ping");
+    await heartbeat();
+    for (let elapsed = 10_000; elapsed < 60_000; elapsed += 10_000) {
+      now = startedAt + elapsed; await heartbeat();
+    }
+    expect(ctx.storage.setAlarm).toHaveBeenLastCalledWith(startedAt + 60_000);
+    now = startedAt + 60_000; await room.alarm();
+    expect(JSON.stringify(owner.events.at(-1))).not.toContain("teammate@example.test");
+    owner.events = [];
+    await room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", status: "online" }));
+    expect(owner.events).toHaveLength(1);
+    expect(owner.events[0]?.viewers).toEqual(expect.arrayContaining([expect.objectContaining({ label: "teammate@example.test", status: "online" })]));
   });
   it("throttles repeated typing frames but always publishes a stop", async () => {
     const { room, addSocket } = await fixture(); const owner = await addSocket(scope.userId), teammate = await addSocket("teammate@example.test");
