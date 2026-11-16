@@ -70,6 +70,32 @@ describe("authenticated shared-room realtime", () => {
     expect(db.prepare("SELECT COUNT(*) AS count FROM room_messages").get()?.count).toBe(0);
     expect(db.prepare("SELECT COUNT(*) AS count FROM room_run_events").get()?.count).toBe(0);
   });
+  it("tracks away/online status and drops viewers that stop heartbeating", async () => {
+    const { room, addSocket } = await fixture(); const owner = await addSocket(scope.userId), teammate = await addSocket("teammate@example.test");
+    let now = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => now);
+    const send = (socket: Socket, frame: unknown) => room.webSocketMessage(socket as unknown as WebSocket, typeof frame === "string" ? frame : JSON.stringify(frame));
+    const seen = () => owner.events.at(-1)?.viewers as Array<{ label: string; status: string; lastSeenAt: number }>;
+    await send(teammate, { type: "client_presence", status: "away" });
+    expect(seen().find((viewer) => viewer.label === "teammate@example.test")?.status).toBe("away");
+    await send(owner, { type: "client_presence", status: "bogus" });
+    expect(owner.events.at(-1)?.type).toBe("error");
+    now += 40_000; await send(owner, "ping");
+    now += 40_000; await room.alarm();
+    expect(seen().map((viewer) => viewer.label)).toEqual([scope.userId]);
+    await send(teammate, "ping");
+    now += 1; await send(teammate, { type: "client_presence", status: "online" });
+    expect(seen().find((viewer) => viewer.label === "teammate@example.test")).toMatchObject({ status: "online", lastSeenAt: now });
+  });
+  it("throttles repeated typing frames but always publishes a stop", async () => {
+    const { room, addSocket } = await fixture(); const owner = await addSocket(scope.userId), teammate = await addSocket("teammate@example.test");
+    let now = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => now);
+    const typing = (value: boolean) => room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", typing: value }));
+    await typing(true); await typing(true); await typing(true);
+    expect(owner.events).toHaveLength(1);
+    now += 1_000; await typing(true); expect(owner.events).toHaveLength(2);
+    await typing(false); expect(owner.events).toHaveLength(3);
+    expect((owner.events.at(-1)?.viewers as Array<{ typing: boolean }>).some((viewer) => viewer.typing)).toBe(false);
+  });
   it("rejects malformed/out-of-bounds cursor frames and an unattached sender", async () => {
     const { room, addSocket } = await fixture(); const owner = await addSocket(scope.userId), teammate = await addSocket("teammate@example.test");
     for (const cursor of [{ x: -1, y: .5 }, { x: .5, y: 2 }, { x: null, y: .5 }, { x: .5 }, { x: .5, y: .5, command: "execute" }, "position"]) {

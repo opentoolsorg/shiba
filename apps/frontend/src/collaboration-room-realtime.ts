@@ -7,6 +7,8 @@ export interface CollaborationRoomViewer {
   label: string;
   typing: boolean;
   cursor: CollaborationRoomCursor | null;
+  status: "online" | "away";
+  lastSeenAt: number;
 }
 
 type ConnectionStatus = "offline" | "connecting" | "connected" | "reconnecting";
@@ -34,10 +36,17 @@ function viewersFrom(value: unknown): CollaborationRoomViewer[] | null {
     if (!viewer || typeof viewer !== "object" || typeof viewer.viewerId !== "string" || !VIEWER_ID.test(viewer.viewerId) ||
       typeof viewer.label !== "string" || !viewer.label || viewer.label.length > 320 ||
       typeof viewer.typing !== "boolean" || viewer.cursor !== undefined && viewer.cursor !== null && !isCursor(viewer.cursor)) return null;
-    viewers.push({ viewerId: viewer.viewerId, label: viewer.label, typing: viewer.typing, cursor: isCursor(viewer.cursor) ? { x: viewer.cursor.x, y: viewer.cursor.y } : null });
+    viewers.push({
+      viewerId: viewer.viewerId, label: viewer.label, typing: viewer.typing,
+      cursor: isCursor(viewer.cursor) ? { x: viewer.cursor.x, y: viewer.cursor.y } : null,
+      status: viewer.status === "away" ? "away" : "online",
+      lastSeenAt: typeof viewer.lastSeenAt === "number" && Number.isFinite(viewer.lastSeenAt) ? viewer.lastSeenAt : 0,
+    });
   }
   return viewers;
 }
+
+const presenceStatus = () => typeof document !== "undefined" && document.visibilityState === "hidden" ? "away" : "online";
 
 /** Presence and invalidation only: durable content and all actions use authenticated HTTP. */
 export function useCollaborationRoomRealtime(options: Options) {
@@ -110,12 +119,13 @@ export function useCollaborationRoomRealtime(options: Options) {
         lastFrameAt = Date.now();
         setStatus("connected");
         callbacks.current.onRefresh(roomId);
-        socket.send(JSON.stringify({ type: "client_presence", typing: typingRef.current }));
+        socket.send(JSON.stringify({ type: "client_presence", typing: typingRef.current, status: presenceStatus() }));
+        // The server treats ping as a presence heartbeat and expires silent viewers after 60s.
         heartbeat = setInterval(() => {
           if (!current()) return;
           if (Date.now() - lastFrameAt > 65_000) socket.close();
           else { try { socket.send("ping"); } catch { socket.close(); } }
-        }, 25_000);
+        }, 20_000);
       });
       socket.addEventListener("message", (event: MessageEvent) => {
         if (!current() || typeof event.data !== "string" || event.data.length > 65_536) return;
@@ -169,7 +179,11 @@ export function useCollaborationRoomRealtime(options: Options) {
 
   useEffect(() => {
     const clear = () => publishCursor(null);
-    const hidden = () => { if (document.visibilityState === "hidden") clear(); };
+    const hidden = () => {
+      if (document.visibilityState === "hidden") clear();
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN) { try { socket.send(JSON.stringify({ type: "client_presence", status: presenceStatus() })); } catch { /* Reconnect restores presence. */ } }
+    };
     window.addEventListener("blur", clear); document.addEventListener("visibilitychange", hidden);
     return () => { window.removeEventListener("blur", clear); document.removeEventListener("visibilitychange", hidden); };
   }, [publishCursor]);

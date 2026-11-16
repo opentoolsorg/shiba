@@ -78,7 +78,7 @@ describe("shared collaboration room realtime", () => {
     expect(onRefresh).toHaveBeenCalledTimes(3);
     hook.rerender({ ...initial, typingText: "Message being composed" });
     expect(socket.sent.map((raw) => JSON.parse(raw))).toEqual([
-      { type: "client_presence", typing: false },
+      { type: "client_presence", typing: false, status: "online" },
       { type: "client_presence", typing: true },
     ]);
   });
@@ -162,5 +162,20 @@ describe("shared collaboration room realtime", () => {
     });
     expect(hook.result.current.viewers).toEqual([]);
     expect(onRefresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("presence heartbeat", () => {
+  it("heartbeats every 20s and reports away/online on visibility change", () => {
+    vi.useFakeTimers();
+    const { sockets } = fixture();
+    sockets[0]!.open();
+    expect(JSON.parse(sockets[0]!.sent[0]!)).toMatchObject({ type: "client_presence", status: "online" });
+    act(() => { vi.advanceTimersByTime(20_000); });
+    expect(sockets[0]!.sent).toContain("ping");
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(sockets[0]!.sent.map((raw) => raw === "ping" ? raw : JSON.stringify(JSON.parse(raw)))).toContain(JSON.stringify({ type: "client_presence", status: "away" }));
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
   });
 });
