@@ -1,6 +1,6 @@
 import type { Env } from "../env.js";
 import { isTeamWorkspaceMember } from "../team-workspaces-store.js";
-import { isAuthorizedRequest, resolveUserId } from "../request-auth.js";
+import { resolveRequestIdentity } from "../request-auth.js";
 import { VERIFIED_SUBSCRIBER_HEADER, workspaceEventsName } from "./workspace-events-do.js";
 
 const PATH = /^\/api\/workspaces\/([^/]+)\/events$/;
@@ -12,10 +12,11 @@ export async function handleWorkspaceEvents(request: Request, env: Env): Promise
   if (request.method !== "GET") {
     return Response.json({ error: "Method not allowed." }, { status: 405, headers: { Allow: "GET" } });
   }
-  if (!(await isAuthorizedRequest(request, env))) {
+  const identity = await resolveRequestIdentity(request, env);
+  if (!identity.authorized) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
   }
-  const userId = (await resolveUserId(request, env))?.trim().toLowerCase();
+  const userId = identity.userId?.trim().toLowerCase();
   if (!userId) return Response.json({ error: "Authentication required." }, { status: 401 });
   const workspaceId = decodeURIComponent(match[1]!);
   if (!await isTeamWorkspaceMember(env, workspaceId, userId)) {

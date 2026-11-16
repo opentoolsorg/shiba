@@ -1,6 +1,6 @@
 import type { KnowledgeScope } from "@shiba/shared";
 import type { Env } from "../env.js";
-import { isAuthorizedRequest, requireSameOriginBrowserMutation, resolveUserId } from "../request-auth.js";
+import { requireSameOriginBrowserMutation, resolveRequestIdentity } from "../request-auth.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
 import { InputError } from "../security.js";
 import { assertKnowledgeRead, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
@@ -19,8 +19,8 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
 
 function workspaceFromRequest(request: Request, env: Env): Promise<{ workspaceId: string; userId: string } | Response> {
   return (async () => {
-    if (!(await isAuthorizedRequest(request, env))) return json({ error: "Authentication required." }, 401);
-    const userId = await resolveUserId(request, env);
+    const { userId, authorized } = await resolveRequestIdentity(request, env);
+    if (!authorized) return json({ error: "Authentication required." }, 401);
     if (!userId) return json({ error: "Authentication required." }, 401);
     const org = await resolveOrgForApiRequest(request, env);
     if (org instanceof Response) return org;

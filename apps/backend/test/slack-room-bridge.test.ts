@@ -17,7 +17,7 @@ vi.mock("../src/request-auth.js", () => ({
   isLoopbackRequest: vi.fn(() => false),
   isMcpPath: vi.fn(() => false),
   isOAuthPath: vi.fn(() => false),
-  isAuthorizedRequest: vi.fn(async () => authState.authorized),
+  resolveRequestIdentity: async () => ({ authorized: authState.authorized, userId: authState.userId }), isAuthorizedRequest: vi.fn(async () => authState.authorized),
   resolveUserId: vi.fn(async () => authState.userId),
   SIGNATURE_AUTHENTICATED: ["/api/slack/events", "/api/slack/command"],
 }));

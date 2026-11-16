@@ -7,7 +7,7 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const auth = vi.hoisted(() => ({ userId: "owner@example.test" }));
 const queue = vi.hoisted(() => vi.fn());
-vi.mock("../src/request-auth.js", () => ({ isAuthorizedRequest: async () => true, resolveUserId: async () => auth.userId }));
+vi.mock("../src/request-auth.js", () => ({ resolveRequestIdentity: async () => ({ authorized: true, userId: auth.userId }), isAuthorizedRequest: async () => true, resolveUserId: async () => auth.userId }));
 vi.mock("../src/runs-routes.js", () => ({ queueCollaborationRun: queue }));
 beforeEach(() => { auth.userId = "owner@example.test"; queue.mockReset(); });
 async function fixture() {
