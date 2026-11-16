@@ -209,7 +209,7 @@ describe("CollaborationView room access polling", () => {
       { viewerId: "11111111-1111-4111-8111-111111111111", label: "teammate@example.test", typing: true },
     ] }));
     expect(screen.getByLabelText("Room live connection").textContent).toContain("Live updates connected");
-    expect(screen.getByLabelText("Online room members").textContent).toContain("teammate@example.test is typing");
+    expect(screen.getByLabelText("Typing").textContent).toContain("teammate is typing");
   });
 
   it("clears revoked room content and ignores an in-flight HTTP reload arriving afterward", async () => {

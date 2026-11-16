@@ -18,6 +18,8 @@ import { MessageList } from "./collab/MessageList";
 import { MessageRow } from "./collab/MessageRow";
 import { OwnerChip } from "./collab/OwnerChip";
 import { PresenceChip, type PresenceState } from "./collab/PresenceChip";
+import { PresenceStack, typingSummary } from "./collab/PresenceStack";
+import { MentionMenu, useMentionAutocomplete } from "./collab/MentionAutocomplete";
 import { RoomRail } from "./collab/RoomRail";
 import { ThreadPane } from "./collab/ThreadPane";
 import { PersonalExecutionSetup } from "./PersonalExecutionSetup";
@@ -746,6 +748,10 @@ function ScopedCollaborationView({
   }, [initialRoomId, initialHandoffId, activeRoomId, detail, detailTab, workspaceId]);
 
   const members = useMemo(() => detail?.members ?? [], [detail]);
+  const mentions = useMentionAutocomplete({ members, selfUserId: detail?.currentUserId ?? "", value: message, setValue: setMessage, input: messageInput });
+  const workingEmployees = (detail?.handoffs ?? []).filter((handoff) => handoff.status === "active" && handoff.execution?.runStatus === "running")
+    .map((handoff) => members.find((member) => member.actorId === handoff.recipientActorId)?.displayName ?? "Employee");
+  const typing = typingSummary(realtime.viewers, realtime.viewerId, [...new Set(workingEmployees)]);
   const effectiveActorId =
     members.find(
       (member) => member.userId === detail?.currentUserId && member.actorKind === "human",
@@ -1168,19 +1174,8 @@ function ScopedCollaborationView({
                         ))}
                       </ul>
                     ) : null}
-                    {realtime.viewers.length > 0 && (
-                      <ul
-                        aria-label="Online room members"
-                        className="mt-1 flex flex-wrap gap-x-3 text-[10px] text-[var(--ink-2)]"
-                      >
-                        {realtime.viewers.map((viewer) => (
-                          <li key={viewer.viewerId}>
-                            {viewer.label}
-                            {viewer.typing ? " is typing…" : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                    <div className="mt-1"><PresenceStack viewers={realtime.viewers} selfViewerId={realtime.viewerId} /></div>
+                    {typing ? <p role="status" aria-label="Typing" className="mt-1 text-[10px] text-[var(--ink-2)]">{typing}</p> : null}
                   </div>
                   <button
                     type="button"
@@ -1403,11 +1398,14 @@ function ScopedCollaborationView({
                       onSubmit={sendMessage}
                       className="sticky bottom-0 flex flex-wrap gap-2 border-t border-[var(--line)] bg-[var(--card)] p-3"
                     >
+                      <MentionMenu options={mentions.options} active={mentions.active} onPick={mentions.insert} />
                       <textarea
                         ref={messageInput}
                         aria-label="Message"
                         value={message}
-                        onChange={(event) => setMessage(event.target.value)}
+                        onChange={(event) => mentions.onChange(event.target.value, event.target.selectionStart)}
+                        onSelect={(event) => mentions.onSelect(event.currentTarget.selectionStart)}
+                        onKeyDown={mentions.onKeyDown}
                         maxLength={5000}
                         rows={2}
                         placeholder={openThreadId ? "Reply in this thread…" : "Message this group…"}
