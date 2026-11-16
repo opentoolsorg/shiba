@@ -5,6 +5,7 @@ import {
   MAX_PDF_DELIVERABLE_BYTES,
 } from "@shiba/shared";
 import { deliverableResponse, HTML_DELIVERABLE_CSP } from "../src/deliverable-response.js";
+import { handleCollaborationWithRealtime } from "../src/collaboration-room-routes.js";
 import { handleCollaborationShare } from "../src/collaboration-share-routes.js";
 import { persistRunDeliverables, verifyExpectedDeliverables } from "../src/run-deliverables.js";
 import type { Env } from "../src/env.js";
@@ -18,7 +19,7 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("../src/request-auth.js", () => ({ isAuthorizedRequest: async (r: Request) => r.headers.get("Authorization") === "Bearer ok" }));
 vi.mock("../src/team-collaboration-scope.js", () => ({ resolveTeamCollaborationScope: async () => state.scope }));
-vi.mock("../src/collaboration-room-access.js", () => ({ canReadCollaborationRoom: async () => state.canRead }));
+vi.mock("../src/collaboration-room-access.js", () => ({ canReadCollaborationRoom: async () => state.canRead, collaborationRoomName: () => "test-room" }));
 vi.mock("../src/artifact-access.js", () => ({ assertSandboxArtifactAccess: async () => state.denied }));
 vi.mock("../src/edge-identity.js", () => ({ signInternalRequest: async () => {} }));
 vi.mock("agents/routing", () => ({
@@ -54,6 +55,13 @@ describe("deliverable media types", () => {
     expect(meta).not.toHaveProperty("content");
     const stored = (put.mock.calls[0] as unknown[])[1] as Uint8Array;
     expect(Buffer.from(stored).toString("latin1")).toBe(PDF);
+  });
+
+  it("accepts a full-sized PDF without overflowing the base64 validator", async () => {
+    const content = Buffer.alloc(MAX_PDF_DELIVERABLE_BYTES, 32);
+    content.write("%PDF-1.7");
+    const [artifact] = await verifyExpectedDeliverables(["report.pdf"], [file("report.pdf", content.toString("base64"), "base64")]);
+    expect(artifact?.bytes).toBe(MAX_PDF_DELIVERABLE_BYTES);
   });
 
   it("rejects a fake PDF with a plain message", async () => {
@@ -142,6 +150,13 @@ describe("share to room", () => {
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0]).toMatchObject({ roomId: ROOM, body: "Shared dashboard.html", senderKind: "human" });
     expect(put).toHaveBeenCalledTimes(1);
+  });
+  it("notifies open room viewers when a deliverable is shared", async () => {
+    const notify = vi.fn(async () => {});
+    const sharedEnv = { ...env(), ConversationRoom: { getByName: () => ({ notifyCollaborationChange: notify }) } } as unknown as Env;
+    const response = await handleCollaborationWithRealtime(post(), sharedEnv);
+    expect(response?.status).toBe(201);
+    expect(notify).toHaveBeenCalledWith({ tenantId: "t", workspaceId: "w", roomId: ROOM });
   });
   it("does not share an unfinished run", async () => {
     state.run = { ...run, status: "running" };

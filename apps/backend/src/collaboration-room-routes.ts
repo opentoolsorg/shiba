@@ -58,8 +58,7 @@ export async function handleCollaborationWithRealtime(request: Request, env: Env
   const artifact = await handleCollaborationArtifact(request, env);
   if (artifact) return artifact;
   const shared = await handleCollaborationShare(request, env);
-  if (shared) return shared;
-  const response = await handleCollaboration(request, env);
+  const response = shared ?? await handleCollaboration(request, env);
   if (response?.ok && request.method !== "GET" && request.method !== "HEAD" && env.ConversationRoom) {
     let roomId = url.pathname.match(/^\/api\/collaboration\/rooms\/([^/]+)(?:\/|$)/)?.[1];
     if (!roomId && /^\/api\/collaboration\/handoffs\//.test(url.pathname)) {

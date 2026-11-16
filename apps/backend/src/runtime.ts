@@ -1073,7 +1073,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
           diff: boundTail(result.diff, MAX_DIFF_CHARS),
           files: result.files.slice(0, MAX_CAPTURED_FILES).map((file) => ({
             path: file.path,
-            content: file.content === null ? null : boundTail(file.content, MAX_FILE_CHARS),
+            content: file.content === null ? null : input.expectedDeliverables?.includes(file.path) ? file.content : boundTail(file.content, MAX_FILE_CHARS),
             encoding: file.encoding,
           })),
           signals,
@@ -1302,7 +1302,7 @@ function withDeliverableInstructions(input: CodingTaskInput): CodingTaskInput {
   const workspace = input.executionTarget?.kind === "artifact-workspace"
     ? `the approved artifact workspace${input.executionTarget.workspaceName ? ` (${input.executionTarget.workspaceName})` : ""}`
     : "the approved repository workspace";
-  return { ...input, task: `${input.task}\n\nRequired deliverables (relative to ${workspace}):\n${expected.map((path) => `- ${path}`).join("\n")}\nWrite complete nonempty UTF-8 text files at these exact paths. JSON files must parse. Each file must be at most 16384 UTF-8 bytes, and all requested files together at most 65536 bytes. A completion claim without these files will fail verification.` };
+  return { ...input, task: `${input.task}\n\nRequired deliverables (relative to ${workspace}):\n${expected.map((path) => `- ${path}`).join("\n")}\nWrite complete nonempty files at these exact paths. Text files must be UTF-8 and JSON files must parse. Text files are limited to 16384 bytes each and 65536 bytes total; HTML to 524288 bytes each; PDF to 10485760 bytes each; HTML and PDF together to 11010048 bytes. ${DELIVERABLE_FORMAT_HINT} A completion claim without these files will fail verification.` };
 }
 
 /** Read regular files from the settled Git snapshot. Symlinks (including
@@ -1324,7 +1324,7 @@ export async function collectExpectedSandboxDeliverables(
     const encodedLength = Math.ceil(bytes / 3) * 4;
     const blob = await ops.exec(shellJoin(["node", "-e", DELIVERABLE_BLOB_READER, objectId]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal, maxOutputChars: Math.ceil(deliverableByteLimit(path) / 3) * 4 + 1 });
     const encoded = blob.stdout;
-    if (blob.exitCode !== 0 || encoded.length !== encodedLength || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error(`Deliverable ${path} has malformed or truncated byte transport.`);
+    if (blob.exitCode !== 0 || encoded.length !== encodedLength || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new Error(`Deliverable ${path} has malformed or truncated byte transport.`);
     let content: string;
     let encoding: "utf8" | "base64" = "utf8";
     try {

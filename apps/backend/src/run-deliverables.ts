@@ -136,7 +136,7 @@ function mediaType(path: string): string {
 }
 
 function base64Bytes(content: string): Uint8Array<ArrayBuffer> | null {
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(content)) return null;
+  if (content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)) return null;
   const raw = atob(content);
   return btoa(raw) === content ? Uint8Array.from(raw, (character) => character.charCodeAt(0)) : null;
 }
