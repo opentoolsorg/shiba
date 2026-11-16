@@ -7,7 +7,8 @@ const name = (label: string) => label.replace(/^(human|agent):/, "").split("@")[
 
 /** "Asha is typing…", "Asha and Ben are typing…", "3 people are typing…". */
 export function typingSummary(viewers: CollaborationRoomViewer[], selfViewerId: string | null, working: string[] = []): string {
-  const names = [...viewers.filter((viewer) => viewer.typing && viewer.viewerId !== selfViewerId).map((viewer) => name(viewer.label)),
+  const selfLabel = viewers.find((viewer) => viewer.viewerId === selfViewerId)?.label;
+  const names = [...[...new Set(viewers.filter((viewer) => viewer.typing && viewer.viewerId !== selfViewerId && viewer.label !== selfLabel).map((viewer) => viewer.label))].map(name),
     ...working.map((label) => `${label} is working`)];
   const typers = names.filter((item) => !item.endsWith(" is working"));
   const workers = names.filter((item) => item.endsWith(" is working"));
@@ -22,8 +23,18 @@ export function typingSummary(viewers: CollaborationRoomViewer[], selfViewerId: 
 /** Stacked avatars of who is in the room, with a status dot per person. */
 export function PresenceStack({ viewers, selfViewerId }: { viewers: CollaborationRoomViewer[]; selfViewerId: string | null }): JSX.Element | null {
   if (viewers.length === 0) return null;
-  const shown = viewers.slice(0, MAX_AVATARS);
-  const extra = viewers.length - shown.length;
+  const people = new Map<string, CollaborationRoomViewer>();
+  for (const viewer of viewers) {
+    const previous = people.get(viewer.label);
+    people.set(viewer.label, previous ? {
+      ...viewer,
+      viewerId: previous.viewerId === selfViewerId ? previous.viewerId : viewer.viewerId,
+      status: previous.status === "online" || viewer.status === "online" ? "online" : "away",
+      typing: previous.typing || viewer.typing,
+    } : viewer);
+  }
+  const shown = [...people.values()].slice(0, MAX_AVATARS);
+  const extra = people.size - shown.length;
   return (
     <ul aria-label="Online room members" className="flex items-center -space-x-1.5">
       {shown.map((viewer) => (

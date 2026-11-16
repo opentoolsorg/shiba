@@ -18,6 +18,14 @@ describe("presence stack and typing text", () => {
     expect(screen.getByText("ben, away")).toBeTruthy();
     expect(screen.getByText("+2")).toBeTruthy();
   });
+  it("shows each person once across tabs and uses any online tab", () => {
+    const viewers = [viewer("1", "asha@x.test", { status: "away", typing: true }), viewer("2", "asha@x.test", { typing: true })];
+    render(<PresenceStack viewers={viewers} selfViewerId={viewers[0]!.viewerId} />);
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByText("asha, online, typing")).toBeTruthy();
+    expect(typingSummary(viewers, null)).toBe("asha is typing…");
+    expect(typingSummary(viewers, viewers[0]!.viewerId)).toBe("");
+  });
   it("names typers, skips self, and lists working employees", () => {
     const viewers = [viewer("1", "me@x.test", { typing: true }), viewer("2", "asha@x.test", { typing: true })];
     expect(typingSummary(viewers, viewers[0]!.viewerId)).toBe("asha is typing…");
@@ -69,5 +77,7 @@ describe("mention autocomplete", () => {
     fireEvent.keyDown(box, { key: "Escape" });
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(box.value).toBe("@a");
+    fireEvent.change(box, { target: { value: "@w", selectionStart: 2 } });
+    expect(screen.getByRole("listbox").textContent).toContain("Writer");
   });
 });

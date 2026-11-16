@@ -3,11 +3,13 @@ import {
   addCollaborationMember,
   createCollaborationRoom,
   ensureCollaborationSchema,
+  removeCollaborationMember,
 } from "../src/collaboration-store.js";
 import { createChannel } from "../src/collaboration-v2-store.js";
 import { handleCollaboration } from "../src/collaboration-routes.js";
 import { handleNotifications } from "../src/notifications/notifications-routes.js";
-import { parseCollaborationMentions } from "../src/collaboration-mentions.js";
+import { handleCollaborationMentions, parseCollaborationMentions } from "../src/collaboration-mentions.js";
+import { acceptTeamWorkspaceInvitation, changeTeamWorkspaceMember, createTeamWorkspace, createTeamWorkspaceInvitation } from "../src/team-workspaces-store.js";
 import type { Env } from "../src/env.js";
 import { COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID } from "../src/collaboration-store.js";
 import { applyCollabV2Migrations } from "./fixtures/collab-v2-migrations.js";
@@ -29,6 +31,40 @@ describe("mentions and notifications", () => {
     const parsed = parseCollaborationMentions("hi @user:peer@example.test and @agent:planner_bot");
     expect(parsed.users).toEqual(["peer@example.test"]);
     expect(parsed.agents).toEqual(["planner_bot"]);
+  });
+
+  it("does not send private mention text to outsiders or removed room members", async () => {
+    const { database, sqlite } = customAgentD1();
+    const env = { AGENT_AUDIT: database } as unknown as Env;
+    await ensureCollaborationSchema(env);
+    applyCollabV2Migrations(sqlite);
+    const scope = { tenantId: COLLAB_TENANT_ID, workspaceId: COLLAB_WORKSPACE_ID, userId: authState.userId };
+    const room = await createCollaborationRoom(env, scope, { roomId: `room_${"c".repeat(24)}`, title: "Private", visibility: "private", createdAt: 1 });
+    for (const userId of ["active@example.test", "removed@example.test"]) {
+      await addCollaborationMember(env, scope, room.roomId, { userId, actorId: `human:${userId}`, displayName: userId, kind: "human", createdAt: 1 });
+    }
+    await removeCollaborationMember(env, scope, room.roomId, "human:removed@example.test", 2);
+    const post = await handleCollaboration(new Request(`https://worker.test/api/collaboration/rooms/${room.roomId}/messages`, {
+      method: "POST", headers: { "content-type": "application/json", origin: "https://worker.test" },
+      body: JSON.stringify({ body: "Private text @user:active@example.test @user:removed@example.test @user:outsider@example.test" }),
+    }), env);
+    expect(post?.status).toBe(201);
+    const notifications = sqlite.prepare("SELECT user_id FROM workspace_notifications WHERE kind='mention'").all();
+    expect(notifications).toEqual([{ user_id: "active@example.test" }]);
+  });
+
+  it("does not notify a former workspace member with a retained room membership", async () => {
+    const { database, sqlite } = customAgentD1();
+    const env = { AGENT_AUDIT: database } as unknown as Env;
+    const workspace = await createTeamWorkspace(env, authState.userId, { name: "Private team" });
+    const invitation = await createTeamWorkspaceInvitation(env, workspace.workspaceId, authState.userId, { email: "former@example.test", role: "member" });
+    await acceptTeamWorkspaceInvitation(env, "former@example.test", invitation.token);
+    const scope = { tenantId: COLLAB_TENANT_ID, workspaceId: workspace.workspaceId, userId: authState.userId };
+    const room = await createCollaborationRoom(env, scope, { roomId: `room_${"d".repeat(24)}`, title: "Private", visibility: "private", createdAt: 1 });
+    await addCollaborationMember(env, scope, room.roomId, { userId: "former@example.test", actorId: "human:former@example.test", displayName: "Former", kind: "human", createdAt: 1 });
+    await changeTeamWorkspaceMember(env, workspace.workspaceId, authState.userId, "former@example.test", { remove: true, expectedVersion: 1 });
+    await handleCollaborationMentions(env, scope, { roomId: room.roomId, messageId: "message-private", body: "Private text @user:former@example.test", now: 3 });
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM workspace_notifications WHERE user_id='former@example.test'").get()?.count).toBe(0);
   });
 
   it("creates mention notifications and agent mention handoffs in channels", async () => {
@@ -57,7 +93,7 @@ describe("mentions and notifications", () => {
       new Request(`https://worker.test/api/collaboration/rooms/${channel.roomId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json", origin: "https://worker.test" },
-        body: JSON.stringify({ body: "Please review @user:peer@example.test and @agent:planner_bot" }),
+        body: JSON.stringify({ body: "Please review @user:peer@example.test and @user:peer@example.test with @agent:planner_bot and @agent:planner_bot" }),
       }),
       env,
     );
