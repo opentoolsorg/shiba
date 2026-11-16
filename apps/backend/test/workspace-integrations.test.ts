@@ -403,8 +403,16 @@ describe("workspace-shared connections with real route/SQLite and fixture siblin
     }
     const connected = await ask("/connect", "POST", { providerKey: "github", audienceConsent: "workspace-members" });
     expect(connected.status).toBe(409);
-    expect(connected.body).toMatchObject({ code: "setup_required" });
+    expect(connected.body).toMatchObject({ configured: false, code: "setup_required" });
     expect(f.transport).not.toHaveBeenCalled();
+  });
+
+  it("keeps configured provider HTTP failures as 503", async () => {
+    const f = await fixture();
+    f.transport.mockResolvedValueOnce(Response.json({ error: "unavailable" }, { status: 503 }));
+    const catalog = await f.call("/catalog");
+    expect(catalog.response.status).toBe(503);
+    expect(catalog.body).toEqual({ error: "workspace_integrations_unavailable" });
   });
 
   it("merges live provider rows into featured entries when bound", async () => {

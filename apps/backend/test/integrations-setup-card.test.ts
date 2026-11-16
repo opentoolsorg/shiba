@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FEATURED_INTEGRATIONS, INTEGRATION_SETUP_GUIDE, integrationProviderCatalogItemSchema } from "@shiba/shared";
 import type { Env } from "../src/env.js";
 import { handleIntegrationProviderRoutes } from "../src/integrations-provider-routes.js";
+import { OpenConnectorIntegrationProviderError } from "../src/integrations/openconnector-provider.js";
 import { getIntegrationProvider, resetIntegrationProviderCacheForTests } from "../src/integrations/runtime.js";
 
 vi.mock("../src/request-auth.js", () => ({ isAuthorizedRequest: vi.fn(async () => true) }));
@@ -42,13 +43,27 @@ describe("integrations setup card (OpenConnector unbound)", () => {
       method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ providerKey: "stripe" }),
     }), unbound);
     expect(response?.status).toBe(409);
-    expect(await response!.json()).toMatchObject({ ok: false, code: "setup_required" });
+    expect(await response!.json()).toMatchObject({ ok: false, configured: false, code: "setup_required" });
   });
 
-  it("keeps 503 for a configured provider that is down", async () => {
+  it.each([
+    "Could not reach OpenConnector.",
+    "OpenConnector request failed (HTTP 503).",
+    "OpenConnector returned an invalid response.",
+  ])("keeps real provider failures as 503: %s", async (message) => {
     const env = { OPEN_CONNECTOR_URL: "https://oc.example.test" } as Env;
-    vi.spyOn(getIntegrationProvider(env), "listCatalog").mockRejectedValue(new Error("upstream timed out"));
-    const response = await handleIntegrationProviderRoutes(get("catalog"), env);
+    const provider = getIntegrationProvider(env);
+    for (const path of ["catalog", "connections"]) {
+      vi.spyOn(provider, path === "catalog" ? "listCatalog" : "listConnections")
+        .mockRejectedValue(new OpenConnectorIntegrationProviderError(message));
+      const response = await handleIntegrationProviderRoutes(get(path), env);
+      expect(response?.status).toBe(503);
+      expect(await response!.json()).toMatchObject({ ok: false });
+    }
+    vi.spyOn(provider, "beginConnect").mockResolvedValue({ ok: false, provider: "openconnector", error: message });
+    const response = await handleIntegrationProviderRoutes(new Request(`${origin}/api/integrations/provider/connect`, {
+      method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ providerKey: "stripe" }),
+    }), env);
     expect(response?.status).toBe(503);
   });
 });

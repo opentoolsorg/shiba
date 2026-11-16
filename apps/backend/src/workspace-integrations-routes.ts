@@ -106,7 +106,7 @@ async function dispatch(request: Request, env: Env, member: WorkspaceNativeMembe
     return json({ ok: true, workspaceId: member.workspaceId, provider: "openconnector", configured: true, featured: mergeFeaturedWithLive(result.items), ...result });
   }
   if (suffix === "/connect" && request.method === "POST") {
-    if (!openConnectorConfigured(env)) return json({ ok: false, code: "setup_required", error: "Integrations need setup. Connect an OpenConnector worker first." }, 409);
+    if (!openConnectorConfigured(env)) return json({ ok: false, configured: false, code: "setup_required", error: "Integrations need setup. Connect an OpenConnector worker first." }, 409);
     const input = await parse(request, connect), result = await createWorkspaceConnection(env, member, input.providerKey, url.origin);
     return json({ ok: true, workspaceId: member.workspaceId, connection: await connectionDto(env, result.row), pendingId: result.pendingId,
       authorizationFingerprint: result.authorizationFingerprint, redirectUrl: result.redirectUrl }, 201);

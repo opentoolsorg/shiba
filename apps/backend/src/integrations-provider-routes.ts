@@ -28,12 +28,12 @@ export function openConnectorConfigured(env: Env): boolean {
 /** Unbound provider: mutations answer 409 setup_required; reads degrade to a setup card instead. */
 export function openConnectorGate(env: Env): Response | null {
   if (openConnectorConfigured(env)) return null;
-  return json({ ok: false, code: "setup_required", error: "Integrations need setup. Connect an OpenConnector worker first." }, 409);
+  return json({ ok: false, configured: false, code: "setup_required", error: "Integrations need setup. Connect an OpenConnector worker first." }, 409);
 }
 
 /** True when a provider failure means OpenConnector is missing credentials or a binding, not that it is down. */
 export function isOpenConnectorSetupError(error: unknown): boolean {
-  return error instanceof OpenConnectorIntegrationProviderError && /OPEN_CONNECTOR|OpenConnector/i.test(error.message);
+  return error instanceof OpenConnectorIntegrationProviderError && /^(?:Set OPEN_CONNECTOR(?:_| or )|OPEN_CONNECTOR_URL (?:is invalid|must be))/.test(error.message);
 }
 
 /** 200 body for catalog reads while OpenConnector is not set up. */
@@ -266,8 +266,8 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
       callbackOrigin: origin,
       ...(body?.replaceUnavailable === true ? { replaceUnavailable: true } : {}),
     });
-    if (!result.ok && /OPEN_CONNECTOR|OpenConnector/i.test(result.error ?? "")) {
-      return json({ ok: false, code: "setup_required", error: "Integrations need setup. Connect an OpenConnector worker first." }, 409);
+    if (!result.ok && isOpenConnectorSetupError(new OpenConnectorIntegrationProviderError(result.error ?? ""))) {
+      return json({ ok: false, configured: false, code: "setup_required", error: "Integrations need setup. Connect an OpenConnector worker first." }, 409);
     }
     return json(result, result.ok ? 200 : 503);
   }
