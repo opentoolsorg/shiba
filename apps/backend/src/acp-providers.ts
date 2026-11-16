@@ -25,6 +25,7 @@ import {
 import type { AgentHarnessName } from "./harness/types.js";
 import { InputError } from "./security.js";
 
+const SIGN_IN_TIMEOUT_MESSAGE = "The last sign-in timed out. Connect again when you're ready.";
 const DEVICE_TTL_MS = 15 * 60 * 1000;
 const RECORD_PREFIX = "acp_provider:";
 const DEFAULT_PREFIX = "acp_provider_default:";
@@ -57,8 +58,8 @@ interface ProviderDefinition {
 }
 
 interface StoredConnection {
-  phase: "waiting" | "connected" | "failed";
-  authMode: AcpAuthMode;
+  phase: "disconnected" | "waiting" | "connected" | "failed";
+  authMode: AcpAuthMode | null;
   message?: string;
   userCode?: string;
   verificationUri?: string;
@@ -337,7 +338,7 @@ async function readRecord(
   if (raw === null) return null;
   try {
     const parsed = JSON.parse(raw) as StoredConnection;
-    if (parsed.phase !== "waiting" && parsed.phase !== "connected" && parsed.phase !== "failed") {
+    if (parsed.phase !== "disconnected" && parsed.phase !== "waiting" && parsed.phase !== "connected" && parsed.phase !== "failed") {
       return null;
     }
     return parsed;
@@ -360,6 +361,11 @@ async function writeRecord(
     await kv.put(recordKey(org, id), JSON.stringify(record));
   } catch {
     throw new ProviderFlowError("Provider connection store is unreachable.", 503);
+  }
+  if (record.phase === "connected") {
+    const defaultId = await readDefault(env, org);
+    const current = defaultId === null ? null : await readRecord(env, org, defaultId);
+    if (current?.phase !== "connected") await writeDefault(env, org, id);
   }
 }
 
@@ -406,8 +412,10 @@ export async function connectedDefaultForUser(env: Env, userId: string): Promise
   const connected = snapshot.providers.filter((card) => card.connection.phase === "connected"
     && card.connection.signInKind !== "claude-daemon"
     && providerLaneAllowed(env, card.id, card.connection.authMode));
-  return connected.find((card) => card.id === snapshot.defaultProviderId)
-    ?? (connected.length === 1 ? connected[0]! : null);
+  const defaultCard = connected.find((card) => card.id === snapshot.defaultProviderId);
+  if (defaultCard) return defaultCard;
+  const latestId = await mostRecentConnectedProvider(env, userId, connected.map((card) => card.id));
+  return connected.find((card) => card.id === latestId) ?? null;
 }
 
 async function writeDefault(env: Env, org: string, id: AcpProviderId | null): Promise<void> {
@@ -421,6 +429,41 @@ async function writeDefault(env: Env, org: string, id: AcpProviderId | null): Pr
   } catch {
     throw new ProviderFlowError("Provider connection store is unreachable.", 503);
   }
+}
+
+async function mostRecentConnectedProvider(
+  env: Env,
+  org: string,
+  ids: readonly AcpProviderId[] = ACP_PROVIDER_REGISTRY.map((provider) => provider.id),
+): Promise<AcpProviderId | null> {
+  const records = await Promise.all(ids.map(async (id) => ({ id, record: await readRecord(env, org, id) })));
+  return records
+    .flatMap(({ id, record }) => record?.phase === "connected" && providerLaneAllowed(env, id, record.authMode)
+      ? [{ id, updatedAt: record.updatedAt }] : [])
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id ?? null;
+}
+
+function expiredSignIn(record: StoredConnection, now: number): boolean {
+  return record.phase === "waiting" && record.expiresAt !== undefined && record.expiresAt <= now;
+}
+
+async function clearExpiredSignIn(
+  env: Env,
+  org: string,
+  id: AcpProviderId,
+  expected: StoredConnection,
+  now: number,
+): Promise<StoredConnection | null> {
+  const fresh = await readRecord(env, org, id);
+  if (fresh === null || fresh.phase !== "waiting" || fresh.updatedAt !== expected.updatedAt) return fresh;
+  const record: StoredConnection = {
+    phase: "disconnected",
+    authMode: null,
+    message: SIGN_IN_TIMEOUT_MESSAGE,
+    updatedAt: now,
+  };
+  await writeRecord(env, org, id, record);
+  return record;
 }
 
 function presentCredential(env: Env, names: readonly string[]): string | null {
@@ -478,8 +521,8 @@ function publicConnection(record: StoredConnection | null, now: number): AcpProv
   if (record === null) return DISCONNECTED;
   const retired =
     record.verificationUri !== undefined && RETIRED_SIGN_IN_URIS.has(record.verificationUri);
-  const expired =
-    record.phase === "waiting" && record.expiresAt !== undefined && record.expiresAt <= now;
+  const expired = expiredSignIn(record, now);
+  if (expired) return { ...DISCONNECTED, message: SIGN_IN_TIMEOUT_MESSAGE };
   if (record.phase === "failed" && STALE_FAILURE.test(record.message ?? "")) {
     return DISCONNECTED;
   }
@@ -499,18 +542,18 @@ function publicConnection(record: StoredConnection | null, now: number): AcpProv
     };
   }
   return {
-    phase: expired ? "failed" : record.phase,
+    phase: record.phase,
     authMode: record.authMode,
-    message: expired ? "Sign-in expired. Start again." : (record.message ?? null),
-    userCode: !expired && record.signInKind === "chatgpt-device" ? (record.userCode ?? null) : null,
-    verificationUri: expired ? null : (record.verificationUri ?? null),
+    message: record.message ?? null,
+    userCode: record.signInKind === "chatgpt-device" ? (record.userCode ?? null) : null,
+    verificationUri: record.verificationUri ?? null,
     expiresAt: record.expiresAt ?? null,
     testedAt: record.testedAt ?? null,
     testOk: record.testOk ?? null,
-    signInKind: expired ? null : (record.signInKind ?? null),
+    signInKind: record.signInKind ?? null,
     oauthState:
-      expired || record.phase !== "waiting" ? null : (record.oauthState ?? null),
-    operatorSteps: expired ? ["Choose Connect with sign-in again."] : (record.operatorSteps ?? []),
+      record.phase !== "waiting" ? null : (record.oauthState ?? null),
+    operatorSteps: record.operatorSteps ?? [],
   };
 }
 
@@ -580,19 +623,24 @@ export async function readProviderSnapshot(
   deps: ProviderDeps = {},
 ): Promise<AcpProvidersSnapshot> {
   const now = nowMs(deps);
-  const defaultId = await readDefault(env, org);
-  const providers = await Promise.all(
+  const records = await Promise.all(
     ACP_PROVIDER_REGISTRY.map(async (provider) => {
-      const record = await maybeRefreshStaleFailure(
+      let record = await maybeRefreshStaleFailure(
         env,
         org,
         provider,
         await readRecord(env, org, provider.id),
         deps,
       );
-      return toCard(provider, providerLaneAllowed(env, provider.id, record?.authMode ?? "oauth") ? record : null, defaultId, now);
+      if (record !== null && expiredSignIn(record, now)) {
+        record = await clearExpiredSignIn(env, org, provider.id, record, now);
+      }
+      return { provider, record };
     }),
   );
+  const defaultId = await readDefault(env, org);
+  const providers = records.map(({ provider, record }) =>
+    toCard(provider, providerLaneAllowed(env, provider.id, record?.authMode ?? "oauth") ? record : null, defaultId, now));
   return { org, defaultProviderId: defaultId, providers };
 }
 
@@ -607,7 +655,7 @@ export async function resetProvider(
   assertProviderLane(env, provider.id, record?.authMode ?? "oauth");
   await deleteRecord(env, org, provider.id);
   const currentDefault = await readDefault(env, org);
-  if (currentDefault === provider.id) await writeDefault(env, org, null);
+  if (currentDefault === provider.id) await writeDefault(env, org, await mostRecentConnectedProvider(env, org));
   return readProviderSnapshot(env, org, deps);
 }
 
@@ -718,15 +766,8 @@ export async function verifyProvider(
   if (record === null || record.phase !== "waiting") {
     throw new ProviderFlowError("There is no sign-in in progress for this provider.", 409);
   }
-  if (record.expiresAt !== undefined && record.expiresAt <= now) {
-    await writeRecord(env, org, provider.id, {
-      ...record,
-      phase: "failed",
-      message: "Sign-in expired. Start again.",
-      userCode: undefined,
-      verificationUri: undefined,
-      updatedAt: now,
-    });
+  if (expiredSignIn(record, now)) {
+    await clearExpiredSignIn(env, org, provider.id, record, now);
     return readProviderSnapshot(env, org, deps);
   }
   const complete = deps.completeOauth;
@@ -848,7 +889,7 @@ export async function disconnectProvider(
   }
   await deleteRecord(env, org, provider.id);
   if ((await readDefault(env, org)) === provider.id) {
-    await writeDefault(env, org, null);
+    await writeDefault(env, org, await mostRecentConnectedProvider(env, org));
   }
   return readProviderSnapshot(env, org, deps);
 }
