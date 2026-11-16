@@ -1,5 +1,6 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WorkspaceEvents } from "../src/platform/workspace-events-do.js";
 import { ConversationRoom } from "../src/conversation-room-do.js";
 import { handleCollaborationWithRealtime } from "../src/collaboration-room-routes.js";
 import { canReadCollaborationRoom, collaborationRoomName, notifyCollaborationHandoffChange } from "../src/collaboration-room-access.js";
@@ -277,8 +278,9 @@ describe("authenticated shared-room realtime", () => {
     expect(response?.status).toBe(201);
     expect(notify).toHaveBeenCalledOnce();
     expect(published).toEqual([expect.objectContaining({
-      type: "collaboration.change",
-      resourceId: identity.roomId,
+      kind: "message.created",
+      entityId: identity.roomId,
+      payload: { message: expect.objectContaining({ body: "Durable shared note", senderKind: "human" }) },
       audience: { roomId: identity.roomId },
     })]);
     for (const socket of [owner, teammate]) {
@@ -289,6 +291,50 @@ describe("authenticated shared-room realtime", () => {
     expect(denied?.status).toBe(403);
     expect(notify).toHaveBeenCalledOnce();
     expect(published).toHaveLength(1);
+  });
+
+  it("fans committed room and message writes through the DO to two clients without leaking to outsiders", async () => {
+    const { env } = await fixture();
+    const clients = [new Socket(), new Socket(), new Socket()];
+    clients.forEach((socket, index) => socket.serializeAttachment({ userId: index === 2 ? "outsider@example.test" : scope.userId }));
+    const hub = new WorkspaceEvents({ getWebSockets: () => clients } as unknown as DurableObjectState, env);
+    env.WorkspaceEvents = { getByName: () => ({ fetch: (request: Request) => hub.fetch(request) }) } as unknown as Env["WorkspaceEvents"];
+    const headers = { Origin: "https://worker.test", "Content-Type": "application/json" };
+    const start = performance.now();
+    const response = await handleCollaborationWithRealtime(new Request("https://worker.test/api/collaboration/rooms", {
+      method: "POST", headers, body: JSON.stringify({ title: "Instant room", visibility: "private" }),
+    }), env);
+    const { room } = await response!.json() as { room: { roomId: string } };
+    for (const client of clients.slice(0, 2)) expect(client.events[0]).toMatchObject({ kind: "room.updated", entityId: room.roomId });
+    expect(performance.now() - start).toBeLessThan(1000);
+    const sentAt = performance.now();
+    const posted = await handleCollaborationWithRealtime(new Request(`https://worker.test/api/collaboration/rooms/${room.roomId}/messages`, {
+      method: "POST", headers, body: JSON.stringify({ body: "Instant message" }),
+    }), env);
+    expect(posted?.status).toBe(201);
+    for (const client of clients.slice(0, 2)) expect(client.events[1]).toMatchObject({ kind: "message.created", payload: { message: { body: "Instant message" } } });
+    expect(performance.now() - sentAt).toBeLessThan(1000);
+    expect(clients[2]!.events).toEqual([]);
+  });
+
+  it("publishes a room-list patch after create without requiring the room socket binding", async () => {
+    const { env } = await fixture();
+    const published: Array<Record<string, unknown>> = [];
+    env.WorkspaceEvents = { getByName: () => ({ fetch: async (request: Request) => {
+      published.push(await request.json() as Record<string, unknown>);
+      return Response.json({ ok: true });
+    } }) } as unknown as Env["WorkspaceEvents"];
+    const response = await handleCollaborationWithRealtime(new Request("https://worker.test/api/collaboration/rooms", {
+      method: "POST", headers: { Origin: "https://worker.test", "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Instant room", visibility: "private" }),
+    }), env);
+    expect(response?.status).toBe(201);
+    const { room } = await response!.json() as { room: { roomId: string } };
+    expect(published).toEqual([expect.objectContaining({ kind: "room.updated", entityId: room.roomId,
+      audience: { roomId: room.roomId }, payload: { room: {
+        roomId: room.roomId, title: "Instant room", visibility: "private", kind: "room",
+      } },
+    })]);
   });
 
   it("invalidates the exact room after cancellation and an internal settlement hint", async () => {

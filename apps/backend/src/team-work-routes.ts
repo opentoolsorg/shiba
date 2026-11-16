@@ -1,4 +1,4 @@
-import { authorizeCollaborationAction, isTeamWorkspaceId, runInputHash, type DelegatedRun, type PendingApproval } from "@shiba/shared";
+import { authorizeCollaborationAction, isTeamWorkspaceId, runInputHash, type DelegatedRun, type PendingApproval, type WorkspaceTaskPatch } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
 import { z } from "zod";
 import { isCollaborationContextCurrent } from "./collaboration-context.js";
@@ -164,6 +164,25 @@ function storedItem(task: TeamWorkTask): TeamWorkItemDto {
   };
 }
 
+/** Publish board metadata only after storage commits; HTTP remains authoritative. */
+async function publishTask(env: Env, workspaceId: string, task: TeamWorkTask, kind: "task.created" | "task.updated", userId: string): Promise<void> {
+  if (!env.WorkspaceEvents) return;
+  const patch: WorkspaceTaskPatch = {
+    id: task.taskId, workspaceId, title: task.title, status: task.status, priority: task.priority,
+    ownerId: task.ownerId, reviewerId: task.reviewerId, startDate: task.startDate, endDate: task.endDate,
+    parentId: task.parentId, blocked: task.blocked, archived: task.archived, updatedAt: task.updatedAt, version: task.version,
+  };
+  try {
+    const members = await getTeamWorkspace(env, workspaceId, userId);
+    const userIds = members?.members.map((member) => member.userId) ?? [];
+    if (userIds.length) await publishWorkspaceEvent(env, workspaceId, {
+      audience: { userIds }, kind, entityId: task.taskId, payload: { task: patch },
+    });
+  } catch {
+    // Delivery failure cannot undo a persisted task. Polling and reconnect repair it.
+  }
+}
+
 async function readJson(request: Request): Promise<unknown> {
   const length = request.headers.get("content-length");
   if (length !== null && (!/^\d+$/.test(length) || Number(length) > BODY_LIMIT)) throw new TeamWorkTaskError("Request body is too large.", 413);
@@ -196,11 +215,16 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
     catch { return json({ error: "Authenticated email identity required." }, 403); }
     if (!await getTeamWorkspaceMembership(env, workspaceId, userId)) return json({ error: "Workspace membership required." }, 403);
     const actorId = humanActorId(userId), body = await readJson(request);
-    const audience = { userIds: env.WorkspaceEvents ? (await getTeamWorkspace(env, workspaceId, userId))?.members.map((member) => member.userId) ?? [] : [] };
-    if (action === "archive") return json({ task: storedItem(await archiveTeamWorkTask(env, workspaceId, taskId ?? "", actorId)) });
+    if (action === "archive") {
+      const task = await archiveTeamWorkTask(env, workspaceId, taskId ?? "", actorId);
+      await publishTask(env, workspaceId, task, "task.updated", userId);
+      return json({ task: storedItem(task) });
+    }
     if (action === "comments") {
       const { text } = parse(COMMENT_BODY, body);
-      return json({ task: storedItem(await commentTeamWorkTask(env, workspaceId, taskId ?? "", actorId, text)) });
+      const task = await commentTeamWorkTask(env, workspaceId, taskId ?? "", actorId, text);
+      await publishTask(env, workspaceId, task, "task.updated", userId);
+      return json({ task: storedItem(task) });
     }
     const { title, ...fields } = taskId === undefined ? parse(CREATE_BODY, body) : { title: undefined, ...parse(PATCH_BODY, body).patch };
     for (const person of [fields.ownerId, fields.reviewerId]) {
@@ -211,7 +235,7 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
     if (taskId !== undefined) {
       const updated = await updateTeamWorkTask(env, workspaceId, taskId, actorId, { title, ...fields });
       void upsertWorkspaceSearchDoc(env, workspaceId, updated.taskId, "task", updated.title, updated.objective ?? "", updated.updatedAt);
-      if (audience.userIds.length) void publishWorkspaceEvent(env, workspaceId, { audience, kind: "task.updated", entityId: updated.taskId, payload: { version: updated.version } });
+      await publishTask(env, workspaceId, updated, "task.updated", userId);
       return json({ task: storedItem(updated) });
     }
     // Pre-check what the follow-up update would reject so a failed create leaves no half-made task.
@@ -221,7 +245,7 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
     const created = await createTeamWorkTask(env, workspaceId, actorId, title ?? "");
     const task = Object.keys(fields).length ? await updateTeamWorkTask(env, workspaceId, created.taskId, actorId, fields) : created;
     void upsertWorkspaceSearchDoc(env, workspaceId, task.taskId, "task", task.title, task.objective ?? "", task.updatedAt);
-    if (audience.userIds.length) void publishWorkspaceEvent(env, workspaceId, { audience, kind: "task.created", entityId: task.taskId, payload: { version: task.version } });
+    await publishTask(env, workspaceId, task, "task.created", userId);
     return json({ task: storedItem(task) }, 201);
   } catch (error) {
     if (error instanceof TeamWorkTaskError) return json({ error: error.message }, error.status);

@@ -1403,7 +1403,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const workspaceLive = useWorkspaceEvents({
     workspaceId: teamWorkspaceId || null,
     enabled: workspaceEventsEnabled,
-    onEvent: () => refreshRuns(),
+    onEvent: (event) => { if (event.kind.startsWith("run.") || event.kind.startsWith("approval.") || event.kind.startsWith("ask_user.")) refreshRuns(); },
+    onReconnect: refreshRuns,
   });
   const {
     approvals: storedApprovals,
@@ -3854,7 +3855,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "files" ? (
             <FilesView />
           ) : mainView === "notes" ? (
-            <NotesEditor />
+            <NotesEditor workspaceId={teamWorkspaceId || null} />
           ) : mainView === "projects" ? (
             <ProjectsView />
           ) : mainView === "outputs" ? (
