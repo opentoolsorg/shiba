@@ -4,10 +4,6 @@
  * Provider traffic is intercepted at the Sandbox egress boundary — no callback route.
  */
 import { getAgentByName, routeAgentRequest } from "agents/routing";
-import { OpenCodeAgent } from "./agents/opencode-agent.js";
-import { CodingOrchestrator } from "./agents/orchestrator.js";
-import { ExplorerAgent } from "./agents/specialists/explorer-agent.js";
-import { ReviewerAgent } from "./agents/specialists/reviewer-agent.js";
 import { handleArtifactDownload } from "./artifact-download.js";
 import { AUDIT_RETENTION_MS, pruneAuditLog } from "./audit.js";
 import { Automations } from "./automations-do.js";
@@ -62,7 +58,6 @@ import { handleApiKeys } from "./api-keys-routes.js";
 import { handleOutboundWebhooks } from "./webhooks/routes.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
 import { handleEmployeeTools } from "./employee-tool-routes.js";
-import { handleSkillLibrary } from "./skill-library-routes.js";
 import { handleSkills } from "./skills-routes.js";
 import { handleSpaces } from "./spaces-routes.js";
 import { Spaces } from "./spaces-do.js";
@@ -119,20 +114,20 @@ import {
 // `await import()` at their call sites: evaluating them at Worker startup
 // pushed deploys past the startup CPU limit.
 
+export { CodingOrchestrator } from "./agents/orchestrator.js";
+export { OpenCodeAgent } from "./agents/opencode-agent.js";
+export { ExplorerAgent } from "./agents/specialists/explorer-agent.js";
+export { ReviewerAgent } from "./agents/specialists/reviewer-agent.js";
 export {
-  ExplorerAgent,
-  ReviewerAgent,
   Automations,
   ChatGptAuth,
   ConversationRoom,
   ComputerSession,
   UserProviderOAuth,
-  CodingOrchestrator,
   LocalDispatch,
   Mailbox,
   Memory,
   ModelConfig,
-  OpenCodeAgent,
   Sandbox,
   SandboxOutbound,
   ContainerProxy,
@@ -393,7 +388,7 @@ export default {
       if (employeeToolsResponse) return employeeToolsResponse;
       const reasonNetworkResponse = await handleReasonNetwork(request, env);
       if (reasonNetworkResponse) return reasonNetworkResponse;
-      const skillLibraryResponse = await handleSkillLibrary(request, env);
+      const skillLibraryResponse = await (await import("./skill-library-routes.js")).handleSkillLibrary(request, env);
       if (skillLibraryResponse) return skillLibraryResponse;
       const skillsResponse = await handleSkills(request, env);
       if (skillsResponse) return skillsResponse;
