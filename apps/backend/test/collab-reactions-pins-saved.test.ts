@@ -8,7 +8,7 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const authState = vi.hoisted(() => ({ userId: "owner@example.test", authorized: true }));
 vi.mock("../src/request-auth.js", () => ({
-  isAuthorizedRequest: vi.fn(async () => authState.authorized),
+  resolveRequestIdentity: async () => ({ authorized: authState.authorized, userId: authState.userId }), isAuthorizedRequest: vi.fn(async () => authState.authorized),
   resolveUserId: vi.fn(async () => authState.userId),
 }));
 

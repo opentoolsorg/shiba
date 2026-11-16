@@ -7,6 +7,7 @@
  */
 import { DatabaseSync } from "node:sqlite";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { withTimingDatabase } from "../src/platform/request-timing.js";
 import type { Env } from "../src/env.js";
 
 // Cold-importing the whole Worker can outrun the 5s per-test budget under the parallel gate; pay it once here.
@@ -14,6 +15,7 @@ beforeAll(async () => {
   await import("../src/index.js");
 }, 60_000);
 import {
+  betterAuthFor,
   handleBetterAuth,
   isBetterAuthConfigured,
   isBetterAuthPath,
@@ -22,6 +24,7 @@ import {
   isAuthenticated,
   isAuthorizedRequest,
   resolveUserId,
+  resolveRequestIdentity,
 } from "../src/request-auth.js";
 import { resolveRunStoreTarget } from "../src/runs-routes.js";
 
@@ -293,6 +296,49 @@ describe("worker-level 401 codes", () => {
 });
 
 describe("end-to-end session flow", () => {
+  it("does not authorize a raw identity header on a remote unconfigured API", async () => {
+    const request = new Request("https://example.test/api/whoami", {
+      headers: { "CF-Access-Authenticated-User-Email": "owner@example.com" },
+    });
+    expect((await resolveRequestIdentity(request, makeEnv({ BETTER_AUTH_SECRET: undefined }))).authorized).toBe(false);
+  });
+
+  it("shares one session resolution between gate and owner checks per request", async () => {
+    const env = makeEnv();
+    const cookie = await signUp(env);
+    const auth = await betterAuthFor(env);
+    const getSession = vi.spyOn(auth.api, "getSession");
+    const request = new Request(`${BASE}/api/whoami`, { headers: { cookie } });
+    try {
+      expect(await isAuthorizedRequest(request, env)).toBe(true);
+      expect(await resolveUserId(request, env)).toBe("owner@example.com");
+      expect(getSession).toHaveBeenCalledTimes(1);
+      expect(await resolveUserId(new Request(request), env)).toBe("owner@example.com");
+      expect(getSession).toHaveBeenCalledTimes(2);
+    } finally {
+      getSession.mockRestore();
+    }
+  });
+
+  it("resolves a signed-in whoami session once across the full Worker dispatch", async () => {
+    const env = makeEnv();
+    const cookie = await signUp(env);
+    const timedEnv = withTimingDatabase(env);
+    const auth = await betterAuthFor(timedEnv);
+    const getSession = vi.spyOn(auth.api, "getSession");
+    const worker = (await import("../src/index.js")).default;
+    try {
+      for (let calls = 1; calls <= 2; calls++) {
+        const response = await worker.fetch(new Request(`${BASE}/api/whoami`, { headers: { cookie } }), env);
+        expect(response.status).toBe(200);
+        expect(getSession).toHaveBeenCalledTimes(calls);
+        expect(response.headers.get("Server-Timing")).toContain("auth;dur=");
+      }
+    } finally {
+      getSession.mockRestore();
+    }
+  });
+
   it("sign-up → session cookie → whoami → sign-out", async () => {
     const env = makeEnv();
     const worker = (await import("../src/index.js")).default;
@@ -306,6 +352,7 @@ describe("end-to-end session flow", () => {
     // The same cookie authorizes the whole gated surface.
     const whoami = await worker.fetch(new Request(`${BASE}/api/whoami`, { headers: { cookie } }), env);
     expect(whoami.status).toBe(200);
+    expect(whoami.headers.get("Server-Timing")).toMatch(/total;dur=\d+, auth;dur=\d+, db;dur=\d+;desc="n=\d+"/);
     const identity = (await whoami.json()) as { agent: string; auth: string };
     expect(identity).toEqual({ agent: "owner@example.com", auth: "better-auth" });
 

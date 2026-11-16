@@ -46,7 +46,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/request-auth.js", () => ({
-  isAuthorizedRequest: vi.fn(async () => true),
+  resolveRequestIdentity: async () => ({ authorized: true, userId: state.userId }), isAuthorizedRequest: vi.fn(async () => true),
   resolveUserId: vi.fn(async () => state.userId),
 }));
 vi.mock("../src/runs-routes.js", () => ({

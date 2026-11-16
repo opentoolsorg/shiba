@@ -1,6 +1,6 @@
 import type { KnowledgeScope } from "@shiba/shared";
 import type { Env } from "../env.js";
-import { isAuthorizedRequest, requireSameOriginBrowserMutation, resolveUserId } from "../request-auth.js";
+import { requireSameOriginBrowserMutation, resolveRequestIdentity } from "../request-auth.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
 import { assertKnowledgeRead, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
 import { enqueueIngestion } from "../knowledge/knowledge-ingestion.js";
@@ -15,8 +15,8 @@ export async function handleNotes(request: Request, env: Env): Promise<Response 
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/notes")) return null;
   if (!env.AGENT_AUDIT) return json({ error: "Knowledge storage is unavailable." }, 503);
-  if (!(await isAuthorizedRequest(request, env))) return json({ error: "Authentication required." }, 401);
-  const userId = await resolveUserId(request, env);
+  const { userId, authorized } = await resolveRequestIdentity(request, env);
+  if (!authorized) return json({ error: "Authentication required." }, 401);
   if (!userId) return json({ error: "Authentication required." }, 401);
   const org = await resolveOrgForApiRequest(request, env);
   if (org instanceof Response) return org;
