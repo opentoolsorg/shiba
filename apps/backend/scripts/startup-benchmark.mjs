@@ -5,7 +5,11 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const backendRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const backendRoot = process.argv[4]
+  ? resolve(process.argv[4])
+  : process.env.BACKEND_ROOT
+    ? resolve(process.env.BACKEND_ROOT)
+    : resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outRoot = join(backendRoot, ".wrangler/startup-report");
 const runs = Number(process.argv[2] ?? 5);
 const bundle = join(outRoot, "worker.bundle");
