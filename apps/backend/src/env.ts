@@ -148,6 +148,10 @@ export interface Env {
    * sends cannot strand behind an approval nothing can execute.
    */
   SEND_EMAIL?: SendEmail;
+  /** Preview only: record transactional mail without sending it. Never enable in production. */
+  SHIBA_EMAIL_DRY_RUN?: string;
+  /** Preview only: log full dry-run links. Requires SHIBA_EMAIL_DRY_RUN=1. */
+  SHIBA_EMAIL_DRY_RUN_LOG_LINKS?: string;
   ASSETS: Fetcher;
   /** AI Gateway id. Default "default". */
   GATEWAY_ID: string;

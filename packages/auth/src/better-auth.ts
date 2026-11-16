@@ -413,13 +413,15 @@ async function createBetterAuth(env: BetterAuthLaneEnv, enrollment?: BetterAuthE
       requireEmailVerification: enrollment?.enabled === true,
       minPasswordLength: 8,
       revokeSessionsOnPasswordReset: true,
-      sendResetPassword: async ({ user, url }, request) => {
+      sendResetPassword: async ({ user, url, token }, request) => {
         try {
           if (!enrollment?.sendPasswordResetEmail) return;
-          void enrollment.sendPasswordResetEmail({ email: user.email, url, request });
+          const destination = new URL("/auth/reset", env.BETTER_AUTH_URL ?? url);
+          destination.searchParams.set("token", token);
+          await enrollment.sendPasswordResetEmail({ email: user.email, url: destination.href, request });
         } catch {
-          const operation = deliveryOperations.get(request?.headers.get(AUTH_OPERATION_HEADER) ?? "");
-          if (operation) operation.failed = true;
+          // Delivery availability must not disclose whether an account exists.
+          console.warn("Password reset email delivery failed.");
         }
       },
     },
