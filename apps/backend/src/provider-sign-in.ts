@@ -10,22 +10,19 @@
  * the operator to set a flag.
  */
 import type { SubscriptionForwarder } from "@shiba/auth";
-import { claudeSubscriptionAuth } from "@shiba/auth";
 import { LOCAL_RUNTIME_FLAG, type AcpSignInKind, type ConnectedComputer } from "@shiba/shared";
 import { CODEX_DEVICE_VERIFICATION_URL } from "./chatgpt/device-auth.js";
 import { mintDaemonPairing } from "./computers-routes.js";
-import { type EgressEnv, forwardClaudeSubscription } from "./egress.js";
 import type { Env } from "./env.js";
 import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { localDispatchStub } from "./local-dispatch.js";
 import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
-import { assertPastableSecret, putUserProviderSecret } from "./user-provider-keys.js";
+import { assertPastableSecret, putUserProviderSecret, readUserProviderSecret } from "./user-provider-keys.js";
 import type { UserOAuthProvider } from "./provider-oauth/types.js";
 import { userProviderOAuthStub } from "./user-provider-oauth-do.js";
 import { userProviderOAuthReady } from "./user-provider-oauth-store.js";
 
 const SIGN_IN_TTL_MS = 15 * 60 * 1000;
-const QUIET_AUTH_PHASES = new Set(["idle", "cleared", "failed"]);
 
 export interface SignInContext {
   mode: "oauth" | "setup-token";
@@ -92,13 +89,6 @@ const CLAUDE_SETUP_STEPS = [
   "Paste the token below and choose Finish sign-in.",
   "The token is stored encrypted for you. A run attaches it at egress. The sandbox only sees a placeholder.",
 ];
-
-function claudeForward(lanes: SignInLanes): SubscriptionForwarder {
-  return (
-    lanes.forwardClaude ??
-    ((request, env, ctx) => forwardClaudeSubscription(request, env as EgressEnv, ctx))
-  );
-}
 
 function safeMessage(value: unknown, fallback: string): string {
   const message =
@@ -434,56 +424,6 @@ async function storeClaudeSetupToken(env: Env, org: string, credential: string):
   };
 }
 
-async function beginClaudeSetupToken(env: Env, org: string, lanes: SignInLanes): Promise<SignInSession> {
-  if (env.SHIBA_CLAUDE_SUBSCRIPTION !== "1") {
-    return claudePasteSession({ mode: "setup-token", origin: "", now: Date.now() });
-  }
-  const token = env.CLAUDE_SUBSCRIPTION_TOKEN;
-  if (typeof token !== "string" || token.trim() === "") {
-    return claudePasteSession({ mode: "setup-token", origin: "", now: Date.now() });
-  }
-  const controller = claudeSubscriptionAuth(env, "claude-sub:default", claudeForward(lanes));
-  const current = await controller.snapshot();
-  if (current.phase === "succeeded") {
-    return {
-      ok: true,
-      pending: false,
-      signInKind: "claude-setup-token",
-      message:
-        current.message ??
-        "Setup-token lane is already authenticated. The container holds a placeholder.",
-    };
-  }
-  if (!QUIET_AUTH_PHASES.has(current.phase)) {
-    return {
-      ok: false,
-      pending: false,
-      signInKind: "claude-setup-token",
-      message: `Subscription sign-in is ${current.phase}. This page will not interrupt it.`,
-      operatorSteps: CLAUDE_SETUP_STEPS,
-    };
-  }
-  try {
-    await controller.begin(org);
-    const snapshot = await controller.verify(org);
-    return {
-      ok: snapshot.phase === "succeeded",
-      pending: false,
-      signInKind: "claude-setup-token",
-      message: snapshot.message ?? snapshot.phase,
-      ...(!snapshot.phase || snapshot.phase !== "succeeded" ? { operatorSteps: CLAUDE_SETUP_STEPS } : {}),
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      pending: false,
-      signInKind: "claude-setup-token",
-      message: error instanceof Error ? safeMessage({ error: error.message }, "Setup-token probe failed.") : "Setup-token probe failed.",
-      operatorSteps: CLAUDE_SETUP_STEPS,
-    };
-  }
-}
-
 function userOAuthProvider(providerId: string): UserOAuthProvider | null {
   if (providerId === "gemini") return "antigravity";
   if (providerId === "grok") return "xai";
@@ -615,29 +555,15 @@ async function inspectUserOAuth(env: Env, org: string, provider: UserOAuthProvid
   return { ok: false, message: "No OAuth account is connected for this user.", operatorSteps: steps };
 }
 
-async function inspectClaude(env: Env, lanes: SignInLanes): Promise<SignInVerdict> {
+async function inspectClaude(env: Env, org: string): Promise<SignInVerdict> {
+  if (await readUserProviderSecret(env, org, "claude-setup")) {
+    return { ok: true, message: "Your Claude setup-token is saved encrypted and attached at egress." };
+  }
   const ready = readyClaudeDaemon(await listComputers(env));
   if (ready) {
     return {
       ok: true,
       message: `Daemon ${ready.hostname} still reports the claude CLI.`,
-    };
-  }
-  if (env.SHIBA_CLAUDE_SUBSCRIPTION === "1" && env.CLAUDE_SUBSCRIPTION_TOKEN?.trim()) {
-    const controller = claudeSubscriptionAuth(env, "claude-sub:default", claudeForward(lanes));
-    const current = await controller.snapshot();
-    if (current.phase === "succeeded") {
-      return {
-        ok: true,
-        message:
-          current.message ??
-          "Setup-token lane is authenticated.",
-      };
-    }
-    return {
-      ok: false,
-      message: `No paired claude CLI, and the setup-token lane is ${current.phase}. Test does not restart sign-in.`,
-      operatorSteps: CLAUDE_DAEMON_STEPS,
     };
   }
   return {
@@ -647,13 +573,26 @@ async function inspectClaude(env: Env, lanes: SignInLanes): Promise<SignInVerdic
   };
 }
 
+function subscriptionSignInDisabled(env: Env, id: string): boolean {
+  switch (id) {
+    case "claude": return env.SHIBA_CLAUDE_SUBSCRIPTION === "0";
+    case "codex": return env.SHIBA_CODEX_SUBSCRIPTION === "0";
+    case "gemini": return env.SHIBA_ANTIGRAVITY_SUBSCRIPTION === "0";
+    case "cursor": return env.SHIBA_CURSOR_SUBSCRIPTION === "0";
+    default: return false;
+  }
+}
+
 export async function beginProviderSignIn(
   env: Env,
   provider: { id: string; label: string },
   org: string,
   ctx: SignInContext,
-  lanes: SignInLanes = {},
+  _lanes: SignInLanes = {},
 ): Promise<SignInSession> {
+  if (subscriptionSignInDisabled(env, provider.id)) {
+    return { ok: false, pending: false, message: "This subscription lane is disabled by the deployment administrator." };
+  }
   if (provider.id === "codex") {
     if (ctx.mode === "setup-token") {
       return {
@@ -666,9 +605,6 @@ export async function beginProviderSignIn(
     return beginCodex(env, org, ctx);
   }
   if (provider.id === "claude") {
-    if (ctx.mode === "setup-token" && env.SHIBA_CLAUDE_SUBSCRIPTION === "1" && env.CLAUDE_SUBSCRIPTION_TOKEN?.trim()) {
-      return beginClaudeSetupToken(env, org, lanes);
-    }
     if (ctx.mode !== "setup-token") {
       const daemon = await beginClaudeDaemon(env, ctx);
       if (daemon.signInKind === "claude-daemon" && (daemon.ok || daemon.pending)) return daemon;
@@ -694,6 +630,9 @@ export async function completeProviderSignIn(
   callbackUrl: string | null,
   credential?: string | null,
 ): Promise<SignInVerdict> {
+  if (subscriptionSignInDisabled(env, provider.id)) {
+    return { ok: false, message: "This subscription lane is disabled by the deployment administrator." };
+  }
   if (provider.id === "codex") {
     if (callbackUrl !== null && isLoopbackCallback(callbackUrl)) return completeCodex(env, org, callbackUrl);
     return completeDevice(env, org);
@@ -724,10 +663,13 @@ export async function inspectProviderSignIn(
   env: Env,
   provider: { id: string; label: string },
   org: string,
-  lanes: SignInLanes = {},
+  _lanes: SignInLanes = {},
 ): Promise<SignInVerdict> {
+  if (subscriptionSignInDisabled(env, provider.id)) {
+    return { ok: false, message: "This subscription lane is disabled by the deployment administrator." };
+  }
   if (provider.id === "codex") return inspectCodex(env, org);
-  if (provider.id === "claude") return inspectClaude(env, lanes);
+  if (provider.id === "claude") return inspectClaude(env, org);
   const oauthProvider = userOAuthProvider(provider.id);
   if (oauthProvider !== null) return inspectUserOAuth(env, org, oauthProvider);
   return { ok: false, message: `${provider.label} has no subscription lane.` };

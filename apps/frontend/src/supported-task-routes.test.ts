@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { describeTaskRoute } from "./supported-task-routes";
+import type { AcpProviderCard } from "@shiba/shared";
+import { connectedTaskDefault, describeTaskRoute } from "./supported-task-routes";
 
 const repository = { runtime: "sandbox", workType: "repository", harness: "claude-code", model: "anthropic/example", connectionId: "", connections: [] } as const;
 
@@ -45,10 +46,28 @@ describe("declared coding task routes", () => {
     expect(describeTaskRoute({ ...repository, harness: "codex-subscription", connectionId: "api", connections: [plan, api] }).blockedReason).toContain("requires a ChatGPT connection");
   });
 
-  it("does not claim resolved account identity, model defaults, or legacy runtime enablement", () => {
+  it("leaves account and model resolution to approval and explains the Claude kill switch", () => {
     const result = describeTaskRoute({ ...repository, model: "", harness: "claude-subscription" });
     expect(result.model).toContain("resolved at approval");
     expect(result.account).toContain("resolved by the server");
-    expect(result.note).toContain("deployment-gated");
+    expect(result.note).toContain("unless an admin disables the subscription lane");
+  });
+});
+
+describe("personal task defaults", () => {
+  const provider = (id: string, phase = "connected") => ({ id, harness: "codex-subscription", defaultModel: "openai/example", connection: { phase } }) as AcpProviderCard;
+  it("prefills the connected default and accepts a sole connected provider", () => {
+    const codex = provider("codex");
+    const claude = provider("claude");
+    expect(connectedTaskDefault({ org: "self", defaultProviderId: "codex", providers: [claude, codex] })).toBe(codex);
+    expect(connectedTaskDefault({ org: "self", defaultProviderId: null, providers: [codex] })).toBe(codex);
+  });
+  it("does not select a disconnected default or guess between multiple connections", () => {
+    expect(connectedTaskDefault({ org: "self", defaultProviderId: "codex", providers: [provider("codex", "disconnected")] })).toBeNull();
+    expect(connectedTaskDefault({ org: "self", defaultProviderId: null, providers: [provider("codex"), provider("claude")] })).toBeNull();
+    expect(connectedTaskDefault(null)).toBeNull();
+    const local = provider("claude");
+    local.connection.signInKind = "claude-daemon";
+    expect(connectedTaskDefault({ org: "self", defaultProviderId: "claude", providers: [local] })).toBeNull();
   });
 });

@@ -88,6 +88,7 @@ describe("harness registry parity", () => {
 
   it("preserves shared input ids but excludes unavailable native Claude from the runnable catalog", () => {
     const allSubscriptionsEnabled = {
+      MODEL_CREDENTIAL_KEY: "ab".repeat(32),
       SHIBA_CLAUDE_SUBSCRIPTION: "1",
       SHIBA_CODEX_SUBSCRIPTION: "1",
       SHIBA_ANTIGRAVITY_SUBSCRIPTION: "1",

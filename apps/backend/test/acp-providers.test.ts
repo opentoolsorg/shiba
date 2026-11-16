@@ -78,7 +78,7 @@ describe("provider registry", () => {
       "codex",
       "gemini",
       "grok",
-      "cursor",
+      "cursor", "openai", "anthropic", "openrouter", "groq", "copilot",
     ]);
     for (const provider of ACP_PROVIDER_REGISTRY) {
       if (provider.protocol === "acp") {
@@ -103,13 +103,7 @@ describe("GET /api/providers", () => {
     const body = await snapshot(response);
     expect(body.org).toBe("default");
     expect(body.defaultProviderId).toBeNull();
-    expect(body.providers.map((provider) => provider.connection.phase)).toEqual([
-      "disconnected",
-      "disconnected",
-      "disconnected",
-      "disconnected",
-      "disconnected",
-    ]);
+    expect(body.providers.every((provider) => provider.connection.phase === "disconnected")).toBe(true);
     expect(body.providers.find((provider) => provider.id === "claude")?.capabilities).toMatchObject(
       {
         acp: true,
@@ -125,7 +119,7 @@ describe("GET /api/providers", () => {
   it("still lists providers when the connection store is missing", async () => {
     const response = await handleAcpProviders(request("/api/providers"), {} as Env);
     const body = await snapshot(response);
-    expect(body.providers).toHaveLength(5);
+    expect(body.providers).toHaveLength(10);
   });
 });
 
@@ -282,33 +276,13 @@ describe("sign-in is not a local confirmation code", () => {
 });
 
 describe("API-key fallback", () => {
-  it("connects when the gateway credential the ACP harness uses is present and never echoes the value", async () => {
-    const deployment = env({ AI_GATEWAY_TOKEN: "gateway-canary-value" });
-    const body = await snapshot(
-      await handleAcpProviders(
-        request("/api/providers/claude/connect", {
-          method: "POST",
-          body: JSON.stringify({ mode: "api-key" }),
-        }),
-        deployment,
-      ),
-    );
-    const claude = body.providers.find((provider) => provider.id === "claude");
-    expect(claude?.connection.phase).toBe("connected");
-    expect(claude?.connection.authMode).toBe("api-key");
-    expect(claude?.connection.message).toContain("AI_GATEWAY_TOKEN");
-    expect(claude?.connection.message).toContain("claude-acp");
-    expect(JSON.stringify(body)).not.toContain("gateway-canary-value");
-
-    const tested = await snapshot(
-      await handleAcpProviders(
-        request("/api/providers/claude/test", { method: "POST", body: "{}" }),
-        deployment,
-      ),
-    );
-    expect(tested.providers.find((provider) => provider.id === "claude")?.connection.testOk).toBe(
-      true,
-    );
+  it("does not treat a deployment gateway credential as a personal connection", async () => {
+    const deployment = env({ AI_GATEWAY_TOKEN: crypto.randomUUID() });
+    const body = await snapshot(await handleAcpProviders(request("/api/providers/claude/connect", {
+      method: "POST", body: JSON.stringify({ mode: "api-key" }),
+    }), deployment));
+    expect(body.providers.find((provider) => provider.id === "claude")?.connection.phase).toBe("disconnected");
+    expect((await handleAcpProviders(request("/api/providers/claude/test", { method: "POST", body: "{}" }), deployment))?.status).toBe(409);
   });
 
   it("does not treat the subscription token as the ACP adapter credential", async () => {
@@ -392,91 +366,16 @@ describe("API-key fallback", () => {
 });
 
 describe("subscription probe reuse", () => {
-  it("redeems Claude setup-token through the subscription controller when the lane is on", async () => {
+  it("does not turn an operator token or auth flow into a personal connection", async () => {
     const kv = new FakeKV();
-    const deployment = env(
-      { SHIBA_CLAUDE_SUBSCRIPTION: "1", CLAUDE_SUBSCRIPTION_TOKEN: "setup-token-canary-value" },
-      kv,
-    );
-    const done = await snapshot(
-      await handleAcpProviders(
-        request("/api/providers/claude/connect", {
-          method: "POST",
-          body: JSON.stringify({ mode: "setup-token" }),
-        }),
-        deployment,
-        { forwardClaude: async () => new Response("{}", { status: 200 }) },
-      ),
-    );
-    const claude = done.providers.find((provider) => provider.id === "claude");
-    expect(claude?.connection.phase).toBe("connected");
-    expect(claude?.connection.userCode).toBeNull();
-    expect(claude?.connection.message).toContain("setup-token reached the API");
-    expect(JSON.stringify(done)).not.toContain("setup-token-canary-value");
-    expect([...kv.map.values()].join("\n")).not.toContain("setup-token-canary-value");
-  });
-
-  it("records a rejected Claude probe as a failed connection", async () => {
-    const deployment = env({
-      SHIBA_CLAUDE_SUBSCRIPTION: "1",
-      CLAUDE_SUBSCRIPTION_TOKEN: "setup-token-canary-value",
-    });
-    const done = await snapshot(
-      await handleAcpProviders(
-        request("/api/providers/claude/connect", {
-          method: "POST",
-          body: JSON.stringify({ mode: "setup-token" }),
-        }),
-        deployment,
-        { forwardClaude: async () => new Response("no", { status: 401 }) },
-      ),
-    );
-    const claude = done.providers.find((provider) => provider.id === "claude");
-    expect(claude?.connection.phase).toBe("failed");
-    expect(claude?.connection.message).toContain("credential rejected (401)");
-  });
-
-  it("does not restart a succeeded subscription lane from Finish or Test", async () => {
-    const kv = new FakeKV();
-    const flowKey = "auth_flow_claude-sub:default";
-    const preserved = JSON.stringify({
-      phase: "succeeded",
-      ownerSessionId: "default",
-      message: "already authenticated",
-    });
-    await kv.put(flowKey, preserved);
-    const deployment = env(
-      { SHIBA_CLAUDE_SUBSCRIPTION: "1", CLAUDE_SUBSCRIPTION_TOKEN: "setup-token-canary-value" },
-      kv,
-    );
-    const forwardClaude = async () => new Response("no", { status: 401 });
-    const done = await snapshot(
-      await handleAcpProviders(
-        request("/api/providers/claude/connect", {
-          method: "POST",
-          body: JSON.stringify({ mode: "setup-token" }),
-        }),
-        deployment,
-        { forwardClaude },
-      ),
-    );
-    expect(done.providers.find((provider) => provider.id === "claude")?.connection.phase).toBe(
-      "connected",
-    );
-    expect(kv.map.get(flowKey)).toBe(preserved);
-
-    const tested = await snapshot(
-      await handleAcpProviders(
-        request("/api/providers/claude/test", { method: "POST", body: "{}" }),
-        deployment,
-        { forwardClaude },
-      ),
-    );
-    const testedCard = tested.providers.find((provider) => provider.id === "claude");
-    expect(testedCard?.connection.testOk).toBe(true);
-    expect(testedCard?.connection.message ?? "").not.toContain("AI_GATEWAY_TOKEN");
-    expect(testedCard?.connection.message).not.toContain("setup-token-canary-value");
-    expect(kv.map.get(flowKey)).toBe(preserved);
+    await kv.put("auth_flow_claude-sub:default", JSON.stringify({ phase: "succeeded", ownerSessionId: "default" }));
+    const deployment = env({ SHIBA_CLAUDE_SUBSCRIPTION: "1", CLAUDE_SUBSCRIPTION_TOKEN: crypto.randomUUID() }, kv);
+    const forwardClaude = vi.fn(async () => new Response("{}"));
+    const done = await snapshot(await handleAcpProviders(request("/api/providers/claude/connect", {
+      method: "POST", body: JSON.stringify({ mode: "setup-token" }),
+    }), deployment, { forwardClaude }));
+    expect(done.providers.find((provider) => provider.id === "claude")?.connection.phase).toBe("waiting");
+    expect(forwardClaude).not.toHaveBeenCalled();
   });
 
   it("does not write a test result over a disconnect that landed during the read", async () => {
@@ -584,12 +483,12 @@ describe("subscription probe reuse", () => {
 describe("per-org default", () => {
   it("keeps one org's default off another org, and clears it on disconnect", async () => {
     const kv = new FakeKV();
-    const deployment = env({ AI_GATEWAY_TOKEN: "gateway-canary" }, kv);
+    const deployment = env({ MODEL_CREDENTIAL_KEY: "ab".repeat(32) }, kv);
     const connect = (email: string) =>
       handleAcpProviders(
         request(
           "/api/providers/grok/connect",
-          { method: "POST", body: JSON.stringify({ mode: "api-key" }) },
+          { method: "POST", body: JSON.stringify({ mode: "api-key", credential: crypto.randomUUID() }) },
           email,
         ),
         deployment,
@@ -750,7 +649,7 @@ describe("Providers page states", () => {
         onDefault: () => {},
       }),
     );
-    expect(html).toContain("Org default · Claude Code");
+    expect(html).toContain("My default · Claude Code");
     expect(html).toContain("Configuration checked");
     expect(html).toContain("Open ChatGPT sign-in");
     expect(html).toContain("Callback URL (optional if loopback is running)");

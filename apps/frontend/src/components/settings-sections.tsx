@@ -22,9 +22,11 @@ import { useTheme } from "./ThemeProvider";
 import { useSavedRepos, saveRepo, removeRepo } from "../saved";
 import { NotificationPrefsSection } from "./settings/NotificationPrefsSection";
 import { SlackImportSection } from "./settings/SlackImportSection";
+import { ProvidersView } from "./ProvidersView";
 import { ConnectedApps } from "./settings/ConnectedApps";
 
 export type SettingsSectionId =
+  | "providers"
   | "account"
   | "api-keys"
   | "webhooks"
@@ -44,6 +46,7 @@ export type SettingsSectionId =
 /** Single source for section labels — the modal nav groups render from this. */
 export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string; blurb: string }> =
   {
+    providers: { label: "Providers", blurb: "Your AI accounts & default provider" },
     account: { label: "Account", blurb: "Identity, auth lane & sign out" },
     "api-keys": { label: "API keys", blurb: "Org-scoped /api/v1 bearer keys" },
     webhooks: { label: "Webhooks", blurb: "Signed outbound event deliveries" },
@@ -329,28 +332,6 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
 
 /** Deployment options: this page documents them but cannot read or change Worker vars. */
 const EXPERIMENTAL_FLAGS: { title: string; summary: string; setup: string; flag: string; related: string }[] = [
-  {
-    title: "Claude subscription sign-in",
-    summary: "Lets people connect a Claude account for coding tasks.",
-    setup: "A deployment admin enables this and configures the Claude subscription settings.",
-    flag: "SHIBA_CLAUDE_SUBSCRIPTION=1",
-    related: "CLAUDE_SUBSCRIPTION_MODEL · CLAUDE_SUBSCRIPTION_TOKEN[_<ACCOUNT>] secret",
-  },
-  {
-    title: "Codex subscription sign-in",
-    summary: "Lets people connect a ChatGPT plan for coding tasks.",
-    setup: "A deployment admin enables this and configures the Codex subscription settings.",
-    flag: "SHIBA_CODEX_SUBSCRIPTION=1",
-    related: "CODEX_SUBSCRIPTION_MODEL · CODEX_SUBSCRIPTION_AUTH_JSON[_<ACCOUNT>] secret",
-  },
-  {
-    title: "Google Antigravity sign-in",
-    summary: "Adds the Antigravity sign-in option for coding tasks.",
-    setup: "A deployment admin enables this. Each person signs in from the provider connection screen.",
-    flag: "SHIBA_ANTIGRAVITY_SUBSCRIPTION=1",
-    related:
-      "ANTIGRAVITY_SUBSCRIPTION_MODEL — no secret var (tokens live in the container profile)",
-  },
   {
     title: "Use a connected computer",
     summary: "Allows approved tasks to run on a paired local computer.",
@@ -811,8 +792,10 @@ export function SettingsSectionBody({
   section,
   onNavigate,
   onSignOut,
+  onSelectSection,
 }: {
   section: SettingsSectionId;
+  onSelectSection?: (section: string) => void;
   onNavigate?: (view: AppNavView) => void;
   onSignOut?: () => Promise<void>;
 }): JSX.Element {
@@ -885,6 +868,12 @@ export function SettingsSectionBody({
     return <LiveSettingsSectionBody section={section} onNavigate={onNavigate} />;
   }
 
+  if (section === "providers") return (
+    <SectionShell title="Providers" description="Connect your own accounts. Tokens are encrypted for you and attached when a run calls the provider.">
+      <ProvidersView embedded />
+    </SectionShell>
+  );
+
   if (section === "models") return <ModelsSettingsSection />;
 
   if (section === "sandbox") return <SandboxOrgSettingsSection onNavigate={onNavigate} />;
@@ -893,8 +882,12 @@ export function SettingsSectionBody({
     return (
       <SectionShell
         title="Experimental features"
-        description="Optional features for this Shiba installation. A deployment admin needs to enable them before they appear in the app."
+        description="Deployment options and kill switches for this Shiba installation."
       >
+        <p className="text-xs text-[var(--muted-foreground-2)]">
+          Connect ChatGPT, Claude, Google and Cursor in Settings → Providers. These sign-in lanes are on when storage is ready unless an admin sets their subscription kill switch to 0.
+        </p>
+        {onSelectSection ? <button type="button" className="min-h-11 self-start text-xs font-semibold text-[var(--primary)]" onClick={() => onSelectSection("providers")}>Manage in Providers →</button> : null}
         <Card>
           <div className="border-b border-[var(--border-1)] px-4 py-3">
             <div className="text-sm font-medium text-[var(--fg)]">How to use this page</div>

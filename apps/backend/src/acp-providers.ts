@@ -53,6 +53,7 @@ interface ProviderDefinition {
   oauth: boolean;
   subscription: "claude-subscription" | "codex-subscription" | "cursor-subscription" | null;
   credentialEnv: readonly string[];
+  defaultModel?: string;
 }
 
 interface StoredConnection {
@@ -121,7 +122,7 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     docsUrl: "https://agentclientprotocol.com",
     oauth: true,
     subscription: "claude-subscription",
-    credentialEnv: ["AI_GATEWAY_TOKEN"],
+    credentialEnv: [],
   },
   {
     id: "codex",
@@ -137,7 +138,7 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     docsUrl: "https://agentclientprotocol.com",
     oauth: true,
     subscription: "codex-subscription",
-    credentialEnv: ["AI_GATEWAY_TOKEN"],
+    credentialEnv: [],
   },
   {
     id: "gemini",
@@ -153,7 +154,7 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     docsUrl: "https://antigravity.google",
     oauth: true,
     subscription: null,
-    credentialEnv: ["AI_GATEWAY_TOKEN"],
+    credentialEnv: [],
   },
   {
     id: "grok",
@@ -169,7 +170,7 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     docsUrl: "https://docs.x.ai",
     oauth: true,
     subscription: null,
-    credentialEnv: ["AI_GATEWAY_TOKEN"],
+    credentialEnv: [],
   },
   {
     id: "cursor",
@@ -185,7 +186,42 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     docsUrl: "https://docs.cursor.com",
     oauth: true,
     subscription: "cursor-subscription",
-    credentialEnv: ["CURSOR_SUBSCRIPTION_TOKEN"],
+    credentialEnv: [],
+  },
+  {
+    id: "openai", label: "OpenAI API",
+    blurb: "Connect your own API key. It is encrypted for you and attached at egress.",
+    adapter: "codex-acp", packageName: "@agentclientprotocol/codex-acp", license: "see package",
+    harness: "codex-acp", protocol: "acp", spawn: ACP_LANES["codex-acp"].spec.spawn,
+    defaultModel: "openai/gpt-5.3-codex", docsUrl: "https://platform.openai.com/api-keys", oauth: false, subscription: null, credentialEnv: [],
+  },
+  {
+    id: "anthropic", label: "Anthropic API",
+    blurb: "Connect your own API key. It is encrypted for you and attached at egress.",
+    adapter: "claude-acp", packageName: "@agentclientprotocol/claude-agent-acp", license: "see package",
+    harness: "claude-acp", protocol: "acp", spawn: ACP_LANES["claude-acp"].spec.spawn,
+    defaultModel: "anthropic/claude-sonnet-4-6", docsUrl: "https://console.anthropic.com/settings/keys", oauth: false, subscription: null, credentialEnv: [],
+  },
+  {
+    id: "openrouter", label: "OpenRouter",
+    blurb: "Connect your own API key. It is encrypted for you and attached at egress.",
+    adapter: "opencode-acp", packageName: "opencode-ai", license: "see package",
+    harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
+    defaultModel: "openrouter/anthropic/claude-sonnet-4.6", docsUrl: "https://openrouter.ai/keys", oauth: false, subscription: null, credentialEnv: [],
+  },
+  {
+    id: "groq", label: "Groq",
+    blurb: "Connect your own API key. It is encrypted for you and attached at egress.",
+    adapter: "opencode-acp", packageName: "opencode-ai", license: "see package",
+    harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
+    defaultModel: "groq/llama-3.3-70b-versatile", docsUrl: "https://console.groq.com/keys", oauth: false, subscription: null, credentialEnv: [],
+  },
+  {
+    id: "copilot", label: "GitHub Copilot",
+    blurb: "Paste a Copilot API access token. Browser sign-in is planned.",
+    adapter: "opencode-acp", packageName: "opencode-ai", license: "see package",
+    harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
+    defaultModel: "github-copilot/gpt-4.1", docsUrl: "https://docs.github.com/en/copilot", oauth: false, subscription: null, credentialEnv: [],
   },
 ];
 
@@ -218,7 +254,7 @@ export function acpAdapterPlan(id: AcpProviderId): {
   return {
     providerId: id,
     harness: provider.harness,
-    model: HARNESS_DEFAULT_MODELS[provider.harness] as string,
+    model: provider.defaultModel ?? HARNESS_DEFAULT_MODELS[provider.harness] as string,
     spawn: provider.spawn,
   };
 }
@@ -349,6 +385,31 @@ async function readDefault(env: Env, org: string): Promise<AcpProviderId | null>
   return raw !== null && isAcpProviderId(raw) ? raw : null;
 }
 
+export function providerLaneAllowed(env: Env, id: AcpProviderId, mode: string | null = "oauth"): boolean {
+  if (mode !== "oauth" && mode !== "setup-token") return true;
+  const flag = id === "claude" ? env.SHIBA_CLAUDE_SUBSCRIPTION
+    : id === "codex" ? env.SHIBA_CODEX_SUBSCRIPTION
+    : id === "gemini" ? env.SHIBA_ANTIGRAVITY_SUBSCRIPTION
+    : id === "cursor" ? env.SHIBA_CURSOR_SUBSCRIPTION : undefined;
+  return flag !== "0";
+}
+
+function assertProviderLane(env: Env, id: AcpProviderId, mode: string | null): void {
+  if (!providerLaneAllowed(env, id, mode)) {
+    throw new ProviderFlowError("This provider sign-in is disabled by the deployment administrator.", 403);
+  }
+}
+
+export async function connectedDefaultForUser(env: Env, userId: string): Promise<AcpProviderCard | null> {
+  if (!userId.trim()) return null;
+  const snapshot = await readProviderSnapshot(env, userId);
+  const connected = snapshot.providers.filter((card) => card.connection.phase === "connected"
+    && card.connection.signInKind !== "claude-daemon"
+    && providerLaneAllowed(env, card.id, card.connection.authMode));
+  return connected.find((card) => card.id === snapshot.defaultProviderId)
+    ?? (connected.length === 1 ? connected[0]! : null);
+}
+
 async function writeDefault(env: Env, org: string, id: AcpProviderId | null): Promise<void> {
   const kv = kvOf(env);
   if (kv === null) {
@@ -465,10 +526,12 @@ export async function waitingProviderOauthState(
   return state === "" ? null : state;
 }
 
-function effectiveHarness(provider: ProviderDefinition, record: StoredConnection | null): AgentHarnessName {
+export function effectiveHarness(provider: ProviderDefinition, record: StoredConnection | null): AgentHarnessName {
   if (provider.id === "gemini" && record?.authMode === "api-key") {
     return "gemini-acp";
   }
+  if (provider.id === "claude" && record?.authMode === "oauth" && record.signInKind !== "claude-daemon") return "claude-subscription";
+  if (provider.id === "codex" && record?.authMode === "oauth") return "codex-subscription";
   return provider.harness;
 }
 
@@ -496,7 +559,7 @@ function toCard(
     harness,
     protocol: provider.protocol,
     spawn: effectiveSpawn(provider, harness),
-    defaultModel: HARNESS_DEFAULT_MODELS[harness] as string,
+    defaultModel: provider.defaultModel ?? HARNESS_DEFAULT_MODELS[harness] as string,
     docsUrl: provider.docsUrl,
     capabilities: capabilities(harness, {
       oauth: provider.oauth,
@@ -527,7 +590,7 @@ export async function readProviderSnapshot(
         await readRecord(env, org, provider.id),
         deps,
       );
-      return toCard(provider, record, defaultId, now);
+      return toCard(provider, providerLaneAllowed(env, provider.id, record?.authMode ?? "oauth") ? record : null, defaultId, now);
     }),
   );
   return { org, defaultProviderId: defaultId, providers };
@@ -540,6 +603,8 @@ export async function resetProvider(
   deps: ProviderDeps = {},
 ): Promise<AcpProvidersSnapshot> {
   const provider = acpProvider(id);
+  const record = await readRecord(env, org, provider.id);
+  assertProviderLane(env, provider.id, record?.authMode ?? "oauth");
   await deleteRecord(env, org, provider.id);
   const currentDefault = await readDefault(env, org);
   if (currentDefault === provider.id) await writeDefault(env, org, null);
@@ -570,6 +635,7 @@ export async function connectProvider(
 ): Promise<AcpProvidersSnapshot> {
   const provider = acpProvider(id);
   const now = nowMs(deps);
+  assertProviderLane(env, provider.id, typeof mode === "string" ? mode : null);
   if (mode === "oauth" || mode === "setup-token") {
     if (mode === "oauth" && !provider.oauth) {
       throw new InputError(
@@ -648,6 +714,7 @@ export async function verifyProvider(
   const provider = acpProvider(id);
   const now = nowMs(deps);
   const record = await readRecord(env, org, provider.id);
+  assertProviderLane(env, provider.id, record?.authMode ?? "oauth");
   if (record === null || record.phase !== "waiting") {
     throw new ProviderFlowError("There is no sign-in in progress for this provider.", 409);
   }
@@ -703,6 +770,7 @@ export async function testProvider(
   const provider = acpProvider(id);
   const now = nowMs(deps);
   const record = await readRecord(env, org, provider.id);
+  assertProviderLane(env, provider.id, record?.authMode ?? "oauth");
   if (record === null || record.phase !== "connected") {
     throw new ProviderFlowError("Connect the provider before testing it.", 409);
   }
@@ -793,8 +861,9 @@ export async function setDefaultProvider(
 ): Promise<AcpProvidersSnapshot> {
   const provider = acpProvider(id);
   const record = await readRecord(env, org, provider.id);
+  assertProviderLane(env, provider.id, record?.authMode ?? "oauth");
   if (record === null || record.phase !== "connected") {
-    throw new ProviderFlowError("Only a connected provider can be the org default.", 409);
+    throw new ProviderFlowError("Only a connected provider can be your default.", 409);
   }
   await writeDefault(env, org, provider.id);
   return readProviderSnapshot(env, org, deps);

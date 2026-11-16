@@ -1,3 +1,4 @@
+import { connectedDefaultForUser } from "../acp-providers.js";
 import { personalExecutionSnapshotSchema, personalExecutionClaimSchema, personalExecutionContextDigest, APPROVAL_TTL_MS as PERSONAL_APPROVAL_TTL_MS, type PersonalExecutionSnapshot } from "@shiba/shared";
 import { revalidatePersonalExecutionSnapshot } from "../personal-execution-store.js";
 import { personalClaimPrincipal } from "../personal-execution-claim.js";
@@ -1751,9 +1752,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (this.state?.personalExecutionOnly) throw new Error("This isolated host accepts only its personal execution grant.");
     const snapshot = await readModelConfig(this.env);
-    const { harness, codingModel } = this.resolveHarnessAndModel(input, snapshot.policy.rolePins, snapshot);
+    const userId = initiatorUserIdFromOrchestratorName(this.name);
+    const pinned = input.role !== undefined
+      ? resolveRoleModel(this.env, input.role, snapshot.policy.rolePins, snapshot) : null;
+    const personalDefault = userId && !pinned && !input.harness && !input.connectionId
+      ? await connectedDefaultForUser(this.env, userId) : null;
+    const selected = personalDefault
+      ? { ...input, harness: personalDefault.harness as DelegateInput["harness"], codingModel: personalDefault.defaultModel }
+      : input;
+    const { harness, codingModel } = this.resolveHarnessAndModel(selected, snapshot.policy.rolePins, snapshot);
     const route = resolveCodingRoute(
-      snapshot,
+      personalDefault ? { ...snapshot, connections: [] } : snapshot,
       {
         connectionId: input.connectionId?.trim() || null,
         model: codingModel,
