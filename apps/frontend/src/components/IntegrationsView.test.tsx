@@ -104,6 +104,20 @@ describe("IntegrationsView native catalog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect Stripe" }));
     expect(focus).toHaveBeenCalled();
   });
+  it("shows workspace setup using the selected workspace catalog", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => String(input) === "/api/workspace-integrations/catalog"
+      ? Response.json(setupRequiredCatalog()) : Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<IntegrationsView actorId={META_ACTOR} workspaceId={META_WORKSPACE} workspaceRole="owner" />);
+    expect(await screen.findByRole("heading", { name: "Set up integrations" })).toBeTruthy();
+    for (const id of ["stripe", "hubspot", "google-ads", "meta-ads", "notion", "gmail", "google-calendar"]) {
+      expect(screen.getByTestId(`featured-app-${id}`).textContent).toMatch(/Needs setup/);
+    }
+    const catalogCall = fetchMock.mock.calls.find(([url]) => String(url) === "/api/workspace-integrations/catalog");
+    expect(catalogCall).toBeTruthy();
+    expect(new Headers(catalogCall?.[1]?.headers).get("X-Shiba-Workspace")).toBe(META_WORKSPACE);
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/integrations/provider/catalog")).toBe(false);
+  });
   it("hides the setup card when the provider is configured", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView />);

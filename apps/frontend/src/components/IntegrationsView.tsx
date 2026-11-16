@@ -172,7 +172,7 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
   const [showFutureComparisons, setShowFutureComparisons] = useState(false);
   const [showCombinedSlack, setShowCombinedSlack] = useState(false);
   const [showStripeSlack, setShowStripeSlack] = useState(false);
-  return <div className="min-w-0 space-y-4"><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
+  return <div className="min-w-0 space-y-4"><IntegrationsSetupCard workspaceId={props.workspaceId} /><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
     actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
     allowPersonalScope={props.allowPersonalScope} onPersonalScope={props.onPersonalScope} />
     {props.workspaceRole === "owner" && props.actorId && <section className="p-4">

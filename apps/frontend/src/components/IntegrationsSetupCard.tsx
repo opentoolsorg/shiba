@@ -10,21 +10,24 @@ function Logo({ item }: { item: FeaturedCatalogItem }): JSX.Element {
 }
 
 /** Shown only while OpenConnector is not set up; renders nothing for a configured provider. */
-export function IntegrationsSetupCard(): JSX.Element | null {
+export function IntegrationsSetupCard({ workspaceId }: { workspaceId?: string }): JSX.Element | null {
   const [catalog, setCatalog] = useState<SetupCatalog | null>(null);
   const cardRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch("/api/integrations/provider/catalog", { credentials: "same-origin", cache: "no-store", signal: controller.signal })
+    setCatalog(null);
+    void fetch(workspaceId ? "/api/workspace-integrations/catalog" : "/api/integrations/provider/catalog", { credentials: "same-origin", cache: "no-store", signal: controller.signal,
+      ...(workspaceId ? { headers: { "X-Shiba-Workspace": workspaceId } } : {}),
+    })
       .then(async (response) => {
         if (!response.ok) return;
         const body = (await response.json()) as Partial<SetupCatalog>;
-        if (body.configured === false && Array.isArray(body.items) && body.setup) setCatalog(body as SetupCatalog);
+        if (!controller.signal.aborted && body.configured === false && Array.isArray(body.items) && body.setup) setCatalog(body as SetupCatalog);
       })
       .catch(() => { /* Directory below reports its own load errors. */ });
     return () => controller.abort();
-  }, []);
+  }, [workspaceId]);
 
   if (!catalog) return null;
   const openSetup = () => { cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }); cardRef.current?.focus(); };
