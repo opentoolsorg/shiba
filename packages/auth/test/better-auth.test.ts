@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
-import { betterAuthFor, ensureBetterAuthSchema, resolveBetterAuthUserId, type BetterAuthLaneEnv } from "../src/better-auth.js";
+import { betterAuthFor, ensureBetterAuthSchema, handleBetterAuth, resolveBetterAuthUserId, type BetterAuthLaneEnv } from "../src/better-auth.js";
 
 const BASE = "http://localhost:8787";
 const credentials = {
@@ -21,7 +21,7 @@ async function fixture(overrides: Partial<BetterAuthLaneEnv> = {}) {
   const env: BetterAuthLaneEnv = { AGENT_AUDIT: db, BETTER_AUTH_SECRET: "s".repeat(32), BETTER_AUTH_URL: BASE, ...credentials, ...overrides };
   await ensureBetterAuthSchema({ AGENT_AUDIT: db });
   const auth = await betterAuthFor(env);
-  return { sqlite, env, auth };
+  return { sqlite, db, env, auth };
 }
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 const post = (path: string, body: unknown) => new Request(`${BASE}/api/auth/${path}`, {
@@ -88,6 +88,20 @@ async function linkOAuth(f: Fixture, provider: "google" | "slack", expectedEmail
     headers: { cookie: callbackCookies },
   }));
 }
+
+describe("public bootstrap policy", () => {
+  it.each([false, true])("reports ownerExists=%s using only the dashboard user count", async ownerExists => {
+    const f = await fixture();
+    if (ownerExists) seed(f);
+    const prepare = vi.spyOn(f.db, "prepare");
+    const response = await handleBetterAuth(new Request(`${BASE}/api/auth/bootstrap`), f.env);
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({
+      requiresToken: false, requiresOwnerEmail: false, locked: false, ownerExists,
+    });
+    expect(prepare.mock.calls).toEqual([['SELECT COUNT(*) AS c FROM "user"']]);
+  });
+});
 
 describe("built-in social provider configuration", () => {
   it.each([
