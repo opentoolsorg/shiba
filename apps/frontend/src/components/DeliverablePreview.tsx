@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from "react";
+import { MarkdownPreview } from "./TaskDetailSections";
 
 const MAX_CSV_ROWS = 500;
 const PREVIEW_LINES = 40;
@@ -93,7 +94,7 @@ function CsvTable({ text }: { text: string }): JSX.Element {
 export function DeliverablePreview({ src, path, downloadHref }: { src: string; path: string; downloadHref?: string }): JSX.Element | null {
   const extension = extensionOf(path);
   const frame = useRef<HTMLIFrameElement>(null);
-  const textual = extension === "md" || extension === "txt" || extension === "csv";
+  const textual = ["md", "txt", "csv", "json"].includes(extension);
   const { text, error } = useText(src, textual);
   if (extension === "html") {
     return (
@@ -109,8 +110,7 @@ export function DeliverablePreview({ src, path, downloadHref }: { src: string; p
   if (extension === "pdf") {
     return (
       <div className="flex flex-col gap-1">
-        {/* ponytail: no sandbox attr, Chrome's built-in PDF viewer refuses to load in a sandboxed frame */}
-        <iframe title={`Preview of ${path}`} src={withQuery(src, "inline=1")} className="h-96 w-full rounded border border-[var(--border-1)]" />
+        <iframe title={`Preview of ${path}`} src={withQuery(src, "inline=1")} sandbox="" className="h-96 w-full rounded border border-[var(--border-1)]" />
         {downloadHref && <a className="w-fit text-[11px] text-[var(--primary)] underline" href={downloadHref} download={path.split("/").pop()}>Download PDF</a>}
       </div>
     );
@@ -118,6 +118,15 @@ export function DeliverablePreview({ src, path, downloadHref }: { src: string; p
   if (!textual) return null;
   if (error) return <span className="text-[11px] text-[var(--muted-foreground-2)]">Preview unavailable.</span>;
   if (text === null) return <span className="text-[11px] text-[var(--muted-foreground-2)]">Loading preview…</span>;
-  if (extension === "csv") return <CsvTable text={text} />;
-  return <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-[var(--border-1)] p-2 text-[11px]">{text.split("\n").slice(0, PREVIEW_LINES).join("\n")}</pre>;
+  const excerpt = text.split("\n").slice(0, PREVIEW_LINES).join("\n");
+  return (
+    <div className="flex flex-col gap-1">
+      {extension === "csv" ? <CsvTable text={text} /> : (
+        <div className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-[var(--border-1)] p-2 text-[11px]">
+          {extension === "md" ? <MarkdownPreview source={excerpt} /> : <pre>{excerpt}</pre>}
+        </div>
+      )}
+      {downloadHref && <a className="w-fit text-[11px] text-[var(--primary)] underline" href={downloadHref} download={path.split("/").pop()}>Download {path.split("/").pop()}</a>}
+    </div>
+  );
 }

@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
+// @vitest-environment-options {"settings":{"disableIframePageLoading":true}}
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RunDeliverables } from "./RunDeliverables";
-import { parseCsv } from "./DeliverablePreview";
+import { DeliverablePreview, parseCsv } from "./DeliverablePreview";
 
 const file = (path: string, mediaType: string) => ({ path, mediaType, bytes: 10, sha256: "a".repeat(64), artifactId: `artifact_${"1".repeat(32)}`, version: 1 });
 const CSV = "name,score\nb,10\na,2\n";
@@ -23,7 +24,7 @@ describe("deliverable previews", () => {
   it("renders md, csv, html and pdf variants", async () => {
     stubFetch();
     renderAll();
-    await waitFor(() => expect(screen.getByText(/# Title/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Title")).toBeTruthy());
     await waitFor(() => expect(screen.getByRole("table")).toBeTruthy());
     expect(screen.getByTitle("Preview of dashboard.html")).toBeTruthy();
     expect(screen.getByTitle("Preview of report.pdf")).toBeTruthy();
@@ -39,6 +40,27 @@ describe("deliverable previews", () => {
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
     expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
     expect(frame.getAttribute("src")).toContain("inline=1");
+  });
+
+  it("renders Markdown and escapes raw HTML", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("# Report\n\n**Profit**\n\n<script>alert(1)</script>")));
+    const { container } = render(<DeliverablePreview src="/report" path="report.md" />);
+    await screen.findByText("Report");
+    expect(screen.getByText("Profit").tagName).toBe("STRONG");
+    expect(container.querySelector("script")).toBeNull();
+  });
+
+  it("sandboxes PDF frames and keeps a download fallback", () => {
+    render(<DeliverablePreview src="/pdf" path="report.pdf" downloadHref="/pdf" />);
+    expect(screen.getByTitle("Preview of report.pdf").getAttribute("sandbox")).toBe("");
+    expect(screen.getByRole("link", { name: "Download PDF" }).getAttribute("href")).toBe("/pdf");
+  });
+
+  it("offers a download from shared CSV previews", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(CSV)));
+    render(<DeliverablePreview src="/shared" path="data.csv" downloadHref="/shared" />);
+    await screen.findByRole("table");
+    expect(screen.getByRole("link", { name: "Download data.csv" }).getAttribute("href")).toBe("/shared");
   });
 
   it("sorts the csv table by column", async () => {
