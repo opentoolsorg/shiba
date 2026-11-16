@@ -22,10 +22,17 @@ export async function checkAnthropicCredential(
       method: "GET",
       headers,
       signal: AbortSignal.timeout(5_000),
-      redirect: "error",
+      // Workers supports manual redirects, not error; never forward credentials.
+      redirect: "manual",
     });
+    console.info("Anthropic credential check", `${Math.floor(response.status / 100)}xx`);
     if (response.status === 200) return { ok: true };
-    if (response.status === 401 || response.status === 403) {
+    let rejected = response.status === 401 || response.status === 403;
+    if (!rejected && response.status >= 400 && response.status < 500 && response.status !== 429) {
+      const body = await response.json().catch(() => null) as { error?: { type?: unknown } } | null;
+      rejected = body?.error?.type === "authentication_error" || body?.error?.type === "permission_error";
+    }
+    if (rejected) {
       return {
         ok: false,
         reason: "rejected",
