@@ -40,7 +40,7 @@ function ScopedPanel({workspaceId,actorId,client:provided}:Props):JSX.Element {
     <p className="text-xs text-[var(--ink-2)]">Install a bot for this workspace using your verified native owner account. Each installation needs a separate review before activation. Installation does not grant employee execution, provider billing or private context access.</p>
     <p className="break-all text-xs">Workspace {workspaceId} · Owner {actorId}</p>
     {error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
-    {!busy&&state&&!state.available&&<SlackSetupCard/>}
+    {!busy&&state&&(!state.available||state.installations.length===0)&&<SlackSetupCard/>}
     {busy&&!state&&<p role="status">Checking Slack setup…</p>}
     <fieldset disabled={busy||!state?.available||attempted} className="space-y-2"><legend className="text-xs font-semibold">Bot permissions to request</legend>
       {SLACK_BOT_SCOPES.map((scope)=><label key={scope} className="flex min-h-11 items-center gap-2 text-xs"><input type="checkbox" checked={scopes.includes(scope)} disabled={scope==="chat:write"} onChange={(event)=>{setScopes((previous)=>event.target.checked?[...previous,scope]:previous.filter((item)=>item!==scope));setConsent(false);setAuthorization(null);}}/>{scopeLabels[scope]} <code className="break-all">{scope}</code></label>)}

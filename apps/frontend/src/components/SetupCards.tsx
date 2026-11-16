@@ -35,6 +35,7 @@ export function SlackSetupCard(): JSX.Element {
       <ol className="mt-1 list-decimal space-y-1 pl-4 text-[var(--muted-foreground-1)]">
         {SLACK_STEPS.map((step) => <li key={step}>{step}</li>)}
       </ol>
+      <p className="mt-2 text-[var(--muted-foreground-1)]">Workspace-owner installation through the panel also needs the Slack OAuth configuration and encrypted keyring described in the guide.</p>
       <a href="/docs/slack-setup/" className={`mt-2 inline-flex min-h-11 items-center ${LINK}`}>Slack setup guide</a>
     </section>
   );

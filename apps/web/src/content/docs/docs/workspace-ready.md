@@ -32,7 +32,7 @@ The employee tool policy view lists these tools with a "Needs setup" chip when t
 | Tool | Needs |
 | --- | --- |
 | Web search | `WEB_SEARCH_API_KEY` (and optionally `WEB_SEARCH_PROVIDER`: `tavily`, `exa` or `brave`) |
-| Image generation | the `AI` Workers AI binding |
+| Image generation | the `AI` Workers AI binding and `FILES` or `ARTIFACTS` output storage binding |
 | Browser | the `BROWSER` Browser Rendering binding |
 
-On Cloudflare, set secrets with `wrangler secret put NAME` and bindings in your Worker config. On any other server, export the same names as environment variables.
+On Cloudflare, set secrets with `wrangler secret put NAME` and bindings in your Worker config. On any other server, set API keys in your server's secret store or environment; Workers AI, output storage and browser bindings need runtime service adapters rather than string environment values.
