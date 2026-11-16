@@ -12,6 +12,7 @@ import { isAccessConfigured } from "./request-auth.js";
 import { runSetupDoctor, type SetupDoctorReport } from "./setup-doctor.js";
 import { listMissingSetupSecrets, type SetupSecretRow } from "./setup-missing-secrets.js";
 import { LOCAL_RUNTIME_FLAG } from "@shiba/shared";
+import { readModelRoute, readToolSetup, type ModelRouteStatus, type ToolSetupRow } from "./model-route-status.js";
 
 export interface SetupStatus {
   slack: {
@@ -40,6 +41,9 @@ export interface SetupStatus {
     workspaceEvents: boolean;
   };
   missingSecrets: SetupSecretRow[];
+  /** Can this workspace start a task right now, and if not, what to do. */
+  modelRoute: ModelRouteStatus;
+  toolSetup: ToolSetupRow[];
   doctor: SetupDoctorReport;
 }
 
@@ -66,7 +70,7 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
     .filter(Boolean);
   const modelSnapshot = await readModelConfig(env);
   const rolePins = modelSnapshot.policy.rolePins;
-  const base: Omit<SetupStatus, "doctor" | "deployment" | "missingSecrets"> = {
+  const base: Omit<SetupStatus, "doctor" | "deployment" | "missingSecrets" | "modelRoute" | "toolSetup"> = {
     slack: {
       signingSecret: Boolean(env.SLACK_SIGNING_SECRET),
       botToken: Boolean(env.SLACK_BOT_TOKEN),
@@ -129,6 +133,8 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
       workspaceEvents: env.WorkspaceEvents !== undefined,
     },
     missingSecrets,
+    modelRoute: await readModelRoute(env, initiatorUserId),
+    toolSetup: readToolSetup(env),
     doctor,
   };
 }
