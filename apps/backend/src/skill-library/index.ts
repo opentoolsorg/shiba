@@ -308,17 +308,14 @@ export function getSkillLibraryRecords(): readonly LibrarySkill[] {
   return ensureSkillLibraryParsed();
 }
 
-/** @deprecated Prefer getSkillLibraryRecords(); retained for callers expecting a const. */
+/** @deprecated Prefer getSkillLibraryRecords(); lazily parsed on first property access. */
 export const SKILL_LIBRARY: LibrarySkill[] = new Proxy([] as LibrarySkill[], {
-  get(_target, prop, receiver) {
-    return Reflect.get(ensureSkillLibraryParsed(), prop, receiver);
-  },
-  ownKeys() {
-    return Reflect.ownKeys(ensureSkillLibraryParsed());
-  },
-  getOwnPropertyDescriptor(_target, prop) {
+  get(_target, prop) {
     const lib = ensureSkillLibraryParsed();
-    return Object.getOwnPropertyDescriptor(lib, prop) ?? Object.getOwnPropertyDescriptor(Array.prototype, prop);
+    if (prop === "length") return lib.length;
+    if (prop === Symbol.iterator) return lib[Symbol.iterator].bind(lib);
+    const value = Reflect.get(lib, prop, lib);
+    return typeof value === "function" ? value.bind(lib) : value;
   },
 });
 
