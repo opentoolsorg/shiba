@@ -591,7 +591,7 @@ function ProviderCard({
         {card.connection.message ? (
           <p
             data-testid={`provider-signin-message-${card.id}`}
-            className="mt-2 font-mono text-[11px] leading-relaxed text-[var(--fg)]"
+            className={`mt-2 font-mono text-[11px] leading-relaxed ${card.connection.phase === "disconnected" ? "text-[var(--muted-foreground-2)]" : "text-[var(--fg)]"}`}
           >
             {card.connection.message}
           </p>

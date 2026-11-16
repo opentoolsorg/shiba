@@ -52,6 +52,25 @@ function snapshot(connection?: Partial<AcpProviderCard["connection"]>): AcpProvi
 }
 
 describe("ProvidersView sign-in", () => {
+  it("shows a Default badge for an automatically selected provider", async () => {
+    const provider = { ...card({ phase: "connected", userCode: null, verificationUri: null }), isDefault: true };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? { org: "self-hosted", defaultProviderId: "codex", providers: [provider] } : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));
+    render(<ProvidersView />);
+    expect(await screen.findByText("Default")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Set as my default" })).toBeNull();
+  });
+
+  it("shows a timed-out sign-in as muted text with a reconnect action", async () => {
+    const message = "The last sign-in timed out. Connect again when you're ready.";
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? snapshot({ phase: "disconnected", authMode: null, message, userCode: null, verificationUri: null, expiresAt: null }) : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));
+    render(<ProvidersView />);
+    const notice = await screen.findByText(message);
+    expect(notice.className).toContain("text-[var(--muted-foreground-2)]");
+    expect(notice.getAttribute("role")).not.toBe("alert");
+    expect(screen.getByTestId("provider-connect-oauth-codex")).toBeTruthy();
+    expect(screen.getByTestId("provider-status-codex").textContent).not.toContain("failed");
+  });
+
   it("opens the vendor page and finishes at Connected", async () => {
     const open = vi.fn(() => ({ closed: false }) as Window);
     vi.stubGlobal("open", open);

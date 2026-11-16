@@ -1,6 +1,6 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@cloudflare/sandbox", () => ({
   ContainerProxy: class {},
@@ -214,13 +214,14 @@ describe("sign-in is not a local confirmation code", () => {
     );
     const codex = done.providers.find((provider) => provider.id === "codex");
     expect(codex?.connection.phase).toBe("connected");
+    expect(done.defaultProviderId).toBe("codex");
     expect(codex?.connection.authMode).toBe("oauth");
     expect(codex?.connection.message).toBe("mocked device grant");
     expect(deps.completeOauth).toHaveBeenCalledOnce();
     expect([...kv.map.values()].join("\n")).not.toContain(callback);
   });
 
-  it("fails an expired sign-in without calling complete", async () => {
+  it("clears an expired sign-in without calling complete", async () => {
     const deployment = env({}, kv);
     await snapshot(
       await handleAcpProviders(
@@ -243,9 +244,12 @@ describe("sign-in is not a local confirmation code", () => {
         deps,
       ),
     );
-    expect(expired.providers.find((provider) => provider.id === "claude")?.connection.phase).toBe(
-      "failed",
-    );
+    expect(expired.providers.find((provider) => provider.id === "claude")?.connection).toMatchObject({
+      phase: "disconnected",
+      message: "The last sign-in timed out. Connect again when you're ready.",
+      verificationUri: null,
+      expiresAt: null,
+    });
     expect(deps.completeOauth).not.toHaveBeenCalled();
   });
 
@@ -331,6 +335,7 @@ describe("API-key fallback", () => {
     );
     const gemini = body.providers.find((provider) => provider.id === "gemini");
     expect(gemini?.connection.phase).toBe("connected");
+    expect(body.defaultProviderId).toBe("gemini");
     expect(gemini?.connection.message).toMatch(/stored/i);
     expect(JSON.stringify(body)).not.toContain(secret);
     expect([...kv.map.values()].join("\n")).not.toContain(secret);
@@ -514,8 +519,8 @@ describe("per-org default", () => {
         deployment,
       ),
     );
-    expect(grace.defaultProviderId).toBeNull();
-    expect(grace.providers.find((provider) => provider.id === "grok")?.isDefault).toBe(false);
+    expect(grace.defaultProviderId).toBe("grok");
+    expect(grace.providers.find((provider) => provider.id === "grok")?.isDefault).toBe(true);
 
     const cleared = await snapshot(
       await handleAcpProviders(
@@ -548,6 +553,138 @@ describe("per-org default", () => {
       env(),
     );
     expect(response?.status).toBe(409);
+  });
+});
+
+describe("automatic provider defaults", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it.each(["disconnect", "reset"])("preserves a connected default and promotes the latest remaining provider on %s", async (action) => {
+    const kv = new FakeKV();
+    const deployment = env({}, kv);
+    const connect = async (id: string, time: number) => snapshot(await handleAcpProviders(
+      request(`/api/providers/${id}/connect`, { method: "POST", body: JSON.stringify({ mode: "oauth" }) }),
+      deployment,
+      { now: () => time, beginOauth: async () => ({ ok: true, pending: false, message: "Connected" }) },
+    ));
+    expect((await connect("codex", 1)).defaultProviderId).toBe("codex");
+    expect((await connect("gemini", 2)).defaultProviderId).toBe("codex");
+    expect((await connect("cursor", 3)).defaultProviderId).toBe("codex");
+    const promoted = await snapshot(await handleAcpProviders(
+      request(`/api/providers/codex/${action}`, { method: "POST", body: "{}" }), deployment,
+    ));
+    expect(promoted.defaultProviderId).toBe("cursor");
+    expect(promoted.providers.find((provider) => provider.id === "cursor")?.isDefault).toBe(true);
+  });
+
+  it("keeps an explicitly chosen connected default when another provider connects", async () => {
+    const kv = new FakeKV();
+    const deployment = env({}, kv);
+    const connect = (id: string) => handleAcpProviders(request(`/api/providers/${id}/connect`, {
+      method: "POST", body: JSON.stringify({ mode: "oauth" }),
+    }), deployment, { beginOauth: async () => ({ ok: true, pending: false, message: "Connected" }) });
+    await connect("codex");
+    await connect("gemini");
+    await handleAcpProviders(request("/api/providers/gemini/default", { method: "POST", body: "{}" }), deployment);
+    const body = await snapshot(await connect("cursor"));
+    expect(body.defaultProviderId).toBe("gemini");
+  });
+
+  it("makes a stored OpenAI key default and clears it on disconnect", async () => {
+    const deployment = env({ MODEL_CREDENTIAL_KEY: "ab".repeat(32) });
+    const connected = await snapshot(await handleAcpProviders(request("/api/providers/openai/connect", {
+      method: "POST", body: JSON.stringify({ mode: "api-key", credential: "sk-qa-preview-not-real-000000000000" }),
+    }), deployment));
+    expect(connected.defaultProviderId).toBe("openai");
+    const disconnected = await snapshot(await handleAcpProviders(request("/api/providers/openai/disconnect", {
+      method: "POST", body: "{}",
+    }), deployment));
+    expect(disconnected.defaultProviderId).toBeNull();
+    expect(disconnected.providers.find((provider) => provider.id === "openai")?.connection.phase).toBe("disconnected");
+  });
+
+  it("cancels a pending Codex sign-in without a failure", async () => {
+    const deployment = env();
+    await handleAcpProviders(request("/api/providers/codex/connect", {
+      method: "POST", body: JSON.stringify({ mode: "oauth" }),
+    }), deployment, { beginOauth: beginWaiting });
+    const body = await snapshot(await handleAcpProviders(request("/api/providers/codex/disconnect", {
+      method: "POST", body: "{}",
+    }), deployment));
+    expect(body.defaultProviderId).toBeNull();
+    expect(body.providers.find((provider) => provider.id === "codex")?.connection.phase).toBe("disconnected");
+  });
+
+  it("replaces a stale default when a sign-in is verified", async () => {
+    const kv = new FakeKV();
+    await kv.put("acp_provider_default:default", "gemini");
+    const deployment = env({}, kv);
+    await handleAcpProviders(request("/api/providers/codex/connect", {
+      method: "POST", body: JSON.stringify({ mode: "oauth" }),
+    }), deployment, { beginOauth: beginWaiting });
+    const body = await snapshot(await handleAcpProviders(request("/api/providers/codex/verify", {
+      method: "POST", body: "{}",
+    }), deployment, { completeOauth: confirmOk }));
+    expect(body.defaultProviderId).toBe("codex");
+  });
+
+  it.each(["chatgpt-device", "claude-setup-token"])("clears expired %s pending data on snapshot reads", async (signInKind) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const kv = new FakeKV();
+    const deployment = env({}, kv);
+    await handleAcpProviders(request("/api/providers/codex/connect", {
+      method: "POST", body: JSON.stringify({ mode: "oauth" }),
+    }), deployment, {
+      beginOauth: async () => ({
+        ok: true, pending: true, message: "Waiting", signInKind: signInKind as "chatgpt-device" | "claude-setup-token",
+        userCode: "test-code", oauthState: "test-state", expiresAt: 2_000,
+      }),
+    });
+    vi.advanceTimersByTime(1_000);
+    const body = await snapshot(await handleAcpProviders(request("/api/providers"), deployment));
+    expect(body.providers.find((provider) => provider.id === "codex")?.connection).toMatchObject({
+      phase: "disconnected", message: "The last sign-in timed out. Connect again when you're ready.",
+      userCode: null, oauthState: null, expiresAt: null, signInKind: null,
+    });
+    const stored = JSON.parse(kv.map.get("acp_provider:default:codex") ?? "{}");
+    expect(stored.phase).toBe("disconnected");
+    expect(stored).not.toHaveProperty("oauthState");
+    expect(stored).not.toHaveProperty("userCode");
+  });
+
+  it.each(["reconnect", "disconnect"])("does not overwrite a concurrent %s while clearing an expired snapshot", async (action) => {
+    const kv = new FakeKV();
+    const key = "acp_provider:default:codex";
+    await kv.put(key, JSON.stringify({ phase: "waiting", authMode: "oauth", updatedAt: 1, expiresAt: 2 }));
+    const get = kv.get.bind(kv);
+    let raced = false;
+    vi.spyOn(kv, "get").mockImplementation(async (requested) => {
+      const value = await get(requested);
+      if (requested === key && !raced) {
+        raced = true;
+        if (action === "disconnect") await kv.delete(key);
+        else await kv.put(key, JSON.stringify({ phase: "connected", authMode: "oauth", updatedAt: 3 }));
+      }
+      return value;
+    });
+    const body = await snapshot(await handleAcpProviders(request("/api/providers"), env({}, kv), { now: () => 4 }));
+    const connection = body.providers.find((provider) => provider.id === "codex")?.connection;
+    expect(connection?.phase).toBe(action === "reconnect" ? "connected" : "disconnected");
+    if (action === "disconnect") expect(kv.map.has(key)).toBe(false);
+    else expect(JSON.parse(kv.map.get(key) ?? "{}").updatedAt).toBe(3);
+  });
+
+  it("keeps rejected sign-ins failed and leaves the default unset", async () => {
+    const deployment = env();
+    await handleAcpProviders(request("/api/providers/codex/connect", {
+      method: "POST", body: JSON.stringify({ mode: "oauth" }),
+    }), deployment, { beginOauth: beginWaiting });
+    const body = await snapshot(await handleAcpProviders(request("/api/providers/codex/verify", {
+      method: "POST", body: "{}",
+    }), deployment, { completeOauth: async () => ({ ok: false, message: "Rejected token" }) }));
+    expect(body.defaultProviderId).toBeNull();
+    expect(body.providers.find((provider) => provider.id === "codex")?.connection.phase).toBe("failed");
   });
 });
 
