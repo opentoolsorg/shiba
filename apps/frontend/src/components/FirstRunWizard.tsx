@@ -1,4 +1,4 @@
-import type { AcpProviderCard, AcpProvidersSnapshot } from "@shiba/shared";
+import type { AcpProviderCard, AcpProvidersSnapshot, OnboardingStatus } from "@shiba/shared";
 import { type JSX, useEffect, useRef, useState } from "react";
 import { useMailboxes, useSetupStatus } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
@@ -9,6 +9,7 @@ import type { OnboardingDraft } from "../onboarding-draft";
 
 export type FirstRunStepId = "channels" | "agent" | "models" | "employee";
 export interface FirstRunProgressSnapshot {
+  status?: OnboardingStatus;
   schemaVersion?: 2;
   draftTaskId?: string | null;
   draftTask?: OnboardingDraft | null;

@@ -3,6 +3,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { StrictMode, Suspense, type FormEvent } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app";
+import { deriveOnboardingStatus } from "@shiba/shared";
+import type { FirstRunProgressSnapshot } from "./components/FirstRunWizard";
+import { EMPTY_ONBOARDING_DRAFT } from "./onboarding-draft";
 import { ONBOARDING_DISMISSED_KEY } from "./components/AgentExperience";
 import { EMPLOYEE_TEMPLATES } from "./employee-templates";
 import { composerDraftScope, readDraft, writeDraft, setSavedLibraryActor } from "./saved";
@@ -54,6 +57,7 @@ beforeEach(() => {
   mocks.suspension = null;
   setSavedLibraryActor("test-operator");
   localStorage.clear();
+  sessionStorage.clear();
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
     const path = String(url);
     if (path === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
@@ -1011,5 +1015,168 @@ describe("personal provider task selection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click((await screen.findAllByRole("button", { name: "Back to app" }))[0]!);
     await waitFor(() => expect(screen.getByTestId("selected-harness").textContent).toBe("claude-code"));
+  });
+});
+
+describe("first-run setup reminders", () => {
+  function installProgress(overrides: Partial<FirstRunProgressSnapshot> = {}) {
+    let progress: FirstRunProgressSnapshot = {
+      revision: 1, currentStep: "channels", dismissedAt: 1, activatedAt: null,
+      connectionVerifiedAt: null, firstSuccessfulRunAt: null, acceptedArtifactAt: null,
+      draftTaskId: null, draftTask: null,
+      evidence: { connectedProvider: false, successfulRun: false, acceptedDeliverable: false },
+      ...overrides,
+    };
+    const originalFetch = fetch;
+    const updates = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/whoami") return Response.json({ agent: "test-operator", auth: "better-auth" });
+      if (String(url) === "/api/onboarding/progress") {
+        if (options?.method === "POST") {
+          const body = JSON.parse(String(options.body));
+          updates(body);
+          progress = { ...progress, revision: progress.revision + 1,
+            ...(body.action === "resume" ? { dismissedAt: null } : {}),
+            ...(body.draftTask ? { draftTask: { ...EMPTY_ONBOARDING_DRAFT, ...progress.draftTask, ...body.draftTask } } : {}),
+          };
+        }
+        return Response.json({ ...progress, status: deriveOnboardingStatus(progress) });
+      }
+      return originalFetch(url, options);
+    }));
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    return updates;
+  }
+
+  it.each(["/threads/", "/work/"])("shows the popup once on %s and keeps the banner after Not now", async (path) => {
+    window.history.replaceState(null, "", path);
+    const updates = installProgress();
+    render(<App />);
+    const popup = await screen.findByRole("dialog", { name: "Your first task is waiting" });
+    fireEvent.click(within(popup).getByRole("button", { name: "Not now" }));
+    expect(screen.queryByRole("dialog", { name: "Your first task is waiting" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Setup reminder" })).toBeTruthy();
+    expect(updates).not.toHaveBeenCalled();
+    cleanup();
+    render(<App />);
+    await screen.findByRole("region", { name: "Setup reminder" });
+    expect(screen.queryByRole("dialog", { name: "Your first task is waiting" })).toBeNull();
+    expect(window.location.pathname).toBe(path);
+  });
+
+  it("blocks app navigation and submit shortcuts while the popup is open", async () => {
+    window.history.replaceState(null, "", "/threads/?prompt=Draft%20a%20brief");
+    installProgress();
+    render(<App />);
+    await screen.findByRole("dialog", { name: "Your first task is waiting" });
+    const sentBefore = mocks.chat.sendMessage.mock.calls.length;
+    fireEvent.keyDown(window, { key: "2", code: "Digit2", altKey: true });
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    await act(async () => {});
+    expect(window.location.pathname).toBe("/threads/");
+    expect(mocks.chat.sendMessage.mock.calls.length).toBe(sentBefore);
+    expect(vi.mocked(fetch).mock.calls.some(([url, options]) => String(url).startsWith("/api/runs") && options?.method === "POST")).toBe(false);
+    expect(screen.getByRole("dialog", { name: "Your first task is waiting" })).toBeTruthy();
+  });
+
+  it("keeps banner dismissal in the tab session without changing server progress", async () => {
+    const updates = installProgress();
+    render(<App />);
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Your first task is waiting" })).getByRole("button", { name: "Not now" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Setup reminder" })).getByRole("button", { name: "Dismiss for now" }));
+    expect(screen.queryByRole("region", { name: "Setup reminder" })).toBeNull();
+    cleanup();
+    render(<App />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/onboarding/progress", expect.anything()));
+    await act(async () => {});
+    expect(screen.queryByRole("region", { name: "Setup reminder" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Your first task is waiting" })).toBeNull();
+    expect(updates).not.toHaveBeenCalled();
+    cleanup();
+    sessionStorage.clear();
+    render(<App />);
+    await screen.findByRole("dialog", { name: "Your first task is waiting" });
+    expect(screen.getByRole("region", { name: "Setup reminder" })).toBeTruthy();
+  });
+
+  it("never shows reminders for an activated account with old session flags", async () => {
+    sessionStorage.setItem("shiba:onboarding-nudge:popup-shown:test-operator", "1");
+    installProgress({ activatedAt: 9 });
+    render(<App />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/onboarding/progress", expect.anything()));
+    await act(async () => {});
+    expect(screen.queryByRole("region", { name: "Setup reminder" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Your first task is waiting" })).toBeNull();
+  });
+
+  it("hides reminders while the first task screen auto-opens", async () => {
+    window.history.replaceState(null, "", "/threads/");
+    installProgress({ dismissedAt: null });
+    render(<App />);
+    await screen.findByRole("region", { name: "First task setup" });
+    expect(screen.queryByRole("region", { name: "Setup reminder" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Your first task is waiting" })).toBeNull();
+  });
+
+  it("saves the missing goal step before resuming first-task setup", async () => {
+    const updates = installProgress({ draftTask: { ...EMPTY_ONBOARDING_DRAFT, currentStep: "review" } });
+    render(<App />);
+    const popup = await screen.findByRole("dialog", { name: "Your first task is waiting" });
+    fireEvent.click(within(popup).getByRole("button", { name: "Continue setup" }));
+    await screen.findByRole("region", { name: "First task setup" });
+    expect(updates).toHaveBeenCalledWith(expect.objectContaining({ action: "save-draft", draftTask: { currentStep: "goal" } }));
+    expect(screen.getByText("What should be ready when this is done?")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Setup reminder" })).toBeNull();
+  });
+
+  it("does not let a delayed Continue write interrupt newer navigation", async () => {
+    installProgress({ draftTask: { ...EMPTY_ONBOARDING_DRAFT, currentStep: "review" } });
+    const progressFetch = fetch;
+    let finish!: () => void;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const response = await progressFetch(url, options);
+      if (String(url) === "/api/onboarding/progress" && options?.method === "POST") {
+        await new Promise<void>((resolve) => { finish = resolve; });
+      }
+      return response;
+    }));
+    render(<App />);
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Your first task is waiting" })).getByRole("button", { name: "Continue setup" }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    await act(async () => { window.history.pushState(null, "", "/team/"); window.dispatchEvent(new PopStateEvent("popstate")); });
+    await act(async () => finish());
+    expect(window.location.pathname).toBe("/team/");
+    expect(screen.queryByRole("region", { name: "First task setup" })).toBeNull();
+  });
+
+  it("resumes a prepared first task at Providers without writing progress", async () => {
+    const updates = installProgress({ draftTaskId: "draft_fixture", draftTask: {
+      ...EMPTY_ONBOARDING_DRAFT, goal: "A brief", audience: "My team", acceptance: "Reviewed", preparedAt: 1,
+    } });
+    render(<App />);
+    const popup = await screen.findByRole("dialog", { name: "Your first task is waiting" });
+    fireEvent.click(within(popup).getByRole("button", { name: "Continue setup" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/providers/"));
+    expect(updates).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "First task setup" })).toBeNull();
+  });
+
+  it("does not show a personal reminder in a selected team workspace", async () => {
+    const id = `ws_${"a".repeat(24)}`;
+    const actor = "owner@example.com";
+    localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actor)}`, id);
+    installProgress();
+    const progressFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/whoami") return Response.json({ agent: actor, auth: "better-auth" });
+      if (String(url) === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId: id, name: "Design team", version: 1, createdAt: 1,
+        membership: { workspaceId: id, userId: actor, role: "owner", version: 1, joinedAt: 1 } }] });
+      return progressFetch(url, options);
+    }));
+    render(<App />);
+    await screen.findByRole("button", { name: /(· workspace|^Workspace profile)$/ });
+    await act(async () => {});
+    expect(screen.queryByRole("region", { name: "Setup reminder" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Your first task is waiting" })).toBeNull();
   });
 });
