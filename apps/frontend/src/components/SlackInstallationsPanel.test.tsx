@@ -25,13 +25,13 @@ describe("scoped Slack installation management",()=>{
     await screen.findByText(/T123 · active/);expect(fetcher).toHaveBeenCalledTimes(2);
     expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual({expectedVersion:1,digest:"a".repeat(64),reviewed:true});
   });
-  it("shows missing operator setup honestly and clears cached installation after denied refresh",async()=>{
+  it("shows the Slack setup card when the operator has not configured Slack and clears cached installation after denied refresh",async()=>{
     const state=slackInstallationFixture();let deny=false;const fetcher=vi.fn(async()=>deny?new Response("denied",{status:401}):Response.json(state));
     render(<SlackInstallationsPanel workspaceId={state.workspaceId} actorId={state.actorId} client={new SlackInstallationsClient(state.workspaceId,state.actorId,fetcher)}/>);
     await screen.findByText(/T123 · pending/);deny=true;fireEvent.click(screen.getByRole("button",{name:"Refresh installation status"}));
     await screen.findByRole("alert");expect(screen.queryByText(/T123 · pending/)).toBeNull();expect(screen.queryByRole("button",{name:"Activate reviewed installation"})).toBeNull();
     cleanup();state.available=false;state.installations=[];render(<SlackInstallationsPanel workspaceId={state.workspaceId} actorId={state.actorId} client={new SlackInstallationsClient(state.workspaceId,state.actorId,async()=>Response.json(state))}/>);
-    await screen.findByText(/operator must configure/);expect(screen.getByRole("button",{name:"Prepare Slack authorization"}).hasAttribute("disabled")).toBe(true);
+    await screen.findByTestId("slack-setup-card");expect(screen.getByRole("button",{name:"Prepare Slack authorization"}).hasAttribute("disabled")).toBe(true);
   });
   it("ignores a held authorization result after switching native workspace scope",async()=>{
     const first=slackInstallationFixture(),second=slackInstallationFixture("ws_"+"b".repeat(24),"second@example.test");second.installations=[];

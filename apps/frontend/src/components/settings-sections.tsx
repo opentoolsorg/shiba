@@ -14,6 +14,7 @@ import { SkeletonLines, StatusNotice } from "./surface";
 import { ChatGptSubscriptionCard } from "./ChatGptSubscriptionCard";
 import { PurposeRoutingCard, RolePinsCard } from "./ModelRoutingSection";
 import { Card } from "./settings-ui";
+import { SlackSetupCard } from "./SetupCards";
 import { AccountSettings } from "./account/AccountSettings";
 import { ApiKeysSettingsPanel } from "./settings/ApiKeys";
 import { WebhooksSettingsPanel } from "./settings/Webhooks";
@@ -290,6 +291,8 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
     );
   }
   return (
+    <>
+    {!status.slack.botToken && !status.slack.signingSecret ? <SlackSetupCard /> : null}
     <Card>
       <ChecklistRow
         label="Slack signing secret"
@@ -327,6 +330,7 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
         detail="REQUIRE_ACCESS / ACCESS_AUD — identity on every path"
       />
     </Card>
+    </>
   );
 }
 
