@@ -5,14 +5,14 @@ const privacySchema = {
   '@context': 'https://schema.org',
   '@type': 'WebPage',
   name: 'Shiba Privacy Notice',
-  description: 'What tryshiba.dev collects: a waitlist email, optional GitHub username, and a hashed IP. Self-hosted Shiba stores data in your own Cloudflare account.',
+  description: 'What tryshiba.dev collects: a waitlist email, optional GitHub username, and a hashed IP. Self-hosted Shiba stores data on your own servers.',
   url: 'https://tryshiba.dev/privacy/',
 };
 ---
 
 <MarketingPage
   title="Privacy Notice | Shiba"
-  description="What tryshiba.dev collects: a waitlist email, optional GitHub username, and a hashed IP. Self-hosted Shiba stores data in your own Cloudflare account."
+  description="What tryshiba.dev collects: a waitlist email, optional GitHub username, and a hashed IP. Self-hosted Shiba stores data on your own servers."
   path="/privacy/"
   type="website"
   schema={privacySchema}
@@ -37,7 +37,7 @@ const privacySchema = {
       <div>
         <h4 class="text-[var(--ink)] font-bold text-sm mb-1">The short version</h4>
         <p class="text-[var(--ink-2)] text-xs leading-relaxed">
-          The waitlist stores your email, your interest choice, an optional GitHub username, and a one-way hash of your IP. That is the whole list. When you self-host Shiba, your code and run data live in your own Cloudflare account, not in anything operated by this project.
+          The waitlist stores your email, your interest choice, an optional GitHub username, and a one-way hash of your IP. That is the whole list. When you self-host Shiba, your code and run data live on your own servers, not in anything operated by this project.
         </p>
       </div>
     </div>
@@ -94,7 +94,7 @@ const privacySchema = {
       <div class="prose-body">
         <h2 id="selfhost-title" class="text-[var(--ink)]">When you run Shiba yourself</h2>
         <p class="text-[var(--ink-2)]">
-          Shiba is self-hosted software. When you deploy it, every byte of your installation (run logs, task history, repository checkouts, sandbox output, secrets) lives in <em>your</em> Cloudflare account and on your infrastructure. The project never receives telemetry from your deployment. You are the controller of that data, not us.
+          Shiba is self-hosted software. When you deploy it, every byte of your installation (run logs, task history, repository checkouts, sandbox output, secrets) lives on <em>your</em> servers. The project never receives telemetry from your deployment. You are the controller of that data, not us.
         </p>
         <p class="text-[var(--ink-2)]">
           Provider credentials are deliberately kept out of the container: sandboxed runs receive a dummy key and provider requests are forwarded at the Worker's egress layer, and your <code>GITHUB_TOKEN</code> is attached in the Worker, never inside the container. Details and limitations are in <a class="text-[var(--navy)] underline" href="/docs/security/">Security &amp; credential boundaries</a>.
