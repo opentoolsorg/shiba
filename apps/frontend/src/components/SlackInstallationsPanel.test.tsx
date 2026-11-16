@@ -8,6 +8,12 @@ import {slackInstallationFixture}from"../slack-installations-fixtures";
 afterEach(()=>{cleanup();vi.restoreAllMocks();});
 function authorize(){const url=new URL("https://slack.com/oauth/v2/authorize");url.search=new URLSearchParams({client_id:"123.456",redirect_uri:"https://shiba.test/api/slack/installations/callback",scope:"chat:write",state:"s".repeat(43),code_challenge:"c".repeat(43),code_challenge_method:"S256"}).toString();return url.href;}
 describe("scoped Slack installation management",()=>{
+  it("shows setup steps without an error when OAuth is available but nothing is installed",async()=>{
+    const state=slackInstallationFixture();state.installations=[];
+    render(<SlackInstallationsPanel workspaceId={state.workspaceId} actorId={state.actorId} client={new SlackInstallationsClient(state.workspaceId,state.actorId,async()=>Response.json(state))}/>);
+    await screen.findByTestId("slack-setup-card");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
   it("loads only status, then requires explicit scope consent before showing an OAuth link",async()=>{
     const state=slackInstallationFixture(),fetcher=vi.fn(async(_url:RequestInfo|URL,init?:RequestInit)=>Response.json(init?.method==="POST"?{ok:true,workspaceId:state.workspaceId,actorId:state.actorId,authorizationUrl:authorize(),expiresAt:Date.now()+600_000}:state));
     render(<SlackInstallationsPanel workspaceId={state.workspaceId} actorId={state.actorId} client={new SlackInstallationsClient(state.workspaceId,state.actorId,fetcher)}/>);

@@ -31,8 +31,11 @@ describe("model route card", () => {
   });
 
   it("flips to ready once a provider is linked", () => {
+    mockSetup.state = data(notReady);
+    const view = render(home());
+    expect((screen.getByRole("button", { name: "Send task" }) as HTMLButtonElement).disabled).toBe(true);
     mockSetup.state = data({ ready: true, via: "personal-provider", fix: null });
-    render(home());
+    view.rerender(home());
     expect(screen.queryByTestId("model-route-card")).toBeNull();
     expect((screen.getByRole("button", { name: "Send task" }) as HTMLButtonElement).disabled).toBe(false);
   });

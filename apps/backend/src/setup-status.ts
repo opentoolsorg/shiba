@@ -133,7 +133,7 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
       workspaceEvents: env.WorkspaceEvents !== undefined,
     },
     missingSecrets,
-    modelRoute: await readModelRoute(env, initiatorUserId),
+    modelRoute: await readModelRoute(env, initiatorUserId, base.gateway.reachable),
     toolSetup: readToolSetup(env),
     doctor,
   };
