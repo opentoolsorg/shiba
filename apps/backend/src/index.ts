@@ -15,7 +15,8 @@ import { automationsStub, seenDelivery } from "./automations-stub.js";
 import { ensureLiveCodingModel } from "./coding-model.js";
 import type { Env } from "./env.js";
 import { Mailbox } from "./mailbox-do.js";
-import { MCP_PRINCIPAL_HEADER } from "./mcp-gateway.js";
+import { MCP_PRINCIPAL_HEADER } from "./mcp-principal.js";
+import { isDashboardViewPath, isMarketingSection } from "./app-host-routing.js";
 import { Memory } from "./memory-do.js";
 import { Sandbox, SandboxOutbound, proxyToSandbox } from "./sandbox.js";
 import { ContainerProxy } from "./sandbox/npm-shim.js";
@@ -47,7 +48,6 @@ import { handleSentryWebhook } from "./sentry-webhook-routes.js";
 import { handleInbox } from "./inbox-routes.js";
 import { handleLocalAdapter, isLocalRuntimePath } from "./local-routes.js";
 import { LocalDispatch } from "./local-dispatch.js";
-import { handleMcp } from "./mcp-routes.js";
 import { handleMemory } from "./memory-routes.js";
 import { handleFiles } from "./files/files-routes.js";
 import { handleNotes } from "./notes/notes-routes.js";
@@ -60,7 +60,6 @@ import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
 import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import { handleApiKeys } from "./api-keys-routes.js";
 import { handleOutboundWebhooks } from "./webhooks/routes.js";
-import { registerWebhookQueueConsumers } from "./webhooks/consumer.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
 import { handleEmployeeTools } from "./employee-tool-routes.js";
 import { handleSkillLibrary } from "./skill-library-routes.js";
@@ -87,7 +86,6 @@ import { handleWebSessions } from "./sessions-routes.js";
 import { handleSlackCanvas } from "./slack-canvas-routes.js";
 import { redactSecrets } from "./security.js";
 import { handleBetterAuth, isBetterAuthConfigured } from "./better-auth.js";
-import "./email/delivery.js";
 import { handleEmailDeliveryRoutes } from "./email/routes.js";
 import { getUserId, isAccessConfigured, isAuthenticated, isAuthorizedRequest, resolveUserId, SIGNATURE_AUTHENTICATED } from "./request-auth.js";
 import { handleSlackInteract } from "./slack-approval.js";
@@ -110,7 +108,6 @@ import { ConversationRoom } from "./conversation-room-do.js";
 import { WorkspaceEvents } from "./platform/workspace-events-do.js";
 import { SlackImportWorkflow, AutomationRunWorkflow } from "./platform/workflows.js";
 import { dispatchQueueBatch } from "./platform/queues.js";
-import "./knowledge/knowledge-ingest-queue.js";
 import {
   isAuthorizedSessionAgent,
   parseSessionAgentName,
@@ -151,55 +148,9 @@ export { isBetterAuthConfigured } from "./better-auth.js";
 export { getUserId, isAuthenticated, isAuthorizedRequest, resolveUserId, SIGNATURE_AUTHENTICATED } from "./request-auth.js";
 export { handleWebSessions } from "./sessions-routes.js";
 
-registerWebhookQueueConsumers();
+export { getDashboardViews } from "./app-host-routing.js";
 
 let claudeSubscriptionDeprecationWarned = false;
-
-// The landing site lives on tryshiba.dev; the app host only serves the dashboard.
-const MARKETING_SECTIONS = new Set([
-  "docs",
-  "blog",
-  "why-shiba",
-  "privacy",
-  "terms",
-  "waitlist",
-  "welcome",
-]);
-// Root paths of the dashboard's sidebar views (AppNavRail ids); "" is the Work home.
-export const DASHBOARD_VIEWS = new Set([
-  "slack-canvas",
-  "signin",
-  "login",
-  // Keep in sync with AppNavRail APP_NAV_ITEMS ids.
-  "",
-  "work",
-  "dashboard",
-  "tasks",
-  "threads",
-  "activity",
-  "analytics",
-  "diff",
-  "approvals",
-  "swarm",
-  "collaboration",
-  "team",
-  "agents",
-  "inbox",
-  "memory",
-  "files",
-  "notes",
-  "projects",
-  "outputs",
-  "automations",
-  "providers",
-  "employee-tools",
-  "integrations",
-  "skills",
-  "spaces",
-  "custom-agents",
-  "remote",
-  "settings",
-]);
 
 export default {
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -328,11 +279,11 @@ export default {
       }
       if (request.method === "GET" || request.method === "HEAD") {
         const section = url.pathname.split("/")[1] ?? "";
-        if (MARKETING_SECTIONS.has(section)) {
+        if (isMarketingSection(section)) {
           return Response.redirect(`https://tryshiba.dev${url.pathname}${url.search}`, 301);
         }
         // The shell is static and shows sign-in itself; single segment so /agents/<do>/… still routes.
-        if (DASHBOARD_VIEWS.has(section) && /^\/[^/]*\/?$/.test(url.pathname)) {
+        if (isDashboardViewPath(section, url.pathname)) {
           return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
         }
         // WS02: password reset surfaces share the dashboard shell.
@@ -484,7 +435,7 @@ export default {
       if (subscriptionAuthResponse) {
         return subscriptionAuthResponse;
       }
-      const mcpResponse = await handleMcp(
+      const mcpResponse = await (await import("./mcp-routes.js")).handleMcp(
         request,
         env,
         ctx ?? ({ waitUntil: () => {} } as unknown as ExecutionContext),

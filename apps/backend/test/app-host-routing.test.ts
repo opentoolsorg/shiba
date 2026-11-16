@@ -1,7 +1,8 @@
 import { APP_NAV_ITEMS } from "../../frontend/src/app-navigation.js";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
-import worker, { DASHBOARD_VIEWS } from "../src/index.js";
+import worker from "../src/index.js";
+import { getDashboardViews } from "../src/app-host-routing.js";
 
 vi.mock("@cloudflare/sandbox", () => ({
   Sandbox: class {},
@@ -83,6 +84,7 @@ describe("app host routing", () => {
 
   it("has a server path for every sidebar view", () => {
     expect(APP_NAV_ITEMS.length).toBeGreaterThan(10);
-    for (const { id } of APP_NAV_ITEMS) expect(DASHBOARD_VIEWS.has(id), id).toBe(true);
+    const dashboardViews = getDashboardViews();
+    for (const { id } of APP_NAV_ITEMS) expect(dashboardViews.has(id), id).toBe(true);
   });
 });
