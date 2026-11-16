@@ -1,7 +1,8 @@
 import { buildCapabilityDirectory } from "./capability-catalog.js";
 import { listCapabilityInvocations } from "./capability-invocations.js";
 import type { Env } from "./env.js";
-import { isAuthorizedRequest } from "./request-auth.js";
+import { videoCapabilityForUser } from "./tools/video-gen.js";
+import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 
 /** Read-only dashboard directory from the same registrations served over MCP. */
@@ -33,7 +34,7 @@ export async function handleCapabilityCatalog(request: Request, env: Env): Promi
   }
   try {
     const directory = buildCapabilityDirectory(env, limit === undefined ? {} : { limit });
-    return Response.json(directory, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ ...directory, video: await videoCapabilityForUser(env, await resolveUserId(request, env)) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("Capability catalog construction failed:", error instanceof Error ? error.message : String(error));
     return Response.json({ error: "Capability catalog is unavailable." }, { status: 503 });

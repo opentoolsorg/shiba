@@ -604,5 +604,7 @@ export interface Env {
   WEB_SEARCH_PROVIDER?: string;
   /** Video generation is disabled unless explicitly enabled. */
   SHIBA_VIDEO_GENERATION?: string;
+  /** Explicit opt-in backend; uses the signed-in owner’s personal Google key. */
+  SHIBA_VIDEO_BACKEND?: string;
 
 }
