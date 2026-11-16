@@ -1012,9 +1012,9 @@ describe("CollaborationView embedded team conversation", () => {
     fireEvent.change(screen.getByLabelText("Message"), {
       target: { value: "A unsent private draft" },
     });
-    await waitFor(() => expect(sockets).toHaveLength(1));
+    await waitFor(() => expect(sockets).toHaveLength(2));
     deferA = true;
-    act(() => sockets[0]!.open());
+    act(() => sockets[1]!.open());
     rerender(<CollaborationView workspaceId={workspaceB} />);
     expect(screen.queryByText("Private team A message")).toBeNull();
     expect(screen.queryByDisplayValue("A unsent private draft")).toBeNull();
@@ -1445,7 +1445,13 @@ describe("coordination cards", () => {
     const writes = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
-      if (init?.method === "POST") { writes(path, JSON.parse(String(init.body)), init.headers); return Response.json({}); }
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        writes(path, body, init.headers);
+        return Response.json(path.endsWith("/messages") ? { message: {
+          ...roomDetail.messages[0], messageId: body.messageId, body: body.body,
+        } } : {});
+      }
       if (path === "/api/collaboration/rooms") return Response.json({ rooms: [detail.room] });
       if (path === "/api/collaboration/rooms/room-1") return Response.json(detail);
       return Response.json({ agents: [], tasks: [], presence: [] });
@@ -1486,9 +1492,94 @@ describe("coordination cards", () => {
     expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Message" }));
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(writes).toHaveBeenCalledWith("/api/collaboration/rooms/room-1/messages", {
-      body: "Please review @agent:fixer ", threadRootMessageId: "child-root",
+      body: "Please review @agent:fixer ", threadRootMessageId: "child-root", messageId: expect.any(String),
     }, expect.anything()));
     rerender(<CollaborationView incomingMention={{ ...incomingMention, id: "wrong-room", roomId: "other" }} />);
     expect((screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement).value).toBe("");
+  });
+});
+
+describe("optimistic room mutations", () => {
+  it("shows a sent message before HTTP settles and removes it on failure", async () => {
+    let finish!: (value: Response) => void;
+    const write = new Promise<Response>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/messages") && init?.method === "POST") return write;
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [roomDetail.room] });
+      if (path === "/api/collaboration/rooms/room-1") return Response.json(roomDetail);
+      return Response.json({ agents: [], computers: [] });
+    }));
+    render(<CollaborationView />);
+    await screen.findByText("Confidential room note");
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Immediate message" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(screen.getByText("Immediate message")).toBeTruthy();
+    expect(screen.getByText("Sending…")).toBeTruthy();
+    await act(async () => finish(Response.json({ error: "Send failed" }, { status: 503 })));
+    await waitFor(() => expect(screen.queryByText("Sending…")).toBeNull());
+    expect(screen.getByLabelText("Message")).toHaveProperty("value", "Immediate message");
+  });
+
+  it("reconciles the optimistic message with the server id without duplicates", async () => {
+    let finish!: (value: Response) => void;
+    const write = new Promise<Response>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/messages") && init?.method === "POST") return write;
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [roomDetail.room] });
+      if (path === "/api/collaboration/rooms/room-1") return Response.json(roomDetail);
+      return Response.json({ agents: [], computers: [] });
+    }));
+    render(<CollaborationView />);
+    await screen.findByText("Confidential room note");
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Accepted message" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await act(async () => finish(Response.json({ message: {
+      ...roomDetail.messages[0], messageId: "server-message", body: "Accepted message",
+    } })));
+    await waitFor(() => expect(screen.queryByText("Sending…")).toBeNull());
+    expect(screen.getAllByText("Accepted message")).toHaveLength(1);
+  });
+});
+
+describe("workspace room patches", () => {
+  it("preserves room and message patches when an older HTTP response finishes", async () => {
+    const sockets: Array<{ url: string; onopen?: () => void; onmessage?: (event: { data: string }) => void }> = [];
+    vi.stubGlobal("WebSocket", class {
+      static OPEN = 1;
+      readyState = 0;
+      onopen?: () => void;
+      onmessage?: (event: { data: string }) => void;
+      constructor(readonly url: string | URL) { sockets.push(this as never); }
+      addEventListener() {}
+      send() {}
+      close() { this.readyState = 3; }
+    });
+    let finishList!: (response: Response) => void;
+    const staleList = new Promise<Response>((resolve) => { finishList = resolve; });
+    let listReads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.startsWith("/api/collaboration/rooms?")) {
+        listReads++;
+        if (listReads > 1) return staleList;
+        return Response.json({ rooms: [roomDetail.room] });
+      }
+      if (path === "/api/collaboration/rooms/room-1") return Response.json(roomDetail);
+      return Response.json({ agents: [], computers: [] });
+    }));
+    render(<CollaborationView workspaceId={PERSONAL_WORKSPACE} />);
+    await screen.findByText("Confidential room note");
+    const socket = sockets.find((item) => String(item.url).includes("/events"))!;
+    act(() => socket.onopen?.());
+    await waitFor(() => expect(listReads).toBeGreaterThan(1));
+    act(() => socket.onmessage?.({ data: JSON.stringify({ workspaceId: PERSONAL_WORKSPACE, kind: "room.updated", entityId: "new-room", payload: { room: { roomId: "new-room", title: "Remote room", visibility: "private", kind: "room" } } }) }));
+    act(() => socket.onmessage?.({ data: JSON.stringify({ workspaceId: PERSONAL_WORKSPACE, kind: "message.created", entityId: "room-1", payload: { message: { ...roomDetail.messages[0], messageId: "remote-message", body: "Remote message", threadRootId: "thread-root" } } }) }));
+    expect(screen.getByText("Remote room")).toBeTruthy();
+    expect(screen.getByText("Remote message")).toBeTruthy();
+    await act(async () => finishList(Response.json({ rooms: [roomDetail.room] })));
+    await waitFor(() => expect(screen.getByText("Remote room")).toBeTruthy());
+    expect(screen.getByText("Remote message")).toBeTruthy();
   });
 });

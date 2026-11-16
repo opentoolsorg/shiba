@@ -136,9 +136,10 @@ export function RoomRail({
       ) : (
         <ul aria-label="Rooms" className="flex max-h-60 flex-col gap-1 overflow-y-auto lg:max-h-none">
           {rooms.map((room) => (
-            <li key={room.roomId}>
+            <li key={room.roomId} className={room.roomId.startsWith("pending_") ? "opacity-60" : undefined}>
               <button
                 type="button"
+                disabled={room.roomId.startsWith("pending_")}
                 onClick={() => onSelectRoom(room.roomId)}
                 aria-current={room.roomId === activeRoomId ? "page" : undefined}
                 className={`min-h-11 w-full border-l-2 px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] ${room.roomId === activeRoomId ? "border-[var(--navy)] bg-[var(--panel-2)] text-[var(--ink)]" : "border-transparent text-[var(--ink-2)] hover:bg-[var(--panel-2)]"}`}
