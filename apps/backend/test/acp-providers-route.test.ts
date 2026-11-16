@@ -60,6 +60,11 @@ describe("worker /api/providers", () => {
       "gemini",
       "grok",
       "cursor",
+      "openai",
+      "anthropic",
+      "openrouter",
+      "groq",
+      "copilot",
     ]);
     expect(body.providers.find((provider) => provider.id === "claude")?.protocol).toBe("acp");
   });

@@ -1,3 +1,4 @@
+import { putUserProviderSecret } from "../src/user-provider-keys.js";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { runSetupDoctor } from "../src/setup-doctor.js";
@@ -157,5 +158,30 @@ describe("assertRunPreflight", () => {
       harness: "claude-code",
     });
     expect(route.connectionId).toBe(connection.id);
+  });
+});
+
+
+describe("personal API-key preflight", () => {
+  const snapshot = { connections: [], policy: { version: 0, models: {}, updatedAt: 0 }, connectionOrder: [] };
+  const params = {
+    harness: "codex-acp", codingModel: "openai/gpt-5.3-codex", initiatorUserId: "personal-owner",
+    route: { purpose: "coding" as const, connectionId: null, modelId: "openai/gpt-5.3-codex", harness: "codex-acp", policyVersion: 0 },
+  };
+
+  it("refuses a missing personal key even when deployment gateway credentials exist", async () => {
+    await expect(assertRunPreflight(env(), params, snapshot)).rejects.toThrow(/Settings → Providers/);
+  });
+
+  it("accepts an encrypted personal key without a deployment gateway credential", async () => {
+    const records = new Map<string, string>();
+    const configured = env({ AI_GATEWAY_TOKEN: "", MODEL_CREDENTIAL_KEY: "ab".repeat(32),
+      AGENT_TOKENS: {
+        get: async (key: string) => records.get(key) ?? null,
+        put: async (key: string, value: string) => { records.set(key, value); },
+      } as unknown as KVNamespace,
+    });
+    await putUserProviderSecret(configured, "personal-owner", "openai-api", crypto.randomUUID());
+    await expect(assertRunPreflight(configured, params, snapshot)).resolves.toBeUndefined();
   });
 });

@@ -125,12 +125,12 @@ describe("ProvidersView sign-in", () => {
     expect(screen.getByText(/Local artifacts require explicit complete output paths/)).toBeTruthy();
   });
 
-  it("labels a saved legacy token as deployment-gated rather than native cloud login", async () => {
+  it("describes the saved Claude setup-token task route", async () => {
     const claude = { ...card({ phase: "connected", signInKind: "claude-setup-token", userCode: null, verificationUri: null }), id: "claude", label: "Claude Code", harness: "claude-acp" } satisfies AcpProviderCard;
     vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? { org: "self-hosted", defaultProviderId: null, providers: [claude] } : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));
     render(<ProvidersView />);
-    expect((await screen.findByTestId("provider-route-claude")).textContent).toContain("claude-subscription (legacy opt-in)");
-    expect(screen.getByText(/Storing a token does not enable this runtime/)).toBeTruthy();
+    expect((await screen.findByTestId("provider-route-claude")).textContent).toContain("claude-subscription");
+    expect(screen.getByText(/set Claude as your default for tasks/)).toBeTruthy();
   });
 
   it("keeps a Codex API credential separate from ChatGPT billing", async () => {
@@ -140,6 +140,33 @@ describe("ProvidersView sign-in", () => {
     expect(route.textContent).toContain("codex or codex-acp (sandbox)");
     expect(route.textContent).toContain("Configured API credential");
     expect(route.textContent).not.toContain("ChatGPT plan");
+  });
+
+  it("connects and disconnects a personal API key from the shared Settings panel", async () => {
+    const provider = { ...card({ phase: "disconnected", authMode: null }), id: "openrouter", label: "OpenRouter", capabilities: { ...card().capabilities, oauth: false } } satisfies AcpProviderCard;
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/connect")) {
+        const body = JSON.parse(String(init?.body));
+        expect(body.mode).toBe("api-key");
+        expect(Boolean(body.credential)).toBe(true);
+        provider.connection = { ...provider.connection, phase: "connected", authMode: "api-key" };
+      } else if (url.endsWith("/default")) {
+        provider.isDefault = true;
+      } else if (url.endsWith("/disconnect")) {
+        provider.connection = { ...provider.connection, phase: "disconnected", authMode: null };
+      }
+      return Response.json({ org: "self", defaultProviderId: provider.isDefault ? provider.id : null, providers: [provider] });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<ProvidersView embedded />);
+    const keyInput = await screen.findByLabelText("OpenRouter API key");
+    fireEvent.change(keyInput, { target: { value: "test-credential" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use API credential" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Set as my default" }));
+    expect(await screen.findByText("Default")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    expect(await screen.findByLabelText("OpenRouter API key")).toBeTruthy();
+    expect(fetcher.mock.calls.every(([url]) => String(url).startsWith("/api/providers"))).toBe(true);
   });
 
   it("renders breadcrumbs in the header", async () => {

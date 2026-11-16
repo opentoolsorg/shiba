@@ -17,7 +17,7 @@ export function workerSecretAuthJson(env: Env, account: string): string | undefi
 
 /**
  * Resolve auth.json for legacy T47 verify (/api/auth/codex-subscription).
- * Harness runs mount credentials in the sandbox instead of egress injection.
+ * Personal runs resolve only their own encrypted credential.
  */
 export async function resolveCodexSubscriptionAuthJson(
   env: Env,
@@ -25,8 +25,8 @@ export async function resolveCodexSubscriptionAuthJson(
 ): Promise<string | null> {
   const account = typeof params.account === "string" && params.account !== "" ? params.account : "default";
   const userId = typeof params.userId === "string" && params.userId !== "" ? params.userId : undefined;
-  if (userId && modelCredentialKeyConfigured(env)) {
-    return loadUserSubscriptionAuthJson(env, userId);
+  if (userId) {
+    return modelCredentialKeyConfigured(env) ? loadUserSubscriptionAuthJson(env, userId) : null;
   }
   if (env.SHIBA_SINGLE_USER === "1") {
     return workerSecretAuthJson(env, account) ?? null;
