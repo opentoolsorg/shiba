@@ -30,12 +30,12 @@ function fillSignIn(): void {
 }
 
 describe("AuthScreen", () => {
-  function policies(enabled = true, restricted = false) {
+  function policies(enabled = true, restricted = false, bootstrap = { ownerExists: false, requiresToken: false, requiresOwnerEmail: false, locked: false }) {
     const fetcher = vi.fn(async (url: string) => ({ ok: true,
       json: async () => url.endsWith("invitation-policy") ? { enabled, reason: enabled ? undefined : "Invitation enrollment is currently unavailable. Contact your workspace owner." }
         : url.endsWith("social-providers") ? { providers: { google: true, slack: true } }
         : url.endsWith("enrollment-status") ? { restricted, emailVerified: !restricted }
-        : { requiresToken: false, requiresOwnerEmail: false, locked: false } }));
+        : bootstrap }));
     vi.stubGlobal("fetch", fetcher);
     return fetcher;
   }
@@ -71,25 +71,81 @@ describe("AuthScreen", () => {
     policies();
     signInSocial.mockResolvedValue({ data: { url: "https://accounts.google.com/" } });
     render(<AuthScreen onSignedIn={vi.fn()} />);
-    expect(await screen.findByRole("button", { name: "Google" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Continue with Google/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Slack" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+    fireEvent.click(screen.getByRole("button", { name: /Continue with Google/ }));
     await act(async () => {});
     expect(signInSocial).toHaveBeenCalledWith(expect.objectContaining({ provider: "google", requestSignUp: false }));
-    fireEvent.click(screen.getByRole("button", { name: "First sign-in? Create the account" }));
-    expect(screen.queryByRole("button", { name: "Google" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+    expect(screen.queryByRole("button", { name: /Continue with Google/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Slack" })).toBeNull();
+  });
+
+  it.each([true, false])("hides the setup token when an owner exists (locked: %s)", async (locked) => {
+    policies(true, false, { ownerExists: true, requiresToken: true, requiresOwnerEmail: false, locked });
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    await screen.findByRole("button", { name: /Continue with Google/ });
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+    expect(screen.queryByLabelText(/setup token/i)).toBeNull();
+    expect(screen.getByText("New members need a workspace invitation.")).toBeTruthy();
+    expect(screen.getByLabelText(/name/i)).toBeTruthy();
+    expect(screen.getByLabelText(/email/i)).toBeTruthy();
+    expect(screen.getByLabelText(/password/i)).toBeTruthy();
+  });
+
+  it.each([
+    { requiresToken: true, locked: false },
+    { requiresToken: false, locked: true },
+  ])("shows the setup token for first-owner setup: %j", async ({ requiresToken, locked }) => {
+    policies(true, false, { ownerExists: false, requiresToken, requiresOwnerEmail: false, locked });
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    await screen.findByRole("button", { name: /Continue with Google/ });
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+    expect(screen.getByLabelText(/setup token/i)).toBeTruthy();
+  });
+
+  it("hides the setup token while the bootstrap policy is loading", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+    expect(screen.queryByLabelText(/setup token/i)).toBeNull();
+  });
+
+  it("hides the setup token when first-owner setup does not require one", async () => {
+    policies();
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    await screen.findByRole("button", { name: /Continue with Google/ });
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+    expect(screen.queryByLabelText(/setup token/i)).toBeNull();
+  });
+
+  it("places Google above the email form with the four-colour logo", async () => {
+    policies();
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    const google = await screen.findByRole("button", { name: /Continue with Google/ });
+    expect(google.compareDocumentPosition(screen.getByLabelText(/email/i)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("or")).toBeTruthy();
+    expect(Array.from(google.querySelectorAll("svg path"), (path) => path.getAttribute("fill")))
+      .toEqual(["#4285F4", "#34A853", "#FBBC05", "#EA4335"]);
+  });
+
+  it("hides Google when the provider is disabled", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ providers: { google: false, slack: true } }) })));
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    await screen.findByRole("button", { name: "Slack" });
+    expect(screen.queryByRole("button", { name: /Continue with Google/ })).toBeNull();
+    expect(screen.queryByText("or")).toBeNull();
   });
 
   it("shows the provider error reason and keeps linking guidance as a fallback", async () => {
     policies();
     signInSocial.mockResolvedValueOnce({ error: { message: "OAuth provider is not configured" } });
     render(<AuthScreen onSignedIn={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Google" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Continue with Google/ }));
     expect((await screen.findByRole("alert")).textContent).toContain("OAuth provider is not configured");
 
     signInSocial.mockResolvedValueOnce({ error: { message: "  " } });
-    fireEvent.click(screen.getByRole("button", { name: "Google" }));
+    fireEvent.click(screen.getByRole("button", { name: /Continue with Google/ }));
     expect((await screen.findByRole("alert")).textContent).toContain("sign in with email first, then link it in Settings");
   });
 
@@ -111,7 +167,7 @@ describe("AuthScreen", () => {
   it("shows the server error and re-enables the button", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({ ok: true, json: async () => ({ requiresToken: false, requiresOwnerEmail: false, locked: false }) })),
+      vi.fn(async () => ({ ok: true, json: async () => ({ ownerExists: false, requiresToken: false, requiresOwnerEmail: false, locked: false }) })),
     );
     signIn.mockResolvedValue({ error: { message: "Invalid email or password" } });
     render(<AuthScreen onSignedIn={vi.fn()} />);
@@ -125,7 +181,7 @@ describe("AuthScreen", () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({ ok: true, json: async () => ({ requiresToken: false, requiresOwnerEmail: false, locked: false }) })),
+      vi.fn(async () => ({ ok: true, json: async () => ({ ownerExists: false, requiresToken: false, requiresOwnerEmail: false, locked: false }) })),
     );
     signIn.mockReturnValue(new Promise(() => {}));
     render(<AuthScreen onSignedIn={vi.fn()} />);

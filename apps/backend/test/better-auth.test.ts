@@ -407,7 +407,7 @@ describe("end-to-end session flow", () => {
   it("reports owner-email-only public signup as locked and rejects it", async () => {
     const env = makeEnv({ BETTER_AUTH_OWNER_EMAIL: "owner@example.com" });
     const status = await handleBetterAuth(new Request("https://app.example/api/auth/bootstrap"), env);
-    expect(await status?.json()).toEqual({ requiresToken: false, requiresOwnerEmail: true, locked: true });
+    expect(await status?.json()).toEqual({ requiresToken: false, requiresOwnerEmail: true, locked: true, ownerExists: false });
     const response = await handleBetterAuth(new Request("https://app.example/api/auth/sign-up/email", {
       method: "POST", headers: { "content-type": "application/json", origin: "https://app.example" },
       body: JSON.stringify({ name: "Owner", email: "owner@example.com", password: "password-123" }),
@@ -485,10 +485,21 @@ describe("end-to-end session flow", () => {
     const env = makeEnv({ BETTER_AUTH_BOOTSTRAP_TOKEN: "setup-token-value", BETTER_AUTH_OWNER_EMAIL: "owner@example.com" });
     const res = await handleBetterAuth(new Request("https://app.example/api/auth/bootstrap"), env);
     expect(res?.status).toBe(200);
-    const body = (await res?.json()) as { requiresToken: boolean; requiresOwnerEmail: boolean; locked: boolean };
-    expect(body).toEqual({ requiresToken: true, requiresOwnerEmail: true, locked: false });
+    const body = (await res?.json()) as { requiresToken: boolean; requiresOwnerEmail: boolean; locked: boolean; ownerExists: boolean };
+    expect(body).toEqual({ requiresToken: true, requiresOwnerEmail: true, locked: false, ownerExists: false });
     expect(JSON.stringify(body)).not.toContain("setup-token-value");
     expect(JSON.stringify(body)).not.toContain("owner@example.com");
+  });
+
+  it("reports that an owner exists after the first dashboard account is created without returning identity data", async () => {
+    const env = makeEnv();
+    await signUp(env);
+    const response = await handleBetterAuth(new Request(`${BASE}/api/auth/bootstrap`), env);
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response?.json()).toEqual({
+      requiresToken: false, requiresOwnerEmail: false, locked: false, ownerExists: true,
+    });
   });
 
   it("returns 504 when auth storage does not answer", async () => {
