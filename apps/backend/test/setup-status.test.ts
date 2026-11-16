@@ -134,3 +134,38 @@ describe("GET /api/setup/status subscription diagnostics", () => {
     expect(disconnected.doctor.ok).toBe(false);
   });
 });
+
+describe("readSetupStatus SSO diagnostics", () => {
+  it("keeps SSO disabled by default", async () => {
+    const status = await readSetupStatus(setupStatusEnv(), false);
+    expect(status.sso.enabled).toBe(false);
+    expect(status.doctor.findings.some(row => row.id === "sso.config")).toBe(false);
+  });
+
+  it("reports missing setting names when SSO is requested", async () => {
+    const status = await readSetupStatus(setupStatusEnv({ SHIBA_SSO_ENABLED: "1", SSO_OIDC_ISSUER: "https://identity.example.test" }), false);
+    expect(status.sso).toMatchObject({ enabled: false,
+      configured: ["SSO_OIDC_ISSUER"],
+      missing: expect.arrayContaining(["SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET"]),
+    });
+    expect(status.doctor.findings.find(row => row.id === "sso.config")).toMatchObject({
+      severity: "warn", message: expect.stringContaining("SSO_OIDC_CLIENT_SECRET"),
+    });
+  });
+
+  it("reports configured setting names without identity provider values", async () => {
+    const configured = {
+      SHIBA_SSO_ENABLED: "1", SSO_OIDC_ISSUER: "https://identity.example.test",
+      SSO_OIDC_CLIENT_ID: "private-client-id", SSO_OIDC_CLIENT_SECRET: "private-client-secret",
+      SSO_ALLOWED_DOMAINS: "example.test",
+    };
+    const status = await readSetupStatus(setupStatusEnv(configured), false);
+    expect(status.sso).toEqual({ enabled: true,
+      configured: ["SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET"], missing: [],
+    });
+    expect(status.doctor.findings.find(row => row.id === "sso.config")).toMatchObject({ severity: "ok" });
+    for (const name of ["SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET"] as const) {
+      expect(JSON.stringify(status)).not.toContain(configured[name]);
+    }
+  });
+});

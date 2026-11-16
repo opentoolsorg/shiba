@@ -81,6 +81,36 @@ describe("AuthScreen", () => {
     expect(screen.queryByRole("button", { name: "Slack" })).toBeNull();
   });
 
+  it("shows the company SSO name and starts its OIDC sign-in", async () => {
+    signInSocial.mockResolvedValue({ data: { url: "https://login.company.test/authorize" } });
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true,
+      json: async () => ({ sso: { enabled: true, displayName: "Company" } }) })));
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue with Company" }));
+    await act(async () => {});
+    expect(signInSocial).toHaveBeenCalledWith({
+      provider: "sso", callbackURL: "/app/", errorCallbackURL: "/app/?auth_error=1", requestSignUp: false,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+    expect(screen.queryByRole("button", { name: "Continue with Company" })).toBeNull();
+  });
+
+  it("shows a fixed message for an SSO domain rejection without displaying provider text", async () => {
+    policies();
+    window.history.replaceState(null, "", "/app/?auth_error=1&error=sso_domain_not_allowed&error_description=untrusted-provider-text");
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    expect((await screen.findByRole("alert")).textContent).toBe("Your email domain is not allowed to sign in with SSO.");
+    expect(screen.queryByText("untrusted-provider-text")).toBeNull();
+  });
+
+  it.each([undefined, { enabled: false, displayName: "Company" }])("hides SSO when unavailable: %j", async (sso) => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true,
+      json: async () => ({ providers: { slack: true }, sso }) })));
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    await screen.findByRole("button", { name: "Slack" });
+    expect(screen.queryByRole("button", { name: /Continue with Company/ })).toBeNull();
+  });
+
   it.each([true, false])("hides the setup token when an owner exists (locked: %s)", async (locked) => {
     policies(true, false, { ownerExists: true, requiresToken: true, requiresOwnerEmail: false, locked });
     render(<AuthScreen onSignedIn={vi.fn()} />);
