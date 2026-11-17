@@ -1,7 +1,7 @@
 # Architecture: `ai-intern` (shiba)
 
 Measured, not remembered. Every number below was read from the tree at commit
-`980fa2c` on `main`, 2026-09-27. Where this document disagrees with
+`4bc346f2` on `main`, 2026-11-16. Where this document disagrees with
 `ARCHITECTURE.md`, this document is the measurement and the other is the prose.
 
 Package name is `shiba`. Deploy name is `shiba-ai-coworker`. License AGPL-3.0-only.
@@ -32,7 +32,7 @@ a draft PR.
   Email ──────────────▶│  /api/emails|drafts  provider-verified         │
   GitHub ─────────────▶│  /api/github/webhook  signature-verified       │
   Cron (*/5 * * * *) ─▶│  automations sweep                            │
-  MCP clients ────────▶│  /mcp            bearer token (OAuth: T29)     │
+  MCP clients ────────▶│  /mcp            OAuth or static bearer       │
   Sandbox (container) ▶│  /agents/*, /internal/*                        │
                        └──────────────────────┬──────────────────────────┘
                                               ▼
@@ -127,8 +127,10 @@ everything else is replaceable.
 4. **Secrets stay out** of the container, logs, URLs, and UI. Dummy key inside,
    real key at egress. Automation webhooks are header-only.
 5. **Per-surface authentication.** Access-gated APIs, signature-verified Slack and
-   GitHub, header-secret Telegram/Discord/email, bearer `/mcp`, plus a narrow
-   explicit bypass list. A new surface adds its own mechanism, never inherits one.
+   GitHub, header-secret Telegram/Discord/email, OAuth or static bearer on `/mcp`
+   (`apps/backend/src/oauth-mcp.ts`, `apps/backend/src/mcp-gateway.ts`), plus a
+   narrow explicit bypass list. A new surface adds its own mechanism, never
+   inherits one.
 
 ---
 
@@ -196,7 +198,8 @@ apps/backend/src/
   runtime.ts           489  RuntimeAdapter seam, diff/porcelain parsing
   slack-approval.ts    443  approval cards in Slack
   opencode-agent.ts    336  sandbox-side agent
-  mcp-gateway.ts       324  stateless MCP (T29a), bearer-only
+  oauth-mcp.ts               OAuth 2.1 discovery, PKCE, refresh for /mcp
+  mcp-gateway.ts       324  stateless MCP (T29a); static bearer + OAuth tokens
   egress.ts                  egress handlers, GATEWAY_PROVIDERS
   provider-gateway.ts        dummy key, header sanitation
   security.ts                boundTail, redactSecrets
@@ -242,15 +245,46 @@ breaking and pin versions.
 
 ## 10. Known gaps, recorded so they are not rediscovered
 
-- `/mcp` is bearer-only. No OAuth discovery, so third-party MCP clients cannot
-  connect. Gates T29.
-- No interactive web chat. The dashboard submits and polls; no conversational
-  steering surface.
+### Architecture-risk references
+
+These `docs/` files record acceptance limits, recovery bounds, and audit
+findings — not a feature list:
+
+| Topic | Doc |
+|---|---|
+| Open gaps vs `PLAN.md` claims | `VERIFICATION_PLAN.md` |
+| Control-plane acceptance matrix | `docs/control-plane-acceptance.md` |
+| Live cloud acceptance blockers | `docs/control-plane-live-acceptance.md` |
+| Execution and browser replay limits | `docs/control-plane-execution-recovery.md` |
+| Upstream reference baseline gaps | `docs/control-plane-reference-audit.md` |
+| Production workflow configuration | `docs/production-workflow-audit-20261106.md` |
+
+### Recorded gaps
+
+- **`/mcp` supports OAuth and static bearer.** `apps/backend/src/oauth-mcp.ts`
+  serves RFC 8414/9728 discovery, dynamic registration, authorize+PKCE, token
+  exchange with rotating refresh, and revoke; `apps/backend/src/index.ts` wires
+  `handleOAuth`. Documented owner path remains static `shb_` bearer tokens
+  (`apps/backend/src/agent-tokens.js`). Treat the consent surface as young, not
+  settled.
+- **Interactive web chat is realtime, not poll-only.** `ConversationRoom`
+  (`apps/backend/src/conversation-room-do.ts`) holds WebSocket rooms with
+  messages, typing, cursors, and run-event replay. Owner sessions upgrade at
+  `GET /api/sessions/:id/realtime` (`apps/backend/src/sessions-routes.ts`).
+  Team rooms use `GET /api/collaboration/rooms/:id/realtime`
+  (`apps/backend/src/collaboration-room-routes.ts`). Shared run streaming uses
+  `apps/backend/src/collaboration-live-routes.ts`. Dashboard clients include
+  `apps/frontend/src/collaboration-room-realtime.ts` and
+  `apps/frontend/src/components/CollaborationView.tsx`.
 - GitHub is the only repo provider, by decision. The approval gate is already
   provider-agnostic, so adding one is a layer, not a redesign.
-- Single-tenant by contract. Reversing it is a product decision for `spec/GOAL.md`.
-- `spec/GOAL.md` still forbids a monorepo; the repo is `apps/*` + turbo + alchemy.
-  Documentation debt with real cost.
+- Single-tenant by contract. Reversing it is a product decision for
+  `spec/GOAL.md`. **Decision pending (Prince).**
+- **Monorepo vs prose docs.** The tree is a pnpm+turbo monorepo:
+  `apps/{backend,frontend,web}`, `pnpm-workspace.yaml`, `alchemy.run.ts` —
+  recorded in `spec/GOAL.md`. **Contradiction for Prince:** `ARCHITECTURE.md`
+  still says `spec/GOAL.md` forbids a monorepo; GOAL was amended (T27) but that
+  architecture prose was not fully reconciled.
 - **No dated live acceptance.** Everything is unit-tested and dry-run verified.
   Only OpenCode has completed a live run. The others are unit-tested against
   documented stream formats. Honest status stays "local prototype".
