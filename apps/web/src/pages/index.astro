@@ -7,7 +7,7 @@ import MarketingPage from '../layouts/MarketingPage.astro';
 const repoUrl = 'https://github.com/opentoolsorg/shiba';
 const title = 'Shiba — AI Employees for the Work Behind Your Company';
 const description =
-  'Hire AI employees you own. Shiba is open-source and self-hosted in your Cloudflare account: brief code, design, marketing and ops work, review the plan, and nothing executes until you approve.';
+  'Hire AI employees you own. Approve every move. Shiba is open source and runs on your own servers, on Cloudflare or anywhere you deploy. Brief code, design, marketing and ops work, review the plan, and nothing runs until you approve.';
 
 const schema = [
   {
@@ -24,7 +24,7 @@ const schema = [
     featureList: [
       'AI employees for engineering, marketing, research and operations work',
       'Approval before every proposed run',
-      'Self-hosted in your own Cloudflare account',
+      'Self-hosted on your own servers',
       'Repository tasks and configured private file workspaces',
       'Open source under AGPL-3.0',
     ],
@@ -39,7 +39,7 @@ const steps = [
 
 const rows = [
   { k: 'Source code', a: 'Closed, or source-available', b: 'Open source, AGPL-3.0' },
-  { k: 'Where it runs', a: 'The vendor’s cloud', b: 'Your Cloudflare account' },
+  { k: 'Where it runs', a: 'The vendor’s cloud', b: 'Your own servers' },
   { k: 'Before it acts', a: 'Varies; often a setting you must find', b: 'Approval on every proposed run' },
   { k: 'If the vendor changes', a: 'You follow their roadmap or leave', b: 'Fork it. You hold the code and the data' },
   { k: 'Cost', a: 'Seats plus usage', b: 'Free software; hosting and model usage are yours' },
@@ -47,7 +47,7 @@ const rows = [
 
 const controls = [
   { t: 'Approval before execution', d: 'Every proposed run waits for a human decision.' },
-  { t: 'Runs in your account', d: 'Self-hosted on your Cloudflare account, not ours.' },
+  { t: 'Runs on your servers', d: 'Self-hosted on Cloudflare or any server you run, not ours.' },
   { t: 'You choose where work happens', d: 'Coding tasks use a GitHub repository. File work can use a private workspace when artifact storage is configured.' },
   { t: 'Auditable source', d: 'AGPL-3.0. Read exactly what the agent can do.' },
 ];
@@ -63,7 +63,7 @@ const controls = [
           <span class="hero-accent">Approve every move.</span>
         </h1>
         <p class="hero-lead">
-          Shiba runs code, design, marketing and ops work in your own Cloudflare account. Brief it in Slack, review the plan, and nothing executes until you say so.
+          Shiba runs code, design, marketing and ops work on your own servers. Brief it in Slack, review the plan, and nothing executes until you say so.
         </p>
         <div class="hero-actions">
           <a class="lp-btn lp-btn-primary" href="https://app.tryshiba.dev/tasks/">Open the app</a>
@@ -146,7 +146,7 @@ const controls = [
       <div class="lp-shell cta-inner" data-motion="reveal">
         <img class="cta-logo" src="/landing/shiba-logo.webp" alt="" width="120" height="120" loading="lazy" decoding="async" />
         <h2 id="cta-title" class="cta-title">Give the next task a clear place to start.</h2>
-        <p class="cta-lead">Free to self-host. Your Cloudflare account, your repository, your approval.</p>
+        <p class="cta-lead">Free to self-host. Your servers, your repository, your approval.</p>
         <div class="cta-actions">
           <a class="lp-btn cta-btn cta-btn-solid" href="https://app.tryshiba.dev/tasks/">Open the app</a>
           <a class="lp-btn cta-btn cta-btn-outline" href="/docs/self-hosting/">Self-hosting guide</a>

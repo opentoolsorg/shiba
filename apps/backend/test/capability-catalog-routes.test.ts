@@ -23,6 +23,16 @@ describe("GET /api/capabilities", () => {
     expect(directory.entries.every((entry) => typeof entry.requiredScope === "string" && typeof entry.writeEffect === "string")).toBe(true);
   });
 
+  it("reports disabled video with a reason when the flag is off", async () => {
+    const response = await handleCapabilityCatalog(new Request("https://shiba.test/api/capabilities", {
+      headers: { "CF-Access-Authenticated-User-Email": "owner@example.test" },
+    }), { REQUIRE_ACCESS: true } as unknown as Env);
+    expect(response?.status).toBe(200);
+    const body = await response?.json() as { video: { enabled: boolean; reason: string }; entries: Array<{ name: string }> };
+    expect(body.video).toEqual({ enabled: false, reason: "Video generation is disabled. Set SHIBA_VIDEO_GENERATION=1." });
+    expect(body.entries.some((entry) => entry.name === "generate_video")).toBe(false);
+  });
+
   it("rejects mutation methods and invalid bounds", async () => {
     const env = { REQUIRE_ACCESS: true } as unknown as Env;
     const headers = { "CF-Access-Authenticated-User-Email": "owner@example.test" };

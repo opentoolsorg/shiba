@@ -23,6 +23,8 @@ export interface SetupStatus {
   automations: { enabled: boolean; typeSafe: boolean };
   mailbox: { addressOverride: boolean; sendEnabled: boolean };
   transactionalEmail: { senderConfigured: boolean; queueBound: boolean };
+  modelRoute?: { ready: boolean; via: "personal-provider" | "gateway" | "connection" | null; fix: { kind: string; label: string; href: string } | null };
+  toolSetup?: { id: string; label: string; ready: boolean; env: string }[];
   doctor: SetupDoctorWire;
 }
 

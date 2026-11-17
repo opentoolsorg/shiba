@@ -173,6 +173,31 @@ describe("SandboxRuntimeAdapter", () => {
     expect(ops.execs.some((entry) => /'git' 'clone'|github\.com/.test(entry.command))).toBe(false);
   });
 
+  it("instructs hosted runs to produce HTML and real PDFs and captures both", async () => {
+    const expectedDeliverables = ["dashboard.html", "report.pdf"];
+    const snapshot = repositorySnapshotFixture({
+      status: "?? dashboard.html\n?? report.pdf\n",
+      files: { "dashboard.html": "<h1>Report</h1>", "report.pdf": "%PDF-1.7" + " ".repeat(210_000) },
+    });
+    const ops = makeFakeOps({ pinEgress: async () => {} });
+    const exec = ops.exec.bind(ops);
+    ops.exec = async (command, options) => {
+      const result = await snapshot(command);
+      return result ?? exec(command, options);
+    };
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, {
+      ...INPUT, repoUrl: "", expectedDeliverables,
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables },
+    }, () => {});
+    const command = ops.execs.find((entry) => entry.command.includes("opencode"))?.command ?? "";
+    expect(command).toContain("self-contained");
+    expect(command).toContain("write a real PDF file");
+    expect(command).toContain("524288");
+    expect(command).not.toContain("Write complete nonempty UTF-8 text files");
+    expect(result.status).toBe("completed");
+    expect(result.files.find((file) => file.path === "report.pdf")?.encoding).toBe("base64");
+  });
+
   it("fails artifact-workspace setup before execution when egress cannot be pinned", async () => {
     const ops = makeFakeOps();
     const input: CodingTaskInput = {

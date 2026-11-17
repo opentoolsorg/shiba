@@ -40,6 +40,56 @@ describe("AuthScreen", () => {
     return fetcher;
   }
 
+  it("requests a reset through the mounted route and keeps the email response generic", async () => {
+    window.history.replaceState(null, "", "/auth/forgot");
+    const fetcher = policies();
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "unknown@example.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send reset link" }));
+    expect(await screen.findByText("If the address exists, a reset link is on its way.")).toBeTruthy();
+    expect(fetcher).toHaveBeenCalledWith("/api/auth/request-password-reset", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ email: "unknown@example.test", redirectTo: `${window.location.origin}/auth/reset` }),
+    }));
+  });
+
+  it("uses the emailed token without requiring an email and returns to sign-in after resetting", async () => {
+    window.history.replaceState(null, "", "/auth/reset?token=reset-test-token");
+    const fetcher = policies();
+    const onSignedIn = vi.fn();
+    render(<AuthScreen onSignedIn={onSignedIn} />);
+    expect(screen.queryByLabelText(/email/i)).toBeNull();
+    fireEvent.change(screen.getByLabelText(/^password/i), { target: { value: "new-password-123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Update password" }));
+    expect(await screen.findByText("Password updated. Sign in with your new password.")).toBeTruthy();
+    expect(fetcher).toHaveBeenCalledWith("/api/auth/reset-password", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ newPassword: "new-password-123", token: "reset-test-token" }),
+    }));
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
+    expect((screen.getByLabelText(/^password/i) as HTMLInputElement).value).toBe("");
+    expect(screen.queryByLabelText(/reset token/i)).toBeNull();
+    expect(window.location.pathname).toBe("/app/");
+    expect(window.location.search).toBe("");
+    expect(onSignedIn).not.toHaveBeenCalled();
+  });
+
+  it("offers another reset request when a token is expired or already used", async () => {
+    window.history.replaceState(null, "", "/auth/reset?token=expired-test-token");
+    const fetcher = policies();
+    const implementation = fetcher.getMockImplementation();
+    if (!implementation) throw new Error("Missing policy fixture");
+    fetcher.mockImplementation(async (url) => url.endsWith("reset-password")
+      ? { ok: false, json: async () => ({}) } as Awaited<ReturnType<typeof implementation>>
+      : implementation(url));
+    const onSignedIn = vi.fn();
+    render(<AuthScreen onSignedIn={onSignedIn} />);
+    fireEvent.change(screen.getByLabelText(/^password/i), { target: { value: "new-password-123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Update password" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("This reset link is invalid or has expired.");
+    expect(screen.getByRole("link", { name: "Request a new reset link" }).getAttribute("href")).toBe("/auth/forgot");
+    expect(onSignedIn).not.toHaveBeenCalled();
+  });
+
   it("uses a captured invitation only in the signup header and waits for independent email verification", async () => {
     const fetcher = policies(); signUp.mockResolvedValue({ data: { user: { emailVerified: false } } });
     const onSignedIn = vi.fn(), token = "b".repeat(64);
@@ -79,6 +129,36 @@ describe("AuthScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     expect(screen.queryByRole("button", { name: /Continue with Google/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Slack" })).toBeNull();
+  });
+
+  it("shows the company SSO name and starts its OIDC sign-in", async () => {
+    signInSocial.mockResolvedValue({ data: { url: "https://login.company.test/authorize" } });
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true,
+      json: async () => ({ sso: { enabled: true, displayName: "Company" } }) })));
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue with Company" }));
+    await act(async () => {});
+    expect(signInSocial).toHaveBeenCalledWith({
+      provider: "sso", callbackURL: "/app/", errorCallbackURL: "/app/?auth_error=1", requestSignUp: false,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+    expect(screen.queryByRole("button", { name: "Continue with Company" })).toBeNull();
+  });
+
+  it("shows a fixed message for an SSO domain rejection without displaying provider text", async () => {
+    policies();
+    window.history.replaceState(null, "", "/app/?auth_error=1&error=sso_domain_not_allowed&error_description=untrusted-provider-text");
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    expect((await screen.findByRole("alert")).textContent).toBe("Your email domain is not allowed to sign in with SSO.");
+    expect(screen.queryByText("untrusted-provider-text")).toBeNull();
+  });
+
+  it.each([undefined, { enabled: false, displayName: "Company" }])("hides SSO when unavailable: %j", async (sso) => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true,
+      json: async () => ({ providers: { slack: true }, sso }) })));
+    render(<AuthScreen onSignedIn={vi.fn()} />);
+    await screen.findByRole("button", { name: "Slack" });
+    expect(screen.queryByRole("button", { name: /Continue with Company/ })).toBeNull();
   });
 
   it.each([true, false])("hides the setup token when an owner exists (locked: %s)", async (locked) => {

@@ -233,6 +233,7 @@ export const AGENT_MEDIA_TOOL_DEFAULTS: Record<string, { risk: AgentMediaToolRis
   browser_screenshot: { risk: "read", description: "Capture screenshot to Outputs" },
   browser_click: { risk: "approval_required", description: "Click; submit-like selectors need approval" },
   browser_type: { risk: "approval_required", description: "Type text; password/submit fields need approval" },
+  generate_video: { risk: "approval_required", description: "Generate a paid MP4 after human confirmation" },
   generate_image: { risk: "mutate", description: "Generate PNG with Workers AI" },
   knowledge_search: { risk: "read", description: "Workspace knowledge search (WS07)" },
   ask_user: { risk: "mutate", description: "Ask the user a question (WS08)" },

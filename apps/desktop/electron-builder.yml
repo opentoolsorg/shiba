@@ -48,6 +48,8 @@ electronFuses:
   enableEmbeddedAsarIntegrityValidation: true
   grantFileProtocolExtraPrivileges: false
 mac:
+  extendInfo:
+    NSMicrophoneUsageDescription: Shiba uses the microphone for voice input in the app.
   icon: assets/icon.icns
   target:
     - target: dmg

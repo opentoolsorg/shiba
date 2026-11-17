@@ -23,6 +23,7 @@ export function RoomRail({
   rooms,
   savedItems,
   activeRoomId,
+  activePresenceCount = 0,
   roomTitle,
   roomVisibility,
   busy,
@@ -38,6 +39,7 @@ export function RoomRail({
   rooms: RailRoom[];
   savedItems: SavedRef[];
   activeRoomId: string;
+  activePresenceCount?: number;
   roomTitle: string;
   roomVisibility: "private" | "shared";
   busy: boolean;
@@ -136,15 +138,21 @@ export function RoomRail({
       ) : (
         <ul aria-label="Rooms" className="flex max-h-60 flex-col gap-1 overflow-y-auto lg:max-h-none">
           {rooms.map((room) => (
-            <li key={room.roomId}>
+            <li key={room.roomId} className={room.roomId.startsWith("pending_") ? "opacity-60" : undefined}>
               <button
                 type="button"
+                disabled={room.roomId.startsWith("pending_")}
                 onClick={() => onSelectRoom(room.roomId)}
                 aria-current={room.roomId === activeRoomId ? "page" : undefined}
                 className={`min-h-11 w-full border-l-2 px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] ${room.roomId === activeRoomId ? "border-[var(--navy)] bg-[var(--panel-2)] text-[var(--ink)]" : "border-transparent text-[var(--ink-2)] hover:bg-[var(--panel-2)]"}`}
               >
                 <span className="flex items-center gap-2 truncate font-medium">
                   <span className="truncate">{room.title}</span>
+                  {room.roomId === activeRoomId && activePresenceCount > 0 ? (
+                    <span aria-label={`${activePresenceCount} online`} className="flex shrink-0 items-center gap-1 text-[10px]">
+                      <span aria-hidden="true" className="size-1.5 rounded-full bg-[var(--success)]" />{activePresenceCount}
+                    </span>
+                  ) : null}
                   {(room.unreadCount ?? 0) > 0 ? (
                     <span className="shrink-0 font-mono text-[9px] text-[var(--navy)]">{room.unreadCount}</span>
                   ) : null}

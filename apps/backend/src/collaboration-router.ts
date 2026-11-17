@@ -199,9 +199,10 @@ export async function coordinateHumanMessage(
     now: number;
   },
 ): Promise<RouteResult> {
-  if (parseCollaborationMentions(input.body).agents.length > 0) {
+  const parsed = parseCollaborationMentions(input.body);
+  if (parsed.agents.length > 0 || parsed.users.length > 0) {
     const mentions = await handleCollaborationMentions(env, scope, input);
-    return { action: "silent", handoffs: mentions.handoffs, startedRun: false };
+    if (parsed.agents.length > 0) return { action: "silent", handoffs: mentions.handoffs, startedRun: false };
   }
   if (await ackThreadOwner(env, scope, {
     roomId: input.roomId,

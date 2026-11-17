@@ -24,6 +24,34 @@ const env = {
 const get = (path: string) => worker.fetch(new Request(`https://app.tryshiba.dev${path}`), env);
 
 describe("app host routing", () => {
+  it.each(["/api/whoami", "/api/missing", "/api/auth/get-session"])("times API denials at %s", async path => {
+    const response = await get(path);
+    expect(response.status).toBe(401);
+    expect(response.headers.get("Server-Timing")).toMatch(/total;dur=\d+, auth;dur=\d+, db;dur=\d+;desc="n=0"/);
+  });
+
+  it("times an auth endpoint's early response", async () => {
+    const response = await worker.fetch(new Request("https://app.tryshiba.dev/api/auth/social-providers"), {
+      ...env, BETTER_AUTH_SECRET: "x".repeat(32),
+    } as Env);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Server-Timing")).toContain("auth;dur=");
+  });
+
+  it("times caught API errors", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const broken = { ...env };
+    Object.defineProperty(broken, "ACCESS_AUD", { get() { throw new Error("timing fixture"); } });
+    try {
+      const response = await worker.fetch(new Request("https://app.tryshiba.dev/api/whoami"), broken);
+      expect(response.status).toBe(500);
+      expect(response.headers.get("Server-Timing")).toContain("total;dur=");
+      expect(response.headers.get("Server-Timing")).toContain("auth;dur=");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("serves the dashboard shell for root view paths, signed out", async () => {
     for (const path of ["/", "/work", "/work/", "/dashboard/", "/skills", "/settings/"]) {
       const res = await get(path);

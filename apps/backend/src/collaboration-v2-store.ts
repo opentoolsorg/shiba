@@ -8,6 +8,7 @@ import {
   isCollaborationWorkspaceMember,
   type CollaborationScope,
 } from "./collaboration-store.js";
+import { rowExists } from "./d1-write-check.js";
 import type { Env } from "./env.js";
 import { randomHex } from "./mailbox-store.js";
 
@@ -114,7 +115,7 @@ export async function createChannel(
   const db = env.AGENT_AUDIT;
   const isPrivate = input.isPrivate ? 1 : 0;
   const visibility = isPrivate ? "private" : "shared";
-  const results = await db.batch([
+  await db.batch([
     db.prepare(
       `INSERT INTO collaboration_rooms (room_id,tenant_id,workspace_id,title,visibility,created_by_user_id,created_at,kind,topic,is_private)
        SELECT ?,?,?,?,?,?,?,'channel',?,? ${isTeamWorkspaceId(scope.workspaceId) ? "WHERE EXISTS (SELECT 1 FROM team_workspace_memberships creator WHERE creator.tenant_id=? AND creator.workspace_id=? AND creator.user_id=? AND creator.status='active')" : ""}`,
@@ -132,7 +133,7 @@ export async function createChannel(
     ),
     db.prepare(
       `INSERT INTO collaboration_memberships (tenant_id,workspace_id,room_id,user_id,display_name,actor_id,actor_kind,role,status,capabilities_json,profile_version,created_at)
-       SELECT ?,?,?,?,?,?,'human','owner','active',?,NULL,? WHERE changes()=1`,
+       SELECT ?,?,?,?,?,?,'human','owner','active',?,NULL,? WHERE EXISTS (SELECT 1 FROM collaboration_rooms r WHERE r.tenant_id=? AND r.workspace_id=? AND r.room_id=? AND r.created_by_user_id=?)`,
     ).bind(
       scope.tenantId,
       scope.workspaceId,
@@ -142,9 +143,16 @@ export async function createChannel(
       humanActorId(scope.userId),
       JSON.stringify(ALL_HUMAN_CAPABILITIES),
       input.createdAt,
+      scope.tenantId, scope.workspaceId, input.roomId, scope.userId,
     ),
   ]);
-  if (Number(results[0]?.meta?.changes ?? 0) !== 1) {
+  if (!await rowExists(db,
+    `SELECT 1 FROM collaboration_memberships m
+     JOIN collaboration_rooms r ON r.tenant_id=m.tenant_id AND r.workspace_id=m.workspace_id AND r.room_id=m.room_id
+     WHERE m.tenant_id=? AND m.workspace_id=? AND m.room_id=? AND m.actor_id=?
+       AND m.role='owner' AND m.status='active'`,
+    [scope.tenantId, scope.workspaceId, input.roomId, humanActorId(scope.userId)],
+  )) {
     throw new CollaborationStoreError("Workspace not found.", 404);
   }
   return (await getCollabRoom(env, scope, input.roomId))!;
@@ -166,7 +174,7 @@ export async function joinChannel(
   const inserted = await env.AGENT_AUDIT.prepare(
     `INSERT INTO collaboration_memberships (tenant_id,workspace_id,room_id,user_id,display_name,actor_id,actor_kind,role,status,capabilities_json,profile_version,created_at)
      SELECT ?,?,?,?,?,?,'human','member','active',?,NULL,? WHERE EXISTS (SELECT 1 FROM collaboration_rooms r WHERE r.tenant_id=? AND r.workspace_id=? AND r.room_id=? AND r.kind='channel')
-       AND NOT EXISTS (SELECT 1 FROM collaboration_memberships m WHERE m.tenant_id=? AND m.workspace_id=? AND m.room_id=? AND m.actor_id=? AND m.status='active')`,
+       AND NOT EXISTS (SELECT 1 FROM collaboration_memberships m WHERE m.tenant_id=? AND m.workspace_id=? AND m.room_id=? AND m.actor_id=? AND m.status='active') RETURNING actor_id`,
   )
     .bind(
       scope.tenantId,
@@ -185,8 +193,8 @@ export async function joinChannel(
       roomId,
       humanActorId(scope.userId),
     )
-    .run();
-  return Number(inserted.meta?.changes ?? 0) === 1;
+    .all();
+  return inserted.results.length === 1;
 }
 
 export async function leaveChannel(
@@ -198,7 +206,7 @@ export async function leaveChannel(
   await ensureMember(env, scope, roomId);
   const result = await env.AGENT_AUDIT.prepare(
     `UPDATE collaboration_memberships SET status='removed', removed_at=? WHERE tenant_id=? AND workspace_id=? AND room_id=? AND user_id=? AND actor_id=? AND status='active'
-     AND EXISTS (SELECT 1 FROM collaboration_rooms r WHERE r.tenant_id=? AND r.workspace_id=? AND r.room_id=? AND r.kind='channel' AND r.created_by_user_id<>?)`,
+     AND EXISTS (SELECT 1 FROM collaboration_rooms r WHERE r.tenant_id=? AND r.workspace_id=? AND r.room_id=? AND r.kind='channel' AND r.created_by_user_id<>?) RETURNING actor_id`,
   )
     .bind(
       removedAt,
@@ -212,8 +220,8 @@ export async function leaveChannel(
       roomId,
       scope.userId,
     )
-    .run();
-  return Number(result.meta?.changes ?? 0) === 1;
+    .all();
+  return result.results.length === 1;
 }
 
 export async function listPublicChannels(

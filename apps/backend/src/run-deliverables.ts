@@ -1,8 +1,12 @@
 /** Deterministic capture checks; these do not assess a document's semantic quality. */
 import {
+  deliverableByteLimit,
+  deliverableMediaType,
   expectedDeliverablesSchema,
-  MAX_DELIVERABLE_BYTES,
+  hasPdfMagic,
+  isBinaryDeliverablePath,
   MAX_TOTAL_DELIVERABLE_BYTES,
+  MAX_TOTAL_LARGE_DELIVERABLE_BYTES,
   type RunDeliverable,
   type RunResultArtifact,
   type RunArtifactBundle,
@@ -128,14 +132,23 @@ export async function persistWorkspaceArchive(
 }
 
 function mediaType(path: string): string {
-  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  const types: Record<string, string> = {
-    md: "text/markdown; charset=utf-8",
-    txt: "text/plain; charset=utf-8",
-    json: "application/json; charset=utf-8",
-    csv: "text/csv; charset=utf-8",
-  };
-  return types[extension]!;
+  return deliverableMediaType(path)!;
+}
+
+function base64Bytes(content: string): Uint8Array<ArrayBuffer> | null {
+  if (content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)) return null;
+  const raw = atob(content);
+  return btoa(raw) === content ? Uint8Array.from(raw, (character) => character.charCodeAt(0)) : null;
+}
+
+/** PDFs arrive as base64; anything else, including renamed text, is refused with a plain message. */
+async function verifyPdf(path: string, file: CapturedFile): Promise<{ bytes: Uint8Array<ArrayBuffer>; content: string }> {
+  const bytes = file.encoding === "base64" && file.content !== null ? base64Bytes(file.content) : null;
+  if (!bytes || !hasPdfMagic(bytes)) throw new Error(`Deliverable ${path} is not a valid PDF file.`);
+  if (bytes.byteLength > deliverableByteLimit(path)) {
+    throw new Error(`Deliverable ${path} exceeds ${deliverableByteLimit(path)} bytes; refusing truncated output.`);
+  }
+  return { bytes, content: file.content! };
 }
 
 function containsBinaryControl(content: string): boolean {
@@ -156,27 +169,39 @@ export async function verifyExpectedDeliverables(
   if (!parsed.success) throw new Error("Invalid expected deliverable paths.");
   const artifacts: RunResultArtifact[] = [];
   let totalBytes = 0;
+  let largeBytes = 0;
   for (const path of parsed.data) {
     const matches = files.filter((file) => file.path === path);
     if (matches.length !== 1) {
       throw new Error(`Deliverable ${path} must have exactly one complete captured file; found ${matches.length}.`);
     }
     const file = matches[0]!;
-    if (file.encoding !== "utf8" || file.content === null) {
-      throw new Error(`Deliverable ${path} must be a complete UTF-8 file.`);
+    let encoded: Uint8Array<ArrayBuffer>;
+    let content: string;
+    let encoding: "base64" | undefined;
+    if (isBinaryDeliverablePath(path)) {
+      ({ bytes: encoded, content } = await verifyPdf(path, file));
+      encoding = "base64";
+    } else {
+      if (file.encoding !== "utf8" || file.content === null) {
+        throw new Error(`Deliverable ${path} must be a complete UTF-8 file.`);
+      }
+      content = file.content;
+      if (!content.trim()) throw new Error(`Deliverable ${path} is empty.`);
+      encoded = new TextEncoder().encode(content);
+      if (new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(encoded) !== content || containsBinaryControl(content)) {
+        throw new Error(`Deliverable ${path} contains binary or invalid UTF-8 text.`);
+      }
+      if (encoded.byteLength > deliverableByteLimit(path)) {
+        throw new Error(`Deliverable ${path} exceeds ${deliverableByteLimit(path)} bytes; refusing truncated output.`);
+      }
     }
-    const content = file.content;
-    if (!content.trim()) throw new Error(`Deliverable ${path} is empty.`);
-    const encoded = new TextEncoder().encode(content);
-    if (new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(encoded) !== content || containsBinaryControl(content)) {
-      throw new Error(`Deliverable ${path} contains binary or invalid UTF-8 text.`);
-    }
-    if (encoded.byteLength > MAX_DELIVERABLE_BYTES) {
-      throw new Error(`Deliverable ${path} exceeds ${MAX_DELIVERABLE_BYTES} bytes; refusing truncated output.`);
-    }
-    totalBytes += encoded.byteLength;
-    if (totalBytes > MAX_TOTAL_DELIVERABLE_BYTES) {
-      throw new Error(`Deliverables exceed ${MAX_TOTAL_DELIVERABLE_BYTES} bytes in total.`);
+    if (/\.(?:html|pdf)$/i.test(path)) {
+      largeBytes += encoded.byteLength;
+      if (largeBytes > MAX_TOTAL_LARGE_DELIVERABLE_BYTES) throw new Error(`HTML and PDF deliverables exceed ${MAX_TOTAL_LARGE_DELIVERABLE_BYTES} bytes in total.`);
+    } else {
+      totalBytes += encoded.byteLength;
+      if (totalBytes > MAX_TOTAL_DELIVERABLE_BYTES) throw new Error(`Deliverables exceed ${MAX_TOTAL_DELIVERABLE_BYTES} bytes in total.`);
     }
     if (path.toLowerCase().endsWith(".json")) {
       try { JSON.parse(content); } catch {
@@ -185,7 +210,7 @@ export async function verifyExpectedDeliverables(
     }
     const digest = await crypto.subtle.digest("SHA-256", encoded);
     const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-    artifacts.push({ path, mediaType: mediaType(path), bytes: encoded.byteLength, sha256, content });
+    artifacts.push({ path, mediaType: mediaType(path), bytes: encoded.byteLength, sha256, content, ...(encoding ? { encoding } : {}) });
   }
   return artifacts;
 }
@@ -212,7 +237,7 @@ export async function persistRunDeliverables(
   // byte counts, MIME types, or over-cap bodies as supposedly verified data.
   const verified = await verifyExpectedDeliverables(
     artifacts.map((artifact) => artifact.path),
-    artifacts.map((artifact) => ({ path: artifact.path, content: artifact.content, encoding: "utf8" })),
+    artifacts.map((artifact) => ({ path: artifact.path, content: artifact.content, encoding: artifact.encoding ?? "utf8" })),
   );
   for (let index = 0; index < verified.length; index++) {
     const checked = verified[index]!;
@@ -223,8 +248,9 @@ export async function persistRunDeliverables(
   }
   const metadata: RunDeliverable[] = [];
   for (const [index, artifact] of verified.entries()) {
-    const { content, ...item } = artifact;
-    const stored = await env.ATTACHMENTS.put(deliverableStorageKey(sandboxId, artifact.sha256, index), content, {
+    const { content, encoding, ...item } = artifact;
+    const body = encoding === "base64" ? base64Bytes(content)! : content;
+    const stored = await env.ATTACHMENTS.put(deliverableStorageKey(sandboxId, artifact.sha256, index), body, {
       httpMetadata: { contentType: artifact.mediaType },
     });
     if (!stored) throw new Error(`Deliverable ${artifact.path} could not be stored.`);
