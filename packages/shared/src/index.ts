@@ -58,6 +58,7 @@ export * from "./employee-bundles.js";
 export * from "./capability-catalog.js";
 export * from "./integration-catalog.js";
 export * from "./integrations-provider.js";
+export * from "./integration-featured-catalog.js";
 export * from "./workspace-integrations.js";
 export * from "./curated-mcp-vendors.js";
 export * from "./founder-skill-library.js";
