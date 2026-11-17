@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createChannel, joinChannel, leaveChannel } from "../src/collaboration-v2-store.js";
 import { COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID, ensureCollaborationSchema } from "../src/collaboration-store.js";
 import { canReadCollaborationRoom } from "../src/collaboration-room-access.js";
 import { handleCollaboration } from "../src/collaboration-routes.js";
@@ -7,8 +8,9 @@ import { applyCollabV2Migrations } from "./fixtures/collab-v2-migrations.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const authState = vi.hoisted(() => ({ userId: "owner@example.test", authorized: true }));
-vi.mock("../src/request-auth.js", () => ({
-  isAuthorizedRequest: vi.fn(async () => authState.authorized),
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
+  resolveRequestIdentity: async () => ({ authorized: authState.authorized, userId: authState.userId }), isAuthorizedRequest: vi.fn(async () => authState.authorized),
   resolveUserId: vi.fn(async () => authState.userId),
 }));
 
@@ -51,6 +53,18 @@ describe("collab v2 channels and dms", () => {
     authState.userId = "member@example.test";
     expect((await f.send(`/channels/${created.channel.roomId}/join`, "POST"))?.status).toBe(201);
     expect((await f.send(`/channels/${created.channel.roomId}/leave`, "POST"))?.status).toBe(200);
+  });
+
+  it("reports only actual membership writes when a channel join is repeated", async () => {
+    const { database } = customAgentD1();
+    const env = { AGENT_AUDIT: database } as unknown as Env;
+    const owner = { tenantId: "default", workspaceId: "default", userId: "owner@example.test" };
+    const member = { ...owner, userId: "member@example.test" };
+    await createChannel(env, owner, { roomId: "repeat-join", title: "Engineering", createdAt: 1 });
+    expect(await joinChannel(env, member, "repeat-join", 2)).toBe(true);
+    expect(await joinChannel(env, member, "repeat-join", 3)).toBe(false);
+    expect(await leaveChannel(env, owner, "repeat-join", 4)).toBe(false);
+    expect(await leaveChannel(env, member, "repeat-join", 5)).toBe(true);
   });
 
   it("opens a stable dm key for two users", async () => {

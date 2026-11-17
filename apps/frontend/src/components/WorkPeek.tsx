@@ -12,6 +12,7 @@ import { StoredApprovalCard } from "./WorkspacePanel";
 import type { WorkTask } from "./WorkView";
 
 export interface WorkPeekProps {
+  onRepeat?: () => void;
   task: WorkTask;
   run?: RetainedRun;
   storedApproval?: StoredApproval;
@@ -195,6 +196,8 @@ export function WorkPeek(props: WorkPeekProps) {
             {run ? statusLabel(run.status) : task.stateLabel}
             {run?.pullUrl ? " · PR linked" : ""}
           </p>
+          {run?.status === "completed" && props.onRepeat ? <button type="button" className={`${control} mt-3`} onClick={props.onRepeat}>Repeat this…</button> : null}
+          {task.routine ? <p className="mt-2 text-xs">Routine: {task.routine.name}</p> : null}
           {task.repo ? (
             <p className="mt-1 break-all font-mono text-xs text-[var(--muted-foreground-2)]">
               {task.repo}

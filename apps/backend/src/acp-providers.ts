@@ -9,6 +9,7 @@ import {
   isAcpProviderId,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
+import { checkAnthropicCredential } from "./provider-credential-check.js";
 import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
 import { userProviderOAuthStub } from "./user-provider-oauth-do.js";
@@ -25,6 +26,7 @@ import {
 import type { AgentHarnessName } from "./harness/types.js";
 import { InputError } from "./security.js";
 
+const SIGN_IN_TIMEOUT_MESSAGE = "The last sign-in timed out. Connect again when you're ready.";
 const DEVICE_TTL_MS = 15 * 60 * 1000;
 const RECORD_PREFIX = "acp_provider:";
 const DEFAULT_PREFIX = "acp_provider_default:";
@@ -57,8 +59,9 @@ interface ProviderDefinition {
 }
 
 interface StoredConnection {
-  phase: "waiting" | "connected" | "failed";
-  authMode: AcpAuthMode;
+  credentialCheckFailure?: "rejected" | "unreachable";
+  phase: "disconnected" | "waiting" | "connected" | "failed";
+  authMode: AcpAuthMode | null;
   message?: string;
   userCode?: string;
   verificationUri?: string;
@@ -279,12 +282,14 @@ export interface SignInSession {
 
 export interface SignInVerdict {
   ok: boolean;
+  reason?: "rejected" | "unreachable";
   pending?: boolean;
   message: string;
   operatorSteps?: string[];
 }
 
 export interface ProviderDeps {
+  fetchImpl?: typeof fetch;
   now?: () => number;
   origin?: string;
   beginOauth?: (
@@ -299,6 +304,7 @@ export interface ProviderDeps {
     org: string,
     callbackUrl: string | null,
     credential?: string | null,
+    canStore?: () => Promise<boolean>,
   ) => Promise<SignInVerdict>;
   /** Pasted API key or Claude setup-token. Never written into the connection record. */
   credential?: string;
@@ -337,7 +343,7 @@ async function readRecord(
   if (raw === null) return null;
   try {
     const parsed = JSON.parse(raw) as StoredConnection;
-    if (parsed.phase !== "waiting" && parsed.phase !== "connected" && parsed.phase !== "failed") {
+    if (parsed.phase !== "disconnected" && parsed.phase !== "waiting" && parsed.phase !== "connected" && parsed.phase !== "failed") {
       return null;
     }
     return parsed;
@@ -360,6 +366,11 @@ async function writeRecord(
     await kv.put(recordKey(org, id), JSON.stringify(record));
   } catch {
     throw new ProviderFlowError("Provider connection store is unreachable.", 503);
+  }
+  if (record.phase === "connected") {
+    const defaultId = await readDefault(env, org);
+    const current = defaultId === null ? null : await readRecord(env, org, defaultId);
+    if (current?.phase !== "connected") await writeDefault(env, org, id);
   }
 }
 
@@ -406,8 +417,10 @@ export async function connectedDefaultForUser(env: Env, userId: string): Promise
   const connected = snapshot.providers.filter((card) => card.connection.phase === "connected"
     && card.connection.signInKind !== "claude-daemon"
     && providerLaneAllowed(env, card.id, card.connection.authMode));
-  return connected.find((card) => card.id === snapshot.defaultProviderId)
-    ?? (connected.length === 1 ? connected[0]! : null);
+  const defaultCard = connected.find((card) => card.id === snapshot.defaultProviderId);
+  if (defaultCard) return defaultCard;
+  const latestId = await mostRecentConnectedProvider(env, userId, connected.map((card) => card.id));
+  return connected.find((card) => card.id === latestId) ?? null;
 }
 
 async function writeDefault(env: Env, org: string, id: AcpProviderId | null): Promise<void> {
@@ -421,6 +434,41 @@ async function writeDefault(env: Env, org: string, id: AcpProviderId | null): Pr
   } catch {
     throw new ProviderFlowError("Provider connection store is unreachable.", 503);
   }
+}
+
+async function mostRecentConnectedProvider(
+  env: Env,
+  org: string,
+  ids: readonly AcpProviderId[] = ACP_PROVIDER_REGISTRY.map((provider) => provider.id),
+): Promise<AcpProviderId | null> {
+  const records = await Promise.all(ids.map(async (id) => ({ id, record: await readRecord(env, org, id) })));
+  return records
+    .flatMap(({ id, record }) => record?.phase === "connected" && providerLaneAllowed(env, id, record.authMode)
+      ? [{ id, updatedAt: record.updatedAt }] : [])
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id ?? null;
+}
+
+function expiredSignIn(record: StoredConnection, now: number): boolean {
+  return record.phase === "waiting" && record.expiresAt !== undefined && record.expiresAt <= now;
+}
+
+async function clearExpiredSignIn(
+  env: Env,
+  org: string,
+  id: AcpProviderId,
+  expected: StoredConnection,
+  now: number,
+): Promise<StoredConnection | null> {
+  const fresh = await readRecord(env, org, id);
+  if (fresh === null || fresh.phase !== "waiting" || fresh.updatedAt !== expected.updatedAt) return fresh;
+  const record: StoredConnection = {
+    phase: "disconnected",
+    authMode: null,
+    message: SIGN_IN_TIMEOUT_MESSAGE,
+    updatedAt: now,
+  };
+  await writeRecord(env, org, id, record);
+  return record;
 }
 
 function presentCredential(env: Env, names: readonly string[]): string | null {
@@ -441,7 +489,7 @@ function credentialsPresentForProvider(env: Env, provider: ProviderDefinition): 
 }
 
 function shouldReprobeStaleFailure(env: Env, provider: ProviderDefinition, record: StoredConnection): boolean {
-  if (record.phase !== "failed") return false;
+  if (record.phase !== "failed" || record.credentialCheckFailure) return false;
   if (STALE_FAILURE.test(record.message ?? "")) return true;
   if (credentialsPresentForProvider(env, provider)) return true;
   const deployedAt = env.CF_VERSION_METADATA?.timestamp ? Date.parse(env.CF_VERSION_METADATA.timestamp) : NaN;
@@ -478,8 +526,8 @@ function publicConnection(record: StoredConnection | null, now: number): AcpProv
   if (record === null) return DISCONNECTED;
   const retired =
     record.verificationUri !== undefined && RETIRED_SIGN_IN_URIS.has(record.verificationUri);
-  const expired =
-    record.phase === "waiting" && record.expiresAt !== undefined && record.expiresAt <= now;
+  const expired = expiredSignIn(record, now);
+  if (expired) return { ...DISCONNECTED, message: SIGN_IN_TIMEOUT_MESSAGE };
   if (record.phase === "failed" && STALE_FAILURE.test(record.message ?? "")) {
     return DISCONNECTED;
   }
@@ -499,18 +547,18 @@ function publicConnection(record: StoredConnection | null, now: number): AcpProv
     };
   }
   return {
-    phase: expired ? "failed" : record.phase,
+    phase: record.phase,
     authMode: record.authMode,
-    message: expired ? "Sign-in expired. Start again." : (record.message ?? null),
-    userCode: !expired && record.signInKind === "chatgpt-device" ? (record.userCode ?? null) : null,
-    verificationUri: expired ? null : (record.verificationUri ?? null),
+    message: record.message ?? null,
+    userCode: record.signInKind === "chatgpt-device" ? (record.userCode ?? null) : null,
+    verificationUri: record.verificationUri ?? null,
     expiresAt: record.expiresAt ?? null,
     testedAt: record.testedAt ?? null,
     testOk: record.testOk ?? null,
-    signInKind: expired ? null : (record.signInKind ?? null),
+    signInKind: record.signInKind ?? null,
     oauthState:
-      expired || record.phase !== "waiting" ? null : (record.oauthState ?? null),
-    operatorSteps: expired ? ["Choose Connect with sign-in again."] : (record.operatorSteps ?? []),
+      record.phase !== "waiting" ? null : (record.oauthState ?? null),
+    operatorSteps: record.operatorSteps ?? [],
   };
 }
 
@@ -580,19 +628,24 @@ export async function readProviderSnapshot(
   deps: ProviderDeps = {},
 ): Promise<AcpProvidersSnapshot> {
   const now = nowMs(deps);
-  const defaultId = await readDefault(env, org);
-  const providers = await Promise.all(
+  const records = await Promise.all(
     ACP_PROVIDER_REGISTRY.map(async (provider) => {
-      const record = await maybeRefreshStaleFailure(
+      let record = await maybeRefreshStaleFailure(
         env,
         org,
         provider,
         await readRecord(env, org, provider.id),
         deps,
       );
-      return toCard(provider, providerLaneAllowed(env, provider.id, record?.authMode ?? "oauth") ? record : null, defaultId, now);
+      if (record !== null && expiredSignIn(record, now)) {
+        record = await clearExpiredSignIn(env, org, provider.id, record, now);
+      }
+      return { provider, record };
     }),
   );
+  const defaultId = await readDefault(env, org);
+  const providers = records.map(({ provider, record }) =>
+    toCard(provider, providerLaneAllowed(env, provider.id, record?.authMode ?? "oauth") ? record : null, defaultId, now));
   return { org, defaultProviderId: defaultId, providers };
 }
 
@@ -607,7 +660,7 @@ export async function resetProvider(
   assertProviderLane(env, provider.id, record?.authMode ?? "oauth");
   await deleteRecord(env, org, provider.id);
   const currentDefault = await readDefault(env, org);
-  if (currentDefault === provider.id) await writeDefault(env, org, null);
+  if (currentDefault === provider.id) await writeDefault(env, org, await mostRecentConnectedProvider(env, org));
   return readProviderSnapshot(env, org, deps);
 }
 
@@ -663,6 +716,23 @@ export async function connectProvider(
     if (pasteKind && pasted.trim() !== "") {
       try {
         const secret = assertPastableSecret(pasted);
+        if (pasteKind === "anthropic-api") {
+          await writeRecord(env, org, provider.id, {
+            phase: "waiting", authMode: "api-key", message: "Checking the Anthropic API key.", updatedAt: now,
+          });
+          const checked = await checkAnthropicCredential(env, secret, "api-key", deps.fetchImpl);
+          const current = await readRecord(env, org, provider.id);
+          if (current === null || current.phase !== "waiting" || current.updatedAt !== now) {
+            return readProviderSnapshot(env, org, deps);
+          }
+          if (!checked.ok) {
+            await writeRecord(env, org, provider.id, {
+              phase: "failed", authMode: "api-key", message: checked.message,
+              credentialCheckFailure: checked.reason, updatedAt: now,
+            });
+            return readProviderSnapshot(env, org, deps);
+          }
+        }
         await putUserProviderSecret(env, org, pasteKind, secret);
       } catch (error) {
         const message = error instanceof Error ? error.message : "The key could not be stored.";
@@ -718,15 +788,8 @@ export async function verifyProvider(
   if (record === null || record.phase !== "waiting") {
     throw new ProviderFlowError("There is no sign-in in progress for this provider.", 409);
   }
-  if (record.expiresAt !== undefined && record.expiresAt <= now) {
-    await writeRecord(env, org, provider.id, {
-      ...record,
-      phase: "failed",
-      message: "Sign-in expired. Start again.",
-      userCode: undefined,
-      verificationUri: undefined,
-      updatedAt: now,
-    });
+  if (expiredSignIn(record, now)) {
+    await clearExpiredSignIn(env, org, provider.id, record, now);
     return readProviderSnapshot(env, org, deps);
   }
   const complete = deps.completeOauth;
@@ -735,7 +798,11 @@ export async function verifyProvider(
   }
   const pasted = typeof callbackUrl === "string" && callbackUrl.trim() !== "" ? callbackUrl.trim() : null;
   const credential = typeof deps.credential === "string" && deps.credential.trim() !== "" ? deps.credential : null;
-  const verdict = await complete(env, provider, org, pasted, credential);
+  const canStore = async () => {
+    const current = await readRecord(env, org, provider.id);
+    return current !== null && current.phase === "waiting" && current.updatedAt === record.updatedAt;
+  };
+  const verdict = await complete(env, provider, org, pasted, credential, canStore);
   const fresh = await readRecord(env, org, provider.id);
   if (fresh === null || fresh.phase !== "waiting" || fresh.updatedAt !== record.updatedAt) {
     return readProviderSnapshot(env, org, deps);
@@ -775,6 +842,7 @@ export async function testProvider(
     throw new ProviderFlowError("Connect the provider before testing it.", 409);
   }
   let ok = false;
+  let credentialCheckFailure: "rejected" | "unreachable" | undefined;
   let message = record.message ?? "Test failed.";
   let operatorSteps = record.operatorSteps;
   if (record.authMode === "api-key") {
@@ -785,6 +853,12 @@ export async function testProvider(
       message = ok
         ? "Saved key is stored for this user. Egress attaches it. The sandbox only sees a placeholder."
         : "No saved key for this user.";
+      if (saved && pasteKind === "anthropic-api") {
+        const checked = await checkAnthropicCredential(env, saved, "api-key", deps.fetchImpl);
+        ok = checked.ok;
+        credentialCheckFailure = checked.ok ? undefined : checked.reason;
+        message = checked.ok ? "Anthropic accepted your saved API key." : checked.message;
+      }
       operatorSteps = ok ? undefined : gatewayOperatorSteps(provider.label);
     } else {
       const name = presentCredential(env, provider.credentialEnv);
@@ -800,6 +874,7 @@ export async function testProvider(
   } else if (deps.inspectOauth !== undefined) {
     const verdict = await deps.inspectOauth(env, provider, org);
     ok = verdict.ok;
+    credentialCheckFailure = verdict.reason;
     message = verdict.message;
     operatorSteps = verdict.operatorSteps;
   }
@@ -809,6 +884,8 @@ export async function testProvider(
   }
   await writeRecord(env, org, provider.id, {
     ...fresh,
+    phase: credentialCheckFailure === "rejected" ? "failed" : fresh.phase,
+    credentialCheckFailure,
     message,
     ...(operatorSteps ? { operatorSteps } : { operatorSteps: undefined }),
     testedAt: now,
@@ -848,7 +925,7 @@ export async function disconnectProvider(
   }
   await deleteRecord(env, org, provider.id);
   if ((await readDefault(env, org)) === provider.id) {
-    await writeDefault(env, org, null);
+    await writeDefault(env, org, await mostRecentConnectedProvider(env, org));
   }
   return readProviderSnapshot(env, org, deps);
 }

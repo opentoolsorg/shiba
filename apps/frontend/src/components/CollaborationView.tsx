@@ -1,3 +1,6 @@
+import { toast } from "sonner";
+import { optimisticMutation } from "../state/optimistic";
+import { useWorkspaceEvents } from "../state/workspace-events";
 import { roomLinkUrl } from "../room-links";
 import {
   type FormEvent,
@@ -339,6 +342,23 @@ function ScopedCollaborationView({
   const [savedItems, setSavedItems] = useState<SavedMessageRef[]>([]);
   const [activeRoomId, setActiveRoomId] = useState(initialRoomId ?? "");
   const [detail, setDetail] = useState<RoomDetail | null>(null);
+  const [pendingMessages, setPendingMessages] = useState<Array<Message & { roomId: string }>>([]);
+  const roomPatches = useRef(new Map<string, Room>());
+  const messagePatches = useRef(new Map<string, Map<string, Message>>());
+  const mergeRoomList = useCallback((loaded: Room[], current: Room[]) => {
+    const rows = new Map(loaded.map((room) => [room.roomId, room]));
+    for (const room of roomPatches.current.values()) {
+      if ((room.kind ?? "room") === roomListTab) rows.set(room.roomId, { ...rows.get(room.roomId), ...room });
+    }
+    for (const room of current) if (room.roomId.startsWith("pending_")) rows.set(room.roomId, room);
+    return [...rows.values()];
+  }, [roomListTab]);
+  const mergeRoomDetail = useCallback((loaded: RoomDetail) => {
+    if (!messagePatches.current.has(loaded.room.roomId)) return loaded;
+    const messages = new Map(loaded.messages.map((message) => [message.messageId, message]));
+    for (const message of messagePatches.current.get(loaded.room.roomId)?.values() ?? []) messages.set(message.messageId, message);
+    return { ...loaded, messages: [...messages.values()] };
+  }, []);
   const [presence, setPresence] = useState<Array<{ actorId: string; label: string; state: PresenceState }>>([]);
   const [roomOwner, setRoomOwner] = useState("");
   const [openThreadId, setOpenThreadId] = useState("");
@@ -446,6 +466,9 @@ function ScopedCollaborationView({
       if (activeRoomRef.current !== roomId) return;
       roomReadEpoch.current++;
       if (roomId) revokedRooms.current.add(roomId);
+      roomPatches.current.delete(roomId);
+      messagePatches.current.delete(roomId);
+      setPendingMessages((current) => current.filter((message) => message.roomId !== roomId));
       activeRoomRef.current = "";
       clearRoomDrafts();
       setDetail(null);
@@ -468,7 +491,7 @@ function ScopedCollaborationView({
       const epoch = ++roomReadEpoch.current;
       void api<RoomDetail>(`/api/collaboration/rooms/${encodeURIComponent(roomId)}`)
         .then((loaded) => {
-          if (isCurrentRoomRead(epoch, roomId)) setDetail(loaded);
+          if (isCurrentRoomRead(epoch, roomId)) setDetail(mergeRoomDetail(loaded));
         })
         .catch((cause) => {
           if (!isCurrentRoomRead(epoch, roomId)) return;
@@ -529,7 +552,7 @@ function ScopedCollaborationView({
         const loadedRooms = await loadRoomsForTab<{ rooms: Room[] }>(api, roomListTab);
         if (!isCurrentRoomRead(epoch, previousRoomId)) return;
         const availableRooms = loadedRooms.filter((room) => !revokedRooms.current.has(room.roomId));
-        setRooms(availableRooms);
+        setRooms((current) => mergeRoomList(availableRooms, current));
         setTabUnread((current) => ({
           ...current,
           [roomListTab]: availableRooms.reduce((sum, room) => sum + (room.unreadCount ?? 0), 0),
@@ -544,7 +567,7 @@ function ScopedCollaborationView({
           `/api/collaboration/rooms/${encodeURIComponent(selected)}`,
         );
         if (!isCurrentRoomRead(epoch, selected)) return;
-        setDetail(loaded);
+        setDetail(mergeRoomDetail(loaded));
         setError("");
         setRetryableError(false);
       } catch (cause) {
@@ -556,8 +579,36 @@ function ScopedCollaborationView({
         }
       }
     },
-    [api, isCurrentRoomRead, loseRoomAccess, roomListTab],
+    [api, isCurrentRoomRead, loseRoomAccess, roomListTab, mergeRoomList, mergeRoomDetail],
   );
+
+  const workspaceLive = useWorkspaceEvents({
+    workspaceId: workspaceId ?? null,
+    enabled: Boolean(workspaceId),
+    onReconnect: () => { roomPatches.current.clear(); messagePatches.current.clear(); void refresh(); },
+    onEvent: (event) => {
+      if (event.kind === "room.updated") {
+        const room = event.payload?.room as Room | undefined;
+        if (!room || room.roomId !== event.entityId || typeof room.title !== "string" ||
+          !["private", "shared"].includes(room.visibility) || revokedRooms.current.has(room.roomId)) return;
+        roomPatches.current.set(room.roomId, room);
+        if ((room.kind ?? "room") === roomListTab) {
+          setRooms((current) => [...current.filter((item) => item.roomId !== room.roomId), { ...current.find((item) => item.roomId === room.roomId), ...room }]);
+        }
+      } else if (event.kind === "message.created" && event.entityId === activeRoomRef.current) {
+        const message = event.payload?.message as Message | undefined;
+        if (!message || typeof message.messageId !== "string" || typeof message.body !== "string" ||
+          message.senderKind !== "human" || typeof message.createdAt !== "number") return;
+        const patches = messagePatches.current.get(event.entityId) ?? new Map<string, Message>();
+        patches.set(message.messageId, message);
+        messagePatches.current.set(event.entityId, patches);
+        setDetail((current) => current?.room.roomId === event.entityId && !current.messages.some((item) => item.messageId === message.messageId)
+          ? { ...current, messages: [...current.messages, message] } : current);
+      } else if (event.kind === "collaboration.change" || event.kind === "room.message") {
+        void refresh();
+      }
+    },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -573,7 +624,7 @@ function ScopedCollaborationView({
         const loadedRooms = await loadRoomsForTab<{ rooms: Room[] }>(api, roomListTab);
         if (cancelled || !isCurrentRoomRead(epoch, activeRoomId)) return;
         const availableRooms = loadedRooms.filter((room) => !revokedRooms.current.has(room.roomId));
-        setRooms(availableRooms);
+        setRooms((current) => mergeRoomList(availableRooms, current));
         setTabUnread((current) => ({
           ...current,
           [roomListTab]: availableRooms.reduce((sum, room) => sum + (room.unreadCount ?? 0), 0),
@@ -587,7 +638,7 @@ function ScopedCollaborationView({
             `/api/collaboration/rooms/${encodeURIComponent(selected)}`,
           );
           if (cancelled || !isCurrentRoomRead(epoch, selected)) return;
-          setDetail(loaded);
+          setDetail(mergeRoomDetail(loaded));
           setError("");
           setRetryableError(false);
         } else if (!cancelled && isCurrentRoomRead(epoch, "")) setDetail(null);
@@ -602,7 +653,7 @@ function ScopedCollaborationView({
       }
     };
     void load();
-    const live = workspaceId && typeof WebSocket !== "undefined";
+    const live = workspaceLive;
     const timer = live
       ? undefined
       : window.setInterval(() => {
@@ -613,7 +664,7 @@ function ScopedCollaborationView({
       roomReadEpoch.current++;
       if (timer !== undefined) window.clearInterval(timer);
     };
-  }, [activeRoomId, api, isCurrentRoomRead, loseRoomAccess, roomListTab, workspaceId]);
+  }, [activeRoomId, api, isCurrentRoomRead, loseRoomAccess, roomListTab, workspaceId, workspaceLive, mergeRoomList, mergeRoomDetail]);
 
   useEffect(() => {
     if (!activeRoomId) return;
@@ -829,25 +880,28 @@ function ScopedCollaborationView({
 
   const createRoom = (event: FormEvent) => {
     event.preventDefault();
-    if (!roomTitle.trim()) return;
-    void (async () => {
-      setBusy(true);
-      setError("");
-      setRetryableError(false);
-      try {
-        const result = await api<{ room: Room }>(
-          "/api/collaboration/rooms",
-          request("POST", { title: roomTitle, visibility: roomVisibility }),
-        );
-        setRoomTitle("");
-        await refresh(result.room.roomId);
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
-        setRetryableError(!(cause instanceof CollaborationApiError));
-      } finally {
-        setBusy(false);
-      }
-    })();
+    if (!roomTitle.trim() || busy) return;
+    const pending: Room = { roomId: `pending_${crypto.randomUUID()}`, title: roomTitle.trim(), visibility: roomVisibility, kind: "room" };
+    setBusy(true);
+    setError("");
+    void optimisticMutation({
+      apply: () => { setRooms((current) => [...current, pending]); setRoomTitle(""); },
+      commit: () => api<{ room: Room }>("/api/collaboration/rooms", request("POST", {
+        title: pending.title, visibility: pending.visibility,
+      })),
+      reconcile: (result) => {
+        setRooms((current) => [...current.filter((room) => room.roomId !== pending.roomId && room.roomId !== result.room.roomId), result.room]);
+        void refresh(result.room.roomId);
+      },
+      rollback: () => {
+        setRooms((current) => current.filter((room) => room.roomId !== pending.roomId));
+        setRoomTitle((current) => current || pending.title);
+      },
+      onError: (cause) => {
+        const text = cause instanceof Error ? cause.message : String(cause);
+        setError(text); toast.error(text);
+      },
+    }).finally(() => setBusy(false));
   };
 
   const startDirectMessage = async (userId: string) => {
@@ -985,17 +1039,42 @@ function ScopedCollaborationView({
 
   const sendMessage = (event: FormEvent) => {
     event.preventDefault();
-    if (!activeRoomId || !message.trim()) return;
-    void mutate(async () => {
-      await api(
-        `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/messages`,
-        request("POST", {
-          body: message,
-          ...(openThreadId ? { threadRootMessageId: openThreadId } : {}),
-        }),
-      );
-      setMessage("");
-    });
+    if (!activeRoomId || !message.trim() || !detail || busy) return;
+    const roomId = activeRoomId;
+    const text = message;
+    const threadRootId = openThreadId || null;
+    const optimistic: Message & { roomId: string } = {
+      roomId, messageId: `msg_${crypto.randomUUID().replaceAll("-", "")}`,
+      senderUserId: detail.currentUserId, senderActorId: `human:${detail.currentUserId}`,
+      senderKind: "human", body: text.trim(), createdAt: Date.now(), threadRootId,
+    };
+    setBusy(true);
+    void optimisticMutation({
+      apply: () => { setPendingMessages((current) => [...current, optimistic]); setMessage(""); },
+      commit: () => api<{ message: Message }>(
+        `/api/collaboration/rooms/${encodeURIComponent(roomId)}/messages`,
+        request("POST", { body: text, messageId: optimistic.messageId,
+          ...(threadRootId ? { threadRootMessageId: threadRootId } : {}) }),
+      ),
+      reconcile: (result) => {
+        const patches = messagePatches.current.get(roomId) ?? new Map<string, Message>();
+        patches.set(result.message.messageId, { ...result.message, threadRootId });
+        messagePatches.current.set(roomId, patches);
+        setPendingMessages((current) => current.filter((item) => item.messageId !== optimistic.messageId));
+        setDetail((current) => current?.room.roomId === roomId ? { ...current,
+          messages: [...current.messages.filter((item) => item.messageId !== result.message.messageId),
+            { ...result.message, threadRootId }],
+        } : current);
+      },
+      rollback: () => {
+        setPendingMessages((current) => current.filter((item) => item.messageId !== optimistic.messageId));
+        if (activeRoomRef.current === roomId) setMessage((current) => current || text);
+      },
+      onError: (cause) => {
+        toast.error(cause instanceof Error ? cause.message : "Message could not be sent.");
+        if (activeRoomRef.current === roomId && isMembershipLost(cause)) loseRoomAccess(roomId);
+      },
+    }).finally(() => setBusy(false));
   };
 
   const createHandoff = (event: FormEvent) => {
@@ -1250,8 +1329,9 @@ function ScopedCollaborationView({
                       })}
                     </div>
                     <MessageList>
-                      {detail.messages.map((item) => (
+                      {[...detail.messages, ...pendingMessages.filter((item) => item.roomId === activeRoomId && !detail.messages.some((saved) => saved.messageId === item.messageId))].map((item) => (
                         <MessageRow key={item.messageId} agent={item.senderKind === "agent"}>
+                          {pendingMessages.some((pending) => pending.messageId === item.messageId) ? <span role="status" className="text-xs text-[var(--ink-2)]">Sending…</span> : null}
                           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] text-[var(--ink-2)]">
                             <span className="font-semibold text-[var(--ink)]">
                               {item.sourceSlackUserId
