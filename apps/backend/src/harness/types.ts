@@ -264,7 +264,8 @@ export function verifyRunOutcome(
   capabilities: Pick<HarnessCapabilities, "canRunTests">,
 ): VerificationOutcome {
   if (result.status !== "completed") return { ok: true };
-  if (result.changedFiles.length === 0 && result.diff.trim() === "" && !isEphemeralWorkspace(input.executionTarget)) {
+  if (result.changedFiles.length === 0 && result.diff.trim() === "" && !isEphemeralWorkspace(input.executionTarget) &&
+      !(input.routineRun && (result.routineOutcome?.noUpdate || result.routineOutcome?.failureReason))) {
     return {
       ok: false,
       reason: "Run exited 0 but produced no file changes — refusing to report a no-op as completed.",

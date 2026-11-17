@@ -84,6 +84,7 @@ export function isJsonObject(value: unknown): value is Record<string, JsonValue>
 }
 
 export interface PendingApproval extends OnboardingRunFields {
+  routineRun?: { automationId: string; test: boolean };
   /** Explicit bounded sanitized-output retention reviewed with this exact run. */
   outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   threadKey: string;
@@ -198,6 +199,7 @@ export interface ApprovalExecution {
 }
 
 export interface CreateApprovalInput extends OnboardingRunFields {
+  routineRun?: { automationId: string; test: boolean };
   outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   threadKey: string;
   approvalId: string;
@@ -264,6 +266,7 @@ export function createPendingApproval(
       repoUrl: input.repoUrl,
       ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget } : {}),
       ...(input.outputArchive !== undefined ? { outputArchive: { ...input.outputArchive } } : {}),
+      ...(input.routineRun ? { routineRun: { ...input.routineRun } } : {}),
       task: input.task,
       ...(input.baseBranch !== undefined ? { baseBranch: input.baseBranch } : {}),
       ...(input.publishPullRequest !== undefined ? { publishPullRequest: input.publishPullRequest } : {}),
@@ -417,6 +420,7 @@ export interface ApprovalEvidence {
 
 /** The fields the human approves — the input-hash surface. */
 export interface RunInputFields extends OnboardingRunFields {
+  routineRun?: { automationId: string; test: boolean };
   outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   repoUrl: string;
   /** Included in the approval hash; absent on legacy repository runs. */
@@ -559,6 +563,7 @@ export function runInputHash(input: RunInputFields): string {
     repoUrl: input.repoUrl,
     ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget as unknown as JsonValue } : {}),
     ...(input.outputArchive !== undefined ? { outputArchive: input.outputArchive as unknown as JsonValue } : {}),
+    ...(input.routineRun ? { routineRun: input.routineRun as unknown as JsonValue } : {}),
     task: input.task,
     baseBranch: input.baseBranch,
     publishPullRequest: input.publishPullRequest,

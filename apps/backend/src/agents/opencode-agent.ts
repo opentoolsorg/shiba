@@ -71,6 +71,7 @@ import { ExecutionRecoveryStore, type ExecutionRecoveryStorage } from "../execut
 import { createRunJournalPublisher } from "../run-journal-publisher.js";
 import type { PreparedRuntimeExecution } from "../runtime-recovery.js";
 import { prepareRunOutputArchive } from "../run-output-archive-admission.js";
+import { isQuietRoutine } from "../routine-outcome.js";
 
 export async function pinSandboxEgress(
   env: Env,
@@ -571,8 +572,10 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             noteSignal("pr.opened", pullUrl);
           }
           const safeResult = this.uiResult(result);
-          await slackProgress?.finish(safeResult.status === "completed" ? "completed" : "error", safeResult.summary);
-          if (roomPublisher) {
+          const quiet = isQuietRoutine({ routineRun: input.routineRun, routineOutcome: safeResult.routineOutcome, status: safeResult.status === "completed" ? "completed" : "error" });
+          if (!quiet) await slackProgress?.finish(safeResult.status === "completed" ? "completed" : "error",
+            safeResult.routineOutcome?.failureReason ? `Routine run failed: ${safeResult.routineOutcome.failureReason}` : safeResult.summary);
+          if (roomPublisher && !quiet) {
             await roomPublisher.publish({ kind: "status", status: result.status, message: safeResult.summary });
             await roomPublisher.flush().catch(() => write("Live stream delivery is unavailable."));
           }
@@ -657,6 +660,10 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
 
   private uiResult(result: CodingTaskResult): CodingTaskResult {
     return {
+      ...(result.routineOutcome ? { routineOutcome: {
+        noUpdate: result.routineOutcome.noUpdate,
+        ...(result.routineOutcome.failureReason ? { failureReason: this.safeText(result.routineOutcome.failureReason, 500) } : {}),
+      } } : {}),
       status: result.status,
       ...(result.errorCode ? { errorCode: result.errorCode } : {}),
       exitCode: result.exitCode,
