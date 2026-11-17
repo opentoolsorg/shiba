@@ -61,14 +61,23 @@ function boundedSchema(schema: Record<string, unknown> | undefined) {
   return JSON.stringify(schema).length <= MAX_ENTRY_SCHEMA_BYTES ? schema : undefined;
 }
 
-function publicEntry(entry: ToolCatalogEntry, withSchema: boolean) {
+const SEARCH_RESOURCES = 20;
+
+function publicResources(entry: ToolCatalogEntry, full: boolean) {
+  if (!entry.resourceArgument) return {};
+  const resources = entry.resources ?? [];
+  if (full || resources.length <= SEARCH_RESOURCES) return { resourceArgument: entry.resourceArgument, resources };
+  return { resourceArgument: entry.resourceArgument, resources: resources.slice(0, SEARCH_RESOURCES), resourcesTruncated: true as const };
+}
+
+function publicEntry(entry: ToolCatalogEntry, withSchema: boolean, fullResources = false) {
   const schema = withSchema ? boundedSchema(entry.inputSchema) : undefined;
   return {
     name: entry.name,
     source: entry.source,
     summary: entry.summary.length > SUMMARY_CHARS ? `${entry.summary.slice(0, SUMMARY_CHARS - 1)}…` : entry.summary,
     effect: entry.effect,
-    ...(entry.resourceArgument ? { resourceArgument: entry.resourceArgument, resources: (entry.resources ?? []).slice(0, 20) } : {}),
+    ...publicResources(entry, fullResources),
     ...(schema ? { inputSchema: schema } : withSchema && entry.inputSchema ? { schemaOmitted: "too_large" as const } : {}),
   };
 }
@@ -99,7 +108,7 @@ export class ToolCatalog {
     }))).flat();
     const byName = new Map(found.map((entry) => [entry.name, entry]));
     return {
-      tools: wanted.flatMap((name) => byName.has(name) ? [publicEntry(byName.get(name)!, true)] : []),
+      tools: wanted.flatMap((name) => byName.has(name) ? [publicEntry(byName.get(name)!, true, true)] : []),
       unavailable: wanted.filter((name) => !byName.has(name)),
     };
   }

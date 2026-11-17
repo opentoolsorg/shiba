@@ -72,6 +72,17 @@ describe("tool catalog port", () => {
     expect(result.unavailable).toEqual(["missing"]);
     expect(result.tools[0]).toMatchObject({ inputSchema: schema });
   });
+
+  it("caps resources in search but lists every granted resource in describe", async () => {
+    const resources = Array.from({ length: 25 }, (_, index) => `message-${index}`);
+    const catalog = new ToolCatalog([source([{ name: "gmail_read", source: "builtin", summary: "read gmail", effect: "read", resourceArgument: "messageId", resources }])]);
+    const [match] = (await catalog.search(["gmail"])).matches;
+    expect(match).toMatchObject({ resourcesTruncated: true });
+    expect(match?.resources).toHaveLength(20);
+    const [described] = (await catalog.describe(["gmail_read"])).tools;
+    expect(described?.resources).toEqual(resources);
+    expect(described).not.toHaveProperty("resourcesTruncated");
+  });
 });
 
 const executeGranted = apps.slugs.filter((slug) => slug !== "slack");
