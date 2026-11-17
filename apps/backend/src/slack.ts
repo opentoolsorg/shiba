@@ -96,13 +96,13 @@ export async function postSlackMessageWithReceipt(
     },
     signal: AbortSignal.timeout(SLACK_POST_TIMEOUT_MS),
     body: JSON.stringify({
+      ...input.native,
       channel: input.channel,
       ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
       ...(input.clientMsgId ? { client_msg_id: input.clientMsgId } : {}),
       text: input.text,
       ...slackAgentPersona(input.persona),
       ...(input.blocks ? { blocks: input.blocks } : {}),
-      ...input.native,
     }),
   });
   let json: { ok?: boolean; error?: string; channel?: string; ts?: string };
@@ -201,7 +201,7 @@ export async function updateSlackMessage(
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
     signal: AbortSignal.timeout(SLACK_POST_TIMEOUT_MS),
-    body: JSON.stringify((({ native, ...rest }) => ({ ...rest, ...native }))(input)),
+    body: JSON.stringify((({ native, ...rest }) => ({ ...native, ...rest }))(input)),
   });
   const body = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
   if (!response.ok || body?.ok !== true) {
