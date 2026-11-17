@@ -148,6 +148,10 @@ export interface Env {
    * sends cannot strand behind an approval nothing can execute.
    */
   SEND_EMAIL?: SendEmail;
+  /** Preview only: record transactional mail without sending it. Never enable in production. */
+  SHIBA_EMAIL_DRY_RUN?: string;
+  /** Preview only: log full dry-run links. Requires SHIBA_EMAIL_DRY_RUN=1. */
+  SHIBA_EMAIL_DRY_RUN_LOG_LINKS?: string;
   ASSETS: Fetcher;
   /** AI Gateway id. Default "default". */
   GATEWAY_ID: string;
@@ -596,13 +600,24 @@ export interface Env {
   UPLOAD_RATE_LIMIT?: RateLimit;
   /** Maximum single file upload bytes (default 50 MB). */
   FILES_MAX_UPLOAD_BYTES?: string;
-  /** WS02: optional generic OIDC SSO (per-workspace connections in D1). */
+  /** Optional deployment OIDC sign-in; enabled only with the value "1". */
   SHIBA_SSO_ENABLED?: string;
+  SSO_OIDC_ISSUER?: string;
+  SSO_OIDC_CLIENT_ID?: string;
+  /** Worker-only identity provider secret. */
+  SSO_OIDC_CLIENT_SECRET?: string;
+  SSO_OIDC_DISPLAY_NAME?: string;
+  /** Comma-separated exact email domains; the bootstrap owner is also allowed. */
+  SSO_ALLOWED_DOMAINS?: string;
+  /** Reserved; automatic workspace enrollment is not supported. */
+  SSO_AUTO_JOIN?: string;
 
   /** Web search credentials remain in Worker egress. */
   WEB_SEARCH_API_KEY?: string;
   WEB_SEARCH_PROVIDER?: string;
   /** Video generation is disabled unless explicitly enabled. */
   SHIBA_VIDEO_GENERATION?: string;
+  /** Explicit opt-in backend; uses the signed-in owner’s personal Google key. */
+  SHIBA_VIDEO_BACKEND?: string;
 
 }

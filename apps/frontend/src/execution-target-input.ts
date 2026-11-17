@@ -44,3 +44,11 @@ export function buildExecutionTargetFields(input:
   };
   return { executionTarget: target };
 }
+
+/** One-click outputs for non-engineers; each fills the deliverables box. */
+export const OUTPUT_QUICK_PICKS = [
+  { label: "Report (Markdown)", path: "report.md" },
+  { label: "Dashboard (HTML)", path: "dashboard.html" },
+  { label: "Spreadsheet (CSV)", path: "data.csv" },
+  { label: "PDF", path: "report.pdf" },
+] as const;

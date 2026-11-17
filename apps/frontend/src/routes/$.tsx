@@ -1,6 +1,7 @@
 import { createFileRoute, useLocation } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 import { App } from "../app";
+import { AuthScreen } from "../components/AuthScreen";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { ThemeProvider, useTheme } from "../components/ThemeProvider";
 import { SlackRunCanvas } from "../components/SlackRunCanvas";
@@ -23,6 +24,9 @@ function DashboardRoute() {
 }
 
 export function DashboardContent({ pathname, search }: { pathname: string; search: string }) {
+  if (/^\/auth\/(?:forgot|reset)\/?$/.test(pathname)) {
+    return <AuthScreen key={pathname} onSignedIn={() => window.location.assign("/app/")} />;
+  }
   if ((pathname === "/app" || pathname === "/app/") && new URLSearchParams(search).get("verify") === "bootstrap") {
     return <BootstrapVerificationCallback />;
   }

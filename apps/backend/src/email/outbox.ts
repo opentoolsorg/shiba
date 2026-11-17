@@ -1,3 +1,4 @@
+import { recordDryRunEmail } from "./dry-run.js";
 import type { Env } from "../env.js";
 import type { QueuePayload } from "../platform/queues.js";
 import { renderEmailTemplate, type EmailTemplateKind, type EmailTemplateMeta } from "./templates/index.js";
@@ -57,6 +58,11 @@ export async function enqueueTransactionalEmail(
 ): Promise<string | null> {
   if (!env.AGENT_AUDIT) return null;
   const to = normalizeRecipient(input.to);
+  if (env.SHIBA_EMAIL_DRY_RUN === "1") {
+    const rendered = renderEmailTemplate(input.kind, input.meta);
+    await recordDryRunEmail(env, { to, subject: rendered.subject, url: input.meta.url });
+    return null;
+  }
   if (await isSuppressed(env, to)) return null;
   const rendered = renderEmailTemplate(input.kind, input.meta);
   const outboxId = `eml_${crypto.randomUUID().replaceAll("-", "")}`;

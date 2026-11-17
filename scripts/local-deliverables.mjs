@@ -6,12 +6,15 @@ import { TextDecoder } from "node:util";
 
 const MAX_FILE_BYTES = 16_384;
 const MAX_TOTAL_BYTES = 65_536;
+const MAX_HTML_BYTES = 524_288;
+const MAX_PDF_BYTES = 10_485_760;
+const MAX_LARGE_BYTES = MAX_HTML_BYTES + MAX_PDF_BYTES;
 const MAX_FILES = 8;
 
 // Mirror packages/shared/src/deliverables.ts without requiring installed packages.
 function safePath(value) {
   return typeof value === "string" && value.length > 0 && value.length <= 240
-    && value === value.trim() && /\.(?:md|txt|json|csv)$/i.test(value)
+    && value === value.trim() && /\.(?:md|txt|json|csv|html|pdf)$/i.test(value)
     && value.split("/").every((part) => part.length > 0 && part === part.trim()
       && /^[A-Za-z0-9][A-Za-z0-9._ -]*$/.test(part));
 }
@@ -49,7 +52,7 @@ async function checkedLeaf(root, realRoot, relativePath) {
 
 export function validateExpectedDeliverables(requested) {
   if (!Array.isArray(requested) || requested.length > MAX_FILES || requested.some((value) => !safePath(value))) {
-    throw new Error("Expected deliverables must be at most 8 safe relative non-hidden md/txt/json/csv paths.");
+    throw new Error("Expected deliverables must be at most 8 safe relative non-hidden md/txt/json/csv/html/pdf paths.");
   }
   if (new Set(requested.map((value) => value.toLowerCase())).size !== requested.length) {
     throw new Error("Expected deliverable paths must be unique.");
@@ -57,7 +60,7 @@ export function validateExpectedDeliverables(requested) {
 }
 
 /**
- * Return complete requested UTF-8 bodies, or throw; never return a partial
+ * Return complete requested UTF-8 bodies or base64 PDFs, or throw; never return a partial
  * successful artifact list. Unspecified deliverables leave legacy collection alone.
  */
 export async function captureExpectedDeliverables(cloneDir, requested) {
@@ -70,30 +73,44 @@ export async function captureExpectedDeliverables(cloneDir, requested) {
   const realRoot = await fs.realpath(root);
   const files = [];
   let totalBytes = 0;
+  let largeBytes = 0;
   for (const relativePath of requested) {
     try {
+      const extension = path.extname(relativePath).toLowerCase();
+      const maxBytes = extension === ".pdf" ? MAX_PDF_BYTES : extension === ".html" ? MAX_HTML_BYTES : MAX_FILE_BYTES;
       const leaf = await checkedLeaf(root, realRoot, relativePath);
-      if (leaf.stat.size === 0 || leaf.stat.size > MAX_FILE_BYTES) throw new Error("file must contain 1–16384 bytes");
+      if (leaf.stat.size === 0 || leaf.stat.size > maxBytes) throw new Error(`file must contain 1–${maxBytes} bytes`);
       const handle = await fs.open(leaf.absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
         const before = await handle.stat();
         if (before.nlink !== 1) throw new Error("hard-linked files are not allowed");
         if (!before.isFile() || before.ino !== leaf.stat.ino || before.dev !== leaf.stat.dev) throw new Error("file changed during capture");
-        const bytes = Buffer.alloc(MAX_FILE_BYTES + 1);
+        const bytes = Buffer.alloc(Math.min(maxBytes, leaf.stat.size) + 1);
         let length = 0;
         while (length < bytes.length) {
           const read = await handle.read(bytes, length, bytes.length - length, length);
           if (read.bytesRead === 0) break;
           length += read.bytesRead;
         }
-        if (length === 0 || length > MAX_FILE_BYTES) throw new Error("file must contain 1–16384 complete bytes");
+        if (length === 0 || length > maxBytes) throw new Error(`file must contain 1–${maxBytes} complete bytes`);
         const after = await handle.stat();
         if (after.nlink !== 1) throw new Error("hard-linked files are not allowed");
         const current = await checkedLeaf(root, realRoot, relativePath);
         if (before.size !== length || after.size !== length || before.mtimeMs !== after.mtimeMs
           || current.stat.ino !== before.ino || current.stat.dev !== before.dev) throw new Error("file changed or was truncated during capture");
-        totalBytes += length;
-        if (totalBytes > MAX_TOTAL_BYTES) throw new Error("deliverables exceed the 65536-byte total limit");
+        if (extension === ".html" || extension === ".pdf") {
+          largeBytes += length;
+          if (largeBytes > MAX_LARGE_BYTES) throw new Error(`HTML and PDF deliverables exceed the ${MAX_LARGE_BYTES}-byte total limit`);
+        } else {
+          totalBytes += length;
+          if (totalBytes > MAX_TOTAL_BYTES) throw new Error("deliverables exceed the 65536-byte total limit");
+        }
+        const complete = bytes.subarray(0, length);
+        if (extension === ".pdf") {
+          if (!complete.subarray(0, 5).equals(Buffer.from("%PDF-"))) throw new Error("file is not a valid PDF file");
+          files.push({ path: relativePath, content: complete.toString("base64"), encoding: "base64" });
+          continue;
+        }
         // Preserve a UTF-8 BOM as content too; byte counts/hashes must describe
         // the complete file rather than a decoder-normalized approximation.
         const content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes.subarray(0, length));

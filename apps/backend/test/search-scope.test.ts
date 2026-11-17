@@ -12,7 +12,7 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 const state = vi.hoisted(() => ({ userId: "ada@example.test" }));
 vi.mock("../src/request-auth.js", async (original) => ({
   ...await original<typeof import("../src/request-auth.js")>(),
-  isAuthorizedRequest: async () => true,
+  resolveRequestIdentity: async () => ({ authorized: true, userId: state.userId }), isAuthorizedRequest: async () => true,
   resolveUserId: async () => state.userId,
 }));
 

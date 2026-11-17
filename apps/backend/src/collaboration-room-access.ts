@@ -32,7 +32,7 @@ export function isCollaborationRoomIdentity(identity: CollaborationRoomIdentity)
   return (
     identity.tenantId === COLLAB_TENANT_ID &&
     (identity.workspaceId === COLLAB_WORKSPACE_ID || isTeamWorkspaceId(identity.workspaceId)) &&
-    /^room_[a-f0-9]{24}$/.test(identity.roomId)
+    /^(?:room_[a-f0-9]{24}|(?:dm|chn)_[a-f0-9]{20})$/.test(identity.roomId)
   );
 }
 

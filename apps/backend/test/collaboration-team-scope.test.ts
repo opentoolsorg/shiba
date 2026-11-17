@@ -27,8 +27,9 @@ import {
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const state = vi.hoisted(() => ({ userId: "owner@example.test", authorized: true }));
-vi.mock("../src/request-auth.js", () => ({
-  isAuthorizedRequest: vi.fn(async () => state.authorized),
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
+  resolveRequestIdentity: async () => ({ authorized: state.authorized, userId: state.userId }), isAuthorizedRequest: vi.fn(async () => state.authorized),
   resolveUserId: vi.fn(async () => state.userId),
 }));
 vi.mock("../src/runs-routes.js", () => ({
@@ -551,14 +552,14 @@ describe("team collaboration write and dispatch races", () => {
       const wrap = (statement: D1PreparedStatement): D1PreparedStatement => new Proxy(statement, {
         get(target, property, receiver) {
           if (property === "bind") return (...values: unknown[]) => wrap(target.bind(...values));
-          if (property === "run") return async <T>() => {
+          if (property === "all") return async <T>() => {
             if (!injected && sql.startsWith("INSERT INTO collaboration_memberships")) {
               injected = true;
               f.sqlite.prepare(
                 "UPDATE team_workspace_memberships SET status='removed' WHERE workspace_id=? AND user_id='member@example.test'",
               ).run(f.workspace.workspaceId);
             }
-            return target.run<T>();
+            return target.all<T>();
           };
           return Reflect.get(target, property, receiver);
         },

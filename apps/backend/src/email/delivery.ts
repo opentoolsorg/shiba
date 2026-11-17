@@ -1,3 +1,4 @@
+import { recordDryRunEmail } from "./dry-run.js";
 import type { Env } from "../env.js";
 import { nativeEnrollmentEmailConfiguration } from "../native-enrollment-email.js";
 import { registerQueueHandler, type QueuePayload } from "../platform/queues.js";
@@ -58,6 +59,11 @@ export async function deliverEmailOutboxMessage(env: Env, message: EmailQueueBod
   }
   const rendered = renderEmailTemplate(row.template_kind as EmailTemplateKind, meta);
   try {
+    if (env.SHIBA_EMAIL_DRY_RUN === "1") {
+      await recordDryRunEmail(env, { to: row.to_address, subject: rendered.subject, url: meta.url });
+      await markEmailDeliverySent(env, message.outboxId);
+      return;
+    }
     if (!env.SEND_EMAIL) throw new Error("SEND_EMAIL binding is not configured.");
     await env.SEND_EMAIL.send({
       from: config.from,
