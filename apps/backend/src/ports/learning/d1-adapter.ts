@@ -1,5 +1,6 @@
 import {
   DEFAULT_LEARNING_TURNS,
+  LEARNING_IDLE_MIN_TURNS,
   type LearningPort,
   type LearningSuggestion,
   type LearningThreadRef,
@@ -152,10 +153,13 @@ export function d1LearningPort(db: D1Database): LearningPort {
       await ensureTables(db);
       const { results } = await db
         .prepare(
-          `SELECT * FROM learning_threads WHERE last_turn_at <= ? AND turns_total > reviewed_through
-         ORDER BY last_turn_at LIMIT ?`,
+          `SELECT t.* FROM learning_threads t
+         LEFT JOIN learning_settings s ON s.workspace_id = t.workspace_id
+         WHERE t.last_turn_at <= ? AND t.turns_total - t.reviewed_through >= ?
+           AND COALESCE(s.turn_setting, '') <> 'off'
+         ORDER BY t.last_turn_at LIMIT ?`,
         )
-        .bind(before, limit)
+        .bind(before, LEARNING_IDLE_MIN_TURNS, limit)
         .all<Row>();
       return (results ?? []).map(threadFromRow);
     },
