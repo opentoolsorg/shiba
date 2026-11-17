@@ -7,8 +7,7 @@ import "../src/knowledge/knowledge-ingest-queue.js";
 
 describe("knowledge ingest queue", () => {
   it.each(["workspace", "personal"] as const)("consumes %s ingestion and scopes its completion event", async (scope) => {
-    const { database, sqlite } = customAgentD1();
-    sqlite.exec(readFileSync(new URL("../migrations/0050_files_notes.sql", import.meta.url), "utf8"));
+    const { database } = customAgentD1();
     const objects = new Map<string, Uint8Array>();
     const events: Record<string, unknown>[] = [];
     const env = {
