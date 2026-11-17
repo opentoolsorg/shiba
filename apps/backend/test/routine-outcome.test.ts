@@ -54,6 +54,19 @@ describe("routine commands", () => {
     expect(routineIdentity("routine:%:test")).toBeUndefined();
   });
 
+  it.each(["", "Final answer: No updates. ghp_abcdefgh12345678", `${"x".repeat(2400)} Final answer: No updates. ghp_abcdefgh12345678`])("retains bounded redacted harness output for unchanged routines", async (answer) => {
+    const snapshot = repositorySnapshotFixture({ status: "" });
+    const ops: SandboxOps = { gitCheckout: async () => {},
+      exec: async (command) => await snapshot(command) ?? { exitCode: 0, stdout: answer, stderr: "" },
+      writeFile: async () => {}, readFile: async () => ({ kind: "utf8", content: '{"noUpdate":true}' }),
+    };
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, input, () => {});
+    expect(result).toMatchObject({ status: "completed", changedFiles: [], routineOutcome: { noUpdate: true } });
+    if (answer) expect(result.summary).toContain("Final answer: No updates. [redacted]");
+    expect(result.summary).not.toContain("ghp_abcdefgh12345678");
+    expect(result.summary.length).toBeLessThan(2200);
+  });
+
   it.each([true, false])("installs commands and captures an outcome only for routine runs (%s)", async (routine) => {
     const snapshot = repositorySnapshotFixture({ status: " M a.txt\n", files: { "a.txt": "updated" } });
     const writes = new Map<string, string>();
