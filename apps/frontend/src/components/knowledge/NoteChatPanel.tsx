@@ -2,9 +2,9 @@ import { useEffect, useState, type JSX } from "react";
 import type { KnowledgeFile, KnowledgeNote, KnowledgeScope, NoteChatMention, NoteChatMessage } from "@shiba/shared";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 
-export function NoteChatPanel({ noteId, notes, scope, workspaceId, onAdd, disabled = false }: {
+export function NoteChatPanel({ noteId, notes, scope, workspaceId, onAdd, getDraftBody, disabled = false }: {
   noteId: string; notes: KnowledgeNote[]; scope: KnowledgeScope; workspaceId: string | null;
-  onAdd: (text: string) => void; disabled?: boolean;
+  onAdd: (text: string) => void; getDraftBody?: () => string; disabled?: boolean;
 }): JSX.Element {
   const [messages, setMessages] = useState<NoteChatMessage[]>([]);
   const [files, setFiles] = useState<KnowledgeFile[]>([]);
@@ -37,7 +37,7 @@ export function NoteChatPanel({ noteId, notes, scope, workspaceId, onAdd, disabl
     try {
       const response = await fetch(endpoint, {
         method, credentials: "same-origin", headers: { ...teamWorkspaceHeaders(workspaceId ?? undefined), "Content-Type": "application/json" },
-        ...(method === "POST" ? { body: JSON.stringify({ message, mentions }) } : {}),
+        ...(method === "POST" ? { body: JSON.stringify({ message, mentions, ...(getDraftBody ? { noteBody: getDraftBody() } : {}) }) } : {}),
       });
       const body = await response.json() as { messages?: NoteChatMessage[]; error?: string };
       if (!response.ok) throw new Error(body.error ?? "Chat is unavailable. Please try again.");
@@ -71,7 +71,7 @@ export function NoteChatPanel({ noteId, notes, scope, workspaceId, onAdd, disabl
       {error ? <p role="alert" className="my-2 text-sm">{error}</p> : null}
       <form className="mt-4 space-y-2" onSubmit={(event) => { event.preventDefault(); if (!busy && message.trim()) void mutate("POST"); }}>
         <label className="block text-sm" htmlFor="note-chat-message">Type @ to include another note or file</label>
-        <textarea id="note-chat-message" value={message} maxLength={4000} disabled={busy} onChange={(event) => setMessage(event.target.value)} placeholder="Ask about this note" className="min-h-24 w-full rounded border border-[var(--border-1)] bg-transparent p-2 text-sm" />
+        <textarea id="note-chat-message" value={message} maxLength={4000} disabled={busy} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (!busy && message.trim()) void mutate("POST"); } }} placeholder="Ask about this note" className="min-h-24 w-full rounded border border-[var(--border-1)] bg-transparent p-2 text-sm" />
         <div className="flex flex-wrap gap-1">{mentions.map((item) => <button key={`${item.kind}:${item.id}`} type="button" disabled={busy} aria-label={`Remove ${item.name}`} onClick={() => setMentions((current) => current.filter((picked) => picked !== item))} className="rounded border border-[var(--border-1)] px-2 py-1 text-xs">{item.name} ×</button>)}</div>
         {query && mentions.length < 8 ? <div role="group" aria-label="Include a note or file" className="max-h-48 overflow-y-auto rounded border border-[var(--border-1)] p-1">
           {filesError ? <p className="text-xs">Files could not be loaded.</p> : null}

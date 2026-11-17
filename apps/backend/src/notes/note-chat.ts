@@ -24,7 +24,7 @@ export async function handleNoteChat(request: Request, env: Env, userId: string,
   if (!parsed.success) return json({ error: "Write a message of up to 4,000 characters and include at most 8 notes or files." }, 400);
   if (!env.AI && !model) return json({ error: "Chat is not available yet. Please ask your administrator to enable AI." }, 503);
   try {
-    const context = await buildNoteChatContext(env, userId, note, parsed.data.mentions);
+    const context = await buildNoteChatContext(env, userId, note, parsed.data.mentions, parsed.data.noteBody);
     const history = await listNoteChat(env, note.id, userId, note.workspaceId);
     const result = await generateText({
       model: model ?? createWorkersAI({ binding: env.AI })(env.ORCHESTRATOR_MODEL || DEFAULT_ORCHESTRATOR_MODEL),

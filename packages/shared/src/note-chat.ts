@@ -5,6 +5,7 @@ export const noteChatMentionSchema = z.object({
 });
 export const noteChatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4000), mentions: z.array(noteChatMentionSchema).max(8).default([]),
+  noteBody: z.string().max(24000).optional(),
 });
 export const noteChatMessageSchema = z.object({
   id: z.string(), noteId: z.string(), role: z.enum(["user", "assistant"]), content: z.string(),

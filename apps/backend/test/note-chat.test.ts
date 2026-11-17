@@ -48,6 +48,14 @@ describe("private notebook chat", () => {
     expect((await handleNotes(request(active.id, "DELETE"), env))?.status).toBe(200);
     expect(await listNoteChat(env, active.id, "alice", "ws_chat")).toEqual([]);
   });
+  it("prefers the live draft body over the saved note body", async () => {
+    const { env } = setup();
+    const active = await createNote(env, { workspaceId: "ws_chat", scope: "personal", title: "Draft", markdown: "Saved body", createdBy: "alice" });
+    const response = await handleNotes(request(active.id, "POST", { message: "Summarize", noteBody: "Unsaved draft" }), env);
+    expect(response?.status).toBe(200);
+    expect(JSON.stringify(state.generate.mock.calls[0]?.[0])).toContain("Unsaved draft");
+    expect(JSON.stringify(state.generate.mock.calls[0]?.[0])).not.toContain("Saved body");
+  });
   it("returns 404 for another user's personal note and excludes private and foreign mentions", async () => {
     const { env, sqlite } = setup();
     const active = await createNote(env, { workspaceId: "ws_chat", scope: "personal", title: "Draft", markdown: "Visible", createdBy: "alice" });

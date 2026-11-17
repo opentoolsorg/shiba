@@ -5,9 +5,10 @@ import { assertKnowledgeRead, KnowledgeAccessError } from "../knowledge/knowledg
 import { filesBucket } from "../knowledge/knowledge-ingestion.js";
 import { getNote } from "./notes-store.js";
 
-export async function buildNoteChatContext(env: Env, userId: string, note: NonNullable<Awaited<ReturnType<typeof getNote>>>, mentions: NoteChatMention[]): Promise<string> {
+export async function buildNoteChatContext(env: Env, userId: string, note: NonNullable<Awaited<ReturnType<typeof getNote>>>, mentions: NoteChatMention[], noteBody?: string): Promise<string> {
   const readBody = async (key: string) => (await (await filesBucket(env).get(key))?.text())?.slice(0, 24000) ?? "Not available";
-  const context: unknown[] = [{ kind: "active note", title: note.title, body: await readBody(note.r2Key) }];
+  const activeBody = noteBody !== undefined ? noteBody : await readBody(note.r2Key);
+  const context: unknown[] = [{ kind: "active note", title: note.title, body: activeBody }];
   for (const mention of mentions) {
     const resource = mention.kind === "note" ? await getNote(env, mention.id) : await getFile(env, mention.id);
     if (!resource || resource.archivedAt || resource.workspaceId !== note.workspaceId) { context.push({ status: "Not available" }); continue; }
