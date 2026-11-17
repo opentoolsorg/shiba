@@ -6,6 +6,10 @@ import { readRun } from "./runs.js";
 
 const DELIVERIES = new Set(["queue", "steer", "interrupt"]);
 
+function queueUnavailable(): Response {
+  return new Response("Thread message queue unavailable. Please retry.", { status: 503 });
+}
+
 export async function handleSendMessage(ctx: V1Context): Promise<Response | null> {
   const match = ctx.url.pathname.match(
     /^\/api\/v1\/threads\/([^/]+)\/(?:message|messages\/([^/]+)\/(cancel|send-now))$/,
@@ -28,7 +32,12 @@ export async function handleSendMessage(ctx: V1Context): Promise<Response | null
     }
     const run = await readRun(ctx, id);
     if (run instanceof Response) return run;
-    const removed = await removeQueuedMessage(ctx.env, id, eventId!);
+    let removed;
+    try {
+      removed = action === "cancel"
+        ? await removeQueuedMessage(ctx.env, id, eventId!)
+        : (await listQueuedMessages(ctx.env, id)).find(item => item.id === eventId);
+    } catch { return queueUnavailable(); }
     if (!removed) {
       return Response.json({ _tag: "shiba/MessageNotFound", eventId }, { status: 404 });
     }
@@ -39,6 +48,8 @@ export async function handleSendMessage(ctx: V1Context): Promise<Response | null
       message: removed.text,
     });
     if (!steer.ok) return steer;
+    try { await removeQueuedMessage(ctx.env, id, removed.id); }
+    catch { return queueUnavailable(); }
     const body = await steer.json() as { approvalId?: string };
     return Response.json({ ok: true, id: removed.id, approvalId: body.approvalId, delivery: "interrupt" });
   }
@@ -73,8 +84,10 @@ export async function handleSendMessage(ctx: V1Context): Promise<Response | null
     }, { status: 501 });
   }
   if (delivery === "queue" && isActiveStatus(run.status)) {
-    const { message, deduped } = await enqueueThreadMessage(ctx.env, id, text, clientKey);
-    return Response.json({ id: message.id, deduped, status: "queued" });
+    try {
+      const { message, deduped } = await enqueueThreadMessage(ctx.env, id, text, clientKey);
+      return Response.json({ id: message.id, deduped, status: "queued" });
+    } catch { return queueUnavailable(); }
   }
   if (isActiveStatus(run.status)) {
     const steer = await ctx.forward("POST", `/api/runs/${encodeURIComponent(id)}/steer`, { message: text });
@@ -113,6 +126,10 @@ export async function handleQueuedMessagesList(ctx: V1Context): Promise<Response
   catch { return Response.json({ ok: false, error: "invalid_thread" }, { status: 400 }); }
   const run = await readRun(ctx, id);
   if (run instanceof Response) return run;
-  const items = await listQueuedMessages(ctx.env, id);
-  return Response.json({ ok: true, items });
+  try {
+    const items = await listQueuedMessages(ctx.env, id);
+    return Response.json({ ok: true, items });
+  } catch {
+    return queueUnavailable();
+  }
 }
