@@ -6,7 +6,7 @@ import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 
-export const scheduledJobs = {
+const jobRunners = {
   "founder.stripe": async (env: Env) => (await import("./founder-stripe-runtime.js")).tickFounderStripeReads(env),
   "founder.meta": async (env: Env) => (await import("./founder-meta-runtime.js")).tickFounderMetaReads(env),
   "founder.hubspot": async (env: Env) => (await import("./founder-hubspot-runtime.js")).tickFounderHubSpotReads(env),
@@ -39,19 +39,27 @@ export const scheduledJobs = {
   },
 } satisfies Record<string, (env: Env, scheduledAt: number) => Promise<unknown>>;
 
-export type ScheduledJobMessage = { job: keyof typeof scheduledJobs; scheduledAt: number };
+export const SCHEDULED_JOB_INTERVAL_MINUTES = 5;
+export const scheduledJobs = jobRunners;
+export const scheduledJobRegistry = Object.fromEntries(
+  Object.keys(jobRunners).map((name) => [name, { everyMinutes: SCHEDULED_JOB_INTERVAL_MINUTES }]),
+) as Record<keyof typeof jobRunners, { everyMinutes: number }>;
 
-// Automation dispatch awaits external work before persisting counters; no tick-wide claim exists.
-export function isQueuedJob(job: ScheduledJobMessage["job"]): boolean {
-  return job !== "automations.tick";
+export type ScheduledJobMessage = { job: keyof typeof scheduledJobs; slot: number };
+const SLOT_MS = SCHEDULED_JOB_INTERVAL_MINUTES * 60_000;
+
+function dueJobs(scheduledAt: number): ScheduledJobMessage[] {
+  const slot = Math.floor(scheduledAt / SLOT_MS);
+  return (Object.keys(scheduledJobRegistry) as ScheduledJobMessage["job"][])
+    .filter((job) => slot % (scheduledJobRegistry[job].everyMinutes / SCHEDULED_JOB_INTERVAL_MINUTES) === 0)
+    .map((job) => ({ job, slot }));
 }
 
 export async function runScheduledJobs(scheduledAt: number, env: Env): Promise<void> {
-  const messages = (Object.keys(scheduledJobs) as ScheduledJobMessage["job"][])
-    .map((job) => ({ job, scheduledAt }));
+  const messages = dueJobs(scheduledAt);
   const inline = Promise.allSettled(messages
-    .filter(({ job }) => !env.JOBS_QUEUE || !isQueuedJob(job))
-    .map(async ({ job }) => {
+    .filter(() => !env.JOBS_QUEUE)
+    .map(async ({ job, slot }) => {
       try { await scheduledJobs[job](env, scheduledAt); }
       catch (error) {
         if (job === "audit.prune") console.warn(`audit prune failed: ${redactSecrets(String(error))}`);
@@ -60,24 +68,57 @@ export async function runScheduledJobs(scheduledAt: number, env: Env): Promise<v
     }));
   await Promise.all([
     inline,
-    env.JOBS_QUEUE?.sendBatch(messages.filter(({ job }) => isQueuedJob(job)).map((body) => ({ body }))),
+    env.JOBS_QUEUE?.sendBatch(messages.map((body) => ({ body }))),
   ]);
+}
+
+async function claimJobSlot(env: Env, job: ScheduledJobMessage["job"], slot: number): Promise<boolean> {
+  const db = env.AGENT_AUDIT;
+  if (!db) return true;
+  await db.prepare(`DELETE FROM scheduled_job_slots WHERE slot < ?`).bind(slot - 2016).run();
+  const result = await db.prepare(`INSERT OR IGNORE INTO scheduled_job_slots (job_name, slot, state, started_at)
+    VALUES (?, ?, 'running', ?)`).bind(job, slot, Date.now()).run();
+  if (result.meta.changes === 1) return true;
+  return false;
+}
+
+async function finishJobSlot(env: Env, job: ScheduledJobMessage["job"], slot: number): Promise<void> {
+  if (!env.AGENT_AUDIT) return;
+  await env.AGENT_AUDIT.prepare(`UPDATE scheduled_job_slots SET state = 'complete', finished_at = ?
+    WHERE job_name = ? AND slot = ?`).bind(Date.now(), job, slot).run();
+}
+
+async function releaseJobSlot(env: Env, job: ScheduledJobMessage["job"], slot: number): Promise<void> {
+  if (!env.AGENT_AUDIT) return;
+  await env.AGENT_AUDIT.prepare(`DELETE FROM scheduled_job_slots WHERE job_name = ? AND slot = ? AND state = 'running'`)
+    .bind(job, slot).run();
 }
 
 export async function consumeScheduledJobs(batch: MessageBatch<unknown>, env: Env): Promise<void> {
   await Promise.all(batch.messages.map(async (message) => {
     const body = message.body as Partial<ScheduledJobMessage> | null;
     if (!body || typeof body.job !== "string" || !Object.hasOwn(scheduledJobs, body.job)
-      || !isQueuedJob(body.job)
-      || typeof body.scheduledAt !== "number" || !Number.isFinite(body.scheduledAt)) {
+      || !Number.isSafeInteger(body.slot) || (body.slot as number) < 0) {
       console.warn("Unknown or invalid scheduled job", typeof body?.job === "string" ? redactSecrets(body.job) : "invalid");
       message.ack();
       return;
     }
+    const slot = body.slot as number;
+    let claimed: boolean;
     try {
-      await scheduledJobs[body.job](env, body.scheduledAt);
+      claimed = await claimJobSlot(env, body.job, slot);
+      if (!claimed) {
+        const current = env.AGENT_AUDIT && await env.AGENT_AUDIT.prepare(`SELECT state FROM scheduled_job_slots WHERE job_name = ? AND slot = ?`)
+          .bind(body.job, slot).first<{ state: string }>();
+        if (current?.state === "complete") message.ack();
+        else message.retry({ delaySeconds: 60 });
+        return;
+      }
+      await scheduledJobs[body.job](env, slot * SLOT_MS);
+      await finishJobSlot(env, body.job, slot);
       message.ack();
     } catch (error) {
+      await releaseJobSlot(env, body.job, slot).catch(() => undefined);
       console.error(`job ${body.job} failed`, redactSecrets(String(error)));
       message.retry({ delaySeconds: 60 });
     }

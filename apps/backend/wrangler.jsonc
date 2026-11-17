@@ -234,7 +234,7 @@
       { "queue": "shiba-ingest", "dead_letter_queue": "shiba-ingest-dlq", "max_batch_size": 10, "max_retries": 5 },
       { "queue": "shiba-webhooks", "dead_letter_queue": "shiba-webhooks-dlq", "max_batch_size": 10, "max_retries": 5 },
       { "queue": "shiba-email", "dead_letter_queue": "shiba-email-dlq", "max_batch_size": 5, "max_retries": 5 },
-      { "queue": "shiba-jobs", "dead_letter_queue": "shiba-jobs-dlq", "max_batch_size": 1, "max_retries": 5 },
+      { "queue": "shiba-jobs", "dead_letter_queue": "shiba-jobs-dlq", "max_batch_size": 10, "max_retries": 3 },
     ],
   },
   "workflows": [
