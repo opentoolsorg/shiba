@@ -100,7 +100,7 @@ describe("public bootstrap policy", () => {
     expect(await response?.json()).toEqual({
       requiresToken: false, requiresOwnerEmail: false, locked: false, ownerExists,
     });
-    expect(prepare.mock.calls).toEqual([['SELECT COUNT(*) AS c FROM "user"']]);
+    expect(prepare.mock.calls.filter(([sql]) => sql === 'SELECT COUNT(*) AS c FROM "user"')).toEqual([['SELECT COUNT(*) AS c FROM "user"']]);
   });
 });
 

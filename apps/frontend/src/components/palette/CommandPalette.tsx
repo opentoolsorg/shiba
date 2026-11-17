@@ -92,7 +92,7 @@ export function CommandPalette({
     { id: "needs-you", label: `Open Needs you${needs == null ? "" : ` (${needs})`}`, run: onOpenNeedsYou },
     { id: "theme", label: "Toggle theme", run: onToggleTheme },
     { id: "shortcuts", label: "Keyboard shortcuts", run: onOpenShortcuts },
-    ...(trimmed ? extraActions : []),
+    ...extraActions,
   ], [extraActions, needs, onNewChannel, onNewTask, onOpenNeedsYou, onOpenShortcuts, onToggleTheme, roomThreadOpen, trimmed]);
 
   const remember = (id: string) => { if (workspaceId) setRecents(pushRecent(workspaceId, id)); };
