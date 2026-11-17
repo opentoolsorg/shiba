@@ -3976,9 +3976,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       );
       // Email-kind approvals skip every run gate — no sandbox capacity,
       // no repo URL, no publish flag. They execute a mailbox payload.
+      // A budget override mints no run either: it releases the held run it names.
       const isSideEffect =
         record !== undefined &&
-        (record.kind === "email_send" || record.kind === "email_delete" || record.kind === "pr_merge" || record.kind === "pr_publish");
+        (record.kind === "email_send" || record.kind === "email_delete" || record.kind === "pr_merge" || record.kind === "pr_publish" || record.kind === "budget_override");
       if (!isSideEffect) {
         if (!this.canScheduleRun()) {
           return Response.json(
