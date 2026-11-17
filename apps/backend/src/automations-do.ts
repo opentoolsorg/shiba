@@ -3,6 +3,8 @@
  * One instance (`default`) holds the full set so scheduled ticks and
  * webhooks share lastTriggeredAt / daily budget / lastSkip.
  */
+import { APPROVAL_TTL_MS } from "./pending-approvals.js";
+import { computeNextRunAt } from "./automation-schedules.js";
 import { getAgentByName } from "agents/routing";
 import {
   prHeadReviewDedupeKey,
@@ -222,7 +224,7 @@ export class Automations {
           let changed = false;
           const occurrences = automation.occurrences.map((occurrence) => {
             if (!occurrence.approvalId) return occurrence;
-            let outcome: "approval-pending" | "approved" | "rejected" | "running" | "completed" | "error" | "aborted" | "cancelled" | undefined;
+            let outcome: "approval-pending" | "approved" | "rejected" | "running" | "completed" | "error" | "aborted" | "cancelled" | "expired" | undefined;
             if (pendingIds.has(occurrence.approvalId)) outcome = "approval-pending";
             else {
               const runStatus = occurrence.runId ? runStatuses.get(occurrence.runId) : undefined;
@@ -231,6 +233,12 @@ export class Automations {
                 outcome = runStatus === "pending" ? "approved" : runStatus as "running" | "completed" | "error" | "aborted" | "cancelled";
               } else if (approvalStatus === "rejected") outcome = "rejected";
               else if (approvalStatus === "approved") outcome = "approved";
+              else if (occurrence.outcome === "approval-pending" && nowMs - occurrence.updatedAt > APPROVAL_TTL_MS) {
+                // A successful authoritative read no longer lists this known
+                // approval, and its queue-time TTL has elapsed. Unknown queue
+                // outcomes remain blocked until their receipt is recovered.
+                outcome = "expired";
+              }
             }
             if (!outcome || occurrence.outcome === outcome) return occurrence;
             changed = true;
@@ -895,6 +903,8 @@ export class Automations {
         return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
       }
       const patch = (typeof body === "object" && body !== null ? body : {}) as {
+        name?: unknown;
+        skipWhilePending?: unknown;
         enabled?: unknown;
         prompt?: unknown;
         customAgentId?: unknown;
@@ -908,6 +918,8 @@ export class Automations {
         return Response.json({ error: "Execution target, deliverables, and triggers are immutable after creation." }, { status: 400 });
       }
       if (
+        (patch.name !== undefined && (typeof patch.name !== "string" || !patch.name.trim() || patch.name.trim().length > 120)) ||
+        (patch.skipWhilePending !== undefined && typeof patch.skipWhilePending !== "boolean") ||
         (patch.enabled !== undefined && typeof patch.enabled !== "boolean") ||
         (patch.prompt !== undefined && (typeof patch.prompt !== "string" || !patch.prompt.trim())) ||
         (patch.customAgentId !== undefined &&
@@ -967,6 +979,8 @@ export class Automations {
       }
       const selectsCustomAgent = patch.customAgentId === null || (typeof patch.customAgentId === "string" && patch.customAgentId.trim() !== "");
       const config = {
+        ...(typeof patch.name === "string" ? { name: patch.name.trim() } : {}),
+        ...(typeof patch.skipWhilePending === "boolean" ? { skipWhilePending: patch.skipWhilePending } : {}),
         ...(typeof patch.enabled === "boolean" ? { enabled: patch.enabled } : {}),
         ...(typeof patch.prompt === "string" ? { prompt: patch.prompt.trim() } : {}),
         ...(selectsCustomAgent ? { customAgentId } : {}),
@@ -1111,7 +1125,8 @@ function mergeAutomationFireState(base: Automation, fired: Automation, latest: A
   return updated;
 }
 
-function publicAutomation(automation: Automation): Omit<Automation, "webhookSecret"> & { hasWebhookSecret: boolean } {
+function publicAutomation(automation: Automation): Omit<Automation, "webhookSecret"> & { hasWebhookSecret: boolean; nextRunAt: number | null } {
   const { webhookSecret, ...rest } = automation;
-  return { ...rest, hasWebhookSecret: Boolean(webhookSecret) };
+  const schedule = automation.triggers.find((trigger) => trigger.kind === "schedule");
+  return { ...rest, hasWebhookSecret: Boolean(webhookSecret), nextRunAt: automation.enabled && schedule ? computeNextRunAt(schedule) : null };
 }

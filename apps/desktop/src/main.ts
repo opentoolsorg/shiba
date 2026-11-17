@@ -15,6 +15,7 @@ import {
   screen,
   session,
   shell,
+  systemPreferences,
 } from "electron";
 import type { ApprovalsPoller } from "./approvals-poller.js";
 import { createApprovalsPoller } from "./approvals-poller.js";
@@ -45,6 +46,10 @@ import { captureShellEnv } from "./shell-env.js";
 import { registerShellIpc } from "./shell-ipc.js";
 import { forkDaemon, resolveDaemonPath, shouldConfirmQuit } from "./supervisor.js";
 import { buildTrayMenu, createTray } from "./tray.js";
+import {
+  mediaDetailsFromHandler,
+  shouldAllowSessionPermission,
+} from "./session-permissions.js";
 import { startUpdater } from "./updater.js";
 
 interface DesktopConfig {
@@ -335,16 +340,49 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+async function ensureMicrophoneAccess(): Promise<boolean> {
+  if (!isMac) return true;
+  if (systemPreferences.getMediaAccessStatus("microphone") === "granted") return true;
+  return systemPreferences.askForMediaAccess("microphone");
+}
+
 function configurePermissions(win: BrowserWindow): void {
-  const allowed = (permission: string, url: string) =>
-    permission === "clipboard-sanitized-write" && isTrustedSender(url, configuredOrigin());
+  const evaluate = (permission: string, requestUrl: string, details?: unknown) =>
+    shouldAllowSessionPermission(
+      permission,
+      requestUrl,
+      configuredOrigin(),
+      mediaDetailsFromHandler(permission, details),
+    );
+
   const ses = win.webContents.session;
-  ses.setPermissionRequestHandler((wc, permission, callback) =>
-    callback(allowed(permission, wc.getURL())),
-  );
-  ses.setPermissionCheckHandler((wc, permission, requestingOrigin) =>
-    allowed(permission, requestingOrigin || wc?.getURL() || ""),
-  );
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+    const requestUrl =
+      details && typeof details === "object" && "requestingUrl" in details
+        ? String((details as { requestingUrl?: string }).requestingUrl ?? "")
+        : wc.getURL();
+    const grant = evaluate(permission, requestUrl || wc.getURL(), details);
+    if (!grant) {
+      callback(false);
+      return;
+    }
+    if (permission === "media") {
+      void ensureMicrophoneAccess().then(callback);
+      return;
+    }
+    callback(true);
+  });
+  ses.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
+    const requestingUrl =
+      details && typeof details === "object" && "requestingUrl" in details
+        ? (details as { requestingUrl?: string }).requestingUrl
+        : undefined;
+    return evaluate(
+      permission,
+      requestingOrigin || requestingUrl || wc?.getURL() || "",
+      details,
+    );
+  });
 }
 
 const sessionFetch = (url: string, init?: RequestInit) =>
