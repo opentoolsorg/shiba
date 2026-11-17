@@ -16,7 +16,9 @@ const RUN_CODE_DESCRIPTION =
   "Execute JavaScript in an isolated sandbox to use the coworker's tools. " +
   "Write an async arrow function (plain JS, no TypeScript syntax) calling codemode.<tool>({...}); " +
   "chain calls, loop, and filter in code — only the returned value comes back. " +
-  "Sends and deletes still queue for human approval; approving is never possible from code.";
+  "Sends and deletes still queue for human approval; approving is never possible from code. " +
+  "In Slack channels, channel_remember({fact}) saves durable workspace notes and channel_forget({id}) " +
+  "removes outdated notes without approval. Workspace facts are unavailable for mutation in DMs.";
 
 type RealRunCode = Tool | null;
 
