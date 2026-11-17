@@ -18,7 +18,7 @@ describe("coordinator workspace facts system instructions", () => {
   it("loads facts into actual turn instructions without modifying the task or approval state", async () => {
     const f = customAgentD1({ bare: true });
     try {
-      f.sqlite.exec(readFileSync(new URL("../migrations/0061_workspace_channel_facts.sql", import.meta.url), "utf8"));
+      f.sqlite.exec(readFileSync(new URL("../migrations/0063_workspace_channel_facts.sql", import.meta.url), "utf8"));
       const saved = await new WorkspaceChannelFactsStore(f.database).remember({ teamId: "T1", connectionId: "legacy" }, "Alex owns billing", { createdBy: "user", sourceChannel: "C2" });
       const instance = host({ AGENT_AUDIT: f.database, SLACK_BOT_TOKEN: "fixture-token" } as Env);
       const system = instance.getSystemPrompt();

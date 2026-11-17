@@ -9,7 +9,7 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 vi.mock("agents/mcp", () => ({ createMcpHandler: () => ({ fetch: async () => Response.json({}) }) }));
 
-const migration = readFileSync(new URL("../migrations/0061_workspace_channel_facts.sql", import.meta.url), "utf8");
+const migration = readFileSync(new URL("../migrations/0063_workspace_channel_facts.sql", import.meta.url), "utf8");
 const scope = { teamId: "T1", connectionId: "legacy" };
 const meta = { createdBy: "agent", sourceChannel: "C1" };
 
