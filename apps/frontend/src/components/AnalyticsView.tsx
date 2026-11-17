@@ -476,13 +476,13 @@ function UsageSection({
           <LoadErrorState message={usage.state.message} onRetry={usage.reload} />
         </div>
       ) : (
-        <UsageReportBody report={usage.state.data} />
+        <UsageReportBody report={usage.state.data} sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} />
       )}
     </section>
   );
 }
 
-function UsageReportBody({ report }: { report: UsageReportWire }): JSX.Element {
+function UsageReportBody({ report, sessionId, sessionApiAvailable }: { report: UsageReportWire; sessionId: string; sessionApiAvailable: boolean }): JSX.Element {
   const todayKey = new Date().toISOString().slice(0, 10);
   const weekStartKey = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const weekDays = report.days.filter((day) => day.date >= weekStartKey);
@@ -540,7 +540,7 @@ function UsageReportBody({ report }: { report: UsageReportWire }): JSX.Element {
         </div>
       ) : null}
 
-      {report.budget !== undefined ? <BudgetLimitsCard budget={report.budget} /> : null}
+      {report.budget !== undefined ? <BudgetLimitsCard budget={report.budget} sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} /> : null}
 
       {budget !== null && report.budget === undefined ? (
         <div className="rounded-xl border border-[#e4e4e7] bg-[#f4f4f5]/50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/30">
@@ -626,7 +626,7 @@ const budgetInputClass =
   "w-full rounded-md border border-[#e4e4e7] bg-transparent px-2 py-1.5 text-xs text-[#0a0a0a] placeholder:text-[#a1a1aa] focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:text-zinc-100 dark:placeholder:text-zinc-500";
 
 /** Spending limits card: what was spent, what the limits are, and a form to change them. */
-function BudgetLimitsCard({ budget }: { budget: UsageBudgetWire }): JSX.Element {
+function BudgetLimitsCard({ budget, sessionId, sessionApiAvailable }: { budget: UsageBudgetWire; sessionId: string; sessionApiAvailable: boolean }): JSX.Element {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -662,7 +662,7 @@ function BudgetLimitsCard({ budget }: { budget: UsageBudgetWire }): JSX.Element 
       monthlyLimitUsd: parseLimit(monthly),
       perRunLimitUsd: parseLimit(perRun),
       onExceed,
-    })
+    }, sessionId, sessionApiAvailable)
       .then(() => {
         setSaved(true);
         setEditing(false);

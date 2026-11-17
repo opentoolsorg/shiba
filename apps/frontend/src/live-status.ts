@@ -254,8 +254,15 @@ export type UsageBudgetPolicyInput = Pick<
 >;
 
 /** PUT /api/usage/budget — save the spending limits. Throws on non-2xx. */
-export async function putUsageBudgetPolicy(input: UsageBudgetPolicyInput): Promise<UsageBudgetPolicyWire> {
-  const response = await fetch("/api/usage/budget", {
+export async function putUsageBudgetPolicy(
+  input: UsageBudgetPolicyInput,
+  sessionId?: string,
+  sessionApiAvailable = false,
+): Promise<UsageBudgetPolicyWire> {
+  const path = sessionApiAvailable && sessionId !== undefined
+    ? `/api/usage/budget?session=${encodeURIComponent(sessionId)}`
+    : "/api/usage/budget";
+  const response = await fetch(path, {
     method: "PUT",
     credentials: "same-origin",
     headers: { "content-type": "application/json" },
@@ -263,7 +270,7 @@ export async function putUsageBudgetPolicy(input: UsageBudgetPolicyInput): Promi
   });
   const body = (await response.json().catch(() => null)) as { policy?: UsageBudgetPolicyWire; error?: string } | null;
   if (!response.ok || body?.policy === undefined) {
-    throw new Error(body?.error ?? `PUT /api/usage/budget failed: ${response.status}`);
+    throw new Error(body?.error ?? `PUT ${path} failed: ${response.status}`);
   }
   return body.policy;
 }
