@@ -7401,7 +7401,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ? await resolveBetterAuthSessionAccount(request, this.env, redactSecrets) : null;
       return this.queueSlackRun({
         ...(queueBody as Record<string, unknown>),
-        routineRun: routineIdentity(request.headers.get(LOCAL_INTAKE_HEADER)),
+        routineRun: verification.signed ? routineIdentity(request.headers.get(LOCAL_INTAKE_HEADER)) : undefined,
         queuedBy: agentPrincipal ?? undefined,
         intake: request.headers.get(LOCAL_INTAKE_HEADER) ?? undefined,
       }, MAX_APPROVED_TASK_CHARS, undefined, trustedSlackOrigin ?? undefined,
