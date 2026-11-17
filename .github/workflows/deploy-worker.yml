@@ -4,9 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       stage:
-        description: ALCHEMY_STAGE ('live' = live shiba-ai-coworker; test-* = suffixed stage)
-        required: false
-        default: "live"
+        description: Deployment stage (prod preserves the existing live state)
+        type: choice
+        options: [prod, dogfood]
+        required: true
+        default: prod
       sandbox_image:
         description: Prebuilt registry.cloudflare.com image ref (empty = Docker build)
         required: false
@@ -16,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-worker-${{ inputs.stage || 'live' }}
+  group: deploy-worker-${{ inputs.stage == 'prod' && 'live' || inputs.stage || 'live' }}
   cancel-in-progress: false
 
 jobs:
@@ -38,9 +40,8 @@ jobs:
           SANDBOX_IMAGE: ${{ inputs.sandbox_image }}
           # Operator-managed vars come from repo secrets too — absent names
           # are skipped by secrets()/configVars() in alchemy.run.ts. The
-          # worker's GITHUB_TOKEN/GITHUB_WEBHOOK_SECRET bindings aren't
-          # mappable here (GitHub forbids repo secrets starting GITHUB_) —
-          # stored values persist across deploys once set via wrangler.
+          # GitHub-prefixed secrets cannot map directly from repo secrets.
+          # Alchemy replaces bindings; use the Mac path if this stage needs them.
           # CLOUDFLARE_API_TOKEN needs read+write on every resource alchemy
           # plans (Workers, D1, KV, R2, Vectorize, containers, secrets) or
           # the plan phase 401s — a deploy-only-scoped token can't diff.
@@ -60,8 +61,6 @@ jobs:
           LOCAL_ADAPTER_TOKEN: ${{ secrets.LOCAL_ADAPTER_TOKEN }}
           INTERNAL_SIGNING_KEY: ${{ secrets.INTERNAL_SIGNING_KEY }}
           ARTIFACT_SIGNING_KEY: ${{ secrets.ARTIFACT_SIGNING_KEY }}
-          WORKER_HOSTNAME: app.tryshiba.dev
-          BETTER_AUTH_URL: https://app.tryshiba.dev
-        # alchemy deploy reads .env via process.loadEnvFile — no file needed;
-        # env vars above win. `pnpm run deploy:alchemy` = build + alchemy deploy.
-        run: pnpm run deploy:alchemy
+          WORKER_HOSTNAME: ${{ inputs.stage == 'dogfood' && format('shiba-ai-coworker-dogfood.{0}.workers.dev', secrets.WORKERS_SUBDOMAIN) || 'app.tryshiba.dev' }}
+          BETTER_AUTH_URL: ${{ inputs.stage == 'dogfood' && format('https://shiba-ai-coworker-dogfood.{0}.workers.dev', secrets.WORKERS_SUBDOMAIN) || 'https://app.tryshiba.dev' }}
+        run: node scripts/deploy.mjs --stage="$ALCHEMY_STAGE"

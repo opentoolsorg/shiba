@@ -1,6 +1,8 @@
-# Deploy runbook (owner Mac only)
+# Worker deploy runbook
 
-This repository intentionally has **two deploy entrypoints** that must declare the **same Worker surface**:
+The maintained Worker entry is `node scripts/deploy.mjs --stage=prod|dogfood|pr-<number>`. Alchemy is primary; `prod` maps to the existing `live` state to avoid creating a second production stack. Use `--plan` before a deploy; `--destroy` requires an explicit stage.
+
+The following files describe the same Worker surface:
 
 | File | Role |
 | --- | --- |
@@ -10,13 +12,25 @@ This repository intentionally has **two deploy entrypoints** that must declare t
 
 **CI gate:** `node scripts/check-alchemy-drift.mjs` (also `pnpm check:deploy`) fails on binding, var, container, or secret-list drift. `node scripts/check-env-types.mjs` keeps `apps/backend/src/env.ts` aligned with wrangler.
 
-**Cloud agents and CI must not deploy the Worker.** No `wrangler deploy`, `wrangler secret put`, `d1 --remote`, or `alchemy deploy` from automation (Alchemy replaces the Worker secret set) — only the owner runs the commands below on a trusted Mac (Docker available for image builds). Exception: `.github/workflows/deploy.yml` auto-deploys the static Pages site on push to `main`.
+**Production and dogfood deploys require an owner's explicit action**, on a trusted Mac or through the manual `deploy-worker.yml` workflow. Cloud agents must not invoke deploys, remote migrations, or secret writes without that approval. The only automated Worker exception is the same-repository, `preview:deploy`-label-gated workflow below; it may mutate only its isolated PR stack. Static Pages publishing in `deploy.yml` remains separate. Alchemy replaces the Worker secret set, so never use production application secrets for previews.
 
 ---
 
+## PR preview wiring
+
+The checked-in preview workflow uses the `preview:deploy` label on same-repository PRs, updates on new heads while that label remains, and destroys the stage on close or merge. Applying that label authorizes subsequent same-repository heads to run with the preview deployment credentials; review the PR before opting in. Forks never enter the credential-bearing job. The old `preview:update-existing` label no longer deploys.
+
+The guard runs from the PR's own checkout: it is a tripwire against mistakes, not a defense against a malicious same-repository writer. The real boundaries must be a Cloudflare token scoped **only to a separate preview account**, and a GitHub Environment named `preview` with required reviewers attached to the deploy job. That Environment attachment is recommended but deliberately **not configured or verified** in this workflow change. The `preview:deploy` label persists across pushes, so new commits deploy without a fresh label; do not treat it as per-commit approval.
+
+Set repository variable `SHIBA_PREVIEW_ACCOUNT_ID` to the preview-only account ID. Required secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `WORKERS_SUBDOMAIN`, `PREVIEW_BETTER_AUTH_SECRET` (32+ characters), and `PREVIEW_BETTER_AUTH_OWNER_EMAIL`. Optional preview-only signing secrets: `PREVIEW_INTERNAL_SIGNING_KEY`, `PREVIEW_ARTIFACT_SIGNING_KEY`. Never reuse production application credentials. The API token needs the resource read/write scopes used by Alchemy and access to the pre-existing remote state backend for state reads/writes; missing bootstrap fails rather than creating one.
+
+Every preview store, queue, workflow and container name ends in `-pr-<number>`. D1 migrations run only on the preview database; no production export or clone is used. Previews have no cron, Slack credentials or email binding and at most one container. Unknown bindings, unproven ownership, partial state and replacements require manual review, not automatic repair. Existing incident-repaired PR 188 resources may therefore refuse this full-stack path.
+
+`ephemeral-stack.mjs` now supports only its historical `--dry-run` diagnostics; its shared-binding apply path is retired. The Wrangler emergency engine remains behind `scripts/deploy.mjs --stage=prod|dogfood --wrangler`, never for PR previews. Existing Wrangler configs stay as binding sources and rollback inputs until live adoption is verified.
+
 ## Prerequisites
 
-- Node.js **22.13+**, **pnpm 10+**
+- Node.js **22.15+**, **pnpm 10+**
 - **Workers Paid** (Containers + Durable Objects)
 - **Docker** (or OrbStack) for Sandbox image build unless `SANDBOX_IMAGE` points at a pre-pushed `registry.cloudflare.com/...` ref
 - Cloudflare account with Workers, DO, Containers, Workers AI, KV, R2, D1, Vectorize enabled
@@ -49,22 +63,21 @@ npx wrangler deploy --dry-run --config apps/backend/wrangler.jsonc
 
 Use an isolated Alchemy stage so live hostnames and stores are never touched.
 
-1. Choose a stage name (lowercase, digits, hyphens): e.g. `staging-oct19`.
+1. Use the explicit `dogfood` stage; the maintained entry rejects arbitrary stage names.
 2. Export stage and deploy:
 
    ```sh
-   export ALCHEMY_STAGE=staging-oct19
-   pnpm env:load   # ensures .env is valid
-   pnpm build
-   pnpm deploy:alchemy
+   pnpm env:load
+   node scripts/deploy.mjs --stage=dogfood --plan
+   node scripts/deploy.mjs --stage=dogfood
    ```
 
-   Do **not** pass a conflicting `--stage` CLI flag; resource names are derived from `$ALCHEMY_STAGE` at module load (`alchemy.run.ts`).
+   The entry sets `$ALCHEMY_STAGE` before loading Alchemy, so resource names and the state stage agree.
 
 3. Staging gets **suffixed** worker, container, and datastore names and **workers.dev** enabled with version preview URLs disabled. Set `WORKERS_SUBDOMAIN` to the target account's subdomain. `WORKER_HOSTNAME` and `BETTER_AUTH_URL` derive from that stage's workers.dev origin; remove inherited production overrides or set them to that exact host/origin. Staging never attaches the live custom domain.
 4. Every public stage requires authentication: `ACCESS_EMAILS` creates managed Access at the stage's actual hostname, including staging. Alternatively, unset `ACCESS_EMAILS` and set a >=32-character `BETTER_AUTH_SECRET` plus either `BETTER_AUTH_BOOTSTRAP_TOKEN` or `BETTER_AUTH_OWNER_EMAIL`. Use stage-specific secrets. Runtime session/authentication behavior is unchanged. Do not export `ACCESS_AUD`; it derives from the managed application. `REQUIRE_ACCESS` may only be `1` with managed Access and cannot override the binding.
 5. Smoke on the printed URL: `/app/`, `/api/setup/status` (JSON, not SPA HTML).
-6. When satisfied, deploy **live** (unset `ALCHEMY_STAGE` or use exactly `live`) with live credentials and `WORKER_HOSTNAME` explicitly matching the checked-in custom domain. Other valid stage names remain isolated; underscores and empty stage names are rejected.
+6. When satisfied, deploy with `--stage=prod`, live credentials, and `WORKER_HOSTNAME` explicitly matching the checked-in custom domain. `prod` aliases `live`; `dogfood` and `pr-<number>` always use suffixed resources.
 
 ---
 
@@ -149,7 +162,7 @@ pnpm build
 npx wrangler secret put GITHUB_TOKEN --config apps/backend/wrangler.jsonc
 # ...
 npx wrangler d1 migrations apply shiba-audit --remote --config apps/backend/wrangler.jsonc
-npx wrangler deploy --config apps/backend/wrangler.jsonc
+node scripts/deploy.mjs --stage=prod --wrangler
 ```
 
 Wrangler keeps **undeclared** existing secrets (`keepSecrets`); it does **not** create Access applications — configure Access manually before exposing a public hostname. After changing `wrangler.jsonc` bindings, update `alchemy.run.ts` and run `pnpm check:deploy` before the next Alchemy release.
