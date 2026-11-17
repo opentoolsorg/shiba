@@ -128,7 +128,7 @@ exports[`Slack UI renderer > renders many 1`] = `
                 "text": "First",
                 "type": "plain_text",
               },
-              "value": "{"runId":"slack:T1:C1:123.000001","blockId":"many","optionId":"first"}",
+              "value": "first",
             },
             {
               "text": {
@@ -136,7 +136,7 @@ exports[`Slack UI renderer > renders many 1`] = `
                 "text": "Second (destructive)",
                 "type": "plain_text",
               },
-              "value": "{"runId":"slack:T1:C1:123.000001","blockId":"many","optionId":"second"}",
+              "value": "second",
             },
           ],
           "type": "checkboxes",
@@ -271,6 +271,7 @@ exports[`Slack UI renderer > renders select 1`] = `
       "type": "section",
     },
     {
+      "block_id": "ui_block:["slack:T1:C1:123.000001","select",true]",
       "elements": [
         {
           "action_id": "ui_block:select",
@@ -304,7 +305,7 @@ exports[`Slack UI renderer > renders select 1`] = `
                 "text": "Option 0",
                 "type": "plain_text",
               },
-              "value": "{"runId":"slack:T1:C1:123.000001","blockId":"select","optionId":"option_0","confirmed":true}",
+              "value": "option_0",
             },
             {
               "text": {
@@ -312,7 +313,7 @@ exports[`Slack UI renderer > renders select 1`] = `
                 "text": "Option 1",
                 "type": "plain_text",
               },
-              "value": "{"runId":"slack:T1:C1:123.000001","blockId":"select","optionId":"option_1","confirmed":true}",
+              "value": "option_1",
             },
             {
               "text": {
@@ -320,7 +321,7 @@ exports[`Slack UI renderer > renders select 1`] = `
                 "text": "Option 2",
                 "type": "plain_text",
               },
-              "value": "{"runId":"slack:T1:C1:123.000001","blockId":"select","optionId":"option_2","confirmed":true}",
+              "value": "option_2",
             },
             {
               "text": {
@@ -328,7 +329,7 @@ exports[`Slack UI renderer > renders select 1`] = `
                 "text": "Option 3",
                 "type": "plain_text",
               },
-              "value": "{"runId":"slack:T1:C1:123.000001","blockId":"select","optionId":"option_3","confirmed":true}",
+              "value": "option_3",
             },
             {
               "text": {
@@ -336,7 +337,7 @@ exports[`Slack UI renderer > renders select 1`] = `
                 "text": "Option 4",
                 "type": "plain_text",
               },
-              "value": "{"runId":"slack:T1:C1:123.000001","blockId":"select","optionId":"option_4","confirmed":true}",
+              "value": "option_4",
             },
             {
               "text": {
@@ -344,7 +345,7 @@ exports[`Slack UI renderer > renders select 1`] = `
                 "text": "Option 5",
                 "type": "plain_text",
               },
-              "value": "{"runId":"slack:T1:C1:123.000001","blockId":"select","optionId":"option_5","confirmed":true}",
+              "value": "option_5",
             },
           ],
           "placeholder": {
