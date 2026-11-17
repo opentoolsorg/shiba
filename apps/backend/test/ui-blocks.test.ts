@@ -18,7 +18,7 @@ afterEach(() => { close.splice(0).forEach((fn) => fn()); vi.clearAllMocks(); });
 
 function fixture() {
   const { database, sqlite } = customAgentD1({ bare: true });
-  sqlite.exec(readFileSync(new URL("../migrations/0061_ui_block_questions.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../migrations/0068_ui_block_questions.sql", import.meta.url), "utf8"));
   close.push(() => sqlite.close());
   const fetch = vi.fn(async () => Response.json({ ok: true }));
   const env = { AGENT_AUDIT: database, CodingOrchestrator: { getByName: () => ({ fetch }) }, WorkspaceEvents: { getByName: () => ({ fetch }) } } as unknown as Env;

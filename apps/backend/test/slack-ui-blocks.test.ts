@@ -57,7 +57,7 @@ describe("signed Slack UI answers", () => {
   async function setup(block: UiBlock, test: (env: Env) => Promise<void>) {
     const { database, sqlite } = customAgentD1();
     try {
-      sqlite.exec(readFileSync(new URL("../migrations/0061_ui_block_questions.sql", import.meta.url), "utf8"));
+      sqlite.exec(readFileSync(new URL("../migrations/0068_ui_block_questions.sql", import.meta.url), "utf8"));
       const env = { AGENT_AUDIT: database, CHAT_EMPLOYEE_ACTOR: ownerId, SLACK_SIGNING_SECRET: secret, SLACK_APPROVERS: "U1" } as unknown as Env;
       await createUiBlock(env, ownerId, runId, block);
       await test(env);

@@ -12,7 +12,7 @@ describe("inbound fallback answers", () => {
   it("preserves separate fields in a multiline Slack form reply", async () => {
     const { database, sqlite } = customAgentD1();
     try {
-      sqlite.exec(readFileSync(new URL("../migrations/0061_ui_block_questions.sql", import.meta.url), "utf8"));
+      sqlite.exec(readFileSync(new URL("../migrations/0068_ui_block_questions.sql", import.meta.url), "utf8"));
       const env = { AGENT_AUDIT: database, CHAT_EMPLOYEE_ACTOR: "owner", SLACK_APPROVERS: "U1" } as unknown as Env;
       const runId = uiBlockRunId("slack:T1:C1:123.000001", "form-task");
       await createUiBlock(env, "owner", runId, { version: 1, id: "details", type: "form", prompt: "Provide details", submitLabel: "Submit", fields: [
@@ -31,7 +31,7 @@ describe("inbound fallback answers", () => {
   it.each(["slack:T1:C1:123.000001", "telegram:12345", "discord:123456789012345678"])("validates authorization, parsing, and current task for %s", async (threadId) => {
     const { database, sqlite } = customAgentD1();
     try {
-      sqlite.exec(readFileSync(new URL("../migrations/0061_ui_block_questions.sql", import.meta.url), "utf8"));
+      sqlite.exec(readFileSync(new URL("../migrations/0068_ui_block_questions.sql", import.meta.url), "utf8"));
       const env = { AGENT_AUDIT: database, CHAT_EMPLOYEE_ACTOR: "owner", SLACK_APPROVERS: "U1", TELEGRAM_APPROVERS: "U1", DISCORD_APPROVERS: "U1" } as unknown as Env;
       const runId = uiBlockRunId(threadId, "task");
       expect(await tryAnswerUiBlockFallback(env, threadId, "U1", "1")).toBe(false);
@@ -49,7 +49,7 @@ describe("inbound fallback answers", () => {
   it("consumes a Slack reply before buffering or queueing a new instruction", async () => {
     const { database, sqlite } = customAgentD1();
     try {
-      sqlite.exec(readFileSync(new URL("../migrations/0061_ui_block_questions.sql", import.meta.url), "utf8"));
+      sqlite.exec(readFileSync(new URL("../migrations/0068_ui_block_questions.sql", import.meta.url), "utf8"));
       const env = { AGENT_AUDIT: database, CHAT_EMPLOYEE_ACTOR: "owner", SLACK_APPROVERS: "U1" } as unknown as Env;
       const runId = uiBlockRunId("slack:T1:C1:123.000001", "task");
       await createUiBlock(env, "owner", runId, block);
