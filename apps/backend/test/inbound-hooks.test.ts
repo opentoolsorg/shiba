@@ -18,16 +18,19 @@ async function fixture() {
   automation.hookSecret = await sealInboundSecret(env, automation.id, secret);
   const data = new Map<string, unknown>([["state", { items: [automation] }]]);
   const storage = { get: async (key: string) => structuredClone(data.get(key)), put: async (key: string, value: unknown) => { data.set(key, structuredClone(value)); }, transaction: async (fn: (s: unknown) => unknown) => fn(storage) };
-  const receipts = new Map<string, number>();
-  env.AGENT_AUDIT = { prepare: (sql: string) => ({ bind: (...args: (string | number)[]) => ({ run: async () => {
+  const receipts = new Map<string, { receivedAt: number; state: "pending" | "done" }>();
+  env.AGENT_AUDIT = { prepare: (sql: string) => ({ bind: (...args: (string | number)[]) => ({ first: async () => receipts.get(`${args[0]}:${args[1]}`) ?? null, run: async () => {
     const key = `${args[0]}:${args[1]}`;
     if (sql.startsWith("INSERT")) {
       const existing = receipts.get(key);
-      if (existing !== undefined && existing > Number(args[3])) return { meta: { changes: 0 } };
-      receipts.set(key, Number(args[2]));
+      if (existing !== undefined && existing.receivedAt > Number(args[3]) && !(existing.state === "pending" && existing.receivedAt <= Number(args[4]))) return { meta: { changes: 0 } };
+      receipts.set(key, { receivedAt: Number(args[2]), state: "pending" });
       return { meta: { changes: 1 } };
     }
-    if (args.length === 3 && receipts.get(key) === args[2]) receipts.delete(key);
+    if (args.length === 3 && receipts.get(key)?.receivedAt === args[2]) {
+      if (sql.startsWith("UPDATE")) receipts.get(key)!.state = "done";
+      else receipts.delete(key);
+    }
     return { meta: { changes: 1 } };
   } }) }) } as unknown as D1Database;
   const instance = new Automations({ storage } as unknown as DurableObjectState, env);
@@ -61,9 +64,20 @@ describe("signed hook ingress", () => {
     expect(await (await f.request()).json()).toEqual({ ok: true, duplicate: true });
     expect(f.fire).toHaveBeenCalledTimes(1);
     expect(f.fire).toHaveBeenCalledWith({ kind: "hook", deliveryId: "delivery", body: "" }, expect.anything(), expect.any(Number), "hook");
-    f.receipts.set("hook:delivery", Date.now() - 7 * 86400000 - 1);
+    f.receipts.set("hook:delivery", { receivedAt: Date.now() - 7 * 86400000 - 1, state: "done" });
     expect((await f.request()).status).toBe(200);
     expect(f.fire).toHaveBeenCalledTimes(2);
+  });
+  it("retries fresh pending claims and reclaims stale pending receipts", async () => {
+    const f = await fixture();
+    f.receipts.set("hook:delivery", { receivedAt: Date.now(), state: "pending" });
+    expect((await f.request()).status).toBe(409);
+    expect(f.fire).not.toHaveBeenCalled();
+    f.receipts.set("hook:delivery", { receivedAt: Date.now() - 60001, state: "pending" });
+    expect((await f.request()).status).toBe(200);
+    expect(f.receipts.get("hook:delivery")?.state).toBe("done");
+    expect(f.fire).toHaveBeenCalledOnce();
+    expect(await (await f.request()).json()).toEqual({ ok: true, duplicate: true });
   });
   it("returns the same auth denial for unknown and revoked routes, and rotates once", async () => {
     const f = await fixture();

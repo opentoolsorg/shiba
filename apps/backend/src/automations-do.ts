@@ -1063,10 +1063,15 @@ export class Automations {
       if (!db) return Response.json({ error: "Inbound webhook receipt storage unavailable." }, { status: 503 });
       const cutoff = now - 7 * 24 * 60 * 60 * 1000;
       try {
-        const receipt = await db.prepare("INSERT INTO inbound_webhook_receipts (route_id, delivery_id, received_at) VALUES (?, ?, ?) ON CONFLICT(route_id, delivery_id) DO UPDATE SET received_at = excluded.received_at WHERE inbound_webhook_receipts.received_at <= ?").bind(id, deliveryId, now, cutoff).run();
-        if (!receipt.meta.changes) return Response.json({ ok: true, duplicate: true });
+        const receipt = await db.prepare("INSERT INTO inbound_webhook_receipts (route_id, delivery_id, received_at, state) VALUES (?, ?, ?, 'pending') ON CONFLICT(route_id, delivery_id) DO UPDATE SET received_at = excluded.received_at, state = 'pending' WHERE inbound_webhook_receipts.received_at <= ? OR (inbound_webhook_receipts.state = 'pending' AND inbound_webhook_receipts.received_at <= ?)").bind(id, deliveryId, now, cutoff, now - 60000).run();
+        if (!receipt.meta.changes) {
+          const existing = await db.prepare("SELECT state FROM inbound_webhook_receipts WHERE route_id = ? AND delivery_id = ?").bind(id, deliveryId).first<{ state: string }>();
+          if (existing?.state === "done") return Response.json({ ok: true, duplicate: true });
+          return Response.json({ error: "Webhook delivery is processing. Retry delivery." }, { status: 409, headers: { "Retry-After": "60" } });
+        }
         try {
           const result = await this.fireEvent({ kind: "hook", deliveryId, body }, await this.orchestrator(), now, id);
+          await db.prepare("UPDATE inbound_webhook_receipts SET state = 'done' WHERE route_id = ? AND delivery_id = ? AND received_at = ? AND state = 'pending'").bind(id, deliveryId, now).run();
           await db.prepare("DELETE FROM inbound_webhook_receipts WHERE received_at < ?").bind(cutoff).run().catch(() => undefined);
           return Response.json({ ok: true, ...result });
         } catch {
