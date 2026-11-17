@@ -84,9 +84,9 @@ export async function getCustomAgentById(
   env: AuditEnv,
   orgId: string,
   id: string,
-  options?: { includeArchived?: boolean },
+  options?: { includeArchived?: boolean; readOnly?: boolean },
 ): Promise<CustomAgentRecord | null> {
-  await ensureTables(env);
+  if (!options?.readOnly) await ensureTables(env);
   const row = await env.AGENT_AUDIT.prepare(
     `SELECT * FROM org_custom_agents WHERE org_id = ? AND id = ? AND deleted_at IS NULL${options?.includeArchived ? "" : " AND archived_at IS NULL"}`,
   )
