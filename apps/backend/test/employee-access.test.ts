@@ -58,20 +58,24 @@ describe("employee access", () => {
   });
   it("requires chat for funded turn prepare, approve and execute and direct employee session selection", async () => {
     const { env, sqlite, employee, set, auth, workspaceId } = await fixture(); auth();
-    sqlite.exec(`CREATE TABLE team_model_funding (id TEXT, workspace_id TEXT, contract_json TEXT);
+    sqlite.exec(`CREATE TABLE team_model_funding (id TEXT, workspace_id TEXT, contract_json TEXT, room_id TEXT DEFAULT 'room');
       CREATE TABLE team_model_turns (id TEXT, workspace_id TEXT, grant_id TEXT);`);
-    sqlite.prepare("INSERT INTO team_model_funding VALUES ('funding', ?, ?)").run(workspaceId, JSON.stringify({ employeeId: employee.id }));
+    sqlite.prepare("INSERT INTO team_model_funding (id,workspace_id,contract_json) VALUES ('funding', ?, ?)").run(workspaceId, JSON.stringify({ employeeId: employee.id }));
     sqlite.prepare("INSERT INTO team_model_turns VALUES ('turn', ?, 'funding')").run(workspaceId);
     const request = (path: string, body = {}) => new Request(`https://app.test/api/${path}`, { method: "POST", body: JSON.stringify(body) });
     const requests = () => [request("team-model-sessions/turns/prepare", { grantId: "funding", employeeId: "spoofed" }), request("team-model-sessions/turns/turn/approve"), request("team-model-sessions/turns/turn/execute"), request("sessions", { employeeId: "spoofed", metadata: { customAgentId: employee.id } }), request("sessions/existing", { employeeId: "spoofed", metadata: { customAgentId: employee.id } }), request("runs", { employeeId: "spoofed", customAgentId: employee.id }), request("collaboration/rooms/room/handoffs", { employeeId: "spoofed", recipientActorId: `agent:${employee.slug}` })];
     for (const [level, status] of [["none", 404], ["view", 403], ["chat", undefined]] as const) {
       await set("everyone", "*", level);
+      expect((await enforceEmployeeRouteAccess(new Request("https://app.test/api/team-model-sessions/state?roomId=room"), env))?.status).toBe(level === "none" ? 404 : undefined);
       for (const req of requests()) expect((await enforceEmployeeRouteAccess(req, env))?.status).toBe(status);
     }
     expect((await enforceEmployeeRouteAccess(request("team-model-sessions/turns/prepare", {}), env))?.status).toBe(404);
     expect((await enforceEmployeeRouteAccess(request("team-model-sessions/turns/missing/execute"), env))?.status).toBe(404);
     expect((await enforceEmployeeRouteAccess(new Request("https://app.test/api/team-model-sessions/turns/prepare", { method: "POST", body: "{" }), env))?.status).toBe(400);
     expect(await enforceEmployeeRouteAccess(request("sessions"), env)).toBeNull();
+    expect(await enforceEmployeeRouteAccess(new Request("https://app.test/api/team-model-sessions/state?roomId=empty"), env)).toBeNull();
+    sqlite.exec("DROP TABLE team_model_funding");
+    expect(await enforceEmployeeRouteAccess(new Request("https://app.test/api/team-model-sessions/state?roomId=room"), env)).toBeNull();
   });
   it("filters every coordination selector using the posting member, canonicalizes slugs, and hides discovery", async () => {
     const { env, sqlite, employee, workspaceId, set } = await fixture();
