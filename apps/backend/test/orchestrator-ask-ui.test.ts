@@ -19,7 +19,7 @@ describe("production orchestrator ask_ui", () => {
   it("exposes an active Work tool and persists using the DO thread/run and authenticated owner", async () => {
     const { database, sqlite } = customAgentD1();
     try {
-      sqlite.exec(readFileSync(new URL("../migrations/0061_ui_block_questions.sql", import.meta.url), "utf8"));
+      sqlite.exec(readFileSync(new URL("../migrations/0068_ui_block_questions.sql", import.meta.url), "utf8"));
       const env = { AGENT_AUDIT: database } as unknown as Env;
       const ownerId = "owner@example.test";
       const session = createWebSession(ownerId);
@@ -67,7 +67,7 @@ describe("production orchestrator ask_ui", () => {
   it.each(["slack:T1:C1:123.000001", "telegram:12345", "discord:123456789012345678"])("delivers a newly stored question once via postToThread for %s", async (name) => {
     const { database, sqlite } = customAgentD1();
     try {
-      sqlite.exec(readFileSync(new URL("../migrations/0061_ui_block_questions.sql", import.meta.url), "utf8"));
+      sqlite.exec(readFileSync(new URL("../migrations/0068_ui_block_questions.sql", import.meta.url), "utf8"));
       const ownerId = "chat-owner@example.test";
       const env = { AGENT_AUDIT: database, CHAT_EMPLOYEE_ACTOR: ownerId } as unknown as Env;
       const postToThread = vi.fn();
