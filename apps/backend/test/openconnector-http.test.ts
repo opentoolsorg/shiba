@@ -10,7 +10,8 @@ import { handleIntegrationProviderRoutes } from "../src/integrations-provider-ro
 import { resetIntegrationProviderCacheForTests } from "../src/integrations/runtime.js";
 
 const auth = vi.hoisted(() => ({ owner: "alice" }));
-vi.mock("../src/request-auth.js", () => ({ isAuthorizedRequest: vi.fn(async () => true) }));
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(), isAuthorizedRequest: vi.fn(async () => true) }));
 vi.mock("../src/gmail-routes.js", () => ({ gmailOwner: vi.fn(async () => auth.owner) }));
 const servers: Server[] = [];
 afterEach(async () => {

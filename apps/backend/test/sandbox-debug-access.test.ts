@@ -7,7 +7,8 @@ const getAgentByName = vi.hoisted(() => vi.fn());
 
 vi.mock("agents/routing", () => ({ getAgentByName }));
 
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   resolveUserId: vi.fn(async (): Promise<string | null> => "alice@example.com"),
   isAccessConfigured: (env: Env) => Boolean(env.REQUIRE_ACCESS || env.ACCESS_AUD),
   isLoopbackRequest: (request: Request) => new URL(request.url).hostname === "localhost",

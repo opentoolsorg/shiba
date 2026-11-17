@@ -7,7 +7,8 @@ import type { Env } from "../src/env.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const auth = vi.hoisted(() => ({ userId: "owner@example.test" as string | null, authorized: true }));
-vi.mock("../src/request-auth.js", () => ({ isAuthorizedRequest: async () => auth.authorized, resolveUserId: async () => auth.userId }));
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(), isAuthorizedRequest: async () => auth.authorized, resolveUserId: async () => auth.userId }));
 const OWNER = "owner@example.test", MEMBER = "member@example.test";
 const ROOM = `room_${"a".repeat(24)}`;
 const databases: Array<ReturnType<typeof customAgentD1>["sqlite"]> = [];

@@ -1,3 +1,6 @@
+import { toast } from "sonner";
+import { optimisticMutation } from "../state/optimistic";
+import { useWorkspaceEvents } from "../state/workspace-events";
 import { roomLinkUrl } from "../room-links";
 import {
   type FormEvent,
@@ -18,12 +21,15 @@ import { MessageList } from "./collab/MessageList";
 import { MessageRow } from "./collab/MessageRow";
 import { OwnerChip } from "./collab/OwnerChip";
 import { PresenceChip, type PresenceState } from "./collab/PresenceChip";
+import { PresenceStack, typingSummary } from "./collab/PresenceStack";
+import { MentionMenu, useMentionAutocomplete } from "./collab/MentionAutocomplete";
 import { RoomRail } from "./collab/RoomRail";
 import { ThreadPane } from "./collab/ThreadPane";
 import { PersonalExecutionSetup } from "./PersonalExecutionSetup";
 import { TeamModelSessions } from "./TeamModelSessions";
 import { SharedComputerSessions } from "./SharedComputerSessions";
 import { BootstrapVerificationPanel } from "./BootstrapVerificationPanel";
+import { DeliverablePreview } from "./DeliverablePreview";
 import type { PersonalExecutionGrant } from "../personal-execution-client";
 
 interface Room {
@@ -337,6 +343,23 @@ function ScopedCollaborationView({
   const [savedItems, setSavedItems] = useState<SavedMessageRef[]>([]);
   const [activeRoomId, setActiveRoomId] = useState(initialRoomId ?? "");
   const [detail, setDetail] = useState<RoomDetail | null>(null);
+  const [pendingMessages, setPendingMessages] = useState<Array<Message & { roomId: string }>>([]);
+  const roomPatches = useRef(new Map<string, Room>());
+  const messagePatches = useRef(new Map<string, Map<string, Message>>());
+  const mergeRoomList = useCallback((loaded: Room[], current: Room[]) => {
+    const rows = new Map(loaded.map((room) => [room.roomId, room]));
+    for (const room of roomPatches.current.values()) {
+      if ((room.kind ?? "room") === roomListTab) rows.set(room.roomId, { ...rows.get(room.roomId), ...room });
+    }
+    for (const room of current) if (room.roomId.startsWith("pending_")) rows.set(room.roomId, room);
+    return [...rows.values()];
+  }, [roomListTab]);
+  const mergeRoomDetail = useCallback((loaded: RoomDetail) => {
+    if (!messagePatches.current.has(loaded.room.roomId)) return loaded;
+    const messages = new Map(loaded.messages.map((message) => [message.messageId, message]));
+    for (const message of messagePatches.current.get(loaded.room.roomId)?.values() ?? []) messages.set(message.messageId, message);
+    return { ...loaded, messages: [...messages.values()] };
+  }, []);
   const [presence, setPresence] = useState<Array<{ actorId: string; label: string; state: PresenceState }>>([]);
   const [roomOwner, setRoomOwner] = useState("");
   const [openThreadId, setOpenThreadId] = useState("");
@@ -444,6 +467,9 @@ function ScopedCollaborationView({
       if (activeRoomRef.current !== roomId) return;
       roomReadEpoch.current++;
       if (roomId) revokedRooms.current.add(roomId);
+      roomPatches.current.delete(roomId);
+      messagePatches.current.delete(roomId);
+      setPendingMessages((current) => current.filter((message) => message.roomId !== roomId));
       activeRoomRef.current = "";
       clearRoomDrafts();
       setDetail(null);
@@ -466,7 +492,7 @@ function ScopedCollaborationView({
       const epoch = ++roomReadEpoch.current;
       void api<RoomDetail>(`/api/collaboration/rooms/${encodeURIComponent(roomId)}`)
         .then((loaded) => {
-          if (isCurrentRoomRead(epoch, roomId)) setDetail(loaded);
+          if (isCurrentRoomRead(epoch, roomId)) setDetail(mergeRoomDetail(loaded));
         })
         .catch((cause) => {
           if (!isCurrentRoomRead(epoch, roomId)) return;
@@ -478,6 +504,22 @@ function ScopedCollaborationView({
         });
     },
   });
+
+  const presenceScope = JSON.stringify([workspaceId ?? "default", activeRoomId]);
+  const [memberLastSeen, setMemberLastSeen] = useState<{ scope: string; seen: Record<string, number> }>({ scope: "", seen: {} });
+  useEffect(() => {
+    setMemberLastSeen((current) => {
+      const seen = current.scope === presenceScope ? { ...current.seen } : {};
+      let changed = current.scope !== presenceScope;
+      for (const viewer of realtime.viewers) {
+        if (viewer.lastSeenAt > (seen[viewer.label] ?? 0)) {
+          seen[viewer.label] = viewer.lastSeenAt;
+          changed = true;
+        }
+      }
+      return changed ? { scope: presenceScope, seen } : current;
+    });
+  }, [presenceScope, realtime.viewers]);
 
   useEffect(() => {
     clearRoomDrafts();
@@ -511,7 +553,7 @@ function ScopedCollaborationView({
         const loadedRooms = await loadRoomsForTab<{ rooms: Room[] }>(api, roomListTab);
         if (!isCurrentRoomRead(epoch, previousRoomId)) return;
         const availableRooms = loadedRooms.filter((room) => !revokedRooms.current.has(room.roomId));
-        setRooms(availableRooms);
+        setRooms((current) => mergeRoomList(availableRooms, current));
         setTabUnread((current) => ({
           ...current,
           [roomListTab]: availableRooms.reduce((sum, room) => sum + (room.unreadCount ?? 0), 0),
@@ -526,7 +568,7 @@ function ScopedCollaborationView({
           `/api/collaboration/rooms/${encodeURIComponent(selected)}`,
         );
         if (!isCurrentRoomRead(epoch, selected)) return;
-        setDetail(loaded);
+        setDetail(mergeRoomDetail(loaded));
         setError("");
         setRetryableError(false);
       } catch (cause) {
@@ -538,8 +580,36 @@ function ScopedCollaborationView({
         }
       }
     },
-    [api, isCurrentRoomRead, loseRoomAccess, roomListTab],
+    [api, isCurrentRoomRead, loseRoomAccess, roomListTab, mergeRoomList, mergeRoomDetail],
   );
+
+  const workspaceLive = useWorkspaceEvents({
+    workspaceId: workspaceId ?? null,
+    enabled: Boolean(workspaceId),
+    onReconnect: () => { roomPatches.current.clear(); messagePatches.current.clear(); void refresh(); },
+    onEvent: (event) => {
+      if (event.kind === "room.updated") {
+        const room = event.payload?.room as Room | undefined;
+        if (!room || room.roomId !== event.entityId || typeof room.title !== "string" ||
+          !["private", "shared"].includes(room.visibility) || revokedRooms.current.has(room.roomId)) return;
+        roomPatches.current.set(room.roomId, room);
+        if ((room.kind ?? "room") === roomListTab) {
+          setRooms((current) => [...current.filter((item) => item.roomId !== room.roomId), { ...current.find((item) => item.roomId === room.roomId), ...room }]);
+        }
+      } else if (event.kind === "message.created" && event.entityId === activeRoomRef.current) {
+        const message = event.payload?.message as Message | undefined;
+        if (!message || typeof message.messageId !== "string" || typeof message.body !== "string" ||
+          message.senderKind !== "human" || typeof message.createdAt !== "number") return;
+        const patches = messagePatches.current.get(event.entityId) ?? new Map<string, Message>();
+        patches.set(message.messageId, message);
+        messagePatches.current.set(event.entityId, patches);
+        setDetail((current) => current?.room.roomId === event.entityId && !current.messages.some((item) => item.messageId === message.messageId)
+          ? { ...current, messages: [...current.messages, message] } : current);
+      } else if (event.kind === "collaboration.change" || event.kind === "room.message") {
+        void refresh();
+      }
+    },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -555,7 +625,7 @@ function ScopedCollaborationView({
         const loadedRooms = await loadRoomsForTab<{ rooms: Room[] }>(api, roomListTab);
         if (cancelled || !isCurrentRoomRead(epoch, activeRoomId)) return;
         const availableRooms = loadedRooms.filter((room) => !revokedRooms.current.has(room.roomId));
-        setRooms(availableRooms);
+        setRooms((current) => mergeRoomList(availableRooms, current));
         setTabUnread((current) => ({
           ...current,
           [roomListTab]: availableRooms.reduce((sum, room) => sum + (room.unreadCount ?? 0), 0),
@@ -569,7 +639,7 @@ function ScopedCollaborationView({
             `/api/collaboration/rooms/${encodeURIComponent(selected)}`,
           );
           if (cancelled || !isCurrentRoomRead(epoch, selected)) return;
-          setDetail(loaded);
+          setDetail(mergeRoomDetail(loaded));
           setError("");
           setRetryableError(false);
         } else if (!cancelled && isCurrentRoomRead(epoch, "")) setDetail(null);
@@ -584,7 +654,7 @@ function ScopedCollaborationView({
       }
     };
     void load();
-    const live = workspaceId && typeof WebSocket !== "undefined";
+    const live = workspaceLive;
     const timer = live
       ? undefined
       : window.setInterval(() => {
@@ -595,7 +665,7 @@ function ScopedCollaborationView({
       roomReadEpoch.current++;
       if (timer !== undefined) window.clearInterval(timer);
     };
-  }, [activeRoomId, api, isCurrentRoomRead, loseRoomAccess, roomListTab, workspaceId]);
+  }, [activeRoomId, api, isCurrentRoomRead, loseRoomAccess, roomListTab, workspaceId, workspaceLive, mergeRoomList, mergeRoomDetail]);
 
   useEffect(() => {
     if (!activeRoomId) return;
@@ -746,6 +816,10 @@ function ScopedCollaborationView({
   }, [initialRoomId, initialHandoffId, activeRoomId, detail, detailTab, workspaceId]);
 
   const members = useMemo(() => detail?.members ?? [], [detail]);
+  const mentions = useMentionAutocomplete({ members, selfUserId: detail?.currentUserId ?? "", value: message, setValue: setMessage, input: messageInput });
+  const workingEmployees = (detail?.handoffs ?? []).filter((handoff) => handoff.status === "active" && handoff.execution?.runStatus === "running")
+    .map((handoff) => members.find((member) => member.actorId === handoff.recipientActorId)?.displayName ?? "Employee");
+  const typing = typingSummary(realtime.viewers, realtime.viewerId, [...new Set(workingEmployees)]);
   const effectiveActorId =
     members.find(
       (member) => member.userId === detail?.currentUserId && member.actorKind === "human",
@@ -807,25 +881,51 @@ function ScopedCollaborationView({
 
   const createRoom = (event: FormEvent) => {
     event.preventDefault();
-    if (!roomTitle.trim()) return;
-    void (async () => {
-      setBusy(true);
-      setError("");
-      setRetryableError(false);
-      try {
-        const result = await api<{ room: Room }>(
-          "/api/collaboration/rooms",
-          request("POST", { title: roomTitle, visibility: roomVisibility }),
-        );
-        setRoomTitle("");
-        await refresh(result.room.roomId);
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
-        setRetryableError(!(cause instanceof CollaborationApiError));
-      } finally {
-        setBusy(false);
+    if (!roomTitle.trim() || busy) return;
+    const pending: Room = { roomId: `pending_${crypto.randomUUID()}`, title: roomTitle.trim(), visibility: roomVisibility, kind: "room" };
+    setBusy(true);
+    setError("");
+    void optimisticMutation({
+      apply: () => { setRooms((current) => [...current, pending]); setRoomTitle(""); },
+      commit: () => api<{ room: Room }>("/api/collaboration/rooms", request("POST", {
+        title: pending.title, visibility: pending.visibility,
+      })),
+      reconcile: (result) => {
+        setRooms((current) => [...current.filter((room) => room.roomId !== pending.roomId && room.roomId !== result.room.roomId), result.room]);
+        void refresh(result.room.roomId);
+      },
+      rollback: () => {
+        setRooms((current) => current.filter((room) => room.roomId !== pending.roomId));
+        setRoomTitle((current) => current || pending.title);
+      },
+      onError: (cause) => {
+        const text = cause instanceof Error ? cause.message : String(cause);
+        setError(text); toast.error(text);
+      },
+    }).finally(() => setBusy(false));
+  };
+
+  const startDirectMessage = async (userId: string) => {
+    const sourceRoomId = activeRoomRef.current;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api<{ dm: Room }>("/api/collaboration/dms", request("POST", { userId }));
+      if (activeRoomRef.current !== sourceRoomId) return;
+      if (result.dm.roomId === sourceRoomId && roomListTab === "dm") {
+        await refresh(sourceRoomId);
+        return;
       }
-    })();
+      roomReadEpoch.current++;
+      activeRoomRef.current = result.dm.roomId;
+      setDetail(null);
+      setRoomListTab("dm");
+      setActiveRoomId(result.dm.roomId);
+    } catch (cause) {
+      if (activeRoomRef.current === sourceRoomId) setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const inviteMember = (event: FormEvent) => {
@@ -940,17 +1040,42 @@ function ScopedCollaborationView({
 
   const sendMessage = (event: FormEvent) => {
     event.preventDefault();
-    if (!activeRoomId || !message.trim()) return;
-    void mutate(async () => {
-      await api(
-        `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/messages`,
-        request("POST", {
-          body: message,
-          ...(openThreadId ? { threadRootMessageId: openThreadId } : {}),
-        }),
-      );
-      setMessage("");
-    });
+    if (!activeRoomId || !message.trim() || !detail || busy) return;
+    const roomId = activeRoomId;
+    const text = message;
+    const threadRootId = openThreadId || null;
+    const optimistic: Message & { roomId: string } = {
+      roomId, messageId: `msg_${crypto.randomUUID().replaceAll("-", "")}`,
+      senderUserId: detail.currentUserId, senderActorId: `human:${detail.currentUserId}`,
+      senderKind: "human", body: text.trim(), createdAt: Date.now(), threadRootId,
+    };
+    setBusy(true);
+    void optimisticMutation({
+      apply: () => { setPendingMessages((current) => [...current, optimistic]); setMessage(""); },
+      commit: () => api<{ message: Message }>(
+        `/api/collaboration/rooms/${encodeURIComponent(roomId)}/messages`,
+        request("POST", { body: text, messageId: optimistic.messageId,
+          ...(threadRootId ? { threadRootMessageId: threadRootId } : {}) }),
+      ),
+      reconcile: (result) => {
+        const patches = messagePatches.current.get(roomId) ?? new Map<string, Message>();
+        patches.set(result.message.messageId, { ...result.message, threadRootId });
+        messagePatches.current.set(roomId, patches);
+        setPendingMessages((current) => current.filter((item) => item.messageId !== optimistic.messageId));
+        setDetail((current) => current?.room.roomId === roomId ? { ...current,
+          messages: [...current.messages.filter((item) => item.messageId !== result.message.messageId),
+            { ...result.message, threadRootId }],
+        } : current);
+      },
+      rollback: () => {
+        setPendingMessages((current) => current.filter((item) => item.messageId !== optimistic.messageId));
+        if (activeRoomRef.current === roomId) setMessage((current) => current || text);
+      },
+      onError: (cause) => {
+        toast.error(cause instanceof Error ? cause.message : "Message could not be sent.");
+        if (activeRoomRef.current === roomId && isMembershipLost(cause)) loseRoomAccess(roomId);
+      },
+    }).finally(() => setBusy(false));
   };
 
   const createHandoff = (event: FormEvent) => {
@@ -1090,6 +1215,7 @@ function ScopedCollaborationView({
             roomListTab={roomListTab}
             tabUnread={tabUnread}
             rooms={rooms}
+            activePresenceCount={new Set(realtime.viewers.filter((viewer) => viewer.status === "online").map((viewer) => viewer.label)).size}
             savedItems={savedItems}
             activeRoomId={activeRoomId}
             roomTitle={roomTitle}
@@ -1168,19 +1294,8 @@ function ScopedCollaborationView({
                         ))}
                       </ul>
                     ) : null}
-                    {realtime.viewers.length > 0 && (
-                      <ul
-                        aria-label="Online room members"
-                        className="mt-1 flex flex-wrap gap-x-3 text-[10px] text-[var(--ink-2)]"
-                      >
-                        {realtime.viewers.map((viewer) => (
-                          <li key={viewer.viewerId}>
-                            {viewer.label}
-                            {viewer.typing ? " is typing…" : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                    <div className="mt-1"><PresenceStack viewers={realtime.viewers} selfViewerId={realtime.viewerId} /></div>
+                    {typing ? <p role="status" aria-label="Typing" className="mt-1 text-[10px] text-[var(--ink-2)]">{typing}</p> : null}
                   </div>
                   <button
                     type="button"
@@ -1215,8 +1330,9 @@ function ScopedCollaborationView({
                       })}
                     </div>
                     <MessageList>
-                      {detail.messages.map((item) => (
+                      {[...detail.messages, ...pendingMessages.filter((item) => item.roomId === activeRoomId && !detail.messages.some((saved) => saved.messageId === item.messageId))].map((item) => (
                         <MessageRow key={item.messageId} agent={item.senderKind === "agent"}>
+                          {pendingMessages.some((pending) => pending.messageId === item.messageId) ? <span role="status" className="text-xs text-[var(--ink-2)]">Sending…</span> : null}
                           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] text-[var(--ink-2)]">
                             <span className="font-semibold text-[var(--ink)]">
                               {item.sourceSlackUserId
@@ -1352,6 +1468,15 @@ function ScopedCollaborationView({
                               )}
                             </div>
                           )}
+                          {item.messageKind === "shared_deliverable" && item.sourceArtifactRefs?.[0] && (
+                            <div className="mt-2 border-t border-[var(--line)] pt-2">
+                              <DeliverablePreview
+                                src={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/shared-deliverables/${encodeURIComponent(item.messageId)}${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`}
+                                path={item.sourceArtifactRefs[0].path}
+                                downloadHref={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/shared-deliverables/${encodeURIComponent(item.messageId)}${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`}
+                              />
+                            </div>
+                          )}
                           {item.sourceSlackEventId && (
                             <p className="mt-2 border-t border-[var(--line)] pt-2 text-[10px]">
                               Slack source · workspace {item.sourceSlackTeamId} · channel{" "}
@@ -1403,11 +1528,14 @@ function ScopedCollaborationView({
                       onSubmit={sendMessage}
                       className="sticky bottom-0 flex flex-wrap gap-2 border-t border-[var(--line)] bg-[var(--card)] p-3"
                     >
+                      <MentionMenu options={mentions.options} active={mentions.active} onPick={mentions.insert} />
                       <textarea
                         ref={messageInput}
                         aria-label="Message"
                         value={message}
-                        onChange={(event) => setMessage(event.target.value)}
+                        onChange={(event) => mentions.onChange(event.target.value, event.target.selectionStart)}
+                        onSelect={(event) => mentions.onSelect(event.currentTarget.selectionStart)}
+                        onKeyDown={mentions.onKeyDown}
                         maxLength={5000}
                         rows={2}
                         placeholder={openThreadId ? "Reply in this thread…" : "Message this group…"}
@@ -1487,7 +1615,18 @@ function ScopedCollaborationView({
                             <span className="truncate">
                               {member.displayName}{" "}
                               <span className="text-[var(--ink-2)]">· {member.role}</span>
+                              {member.actorKind === "human" && member.status !== "removed" && memberLastSeen.scope === presenceScope && memberLastSeen.seen[member.userId] ? (
+                                <span className="block text-[10px] text-[var(--ink-2)]">
+                                  {realtime.viewers.some((viewer) => viewer.label === member.userId && viewer.status === "online") ? "online" : realtime.viewers.some((viewer) => viewer.label === member.userId) ? "away" : "offline"} · Last seen {new Date(memberLastSeen.seen[member.userId]!).toLocaleString()}
+                                </span>
+                              ) : null}
                             </span>
+                            {member.actorKind === "human" && member.status !== "removed" && member.userId !== detail.currentUserId && (
+                              <button type="button" disabled={busy} onClick={() => void startDirectMessage(member.userId)}
+                                aria-label={`Message ${member.displayName}`} className="min-h-11 px-2 text-[var(--navy)]">
+                                Message
+                              </button>
+                            )}
                             {canManageMembers && member.role !== "owner" && (
                               <button
                                 type="button"
@@ -2041,6 +2180,10 @@ function ScopedCollaborationView({
                               <strong className="truncate">{handoff.taskId}</strong>
                               <span>{handoff.status}</span>
                             </div>
+                            <p className="mt-1 break-words text-[var(--ink-2)]">
+                              {members.find((member) => member.actorId === handoff.senderActorId)?.displayName ?? handoff.senderActorId}
+                              {" handed to @"}{members.find((member) => member.actorId === handoff.recipientActorId)?.displayName ?? handoff.recipientActorId}
+                            </p>
                             {handoff.humanRequest && (
                               <div className="my-2 border-t border-[var(--line)] pt-2">
                                 <p className="font-semibold">Human assignment</p>
@@ -2098,7 +2241,7 @@ function ScopedCollaborationView({
                                 }
                                 className="mt-1 min-h-11 px-2 text-[var(--danger)]"
                               >
-                                Cancel handoff
+                                Take it back
                               </button>
                             )}
                             {handoff.status === "active" && handoff.approvalId && handoff.execution?.approvalStatus === "pending" && renderApproval?.({ ...handoff, roomId: activeRoomId })}
