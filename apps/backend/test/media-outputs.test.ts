@@ -14,7 +14,7 @@ afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 function fixture() {
   const { database, sqlite } = customAgentD1({ bare: true });
   databases.push(sqlite);
-  for (const name of ["0050_files_notes.sql", "0061_media_generations.sql"]) sqlite.exec(readFileSync(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
+  for (const name of ["0050_files_notes.sql", "0062_media_generations.sql"]) sqlite.exec(readFileSync(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
   sqlite.exec("CREATE TABLE run_output_archive_reservations (id TEXT, run_id TEXT, created_at INTEGER, owner_id TEXT, state TEXT, expires_at INTEGER)");
   const run = vi.fn(async (_model: string, _input: unknown): Promise<unknown> => ({ image: btoa("image bytes") }));
   const put = vi.fn(async () => ({}));

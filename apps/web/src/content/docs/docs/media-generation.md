@@ -46,6 +46,6 @@ These routes use the same signed-in identity and workspace resolution as Outputs
 - `POST /api/outputs/images`: JSON `{ "prompt": "A coastal town", "model": "@cf/leonardo/lucid-origin", "aspectRatio": "16:9" }`. Model and shape are optional. Success (201) includes artifactId and downloadPath.
 - `GET /api/files/:id/download`: authenticated inline media, suitable for an image or video preview, with private/no-store caching. Browser download links can request saving the file.
 
-Migration `0061_media_generations.sql` adds file-linked generation provenance. Failed registration removes metadata and the file row before removing private bytes. If the database is unavailable during cleanup, bytes remain private rather than deleting a possibly referenced object.
+Migration `0062_media_generations.sql` adds file-linked generation provenance. Failed registration removes metadata and the file row before removing private bytes. If the database is unavailable during cleanup, bytes remain private rather than deleting a possibly referenced object.
 
 MCP token principals are not necessarily user identities (API key principals are arbitrary labels). Until a trustworthy owner mapping exists, image generation through MCP retains private legacy storage and returns a storage key, without adding an ownerless file to the gallery. Chat and HTTP image generation provide explicit user/workspace context.
