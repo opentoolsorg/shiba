@@ -52,7 +52,9 @@
     "apply-openconnector-d1": "node infra/openconnector.mjs apply-d1",
     "deploy:openconnector": "node infra/openconnector.mjs deploy",
     "secret:openconnector": "node infra/openconnector.mjs secret",
-    "test:openconnector-deploy": "node --test infra/openconnector.test.mjs"
+    "test:openconnector-deploy": "node --test infra/openconnector.test.mjs",
+    "routes:generate": "node scripts/generate-routes.mjs",
+    "routes:check": "node scripts/generate-routes.mjs --check"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
