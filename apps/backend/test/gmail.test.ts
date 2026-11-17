@@ -19,7 +19,13 @@ vi.mock("../src/better-auth.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/better-auth.js")>(),
   ensureBetterAuthSchema: vi.fn(),
   handleBetterAuth: async () => null,
-  betterAuthFor: () => ({ api: { getSession: session } }),
+  resolveBetterAuthSessionAccount: async () => {
+    const resolved = await session();
+    return resolved?.user?.id ? {
+      policy: { accountId: resolved.user.id, email: resolved.user.email, kind: resolved.kind ?? "bootstrap" },
+      emailVerified: resolved.emailVerified ?? true,
+    } : null;
+  },
   resolveBetterAuthUserId: async () => (await session())?.user?.email ?? null,
 }));
 // Worker-entry E2E: same stubs as mcp-gateway.test.ts; the MCP transport records
@@ -177,6 +183,13 @@ describe("Gmail owner-only route boundary", () => {
     expect(await gmailOwner(request(""), { ...env, REQUIRE_ACCESS: "1" })).toBeNull();
     expect(await gmailOwner(request(""), { ...env, ACCESS_AUD: "aud" })).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("requires verified invited accounts while retaining bootstrap access", async () => {
+    session.mockResolvedValue({ user: { id: "stable-user-id", email: "owner@example.test" }, kind: "invited", emailVerified: false });
+    expect(await gmailOwner(request(""), environment().env)).toBeNull();
+    session.mockResolvedValue({ user: { id: "stable-user-id", email: "owner@example.test" }, kind: "bootstrap", emailVerified: false });
+    expect(await gmailOwner(request(""), environment().env)).toBe(OWNER);
   });
 
   it("uses session user.id, not mutable email, with separate owners and no default", async () => {

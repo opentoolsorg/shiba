@@ -19,6 +19,9 @@ const MAX_ROOM_MESSAGES = 200;
 const MAX_ROOM_STREAMS = 200;
 const TYPING_TTL_MS = 5_000;
 const CURSOR_TTL_MS = 15_000;
+// Clients heartbeat every 20s; a viewer silent for 3 beats is dropped.
+const PRESENCE_TTL_MS = 60_000;
+const TYPING_REFRESH_MS = 1_000;
 const CURSOR_INTERVAL_MS = 100;
 const STREAM_TTL_MS = 2 * 60_000;
 const JOURNAL_ID = /^[a-f0-9]{64}$/;
@@ -52,6 +55,19 @@ interface RoomSocketAttachment {
   readOnly?: boolean;
   runId?: string;
   collaboration?: CollaborationRoomIdentity;
+  status?: PresenceStatus;
+  lastSeenAt?: number;
+}
+
+type PresenceStatus = "online" | "away";
+
+interface CollaborationViewer {
+  viewerId: string;
+  label: string;
+  typing: boolean;
+  cursor: RoomCursor | null;
+  status: PresenceStatus;
+  lastSeenAt: number;
 }
 
 interface RoomViewer {
@@ -277,7 +293,7 @@ export class ConversationRoom extends DurableObject<Env> {
       ownerId: `collaboration:${identity.tenantId}:${identity.workspaceId}`,
       actorId, sessionId: identity.roomId, viewerId, joinedAt: Date.now(), typing: false,
       typingAt: 0, connectionId: crypto.randomUUID(), viewerLabel: actorId,
-      cursor: null, cursorAt: 0, collaboration: identity,
+      cursor: null, cursorAt: 0, collaboration: identity, status: "online", lastSeenAt: Date.now(),
     } satisfies RoomSocketAttachment);
     this.ctx.acceptWebSocket(server);
     const sockets = [...authorized, server];
@@ -315,12 +331,28 @@ export class ConversationRoom extends DurableObject<Env> {
     return authorized;
   }
 
-  private collaborationViewers(sockets: WebSocket[]): Array<{ viewerId: string; label: string; typing: boolean; cursor: RoomCursor | null }> {
-    const viewers = new Map<string, { viewerId: string; label: string; typing: boolean; cursor: RoomCursor | null }>();
+  private collaborationViewers(sockets: WebSocket[]): CollaborationViewer[] {
+    const now = Date.now();
+    const viewers = new Map<string, CollaborationViewer>();
     for (const socket of sockets) {
       const attachment = attachmentFor(socket);
       if (!attachment?.collaboration) continue;
-      viewers.set(attachment.viewerId, { viewerId: attachment.viewerId, label: attachment.actorId, typing: attachment.typing && attachment.typingAt + TYPING_TTL_MS > Date.now(), cursor: attachment.cursor && attachment.cursorAt + CURSOR_TTL_MS > Date.now() ? attachment.cursor : null });
+      const lastSeenAt = attachment.lastSeenAt ?? now;
+      // Presence lives in DO memory only; a silent socket expires instead of lingering.
+      if (lastSeenAt + PRESENCE_TTL_MS <= now) continue;
+      const next: CollaborationViewer = {
+        viewerId: attachment.viewerId, label: attachment.actorId,
+        typing: attachment.typing && attachment.typingAt + TYPING_TTL_MS > now,
+        cursor: attachment.cursor && attachment.cursorAt + CURSOR_TTL_MS > now ? attachment.cursor : null,
+        status: attachment.status ?? "online", lastSeenAt,
+      };
+      const current = viewers.get(attachment.viewerId);
+      // One person may hold several tabs: any online tab makes them online.
+      viewers.set(attachment.viewerId, current ? {
+        ...next, typing: current.typing || next.typing, cursor: next.cursor ?? current.cursor,
+        status: current.status === "online" || next.status === "online" ? "online" : "away",
+        lastSeenAt: Math.max(current.lastSeenAt, next.lastSeenAt),
+      } : next);
     }
     return [...viewers.values()];
   }
@@ -333,17 +365,18 @@ export class ConversationRoom extends DurableObject<Env> {
   private async collaborationMessage(socket: WebSocket, attachment: RoomSocketAttachment, raw: string | ArrayBuffer): Promise<void> {
     const authorized = await this.authorizedCollaborationSockets();
     if (!authorized.includes(socket)) return;
-    if (raw === "ping") { this.send(socket, { type: "pong" }); return; }
+    if (raw === "ping") { await this.heartbeat(socket, authorized); return; }
     if (typeof raw !== "string" || raw.length > MAX_FRAME_CHARS) { this.send(socket, { type: "error", error: "Invalid room event." }); return; }
     let event: unknown;
     try { event = JSON.parse(raw); } catch { this.send(socket, { type: "error", error: "Invalid room event." }); return; }
-    if (isRecord(event) && event.type === "ping") { this.send(socket, { type: "pong" }); return; }
+    if (isRecord(event) && event.type === "ping") { await this.heartbeat(socket, authorized); return; }
     if (!isRecord(event) || event.type !== "client_presence") {
       this.send(socket, { type: "error", error: "Shared room sockets only accept presence. Use the authenticated room actions." });
       return;
     }
     const hasTyping = typeof event.typing === "boolean", hasCursor = Object.hasOwn(event, "cursor");
-    if ((!hasTyping && !hasCursor) || hasCursor && event.cursor !== null && (!isCursor(event.cursor) || Object.keys(event.cursor).some((key) => key !== "x" && key !== "y"))) {
+    const hasStatus = event.status === "online" || event.status === "away";
+    if ((!hasTyping && !hasCursor && !hasStatus) || hasCursor && event.cursor !== null && (!isCursor(event.cursor) || Object.keys(event.cursor).some((key) => key !== "x" && key !== "y"))) {
       this.send(socket, { type: "error", error: "Invalid room presence." }); return;
     }
     // Authorization yielded. Read the current attachment before throttling so
@@ -352,13 +385,37 @@ export class ConversationRoom extends DurableObject<Env> {
     if (!latest?.collaboration || socket.readyState !== 1) return;
     const now = Date.now();
     const updateCursor = hasCursor && (event.cursor === null ? latest.cursor !== null : now - latest.cursorAt >= CURSOR_INTERVAL_MS);
+    // Typing refreshes are throttled; a stop (false) always goes through.
+    const updateTyping = hasTyping && (event.typing === false ? latest.typing : !latest.typing || now - latest.typingAt >= TYPING_REFRESH_MS);
+    const updateStatus = hasStatus && event.status !== (latest.status ?? "online");
     if (hasCursor && event.cursor !== null && !updateCursor) return;
-    if (!hasTyping && !updateCursor) return;
-    socket.serializeAttachment({ ...latest,
-      ...(hasTyping ? { typing: Boolean(event.typing), typingAt: event.typing ? now : 0 } : {}),
+    if (!updateTyping && !updateCursor && !updateStatus) {
+      this.touch(socket, latest, now);
+      if (latest.lastSeenAt !== undefined && latest.lastSeenAt + PRESENCE_TTL_MS <= now) {
+        this.broadcastCollaborationPresence(authorized, latest.collaboration.roomId);
+        await this.scheduleMaintenanceAlarm();
+      }
+      return;
+    }
+    socket.serializeAttachment({ ...latest, lastSeenAt: now,
+      ...(updateStatus ? { status: event.status as PresenceStatus } : {}),
+      ...(updateTyping ? { typing: Boolean(event.typing), typingAt: event.typing ? now : 0 } : {}),
       ...(updateCursor ? { cursor: event.cursor === null ? null : { x: (event.cursor as RoomCursor).x, y: (event.cursor as RoomCursor).y }, cursorAt: now } : {}),
     } satisfies RoomSocketAttachment);
     this.broadcastCollaborationPresence(authorized, latest.collaboration.roomId);
+    await this.scheduleMaintenanceAlarm();
+  }
+
+  private touch(socket: WebSocket, attachment: RoomSocketAttachment, now: number): void {
+    socket.serializeAttachment({ ...attachment, lastSeenAt: now } satisfies RoomSocketAttachment);
+  }
+
+  private async heartbeat(socket: WebSocket, authorized: WebSocket[]): Promise<void> {
+    const latest = attachmentFor(socket);
+    if (latest?.collaboration) this.touch(socket, latest, Date.now());
+    this.send(socket, { type: "pong" });
+    // A heartbeat from a stale-expired viewer brings them back for everyone.
+    if (latest?.collaboration && latest.lastSeenAt !== undefined && latest.lastSeenAt + PRESENCE_TTL_MS <= Date.now()) this.broadcastCollaborationPresence(authorized, latest.collaboration.roomId);
     await this.scheduleMaintenanceAlarm();
   }
 
@@ -957,6 +1014,8 @@ export class ConversationRoom extends DurableObject<Env> {
       .filter((attachment): attachment is RoomSocketAttachment => attachment !== null);
     const expiries = attachments.flatMap((attachment) => [
       ...(attachment.collaboration ? [Date.now() + MEMBERSHIP_RECHECK_MS] : []),
+      ...(attachment.collaboration && attachment.lastSeenAt !== undefined && attachment.lastSeenAt + PRESENCE_TTL_MS > Date.now()
+        ? [attachment.lastSeenAt + PRESENCE_TTL_MS] : []),
       ...(attachment.typing ? [attachment.typingAt + TYPING_TTL_MS] : []),
       ...(attachment.cursor ? [attachment.cursorAt + CURSOR_TTL_MS] : []),
     ]);

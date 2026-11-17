@@ -1,7 +1,7 @@
 {
   "name": "Shiba",
   "short_name": "Shiba",
-  "description": "Review, approve, and observe your self-hosted AI software engineer's coding tasks on your own Cloudflare account.",
+  "description": "Hire AI employees you own. Approve every move. Shiba runs on your own servers, on Cloudflare or any server you choose.",
   "id": "/app/",
   "start_url": "/",
   "scope": "/",

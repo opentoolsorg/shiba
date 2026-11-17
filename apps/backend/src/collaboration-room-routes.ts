@@ -1,3 +1,4 @@
+import type { WorkspaceMessagePatch } from "@shiba/shared";
 import { handleCollaboration } from "./collaboration-routes.js";
 import { handleCollaborationApproval } from "./collaboration-approval-routes.js";
 import { handleCollaborationArtifact } from "./collaboration-artifact-routes.js";
@@ -57,12 +58,21 @@ export async function handleCollaborationWithRealtime(request: Request, env: Env
   if (execution) return execution;
   const artifact = await handleCollaborationArtifact(request, env);
   if (artifact) return artifact;
+  const messageInput = request.method === "POST" && /\/rooms\/[^/]+\/messages$/.test(url.pathname)
+    ? await request.clone().json().catch(() => null) as { threadRootMessageId?: string } | null : null;
   const shared = await handleCollaborationShare(request, env);
   const response = shared ?? await handleCollaboration(request, env);
-  if (response?.ok && request.method !== "GET" && request.method !== "HEAD" && env.ConversationRoom) {
-    let roomId = url.pathname.match(/^\/api\/collaboration\/rooms\/([^/]+)(?:\/|$)/)?.[1];
+  if (response?.ok && request.method !== "GET" && request.method !== "HEAD") {
+    const body = await response.clone().json().catch(() => null) as {
+      room?: { roomId: string; title: string; visibility: string; kind?: string };
+      channel?: { roomId: string; title: string; visibility: string; kind?: string };
+      dm?: { roomId: string; title: string; visibility: string; kind?: string };
+      roomId?: string; handoff?: { roomId?: string };
+      message?: WorkspaceMessagePatch;
+    } | null;
+    const changedRoom = body?.room ?? body?.channel ?? body?.dm;
+    let roomId = changedRoom?.roomId ?? url.pathname.match(/^\/api\/collaboration\/rooms\/([^/]+)(?:\/|$)/)?.[1];
     if (!roomId && /^\/api\/collaboration\/handoffs\//.test(url.pathname)) {
-      const body = await response.clone().json().catch(() => null) as { roomId?: string; handoff?: { roomId?: string } } | null;
       roomId = body?.roomId ?? body?.handoff?.roomId;
     }
     if (roomId) {
@@ -70,12 +80,23 @@ export async function handleCollaborationWithRealtime(request: Request, env: Env
         const scope = await resolveTeamCollaborationScope(request, env);
         if (scope) {
           const identity = { tenantId: scope.tenantId, workspaceId: scope.workspaceId, roomId };
-          await env.ConversationRoom.getByName(collaborationRoomName(identity)).notifyCollaborationChange(identity);
+          await env.ConversationRoom?.getByName(collaborationRoomName(identity)).notifyCollaborationChange(identity)
+            .catch(() => { /* Workspace transport can still deliver the committed change. */ });
+          const saved = body?.message;
+          // Only native human messages have identical visibility for all current room readers.
+          const message: WorkspaceMessagePatch | undefined = saved?.senderKind === "human" &&
+            request.method === "POST" && /\/rooms\/[^/]+\/messages$/.test(url.pathname) ? {
+              messageId: saved.messageId, senderUserId: saved.senderUserId, senderActorId: saved.senderActorId,
+              senderKind: "human", body: saved.body, createdAt: saved.createdAt, threadRootId: typeof messageInput?.threadRootMessageId === "string" ? messageInput.threadRootMessageId : null,
+            } : undefined;
           await publishWorkspaceEvent(env, scope.workspaceId, {
-            type: "collaboration.change",
+            kind: changedRoom ? "room.updated" : message ? "message.created" : "collaboration.change",
             audience: { roomId },
-            resourceId: roomId,
-            version: Date.now(),
+            entityId: roomId,
+            payload: changedRoom ? { room: {
+              roomId, title: changedRoom.title, visibility: changedRoom.visibility,
+              kind: changedRoom.kind ?? (body?.channel ? "channel" : body?.dm ? "dm" : "room"),
+            } } : message ? { message } : {},
           });
         }
       } catch {

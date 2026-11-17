@@ -1,5 +1,5 @@
 import type { Env } from "../env.js";
-import { isAuthorizedRequest, resolveUserId } from "../request-auth.js";
+import { resolveRequestIdentity } from "../request-auth.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
 import { hybridKnowledgeSearch } from "./knowledge-search.js";
 
@@ -12,8 +12,8 @@ export async function handleKnowledge(request: Request, env: Env): Promise<Respo
   if (url.pathname !== "/api/knowledge/search") return null;
   if (!env.AGENT_AUDIT || !env.MEMORY_VECTORS) return json({ error: "Knowledge search is unavailable." }, 503);
   if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
-  if (!(await isAuthorizedRequest(request, env))) return json({ error: "Authentication required." }, 401);
-  const userId = await resolveUserId(request, env);
+  const { userId, authorized } = await resolveRequestIdentity(request, env);
+  if (!authorized) return json({ error: "Authentication required." }, 401);
   if (!userId) return json({ error: "Authentication required." }, 401);
   const org = await resolveOrgForApiRequest(request, env);
   if (org instanceof Response) return org;

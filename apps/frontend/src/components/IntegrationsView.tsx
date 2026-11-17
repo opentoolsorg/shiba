@@ -15,6 +15,7 @@ import { useSavedSkills } from "../saved";
 import type { AppNavView } from "./AppNavRail";
 import { CapabilityCatalog, type CapabilityCatalogItem } from "./CapabilityCatalog";
 import { GmailConnection } from "./GmailConnection";
+import { IntegrationsSetupCard } from "./IntegrationsSetupCard";
 import { LoadErrorState } from "./LoadErrorState";
 import { McpCoworkerPanel } from "./McpCoworkerPanel";
 import { providerLifecycleStatus, providerTestDescription } from "./provider-lifecycle";
@@ -171,7 +172,7 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
   const [showFutureComparisons, setShowFutureComparisons] = useState(false);
   const [showCombinedSlack, setShowCombinedSlack] = useState(false);
   const [showStripeSlack, setShowStripeSlack] = useState(false);
-  return <div className="min-w-0 space-y-4"><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
+  return <div className="min-w-0 space-y-4"><IntegrationsSetupCard workspaceId={props.workspaceId} /><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
     actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
     allowPersonalScope={props.allowPersonalScope} onPersonalScope={props.onPersonalScope} />
     {props.workspaceRole === "owner" && props.actorId && <section className="p-4">
@@ -847,6 +848,7 @@ function PersonalIntegrationsView({
       </div>
       ) : (
         <>
+          <IntegrationsSetupCard />
           {failed ? (
             <div className="border-b border-[var(--border-1)] px-4 py-2 lg:px-8">
               <LoadErrorState message={failed.message} onRetry={reloadAll} />

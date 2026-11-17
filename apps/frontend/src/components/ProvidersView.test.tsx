@@ -52,6 +52,61 @@ function snapshot(connection?: Partial<AcpProviderCard["connection"]>): AcpProvi
 }
 
 describe("ProvidersView sign-in", () => {
+  it("keeps a rejected Claude token in the paste state and disables sign-in while checking", async () => {
+    const claude = {
+      ...card({ signInKind: "claude-setup-token", userCode: null, verificationUri: null, message: "Paste your setup token." }),
+      id: "claude",
+      label: "Claude Code",
+      harness: "claude-acp",
+    } satisfies AcpProviderCard;
+    const rejected = "Anthropic rejected this token. Run claude setup-token again and paste the new token.";
+    let finishCheck: () => void = () => {};
+    const checking = new Promise<void>((resolve) => { finishCheck = resolve; });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/providers/claude/verify") {
+        expect(JSON.parse(String(init?.body))).toEqual({ credential: "test-setup-token" });
+        await checking;
+        return Response.json({ org: "self-hosted", defaultProviderId: null, providers: [{ ...claude, connection: { ...claude.connection, message: rejected } }] });
+      }
+      if (url === "/api/providers") {
+        return Response.json({ org: "self-hosted", defaultProviderId: null, providers: [claude] });
+      }
+      return Response.json({ connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ProvidersView />);
+    const input = await screen.findByTestId("provider-setup-token-claude");
+    fireEvent.change(input, { target: { value: "test-setup-token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Finish sign-in" }));
+    expect((screen.getByRole("button", { name: "Checking…" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((input as HTMLInputElement).disabled).toBe(true);
+    finishCheck();
+    const message = await screen.findByText(rejected);
+    expect(screen.getByTestId("provider-status-claude").textContent).toContain("Sign-in pending");
+    expect(input.getAttribute("aria-describedby")).toBe(message.id);
+    expect(input.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Finish sign-in" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("shows a Default badge for an automatically selected provider", async () => {
+    const provider = { ...card({ phase: "connected", userCode: null, verificationUri: null }), isDefault: true };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? { org: "self-hosted", defaultProviderId: "codex", providers: [provider] } : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));
+    render(<ProvidersView />);
+    expect(await screen.findByText("Default")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Set as my default" })).toBeNull();
+  });
+
+  it("shows a timed-out sign-in as muted text with a reconnect action", async () => {
+    const message = "The last sign-in timed out. Connect again when you're ready.";
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? snapshot({ phase: "disconnected", authMode: null, message, userCode: null, verificationUri: null, expiresAt: null }) : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));
+    render(<ProvidersView />);
+    const notice = await screen.findByText(message);
+    expect(notice.className).toContain("text-[var(--muted-foreground-2)]");
+    expect(notice.getAttribute("role")).not.toBe("alert");
+    expect(screen.getByTestId("provider-connect-oauth-codex")).toBeTruthy();
+    expect(screen.getByTestId("provider-status-codex").textContent).not.toContain("failed");
+  });
+
   it("opens the vendor page and finishes at Connected", async () => {
     const open = vi.fn(() => ({ closed: false }) as Window);
     vi.stubGlobal("open", open);
