@@ -6,6 +6,7 @@ import {
   type CollaborationRole,
   type CollaborationVisibility,
 } from "@shiba/shared";
+import { rowExists } from "./d1-write-check.js";
 import type { Env } from "./env.js";
 import { parseSlackCanvasOwners } from "./slack-canvas.js";
 import { collaborationExecutorIdentity } from "./collaboration-executor.js";
@@ -435,7 +436,7 @@ export async function createCollaborationRoom(
   await ensureCollaborationSchema(env);
   await ensureCollaborationScopeSchema(env, scope);
   const db = env.AGENT_AUDIT;
-  const results = await db.batch([
+  await db.batch([
     db
       .prepare(
         `INSERT INTO collaboration_rooms (room_id,tenant_id,workspace_id,title,visibility,created_by_user_id,created_at) SELECT ?,?,?,?,?,?,? ${isTeamWorkspaceId(scope.workspaceId) ? "WHERE EXISTS (SELECT 1 FROM team_workspace_memberships creator WHERE creator.tenant_id=? AND creator.workspace_id=? AND creator.user_id=? AND creator.status='active')" : ""}`,
@@ -452,7 +453,7 @@ export async function createCollaborationRoom(
       ),
     db
       .prepare(
-        `INSERT INTO collaboration_memberships (tenant_id,workspace_id,room_id,user_id,display_name,actor_id,actor_kind,role,status,capabilities_json,profile_version,created_at) SELECT ?,?,?,?,?,?,'human','owner','active',?,NULL,? WHERE changes()=1`,
+        `INSERT INTO collaboration_memberships (tenant_id,workspace_id,room_id,user_id,display_name,actor_id,actor_kind,role,status,capabilities_json,profile_version,created_at) SELECT ?,?,?,?,?,?,'human','owner','active',?,NULL,? WHERE EXISTS (SELECT 1 FROM collaboration_rooms r WHERE r.tenant_id=? AND r.workspace_id=? AND r.room_id=? AND r.created_by_user_id=?)`,
       )
       .bind(
         scope.tenantId,
@@ -463,9 +464,18 @@ export async function createCollaborationRoom(
         humanActorId(scope.userId),
         JSON.stringify(ALL_HUMAN_CAPABILITIES),
         input.createdAt,
+        scope.tenantId, scope.workspaceId, input.roomId, scope.userId,
       ),
   ]);
-  if (Number(results[1]?.meta?.changes ?? 0) !== 1) throw new CollaborationStoreError("Workspace not found.", 404);
+  if (!await rowExists(db,
+    `SELECT 1 FROM collaboration_memberships m
+     JOIN collaboration_rooms r ON r.tenant_id=m.tenant_id AND r.workspace_id=m.workspace_id AND r.room_id=m.room_id
+     WHERE m.tenant_id=? AND m.workspace_id=? AND m.room_id=? AND m.actor_id=?
+       AND m.role='owner' AND m.status='active'`,
+    [scope.tenantId, scope.workspaceId, input.roomId, humanActorId(scope.userId)],
+  )) {
+    throw new CollaborationStoreError("Workspace not found.", 404);
+  }
   return {
     roomId: input.roomId,
     tenantId: scope.tenantId,
@@ -661,7 +671,7 @@ export async function addCollaborationMember(
             OR NOT EXISTS (SELECT 1 FROM json_each(?) policy
               WHERE json_extract(policy.value,'$.teamId')=l.team_id AND json_extract(policy.value,'$.channelId')=l.channel_id
                 AND (json_extract(policy.value,'$.ownerId')=? OR EXISTS (SELECT 1 FROM json_each(json_extract(policy.value,'$.viewerIds')) viewer WHERE viewer.value=?)))))
-      ON CONFLICT(tenant_id,workspace_id,room_id,actor_id) DO UPDATE SET user_id=excluded.user_id, display_name=excluded.display_name, actor_kind=excluded.actor_kind, role=excluded.role, status='active', capabilities_json=excluded.capabilities_json, profile_version=excluded.profile_version, removed_at=NULL WHERE collaboration_memberships.status='removed'`,
+      ON CONFLICT(tenant_id,workspace_id,room_id,actor_id) DO UPDATE SET user_id=excluded.user_id, display_name=excluded.display_name, actor_kind=excluded.actor_kind, role=excluded.role, status='active', capabilities_json=excluded.capabilities_json, profile_version=excluded.profile_version, removed_at=NULL WHERE collaboration_memberships.status='removed' RETURNING actor_id`,
   )
     .bind(
       scope.tenantId,
@@ -691,8 +701,8 @@ export async function addCollaborationMember(
       input.userId,
       input.userId,
     )
-    .run();
-  return Number(result.meta?.changes ?? 0) === 1;
+    .all();
+  return result.results.length === 1;
 }
 
 /** CAS-pin an owner-bound executor; team addresses are isolated and never private-session registrations. */
@@ -763,7 +773,7 @@ export async function removeCollaborationMember(
   await ensureCollaborationScopeSchema(env, scope);
   const results = await env.AGENT_AUDIT.batch([
     env.AGENT_AUDIT.prepare(
-      `UPDATE collaboration_memberships SET status='removed',removed_at=? WHERE tenant_id=? AND workspace_id=? AND room_id=? AND actor_id=? AND role<>'owner' AND status='active' AND EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active' AND ${teamMemberSql(scope, 'owner')})`,
+      `UPDATE collaboration_memberships SET status='removed',removed_at=? WHERE tenant_id=? AND workspace_id=? AND room_id=? AND actor_id=? AND role<>'owner' AND status='active' AND EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active' AND ${teamMemberSql(scope, 'owner')}) RETURNING actor_id`,
     ).bind(
       removedAt,
       scope.tenantId,
@@ -802,7 +812,7 @@ export async function removeCollaborationMember(
   ]);
   const changedHandoffs = (results[2]?.results ?? []) as Array<{ root_handoff_id?: unknown }>;
   return {
-    changed: Number(results[0]?.meta?.changes ?? 0) === 1,
+    changed: results[0]?.results.length === 1,
     affectedRootIds: [...new Set(changedHandoffs.flatMap((row) =>
       typeof row.root_handoff_id === "string" ? [row.root_handoff_id] : []))],
   };
@@ -1091,7 +1101,7 @@ export async function revokeCollaborationSlackLink(
     env.AGENT_AUDIT.prepare(
       `UPDATE collaboration_slack_room_links SET status='revoked',revoked_at=?
        WHERE tenant_id=? AND workspace_id=? AND room_id=? AND link_id=? AND status='active'
-         AND EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active' AND ${teamMemberSql(scope, 'owner')})`,
+         AND EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active' AND ${teamMemberSql(scope, 'owner')}) RETURNING link_id`,
     ).bind(
       revokedAt,
       scope.tenantId,
@@ -1125,7 +1135,7 @@ export async function revokeCollaborationSlackLink(
       `UPDATE collaboration_slack_delivery_intents SET status='blocked',delivery_status='blocked' WHERE tenant_id=? AND workspace_id=? AND room_id=? AND link_id=? AND status='pending' AND delivery_status IN ('awaiting_approval','approved')`,
     ).bind(scope.tenantId, scope.workspaceId, roomId, linkId),
   ]);
-  return Number(results[0]?.meta?.changes ?? 0) === 1;
+  return results[0]?.results.length === 1;
 }
 
 /** Signed Slack event ingestion is limited to an active exact-thread room link. */
@@ -1184,7 +1194,7 @@ export async function ingestCollaborationSlackMessage(
        SELECT ?,?,?,?,?,?,'human',?,NULL,?,?,?,?,?,?
        WHERE EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=? AND l.link_id=? AND l.team_id=? AND l.channel_id=? AND l.thread_ts=? AND l.status='active' AND ${slackSourceAuthoritySql("l", "l", true, true)})
          AND EXISTS (SELECT 1 FROM collaboration_memberships m WHERE m.tenant_id=? AND m.workspace_id=? AND m.room_id=? AND m.actor_id=? AND m.status='active')
-         AND (SELECT COUNT(*) FROM collaboration_messages existing WHERE existing.tenant_id=? AND existing.workspace_id=? AND existing.room_id=? AND existing.source_slack_channel_id=? AND existing.source_slack_thread_ts=?)<?`,
+         AND (SELECT COUNT(*) FROM collaboration_messages existing WHERE existing.tenant_id=? AND existing.workspace_id=? AND existing.room_id=? AND existing.source_slack_channel_id=? AND existing.source_slack_thread_ts=?)<? RETURNING message_id`,
     ).bind(
       `slack_evt_${input.teamId}_${input.eventId}`,
       COLLAB_TENANT_ID,
@@ -1219,7 +1229,7 @@ export async function ingestCollaborationSlackMessage(
       COLLAB_SLACK_MESSAGES_PER_THREAD,
     ),
   ]);
-  delivered = Number(results[1]?.meta?.changes ?? 0) === 1 || delivered;
+  delivered = results[1]?.results.length === 1 || delivered;
   }
   return delivered;
 }

@@ -103,6 +103,7 @@ export function StoredApprovalCard({
       <p className="text-[10px] font-mono text-[var(--muted-foreground-2)] truncate mb-1">
         via {storedApprovalAgent(approval)}
       </p>
+      {approval.routine ? <p className="mb-2 text-xs font-medium">Routine: {approval.routine.name}</p> : null}
       <p className="text-sm text-[var(--fg)] font-medium break-words mb-2">{approval.task}</p>
       <p className="text-xs text-[var(--muted-foreground-2)] break-all mb-2">Repository: {approval.repoUrl}{approval.baseBranch ? ` · Branch: ${approval.baseBranch}` : ""}</p>
       {approval.publishPullRequest ? <p className="text-xs text-[var(--fg)] mb-2">A pull request is requested. Publishing requires a separate approval after the changes are ready.</p> : null}

@@ -9,6 +9,7 @@ import {
   isAcpProviderId,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
+import { checkAnthropicCredential } from "./provider-credential-check.js";
 import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
 import { userProviderOAuthStub } from "./user-provider-oauth-do.js";
@@ -57,6 +58,7 @@ interface ProviderDefinition {
 }
 
 interface StoredConnection {
+  credentialCheckFailure?: "rejected" | "unreachable";
   phase: "waiting" | "connected" | "failed";
   authMode: AcpAuthMode;
   message?: string;
@@ -279,12 +281,14 @@ export interface SignInSession {
 
 export interface SignInVerdict {
   ok: boolean;
+  reason?: "rejected" | "unreachable";
   pending?: boolean;
   message: string;
   operatorSteps?: string[];
 }
 
 export interface ProviderDeps {
+  fetchImpl?: typeof fetch;
   now?: () => number;
   origin?: string;
   beginOauth?: (
@@ -299,6 +303,7 @@ export interface ProviderDeps {
     org: string,
     callbackUrl: string | null,
     credential?: string | null,
+    canStore?: () => Promise<boolean>,
   ) => Promise<SignInVerdict>;
   /** Pasted API key or Claude setup-token. Never written into the connection record. */
   credential?: string;
@@ -441,7 +446,7 @@ function credentialsPresentForProvider(env: Env, provider: ProviderDefinition): 
 }
 
 function shouldReprobeStaleFailure(env: Env, provider: ProviderDefinition, record: StoredConnection): boolean {
-  if (record.phase !== "failed") return false;
+  if (record.phase !== "failed" || record.credentialCheckFailure) return false;
   if (STALE_FAILURE.test(record.message ?? "")) return true;
   if (credentialsPresentForProvider(env, provider)) return true;
   const deployedAt = env.CF_VERSION_METADATA?.timestamp ? Date.parse(env.CF_VERSION_METADATA.timestamp) : NaN;
@@ -663,6 +668,23 @@ export async function connectProvider(
     if (pasteKind && pasted.trim() !== "") {
       try {
         const secret = assertPastableSecret(pasted);
+        if (pasteKind === "anthropic-api") {
+          await writeRecord(env, org, provider.id, {
+            phase: "waiting", authMode: "api-key", message: "Checking the Anthropic API key.", updatedAt: now,
+          });
+          const checked = await checkAnthropicCredential(env, secret, "api-key", deps.fetchImpl);
+          const current = await readRecord(env, org, provider.id);
+          if (current === null || current.phase !== "waiting" || current.updatedAt !== now) {
+            return readProviderSnapshot(env, org, deps);
+          }
+          if (!checked.ok) {
+            await writeRecord(env, org, provider.id, {
+              phase: "failed", authMode: "api-key", message: checked.message,
+              credentialCheckFailure: checked.reason, updatedAt: now,
+            });
+            return readProviderSnapshot(env, org, deps);
+          }
+        }
         await putUserProviderSecret(env, org, pasteKind, secret);
       } catch (error) {
         const message = error instanceof Error ? error.message : "The key could not be stored.";
@@ -735,7 +757,11 @@ export async function verifyProvider(
   }
   const pasted = typeof callbackUrl === "string" && callbackUrl.trim() !== "" ? callbackUrl.trim() : null;
   const credential = typeof deps.credential === "string" && deps.credential.trim() !== "" ? deps.credential : null;
-  const verdict = await complete(env, provider, org, pasted, credential);
+  const canStore = async () => {
+    const current = await readRecord(env, org, provider.id);
+    return current !== null && current.phase === "waiting" && current.updatedAt === record.updatedAt;
+  };
+  const verdict = await complete(env, provider, org, pasted, credential, canStore);
   const fresh = await readRecord(env, org, provider.id);
   if (fresh === null || fresh.phase !== "waiting" || fresh.updatedAt !== record.updatedAt) {
     return readProviderSnapshot(env, org, deps);
@@ -775,6 +801,7 @@ export async function testProvider(
     throw new ProviderFlowError("Connect the provider before testing it.", 409);
   }
   let ok = false;
+  let credentialCheckFailure: "rejected" | "unreachable" | undefined;
   let message = record.message ?? "Test failed.";
   let operatorSteps = record.operatorSteps;
   if (record.authMode === "api-key") {
@@ -785,6 +812,12 @@ export async function testProvider(
       message = ok
         ? "Saved key is stored for this user. Egress attaches it. The sandbox only sees a placeholder."
         : "No saved key for this user.";
+      if (saved && pasteKind === "anthropic-api") {
+        const checked = await checkAnthropicCredential(env, saved, "api-key", deps.fetchImpl);
+        ok = checked.ok;
+        credentialCheckFailure = checked.ok ? undefined : checked.reason;
+        message = checked.ok ? "Anthropic accepted your saved API key." : checked.message;
+      }
       operatorSteps = ok ? undefined : gatewayOperatorSteps(provider.label);
     } else {
       const name = presentCredential(env, provider.credentialEnv);
@@ -800,6 +833,7 @@ export async function testProvider(
   } else if (deps.inspectOauth !== undefined) {
     const verdict = await deps.inspectOauth(env, provider, org);
     ok = verdict.ok;
+    credentialCheckFailure = verdict.reason;
     message = verdict.message;
     operatorSteps = verdict.operatorSteps;
   }
@@ -809,6 +843,8 @@ export async function testProvider(
   }
   await writeRecord(env, org, provider.id, {
     ...fresh,
+    phase: credentialCheckFailure === "rejected" ? "failed" : fresh.phase,
+    credentialCheckFailure,
     message,
     ...(operatorSteps ? { operatorSteps } : { operatorSteps: undefined }),
     testedAt: now,

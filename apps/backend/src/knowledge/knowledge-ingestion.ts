@@ -34,37 +34,58 @@ async function embedMany(env: Env, texts: string[]): Promise<number[][]> {
 
 export async function runIngestionJob(env: Env, message: IngestQueueMessage): Promise<void> {
   const now = Date.now();
+  const sourceTable = message.sourceKind === "file" ? "files" : "notes";
+  const currentSource = () => env.AGENT_AUDIT.prepare(
+    `SELECT version, created_by FROM ${sourceTable} WHERE id=? AND archived_at IS NULL`,
+  ).bind(message.sourceId).first<{ version: number; created_by: string }>();
+  const finishObsoleteJob = () => env.AGENT_AUDIT.prepare(
+    `UPDATE ingestion_jobs SET state='done', error=NULL, updated_at=? WHERE id=?`,
+  ).bind(now, message.jobId).run();
+  const source = await currentSource();
+  if (!source || source.version !== message.version) {
+    await finishObsoleteJob();
+    return;
+  }
   await env.AGENT_AUDIT.prepare(
     `UPDATE ingestion_jobs SET state='processing', updated_at=? WHERE id=? AND state IN ('pending','failed')`,
   ).bind(now, message.jobId).run();
   await env.AGENT_AUDIT.prepare(
     `UPDATE ${message.sourceKind === "file" ? "files" : "notes"}
-     SET ingestion_state='processing', ingestion_error=NULL, updated_at=? WHERE id=?`,
-  ).bind(now, message.sourceId).run();
+     SET ingestion_state='processing', ingestion_error=NULL, updated_at=? WHERE id=? AND version=?`,
+  ).bind(now, message.sourceId, message.version).run();
   try {
     const object = await filesBucket(env).get(message.r2Key);
     if (!object) throw new Error("Object missing from file storage.");
     const bytes = new Uint8Array(await object.arrayBuffer());
     const text = await extractText(bytes, message.mime, env);
     const chunks = chunkText(text);
-  const createdByRow = await env.AGENT_AUDIT.prepare(
-      `SELECT created_by AS created_by FROM ${message.sourceKind === "file" ? "files" : "notes"} WHERE id=?`,
-    ).bind(message.sourceId).first<{ created_by: string }>();
-    const createdBy = createdByRow?.created_by ?? "unknown";
+    const embeddings = await embedMany(env, chunks);
+    // Extraction and embedding can outlast an edit; check again before replacing chunks.
+    const latest = await currentSource();
+    if (!latest || latest.version !== message.version) {
+      await finishObsoleteJob();
+      return;
+    }
+    const createdBy = latest.created_by;
+    // Replace all versions, including this version's chunks on a retry.
     const stale = await env.AGENT_AUDIT.prepare(
-      `SELECT id FROM knowledge_chunks WHERE source_kind=? AND source_id=? AND version=?`,
-    ).bind(message.sourceKind, message.sourceId, message.version).all<{ id: string }>();
+      `SELECT id FROM knowledge_chunks WHERE source_kind=? AND source_id=?`,
+    ).bind(message.sourceKind, message.sourceId).all<{ id: string }>();
+    const staleIds = stale.results.map((row) => row.id);
+    if (env.MEMORY_VECTORS) {
+      for (let offset = 0; offset < staleIds.length; offset += 100) {
+        await env.MEMORY_VECTORS.deleteByIds(staleIds.slice(offset, offset + 100));
+      }
+    }
     for (const row of stale.results) {
       await env.AGENT_AUDIT.prepare(`DELETE FROM knowledge_fts WHERE chunk_id=?`).bind(row.id).run();
     }
     await env.AGENT_AUDIT.prepare(
-      `DELETE FROM knowledge_chunks WHERE source_kind=? AND source_id=? AND version=?`,
-    ).bind(message.sourceKind, message.sourceId, message.version).run();
+      `DELETE FROM knowledge_chunks WHERE source_kind=? AND source_id=?`,
+    ).bind(message.sourceKind, message.sourceId).run();
     const vectors: Array<{ id: string; values: number[]; metadata: Record<string, string | number> }> = [];
-    const embeddings = await embedMany(env, chunks);
-    for (let ordinal = 0; ordinal < chunks.length; ordinal++) {
+    for (const [ordinal, chunkTextValue] of chunks.entries()) {
       const chunkId = `kchunk_${randomHex(12)}`;
-      const chunkTextValue = chunks[ordinal]!;
       await env.AGENT_AUDIT.prepare(
         `INSERT INTO knowledge_chunks
          (id, workspace_id, scope, source_kind, source_id, ordinal, text, sha256, version, created_at)
@@ -97,14 +118,14 @@ export async function runIngestionJob(env: Env, message: IngestQueueMessage): Pr
         });
       }
     }
-    if (vectors.length) await env.MEMORY_VECTORS.upsert(vectors);
+    if (vectors.length && env.MEMORY_VECTORS) await env.MEMORY_VECTORS.upsert(vectors);
     await env.AGENT_AUDIT.prepare(
       `UPDATE ingestion_jobs SET state='done', error=NULL, updated_at=? WHERE id=?`,
     ).bind(now, message.jobId).run();
     await env.AGENT_AUDIT.prepare(
       `UPDATE ${message.sourceKind === "file" ? "files" : "notes"}
-       SET ingestion_state='done', ingestion_error=NULL, updated_at=? WHERE id=?`,
-    ).bind(now, message.sourceId).run();
+       SET ingestion_state='done', ingestion_error=NULL, updated_at=? WHERE id=? AND version=?`,
+    ).bind(now, message.sourceId, message.version).run();
     await publishWorkspaceEvent(env, message.workspaceId, {
       type: message.sourceKind === "file" ? "file.ingestion.done" : "note.ingestion.done",
       resourceId: message.sourceId,
@@ -117,8 +138,8 @@ export async function runIngestionJob(env: Env, message: IngestQueueMessage): Pr
     ).bind(messageText.slice(0, 500), now, message.jobId).run();
     await env.AGENT_AUDIT.prepare(
       `UPDATE ${message.sourceKind === "file" ? "files" : "notes"}
-       SET ingestion_state='failed', ingestion_error=?, updated_at=? WHERE id=?`,
-    ).bind(messageText.slice(0, 500), now, message.sourceId).run();
+       SET ingestion_state='failed', ingestion_error=?, updated_at=? WHERE id=? AND version=?`,
+    ).bind(messageText.slice(0, 500), now, message.sourceId, message.version).run();
     throw error;
   }
 }

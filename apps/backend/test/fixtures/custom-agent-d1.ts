@@ -12,7 +12,7 @@ export function customAgentD1(options?: { bare?: boolean }) {
   const statement = (sql: string, values: unknown[] = []) => ({
     bind: (...args: unknown[]) => statement(sql, args),
     execute() {
-      if (/\bRETURNING\s+root_handoff_id\b/i.test(sql)) {
+      if (/\bRETURNING\b/i.test(sql)) {
         const results = sqlite.prepare(sql).all(...values as never[]);
         return { success: true, results, meta: { changes: results.length, last_row_id: 0 } };
       }

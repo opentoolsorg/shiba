@@ -1,3 +1,4 @@
+import { readRoutines, routineForRecord } from "./routine-metadata.js";
 import { getAgentByName } from "agents/routing";
 import type { Env } from "./env.js";
 import { DECIDED_APPROVALS_LIMIT, type PendingApproval } from "./pending-approvals.js";
@@ -87,7 +88,12 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
     const decided = [...decidedSeen.values()]
       .sort((a, b) => (b.decidedAt ?? b.createdAt) - (a.decidedAt ?? a.createdAt))
       .slice(0, DECIDED_APPROVALS_LIMIT);
-    return Response.json({ approvals, decided }, { headers: { "Cache-Control": "no-store" } });
+    const routines = await readRoutines(env);
+    const decorate = (approval: PendingApproval) => {
+      const routine = routineForRecord(approval, routines);
+      return { ...approval, ...(routine ? { routine } : {}) };
+    };
+    return Response.json({ approvals: approvals.map(decorate), decided: decided.map(decorate) }, { headers: { "Cache-Control": "no-store" } });
   }
   if (request.method === "POST") {
     let body: Record<string, unknown>;
