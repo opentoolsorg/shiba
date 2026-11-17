@@ -147,7 +147,7 @@ export async function primaryActorId(env: Env, scope: CollaborationScope): Promi
   if (saved?.actor_id && (await filterEmployeesByAccess(env, scope, [saved], "chat", (row) => row.actor_id)).length) return saved.actor_id;
   const agents = await listCustomAgents(env, collaborationEmployeeOrgId(scope)).catch(() => []);
   const earliest = (await filterEmployeesByAccess(env, scope, agents, "chat", (agent) => agent.id)).sort((a, b) => a.createdAt - b.createdAt)[0];
-  if (earliest) return `agent:${earliest.slug}`;
+  if (earliest) return `agent:${earliest.id}`;
   const member = await env.AGENT_AUDIT.prepare(
     `SELECT actor_id FROM collaboration_memberships
      WHERE tenant_id=? AND workspace_id=? AND actor_kind='agent' AND status='active'

@@ -114,7 +114,7 @@ describe("employee access", () => {
     expect(await filterEmployeesByAccess(env, posting, items, "chat", (id) => id)).toEqual([allowed.id]);
     expect(await resolveEmployeeAccess(env, workspaceId, employee.slug, member)).toBe("none");
     expect((await loadRankedBots(env, posting, room.roomId, "channel", "Finance tasks")).map((bot) => bot.actorId)).toEqual(["agent:engineer"]);
-    expect(await primaryActorId(env, posting)).toBe("agent:engineer");
+    expect(await primaryActorId(env, posting)).toBe(`agent:${allowed.id}`);
     const members = await listCollaborationMemberships(env, posting, room.roomId);
     expect(members.filter((row) => row.actorKind === "agent").map((row) => row.actorId)).toEqual(["agent:engineer"]);
     expect((await listPaletteBots(env, workspaceId, `team:${workspaceId}`, member)).map((bot) => bot.agentId)).toEqual([allowed.id]);
