@@ -177,4 +177,44 @@ it("stops a held run when its budget override has expired", async () => {
     expect(instance.state.runs[0]!.budgetHold).toBeUndefined();
   });
 
+it("redispatches an approved override under the held run's original tool call id", async () => {
+    const approval = {
+      approvalId: "orig",
+      decidedBy: "owner@example.test",
+      decidedAt: 1,
+      inputHash: "hash",
+    } as NonNullable<DelegatedRun["approval"]>;
+    const held = {
+      ...running("agent-tool:orig", { status: "pending", checkpoint: "dispatching", signals: undefined }),
+      approval,
+      budgetHold: { approvalId: "budget-override:orig:1", blockedPeriods: ["run"], at: 1 },
+    };
+    const override = {
+      threadKey: "owner@example.test",
+      approvalId: "budget-override:orig:1",
+      repoUrl: "https://github.com/o/r",
+      task: "fix",
+      kind: "budget_override",
+      budgetHoldRunId: "agent-tool:orig",
+      status: "approved",
+      createdAt: 1,
+      decidedBy: "owner@example.test",
+      decidedAt: 2,
+    } as PendingApproval;
+    const execute = vi.fn(async () => "ok");
+    const instance = host({ runs: [held], pendingApprovals: [override] } as OrchestratorState);
+    const internals = instance as unknown as {
+      dispatchApprovedRun(run: DelegatedRun, record: PendingApproval | undefined, approvalId: string): void;
+      approvedRunDelegate(): { execute: typeof execute };
+      gateRunOnUsageBudget(run: DelegatedRun, record: PendingApproval | undefined): Promise<boolean>;
+      keepAliveWhile(work: () => Promise<void>): Promise<void>;
+    };
+    internals.gateRunOnUsageBudget = async () => false;
+    internals.approvedRunDelegate = () => ({ execute });
+    internals.keepAliveWhile = (work) => work();
+    internals.dispatchApprovedRun(instance.state.runs[0]!, override, override.approvalId);
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0]?.[1]).toEqual({ toolCallId: "orig" });
+  });
+
 });

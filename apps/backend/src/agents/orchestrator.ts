@@ -5153,6 +5153,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         if (invoked && invoked.resumeAttemptedAt === undefined) {
           this.store.replace(run.runId, { ...invoked, resumeAttemptedAt: Date.now() });
         }
+        const toolCallId =
+          record?.kind === "budget_override"
+            ? (run.approval?.approvalId ??
+              (run.runId.startsWith("agent-tool:") ? run.runId.slice("agent-tool:".length) : approvalId))
+            : approvalId;
         await delegate.execute({
           repoUrl: run.repoUrl,
           task: run.task,
@@ -5177,7 +5182,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(run.expectedDeliverables !== undefined ? { expectedDeliverables: run.expectedDeliverables } : {}),
           ...(record?.role !== undefined ? { role: record.role } : {}),
           },
-          { toolCallId: approvalId },
+          { toolCallId },
         );
       } catch (error) {
         // delegate.execute can throw before its inner `finish` seam ran;
