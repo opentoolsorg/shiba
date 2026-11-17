@@ -4,7 +4,8 @@ import type { Env } from "./env.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { rejectCrossOriginMutation } from "./dashboard-mutation.js";
 import { getIntegrationProvider } from "./integrations/runtime.js";
-import { parseReadiness } from "./integrations-provider-routes.js";
+import { isOpenConnectorSetupError, openConnectorConfigured, parseReadiness } from "./integrations-provider-routes.js";
+import { mergeFeaturedWithLive, setupRequiredCatalog } from "@shiba/shared";
 import {
   WorkspaceIntegrationError, assertWorkspaceMemberCurrent, connectionDto, createWorkspaceConnection,
   disconnectWorkspaceConnection, listWorkspaceConnections, reconcileWorkspaceConnection, saveWorkspaceGrant, workspaceGrantDirectory,
@@ -46,6 +47,7 @@ async function parse<T>(request: Request, schema: z.ZodType<T>): Promise<T> {
 function sameMember(left: WorkspaceNativeMember, right: WorkspaceNativeMember | null) {
   return right && left.accountId === right.accountId && left.workspaceId === right.workspaceId && left.userId === right.userId && left.role === right.role && left.version === right.version;
 }
+const isListPath = (suffix: string) => suffix === "" || suffix === "/" || suffix === "/connections";
 /** Native authenticated workspace members only; public API credentials cannot select this audience. */
 export async function handleWorkspaceIntegrations(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
@@ -75,7 +77,10 @@ export async function handleWorkspaceIntegrations(request: Request, env: Env): P
     const current = latest.workspace && !latest.principal ? await resolveWorkspaceNativeMember(request, env, latest.workspace) : null;
     if (!sameMember(member, current)) return json({ error: "workspace_authority_changed" }, 403);
     if (approvalsResponse) return json({ ...await listWorkspaceApprovals(env, member), ...(receipt?.approvalId ? { approvalId: receipt.approvalId } : {}) }, result.status);
-    if (suffix === "/connections" && request.method === "GET") return json(await listWorkspaceConnections(env, member));
+    if (isListPath(suffix) && request.method === "GET") {
+      const configured = openConnectorConfigured(env);
+      return json({ ...await listWorkspaceConnections(env, member), configured, ...(configured ? {} : { setup: setupRequiredCatalog().setup }) });
+    }
     return result;
   } catch (error) {
     if (error instanceof WorkspaceIntegrationError) return json({ error: error.code }, error.status);
@@ -86,17 +91,22 @@ export async function handleWorkspaceIntegrations(request: Request, env: Env): P
 /** Serve workspace integrations using a freshly validated member scope. */
 async function dispatch(request: Request, env: Env, member: WorkspaceNativeMember, url: URL, beforeSourceReturn?: () => Promise<void>): Promise<Response> {
   const suffix = url.pathname.slice(BASE.length);
-  if (suffix === "/connections" && request.method === "GET") return json({ ok: true, workspaceId: member.workspaceId });
+  if (isListPath(suffix) && request.method === "GET") return json({ ok: true, workspaceId: member.workspaceId });
   if (suffix === "/catalog" && request.method === "GET") {
     const readiness = parseReadiness(url.searchParams.get("readiness"));
     if (readiness === null) return json({ error: "invalid_readiness" }, 400);
     await assertWorkspaceMemberCurrent(env, member, true);
-    const result = await getIntegrationProvider(env).listCatalog({ userId: member.userId, workspaceId: member.workspaceId, ...(readiness ? { readiness } : {}),
+    const setup = (query: string) => json({ ...setupRequiredCatalog(query), workspaceId: member.workspaceId });
+    if (!openConnectorConfigured(env)) return setup(url.searchParams.get("query") ?? "");
+    let result: Awaited<ReturnType<ReturnType<typeof getIntegrationProvider>["listCatalog"]>>;
+    try { result = await getIntegrationProvider(env).listCatalog({ userId: member.userId, workspaceId: member.workspaceId, ...(readiness ? { readiness } : {}),
       query: (url.searchParams.get("query") ?? "").slice(0, 200), limit: Math.max(1, Math.min(50, Number(url.searchParams.get("limit")) || 20)), cursor: url.searchParams.get("cursor") ?? undefined });
+    } catch (error) { if (isOpenConnectorSetupError(error)) return setup(url.searchParams.get("query") ?? ""); throw error; }
     await assertWorkspaceMemberCurrent(env, member, true);
-    return json({ ok: true, workspaceId: member.workspaceId, provider: "openconnector", ...result });
+    return json({ ok: true, workspaceId: member.workspaceId, provider: "openconnector", configured: true, featured: mergeFeaturedWithLive(result.items), ...result });
   }
   if (suffix === "/connect" && request.method === "POST") {
+    if (!openConnectorConfigured(env)) return json({ ok: false, configured: false, code: "setup_required", error: "Integrations need setup. Connect an OpenConnector worker first." }, 409);
     const input = await parse(request, connect), result = await createWorkspaceConnection(env, member, input.providerKey, url.origin);
     return json({ ok: true, workspaceId: member.workspaceId, connection: await connectionDto(env, result.row), pendingId: result.pendingId,
       authorizationFingerprint: result.authorizationFingerprint, redirectUrl: result.redirectUrl }, 201);

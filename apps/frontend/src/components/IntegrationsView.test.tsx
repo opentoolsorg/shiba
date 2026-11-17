@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { INTEGRATION_CATALOG } from "@shiba/shared";
+import { INTEGRATION_CATALOG, setupRequiredCatalog } from "@shiba/shared";
 import { IntegrationsView } from "./IntegrationsView";
 import { META_ACTOR, META_WORKSPACE, metaScope } from "../founder-meta-fixtures";
 
@@ -55,7 +55,7 @@ function providerMetaUnconfigured() {
   };
 }
 
-function stubIntegrationsFetch(setup = defaultSetup()) {
+function stubIntegrationsFetch(setup = defaultSetup(), unconfigured = false) {
   const reason = reasonNetworkJson();
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -67,6 +67,7 @@ function stubIntegrationsFetch(setup = defaultSetup()) {
     if (url === "/api/v1/mcp/catalog-connections") return Response.json({ ok: true, connections: [] });
     if (url === "/api/integrations/provider/meta") return Response.json(providerMetaUnconfigured());
     if (url.startsWith("/api/integrations/provider/catalog")) {
+      if (unconfigured) return Response.json(setupRequiredCatalog());
       return Response.json({ ok: true, provider: "openconnector", items: [], nextCursor: null, hasMore: false, fallbackCatalog: true });
     }
     if (url === "/api/integrations/provider/connections") {
@@ -92,6 +93,37 @@ function stubIntegrationsFetch(setup = defaultSetup()) {
 }
 
 describe("IntegrationsView native catalog", () => {
+  it("shows the setup card and the featured apps with Needs setup chips when unconfigured", async () => {
+    stubIntegrationsFetch(defaultSetup(), true);
+    render(<IntegrationsView />);
+    expect(await screen.findByRole("heading", { name: "Set up integrations" })).toBeTruthy();
+    for (const id of ["stripe", "hubspot", "google-ads", "meta-ads", "notion", "gmail", "google-calendar"]) {
+      expect(screen.getByTestId(`featured-app-${id}`).textContent).toMatch(/Needs setup/);
+    }
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Stripe" }));
+    expect(focus).toHaveBeenCalled();
+  });
+  it("shows workspace setup using the selected workspace catalog", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => String(input) === "/api/workspace-integrations/catalog"
+      ? Response.json(setupRequiredCatalog()) : Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<IntegrationsView actorId={META_ACTOR} workspaceId={META_WORKSPACE} workspaceRole="owner" />);
+    expect(await screen.findByRole("heading", { name: "Set up integrations" })).toBeTruthy();
+    for (const id of ["stripe", "hubspot", "google-ads", "meta-ads", "notion", "gmail", "google-calendar"]) {
+      expect(screen.getByTestId(`featured-app-${id}`).textContent).toMatch(/Needs setup/);
+    }
+    const catalogCall = fetchMock.mock.calls.find(([url]) => String(url) === "/api/workspace-integrations/catalog");
+    expect(catalogCall).toBeTruthy();
+    expect(new Headers(catalogCall?.[1]?.headers).get("X-Shiba-Workspace")).toBe(META_WORKSPACE);
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/integrations/provider/catalog")).toBe(false);
+  });
+  it("hides the setup card when the provider is configured", async () => {
+    stubIntegrationsFetch();
+    render(<IntegrationsView />);
+    await screen.findByRole("heading", { name: "Configured connections" });
+    expect(screen.queryByRole("heading", { name: "Set up integrations" })).toBeNull();
+  });
   it("focuses discovery rather than account filtering from Search connectors", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView />);
