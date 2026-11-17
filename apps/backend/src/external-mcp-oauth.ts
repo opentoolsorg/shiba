@@ -225,7 +225,7 @@ async function loadPendingByState(env: Env, state: string): Promise<(ExternalMcp
   if (!oauthReady(env)) return null;
   const pendingSecret = await decryptAuthJson(
     row.code_verifier_cipher as string,
-    env.MODEL_CREDENTIAL_KEY!,
+    env,
     String(row.org_id),
     String(row.owner_id),
     `external-mcp-pending:${row.server_id}`,
@@ -318,7 +318,7 @@ export async function beginExternalMcpOAuthConnect(
     JSON.stringify({ verifier, revocationEndpoint: input.discovery.authorizationServer.revocation_endpoint,
       resource: input.discovery.resource.resource, serverGeneration: server.generation, customIssuer: input.discovery.customIssuer,
       issuerParameterRequired: input.discovery.authorizationServer.authorization_response_iss_parameter_supported === true }),
-    env.MODEL_CREDENTIAL_KEY!,
+    env,
     input.orgId,
     input.ownerId,
     `external-mcp-pending:${input.serverId}`,
@@ -443,7 +443,7 @@ async function persistExternalMcpOAuthTokens(
   await ensureExternalMcpOAuthSchema(env);
   const cipher = await encryptAuthJson(
     JSON.stringify(tokens),
-    env.MODEL_CREDENTIAL_KEY!,
+    env,
     orgId,
     ownerId,
     TOKEN_KIND(serverId),
@@ -501,7 +501,7 @@ async function loadStoredTokens(env: Env, orgId: string, ownerId: string, server
     .bind(orgId, ownerId, TOKEN_KIND(serverId))
     .first<{ auth_cipher: string }>();
   if (!row) return null;
-  const plain = await decryptAuthJson(row.auth_cipher, env.MODEL_CREDENTIAL_KEY!, orgId, ownerId, TOKEN_KIND(serverId));
+  const plain = await decryptAuthJson(row.auth_cipher, env, orgId, ownerId, TOKEN_KIND(serverId));
   return { tokens: JSON.parse(plain) as ExternalMcpOAuthTokens, cipher: row.auth_cipher };
 }
 

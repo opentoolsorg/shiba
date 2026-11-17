@@ -12,7 +12,7 @@ export interface StoredSecretMeta {
 }
 
 export async function putOrgSecret(
-  env: AuditEnv & { MODEL_CREDENTIAL_KEY?: string },
+  env: AuditEnv & { MODEL_CREDENTIAL_KEY?: string; VAULT_KEYRING?: string; VAULT_WRITE_V2?: string },
   orgId: string,
   kind: string,
   name: string,
@@ -25,7 +25,7 @@ export async function putOrgSecret(
   const trimmed = secretValue.trim();
   const last4 = trimmed.slice(-4);
   const now = Date.now();
-  const cipher = await encryptAuthJson(trimmed, modelKey, orgId, name, kind);
+  const cipher = await encryptAuthJson(trimmed, { ...env, MODEL_CREDENTIAL_KEY: modelKey }, orgId, name, kind);
 
   await env.AGENT_AUDIT.prepare(
     `INSERT INTO org_secrets (org_id, kind, name, cipher, last4, updated_at)
@@ -66,7 +66,7 @@ export async function getOrgSecretMeta(
 }
 
 export async function getDecryptedOrgSecret(
-  env: AuditEnv & { MODEL_CREDENTIAL_KEY?: string },
+  env: AuditEnv & { MODEL_CREDENTIAL_KEY?: string; VAULT_KEYRING?: string; VAULT_WRITE_V2?: string },
   orgId: string,
   kind: string,
   name: string,
@@ -83,7 +83,7 @@ export async function getDecryptedOrgSecret(
   if (!modelKey || modelKey.length !== 64) {
     throw new Error("MODEL_CREDENTIAL_KEY is not configured.");
   }
-  return decryptAuthJson(row.cipher, modelKey, orgId, name, kind);
+  return decryptAuthJson(row.cipher, { ...env, MODEL_CREDENTIAL_KEY: modelKey }, orgId, name, kind);
 }
 
 export async function deleteOrgSecret(

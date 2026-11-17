@@ -2,6 +2,8 @@
   "$schema": "https://developers.cloudflare.com/workers/wrangler/configuration-schema.json",
   "name": "shiba-ai-coworker",
   "main": "src/index.ts",
+  // Optional secret VAULT_KEYRING: {"current":"k2","keys":{"k2":"<hex64>"}}.
+  // VAULT_WRITE_V2=1 opts into keyed ciphertext; default off preserves legacy writes.
   "compatibility_date": "2026-06-01",
   "compatibility_flags": ["nodejs_compat", "legacy_module_registry"],
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
@@ -38,6 +40,7 @@
     "INTEGRATIONS_PROVIDER": "openconnector",
   // When "1", integration routes surface openconnector_not_bound instead of opaque 503 text.
     "OPEN_CONNECTOR_ENABLED": "0",
+    "VAULT_WRITE_V2": "0",
     "SHIBA_PERSONAL_LOCAL_EXECUTION": "0",
     "SHIBA_TEAM_MODEL_SESSIONS": "0",
     // Optional features remain unavailable without separately reviewed bindings and setup.

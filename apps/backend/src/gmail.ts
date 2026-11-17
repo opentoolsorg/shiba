@@ -5,6 +5,7 @@ import { orgIdForRecord } from "./agent-tokens.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 import { audit } from "./audit.js";
 import type { Env } from "./env.js";
+import { encryptSecret, decryptSecret, type VaultKey } from "./vault.js";
 import { wrapUntrusted } from "./mailbox-store.js";
 
 export const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
@@ -60,7 +61,7 @@ export function gmailConfig(env: Env) {
     throw new GmailError("Gmail is not configured.", 503);
   }
   return { clientId: env.GMAIL_CLIENT_ID, clientSecret: env.GMAIL_CLIENT_SECRET,
-    redirectUri: env.GMAIL_REDIRECT_URI, tokenKey: env.GMAIL_TOKEN_KEY! };
+    redirectUri: env.GMAIL_REDIRECT_URI, tokenKey: { ...env, MODEL_CREDENTIAL_KEY: env.GMAIL_TOKEN_KEY! } };
 }
 
 function base64url(bytes: Uint8Array): string {
@@ -72,33 +73,15 @@ function fromBase64url(text: string): Uint8Array<ArrayBuffer> {
 function random(bytes = 32): string {
   return base64url(crypto.getRandomValues(new Uint8Array(bytes)));
 }
-async function tokenKey(hex: string): Promise<CryptoKey> {
-  if (!/^[a-fA-F0-9]{64}$/.test(hex)) throw new GmailError("Gmail key unavailable.", 503);
-  const key = Uint8Array.from(hex.match(/../g)!, (part) => Number.parseInt(part, 16));
-  return crypto.subtle.importKey("raw", key, "AES-GCM", false, ["encrypt", "decrypt"]);
-}
 function aad(owner: string, connectionId: string): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(JSON.stringify(["gmail-refresh-v1", owner, connectionId]));
 }
-export async function encryptGmailToken(token: string, key: string, owner: string, connectionId: string): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const cipher = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv, additionalData: aad(owner, connectionId), tagLength: 128 },
-    await tokenKey(key), new TextEncoder().encode(token),
-  );
-  return `v1.${base64url(iv)}.${base64url(new Uint8Array(cipher))}`;
+export async function encryptGmailToken(token: string, key: VaultKey, owner: string, connectionId: string): Promise<string> {
+  return encryptSecret(token, key, "gmail-refresh", { aad: aad(owner, connectionId) });
 }
-export async function decryptGmailToken(cipher: string, key: string, owner: string, connectionId: string): Promise<string> {
+export async function decryptGmailToken(cipher: string, key: VaultKey, owner: string, connectionId: string): Promise<string> {
   try {
-    const [version, encodedIv, encodedCipher, extra] = cipher.split(".");
-    if (version !== "v1" || !encodedIv || !encodedCipher || extra !== undefined) throw new Error();
-    const iv = fromBase64url(encodedIv);
-    if (iv.length !== 12) throw new Error();
-    const plaintext = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv, additionalData: aad(owner, connectionId), tagLength: 128 },
-      await tokenKey(key), fromBase64url(encodedCipher),
-    );
-    return new TextDecoder().decode(plaintext);
+    return await decryptSecret(cipher, key, "gmail-refresh", { aad: aad(owner, connectionId) });
   } catch {
     // Never propagate crypto/provider errors containing credential material.
     throw new GmailError("Gmail credentials unavailable; disconnect and reconnect.", 503);
@@ -483,7 +466,7 @@ export async function disconnectGmail(env: Env, owner: string) {
   let revoke: "not_connected" | "revoked" | "failed" = connection ? "failed" : "not_connected";
   try {
     if (connection) {
-      const token = await decryptGmailToken(connection.refreshCipher, env.GMAIL_TOKEN_KEY ?? "", owner, connection.id);
+      const token = await decryptGmailToken(connection.refreshCipher, { ...env, MODEL_CREDENTIAL_KEY: env.GMAIL_TOKEN_KEY }, owner, connection.id);
       revoke = await revokeGoogleToken(token);
     }
   } catch { revoke = "failed"; }
