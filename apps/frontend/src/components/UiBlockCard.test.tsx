@@ -92,6 +92,18 @@ describe("UiBlockCard", () => {
     expect(screen.getByText("Fallback question")).toBeTruthy();
   });
 
+  it("omits a cleared optional select instead of posting an invalid empty option", async () => {
+    const fetcher = mockFetch();
+    render(<UiBlockCard {...props} block={form} />);
+    fireEvent.change(screen.getByLabelText("Name (required)"), { target: { value: "Ada" } });
+    fireEvent.change(screen.getByLabelText("Color"), { target: { value: "blue" } });
+    fireEvent.change(screen.getByLabelText("Color"), { target: { value: "" } });
+    fireEvent.submit(screen.getByRole("button", { name: "Send details" }).closest("form")!);
+    await screen.findByRole("status");
+    expect(JSON.parse(fetcher.mock.calls[0]![1].body).values).toEqual({ name: "Ada" });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("shows server errors without settling", async () => {
     mockFetch(409, { error: "Already answered" });
     render(<UiBlockCard {...props} block={confirm} />);

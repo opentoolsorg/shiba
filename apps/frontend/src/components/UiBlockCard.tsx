@@ -54,6 +54,11 @@ function KnownUiBlockCard({ runId, block, fallbackText, status = "pending", answ
   }
 
   function choose(input: UiAnswer) {
+    if (block.type === "form" && input.values) {
+      input = { ...input, values: Object.fromEntries(Object.entries(input.values).filter(([id, value]) =>
+        value !== "" || !block.fields.some((field) => field.id === id && field.kind === "select" && !field.required),
+      )) };
+    }
     const danger = block.type === "confirm" ? Boolean(block.danger && input.confirmed)
       : block.type === "form" ? block.fields.some((field) => field.kind === "select" && field.options.some((option) => option.danger && input.values?.[field.id] === option.id))
         : block.options.some((option) => option.danger && input.optionIds?.includes(option.id));
