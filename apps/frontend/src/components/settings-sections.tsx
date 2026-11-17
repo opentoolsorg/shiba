@@ -14,6 +14,7 @@ import { SkeletonLines, StatusNotice } from "./surface";
 import { ChatGptSubscriptionCard } from "./ChatGptSubscriptionCard";
 import { PurposeRoutingCard, RolePinsCard } from "./ModelRoutingSection";
 import { Card } from "./settings-ui";
+import { SlackSetupCard } from "./SetupCards";
 import { AccountSettings } from "./account/AccountSettings";
 import { ApiKeysSettingsPanel } from "./settings/ApiKeys";
 import { WebhooksSettingsPanel } from "./settings/Webhooks";
@@ -41,6 +42,7 @@ export type SettingsSectionId =
   | "experimental"
   | "deployment"
   | "notifications"
+  | "slack"
   | "slack-import";
 
 /** Single source for section labels — the modal nav groups render from this. */
@@ -64,6 +66,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string;
     experimental: { label: "Experimental", blurb: "Opt-in feature flags (wrangler vars)" },
     deployment: { label: "Deployment", blurb: "Serving host, models & harness" },
     notifications: { label: "Notifications", blurb: "Mentions and Needs you inbox" },
+    slack: { label: "Slack", blurb: "Slack app setup and deployment requirements" },
     "slack-import": { label: "Slack import", blurb: "Copy a Slack channel into a room, including threads" },
   };
 
@@ -290,6 +293,8 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
     );
   }
   return (
+    <>
+    {!status.slack.botToken || !status.slack.signingSecret ? <SlackSetupCard /> : null}
     <Card>
       <ChecklistRow
         label="Slack signing secret"
@@ -327,6 +332,7 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
         detail="REQUIRE_ACCESS / ACCESS_AUD — identity on every path"
       />
     </Card>
+    </>
   );
 }
 
@@ -650,7 +656,7 @@ function SandboxOrgSettingsSection({
   );
 }
 
-type LiveSettingsSection = "automations" | "mailbox" | "environments";
+type LiveSettingsSection = "automations" | "mailbox" | "environments" | "slack";
 
 function LiveSettingsSectionBody({
   section,
@@ -665,7 +671,11 @@ function LiveSettingsSectionBody({
     setup.state.kind === "error" ? (
       <LoadErrorState message={setup.state.message} onRetry={setup.reload} />
     ) : status ? (
-      section === "automations" ? (
+      section === "slack" ? (
+        !status.slack.botToken || !status.slack.signingSecret
+          ? <SlackSetupCard />
+          : <p role="status">Slack signing secret and bot token are configured. <a href="/docs/slack-setup/" className="underline">Check the Slack connection</a>.</p>
+      ) : section === "automations" ? (
         <Card>
           <ChecklistRow
             label="Automations enabled"
@@ -737,8 +747,8 @@ function LiveSettingsSectionBody({
   }
   return (
     <SectionShell
-      title="Environments"
-      description="Configuration the deployment itself proves — every row is a boolean from GET /api/setup/status."
+      title={section === "slack" ? "Slack" : "Environments"}
+      description={section === "slack" ? "Configure the Slack app on your deployment, then install it in your workspace." : "Configuration the deployment itself proves — every row is a boolean from GET /api/setup/status."}
     >
       {content}
     </SectionShell>
@@ -864,7 +874,7 @@ export function SettingsSectionBody({
     );
   }
 
-  if (section === "automations" || section === "mailbox" || section === "environments") {
+  if (section === "automations" || section === "mailbox" || section === "environments" || section === "slack") {
     return <LiveSettingsSectionBody section={section} onNavigate={onNavigate} />;
   }
 

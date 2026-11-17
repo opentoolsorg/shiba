@@ -22,8 +22,10 @@ import { isPendingTeamEnrollmentCurrent, validatePendingTeamInvitation } from ".
 export {
   BETTER_AUTH_BASE_PATH,
   BETTER_AUTH_MIN_SECRET_LENGTH,
+  BETTER_AUTH_STATEMENTS,
   BETTER_AUTH_INVITATION_HEADER,
   betterAuthFor,
+  ensureBetterAuthSchema,
   enabledBetterAuthProviderIds,
   isBetterAuthConfigured,
   isBetterAuthPath,
