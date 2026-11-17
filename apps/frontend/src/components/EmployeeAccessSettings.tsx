@@ -11,7 +11,7 @@ async function read<T>(response: Response): Promise<T> {
   return body;
 }
 
-export function EmployeeAccessSettings({ workspaceId, employeeId }: { workspaceId: string; employeeId: string }): JSX.Element {
+export function EmployeeAccessSettings({ workspaceId, employeeId, onAccessChange }: { workspaceId: string; employeeId: string; onAccessChange?: (level: EmployeeAccessLevel) => void }): JSX.Element {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [principals, setPrincipals] = useState<Array<Pick<EmployeeAccessGrant, "principalKind" | "principalId" | "name">>>([]);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export function EmployeeAccessSettings({ workspaceId, employeeId }: { workspaceI
     setBusy(true); setError(null); setNotice(null);
     try {
       const updated = await read<Settings>(await fetch(endpoint, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({ principalKind: principal.principalKind, principalId: principal.principalId, level }) }));
-      setSettings(updated); setNotice("Access updated and recorded in the audit log.");
+      setSettings(updated); onAccessChange?.(updated.level); setNotice("Access updated and recorded in the audit log.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Employee access unavailable."); }
     finally { setBusy(false); }
   }
