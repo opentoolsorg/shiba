@@ -8,6 +8,7 @@
  */
 import { buildChatThreadName } from "@shiba/shared";
 import type { Env } from "../../env.js";
+import { reactionGlyph } from "../emoji.js";
 import { timingSafeEqual } from "../../slack.js";
 import {
   ChannelUnsupportedError,
@@ -97,7 +98,7 @@ export function createTelegramAdapter(input: {
       await call("setMessageReaction", {
         chat_id: chatId(ref.placeId),
         message_id: messageId(ref.messageId),
-        reaction: [{ type: "emoji", emoji }],
+        reaction: [{ type: "emoji", emoji: reactionGlyph(emoji) }],
       });
     },
     async upload(upload) {

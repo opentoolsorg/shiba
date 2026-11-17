@@ -8,6 +8,7 @@
  */
 import { buildChatThreadName } from "@shiba/shared";
 import type { Env } from "../../env.js";
+import { reactionGlyph } from "../emoji.js";
 import {
   dedupeIds,
   type ChannelAdapter,
@@ -126,7 +127,7 @@ export function createDiscordAdapter(input: { botToken: string; fetch?: typeof f
       });
     },
     async react(ref, emoji) {
-      await request("react", "PUT", `/channels/${ref.threadId ?? ref.placeId}/messages/${ref.messageId}/reactions/${encodeURIComponent(emoji)}/@me`);
+      await request("react", "PUT", `/channels/${ref.threadId ?? ref.placeId}/messages/${ref.messageId}/reactions/${encodeURIComponent(reactionGlyph(emoji))}/@me`);
     },
     async upload(upload) {
       const form = new FormData();
@@ -139,7 +140,7 @@ export function createDiscordAdapter(input: { botToken: string; fetch?: typeof f
       });
       if (!response.ok) throw new Error(`Discord upload failed (${response.status}).`);
       const sent = await readJsonObject(response);
-      return { placeId: upload.placeId, messageId: asString(sent.id) };
+      return { placeId: upload.placeId, messageId: asString(sent.id), ...(upload.threadId ? { threadId: upload.threadId } : {}) };
     },
     async download(url) {
       // Attachment URLs are signed CDN links; never send the bot token there.
