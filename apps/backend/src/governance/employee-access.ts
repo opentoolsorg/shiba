@@ -28,6 +28,9 @@ export async function resolveEmployeeAccess(env: AccessEnv, workspaceId: string,
   const membership = await getTeamWorkspaceMembership(env, workspaceId, userId);
   if (!membership) return "none";
   if (membership.role === "owner" || membership.role === "admin") return "manage";
+  const profile = await env.AGENT_AUDIT!.prepare(`SELECT id FROM org_custom_agents WHERE org_id=? AND (id=? OR slug=?) AND deleted_at IS NULL`)
+    .bind(`team:${workspaceId}`, employeeId, employeeId).first<{ id: string }>();
+  employeeId = profile?.id ?? employeeId;
   const grants = await listEmployeeAccess(env, workspaceId, employeeId);
   const direct = grants.find((grant) => grant.principalKind === "user" && grant.principalId === membership.userId);
   if (direct) return direct.level;
@@ -39,10 +42,27 @@ export async function resolveEmployeeAccess(env: AccessEnv, workspaceId: string,
 }
 
 export async function visibleEmployees<T extends { id: string }>(env: AccessEnv, workspaceId: string, userId: string, employees: T[]): Promise<T[]> {
-  if (!workspaceId.startsWith("ws_")) return employees;
-  const visible = await Promise.all(employees.map(async (employee) =>
-    await resolveEmployeeAccess(env, workspaceId, employee.id, userId) !== "none"));
-  return employees.filter((_, index) => visible[index]);
+  return filterEmployeesByAccess(env, { workspaceId, userId }, employees, "view", (employee) => employee.id);
+}
+
+export async function filterEmployeesByAccess<T>(
+  env: AccessEnv,
+  scope: { workspaceId: string; userId: string },
+  items: T[],
+  required: EmployeeAccessLevel,
+  reference: (item: T) => string | null,
+): Promise<T[]> {
+  if (!scope.workspaceId.startsWith("ws_")) return items;
+  const allowed = await Promise.all(items.map(async (item) => {
+    const ref = reference(item);
+    if (ref === null) return true;
+    const key = ref.startsWith("agent:") ? ref.slice(6) : ref;
+    const profile = await env.AGENT_AUDIT!.prepare(`SELECT id FROM org_custom_agents WHERE org_id=? AND (id=? OR slug=?) AND deleted_at IS NULL`)
+      .bind(`team:${scope.workspaceId}`, key, key).first<{ id: string }>();
+    if (!profile) return false;
+    return rank[await resolveEmployeeAccess(env, scope.workspaceId, profile.id, scope.userId)] >= rank[required];
+  }));
+  return items.filter((_, index) => allowed[index]);
 }
 
 export async function setEmployeeAccess(env: AccessEnv, workspaceId: string, employeeId: string, actorId: string, input: Record<string, unknown>): Promise<void> {

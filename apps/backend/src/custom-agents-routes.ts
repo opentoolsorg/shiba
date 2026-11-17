@@ -14,7 +14,7 @@ import { decodeCreateCustomAgent, decodeUpdateCustomAgent } from "./custom-agent
 import { resolveHarness } from "./harness/index.js";
 import { resolveUserId } from "./request-auth.js";
 import { recordEmployeeBundleProfileOwner } from "./employee-bundles-store.js";
-import { resolveEmployeeAccess } from "./governance/employee-access.js";
+import { visibleEmployees } from "./governance/employee-access.js";
 
 function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number]) {
   return {
@@ -88,9 +88,9 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     const agents = archived === "true"
       ? await listCustomAgents(env, auth.orgId, { archived: true })
       : await listCustomAgents(env, auth.orgId);
-    const visible = auth.workspace ? await Promise.all(agents.map(async (agent) =>
-      await resolveEmployeeAccess(env, auth.workspace!.workspaceId, agent.id, auth.workspace!.userId) !== "none" ? agent : null)) : agents;
-    return Response.json({ ok: true, agents: visible.filter((agent) => agent !== null).map(publicAgent) }, { headers: { "cache-control": "no-store" } });
+    const workspaceId = auth.workspace?.workspaceId ?? /^team:(ws_[a-f0-9]{24})$/.exec(auth.orgId)?.[1];
+    const visible = workspaceId ? await visibleEmployees(env, workspaceId, auth.principal?.principal ?? auth.workspace!.userId, agents) : agents;
+    return Response.json({ ok: true, agents: visible.map(publicAgent) }, { headers: { "cache-control": "no-store" } });
   }
 
   if (!agentId && request.method === "POST") {
