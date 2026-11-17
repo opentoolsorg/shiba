@@ -79,6 +79,7 @@ export const SETTINGS_PAGE_NAV_GROUPS: SettingsNavGroup[] = [
       { id: "sharing", label: "Sharing", blurb: "Public links & guest policy", icon: ShieldCheck },
       { id: "archived", label: "Archived", blurb: "Archived skills, tasks & agents", icon: Box },
       { id: "admin", label: "Admin", blurb: "Operator console (deployment admin)", icon: ShieldCheck },
+      { id: "workspace-facts", label: "Workspace facts", blurb: SETTINGS_SECTION_LABELS["workspace-facts"].blurb, icon: ShieldCheck },
       { id: "remote", label: "Remote access", blurb: "Connected computers & daemon", icon: Laptop },
       { id: "models", label: "Models", blurb: SETTINGS_SECTION_LABELS.models.blurb, icon: Cpu },
       { id: "sandbox", label: "Sandbox", blurb: SETTINGS_SECTION_LABELS.sandbox.blurb, icon: Box },

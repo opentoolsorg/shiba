@@ -25,6 +25,7 @@ import { NotificationPrefsSection } from "./settings/NotificationPrefsSection";
 import { SlackImportSection } from "./settings/SlackImportSection";
 import { ProvidersView } from "./ProvidersView";
 import { ConnectedApps } from "./settings/ConnectedApps";
+import { WorkspaceFactsSettings } from "./settings/WorkspaceFacts";
 
 export type SettingsSectionId =
   | "providers"
@@ -43,7 +44,8 @@ export type SettingsSectionId =
   | "deployment"
   | "notifications"
   | "slack"
-  | "slack-import";
+  | "slack-import"
+  | "workspace-facts";
 
 /** Single source for section labels — the modal nav groups render from this. */
 export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string; blurb: string }> =
@@ -68,6 +70,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string;
     notifications: { label: "Notifications", blurb: "Mentions and Needs you inbox" },
     slack: { label: "Slack", blurb: "Slack app setup and deployment requirements" },
     "slack-import": { label: "Slack import", blurb: "Copy a Slack channel into a room, including threads" },
+    "workspace-facts": { label: "Workspace facts", blurb: "Shared Slack notes (deployment admin)" },
   };
 
 function SectionShell({
@@ -823,6 +826,11 @@ export function SettingsSectionBody({
   }
 
   if (section === "api-keys") return <ApiKeysSettingsSection />;
+  if (section === "workspace-facts") return (
+    <SectionShell title="Workspace facts" description="Review and remove saved notes across Slack workspace connections.">
+      <WorkspaceFactsSettings />
+    </SectionShell>
+  );
   if (section === "webhooks") return <WebhooksSettingsSection />;
 
   if (section === "appearance") {
