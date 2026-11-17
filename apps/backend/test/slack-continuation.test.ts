@@ -23,7 +23,7 @@ function deps(continuation: SlackContinuationTarget | null = target) {
   return {
     bufferMessage: vi.fn<NonNullable<SlackMentionDeps["bufferMessage"]>>(async () => ({ buffered: false, continuation })),
     queueRun: vi.fn<NonNullable<SlackMentionDeps["queueRun"]>>(async () => ({ approvalId: "approval-1" })),
-    fetchThread: vi.fn(async () => []), postMessage: vi.fn(async () => {}),
+    fetchThread: vi.fn<NonNullable<SlackMentionDeps["fetchThread"]>>(async () => []), postMessage: vi.fn(async () => {}),
     postMessageWithReceipt: vi.fn(async () => ({ channel: "C1", ts: "1700.0003" })),
     updateMessage: vi.fn<NonNullable<SlackMentionDeps["updateMessage"]>>(async () => {}),
     deleteMessage: vi.fn(async () => {}), addReaction: vi.fn(async () => {}),
@@ -33,6 +33,43 @@ function deps(continuation: SlackContinuationTarget | null = target) {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("legacy Slack thread continuations", () => {
+  it("does not turn an excluded aside into historical continuation work", async () => {
+    const d = deps();
+    await handleSlackEvent(reply("aside please do not run this"), env, d);
+    expect(d.bufferMessage).not.toHaveBeenCalled();
+    expect(d.queueRun).not.toHaveBeenCalled();
+    expect(d.postMessageWithReceipt).not.toHaveBeenCalled();
+    expect(d.addReaction).not.toHaveBeenCalled();
+  });
+
+  it.each(["Please fix the remaining tests", "thanks"])("ignores muted continuations without posting or reacting: %s", async (text) => {
+    const d = deps();
+    d.fetchThread.mockResolvedValue([
+      { user: "U1", text: "Historical task", ts: 1699 },
+      { user: "U1", text: "mute", ts: 1700 },
+    ]);
+    await handleSlackEvent(reply(text), env, d);
+    expect(d.queueRun).not.toHaveBeenCalled();
+    expect(d.postMessageWithReceipt).not.toHaveBeenCalled();
+    expect(d.postMessage).not.toHaveBeenCalled();
+    expect(d.updateMessage).not.toHaveBeenCalled();
+    expect(d.deleteMessage).not.toHaveBeenCalled();
+    expect(d.addReaction).not.toHaveBeenCalled();
+  });
+
+  it("resumes ordinary continuations after unmute, and still permits authenticated mentions while muted", async () => {
+    for (const type of ["message", "app_mention"]) {
+      const d = deps();
+      d.fetchThread.mockResolvedValue([
+        { user: "U1", text: "mute", ts: 1698 },
+        ...(type === "message" ? [{ user: "U1", text: "unmute", ts: 1699 }] : []),
+      ]);
+      await handleSlackEvent(reply("Please include tests", { type }), env, d);
+      expect(d.queueRun).toHaveBeenCalledOnce();
+      expect(d.postMessageWithReceipt).toHaveBeenCalledOnce();
+    }
+  });
+
   it.each(["message", "app_mention"])("inherits the last target for %s without resolving employee or repository from text", async (type) => {
     const resolve = vi.spyOn(employees, "resolveChatEmployeeFromText").mockRejectedValue(new Error("must not resolve"));
     const d = deps();
@@ -72,7 +109,7 @@ describe("legacy Slack thread continuations", () => {
     expect(d.deleteMessage).toHaveBeenCalledWith({ channel: "C1", ts: "1700.0003" });
     expect(d.addReaction).toHaveBeenCalledWith({ channel: "C1", timestamp: "1700.0002", name: "white_check_mark" });
     expect(d.queueRun).not.toHaveBeenCalled();
-    expect(d.fetchThread).not.toHaveBeenCalled();
+    expect(d.fetchThread).toHaveBeenCalledOnce();
   });
 
   it.each(["", "<@BOT>", "thanks?", "okay？", "¿thanks", "ok‽", "thanks❓", "great, fix it", "thanks can you deploy", "not okay", "sounds good but please change tests"])("does not classify questions, requests or empty text as acknowledgments: %s", (text) => {

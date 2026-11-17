@@ -318,6 +318,18 @@ export async function handleSlackEvent(
   };
   let continuation: SlackContinuationTarget | null = null;
   const ackOnly = Boolean(event.thread_ts) && isSlackAcknowledgmentOnly(mentionText);
+  let threadMessages = [incoming];
+  const fetchThread = deps.fetchThread ?? (token ? (ch: string, ts: string) => defaultFetchThread(token, ch, ts) : undefined);
+  const loadThread = async () => {
+    if (fetchThread) {
+      try {
+        const fetched = await fetchThread(channelId, threadTs);
+        threadMessages = mergeIncomingMessage(fetched, incoming);
+      } catch (error) {
+        console.error("Slack thread fetch failed", redactSecrets(String(error)));
+      }
+    }
+  };
 
   if (event.thread_ts) {
     const threadKey = buildSlackThreadName(teamId, channelId, threadTs);
@@ -345,6 +357,9 @@ export async function handleSlackEvent(
       }
     }
     if (reply && !continuation) return;
+    await loadThread();
+    const visible = applyThreadControls(threadMessages, "", event.type === "app_mention" ? body.event_id : undefined);
+    if (!visible.slice(-MAX_CONTEXT_MESSAGES).includes(incoming)) return;
     const postReceipt = deps.postMessageWithReceipt ?? (!deps.postMessage && token ? (input: Parameters<NonNullable<SlackMentionDeps["postMessageWithReceipt"]>>[0]) => postSlackMessageWithReceipt(token, input) : undefined);
     let receipt: { channel: string; ts: string } | undefined;
     if (postReceipt) {
@@ -372,17 +387,8 @@ export async function handleSlackEvent(
       };
     }
     if (continuation) workspaceTarget = undefined;
-  }
-
-  let threadMessages = [incoming];
-  const fetchThread = deps.fetchThread ?? (token ? (ch: string, ts: string) => defaultFetchThread(token, ch, ts) : undefined);
-  if (fetchThread) {
-    try {
-      const fetched = await fetchThread(channelId, threadTs);
-      threadMessages = mergeIncomingMessage(fetched, incoming);
-    } catch (error) {
-      console.error("Slack thread fetch failed", redactSecrets(String(error)));
-    }
+  } else {
+    await loadThread();
   }
 
   const resolution = resolveSlackRepo({
