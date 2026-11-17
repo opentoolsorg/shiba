@@ -132,7 +132,7 @@ describe("orchestrator budget enforcement", () => {
     expect(blocked).toBe(true);
     expect(instance.state.runs.find((run) => run.runId === "new")!.status).toBe("cancelled");
   });
-it("meters an executing run before the sandbox.ready signal lands", async () => {
+  it("meters an executing run before the sandbox.ready signal lands", async () => {
     const live = running("live", { signals: undefined, checkpoint: "executing" });
     const instance = budgetHost({ dailyLimitUsd: null, monthlyLimitUsd: null, perRunLimitUsd: 0.00001, onExceed: "stop" }, [live]);
     await (instance as unknown as { enforceUsageBudget(now: number): Promise<void> }).enforceUsageBudget(10_000);
@@ -140,7 +140,7 @@ it("meters an executing run before the sandbox.ready signal lands", async () => 
     expect(instance.state.runs[0]!.errorCode).toBe("budget_exceeded");
   });
 
-it("fences the generation when a run is held so the aborted execution cannot terminalize it", async () => {
+  it("fences the generation when a run is held so the aborted execution cannot terminalize it", async () => {
     const live = running("held", { signals: undefined, checkpoint: "executing" });
     const instance = budgetHost({ dailyLimitUsd: null, monthlyLimitUsd: null, perRunLimitUsd: 0.00001, onExceed: "ask" }, [live]);
     const before = instance.state.runs[0]!.generation;
@@ -152,7 +152,7 @@ it("fences the generation when a run is held so the aborted execution cannot ter
     expect(after.generation).toBe(before + 1);
   });
 
-it("stops a held run when its budget override has expired", async () => {
+  it("stops a held run when its budget override has expired", async () => {
     const held = running("expired", {
       status: "pending",
       checkpoint: "dispatching",
@@ -177,7 +177,7 @@ it("stops a held run when its budget override has expired", async () => {
     expect(instance.state.runs[0]!.budgetHold).toBeUndefined();
   });
 
-it("redispatches an approved override under the held run's original tool call id", async () => {
+  it("redispatches an approved override under the held run's original tool call id", async () => {
     const approval = {
       approvalId: "orig",
       decidedBy: "owner@example.test",
