@@ -7,7 +7,7 @@ import type { Env } from "./env.js";
 import { COLLAB_TENANT_ID, ensureCollaborationSchema, getCollaborationMembership, getCollaborationRoom, humanActorId, listCollaborationMessages } from "./collaboration-store.js";
 import { snapshotCollaborationMemory, type CollaborationMemoryNote } from "./collaboration-memory.js";
 import { getCustomAgentById, listCustomAgents } from "./custom-agents-store.js";
-import { visibleEmployees as filterVisibleEmployees } from "./governance/employee-access.js";
+import { filterEmployeesByAccess, visibleEmployees as filterVisibleEmployees } from "./governance/employee-access.js";
 import { getTeamWorkspaceMembership } from "./team-workspaces-store.js";
 import { membershipSql, assertWorkspaceMemberCurrent, insertGuarded, updateGuarded } from "./workspace-integrations-store.js";
 import { resolveWorkspaceNativeGrantTarget, type WorkspaceNativeMember } from "./workspace-native-authority.js";
@@ -463,10 +463,12 @@ export async function readTeamModelState(env: Env, member: WorkspaceNativeMember
   for (const turn of turnRows.results) snapshots.push({ kind: "turn", grant: byId.get(turn.grant_id)!, turn });
   const final = await finalModelReadFence(env, member, roomId, roomMember, snapshots);
   const operatorManager = final.some((row) => row.kind === "funder"), canFund = policy.enabled && operatorManager, proof = new Map(final.map((row) => [`${row.kind}:${row.id}`, row]));
+  const visibleFunding = await filterEmployeesByAccess(env, member, [...byId.values()], "view", (row) => fundingContract(row).employeeId);
+  const visibleGrantIds = new Set(visibleFunding.map((row) => row.id));
   return { ok: true, workspaceId: member.workspaceId, roomId, actorId: member.userId, enabled: policy.enabled, model: policy.model === TEAM_MODEL_TEXT_MODEL || policy.model === TEAM_MODEL_LLAMA_MODEL ? policy.model : null,
     policyDigest, canFund, unavailableReason: policy.reason,
     actors: canFund ? nativeActors : [], employees: visibleEmployees,
-    grants: [...byId.values()].filter((row) => { const binding = fundingBinding(row); return canFund || (binding.recipient.userId === member.userId && binding.recipient.accountId === member.accountId) || (binding.issuer.userId === member.userId && binding.issuer.accountId === member.accountId); })
+    grants: visibleFunding.filter((row) => { const binding = fundingBinding(row); return canFund || (binding.recipient.userId === member.userId && binding.recipient.accountId === member.accountId) || (binding.issuer.userId === member.userId && binding.issuer.accountId === member.accountId); })
       .map((row) => fundingDto(row, member, proof.get(`funding:${row.id}`), operatorManager, policy.enabled, row.policy_key === policy.key)),
-    turns: turnRows.results.map((row) => turnDto(row, byId.get(row.grant_id)!, proof.get(`turn:${row.id}`), policy.enabled, byId.get(row.grant_id)!.policy_key === policy.key)) };
+    turns: turnRows.results.filter((row) => visibleGrantIds.has(row.grant_id)).map((row) => turnDto(row, byId.get(row.grant_id)!, proof.get(`turn:${row.id}`), policy.enabled, byId.get(row.grant_id)!.policy_key === policy.key)) };
 }
