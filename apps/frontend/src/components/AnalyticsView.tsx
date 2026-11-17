@@ -7,14 +7,16 @@
  * Restyled into main card: 48px header with breadcrumb "Scope > Insights > Usage",
  * neutral cards, and preserved details/empty states.
  */
-import { useMemo, type JSX } from "react";
+import { useMemo, useState, type JSX } from "react";
 import { ChevronRight, PanelLeft, Plus } from "lucide-react";
 import { ViewEmpty, ViewGroup, viewButtonClass } from "./ui/ViewChrome";
 import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
 import { ToneChip } from "./ToneChip";
 import {
+  putUsageBudgetPolicy,
   useUsageReport,
+  type UsageBudgetWire,
   type UsageDayWire,
   type UsageGroupWire,
   type UsageReportWire,
@@ -493,8 +495,9 @@ function UsageReportBody({ report }: { report: UsageReportWire }): JSX.Element {
     budget !== null && budget > 0 && spentToday !== undefined
       ? Math.min(100, (spentToday / budget) * 100)
       : 0;
+  const weekComputeUsd = weekDays.reduce((sum, day) => sum + (day.computeCostUsd ?? 0), 0);
 
-  if (report.days.length === 0) {
+  if (report.days.length === 0 && report.budget === undefined) {
     return (
       <ViewEmpty>No token usage reported yet</ViewEmpty>
     );
@@ -525,7 +528,21 @@ function UsageReportBody({ report }: { report: UsageReportWire }): JSX.Element {
         />
       </div>
 
-      {budget !== null ? (
+      {weekComputeUsd > 0 ? (
+        <div className="rounded-xl border border-[#e4e4e7] bg-[#f4f4f5]/50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">Computer time · 7 days</span>
+            <span className="font-mono text-[11px] text-[#71717a] dark:text-zinc-400">{usdCost(weekComputeUsd)}</span>
+          </div>
+          <p className="mt-1.5 text-[11px] text-[#71717a] dark:text-zinc-400">
+            The cost of the cloud computers your runs used — an estimate based on machine size, reported while each machine runs.
+          </p>
+        </div>
+      ) : null}
+
+      {report.budget !== undefined ? <BudgetLimitsCard budget={report.budget} /> : null}
+
+      {budget !== null && report.budget === undefined ? (
         <div className="rounded-xl border border-[#e4e4e7] bg-[#f4f4f5]/50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/30">
           <div className="flex items-baseline justify-between gap-3">
             <span className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">Daily budget</span>
@@ -573,6 +590,156 @@ function UsageReportBody({ report }: { report: UsageReportWire }): JSX.Element {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function budgetLimitLabel(limitUsd: number | null): string {
+  return limitUsd === null ? "no limit" : usdCost(limitUsd);
+}
+
+function BudgetPeriodBar({
+  label,
+  spentUsd,
+  limitUsd,
+}: { label: string; spentUsd: number; limitUsd: number | null }): JSX.Element {
+  const pct = limitUsd !== null && limitUsd > 0 ? Math.min(100, (spentUsd / limitUsd) * 100) : 0;
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[11px] text-[#71717a] dark:text-zinc-400">{label}</span>
+        <span className="font-mono text-[11px] text-[#71717a] dark:text-zinc-400">
+          {usdCost(spentUsd)} of {budgetLimitLabel(limitUsd)}
+        </span>
+      </div>
+      <div className="mt-1 h-2 rounded-full overflow-hidden bg-[#e4e4e7] dark:bg-zinc-700">
+        <div
+          className={`h-full rounded-full ${limitUsd !== null && spentUsd > limitUsd ? "bg-rose-500" : "bg-zinc-900 dark:bg-zinc-100"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+const budgetInputClass =
+  "w-full rounded-md border border-[#e4e4e7] bg-transparent px-2 py-1.5 text-xs text-[#0a0a0a] placeholder:text-[#a1a1aa] focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:text-zinc-100 dark:placeholder:text-zinc-500";
+
+/** Spending limits card: what was spent, what the limits are, and a form to change them. */
+function BudgetLimitsCard({ budget }: { budget: UsageBudgetWire }): JSX.Element {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [daily, setDaily] = useState("");
+  const [monthly, setMonthly] = useState("");
+  const [perRun, setPerRun] = useState("");
+  const [onExceed, setOnExceed] = useState<"stop" | "ask">("stop");
+
+  const policy = budget.policy;
+  const parseLimit = (raw: string): number | null => {
+    const trimmed = raw.trim();
+    if (trimmed === "") return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
+  const startEditing = (): void => {
+    setDaily(policy.dailyLimitUsd?.toString() ?? "");
+    setMonthly(policy.monthlyLimitUsd?.toString() ?? "");
+    setPerRun(policy.perRunLimitUsd?.toString() ?? "");
+    setOnExceed(policy.onExceed);
+    setSaveError(null);
+    setSaved(false);
+    setEditing(true);
+  };
+
+  const save = (): void => {
+    setSaving(true);
+    setSaveError(null);
+    void putUsageBudgetPolicy({
+      dailyLimitUsd: parseLimit(daily),
+      monthlyLimitUsd: parseLimit(monthly),
+      perRunLimitUsd: parseLimit(perRun),
+      onExceed,
+    })
+      .then(() => {
+        setSaved(true);
+        setEditing(false);
+      })
+      .catch((error: unknown) => {
+        setSaveError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setSaving(false));
+  };
+
+  return (
+    <div className="rounded-xl border border-[#e4e4e7] bg-[#f4f4f5]/50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">Spending limits</span>
+        <button type="button" className={viewButtonClass} onClick={() => (editing ? setEditing(false) : startEditing())}>
+          {editing ? "Cancel" : "Change"}
+        </button>
+      </div>
+
+      {budget.blocked ? (
+        <p className="mt-2 rounded-md bg-rose-500/10 px-3 py-2 text-[11px] font-medium text-rose-700 dark:text-rose-300">
+          Spending limit reached — new runs are paused until tomorrow or until you raise the limit.
+        </p>
+      ) : null}
+
+      <div className="mt-3 flex flex-col gap-3">
+        <BudgetPeriodBar label="Today" spentUsd={budget.today.totalUsd} limitUsd={policy.dailyLimitUsd} />
+        <BudgetPeriodBar label="This month" spentUsd={budget.month.totalUsd} limitUsd={policy.monthlyLimitUsd} />
+        {policy.perRunLimitUsd !== null ? (
+          <p className="text-[11px] text-[#71717a] dark:text-zinc-400">
+            A single run may not cost more than {usdCost(policy.perRunLimitUsd)}.
+          </p>
+        ) : null}
+        <p className="text-[11px] text-[#71717a] dark:text-zinc-400">
+          When a run would go over a limit it {policy.onExceed === "stop" ? "stops" : "pauses and asks for your approval"} — this limit is enforced, not just shown.
+        </p>
+      </div>
+
+      {editing ? (
+        <div className="mt-3 flex flex-col gap-2 border-t border-[#e4e4e7] pt-3 dark:border-zinc-800">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <label className="text-[11px] text-[#71717a] dark:text-zinc-400">
+              Most to spend per day ($)
+              <input className={budgetInputClass} inputMode="decimal" placeholder="No limit" value={daily} onChange={(e) => setDaily(e.target.value)} />
+            </label>
+            <label className="text-[11px] text-[#71717a] dark:text-zinc-400">
+              Most to spend per month ($)
+              <input className={budgetInputClass} inputMode="decimal" placeholder="No limit" value={monthly} onChange={(e) => setMonthly(e.target.value)} />
+            </label>
+            <label className="text-[11px] text-[#71717a] dark:text-zinc-400">
+              Most for one run ($)
+              <input className={budgetInputClass} inputMode="decimal" placeholder="No limit" value={perRun} onChange={(e) => setPerRun(e.target.value)} />
+            </label>
+          </div>
+          <fieldset className="flex flex-wrap items-center gap-3">
+            <legend className="sr-only">When a run would go over a limit</legend>
+            <label className="flex items-center gap-1.5 text-[11px] text-[#0a0a0a] dark:text-zinc-200">
+              <input type="radio" name="onExceed" checked={onExceed === "stop"} onChange={() => setOnExceed("stop")} />
+              Stop it
+            </label>
+            <label className="flex items-center gap-1.5 text-[11px] text-[#0a0a0a] dark:text-zinc-200">
+              <input type="radio" name="onExceed" checked={onExceed === "ask"} onChange={() => setOnExceed("ask")} />
+              Pause it and ask me first
+            </label>
+          </fieldset>
+          {saveError !== null ? (
+            <p className="text-[11px] text-rose-600 dark:text-rose-400">Couldn&apos;t save: {saveError}</p>
+          ) : null}
+          <div>
+            <button type="button" className={viewButtonClass} disabled={saving} onClick={save}>
+              {saving ? "Saving…" : "Save limits"}
+            </button>
+          </div>
+        </div>
+      ) : saved ? (
+        <p className="mt-2 text-[11px] text-emerald-600 dark:text-emerald-400">Limits saved.</p>
+      ) : null}
     </div>
   );
 }

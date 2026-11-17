@@ -18,6 +18,7 @@ export * from "./memory.js";
 export * from "./knowledge.js";
 export * from "./governance.js";
 export * from "./note-chat.js";
+export * from "./usage-budget.js";
 export * from "./model.js";
 export * from "./receipts.js";
 export * from "./roles.js";
