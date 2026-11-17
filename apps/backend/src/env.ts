@@ -437,6 +437,10 @@ export interface Env {
    * connect via Settings → Providers (unless the subscription kill switch is 0).
    */
   MODEL_CREDENTIAL_KEY?: string;
+  /** Optional JSON {current: kid, keys: {kid: hex64}}; keep legacy master keys unchanged. */
+  VAULT_KEYRING?: string;
+  /** Exactly "1" enables keyed vault writes; unset preserves rollback-compatible ciphertext. */
+  VAULT_WRITE_V2?: string;
   /**
    * Local dev only: shared secret between `scripts/oauth-loopback.mjs` and
    * `/api/dev/oauth-loopback` POST (minted into `.dev.vars` by `pnpm dev`).

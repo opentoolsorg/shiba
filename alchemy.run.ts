@@ -176,6 +176,7 @@ export const Worker = Cloudflare.Worker("Worker", {
     GATEWAY_ID: "default",
     INTEGRATIONS_PROVIDER: "openconnector",
     OPEN_CONNECTOR_ENABLED: "0",
+    VAULT_WRITE_V2: "0",
     SHIBA_PERSONAL_LOCAL_EXECUTION: "0",
     SHIBA_TEAM_MODEL_SESSIONS: "0",
     SHIBA_SHARED_COMPUTER: "0",
@@ -399,6 +400,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "OPEN_CONNECTOR_READ_RUNTIME_TOKEN",
       "OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS",
       "MODEL_CREDENTIAL_KEY",
+      "VAULT_KEYRING",
       // Optional OAuth client IDs registered by the operator for curated MCP vendors.
       // Unset IDs keep that vendor's OAuth connect path unavailable.
       "MCP_OAUTH_CLIENT_STRIPE",
@@ -436,6 +438,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "{\"orchestrator\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"explorer\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"fixer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-sonnet-5-5\"},\"reviewer\":{\"harness\":\"opencode\",\"model\":\"opencode-go/gpt-6.1-sol\"},\"designer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-opus-5-5\"}}",
     ...configVars([
       "AUTOMATIONS_ENABLED",
+      "VAULT_WRITE_V2",
       "AGENT_HARNESS",
       "CLAUDE_CODE_MODEL",
       // T48: dark by default — may violate Anthropic terms when enabled.
