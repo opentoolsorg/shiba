@@ -180,3 +180,12 @@ export async function resolveUserId(
   }
   return getUserId(request);
 }
+
+/** Resolve the route gate and dashboard owner from the same session result. */
+export async function resolveRequestIdentity(
+  request: Request,
+  env: Env,
+): Promise<{ userId: string | null; authorized: boolean }> {
+  const userId = await resolveUserId(request, env);
+  return { userId, authorized: isAuthenticated(request, env) || (isBetterAuthConfigured(env) && userId !== null) };
+}

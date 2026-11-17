@@ -628,12 +628,33 @@ export async function resolveBetterAuthUserId(
   return account && (account.policy.kind === "bootstrap" || account.emailVerified) ? account.policy.email : null;
 }
 
-/** Always re-read provenance, verification and session revocation from D1, even with cookie-cache hits. */
-export async function resolveBetterAuthSessionAccount(
+type SessionAccount = { policy: BetterAuthAccountPolicy; emailVerified: boolean; sessionId?: string; sessionExpiresAt?: number };
+const sessionAccounts = new WeakMap<Request, WeakMap<BetterAuthLaneEnv, Promise<SessionAccount | null>>>();
+
+/** Re-read D1 once per request, including cookie-cache hits. Clones resolve independently. */
+export function resolveBetterAuthSessionAccount(
   request: Request,
   env: BetterAuthLaneEnv,
   redact: SecretRedactor = identityRedact,
-): Promise<{ policy: BetterAuthAccountPolicy; emailVerified: boolean; sessionId?: string; sessionExpiresAt?: number } | null> {
+): Promise<SessionAccount | null> {
+  let byEnv = sessionAccounts.get(request);
+  if (!byEnv) {
+    byEnv = new WeakMap();
+    sessionAccounts.set(request, byEnv);
+  }
+  let account = byEnv.get(env);
+  if (!account) {
+    account = readSessionAccount(request, env, redact);
+    byEnv.set(env, account);
+  }
+  return account;
+}
+
+async function readSessionAccount(
+  request: Request,
+  env: BetterAuthLaneEnv,
+  redact: SecretRedactor,
+): Promise<SessionAccount | null> {
   if (!isBetterAuthConfigured(env) || env.AGENT_AUDIT === undefined || !requestHasBetterAuthSessionCredential(request)) {
     return null;
   }
