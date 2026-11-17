@@ -12,6 +12,7 @@
  *   compatibility_date/_flags     -> compatibility.{date,flags}
  *   assets.{directory,not_found_handling} -> assets.{directory,notFoundHandling}
  *   preview_urls: false           -> workersDev.previewsEnabled: false
+ *   previews: {}                  -> Wrangler CLI opt-in; Alchemy previews use stage stacks
  *   vars                          -> env string entries
  *   ai.binding                    -> env AI: Cloudflare.Workers.AI()
  *   worker_loaders[].binding      -> env LOADER: Cloudflare.WorkerLoader(...)

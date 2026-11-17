@@ -16,6 +16,7 @@
   // Version preview URLs are reachable without a Cloudflare Access policy;
   // the header-only Worker gate is not authentication on its own.
   "preview_urls": false,
+  "previews": {},
   // workers.dev subdomain stays disabled — app.tryshiba.dev is the only
   // public host. (With `routes` present wrangler defaults this to false;
   // stated explicitly so the alchemy workersDev parity is unmissable.)
