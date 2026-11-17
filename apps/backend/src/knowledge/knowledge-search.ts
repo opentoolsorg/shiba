@@ -32,35 +32,40 @@ async function vectorCandidates(env: Env, workspaceId: string, vector: number[])
     returnMetadata: true,
     filter: { workspace: workspaceId, kind: "knowledge" },
   });
-  const out: RankedChunk[] = [];
-  for (const match of matches.matches ?? []) {
-    const meta = match.metadata as Record<string, string | number> | undefined;
-    if (!meta?.chunkId || !meta.sourceKind || !meta.sourceId) continue;
-    out.push({
-      chunkId: String(meta.chunkId),
-      sourceKind: meta.sourceKind === "note" ? "note" : "file",
-      sourceId: String(meta.sourceId),
-      ordinal: Number(meta.ordinal ?? 0),
-      text: String(meta.text ?? ""),
-      workspaceId: String(meta.workspace ?? workspaceId),
-      scope: meta.scope === "workspace" ? "workspace" : "personal",
-      createdBy: String(meta.createdBy ?? ""),
-    });
-  }
-  return out;
+  const ids = (matches.matches ?? []).map((match) => match.id);
+  if (!ids.length) return [];
+  // Vector deletion is asynchronous; D1 is authoritative for text and source state.
+  const chunks = await currentChunks(env, workspaceId, `kc.id IN (${ids.map(() => "?").join(",")})`, ids);
+  const byId = new Map(chunks.map((chunk) => [chunk.chunkId, chunk]));
+  return ids.flatMap((id) => {
+    const chunk = byId.get(id);
+    return chunk ? [chunk] : [];
+  });
 }
 
 async function ftsCandidates(env: Env, workspaceId: string, query: string): Promise<RankedChunk[]> {
+  return currentChunks(env, workspaceId, "knowledge_fts MATCH ?", [query], true);
+}
+
+async function currentChunks(
+  env: Env,
+  workspaceId: string,
+  predicate: string,
+  values: string[],
+  fts = false,
+): Promise<RankedChunk[]> {
   const rows = await env.AGENT_AUDIT.prepare(
-    `SELECT kc.id AS chunk_id, kc.source_kind, kc.source_id, kc.ordinal, kc.text, kc.workspace_id, kc.scope,
-            COALESCE(f.created_by, n.created_by) AS created_by
-     FROM knowledge_fts
-     JOIN knowledge_chunks kc ON kc.id = knowledge_fts.chunk_id
+    `SELECT kc.id AS chunk_id, kc.source_kind, kc.source_id, kc.ordinal, kc.text, kc.workspace_id,
+            COALESCE(f.scope, n.scope) AS scope, COALESCE(f.created_by, n.created_by) AS created_by
+     FROM knowledge_chunks kc
+     ${fts ? "JOIN knowledge_fts ON kc.id = knowledge_fts.chunk_id" : ""}
      LEFT JOIN files f ON kc.source_kind = 'file' AND f.id = kc.source_id
      LEFT JOIN notes n ON kc.source_kind = 'note' AND n.id = kc.source_id
-     WHERE knowledge_fts MATCH ? AND kc.workspace_id = ?
-     ORDER BY bm25(knowledge_fts) LIMIT ?`,
-  ).bind(query, workspaceId, FTS_TOP_K).all<{
+     WHERE ${predicate} AND kc.workspace_id = ?
+       AND ((f.version = kc.version AND f.archived_at IS NULL AND f.workspace_id = kc.workspace_id)
+         OR (n.version = kc.version AND n.archived_at IS NULL AND n.workspace_id = kc.workspace_id))
+     ${fts ? `ORDER BY bm25(knowledge_fts) LIMIT ${FTS_TOP_K}` : ""}`,
+  ).bind(...values, workspaceId).all<{
     chunk_id: string; source_kind: string; source_id: string; ordinal: number; text: string;
     workspace_id: string; scope: string; created_by: string;
   }>();
