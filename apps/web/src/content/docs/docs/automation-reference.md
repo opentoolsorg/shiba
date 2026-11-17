@@ -33,6 +33,14 @@ Create a record with `POST /api/automations`, using your installation's dashboar
 
 The per-automation webhook secret is returned only when the automation is created. Send it in the `x-automation-secret` header. Query-string secrets are not accepted.
 
+### Signed inbound webhooks
+
+Webhook routines also accept `POST /api/hooks/{id}`. Creation returns a separate `hookSecret` once; it is encrypted at rest using `MODEL_CREDENTIAL_KEY`. Without that key, secret creation and rotation fail closed. Existing routines can generate a secret using **Rotate secret** in Routines or `POST /api/automations/{id}/hook-secret`. **Revoke secret** (`DELETE` on the same path) immediately disables signed deliveries; rotation invalidates the previous secret. These management actions require dashboard authentication. Save the returned secret securely: it cannot be retrieved later.
+
+Send `X-Shiba-Timestamp` (Unix seconds), `X-Shiba-Delivery-Id` (unique per event), and `X-Shiba-Signature: sha256=<hex>`. Compute HMAC-SHA256 with the secret string as the UTF-8 key over the exact UTF-8 body prefixed by `timestamp.deliveryId.`. Alternatively use Standard Webhooks: `webhook-id`, `webhook-timestamp`, and `webhook-signature` containing space-separated `v1,<base64>` signatures; sign `deliveryId.timestamp.body` with the base64-decoded bytes after `whsec_`.
+
+Timestamps more than five minutes in either direction are rejected (401). Bodies are limited to 32,000 bytes. A valid repeated delivery ID for the same routine returns `200` with `duplicate: true` for seven days, without requesting another run. Receipt storage requires the D1 migrations; unavailable storage returns 503. Retry failed deliveries with the same ID and a fresh timestamp/signature. Signed deliveries use the existing enabled, condition, budget and human-approval gates; payloads are marked untrusted external data, never tool or approval configuration. Signed deliveries do not use legacy webhook batching. `/api/trigger` and the legacy automation trigger endpoint are unchanged.
+
 ## Work targets and pinned instructions
 
 The recipe gallery uses repository tasks. The API accepts an explicit `executionTarget` for either a repository or an artifact workspace:

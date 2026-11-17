@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { routineCron, routineSourceFromRun } from "../routines";
-import { RepeatRoutineDialog } from "./RoutinesView";
+import { RepeatRoutineDialog, RoutinesList } from "./RoutinesView";
 import { WorkView } from "./WorkView";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
@@ -14,6 +14,26 @@ describe("routine cadence", () => {
   ] as const)("builds %s cron", (preset, expected) => {
     expect(routineCron(preset, "09:15", 3, 20, "0 12 * * 6")).toBe(expected);
   });
+});
+
+it("shows a webhook endpoint, rotates and hides a once-only secret, and revokes", async () => {
+  const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({ hookSecret: "whsec_once" })).mockResolvedValueOnce(Response.json({ ok: true }));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<RoutinesList routines={[{ id: "hook", prompt: "Review event", enabled: true, triggers: [{ kind: "webhook" }] }]} onChanged={vi.fn()} />);
+  expect(screen.getByText(/\/api\/hooks\/hook/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Rotate secret" }));
+  expect(await screen.findByText("whsec_once")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Hide secret" }));
+  expect(screen.queryByText("whsec_once")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Revoke secret" }));
+  await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith("/api/automations/hook/hook-secret", { method: "DELETE" }));
+});
+
+it("reports secret management failures", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Secret storage unavailable" }, { status: 503 })));
+  render(<RoutinesList routines={[{ id: "hook", prompt: "Review event", enabled: true, triggers: [{ kind: "webhook" }] }]} onChanged={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Rotate secret" }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Secret storage unavailable");
 });
 
 it("renders Routines in Tasks, next run, last status and pause control", async () => {
