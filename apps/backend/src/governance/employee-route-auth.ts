@@ -75,7 +75,10 @@ export async function enforceEmployeeRouteAccess(request: Request, env: Env): Pr
     if (route.source === "path") employeeId = decodeURIComponent(route.path.exec(path)![1]!);
     if (route.source === "body") {
       if (!["POST", "PUT", "PATCH"].includes(request.method)) return null;
-      const body = await request.clone().json() as Record<string, unknown>;
+      const body = await request.clone().json().catch((error: unknown) => {
+        if (route.bodyKey === "metadata" && request.method === "POST" && path === "/api/sessions") return {};
+        throw error;
+      }) as Record<string, unknown>;
       const metadata = body.metadata && typeof body.metadata === "object" ? body.metadata as Record<string, unknown> : {};
       const value = route.bodyKey === "metadata" ? metadata.customAgentId : body[route.bodyKey ?? "employeeId"];
       employeeId = typeof value === "string" ? route.bodyKey === "recipientActorId" ? value.startsWith("agent:") ? value.slice(6) : undefined : value : undefined;

@@ -42,6 +42,11 @@ async function fixture() {
 }
 
 describe("employee access", () => {
+  it("leaves empty or unparseable new session bodies to the session handler", async () => {
+    const { env, auth } = await fixture(); auth();
+    for (const body of [undefined, "", "{"]) expect(await enforceEmployeeRouteAccess(new Request("https://app.test/api/sessions", { method: "POST", body }), env)).toBeNull();
+    expect((await enforceEmployeeRouteAccess(new Request("https://app.test/api/runs", { method: "POST", body: "{" }), env))?.status).toBe(400);
+  });
   it("supports workspace query selectors for artifact downloads without overriding conflicting selectors", async () => {
     const { env, sqlite, workspaceId, employee, set, auth } = await fixture(); auth();
     sqlite.exec("CREATE TABLE collaboration_handoffs (tenant_id TEXT,workspace_id TEXT,handoff_id TEXT,recipient_actor_id TEXT)");
