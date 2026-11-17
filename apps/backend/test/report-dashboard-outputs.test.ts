@@ -17,7 +17,10 @@ const state = vi.hoisted(() => ({
   denied: null as Response | null,
   messages: [] as unknown[],
 }));
-vi.mock("../src/request-auth.js", () => ({ isAuthorizedRequest: async (r: Request) => r.headers.get("Authorization") === "Bearer ok" }));
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
+  isAuthorizedRequest: async (r: Request) => r.headers.get("Authorization") === "Bearer ok",
+}));
 vi.mock("../src/team-collaboration-scope.js", () => ({ resolveTeamCollaborationScope: async () => state.scope }));
 vi.mock("../src/collaboration-room-access.js", () => ({ canReadCollaborationRoom: async () => state.canRead, collaborationRoomName: () => "test-room" }));
 vi.mock("../src/artifact-access.js", () => ({ assertSandboxArtifactAccess: async () => state.denied }));
