@@ -11,7 +11,9 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { acceptTeamWorkspaceInvitation, createTeamWorkspace, createTeamWorkspaceInvitation } from "../src/team-workspaces-store.js";
 
 const auth = vi.hoisted(() => ({ userId: "owner@example.test", authorized: true }));
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
+  resolveRequestIdentity: vi.fn(async () => ({ authorized: auth.authorized, userId: auth.userId })),
   isAuthorizedRequest: vi.fn(async () => auth.authorized),
   resolveUserId: vi.fn(async () => auth.userId),
 }));

@@ -19,7 +19,7 @@ import {
   inspectProviderSignIn,
   type SignInLanes,
 } from "./provider-sign-in.js";
-import { rejectCrossSiteDashboardMutation, requireJsonContentType, resolveUserId } from "./request-auth.js";
+import { rejectCrossSiteDashboardMutation, requireJsonContentType, resolveRequestIdentity } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 import { InputError } from "./security.js";
 
@@ -31,7 +31,7 @@ export interface ProviderRouteDeps extends ProviderDeps {
 }
 
 async function orgFor(request: Request, env: Env): Promise<string> {
-  const id = await resolveUserId(request, env);
+  const { userId: id } = await resolveRequestIdentity(request, env);
   return id !== null && id.trim() !== "" ? id.trim() : "default";
 }
 

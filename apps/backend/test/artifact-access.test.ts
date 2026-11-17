@@ -11,7 +11,8 @@ const mocks = vi.hoisted(() => ({
   getAgentByName: vi.fn(),
 }));
 vi.mock("agents/routing", () => ({ getAgentByName: mocks.getAgentByName }));
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: async () => mocks.authorized,
   resolveUserId: async () => mocks.userId,
 }));
