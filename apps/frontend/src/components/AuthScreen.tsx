@@ -1,7 +1,7 @@
 /**
  * AuthScreen — the built-in dashboard login (better-auth lane). Rendered
- * when /api/whoami 401s with `code: "better-auth"`, i.e. the deployment has
- * no Cloudflare Access app but does have BETTER_AUTH_SECRET.
+ * for password recovery routes and when /api/whoami requires built-in
+ * authentication with BETTER_AUTH_SECRET configured.
  *
  * Sign-in, first-owner bootstrap and explicitly enabled invitation enrollment
  * share the form. Invited users must independently verify their email before
@@ -80,6 +80,7 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
     typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("token") ?? "",
   );
   const [resetSent, setResetSent] = useState(false);
+  const [passwordUpdated, setPasswordUpdated] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -189,10 +190,14 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
         body: JSON.stringify({ newPassword: password, token }),
       }), AUTH_CLIENT_TIMEOUT_MS);
       if (!response.ok) {
-        setError("Password could not be reset.");
+        setError("This reset link is invalid or has expired. Request a new reset email.");
         return;
       }
-      onSignedIn();
+      setPassword("");
+      setResetToken("");
+      setMode("signin");
+      setPasswordUpdated(true);
+      window.history.replaceState(null, "", "/app/");
     } catch (caught) {
       setError(caught instanceof AuthTimeoutError ? caught.message : "Could not reach the auth service.");
     } finally {
@@ -341,7 +346,7 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
               />
             </label>
           ) : null}
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
+          {mode !== "reset" ? <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
             Email
             <input
               type="email"
@@ -351,7 +356,7 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
               onChange={(event) => setEmail(event.target.value)}
               className="w-full min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--input)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]"
             />
-          </label>
+          </label> : null}
           {mode === "reset" ? (
             <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
               Reset token
@@ -398,10 +403,12 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
               />
             </label>
           ) : null}
+          {passwordUpdated ? <p role="status" className="text-sm text-[var(--muted-foreground-2)]">Password updated. Sign in with your new password.</p> : null}
           {resetSent ? <p role="status" className="text-sm text-[var(--muted-foreground-2)]">If the address exists, a reset link is on its way.</p> : null}
           {error ? (
             <p role="alert" className="text-sm text-[var(--destructive)] ">
               {error}
+              {mode === "reset" ? <a href="/auth/forgot" className="block underline">Request a new reset link</a> : null}
             </p>
           ) : null}
           {verificationPending ? <p role="status" className="text-sm text-[var(--muted-foreground-2)]">

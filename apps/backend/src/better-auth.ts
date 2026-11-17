@@ -89,6 +89,12 @@ export async function handleBetterAuth(
   env: Env,
   options: { teamMemberPolicyEnabled?: boolean } = {},
 ): Promise<Response | null> {
+  const path = new URL(request.url).pathname;
+  if (request.method === "POST" && /^\/api\/auth\/(?:request-password-reset|reset-password)\/?$/.test(path) && env.AUTH_RATE_LIMIT) {
+    const result = await env.AUTH_RATE_LIMIT.limit({ key: `password-reset:${request.headers.get("CF-Connecting-IP") ?? "unknown"}` });
+    if (!result.success) return Response.json({ error: "Too many requests. Try again later." },
+      { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": "60" } });
+  }
   return handleBetterAuthLane(request, env, redactSecrets, enrollmentAdapter(env, options.teamMemberPolicyEnabled === true), bootstrapVerificationAdapter(env));
 }
 
