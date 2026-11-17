@@ -209,7 +209,7 @@ describe("CollaborationView room access polling", () => {
       { viewerId: "11111111-1111-4111-8111-111111111111", label: "teammate@example.test", typing: true },
     ] }));
     expect(screen.getByLabelText("Room live connection").textContent).toContain("Live updates connected");
-    expect(screen.getByLabelText("Online room members").textContent).toContain("teammate@example.test is typing");
+    expect(screen.getByLabelText("Typing").textContent).toContain("teammate is typing");
   });
 
   it("clears revoked room content and ignores an in-flight HTTP reload arriving afterward", async () => {
@@ -1582,4 +1582,72 @@ describe("workspace room patches", () => {
     await waitFor(() => expect(screen.getByText("Remote room")).toBeTruthy());
     expect(screen.getByText("Remote message")).toBeTruthy();
   });
+});
+
+it("starts a live DM from a member profile and opens the DM list", async () => {
+  const peer = { actorId: "human:peer@example.test", userId: "peer@example.test", displayName: "Peer", actorKind: "human", role: "member", status: "active" };
+  const dm = { roomId: "dm-1", title: "Peer DM", visibility: "private", kind: "dm", unreadCount: 2 };
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path === "/api/collaboration/dms" && init?.method === "POST") return Response.json({ dm });
+    if (path === "/api/collaboration/rooms?kind=dm") return Response.json({ rooms: [dm] });
+    if (path.startsWith("/api/collaboration/rooms?") || path === "/api/collaboration/rooms") return Response.json({ rooms: [roomDetail.room] });
+    if (path === "/api/collaboration/rooms/room-1") return Response.json({ ...roomDetail, members: [...roomDetail.members, peer] });
+    if (path === "/api/collaboration/rooms/dm-1") return Response.json({ ...roomDetail, room: dm, members: [...roomDetail.members, peer] });
+    return Response.json({ agents: [], computers: [] });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(<CollaborationView initialRoomId="room-1" />);
+  await screen.findByRole("button", { name: "Message Peer" });
+  fireEvent.click(screen.getByRole("button", { name: "Message Peer" }));
+  await screen.findByRole("heading", { name: "Peer DM" });
+  expect(screen.getByRole("tab", { name: /DMs/ }).getAttribute("aria-selected")).toBe("true");
+  const call = fetcher.mock.calls.find(([path, init]) => path === "/api/collaboration/dms" && init?.method === "POST");
+  expect(JSON.parse(String(call?.[1]?.body))).toEqual({ userId: peer.userId });
+});
+
+it("attributes a handoff and takes it back through the existing cancellation action", async () => {
+  let cancelled = false;
+  const handoff = { handoffId: "handoff-1", taskId: "Review", senderActorId: "human:member@example.test", recipientActorId: "agent:writer", status: "active", depth: 0, remainingBudget: 1, createdAt: 1 };
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path === "/api/collaboration/handoffs/handoff-1/cancel" && init?.method === "POST") { cancelled = true; return Response.json({ cancelled: true }); }
+    if (path.startsWith("/api/collaboration/rooms?") || path === "/api/collaboration/rooms") return Response.json({ rooms: [roomDetail.room] });
+    if (path === "/api/collaboration/rooms/room-1") return Response.json({ ...roomDetail,
+      members: [...roomDetail.members, { actorId: "agent:writer", userId: "member@example.test", displayName: "Writer", actorKind: "agent", role: "agent" }],
+      handoffs: [{ ...handoff, status: cancelled ? "cancelled" : "active" }] });
+    return Response.json({ agents: [], computers: [] });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(<CollaborationView initialRoomId="room-1" />);
+  await screen.findByRole("heading", { name: "Shared room" });
+  fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+  expect(screen.getByText("Member handed to @Writer")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Take it back" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Take it back" })).toBeNull());
+  expect(cancelled).toBe(true);
+});
+
+it("keeps a member's last-seen time after their live presence expires", async () => {
+  const sockets: RoomSocket[] = [];
+  vi.stubGlobal("WebSocket", class extends RoomSocket { constructor() { super(); sockets.push(this); } });
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === "/api/collaboration/rooms") return jsonResponse({ rooms: [roomDetail.room] });
+    if (path === "/api/collaboration/rooms/room-1") return jsonResponse(roomDetail);
+    return jsonResponse({ agents: [], computers: [] });
+  }));
+  render(<CollaborationView />);
+  await screen.findByText("Confidential room note");
+  await waitFor(() => expect(sockets).toHaveLength(1));
+  act(() => sockets[0]!.open());
+  const lastSeenAt = 1_700_000_000_000;
+  act(() => sockets[0]!.receive({ type: "collaboration:presence", roomId: "room-1", viewers: [
+    { viewerId: "11111111-1111-4111-8111-111111111111", label: roomDetail.currentUserId, typing: false, status: "online", lastSeenAt },
+  ] }));
+  expect(screen.getByText(`online · Last seen ${new Date(lastSeenAt).toLocaleString()}`)).toBeTruthy();
+  act(() => sockets[0]!.receive({ type: "collaboration:presence", roomId: "room-1", viewers: [] }));
+  expect(screen.getByText(`offline · Last seen ${new Date(lastSeenAt).toLocaleString()}`)).toBeTruthy();
+  act(() => sockets[0]!.close(1008));
+  expect(screen.queryByText(/Last seen/)).toBeNull();
 });
