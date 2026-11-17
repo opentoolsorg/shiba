@@ -231,9 +231,9 @@ describe("channel adapter outbound details", () => {
   it("passes Slack native options through on post and edit", async () => {
     const slack = capture({ ok: true, channel: "C1", ts: "1.2" });
     const adapter = slackChannel.createAdapter({ SLACK_BOT_TOKEN: "x" } as Env, { fetch: slack.fetchImpl })!;
-    await adapter.post({ placeId: "C1", text: "hi", native: { unfurl_links: false, blocks: [] } });
-    await adapter.edit({ ref: { placeId: "C1", messageId: "1.2" }, text: "hi", native: { unfurl_links: false } });
-    expect(JSON.parse(slack.calls[0]!.body)).toMatchObject({ unfurl_links: false, blocks: [] });
+    await adapter.post({ placeId: "C1", threadId: "1.1", text: "hi", native: { unfurl_links: false, blocks: [], channel: "C9", thread_ts: "9.9" } });
+    await adapter.edit({ ref: { placeId: "C1", messageId: "1.2" }, text: "hi", native: { unfurl_links: false, channel: "C9", ts: "9.9" } });
+    expect(JSON.parse(slack.calls[0]!.body)).toMatchObject({ unfurl_links: false, blocks: [], channel: "C1", thread_ts: "1.1" });
     expect(JSON.parse(slack.calls[1]!.body)).toEqual({ channel: "C1", ts: "1.2", text: "hi", unfurl_links: false });
   });
 });
