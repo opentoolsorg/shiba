@@ -69,8 +69,12 @@ describe("employee access", () => {
   });
   it("supports workspace query selectors for artifact downloads without overriding conflicting selectors", async () => {
     const { env, sqlite, workspaceId, employee, set, auth } = await fixture(); auth();
-    sqlite.exec("CREATE TABLE collaboration_handoffs (tenant_id TEXT,workspace_id TEXT,handoff_id TEXT,recipient_actor_id TEXT)");
-    sqlite.prepare("INSERT INTO collaboration_handoffs VALUES (?,?, 'handoff',?)").run(COLLAB_TENANT_ID, workspaceId, `agent:${employee.id}`);
+    await ensureCollaborationSchema(env);
+    const scope = { tenantId: COLLAB_TENANT_ID, workspaceId, userId: owner };
+    await createCollaborationRoom(env, scope, { roomId: "room", title: "Artifacts", visibility: "private", createdAt: 1 });
+    await addCollaborationMember(env, scope, "room", { userId: owner, displayName: "Finance", actorId: `agent:${employee.id}`, kind: "agent", profileVersion: 1, createdAt: 2 });
+    sqlite.prepare(`INSERT INTO collaboration_handoffs (tenant_id,workspace_id,handoff_id,recipient_actor_id,room_id,task_id,sender_user_id,sender_actor_id,recipient_user_id,root_handoff_id,depth,ancestor_handoff_ids_json,remaining_budget,granted_capabilities_json,status,created_at)
+      VALUES (?,?,'handoff',?,'room','task',?,?,?,'handoff',0,'[]',4,'[]','active',1)`).run(COLLAB_TENANT_ID, workspaceId, `agent:${employee.id}`, owner, `human:${owner}`, owner);
     const url = `https://app.test/api/collaboration/rooms/room/handoffs/handoff/artifacts/0?workspaceId=${workspaceId}`;
     expect(await enforceEmployeeRouteAccess(new Request(url), env)).toBeNull();
     expect(new Headers(vi.mocked(resolveOrgForApiRequest).mock.lastCall?.[0].headers).get("X-Shiba-Workspace")).toBe(workspaceId);
@@ -80,7 +84,7 @@ describe("employee access", () => {
   });
   it("hides employee sessions and resolves resume authority from stored metadata", async () => {
     const { env, employee, workspaceId, auth, set } = await fixture(); auth();
-    const session = { id: "ses_1234567890abcdef12345678", name: "Finance", createdAt: 1, updatedAt: 1, metadata: { customAgentId: employee.id, orgId: `team:${workspaceId}`, teamWorkspaceId: workspaceId } };
+    const session = { id: "11111111-1111-4111-8111-111111111111", userId: member, name: "Finance", createdAt: 1, updatedAt: 1, metadata: { customAgentId: employee.id, orgId: `team:${workspaceId}`, teamWorkspaceId: workspaceId } };
     const fetch = vi.fn(async (url: string) => Response.json(url.endsWith("/web-sessions") ? { sessions: [session] } : { session }));
     vi.mocked(getAgentByName).mockResolvedValue({ fetch } as never);
     const headers = { "X-Shiba-Workspace": workspaceId };
