@@ -13,7 +13,7 @@ import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTempl
 import { AgentAvatar as MascotAvatar } from "./AgentAvatar";
 import { AgentTemplatesCatalog } from "./AgentTemplatesCatalog";
 import { AgentAvatar } from "./AgentExperience";
-import type { AgentTemplate } from "@shiba/shared";
+import type { AgentTemplate, EmployeeAccessLevel } from "@shiba/shared";
 import { PrimaryBotPicker } from "./collab/PrimaryBotPicker";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
 
@@ -122,6 +122,22 @@ function ScopedCustomAgentsView({
     return () => { alive.current = false; };
   }, []);
   const [agents, setAgents] = useState<CustomAgentWire[] | null>(null);
+  const [callerLevels, setCallerLevels] = useState<Record<string, EmployeeAccessLevel>>({});
+  const canManage = (id: string) => !workspaceId || callerLevels[id] === "manage";
+  useEffect(() => {
+    if (!workspaceId || !agents) return;
+    let cancelled = false;
+    setCallerLevels({});
+    void Promise.all(agents.map(async (agent) => {
+      try {
+        const response = await fetch(`/api/governance/employees/${encodeURIComponent(agent.id)}/access`, { headers: teamWorkspaceHeaders(workspaceId) });
+        if (!response.ok) return [agent.id, "none"] as const;
+        const body = await response.json() as { level: EmployeeAccessLevel };
+        return [agent.id, body.level] as const;
+      } catch { return [agent.id, "none"] as const; }
+    })).then((levels) => { if (!cancelled && isActive()) setCallerLevels(Object.fromEntries(levels)); });
+    return () => { cancelled = true; };
+  }, [agents, workspaceId, isActive]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -267,6 +283,7 @@ function ScopedCustomAgentsView({
   };
 
   const startEdit = (agent: CustomAgentWire) => {
+    if (!canManage(agent.id)) return;
     focusName();
     setPendingTemplate(null);
     setEditingId(agent.id);
@@ -299,13 +316,15 @@ function ScopedCustomAgentsView({
   useEffect(() => {
     if (!initialAgentId || appliedInitialAgent.current === initialAgentId || !agents) return;
     const agent = agents.find((item) => item.id === initialAgentId);
+    if (workspaceId && agent && !callerLevels[agent.id]) return;
     appliedInitialAgent.current = initialAgentId;
     if (agent) { setSelectedAgentId(agent.id); startEdit(agent); }
     onInitialAgentApplied?.();
-  }, [initialAgentId, agents, onInitialAgentApplied]);
+  }, [initialAgentId, agents, onInitialAgentApplied, callerLevels, workspaceId]);
 
   const saveAgent = async () => {
     if (!isActive() || savingAgent.current || busy) return;
+    if (editingId && !canManage(editingId)) return;
     if (pendingTemplate) {
       setNotice({ tone: "err", text: "Keep your current draft or confirm its replacement before saving." });
       return;
@@ -388,7 +407,7 @@ function ScopedCustomAgentsView({
   };
 
   const changeLifecycle = async (agent: CustomAgentWire, action: "archive" | "restore") => {
-    if (!isActive() || busy) return;
+    if (!isActive() || busy || !canManage(agent.id)) return;
     setBusy(true);
     setNotice(null);
     try {
@@ -422,7 +441,7 @@ function ScopedCustomAgentsView({
   };
 
   const deleteAgent = async (id: string) => {
-    if (!isActive() || busy) return;
+    if (!isActive() || busy || !canManage(id)) return;
     setBusy(true);
     setNotice(null);
     try {
@@ -532,8 +551,8 @@ function ScopedCustomAgentsView({
               <h3 className="text-xs font-medium">Instructions</h3>
               <p className="mt-1 whitespace-pre-wrap break-words text-sm text-[var(--ink-2)]">{selectedAgent.config.instructions}</p>
               {!workspaceId ? <EmployeeRoutines key={selectedAgent.id} employeeId={selectedAgent.id} /> : null}
-              {workspaceId ? <EmployeeAccessSettings key={selectedAgent.id} workspaceId={workspaceId} employeeId={selectedAgent.id} /> : null}
-              {!showArchived ? <button type="button" disabled={busy} onClick={() => startEdit(selectedAgent)} className="mt-3 min-h-11 border border-[var(--line)] px-3 text-xs disabled:opacity-50">Edit profile</button> : null}
+              {workspaceId ? <EmployeeAccessSettings key={selectedAgent.id} workspaceId={workspaceId} employeeId={selectedAgent.id} onAccessChange={(level) => setCallerLevels((current) => ({ ...current, [selectedAgent.id]: level }))} /> : null}
+              {!showArchived ? <button type="button" disabled={busy || !canManage(selectedAgent.id)} onClick={() => startEdit(selectedAgent)} className="mt-3 min-h-11 border border-[var(--line)] px-3 text-xs disabled:opacity-50">Edit profile</button> : null}
             </section>
           ) : null}
           {loadError ? <LoadErrorState message={loadError} onRetry={refresh} /> : null}
@@ -611,7 +630,7 @@ function ScopedCustomAgentsView({
                     {onStartThread && !showArchived ? (
                       <button
                         type="button"
-                        disabled={startingAgentId !== null || busy}
+                        disabled={startingAgentId !== null || busy || (Boolean(workspaceId) && !["chat", "manage"].includes(callerLevels[agent.id] ?? "none"))}
                         onClick={() => void startThread(agent)}
                         aria-label={`Launch bot ${agent.config.name}`}
                         className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--primary)] text-[var(--primary)] px-2 py-1 disabled:opacity-50"
@@ -619,13 +638,14 @@ function ScopedCustomAgentsView({
                         {startingAgentId === agent.id ? "Launching…" : "Launch bot"}
                       </button>
                     ) : null}
-                    <button type="button" disabled={busy} onClick={() => void changeLifecycle(agent, showArchived ? "restore" : "archive")}
+                    <button type="button" disabled={busy || !canManage(agent.id)} onClick={() => void changeLifecycle(agent, showArchived ? "restore" : "archive")}
                       aria-label={`${showArchived ? "Restore" : "Archive"} bot ${agent.config.name}`}
                       className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--border-1)] px-2 py-1 disabled:opacity-50">
                       {showArchived ? "Restore bot" : "Archive bot"}
                     </button>
                     {!showArchived ? <button
                       type="button"
+                      disabled={busy || !canManage(agent.id)}
                       onClick={() => startEdit(agent)}
                       className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--border-1)] px-2 py-1"
                     >
@@ -634,6 +654,7 @@ function ScopedCustomAgentsView({
                     {confirmDeleteId === agent.id ? (
                       <button
                         type="button"
+                        disabled={busy || !canManage(agent.id)}
                         onClick={() => void deleteAgent(agent.id)}
                         className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--destructive)]/40 text-[var(--destructive)] px-2 py-1"
                       >
@@ -642,6 +663,7 @@ function ScopedCustomAgentsView({
                     ) : (
                       <button
                         type="button"
+                        disabled={busy || !canManage(agent.id)}
                         onClick={() => setConfirmDeleteId(agent.id)}
                         className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--destructive)]/40 text-[var(--destructive)] px-2 py-1"
                       >
@@ -703,7 +725,7 @@ function ScopedCustomAgentsView({
                 </p>
               ) : null}
 
-              <fieldset disabled={busy} className="min-w-0">
+              <fieldset disabled={busy || (editingId !== null && !canManage(editingId))} className="min-w-0">
               <AgentLookStyler
                 id={form.slug || form.name || "new-agent"}
                 role={employeeRole(form.slug || form.name, (form.roleTemplateId as CustomAgentRoleTemplateId) || undefined)}
@@ -922,7 +944,7 @@ function ScopedCustomAgentsView({
                 </button>
                 <button
                   type="submit"
-                  disabled={busy || pendingTemplate !== null || !form.name.trim() || !form.instructions.trim()}
+                  disabled={busy || (editingId !== null && !canManage(editingId)) || pendingTemplate !== null || !form.name.trim() || !form.instructions.trim()}
                   aria-label={editingId ? "Save changes" : "Create bot"}
                   className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-[var(--primary-text)] shadow-sm hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                 >
