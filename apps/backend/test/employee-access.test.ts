@@ -17,10 +17,13 @@ import { loadRankedBots, primaryActorId } from "../src/collaboration-router-rank
 import { applyCollabV2Migrations } from "./fixtures/collab-v2-migrations.js";
 import { listPaletteBots, searchPaletteBots } from "../src/palette-store.js";
 import { handleCustomAgents } from "../src/custom-agents-routes.js";
+import { handleWebSessions } from "../src/sessions-routes.js";
+import { getAgentByName } from "agents/routing";
 
 vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: vi.fn() }));
 vi.mock("../src/request-auth.js", async (original) => ({ ...await original<typeof import("../src/request-auth.js")>(), resolveUserId: vi.fn() }));
 vi.mock("../src/agent-tokens.js", async (original) => ({ ...await original<typeof import("../src/agent-tokens.js")>(), verifyToken: vi.fn(async () => null) }));
+vi.mock("agents/routing", () => ({ getAgentByName: vi.fn() }));
 const owner = "alice@example.test", member = "bob@example.test";
 async function fixture() {
   const { env, sqlite } = await governanceD1Fixture();
@@ -39,6 +42,24 @@ async function fixture() {
 }
 
 describe("employee access", () => {
+  it("hides employee sessions and resolves resume authority from stored metadata", async () => {
+    const { env, employee, workspaceId, auth, set } = await fixture(); auth();
+    const session = { id: "ses_1234567890abcdef12345678", name: "Finance", createdAt: 1, updatedAt: 1, metadata: { customAgentId: employee.id, orgId: `team:${workspaceId}`, teamWorkspaceId: workspaceId } };
+    const fetch = vi.fn(async (url: string) => Response.json(url.endsWith("/web-sessions") ? { sessions: [session] } : { session }));
+    vi.mocked(getAgentByName).mockResolvedValue({ fetch } as never);
+    const headers = { "X-Shiba-Workspace": workspaceId };
+    const resume = () => new Request(`https://app.test/api/sessions/${session.id}/resume`, { method: "POST", headers });
+    await set("everyone", "*", "none");
+    expect(await (await handleWebSessions(new Request("https://app.test/api/sessions", { headers }), env))?.json()).toMatchObject({ sessions: [] });
+    expect((await enforceEmployeeRouteAccess(resume(), env))?.status).toBe(404);
+    await set("everyone", "*", "view");
+    expect((await enforceEmployeeRouteAccess(resume(), env))?.status).toBe(403);
+    expect(await (await handleWebSessions(new Request("https://app.test/api/sessions", { headers }), env))?.json()).toMatchObject({ sessions: [expect.objectContaining({ id: session.id })] });
+    await set("everyone", "*", "chat");
+    expect(await enforceEmployeeRouteAccess(resume(), env)).toBeNull();
+    fetch.mockResolvedValue(Response.json({ error: "Not found" }, { status: 404 }));
+    expect((await enforceEmployeeRouteAccess(resume(), env))?.status).toBe(404);
+  });
   it("does not let human API keys or arbitrary authorization headers bypass access", async () => {
     const { env, employee, workspaceId, set, auth } = await fixture(); auth();
     await set("everyone", "*", "none");

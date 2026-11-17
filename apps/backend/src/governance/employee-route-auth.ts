@@ -4,9 +4,10 @@ import { resolveOrgForApiRequest } from "../org-request-auth.js";
 import { resolveUserId } from "../request-auth.js";
 import { COLLAB_TENANT_ID } from "../collaboration-store.js";
 import { verifyToken } from "../agent-tokens.js";
+import { getAgentByName } from "agents/routing";
 import { employeeAccessDenial, resolveEmployeeAccess } from "./employee-access.js";
 
-type Route = { path: RegExp; required: (method: string) => EmployeeAccessLevel; source: "path" | "body" | "handoff" | "turn" | "turn-body" | "state"; bodyKey?: "recipientActorId" | "metadata" | "customAgentId" };
+type Route = { path: RegExp; required: (method: string) => EmployeeAccessLevel; source: "path" | "body" | "handoff" | "turn" | "turn-body" | "state" | "session"; bodyKey?: "recipientActorId" | "metadata" | "customAgentId" };
 const settings = (method: string): EmployeeAccessLevel => ["GET", "HEAD"].includes(method) ? "view" : "manage";
 export const employeeRouteAuth: readonly Route[] = [
   { path: /^\/api\/custom-agents\/([^/]+)(?:\/.*)?$/, required: settings, source: "path" },
@@ -20,6 +21,7 @@ export const employeeRouteAuth: readonly Route[] = [
   { path: /^\/api\/team-model-sessions\/state$/, required: () => "view", source: "state" },
   { path: /^\/api\/team-model-sessions\/turns\/([^/]+)\/(approve|execute)$/, required: () => "chat", source: "turn" },
   { path: /^\/api\/sessions(?:\/[^/]+)?$/, required: () => "chat", source: "body", bodyKey: "metadata" },
+  { path: /^\/api\/sessions\/([^/]+)\/resume$/, required: () => "chat", source: "session" },
   { path: /^\/api\/runs$/, required: () => "chat", source: "body", bodyKey: "customAgentId" },
 ];
 
@@ -39,6 +41,15 @@ export async function enforceEmployeeRouteAccess(request: Request, env: Env): Pr
   if (!userId) return Response.json({ error: "Authentication required." }, { status: 401 });
   let employeeId: string | undefined;
   try {
+    if (route.source === "session") {
+      const stub = await getAgentByName(env.CodingOrchestrator, userId);
+      const response = await stub.fetch(`https://internal/internal/web-sessions/${encodeURIComponent(decodeURIComponent(route.path.exec(path)![1]!))}`);
+      if (!response.ok) return Response.json({ error: "Session not found." }, { status: 404 });
+      const body = await response.json() as { session?: { metadata?: Record<string, unknown> } };
+      const metadata = body.session?.metadata;
+      if (!metadata || metadata.orgId !== auth.orgId || metadata.teamWorkspaceId !== workspaceId) return Response.json({ error: "Session not found." }, { status: 404 });
+      employeeId = typeof metadata.customAgentId === "string" ? metadata.customAgentId : undefined;
+    }
     if (route.source === "state" && env.AGENT_AUDIT) {
       const roomId = new URL(request.url).searchParams.get("roomId") ?? "";
       const exists = await env.AGENT_AUDIT.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='team_model_funding'").first();
