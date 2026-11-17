@@ -296,6 +296,12 @@ async function commitAutomationFire(
   if (!recheck) {
     return { fired: false, automation, reason: "No matching trigger." };
   }
+  if (recheck.trigger.kind === "schedule" && automation.skipWhilePending !== false &&
+      automation.occurrences?.some((occurrence) => occurrence.outcome === "approval-pending" ||
+        (occurrence.outcome === "queue-outcome-unknown" && occurrence.scheduledAt !== recheck.scheduleOccurrenceMs))) {
+    const reason = "Previous routine run is still waiting for approval.";
+    return { fired: false, automation: recordSkip(automation, reason, nowMs), reason };
+  }
   const burst = burstWindowReason(automation, recheck.trigger, nowMs);
   if (burst !== null) {
     const skipped = recordSkip(automation, burst, nowMs);
