@@ -5327,6 +5327,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (!run || !isActiveStatus(run.status)) return null;
     // Cancellation is deliberately unfenced: it is allowed to win races.
     const updated = this.store.transition(runId, "cancelled", { errorCode: "cancelled" });
+    if (updated?.routineRun) this.holdOpen(settleRoutineWorkflowRun(this.env, updated).catch((error) => {
+      console.error("Routine outcome persistence failed", redactSecrets(String(error)));
+    }));
     this.runControllers.get(runId)?.abort();
     this.stampCheckpoint(runId, "terminal");
     logStructured("info", {

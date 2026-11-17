@@ -14,6 +14,9 @@ import { approveDirect } from "./seeding.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { signInternalRequest } from "../src/edge-identity.js";
 import { LOCAL_INTAKE_HEADER } from "@shiba/shared";
+import { readFileSync } from "node:fs";
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { insertAutomationWorkflowRun, patchAutomationWorkflowRun, listAutomationWorkflowRuns } from "../src/platform/automation-workflow-store.js";
 
 // The release path always destroys the run's sandbox — route it through
 // the resolver seam so the suite never loads the real @cloudflare/sandbox
@@ -81,6 +84,26 @@ describe("T8 parseAgentResult", () => {
 });
 
 describe("T8 orchestrator structured result", () => {
+  it("settles cancelled routine workflows and ignores a late child result", async () => {
+    const orchestrator = makeOrchestrator();
+    const db = customAgentD1();
+    for (const migration of ["0055_automation_workflow_runs.sql", "0061_routine_outcomes.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+    orchestrator.env.AGENT_AUDIT = db.database;
+    const pending: Promise<unknown>[] = [];
+    orchestrator.ctx = { waitUntil: (promise: Promise<unknown>) => pending.push(promise) };
+    vi.spyOn(orchestrator, "postToThread").mockImplementation(() => {});
+    vi.spyOn(orchestrator, "releaseSandboxForRun").mockResolvedValue(undefined);
+    const row = await insertAutomationWorkflowRun(orchestrator.env, { automationId: "nightly", commandId: "cancel-command" });
+    await patchAutomationWorkflowRun(orchestrator.env, row.id, { status: "dispatched", approval_id: "cancel-routine" });
+    approveDirect(orchestrator, "cancel-routine", { ...DELEGATE_INPUT, routineRun: { automationId: "nightly", test: false } });
+    await orchestrator.cancelRun("agent-tool:cancel-routine");
+    await Promise.all(pending);
+    const child = vi.fn(async () => formatAgentResult(completedResult()));
+    await orchestrator.executeDelegatedTask(DELEGATE_INPUT, child, "cancel-routine");
+    expect(child).not.toHaveBeenCalled();
+    expect((await listAutomationWorkflowRuns(orchestrator.env, "nightly"))[0]).toMatchObject({ status: "failed", outcome: "failed", failure_reason: "Run cancelled.", run_id: "agent-tool:cancel-routine" });
+  });
+
   it("ignores a caller-supplied routine marker at intake", async () => {
     const orchestrator = makeOrchestrator();
     orchestrator.name = "default";
