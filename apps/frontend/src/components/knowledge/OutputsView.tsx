@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type JSX } from "react";
 import { Download } from "lucide-react";
 import { LoadErrorState } from "../LoadErrorState";
 import { MainCard } from "../ui/ContextPanel";
+import { VideoArtifactPlayer } from "../VideoArtifactPlayer";
 
 interface OutputItem {
   id: string;
@@ -48,6 +49,7 @@ export function OutputsView(): JSX.Element {
               <div className="min-w-0">
                 <p className="truncate font-medium">{item.title}</p>
                 <p className="text-xs text-[var(--muted-foreground-2)]">{item.kind} · {item.mime}</p>
+                {item.mime === "video/mp4" && <VideoArtifactPlayer src={item.downloadPath} title={item.title} />}
               </div>
               <a className="inline-flex items-center gap-1 rounded border border-[var(--border-1)] px-2 py-1 text-xs" href={item.downloadPath}>
                 <Download size={12} /> Download

@@ -22,6 +22,7 @@ export interface ApprovalCardProps {
 }
 
 export function ApprovalCard({ approval, decided, decision, onDecideApproval, agentName, reviewAfterPublish, conflict, onClaimChoice }: ApprovalCardProps): JSX.Element {
+  const videoGeneration = approval.tool === "generate_video";
   const rawTestCommand =
     typeof approval.input === "object" && approval.input !== null && !Array.isArray(approval.input)
       ? (approval.input as Record<string, unknown>)["testCommand"]
@@ -36,7 +37,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
     <div className="bg-[var(--bg)] overflow-hidden">
       <div className="flex items-center px-4 min-h-11 text-xs text-[var(--muted-foreground-2)]" role="status">
         {decided && decision !== undefined
-          ? decision ? "Approved — sandbox starting" : "Denied. This decision is final."
+          ? decision ? videoGeneration ? "Approved — paid video generation permitted" : "Approved — sandbox starting" : "Denied. This decision is final."
           : decided ? "Decision recorded" : "Waiting for your approval"}
       </div>
       <div className="p-4 flex flex-col gap-3">
@@ -104,11 +105,13 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
       ) : null}
 
       <p className="text-xs text-[var(--muted-foreground-2)] leading-relaxed">
-        Approve to run this in an isolated sandbox with the payload above. Reject to cancel — no container starts.
+        {videoGeneration
+          ? "Approve to generate this video using your connected provider. This spends money on that provider account. Reject to cancel before generation starts."
+          : "Approve to run this in an isolated sandbox with the payload above. Reject to cancel — no container starts."}
       </p>
 
       <div className="flex flex-wrap items-center gap-3 pt-1">
-        <Tooltip content="Approve tool execution inside isolated container" side="top">
+        <Tooltip content={videoGeneration ? "Approve paid video generation" : "Approve tool execution inside isolated container"} side="top">
           <button
             type="button"
             className="bg-[var(--inverse)] hover:bg-[var(--inverse-hover)] text-[var(--inverse-text)] font-medium min-h-11 min-w-11 px-4 rounded-lg transition-colors disabled:opacity-60 text-sm flex items-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"

@@ -153,8 +153,11 @@ export async function handleFiles(request: Request, env: Env): Promise<Response 
   }
 
   if (suffix === "/download" && request.method === "GET") {
-    const bucket = filesBucket(env);
-    const object = await bucket.get((await env.AGENT_AUDIT.prepare(`SELECT r2_key FROM files WHERE id=?`).bind(fileId).first<{ r2_key: string }>())!.r2_key);
+    const stored = await env.AGENT_AUDIT.prepare(`SELECT r2_key FROM files WHERE id=?`).bind(fileId).first<{ r2_key: string }>();
+    if (!stored) return json({ error: "File bytes missing." }, 404);
+    const bucket = stored.r2_key.startsWith("outputs/videos/") ? env.ARTIFACTS : filesBucket(env);
+    if (!bucket) return json({ error: "File storage unavailable." }, 503);
+    const object = await bucket.get(stored.r2_key);
     if (!object) return json({ error: "File bytes missing." }, 404);
     return new Response(object.body, {
       headers: {

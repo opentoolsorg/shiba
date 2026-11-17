@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import type { RunDeliverable, RunStatus } from "@shiba/shared";
+import { VideoArtifactPlayer } from "./VideoArtifactPlayer";
 
 interface ArtifactVersion {
   runId: string;
@@ -240,6 +241,7 @@ function ArtifactDetails({
       <span className="text-[var(--muted-foreground-2)]">
         Captured · {file.bytes.toLocaleString()} bytes · {file.mediaType}
       </span>
+      {file.mediaType === "video/mp4" && <VideoArtifactPlayer src={href} title={filePath} />}
       <code className="text-[10px] break-all text-[var(--muted-foreground-2)]">
         SHA-256: {file.sha256}
       </code>
