@@ -72,9 +72,11 @@ export async function setEmployeeAccess(env: AccessEnv, workspaceId: string, emp
   const employee = await getCustomAgentById({ AGENT_AUDIT: env.AGENT_AUDIT }, `team:${workspaceId}`, employeeId);
   if (!employee) throw new GovernanceError("Employee not found.", 404);
   const level = employeeAccessLevelSchema.safeParse(input.level);
-  if (!level.success) throw new GovernanceError("Invalid employee access level.");
+  const inherit = input.level === "inherit";
+  if (!level.success && !inherit) throw new GovernanceError("Invalid employee access level.");
   const kind = input.principalKind;
   if (kind !== "everyone" && kind !== "user" && kind !== "group") throw new GovernanceError("Invalid principal kind.");
+  if (inherit && kind === "everyone") throw new GovernanceError("Everyone requires an explicit level.");
   let principalId = typeof input.principalId === "string" ? input.principalId.trim() : "";
   let name = "Everyone";
   if (kind === "everyone") principalId = "*";
@@ -91,14 +93,16 @@ export async function setEmployeeAccess(env: AccessEnv, workspaceId: string, emp
     name = group.name;
   }
   const before = (await listEmployeeAccess(env, workspaceId, employeeId)).find((grant) => grant.principalKind === kind && grant.principalId === principalId)?.level ?? null;
-  if (before === level.data) return;
-  const detail = JSON.stringify({ workspaceId, employeeId, employeeName: employee.config.name, actorName: actorId, principalKind: kind, principalId, principalName: name, before, after: level.data });
+  const after = level.success ? level.data : null;
+  if (before === after) return;
+  const detail = JSON.stringify({ workspaceId, employeeId, employeeName: employee.config.name, actorName: actorId, principalKind: kind, principalId, principalName: name, before, after });
   await initAudit({ AGENT_AUDIT: env.AGENT_AUDIT });
   await env.AGENT_AUDIT.batch([
-    env.AGENT_AUDIT.prepare(`INSERT INTO employee_access (tenant_id,workspace_id,employee_id,principal_kind,principal_id,principal_name,level)
+    inherit ? env.AGENT_AUDIT.prepare(`DELETE FROM employee_access WHERE tenant_id=? AND workspace_id=? AND employee_id=? AND principal_kind=? AND principal_id=?`)
+      .bind(COLLAB_TENANT_ID, workspaceId, employeeId, kind, principalId) : env.AGENT_AUDIT.prepare(`INSERT INTO employee_access (tenant_id,workspace_id,employee_id,principal_kind,principal_id,principal_name,level)
       VALUES (?,?,?,?,?,?,?) ON CONFLICT(tenant_id,workspace_id,employee_id,principal_kind,principal_id)
       DO UPDATE SET principal_name=excluded.principal_name, level=excluded.level`)
-      .bind(COLLAB_TENANT_ID, workspaceId, employeeId, kind, principalId, name, level.data),
+      .bind(COLLAB_TENANT_ID, workspaceId, employeeId, kind, principalId, name, after),
     env.AGENT_AUDIT.prepare(`INSERT INTO audit_log (id,ts,principal,tool,args_hash,outcome,detail) VALUES (?,?,?,?,?,?,?)`)
       .bind(`aud-${randomHex(16)}`, Date.now(), actorId, "employee.access.changed", await hashOpaqueToken(detail), "ok", detail),
   ]);

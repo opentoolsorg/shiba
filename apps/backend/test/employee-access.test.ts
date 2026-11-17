@@ -42,6 +42,26 @@ async function fixture() {
 }
 
 describe("employee access", () => {
+  it("removes user and group overrides to inheritance with named before-to-null audit entries", async () => {
+    const { env, sqlite, workspaceId, set, resolve } = await fixture();
+    const group = await createWorkspaceGroup(env, workspaceId, owner, { name: "Finance team" });
+    await addWorkspaceGroupMember(env, workspaceId, owner, group.groupId, member);
+    await set("everyone", "*", "view");
+    await set("group", group.groupId, "chat");
+    await set("user", member, "none");
+    await set("user", member, "inherit");
+    expect(await resolve()).toBe("chat");
+    await set("group", group.groupId, "inherit");
+    expect(await resolve()).toBe("view");
+    const removals = sqlite.prepare("SELECT detail FROM audit_log WHERE json_extract(detail,'$.after') IS NULL").all() as { detail: string }[];
+    expect(removals.map((row) => JSON.parse(row.detail))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ principalName: member, before: "none", after: null }),
+      expect.objectContaining({ principalName: "Finance team", before: "chat", after: null }),
+    ]));
+    await set("user", member, "inherit");
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM audit_log").get()).toMatchObject({ n: 5 });
+    await expect(set("everyone", "*", "inherit")).rejects.toThrow("Everyone requires an explicit level");
+  });
   it("leaves empty or unparseable new session bodies to the session handler", async () => {
     const { env, auth } = await fixture(); auth();
     for (const body of [undefined, "", "{"]) expect(await enforceEmployeeRouteAccess(new Request("https://app.test/api/sessions", { method: "POST", body }), env)).toBeNull();
