@@ -9,10 +9,10 @@ import type { StripeEnv } from "../src/founder-stripe-store.js";
 import type { WorkspaceNativeMember } from "../src/workspace-native-authority.js";
 
 const state = vi.hoisted(() => ({ proof: null as unknown, member: null as WorkspaceNativeMember | null, session: null as { id: string; expiresAt: number } | null }));
-vi.mock("../src/founder-reconciliation-sources.js", () => ({ loadReconciliationSources: async () => state.proof }));
+vi.mock("../src/founder/founder-reconciliation-sources.js", () => ({ loadReconciliationSources: async () => state.proof }));
 vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: async () => ({ workspace: state.member, principal: null }) }));
 vi.mock("../src/workspace-native-authority.js", async original => ({ ...await original<typeof import("../src/workspace-native-authority.js")>(), resolveWorkspaceNativeMember: async () => state.member }));
-vi.mock("../src/founder-reconciliation-session.js", async original => ({ ...await original<typeof import("../src/founder-reconciliation-session.js")>(), reconciliationSession: async () => state.session }));
+vi.mock("../src/founder/founder-reconciliation-session.js", async original => ({ ...await original<typeof import("../src/founder/founder-reconciliation-session.js")>(), reconciliationSession: async () => state.session }));
 afterEach(() => vi.restoreAllMocks());
 
 async function fixture() {
