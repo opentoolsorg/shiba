@@ -79,6 +79,15 @@ describe("signed hook ingress", () => {
     expect(f.fire).toHaveBeenCalledOnce();
     expect(await (await f.request()).json()).toEqual({ ok: true, duplicate: true });
   });
+  it("rejects oversized final tasks before claiming a receipt, including escaping overhead", async () => {
+    const f = await fixture();
+    const response = await f.request("large", f.secret, "hook", "<".repeat(1000));
+    expect(response.status).toBe(413);
+    expect(await response.text()).toContain("4000-character task limit");
+    expect(f.receipts.size).toBe(0);
+    expect(f.fire).not.toHaveBeenCalled();
+    expect((await f.request("large", f.secret, "hook", "small")).status).toBe(200);
+  });
   it("returns the same auth denial for unknown and revoked routes, and rotates once", async () => {
     const f = await fixture();
     expect((await f.request("one", f.secret, "missing")).status).toBe(401);
