@@ -13,7 +13,7 @@
  * builder, the dispatch DO's records, and (mirrored in JS) the daemon.
  */
 import { artifactWorkspaceExecutionTargetSchema, type ArtifactWorkspaceExecutionTarget } from "./execution-target.js";
-import { expectedDeliverablesSchema } from "./deliverables.js";
+import { expectedDeliverablesSchema, MAX_HTML_DELIVERABLE_BYTES, MAX_PDF_DELIVERABLE_BYTES } from "./deliverables.js";
 import { z } from "zod";
 import { REASONING_EFFORTS } from "./model.js";
 import { personalExecutionClaimSchema, type PersonalExecutionClaim } from "./personal-execution.js";
@@ -136,9 +136,14 @@ export const localRunResultSchema = z.object({
   files: z.array(
     z.object({
       path: z.string().min(1).max(1024),
-      content: z.string().max(200_000).nullable(),
+      content: z.string().max(Math.ceil(MAX_PDF_DELIVERABLE_BYTES / 3) * 4).nullable(),
       encoding: z.enum(["utf8", "base64"]),
-    }),
+    }).refine((file) => {
+      const cap = /\.pdf$/i.test(file.path) && file.encoding === "base64"
+        ? Math.ceil(MAX_PDF_DELIVERABLE_BYTES / 3) * 4
+        : /\.html$/i.test(file.path) && file.encoding === "utf8" ? MAX_HTML_DELIVERABLE_BYTES : 200_000;
+      return file.content === null || file.content.length <= cap;
+    }, { message: "Captured file exceeds its transport limit." }),
   ).max(128),
   testEvidence: z
     .object({

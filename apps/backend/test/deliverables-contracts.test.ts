@@ -28,7 +28,7 @@ describe("expected deliverable contracts", () => {
   it.each([
     "/report.md", "../report.md", "reports/../report.md", "./report.md", ".private/report.md",
     "reports/.private.md", "reports//report.md", "C:/report.md", "reports\\report.md", "report.md\0",
-    "report\n.md", "report.exe", "report.html", "report.md ", " reports.md", "reports/ report.md",
+    "report\n.md", "report.exe", "report.svg", "report.md ", " reports.md", "reports/ report.md",
     "report.md/", "report.md?x=1", "report.md#fragment", "x".repeat(238) + ".md",
   ])("rejects unsafe or unsupported path %j", (path) => {
     expect(expectedDeliverablesSchema.safeParse([path]).success).toBe(false);

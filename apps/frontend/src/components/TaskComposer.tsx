@@ -45,7 +45,7 @@ import { formatBytes } from "../ui-helpers";
 import { AgentConversationEmpty } from "./AgentExperience";
 import type { SavedSkill } from "../saved";
 import { HARNESS_REASONING_EFFORTS, type ConnectedComputer, type CustomAgentRoleTemplateId, type ReasoningEffort } from "@shiba/shared";
-import { hasComposerInput, parseArtifactDeliverables } from "../execution-target-input";
+import { hasComposerInput, OUTPUT_QUICK_PICKS, parseArtifactDeliverables } from "../execution-target-input";
 import { describeTaskRoute } from "../supported-task-routes";
 import { useVoiceInput } from "../hooks/useVoiceInput";
 
@@ -1080,9 +1080,17 @@ export function TaskComposer({
             className={`${inputClass} resize-y font-mono`}
             placeholder="deliverables/brief.md"
           />
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Output quick picks">
+            {OUTPUT_QUICK_PICKS.map((pick) => (
+              <button key={pick.path} type="button" className="rounded-full border border-[var(--border-1)] px-2 py-0.5 text-[11px] text-[var(--fg)] hover:bg-[var(--card)]"
+                onClick={() => onArtifactDeliverablesChange?.(pick.path)}>
+                {pick.label}
+              </button>
+            ))}
+          </div>
           <p className="text-[10px] leading-relaxed text-[var(--muted-foreground-2)]">
             {runTarget === "local"
-              ? "List the complete UTF-8 files to export: at most 8 files, 16 KiB each, 64 KiB total. Only approved paths are captured after approval."
+              ? "List the files to export: at most 8 files. Text 16 KiB, HTML 512 KiB, PDF 10 MiB each. Only approved paths are captured after approval."
               : "Leave blank to collect all final files in out/ as a ZIP. Drafts are saved as workspace artifacts after approval."}
           </p>
         </div>

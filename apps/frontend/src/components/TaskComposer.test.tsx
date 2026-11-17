@@ -275,6 +275,15 @@ describe("TaskComposer", () => {
     expect((screen.getByRole("button", { name: "Send task" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("quick picks fill the expected deliverables with a sensible filename", () => {
+    const onArtifactDeliverablesChange = vi.fn();
+    renderComposer("docked", { executionTargetKind: "artifact-workspace", artifactDeliverables: "", onArtifactDeliverablesChange, task: "Quarterly numbers", repoUrl: "" });
+    for (const [label, path] of [["Report (Markdown)", "report.md"], ["Dashboard (HTML)", "dashboard.html"], ["Spreadsheet (CSV)", "data.csv"], ["PDF", "report.pdf"]]) {
+      fireEvent.click(screen.getByRole("button", { name: label! }));
+      expect(onArtifactDeliverablesChange).toHaveBeenLastCalledWith(path);
+    }
+  });
+
   it.each(["", " \n\t"])("submits an ephemeral artifact task with an automatic output bundle (%j)", (artifactDeliverables) => {
     const onSubmit = vi.fn();
     renderComposer("docked", { executionTargetKind: "artifact-workspace", artifactDeliverables, task: "Draft a brief", repoUrl: "", onSubmit });
