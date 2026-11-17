@@ -7,6 +7,7 @@ import { formatAgentResult } from "../src/opencode-input.js";
 import { signSlackBufferRequest, SlackTurnBuffer, type SlackBufferStorage } from "../src/slack-turn-buffer.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
+import { createRun } from "../src/runs.js";
 
 const THREAD = "slack:T1:C1:1700.0001";
 const KEY = "integration-only-slack-buffer-signing-key";
@@ -136,6 +137,46 @@ beforeEach(() => { vi.resetAllMocks(); mocks.destroy.mockResolvedValue(undefined
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("Slack buffering at the orchestrator boundary", () => {
+  it("returns no continuation for an unengaged thread", async () => {
+    const { instance } = host();
+    expect(await (await sendBuffer(instance)).json()).toEqual({ buffered: false, continuation: null });
+    expect(instance.state.runs).toEqual([]);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("returns the latest root run target after rehydration without exposing tasks or creating work", async () => {
+    const original = createRun({ runId: "older", sandboxId: "s1", repoUrl: REPO, task: "private task", baseBranch: "main", publishPullRequest: true, now: 1 });
+    const latest = { ...createRun({ runId: "latest", sandboxId: "s2", repoUrl: "", task: "another private task", baseBranch: "develop", publishPullRequest: false, now: 2,
+      customAgentId: "employee-1", customAgentVersion: 3, orgId: "team:one", employeeToolPolicyVersion: 3,
+      runtime: "local", targetMachineId: "machine-1",
+      executionTarget: { kind: "artifact-workspace", workspaceId: "retained", expectedDeliverables: [] },
+      route: { purpose: "coding", connectionId: null, modelId: "openai/gpt-5", harness: "codex", policyVersion: 1 },
+    }), status: "completed" as const };
+    const child = createRun({ runId: "child", parentRunId: "latest", sandboxId: "s3", repoUrl: REPO, task: "child", baseBranch: "main", publishPullRequest: true, now: 3 });
+    const reviewer = createRun({ runId: "reviewer", reviewOf: "latest", sandboxId: "s4", repoUrl: REPO, task: "review", baseBranch: "main", publishPullRequest: false, now: 4 });
+    const restored = structuredClone({ runs: [{ ...original, status: "completed" as const }, latest, { ...child, status: "completed" as const }, { ...reviewer, status: "completed" as const }] });
+    const { instance } = host(undefined, restored);
+    const response = await sendBuffer(instance);
+    const body = await response.json();
+    expect(body).toEqual({ buffered: false, continuation: {
+      repoUrl: "", baseBranch: "develop", publishPullRequest: false, customAgentId: "employee-1", customAgentVersion: 3,
+      orgId: "team:one", employeeToolPolicyVersion: 3, runtime: "local", targetMachineId: "machine-1", harness: "codex", codingModel: "openai/gpt-5",
+      executionTarget: latest.executionTarget,
+    } });
+    expect(instance.state).toEqual(restored);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("allows a signed acknowledgment lookup during an active run without buffering it", async () => {
+    const { instance, storage } = host();
+    const run = await startApprovedRun(instance);
+    const response = await sendBuffer(instance, { lookupOnly: true, text: "thanks" });
+    expect(await response.json()).toMatchObject({ buffered: false, continuation: { repoUrl: REPO } });
+    expect(await new SlackTurnBuffer(storage).claim()).toBeNull();
+    expect(instance.state.pendingApprovals).toHaveLength(1);
+    run.settle();
+  });
+
   it("refuses unsigned author spoofing and changed signed bodies without minting approvals", async () => {
     const { instance } = host();
     const unsigned = await instance.onRequest(bufferRequest());

@@ -11,6 +11,8 @@ In the [Slack app dashboard](https://api.slack.com/apps), create an app from the
 
 The manifest registers `/shiba`, subscribes to mentions and direct messages, and enables the message scopes Shiba uses. Reinstall the app after changing its scopes.
 
+Keep `chat:write`, `chat:write.customize` and `reactions:write` among the bot scopes. Shiba uses `reactions:write` to acknowledge short thank-you replies with a check mark instead of another approval card. Existing installations need administrator review and reauthorization for the added scope.
+
 ## Configure delivery
 
 | Slack setting | Shiba endpoint |
