@@ -111,6 +111,7 @@ export const ACCESS_BYPASS_PATHS = [
   "/api/slack/interact",
   "/api/telegram/webhook",
   "/api/discord/interactions",
+  "/api/teams/messages",
   "/api/github/webhook",
   "/api/linear/webhook",
   // Sentry issue alerts authenticate in-Worker via the hook signature or
