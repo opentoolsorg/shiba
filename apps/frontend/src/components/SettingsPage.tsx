@@ -84,6 +84,7 @@ export const SETTINGS_PAGE_NAV_GROUPS: SettingsNavGroup[] = [
       { id: "sandbox", label: "Sandbox", blurb: SETTINGS_SECTION_LABELS.sandbox.blurb, icon: Box },
       { id: "repositories", label: "Repositories", blurb: SETTINGS_SECTION_LABELS.repositories.blurb, icon: GitBranch },
       { id: "environments", label: "Environments", blurb: SETTINGS_SECTION_LABELS.environments.blurb, icon: Server },
+      { id: "slack", label: "Slack", blurb: SETTINGS_SECTION_LABELS.slack.blurb, icon: Webhook },
       { id: "slack-import", label: "Slack import", blurb: SETTINGS_SECTION_LABELS["slack-import"].blurb, icon: Download },
     ],
   },
