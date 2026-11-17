@@ -19,20 +19,22 @@ const PACKAGE_JSON = JSON.parse(readFileSync(join(BACKEND, "package.json"), "utf
 /** `npm i -g pkg@ver ...` line → { package: version }. */
 function npmGlobalPins(dockerfile: string): Record<string, string> {
   const lines = dockerfile.split(/\r?\n/);
-  let index = lines.findIndex((line) => line.includes("npm i -g "));
-  if (index < 0) {
+  if (!lines.some((line) => line.includes("npm i -g "))) {
     throw new Error("Dockerfile has no `npm i -g` install line for harness CLIs");
   }
-  let command = lines[index]!.split("npm i -g ", 2)[1]!;
-  while (command.trimEnd().endsWith("\\")) {
-    command = `${command.trimEnd().slice(0, -1)} ${lines[++index]?.trim() ?? ""}`;
-  }
   const pins: Record<string, string> = {};
-  for (const spec of command.split("&&", 1)[0]!.trim().split(/\s+/)) {
-    // Scoped packages carry a second @ between name and version: @scope/name@1.2.3.
-    const at = spec.lastIndexOf("@");
-    if (at <= 0) continue;
-    pins[spec.slice(0, at)] = spec.slice(at + 1);
+  for (let index = 0; index < lines.length; index++) {
+    if (!lines[index]!.includes("npm i -g ")) continue;
+    let command = lines[index]!.split("npm i -g ", 2)[1]!;
+    while (command.trimEnd().endsWith("\\")) {
+      command = `${command.trimEnd().slice(0, -1)} ${lines[++index]?.trim() ?? ""}`;
+    }
+    for (const spec of command.split("&&", 1)[0]!.trim().split(/\s+/)) {
+      // Scoped packages carry a second @ between name and version: @scope/name@1.2.3.
+      const at = spec.lastIndexOf("@");
+      if (at <= 0) continue;
+      pins[spec.slice(0, at)] = spec.slice(at + 1);
+    }
   }
   return pins;
 }
@@ -89,6 +91,11 @@ describe("Dockerfile pins", () => {
     expect(Object.keys(npmPins).sort()).toEqual(
       [...new Set(Object.values(PIN_SOURCE).flatMap((source) => source.npm ? [source.npm] : []))].sort(),
     );
+  });
+
+  it("parses pins from separate install layers", () => {
+    expect(npmGlobalPins("RUN npm i -g first@1\nRUN npm i -g @scope/second@2"))
+      .toEqual({ first: "1", "@scope/second": "2" });
   });
 
   it("copies sandbox-shim from the @cloudflare/sandbox npm version", () => {

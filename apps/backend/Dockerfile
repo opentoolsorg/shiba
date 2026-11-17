@@ -35,11 +35,30 @@ ENV PATH="/opt/shiba-tools/bin:${PATH}"
 # `--acp` natively; opencode ≥1.18.34 ships the `acp` subcommand.
 # `command -v` probes below fail the build if
 # an adapter renames its bin.
-RUN npm i -g opencode-ai@1.18.34 @anthropic-ai/claude-code@2.1.284 @openai/codex@0.157.1 @xai-official/grok@1.0.41 \
-    @earendil-works/pi-coding-agent@1.3.0 @agentclientprotocol/claude-agent-acp@0.86.0 @agentclientprotocol/codex-acp@2.1.1 @google/gemini-cli@0.62.0 \
-  && opencode --version && claude --version && codex --version && grok --version && pi --version && gemini --version \
-  && command -v claude-agent-acp codex-acp && opencode acp --help >/dev/null \
-  && gemini --help 2>&1 | grep -q -- '--acp'
+RUN npm i -g opencode-ai@1.18.34 \
+  && opencode --version && opencode acp --help >/dev/null \
+  && npm cache clean --force
+RUN npm i -g @anthropic-ai/claude-code@2.1.284 \
+  && claude --version \
+  && npm cache clean --force
+RUN npm i -g @openai/codex@0.157.1 \
+  && codex --version \
+  && npm cache clean --force
+RUN npm i -g @xai-official/grok@1.0.41 \
+  && grok --version \
+  && npm cache clean --force
+RUN npm i -g @earendil-works/pi-coding-agent@1.3.0 \
+  && pi --version \
+  && npm cache clean --force
+RUN npm i -g @agentclientprotocol/claude-agent-acp@0.86.0 \
+  && command -v claude-agent-acp \
+  && npm cache clean --force
+RUN npm i -g @agentclientprotocol/codex-acp@2.1.1 \
+  && command -v codex-acp \
+  && npm cache clean --force
+RUN npm i -g @google/gemini-cli@0.62.0 \
+  && gemini --version && gemini --help 2>&1 | grep -q -- '--acp' \
+  && npm cache clean --force
 
 # Cursor Agent CLI — checksum-verified, version-pinned like the other CLIs.
 # The tarball ships dist-package/ (the cursor-agent binary plus its native
