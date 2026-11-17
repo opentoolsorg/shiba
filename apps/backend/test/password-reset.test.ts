@@ -1,12 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleBetterAuth, resolveBetterAuthUserId } from "../src/better-auth.js";
 import type { Env } from "../src/env.js";
 import { deliverEmailOutboxMessage } from "../src/email/delivery.js";
 import { enqueueTransactionalEmail } from "../src/email/outbox.js";
 
-const emailOutboxMigration = readFileSync(new URL("../migrations/0040_email_outbox.sql", import.meta.url), "utf8");
 const BASE = "https://team.example.test";
 const owner = "owner@example.test";
 const databases: DatabaseSync[] = [];
@@ -14,7 +13,7 @@ afterEach(() => { vi.restoreAllMocks(); for (const db of databases.splice(0)) db
 function fixture() {
   const sqlite = new DatabaseSync(":memory:");
   databases.push(sqlite);
-  sqlite.exec(emailOutboxMigration);
+  applyAllMigrations(sqlite);
   const bindValue = (value: unknown): never => (value instanceof Date ? value.getTime() : typeof value === "boolean" ? Number(value) : value ?? null) as never;
   const prepared = (sql: string, params: unknown[] = []) => ({
     bind: (...args: unknown[]) => prepared(sql, args),
