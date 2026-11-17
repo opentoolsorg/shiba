@@ -12,6 +12,7 @@ export function taskReadiness(state: LoadState<SetupStatus>, route: TaskRouteSel
   if (route.runTarget === "local") return { blocked: false, message: "Local runs use the paired computer's provider setup. The server checks the computer and approval before starting." };
   if (state.kind === "loading") return { blocked: true, message: "Checking model setup before handoff…" };
   if (state.kind === "error") return { blocked: true, message: "Unable to check model setup. Retry the check or open Settings → Models." };
+  if (state.data.modelRoute?.ready === false) return { blocked: true, message: "Connect ChatGPT or Claude to run tasks. Open Settings → Providers." };
   if (!state.data.models || !Array.isArray(state.data.doctor?.roles)) return { blocked: true, message: "Model setup diagnostics are unavailable. Retry the check or open Settings → Models." };
   const harness = route.harness || state.data.models.harness;
   const model = route.codingModel || state.data.models.coding;
