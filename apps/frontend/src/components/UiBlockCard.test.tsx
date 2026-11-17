@@ -120,6 +120,15 @@ describe("UiBlockCard", () => {
 });
 
 describe("UiBlockQuestions", () => {
+  it("keeps supported cards visible alongside an unsupported stored block's fallback", async () => {
+    mockFetch(200, { questions: [
+      { runId: "thread:ui-task:old", blockId: "future", block: null, fallbackText: "Unsupported question fallback", status: "pending" },
+      { runId: "thread:ui-task:new", blockId: quick.id, block: quick, fallbackText: "Fallback", status: "pending" },
+    ] });
+    render(<UiBlockQuestions runId="thread" />);
+    expect(await screen.findByText("Unsupported question fallback")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Next" })).toBeTruthy();
+  });
   it("fetches the DO thread's questions and mounts question cards", async () => {
     const fetcher = mockFetch(200, { questions: [{ blockId: quick.id, block: quick, fallbackText: "Fallback", status: "pending" }] });
     render(<UiBlockQuestions runId={props.runId} sessionId="session" />);

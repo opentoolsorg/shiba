@@ -1460,6 +1460,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return { ownerId, runId: uiBlockRunId(this.name, taskId) };
     }, {
       onCreated: (question) => {
+        if (!question.block) return;
         const rendered = parseSlackThreadName(this.name) ? renderUiBlockToSlack(question.block, { runId: question.runId }) : null;
         const text = rendered?.text ?? question.fallbackText;
         for (let offset = 0; offset < text.length; offset += 3000) {

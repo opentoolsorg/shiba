@@ -34,6 +34,21 @@ function tool(env: Env, deps: AskUiDependencies = {}) {
 }
 
 describe("UI block store", () => {
+  it("lists unsupported stored blocks with their fallback without hiding supported questions", async () => {
+    const { env, sqlite } = fixture();
+    await createUiBlock(env, "owner", "thread:ui-task:first", block);
+    await createUiBlock(env, "owner", "thread:ui-task:second", block);
+    sqlite.prepare("UPDATE ui_block_questions SET block_json=? WHERE run_id=?").run(JSON.stringify({ ...block, version: 99, type: "future" }), "thread:ui-task:first");
+    const listed = await handleUiBlocks(new Request("https://example.test/api/runs/thread/ui-blocks"), env);
+    expect(listed?.status).toBe(200);
+    const body = await listed!.json() as { questions: { runId: string; block: unknown; fallbackText: string }[] };
+    expect(body.questions).toHaveLength(2);
+    expect(body.questions.find((question) => question.runId === "thread:ui-task:first")).toMatchObject({ block: null, fallbackText: expect.stringContaining("Next?") });
+    expect(body.questions.find((question) => question.runId === "thread:ui-task:second")?.block).toEqual(block);
+    const response = await handleUiBlocks(new Request("https://example.test/api/runs/thread%3Aui-task%3Afirst/ui-blocks/question/answer", { method: "POST", headers: { Origin: "https://example.test", "Content-Type": "application/json" }, body: JSON.stringify(answer) }), env);
+    expect(response?.status).toBe(400);
+    expect(await response!.json()).toMatchObject({ error: "unsupported_block" });
+  });
   it("creates once, replays identical blocks, and isolates owner/run scopes", async () => {
     const { env, sqlite } = fixture();
     expect((await createUiBlock(env, "owner", "run", block)).created).toBe(true);
