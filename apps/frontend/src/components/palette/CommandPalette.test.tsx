@@ -60,6 +60,34 @@ describe("CommandPalette", () => {
     expect(screen.getByRole("group", { name: "Bots" })).toBeTruthy();
   });
 
+  it("lists extra navigation actions before the user types a query", async () => {
+    render(
+      <CommandPalette
+        open
+        workspaceId={workspaceId}
+        roomThreadOpen={false}
+        needsYouCount={1}
+        settings={settings}
+        extraActions={[{ id: "nav-collaboration", label: "Go to Collaboration", run: () => {} }]}
+        onClose={() => {}}
+        onNewTask={() => {}}
+        onNewChannel={() => {}}
+        onOpenBot={() => {}}
+        onOpenChat={() => {}}
+        onOpenTask={() => {}}
+        onOpenSettings={() => {}}
+        onOpenNeedsYou={() => {}}
+        onToggleTheme={() => {}}
+        onOpenShortcuts={() => {}}
+        onInsertAgentMention={() => {}}
+        onSearchAll={() => {}}
+        onMessageAbout={() => {}}
+      />,
+    );
+    await screen.findByRole("option", { name: /Talia/ });
+    expect(screen.getByText("Go to Collaboration")).toBeTruthy();
+  });
+
   it("filters static items while keeping server rows", async () => {
     renderPalette();
     await screen.findByRole("option", { name: /Talia/ });
