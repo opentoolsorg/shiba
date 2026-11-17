@@ -9,6 +9,25 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const block = { version: 1, id: "question", type: "quick_replies", prompt: "Next?", options: [{ id: "keep", label: "Keep" }, { id: "delete", label: "Delete", danger: true }] };
 describe("inbound fallback answers", () => {
+  it("preserves separate fields in a multiline Slack form reply", async () => {
+    const { database, sqlite } = customAgentD1();
+    try {
+      sqlite.exec(readFileSync(new URL("../migrations/0061_ui_block_questions.sql", import.meta.url), "utf8"));
+      const env = { AGENT_AUDIT: database, CHAT_EMPLOYEE_ACTOR: "owner", SLACK_APPROVERS: "U1" } as unknown as Env;
+      const runId = uiBlockRunId("slack:T1:C1:123.000001", "form-task");
+      await createUiBlock(env, "owner", runId, { version: 1, id: "details", type: "form", prompt: "Provide details", submitLabel: "Submit", fields: [
+        { id: "name", label: "Name", kind: "text", required: true },
+        { id: "reason", label: "Reason", kind: "textarea", required: true },
+      ] });
+      const bufferMessage = vi.fn();
+      const queueRun = vi.fn();
+      const postMessage = vi.fn(async () => {});
+      await handleSlackEvent({ team_id: "T1", event_id: "form-answer", event: { type: "message", channel: "C1", user: "U1", thread_ts: "123.000001", ts: "123.000002", text: "<@BOT> Name: Ada\nReason: Fix the issue" } } as never, env, { bufferMessage, queueRun, postMessage });
+      expect(await getUiBlock(env, "owner", runId, "details")).toMatchObject({ status: "answered", answeredVia: "fallback", answer: { values: { name: "Ada", reason: "Fix the issue" } } });
+      expect(bufferMessage).not.toHaveBeenCalled();
+      expect(queueRun).not.toHaveBeenCalled();
+    } finally { sqlite.close(); }
+  });
   it.each(["slack:T1:C1:123.000001", "telegram:12345", "discord:123456789012345678"])("validates authorization, parsing, and current task for %s", async (threadId) => {
     const { database, sqlite } = customAgentD1();
     try {

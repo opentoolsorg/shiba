@@ -142,6 +142,15 @@ function stripMentionMarkers(text: string): string {
   return text.replace(/<@[A-Z0-9]+>/gi, " ").replace(/\s+/g, " ").trim();
 }
 
+function stripMentionMarkersKeepLines(text: string): string {
+  return text
+    .replace(/<@[A-Z0-9]+>/gi, " ")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
 function requireSlackOk(response: Response, json: Record<string, unknown>): void {
   // Slack answers HTTP 200 with {ok:false, error} — check both.
   if (!response.ok || json.ok !== true) {
@@ -299,7 +308,7 @@ export async function handleSlackEvent(
   // No bot token: cannot ask or post a card, so start no run.
   if (!postMessage) return;
 
-  if (await tryAnswerUiBlockFallback(env, buildSlackThreadName(teamId, channelId, threadTs), userId, stripMentionMarkers(mentionText))) {
+  if (await tryAnswerUiBlockFallback(env, buildSlackThreadName(teamId, channelId, threadTs), userId, stripMentionMarkersKeepLines(mentionText))) {
     await postMessage({ channel: channelId, threadTs, text: "Answer recorded." });
     return;
   }
