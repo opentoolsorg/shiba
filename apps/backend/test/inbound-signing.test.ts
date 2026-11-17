@@ -22,6 +22,7 @@ describe("signed inbound webhooks", () => {
   });
   it.each([false, true])("rejects skew and malformed input (standard=%s)", async (standard) => {
     const secret = generateInboundSecret();
+    expect(await verifyInboundSignature(await signed(secret, "c", standard, String(now / 1000), "a.b"), "c", secret, now)).toBeNull();
     for (const timestamp of [String(now / 1000 - 301), String(now / 1000 + 301), "NaN", "", "1.2"]) {
       expect(await verifyInboundSignature(await signed(secret, "", standard, timestamp), "", secret, now)).toBeNull();
     }

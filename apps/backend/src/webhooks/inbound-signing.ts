@@ -9,7 +9,7 @@ export async function verifyInboundSignature(headers: Headers, body: string, sec
   const timestamp = headers.get(shiba ? "x-shiba-timestamp" : "webhook-timestamp") ?? "";
   const id = headers.get(shiba ? "x-shiba-delivery-id" : "webhook-id") ?? "";
   const signature = headers.get(shiba ? "x-shiba-signature" : "webhook-signature") ?? "";
-  if (!/^\d{1,12}$/.test(timestamp) || !id || id.length > 256 || Array.from(id).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) || Math.abs(nowMs / 1000 - Number(timestamp)) > 300) return null;
+  if (!/^\d{1,12}$/.test(timestamp) || !id || id.includes(".") || id.length > 256 || Array.from(id).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) || Math.abs(nowMs / 1000 - Number(timestamp)) > 300) return null;
   try {
     const keyBytes = shiba ? encoder.encode(secret) : Uint8Array.from(atob(secret.replace(/^whsec_/, "")), (c) => c.charCodeAt(0));
     const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
