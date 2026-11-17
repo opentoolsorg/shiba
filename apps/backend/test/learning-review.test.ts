@@ -101,7 +101,7 @@ describe("learning trigger rules", () => {
   });
 
   it("counts main and side threads separately and skips intake, routine and channel threads", () => {
-    const run = { runId: "run-2", continuationKey: undefined, parentRunId: undefined };
+    const run = { runId: "run-2", parentRunId: undefined };
     expect(learningThreadFor("alice", run, "run-1")?.threadKey).toBe("alice#main:run-1");
     expect(learningThreadFor("alice", { ...run, parentRunId: "run-1" })?.threadKey).toBe(
       "alice#side:run-1",

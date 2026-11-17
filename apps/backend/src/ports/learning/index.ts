@@ -130,7 +130,6 @@ export function learningThreadFor(
   run: Pick<
     DelegatedRun,
     | "runId"
-    | "continuationKey"
     | "parentRunId"
     | "collaborationHandoffId"
     | "personalExecution"
@@ -148,7 +147,7 @@ export function learningThreadFor(
   if (typeof decidedBy === "string" && ROUTINE_DECIDER.test(decidedBy)) return null;
   const thread = run.parentRunId
     ? `side:${run.parentRunId}`
-    : `main:${run.continuationKey ?? rootRunId ?? run.forkedFrom?.runId ?? run.runId}`;
+    : `main:${rootRunId ?? run.forkedFrom?.runId ?? run.runId}`;
   const workspaceId = run.orgId ?? DASHBOARD_ORG_ID;
   return {
     threadKey: `${conversationName}#${thread}`,
