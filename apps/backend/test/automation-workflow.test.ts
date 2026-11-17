@@ -12,7 +12,7 @@ import { Automations } from "../src/automations-do.js";
 describe("automation workflow runs", () => {
   it("exposes recent outcomes on a routine detail, and handles empty and missing routines", async () => {
     const db = customAgentD1();
-    for (const migration of ["0055_automation_workflow_runs.sql", "0061_routine_outcomes.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+    for (const migration of ["0055_automation_workflow_runs.sql", "0066_routine_outcomes.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
     const env = { AGENT_AUDIT: db.database } as unknown as Env;
     const automation = createAutomation({ id: "nightly", prompt: "Check", repoUrl: "https://github.com/o/r", triggers: [{ kind: "manual" }] }).automation;
     const ctx = { storage: { get: async () => ({ items: [automation] }) } } as unknown as DurableObjectState;
@@ -28,7 +28,7 @@ describe("automation workflow runs", () => {
     [false, false, "failed", "failed"], [true, false, "failed", "failed"],
   ])("persists precedence and redacted history (%s, %s, %s)", async (noUpdate, test, failureReason, outcome) => {
     const db = customAgentD1();
-    for (const migration of ["0055_automation_workflow_runs.sql", "0061_routine_outcomes.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+    for (const migration of ["0055_automation_workflow_runs.sql", "0066_routine_outcomes.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
     const env = { AGENT_AUDIT: db.database } as unknown as Env;
     const row = await insertAutomationWorkflowRun(env, { automationId: "nightly", commandId: "command" });
     await patchAutomationWorkflowRun(env, row.id, { approval_id: "approved" });
@@ -45,7 +45,7 @@ describe("automation workflow runs", () => {
   });
   it("keeps harness errors failed even when no-update was requested", async () => {
     const db = customAgentD1();
-    for (const migration of ["0055_automation_workflow_runs.sql", "0061_routine_outcomes.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+    for (const migration of ["0055_automation_workflow_runs.sql", "0066_routine_outcomes.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
     const env = { AGENT_AUDIT: db.database } as unknown as Env;
     const row = await insertAutomationWorkflowRun(env, { automationId: "nightly", commandId: "command" });
     await patchAutomationWorkflowRun(env, row.id, { run_id: "run-1" });
@@ -56,7 +56,7 @@ describe("automation workflow runs", () => {
   it("records a dispatched workflow row when D1 is available", async () => {
     const db = customAgentD1();
     db.sqlite.exec(readFileSync(new URL("../migrations/0055_automation_workflow_runs.sql", import.meta.url), "utf8"));
-    db.sqlite.exec(readFileSync(new URL("../migrations/0061_routine_outcomes.sql", import.meta.url), "utf8"));
+    db.sqlite.exec(readFileSync(new URL("../migrations/0066_routine_outcomes.sql", import.meta.url), "utf8"));
     const env = { AGENT_AUDIT: db.database } as unknown as Env;
     const automation = createAutomation({
       id: "auto-1",
