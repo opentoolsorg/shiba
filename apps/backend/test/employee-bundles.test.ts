@@ -47,7 +47,8 @@ describe("personal reviewed employee bundles", () => {
     expect(skill?.activeVersion).toBeUndefined();
     expect(skill?.reviewedVersion).toBeUndefined();
     expect(sqlite.prepare("SELECT recipe_json FROM employee_bundle_imports").get()).toMatchObject({ recipe_json: JSON.stringify(recipe()) });
-    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name IN ('employee_tool_grants','automations')").all()).toEqual([]);
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM employee_tool_grants").get()).toEqual({ n: 0 });
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name='automations'").all()).toEqual([]);
   });
 
   it("reconciles duplicate retries, rejects id reuse for other bytes, and never overwrites profiles", async () => {

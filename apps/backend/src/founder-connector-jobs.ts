@@ -26,34 +26,14 @@ function requireReviewableArguments(value: unknown, depth = 0): void {
   }
 }
 
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS founder_connector_jobs (
-    id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, owner_id TEXT NOT NULL, owner_account_id TEXT NOT NULL,
-    library_id TEXT NOT NULL, member_version INTEGER NOT NULL, member_role TEXT NOT NULL,
-    version INTEGER NOT NULL, digest TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('draft','enabled','paused','revoked','blocked')),
-    contract_json TEXT NOT NULL,source_json TEXT NOT NULL,binding_json TEXT NOT NULL,recipe_sha256 TEXT NOT NULL,
-    expires_at INTEGER NOT NULL,review_expires_at INTEGER NOT NULL,next_due_at INTEGER NOT NULL,
-    checked_at INTEGER NOT NULL,blocked_reason TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,
-    UNIQUE(workspace_id,owner_account_id,library_id))`,
-  `CREATE INDEX IF NOT EXISTS founder_connector_jobs_tick ON founder_connector_jobs(state,checked_at)`,
-  `CREATE TABLE IF NOT EXISTS founder_connector_occurrences (
-    id TEXT PRIMARY KEY,plan_id TEXT NOT NULL,plan_version INTEGER NOT NULL,digest TEXT NOT NULL,
-    scheduled_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,request_id TEXT NOT NULL UNIQUE,approval_id TEXT,
-    state TEXT NOT NULL CHECK(state IN ('open','cancelled','expired')),UNIQUE(plan_id,plan_version,scheduled_at))`,
-  `CREATE INDEX IF NOT EXISTS founder_connector_occurrences_plan ON founder_connector_occurrences(plan_id,state)`,
-];
 interface JobRow {
   id: string; workspace_id: string; owner_id: string; owner_account_id: string; library_id: string; member_version: number; member_role: WorkspaceNativeMember["role"];
   version: number; digest: string; state: FounderConnectorPlan["state"]; contract_json: string; source_json: string; binding_json: string;
   recipe_sha256: string; expires_at: number; review_expires_at: number; next_due_at: number; blocked_reason: string | null;
 }
 interface OccurrenceRow { id: string; plan_id: string; plan_version: number; digest: string; scheduled_at: number; expires_at: number; created_at: number; request_id: string; approval_id: string | null; state: "open" | "cancelled" | "expired" }
-const initialized = new WeakSet<D1Database>();
-export async function ensureFounderConnectorSchema(env: Env) {
+export async function assertFounderConnectorStorage(env: Env) {
   if (!env.AGENT_AUDIT) throw new WorkspaceIntegrationError("founder_connector_storage_unavailable", 503);
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  for (const sql of SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
-  initialized.add(env.AGENT_AUDIT);
 }
 function contract(row: JobRow): FounderConnectorContract { return JSON.parse(row.contract_json) as FounderConnectorContract; }
 function binding(row: JobRow): WorkspaceActionBinding { return JSON.parse(row.binding_json) as WorkspaceActionBinding; }
@@ -70,7 +50,7 @@ function sourceGuard(row: JobRow) {
       contract(row).employeeId, `team:${row.workspace_id}`, contract(row).employeeVersion, row.source_json] };
 }
 async function ownRow(env: Env, member: WorkspaceNativeMember, libraryId: string): Promise<JobRow | null> {
-  await ensureFounderConnectorSchema(env);
+  await assertFounderConnectorStorage(env);
   const actor = membershipSql(member, true);
   return env.AGENT_AUDIT.prepare(`SELECT * FROM founder_connector_jobs WHERE workspace_id=? AND owner_id=? AND owner_account_id=? AND library_id=? AND ${actor.sql}`)
     .bind(member.workspaceId, member.userId, member.accountId, libraryId, ...actor.values).first<JobRow>();
@@ -269,7 +249,7 @@ export async function readFounderConnectorState(env: Env, member: WorkspaceNativ
 /** D1-only tick. It never calls a provider, creates an action approval or executes as a human. */
 export async function tickFounderConnectorJobs(env: Env, fixtureNow?: number): Promise<{ created: number; blocked: number }> {
   if (!env.AGENT_AUDIT) return { created: 0, blocked: 0 };
-  await ensureFounderConnectorSchema(env);
+  await assertFounderConnectorStorage(env);
   const rows = await env.AGENT_AUDIT.prepare("SELECT * FROM founder_connector_jobs WHERE state='enabled' ORDER BY checked_at,id LIMIT 100").all<JobRow>();
   let created = 0, blocked = 0;
   for (const row of rows.results) {

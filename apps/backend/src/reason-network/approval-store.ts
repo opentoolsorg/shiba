@@ -15,38 +15,8 @@ export interface ReasonNetworkPendingApproval extends ReasonNetworkApprovalBindi
   approvalId: string; status: "pending" | "approved" | "denied" | "consumed" | "expired";
   createdAt: number; expiresAt: number; decidedBy?: string; decidedAt?: number;
 }
-const SQL = [
-  `CREATE TABLE IF NOT EXISTS reason_network_grants (
-    grant_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, conversation_id TEXT NOT NULL, session_id TEXT NOT NULL,
-    companion_machine_id TEXT,
-    status TEXT NOT NULL CHECK(status IN ('active','revoked')), created_at INTEGER NOT NULL, revoked_at INTEGER
-  )`,
-  `CREATE INDEX IF NOT EXISTS reason_network_grants_owner ON reason_network_grants(owner_id,status,conversation_id,session_id)`,
-  `CREATE TABLE IF NOT EXISTS reason_network_approvals (
-    approval_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, grant_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
-    session_id TEXT NOT NULL, destination TEXT NOT NULL, message TEXT NOT NULL, idempotency_key TEXT NOT NULL,
-    reply_to TEXT, payload_digest TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('pending','approved','denied','consumed','expired')),
-    created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, decided_by TEXT, decided_at INTEGER,
-    FOREIGN KEY(grant_id) REFERENCES reason_network_grants(grant_id)
-  )`,
-  `CREATE INDEX IF NOT EXISTS reason_network_approvals_pending ON reason_network_approvals(owner_id,status,created_at DESC)`,
-] as const;
-const initialized = new WeakSet<D1Database>();
-
 export async function ensureReasonNetworkApprovalSchema(env: ReasonNetworkApprovalEnv): Promise<void> {
   if (!env.AGENT_AUDIT) throw new Error("Reason Network approval storage is unavailable.");
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  for (const sql of SQL) await env.AGENT_AUDIT.prepare(sql).run();
-  const columns=await env.AGENT_AUDIT.prepare("PRAGMA table_info(reason_network_grants)").all<{name:string}>();
-  if (!(columns.results??[]).some((column)=>column.name==="companion_machine_id")){
-    try{await env.AGENT_AUDIT.prepare("ALTER TABLE reason_network_grants ADD COLUMN companion_machine_id TEXT").run();}
-    catch(error){
-      const current=await env.AGENT_AUDIT.prepare("PRAGMA table_info(reason_network_grants)").all<{name:string}>();
-      if(!(current.results??[]).some((column)=>column.name==="companion_machine_id"))throw error;
-    }
-  }
-  initialized.add(env.AGENT_AUDIT);
 }
 const hex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 async function payloadDigest(value: Pick<ReasonNetworkApprovalBinding,"destination"|"message"|"replyTo">): Promise<string> {

@@ -4,12 +4,6 @@ import { hashToolArgs } from "./mcp-gateway.js";
 
 export class TeamModelMoneyError extends Error { constructor(readonly code: string) { super(code); } }
 
-export const TEAM_MODEL_MONEY_SCHEMA = `CREATE TABLE IF NOT EXISTS team_model_money_ledger (
-  turn_id TEXT PRIMARY KEY,grant_id TEXT NOT NULL,workspace_id TEXT NOT NULL,input_hash TEXT NOT NULL,quote_digest TEXT NOT NULL,
-  reserved_micro_usd INTEGER NOT NULL CHECK(reserved_micro_usd>0 AND reserved_micro_usd<=8341),
-  state TEXT NOT NULL CHECK(state IN ('held','confirmed','unknown')),reported_micro_usd INTEGER,
-  receipt_hash TEXT,receipt_json TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,
-  CHECK(reported_micro_usd IS NULL OR (reported_micro_usd>=0 AND reported_micro_usd<=reserved_micro_usd)))`;
 export function prepareTeamModelMoney(budgetMicroUsd: number, maxOutputTokens: number, expiresAt: number, now = Date.now(), model: string = TEAM_MODEL_PRICE_REFERENCE.model): TeamModelMoneyContract {
   const quote = { ...teamModelPriceReference(model), id: `tmq_${crypto.randomUUID().replaceAll("-", "")}`, createdAt: now, dispatchUntil: Math.min(now + 900_000, expiresAt) };
   const money = { currency: "USD" as const, budgetMicroUsd, maximumDebitPerCallMicroUsd: teamModelMaximumDebitMicroUsd(maxOutputTokens, model), quote: { ...quote, digest: teamModelPriceQuoteDigest(quote) } };

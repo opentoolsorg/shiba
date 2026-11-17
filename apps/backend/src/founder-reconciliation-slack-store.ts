@@ -1,7 +1,7 @@
 import { AUTOMATIC_SLACK_AUDIENCE_CONSENT, AUTOMATIC_SLACK_MAX_TTL_MS, reconciliationSlackPrepareSchema, reconciliationSlackDecisionSchema, reconciliationSlackDisclosureSchema } from '@shiba/shared';
 import type { z } from 'zod';
 import { membershipSql, WorkspaceIntegrationError, insertGuarded } from './workspace-integrations-store.js';
-import { ensureAutomaticSlackSchema, automaticSlackApprover, packAutomaticSlackGuard, type AutomaticSlackGuard } from './founder-automatic-slack-store.js';
+import { automaticSlackApprover, packAutomaticSlackGuard, type AutomaticSlackGuard } from './founder-automatic-slack-store.js';
 import { listReportSlackDestinations, reportSlackDestinationGuard, type ReportSlackLinkSnapshot } from './report-slack-store.js';
 import { slackOAuthConfiguration } from './slack-installations-store.js';
 import { parseApproverAllowlist } from './slack-approval.js';
@@ -52,7 +52,7 @@ export function reconciliationSlackGrantGuard(env:ReconciliationSlackEnv,row:Rec
  return {sql:`${source.sql} AND ${destination.sql} AND ?>${FOUNDER_SQL_NOW}${extra}`,values:[...source.values,...destination.values,row.expires_at,...values]};
 }
 export async function prepareReconciliationSlack(env:ReconciliationSlackEnv,member:WorkspaceNativeMember,input:Prepare,verify:()=>Promise<void>,session:StripeHumanSession) {
- await ensureAutomaticSlackSchema(env);if(!reconciliationSlackAvailable(env))return fail('automatic_slack_stripe_unavailable',503);
+ if(!reconciliationSlackAvailable(env))return fail('automatic_slack_stripe_unavailable',503);
  const inputHash=await hashToolArgs({sourceKind:'reconciliation-schedule.v1',...input}),prior=await env.AGENT_AUDIT.prepare('SELECT id,input_hash FROM founder_reconciliation_slack_grants WHERE workspace_id=? AND owner_account_id=? AND request_id=?').bind(member.workspaceId,member.accountId,input.requestId).first<{id:string;input_hash:string}>();
  if(prior){if(prior.input_hash!==inputHash)return fail('automatic_slack_request_conflict');return prior.id;}
  const source=await loadReconciliationSlackSource(env,member,input.scheduleId,input.sampleResultId,true);
@@ -67,7 +67,7 @@ export async function prepareReconciliationSlack(env:ReconciliationSlackEnv,memb
 }
 export async function readReconciliationSlackGrant(env:ReconciliationSlackEnv,member:WorkspaceNativeMember,id:string):Promise<ReconciliationSlackGrantRow> {const m=membershipSql(member,true),row=await env.AGENT_AUDIT.prepare(`SELECT * FROM founder_reconciliation_slack_grants WHERE id=? AND workspace_id=? AND ${m.sql}`).bind(id,member.workspaceId,...m.values).first<ReconciliationSlackGrantRow>();if(!row)return fail('automatic_slack_unavailable',404);return row;}
 export async function transitionReconciliationSlack(env:ReconciliationSlackEnv,member:WorkspaceNativeMember,id:string,action:'disclose'|'approve'|'pause'|'revoke',decision:Decision,verify:()=>Promise<void>,session:StripeHumanSession){
- await ensureAutomaticSlackSchema(env);const row=await readReconciliationSlackGrant(env,member,id);if(row.version!==decision.expectedVersion||row.digest!==decision.digest||row.expires_at!==decision.expiresAt)return fail('automatic_slack_review_changed');const owner=row.owner_account_id===member.accountId&&row.owner_id===member.userId;
+ const row=await readReconciliationSlackGrant(env,member,id);if(row.version!==decision.expectedVersion||row.digest!==decision.digest||row.expires_at!==decision.expiresAt)return fail('automatic_slack_review_changed');const owner=row.owner_account_id===member.accountId&&row.owner_id===member.userId;
  if(action==='approve'?owner||row.owner_id===member.userId||!automaticSlackApprover(env,member):!owner)return fail('automatic_slack_human_authority_required',403);
  if(action==='pause'||action==='revoke'){
   await verify();const actor=membershipSql(member,true),native=stripeSessionGuard(session,member),state=action==='pause'?'paused':'revoked';

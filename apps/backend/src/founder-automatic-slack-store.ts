@@ -22,7 +22,6 @@ import {
   WorkspaceIntegrationError,
 } from "./workspace-integrations-store.js";
 import {
-  ensureReportSlackSchema,
   listReportSlackDestinations,
   reportSlackDestinationGuard,
   type ReportSlackLinkSnapshot,
@@ -44,7 +43,6 @@ import { hashToolArgs } from "./mcp-gateway.js";
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import { slackOAuthConfiguration } from "./slack-installations-store.js";
 import { redactSecrets } from "./security.js";
-import { AUTOMATIC_SLACK_SCHEMA } from "./founder-automatic-slack-schema.js";
 
 export interface AutomaticSlackFamily {
   grant: AutomaticGrantRow;
@@ -111,7 +109,6 @@ export interface AutomaticSlackGuard {
   values: unknown[];
 }
 export type AutomaticSlackSessionFence = () => Promise<void>;
-const initialized = new WeakSet<D1Database>();
 export function automaticSlackFail(code: string, status = 409): never {
   throw new WorkspaceIntegrationError(code, status);
 }
@@ -148,12 +145,7 @@ export function automaticSlackAvailable(env: Env): string | null {
     return "automatic_slack_human_approver_required";
   return null;
 }
-export async function ensureAutomaticSlackSchema(env: Env) {
-  await ensureReportSlackSchema(env);
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  for (const sql of AUTOMATIC_SLACK_SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
-  initialized.add(env.AGENT_AUDIT);
-}
+
 /** Pack only fixed server predicates, never HTTP or model-provided SQL. */
 export function packAutomaticSlackGuard(guard: AutomaticSlackGuard): AutomaticSlackGuard {
   let at = 0;
@@ -313,7 +305,6 @@ export async function prepareAutomaticSlack(
   input: AutomaticSlackPrepare,
   verifySession: AutomaticSlackSessionFence,
 ): Promise<string> {
-  await ensureAutomaticSlackSchema(env);
   await assertWorkspaceMemberCurrent(env, member, true);
   const unavailable = automaticSlackAvailable(env);
   if (unavailable) automaticSlackFail(unavailable, 503);
@@ -454,7 +445,6 @@ export async function transitionAutomaticSlack(
   input: AutomaticSlackDecision,
   verifySession: AutomaticSlackSessionFence,
 ) {
-  await ensureAutomaticSlackSchema(env);
   const row = await find(env, member, libraryId, id);
   exact(row, input);
   const owner = row.owner_account_id === member.accountId;
@@ -581,7 +571,6 @@ export async function readAutomaticSlack(
   libraryId: string,
   verifySession: AutomaticSlackSessionFence,
 ): Promise<AutomaticSlackState> {
-  await ensureAutomaticSlackSchema(env);
   await assertWorkspaceMemberCurrent(env, member, true);
   const reason = automaticSlackAvailable(env),
     rows = await env.AGENT_AUDIT.prepare(

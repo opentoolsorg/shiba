@@ -1,3 +1,4 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,7 +50,7 @@ const reader: TokenRecord = { principal: "dedicated-reader", scopes: ["gmail:rea
 
 /** SQLite-backed D1 mock, including atomic batch and single-use UPDATE RETURNING. */
 function database() {
-  const sql = new DatabaseSync(":memory:");
+  const sql = new DatabaseSync(":memory:"); applyAllMigrations(sql);
   const prepared = (query: string, params: unknown[] = []) => ({
     bind: (...values: unknown[]) => prepared(query, values),
     run: async () => {

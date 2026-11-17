@@ -19,22 +19,6 @@ import { nativeWorkspaceAccountSql } from "./workspace-native-authority.js";
 const REVIEW_TTL = 15 * 60_000;
 const MAX_LIFETIME = 90 * 86_400_000;
 const TICK_LIMIT = 100;
-const initialized = new WeakSet<D1Database>();
-const schema = [
-  `CREATE TABLE IF NOT EXISTS founder_review_schedules (
-    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, owner_id TEXT NOT NULL, owner_account_id TEXT NOT NULL, library_id TEXT NOT NULL,
-    version INTEGER NOT NULL, digest TEXT NOT NULL, contract_json TEXT NOT NULL,
-    state TEXT NOT NULL CHECK(state IN ('draft','enabled','paused','revoked','blocked')),
-    review_expires_at INTEGER NOT NULL, next_due_at INTEGER NOT NULL,
-    checked_at INTEGER NOT NULL, blocked_reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-    UNIQUE(org_id,owner_account_id,library_id))`,
-  `CREATE INDEX IF NOT EXISTS founder_review_due ON founder_review_schedules(state,checked_at)`,
-  `CREATE TABLE IF NOT EXISTS founder_review_occurrences (
-    id TEXT PRIMARY KEY, schedule_id TEXT NOT NULL, schedule_version INTEGER NOT NULL,
-    digest TEXT NOT NULL, scheduled_at INTEGER NOT NULL, created_at INTEGER NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('pending','dismissed','cancelled')), task TEXT NOT NULL)`,
-  `CREATE INDEX IF NOT EXISTS founder_review_pending ON founder_review_occurrences(schedule_id,status)`,
-];
 type Row = {
   id: string; org_id: string; owner_id: string; owner_account_id: string; library_id: string; version: number; digest: string;
   contract_json: string; state: FounderReviewScheduleState; review_expires_at: number; next_due_at: number;
@@ -50,11 +34,6 @@ const changed = (result: D1Result | undefined) => result?.meta.changes === 1;
 function commitClock(logicalNow?: number): { sql: string; values: unknown[] } {
   return logicalNow === undefined ? { sql: "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)", values: [] }
     : { sql: "?", values: [logicalNow] };
-}
-async function ensure(env: AuditEnv): Promise<void> {
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  for (const sql of schema) await env.AGENT_AUDIT.prepare(sql).run();
-  initialized.add(env.AGENT_AUDIT);
 }
 
 function membershipGuard(contract: Pick<FounderReviewScheduleContract, "orgId" | "ownerId" | "membership">): { sql: string; values: unknown[] } {
@@ -176,7 +155,6 @@ export async function prepareFounderReviewSchedule(env: AuditEnv, actor: Founder
     cron: cronFor(input), task: entry.automationPrompt, requiredSources: [...entry.integrationCatalogIds],
   };
   const nextDueAt = nextFounderReviewDue(contract, now);
-  await ensure(env);
   const prior = await raw(env, actor, libraryId);
   if ((input.expectedVersion ?? 0) !== (prior?.version ?? 0)) throw new FounderReviewError("schedule_version_conflict");
   const id = prior?.id ?? `frs-${randomHex(16)}`, version = (prior?.version ?? 0) + 1;
@@ -199,7 +177,6 @@ export async function prepareFounderReviewSchedule(env: AuditEnv, actor: Founder
 }
 
 export async function readFounderReviewSchedule(env: AuditEnv, actor: FounderReviewActor, libraryId: string): Promise<{ schedule: FounderReviewScheduleRecord | null; occurrences: FounderReviewOccurrence[]; unavailableReason?: string; staleSchedule?: Pick<FounderReviewScheduleRecord, "id" | "version" | "digest" | "state"> }> {
-  await ensure(env);
   const row = await raw(env, actor, libraryId);
   if (!row) {
     if (!await isFounderReviewActorCurrent(env, actor)) throw new FounderReviewError("founder_authority_changed", 403);
@@ -226,7 +203,6 @@ export async function readFounderReviewSchedule(env: AuditEnv, actor: FounderRev
 
 export async function decideFounderReviewSchedule(env: AuditEnv, actor: FounderReviewActor, libraryId: string, action: "enable" | "pause" | "resume" | "revoke", input: { expectedVersion: number; digest: string; reviewed: true }, logicalNow?: number): Promise<FounderReviewScheduleRecord> {
   if (input.reviewed !== true) throw new FounderReviewError("exact_review_decision_required", 400);
-  await ensure(env);
   const row = await raw(env, actor, libraryId);
   if (!row || row.version !== input.expectedVersion || row.digest !== input.digest) throw new FounderReviewError("schedule_version_conflict");
   const schedule = dto(row), guard = action === "revoke" ? actorGuard(actor) : sourceGuard(schedule.contract);
@@ -251,7 +227,6 @@ export async function decideFounderReviewSchedule(env: AuditEnv, actor: FounderR
 
 export async function dismissFounderReviewOccurrence(env: AuditEnv, actor: FounderReviewActor, libraryId: string, occurrenceId: string, input: { expectedVersion: number; digest: string; reviewed: true }): Promise<void> {
   if (input.reviewed !== true) throw new FounderReviewError("exact_review_decision_required", 400);
-  await ensure(env);
   const row = await raw(env, actor, libraryId);
   if (!row || row.version !== input.expectedVersion || row.digest !== input.digest) throw new FounderReviewError("schedule_version_conflict");
   const contract = dto(row).contract, guard = sourceGuard(contract);
@@ -270,7 +245,6 @@ export async function dismissFounderReviewOccurrence(env: AuditEnv, actor: Found
 export async function tickFounderReviewSchedules(env: Pick<Env, "AGENT_AUDIT">, logicalNow?: number): Promise<{ created: number; blocked: number }> {
   if (!env.AGENT_AUDIT) return { created: 0, blocked: 0 };
   const clock = commitClock(logicalNow);
-  await ensure(env as AuditEnv);
   const rows = await env.AGENT_AUDIT.prepare(`SELECT * FROM founder_review_schedules WHERE state='enabled' ORDER BY checked_at,id LIMIT ?`).bind(TICK_LIMIT).all<Row>();
   let created = 0, blocked = 0;
   for (const row of rows.results ?? []) {

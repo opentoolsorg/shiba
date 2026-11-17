@@ -5,7 +5,6 @@ import { getTeamWorkspaceMembership } from "./team-workspaces-store.js";
 import { membershipSql, insertGuarded, updateGuarded } from "./workspace-integrations-store.js";
 import { resolveWorkspaceNativeGrantTarget, type WorkspaceNativeMember } from "./workspace-native-authority.js";
 import { hashToolArgs } from "./mcp-gateway.js";
-import { SHARED_COMPUTER_SCHEMA } from "./shared-computer-schema.js";
 import type { ComputerSession } from "./computer-session.js";
 
 export interface SharedComputerEnv extends Env {
@@ -40,13 +39,9 @@ export function requireComputerPolicy(env: SharedComputerEnv, expectedImage?: st
   if (!policy.available || (expectedImage !== undefined && expectedImage !== policy.image)) throw new SharedComputerError(policy.reason ?? "shared_computer_image_changed", 503);
   return policy;
 }
-const initialized = new WeakSet<D1Database>();
 export async function ensureSharedComputerSchema(env: SharedComputerEnv) {
   if (!env.AGENT_AUDIT) throw new SharedComputerError("shared_computer_storage_unavailable", 503);
-  if (initialized.has(env.AGENT_AUDIT)) return;
   await ensureCollaborationSchema(env);
-  for (const sql of SHARED_COMPUTER_SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
-  initialized.add(env.AGENT_AUDIT);
 }
 export function computerContract(row: ComputerRow): SharedComputerContract { return JSON.parse(row.contract_json); }
 export function computerBinding(row: ComputerRow): ComputerBinding { return JSON.parse(row.binding_json); }

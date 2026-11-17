@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Env } from "../src/env.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
@@ -6,9 +5,7 @@ import { createNote, NotesConflictError, updateNoteMarkdown } from "../src/notes
 
 describe("notes versioning", () => {
   it("requires expectedVersion on autosave", async () => {
-    const { database, sqlite } = customAgentD1();
-    sqlite.exec(readFileSync(new URL("../migrations/0050_files_notes.sql", import.meta.url), "utf8"));
-    sqlite.exec(readFileSync(new URL("../migrations/0051_knowledge_indexes.sql", import.meta.url), "utf8"));
+    const { database } = customAgentD1();
     const objects = new Map<string, Uint8Array>();
     const env = {
       AGENT_AUDIT: database,

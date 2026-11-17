@@ -6,7 +6,7 @@ import { readGatewayManifest, hash, validateReadArguments, boundedBody, type Gat
 import type { Env } from "./env.js";
 import type { WorkspaceNativeMember } from "./workspace-native-authority.js";
 import type { WorkspaceActionBinding } from "./workspace-integration-actions.js";
-import { membershipSql, ensureWorkspaceIntegrationSchema, assertWorkspaceMemberCurrent, assertWorkspaceIntegrationGrant, connectionIssuer, listWorkspaceConnections, WorkspaceIntegrationError } from "./workspace-integrations-store.js";
+import { membershipSql, assertWorkspaceMemberCurrent, assertWorkspaceIntegrationGrant, connectionIssuer, listWorkspaceConnections, WorkspaceIntegrationError } from "./workspace-integrations-store.js";
 import { listCustomAgents } from "./custom-agents-store.js";
 import { getSkill } from "./skills-store.js";
 import { getSkillInstall } from "./skill-library-store.js";
@@ -20,16 +20,7 @@ export interface AutomaticPins { member:WorkspaceNativeMember; libraryId:string;
 export interface AutomaticGrantRow {id:string;workspace_id:string;owner_id:string;owner_account_id:string;library_id:string;version:number;digest:string;state:"draft"|"enabled"|"paused"|"revoked"|"blocked"|"exhausted";contract_json:string;pins_json:string;review_expires_at:number;next_due_at:number;checked_at:number;used_occurrences:number;reserved_calls:number;reserved_bytes:number;blocked_reason:string|null}
 export interface AutomaticOccurrenceRow {id:string;grant_id:string;grant_version:number;grant_digest:string;scheduled_at:number;expires_at:number;state:"pending"|"claimed"|"running"|"completed"|"partial"|"failed"|"unknown"|"cancelled"|"blocked";step_count:number;lease_id:string|null;lease_expires_at:number|null;error:string|null;report_hash:string|null;report_sources_json:string|null;markdown:string|null;json:string|null}
 export interface AutomaticStepRow {id:string;occurrence_id:string;ordinal:number;nonce:string;digest:string;state:"pending"|"submitted"|"claimed"|"dispatching"|"completed"|"failed"|"unknown"|"cancelled";request_json:string|null;request_digest:string|null;expires_at:number|null;claim_used:number;dispatch_used:number;complete_used:number;receipt_json:string|null}
-const SCHEMA=[
-`CREATE TABLE IF NOT EXISTS founder_read_attestations (id TEXT PRIMARY KEY,nonce TEXT NOT NULL,request_digest TEXT NOT NULL,pins_json TEXT NOT NULL,expires_at INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('pending','claimed','consumed')))`,
-`CREATE TABLE IF NOT EXISTS founder_automatic_read_grants (id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL,owner_id TEXT NOT NULL,owner_account_id TEXT NOT NULL,library_id TEXT NOT NULL,version INTEGER NOT NULL,digest TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('draft','enabled','paused','revoked','blocked','exhausted')),contract_json TEXT NOT NULL,pins_json TEXT NOT NULL,review_expires_at INTEGER NOT NULL,next_due_at INTEGER NOT NULL,checked_at INTEGER NOT NULL,used_occurrences INTEGER NOT NULL DEFAULT 0,reserved_calls INTEGER NOT NULL DEFAULT 0,reserved_bytes INTEGER NOT NULL DEFAULT 0,blocked_reason TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,UNIQUE(workspace_id,owner_account_id,library_id))`,
-`CREATE INDEX IF NOT EXISTS founder_automatic_read_due ON founder_automatic_read_grants(state,checked_at)`,
-`CREATE TABLE IF NOT EXISTS founder_automatic_read_occurrences (id TEXT PRIMARY KEY,grant_id TEXT NOT NULL,grant_version INTEGER NOT NULL,grant_digest TEXT NOT NULL,scheduled_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('pending','claimed','running','completed','partial','failed','unknown','cancelled','blocked')),step_count INTEGER NOT NULL,lease_id TEXT,lease_expires_at INTEGER,error TEXT,report_hash TEXT,report_sources_json TEXT,markdown TEXT,json TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,UNIQUE(grant_id,grant_version,scheduled_at))`,
-`CREATE TABLE IF NOT EXISTS founder_automatic_read_steps (id TEXT PRIMARY KEY,occurrence_id TEXT NOT NULL,ordinal INTEGER NOT NULL,nonce TEXT NOT NULL,digest TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('pending','submitted','claimed','dispatching','completed','failed','unknown','cancelled')),request_json TEXT,request_digest TEXT,expires_at INTEGER,claim_used INTEGER NOT NULL DEFAULT 0,dispatch_used INTEGER NOT NULL DEFAULT 0,complete_used INTEGER NOT NULL DEFAULT 0,receipt_json TEXT,updated_at INTEGER NOT NULL,UNIQUE(occurrence_id,ordinal))`,
-`CREATE INDEX IF NOT EXISTS founder_automatic_read_step_occurrence ON founder_automatic_read_steps(occurrence_id,ordinal)`,
-];
-const initialized=new WeakSet<D1Database>();
-export async function ensureAutomaticReadSchema(env:Env){await ensureWorkspaceIntegrationSchema(env);if(initialized.has(env.AGENT_AUDIT))return;for(const sql of SCHEMA)await env.AGENT_AUDIT.prepare(sql).run();initialized.add(env.AGENT_AUDIT);}
+
 export function automaticAvailability(env:Env):string|null {
   if(env.FOUNDER_AUTOMATIC_READS_ENABLED!=="true")return"automatic_reads_disabled";
   if(!env.OPEN_CONNECTOR_READ_GATEWAY)return"automatic_read_binding_missing";
@@ -65,10 +56,10 @@ export async function automaticGrantGuard(env:Env,row:AutomaticGrantRow,enabled=
   if(recipe!==pins.recipeSha256||automaticAvailability(env)||contract.runtime.versionId!==env.OPEN_CONNECTOR_READ_VERSION_ID||contract.runtime.manifestDigest!==env.OPEN_CONNECTOR_READ_MANIFEST_SHA256)return{sql:"0=1",values:[] as unknown[]};
   return{sql:`${source.sql} AND EXISTS(SELECT 1 FROM founder_automatic_read_grants WHERE id=? AND version=? AND digest=? AND contract_json=? AND pins_json=? ${enabled?"AND state='enabled'":""} AND json_extract(contract_json,'$.expiresAt')>${FOUNDER_SQL_NOW})`,values:[...source.values,row.id,row.version,row.digest,row.contract_json,row.pins_json]};
 }
-async function ownGrant(env:Env,member:WorkspaceNativeMember,libraryId:string){await ensureAutomaticReadSchema(env);const actor=membershipSql(member,true);return env.AGENT_AUDIT.prepare(`SELECT * FROM founder_automatic_read_grants WHERE workspace_id=? AND owner_id=? AND owner_account_id=? AND library_id=? AND ${actor.sql}`).bind(member.workspaceId,member.userId,member.accountId,libraryId,...actor.values).first<AutomaticGrantRow>();}
+async function ownGrant(env:Env,member:WorkspaceNativeMember,libraryId:string){const actor=membershipSql(member,true);return env.AGENT_AUDIT.prepare(`SELECT * FROM founder_automatic_read_grants WHERE workspace_id=? AND owner_id=? AND owner_account_id=? AND library_id=? AND ${actor.sql}`).bind(member.workspaceId,member.userId,member.accountId,libraryId,...actor.values).first<AutomaticGrantRow>();}
 const scope=(m:WorkspaceNativeMember,libraryId:string)=>({ok:true as const,workspaceId:m.workspaceId,libraryId,actorId:m.userId});
 export async function configureAutomaticReads(env:Env,member:WorkspaceNativeMember,libraryId:string,body:unknown,beforeFinalRead?:()=>Promise<void>){
-  await ensureAutomaticReadSchema(env);await assertWorkspaceMemberCurrent(env,member,true);const input=founderAutomaticReadInputSchema.parse(body),manifest=await readGatewayManifest();
+  await assertWorkspaceMemberCurrent(env,member,true);const input=founderAutomaticReadInputSchema.parse(body),manifest=await readGatewayManifest();
   if(await hash(manifest)!==env.OPEN_CONNECTOR_READ_MANIFEST_SHA256)throw new WorkspaceIntegrationError("automatic_read_manifest_not_approved",503);
   if(input.operations.some(operation=>operation.operationId==="googleads.campaign_daily_metrics")&&input.operations.length!==1)throw new WorkspaceIntegrationError("automatic_read_googleads_dedicated_runtime_required",400);
   if(input.expiresAt<=Date.now()||input.expiresAt>Date.now()+FOUNDER_AUTOMATIC_READ_MAX_LIFETIME_MS||input.maxCalls<input.operations.length||input.maxCapturedBytes<input.maxBytesPerOccurrence)throw new WorkspaceIntegrationError("automatic_read_budget_invalid",400);
