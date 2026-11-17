@@ -1,6 +1,7 @@
-import type { KnowledgeScope } from "@shiba/shared";
+import { knowledgeNoteSchema, type KnowledgeNote, type KnowledgeScope } from "@shiba/shared";
+import { publishWorkspaceEvent } from "../platform/workspace-events-do.js";
 import type { Env } from "../env.js";
-import { isAuthorizedRequest, requireSameOriginBrowserMutation, resolveUserId } from "../request-auth.js";
+import { requireSameOriginBrowserMutation, resolveRequestIdentity } from "../request-auth.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
 import { assertKnowledgeRead, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
 import { enqueueIngestion } from "../knowledge/knowledge-ingestion.js";
@@ -11,12 +12,20 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
   "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
 } });
 
+async function publishNote(env: Env, kind: "note.created" | "note.updated", note: KnowledgeNote): Promise<void> {
+  // Parse the public DTO to exclude storage keys and any future internal fields.
+  await publishWorkspaceEvent(env, note.workspaceId, {
+    kind, entityId: note.id, payload: { note: knowledgeNoteSchema.parse(note) },
+    ...(note.scope === "personal" ? { audience: { userIds: [note.createdBy] } } : {}),
+  }).catch(() => { /* HTTP remains authoritative when realtime is unavailable. */ });
+}
+
 export async function handleNotes(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/notes")) return null;
   if (!env.AGENT_AUDIT) return json({ error: "Knowledge storage is unavailable." }, 503);
-  if (!(await isAuthorizedRequest(request, env))) return json({ error: "Authentication required." }, 401);
-  const userId = await resolveUserId(request, env);
+  const { userId, authorized } = await resolveRequestIdentity(request, env);
+  if (!authorized) return json({ error: "Authentication required." }, 401);
   if (!userId) return json({ error: "Authentication required." }, 401);
   const org = await resolveOrgForApiRequest(request, env);
   if (org instanceof Response) return org;
@@ -38,6 +47,7 @@ export async function handleNotes(request: Request, env: Env): Promise<Response 
           sourceKind: "note", sourceId: note.id, workspaceId, scope, sha256: note.sha256, version: note.version,
           r2Key: note.r2Key, mime: "text/markdown",
         });
+        await publishNote(env, "note.created", note);
         return json({ note, jobId }, 201);
       } catch (error) {
         if (error instanceof NotesStoreError) return json({ error: error.message }, error.status);
@@ -85,6 +95,7 @@ export async function handleNotes(request: Request, env: Env): Promise<Response 
         sourceKind: "note", sourceId: updated.id, workspaceId, scope: updated.scope,
         sha256: updated.sha256, version: updated.version, r2Key: updated.r2Key, mime: "text/markdown",
       });
+      await publishNote(env, "note.updated", updated);
       return json({ note: updated, jobId });
     } catch (error) {
       if (error instanceof NotesConflictError) return json({ error: error.message }, 409);

@@ -3,6 +3,7 @@
  * traffic, exposes the retained run registry, and verifies GitHub webhooks.
  * Provider traffic is intercepted at the Sandbox egress boundary — no callback route.
  */
+import { timeAuth, withRequestTiming, withTimingDatabase } from "./platform/request-timing.js";
 import { getAgentByName, routeAgentRequest } from "agents/routing";
 import { handleArtifactDownload } from "./artifact-download.js";
 import { AUDIT_RETENTION_MS, pruneAuditLog } from "./audit.js";
@@ -233,6 +234,8 @@ export default {
     await (await import("./email-handler.js")).handleInboundEmail(message, env, ctx);
   },
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+    return withRequestTiming(request, async () => {
+    env = withTimingDatabase(env);
     try {
       // A one-purpose Worker capability, verified before any identity or D1 lookup.
       // No dashboard, model or Durable Object execution authority is inherited.
@@ -246,7 +249,7 @@ export default {
           "SHIBA_CLAUDE_SUBSCRIPTION is enabled: the claude-subscription harness stores Claude.ai tokens at the Worker egress boundary, which may violate Anthropic's terms — prefer claude-login (https://code.claude.com/docs/en/legal-and-compliance).",
         );
       }
-      request = await withVerifiedAccessIdentity(request, env);
+      request = await timeAuth(() => withVerifiedAccessIdentity(request, env));
       // MCP_PRINCIPAL_HEADER is minted only by the verified-bearer path in
       // handleMcp — no external caller may set it. Strip at ingress so a
       // future route cannot accidentally trust a client-supplied copy.
@@ -262,7 +265,7 @@ export default {
       // subscription-connect paths it shares that prefix with — those stay
       // gated below), so it is served before the identity gate sees the
       // request. The gate then composes both identity systems.
-      const betterAuthResponse = await handleBetterAuth(request, env, { teamMemberPolicyEnabled: true });
+      const betterAuthResponse = await timeAuth(() => handleBetterAuth(request, env, { teamMemberPolicyEnabled: true }));
       if (betterAuthResponse) return betterAuthResponse;
       if (url.pathname === "/api/slack/installations/callback") {
         const callback = await handleSlackInstallations(request, env);
@@ -706,5 +709,6 @@ export default {
       console.error(redactSecrets(error instanceof Error ? error.message : String(error)));
       return Response.json({ error: "Internal error." }, { status: 500 });
     }
+    });
   },
 } satisfies ExportedHandler<Env>;
