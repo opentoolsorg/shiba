@@ -145,6 +145,7 @@ describe("run deliverables", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
+        if (!String(url).match(/\/(history|review|revision)(?:\?|$)/)) return new Response("# Report");
         calls.push({ url, init });
         if (String(url).endsWith("/history?session=session+one"))
           return Response.json({
@@ -232,6 +233,7 @@ describe("run deliverables", () => {
     };
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (!String(url).match(/\/(history|review|revision)(?:\?|$)/)) return new Response("# Report");
       calls.push({ url: String(url), init });
       if (String(url).endsWith("/history")) {
         return Response.json({ artifactId: artifact.artifactId, versions: [{

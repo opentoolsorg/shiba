@@ -2,6 +2,7 @@ import type { Env } from "./env.js";
 import { enqueueTransactionalEmail } from "./email/outbox.js";
 
 async function requireDelivered(env: Env, outboxId: string | null): Promise<void> {
+  if (env.SHIBA_EMAIL_DRY_RUN === "1") return;
   if (!outboxId || !env.AGENT_AUDIT) throw new Error("Transactional email delivery failed.");
   const row = await env.AGENT_AUDIT.prepare("SELECT status FROM email_outbox WHERE outbox_id = ?")
     .bind(outboxId)
@@ -13,7 +14,7 @@ async function requireDelivered(env: Env, outboxId: string | null): Promise<void
 export function nativeEnrollmentEmailConfiguration(env: Env): { from: string; origin: string } | null {
   const from = env.BETTER_AUTH_VERIFICATION_FROM?.trim() ?? "";
   // biome-ignore lint/suspicious/noControlCharactersInRegex: Rejects control bytes in untrusted identity or portable text input.
-  if (!/^[^\s@\x00-\x1f<>]+@[^\s@\x00-\x1f<>]+\.[^\s@\x00-\x1f<>]+$/.test(from) || !env.SEND_EMAIL) return null;
+  if (!/^[^\s@\x00-\x1f<>]+@[^\s@\x00-\x1f<>]+\.[^\s@\x00-\x1f<>]+$/.test(from) || (!env.SEND_EMAIL && env.SHIBA_EMAIL_DRY_RUN !== "1")) return null;
   try {
     const url = new URL(env.BETTER_AUTH_URL ?? "");
     if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) return null;
@@ -54,7 +55,7 @@ export async function sendNativePasswordReset(env: Env, input: { email: string; 
   const config = nativeEnrollmentEmailConfiguration(env);
   if (!config) throw new Error("Password reset requires a verified sender, SEND_EMAIL, and an HTTPS BETTER_AUTH_URL.");
   const url = new URL(input.url);
-  if (url.origin !== config.origin || url.username || url.password) {
+  if (url.origin !== config.origin || url.pathname !== "/auth/reset" || !url.searchParams.get("token") || url.username || url.password) {
     throw new Error("Invalid password reset destination.");
   }
   await enqueueTransactionalEmail(env, {

@@ -14,7 +14,8 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { acceptTeamWorkspaceInvitation, createTeamWorkspace, createTeamWorkspaceInvitation } from "../src/team-workspaces-store.js";
 
 const state = vi.hoisted(() => ({ runs: new Map<string, DelegatedRun>(), names: [] as string[], requests: [] as Request[] }));
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: async (request: Request) => request.headers.get("Authorization") === "Bearer fixture",
   resolveUserId: async (request: Request) => request.headers.get("X-Fixture-User"),
 }));

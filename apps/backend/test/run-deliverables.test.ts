@@ -54,7 +54,7 @@ describe("requested workspace deliverables", () => {
     expect([...s.objects.values()][0]?.body).toBe(content);
   });
 
-  it.each(["../report.md", "/report.md", ".private/report.md", "a/../report.md", "a\\report.md", "report.html", "a\u0000.md"])("rejects unsafe requested path %j", async (path) => {
+  it.each(["../report.md", "/report.md", ".private/report.md", "a/../report.md", "a\\report.md", "report.svg", "a\u0000.md"])("rejects unsafe requested path %j", async (path) => {
     await expect(verifyExpectedDeliverables([path], [file(path, "draft")])).rejects.toThrow("Invalid expected deliverable paths");
   });
 

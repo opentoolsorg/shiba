@@ -12,7 +12,8 @@ const state = vi.hoisted(() => ({
   owners: new Map<string, string>(), sessions: [] as WebSessionRecord[], queueRequests: [] as Request[],
   execute: vi.fn(async () => ({ ok: true, status: "completed", output: { id: "fixture-only" } })),
 }));
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: async (request: Request) => Boolean(request.headers.get("X-Fixture-User")),
   resolveUserId: async (request: Request) => request.headers.get("X-Fixture-User"),
 }));

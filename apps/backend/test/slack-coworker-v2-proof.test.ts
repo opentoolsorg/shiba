@@ -32,7 +32,7 @@ vi.mock("../src/personal-execution-store.js", async (original) => ({
 }));
 vi.mock("../src/request-auth.js", async (original) => ({
   ...(await original<typeof import("../src/request-auth.js")>()),
-  isAuthorizedRequest: async () => true,
+  resolveRequestIdentity: async () => ({ authorized: true, userId: "owner@example.test" }), isAuthorizedRequest: async () => true,
   resolveUserId: async () => "owner@example.test",
 }));
 const OWNER = "owner@example.test",

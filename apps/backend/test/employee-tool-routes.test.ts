@@ -10,7 +10,8 @@ const integrations = vi.hoisted(() => ({
 vi.mock("../src/integrations/runtime.js", () => ({ getIntegrationProvider: () => ({ id: "openconnector", ...integrations }) }));
 const orchestrator = vi.hoisted(() => ({ requests: [] as Request[], sessions: [] as unknown[] }));
 
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: vi.fn(async () => authState.dashboard),
   resolveUserId: vi.fn(async () => "owner@example.test"),
 }));

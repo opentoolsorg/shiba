@@ -1,7 +1,7 @@
 /**
  * AuthScreen — the built-in dashboard login (better-auth lane). Rendered
- * when /api/whoami 401s with `code: "better-auth"`, i.e. the deployment has
- * no Cloudflare Access app but does have BETTER_AUTH_SECRET.
+ * for password recovery routes and when /api/whoami requires built-in
+ * authentication with BETTER_AUTH_SECRET configured.
  *
  * Sign-in, first-owner bootstrap and explicitly enabled invitation enrollment
  * share the form. Invited users must independently verify their email before
@@ -39,8 +39,11 @@ interface BootstrapPolicy {
   locked: boolean;
 }
 
-type SocialProvider = "google" | "slack";
-type SocialProviderStatus = { providers?: Partial<Record<SocialProvider, boolean>> };
+type SocialProvider = "google" | "slack" | "sso";
+type SocialProviderStatus = {
+  providers?: Partial<Record<SocialProvider, boolean>>;
+  sso?: { enabled: boolean; displayName: string };
+};
 
 export { SessionPending } from "./SessionPending";
 
@@ -77,18 +80,24 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
     typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("token") ?? "",
   );
   const [resetSent, setResetSent] = useState(false);
+  const [passwordUpdated, setPasswordUpdated] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [setupToken, setSetupToken] = useState("");
   const [policy, setPolicy] = useState<BootstrapPolicy | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("error") === "sso_domain_not_allowed"
+      ? "Your email domain is not allowed to sign in with SSO."
+      : null,
+  );
   const [pending, setPending] = useState(false);
   const [invitationToken, setInvitationToken] = useState(initialInvitation);
   const [invitationPolicy, setInvitationPolicy] = useState<{ enabled: boolean; reason?: string } | null>(null);
   const [verificationPending, setVerificationPending] = useState(false);
   const [socialProviders, setSocialProviders] = useState<SocialProvider[]>([]);
   const [socialPending, setSocialPending] = useState<SocialProvider | null>(null);
+  const [sso, setSso] = useState<SocialProviderStatus["sso"]>();
 
   useEffect(() => {
     let cancelled = false;
@@ -106,8 +115,12 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
     void fetch("/api/auth/social-providers", { cache: "no-store" })
       .then(async (response) => response.ok ? await response.json() as SocialProviderStatus : null)
       .then((body) => {
-        if (!cancelled && body?.providers) {
+        if (cancelled) return;
+        if (body?.providers) {
           setSocialProviders((["google", "slack"] as const).filter((provider) => body.providers?.[provider] === true));
+        }
+        if (body?.sso?.enabled === true && typeof body.sso.displayName === "string" && body.sso.displayName.trim()) {
+          setSso(body.sso);
         }
       })
       .catch(() => {});
@@ -177,10 +190,14 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
         body: JSON.stringify({ newPassword: password, token }),
       }), AUTH_CLIENT_TIMEOUT_MS);
       if (!response.ok) {
-        setError("Password could not be reset.");
+        setError("This reset link is invalid or has expired. Request a new reset email.");
         return;
       }
-      onSignedIn();
+      setPassword("");
+      setResetToken("");
+      setMode("signin");
+      setPasswordUpdated(true);
+      window.history.replaceState(null, "", "/app/");
     } catch (caught) {
       setError(caught instanceof AuthTimeoutError ? caught.message : "Could not reach the auth service.");
     } finally {
@@ -289,6 +306,13 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
             ? "Set a new password. Other dashboard sessions will be signed out."
             : "Welcome back to Shiba."}
         </p>
+        {mode === "signin" && sso?.enabled ? (
+          <button type="button" disabled={pending || socialPending !== null}
+            onClick={() => void signInSocial("sso")}
+            className="w-full min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-sm font-medium text-[var(--ink)] hover:bg-[var(--panel-2)] disabled:opacity-60">
+            {socialPending === "sso" ? "Opening…" : `Continue with ${sso.displayName}`}
+          </button>
+        ) : null}
         {mode === "signin" && socialProviders.includes("google") ? (
           <>
             <button type="button" disabled={pending || socialPending !== null}
@@ -322,7 +346,7 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
               />
             </label>
           ) : null}
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
+          {mode !== "reset" ? <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
             Email
             <input
               type="email"
@@ -332,7 +356,7 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
               onChange={(event) => setEmail(event.target.value)}
               className="w-full min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--input)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]"
             />
-          </label>
+          </label> : null}
           {mode === "reset" ? (
             <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
               Reset token
@@ -379,10 +403,12 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
               />
             </label>
           ) : null}
+          {passwordUpdated ? <p role="status" className="text-sm text-[var(--muted-foreground-2)]">Password updated. Sign in with your new password.</p> : null}
           {resetSent ? <p role="status" className="text-sm text-[var(--muted-foreground-2)]">If the address exists, a reset link is on its way.</p> : null}
           {error ? (
             <p role="alert" className="text-sm text-[var(--destructive)] ">
               {error}
+              {mode === "reset" ? <a href="/auth/forgot" className="block underline">Request a new reset link</a> : null}
             </p>
           ) : null}
           {verificationPending ? <p role="status" className="text-sm text-[var(--muted-foreground-2)]">

@@ -13,7 +13,8 @@ const auth = vi.hoisted(() => ({ owner: "owner@example.test", principal: false }
 vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: async () => ({
   orgId: "org-a", principal: auth.principal ? { principal: "automation:key" } : null,
 }) }));
-vi.mock("../src/request-auth.js", () => ({ resolveUserId: async () => auth.owner }));
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(), resolveUserId: async () => auth.owner }));
 vi.mock("../src/harness/index.js", () => ({ HARNESSES: { opencode: {}, codex: {} } }));
 
 const recipe = (): EmployeeBundle => validateEmployeeBundle({

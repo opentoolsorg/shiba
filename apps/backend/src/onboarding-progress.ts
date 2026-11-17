@@ -3,7 +3,7 @@ import { CUSTOM_AGENT_ROLE_TEMPLATE_IDS, deriveOnboardingStatus, onboardingTaskT
 import { z } from "zod";
 import type { Env } from "./env.js";
 import { readProviderSnapshot } from "./acp-providers.js";
-import { betterAuthFor, isBetterAuthConfigured } from "./better-auth.js";
+import { ensureBetterAuthSchema, isBetterAuthConfigured, resolveBetterAuthSessionAccount } from "./better-auth.js";
 import { getCustomAgentById, getCustomAgentVersion } from "./custom-agents-store.js";
 import { DASHBOARD_ORG_ID, resolveOrgForApiRequest } from "./org-request-auth.js";
 import { withCurrentSkillAuthority } from "./team-skill-authority.js";
@@ -124,15 +124,9 @@ function toProgress(row: StoredProgress, evidence: OnboardingProgress["evidence"
 
 async function resolveIdentity(request: Request, env: Env): Promise<OnboardingIdentity | null> {
   if (!isBetterAuthConfigured(env) || !env.AGENT_AUDIT) return null;
-  try {
-    const session = await (await betterAuthFor(env)).api.getSession({ headers: request.headers });
-    const userId = session?.user?.id;
-    const ownerEmail = session?.user?.email;
-    if (typeof userId !== "string" || !userId.trim() || typeof ownerEmail !== "string" || !ownerEmail.trim()) return null;
-    return { userId: userId.trim(), ownerEmail: ownerEmail.trim() };
-  } catch {
-    return null;
-  }
+  const account = await resolveBetterAuthSessionAccount(request, env);
+  if (!account || (account.policy.kind !== "bootstrap" && !account.emailVerified)) return null;
+  return { userId: account.policy.accountId, ownerEmail: account.policy.email };
 }
 
 async function readProviders(env: Env, ownerEmail: string): Promise<readonly AcpProviderCard[]> {

@@ -10,7 +10,8 @@ const state = vi.hoisted(() => ({
   runs: new Map<string, Record<string, unknown>>(), sessions: new Map<string, string[]>(),
   sessionMetadata: new Map<string, Record<string, unknown>>(), requests: [] as Request[], rpcCalls: 0,
 }));
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: async (request: Request) => request.headers.get("Cookie") === "session=fixture",
   resolveUserId: async (request: Request) => request.headers.get("X-Fixture-User") ?? "owner-a",
 }));

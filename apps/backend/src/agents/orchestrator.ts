@@ -1350,6 +1350,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...createChatAgentMediaTools(this.env, {
           runId,
           orgId: this.employeeToolOrgId(),
+          userId: initiatorUserIdFromOrchestratorName(this.name),
           onClose: () => void closeBrowserSession(runId),
         }),
       };
