@@ -24,7 +24,7 @@ vi.mock("../src/agent-tokens.js", async (original) => ({ ...await original<typeo
 const owner = "alice@example.test", member = "bob@example.test";
 async function fixture() {
   const { env, sqlite } = await governanceD1Fixture();
-  sqlite.exec(readFileSync(new URL("../migrations/0061_employee_access.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../migrations/0069_employee_access.sql", import.meta.url), "utf8"));
   const workspace = await createTeamWorkspace(env, owner, { name: "Team" });
   const invitation = await createTeamWorkspaceInvitation(env, workspace.workspaceId, owner, { email: member, role: "member" });
   const joined = await acceptTeamWorkspaceInvitation(env, member, invitation.token);
