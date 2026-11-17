@@ -19,7 +19,7 @@ export async function handleUiBlocks(request: Request, env: Env): Promise<Respon
   if (request.method !== (blockId ? "POST" : "GET")) return json({ error: "Method not allowed." }, 405);
   if (blockId && request.headers.get("origin") !== url.origin) return json({ error: "Same-origin request required." }, 403);
   try {
-    if (!blockId) return json({ ok: true, questions: await listUiBlocks(env, resolved.userId, runId, true) });
+    if (!blockId) return json({ ok: true, questions: await listUiBlocks(env, resolved.userId, runId, true, true) });
     let body: unknown;
     try { body = await request.json(); } catch { return json({ error: "Invalid JSON answer." }, 400); }
     const result = await answerUiBlock(env, resolved.userId, runId, blockId, body, "web");

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { answerUiBlock, getUiBlock } from "../src/ui-block-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { uiBlockRunId } from "../src/ui-block-scope.js";
 
 vi.mock("@cloudflare/think", () => ({ Think: class { getTools() { return {}; } } }));
 vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
@@ -22,6 +23,7 @@ describe("production orchestrator ask_ui", () => {
       const env = { AGENT_AUDIT: database } as unknown as Env;
       const ownerId = "owner@example.test";
       const session = createWebSession(ownerId);
+      const runId = uiBlockRunId(session.agentName, "turn");
       const instance = Object.assign(Object.create(CodingOrchestrator.prototype) as object, {
         env, name: session.agentName, state: { runs: [] }, messages: [{ role: "user", id: "turn", metadata: {} }],
         approvedRunDelegate: () => ({}), employeeDraftStore: () => ({}),
@@ -36,11 +38,20 @@ describe("production orchestrator ask_ui", () => {
       const waiting = execute(block, { toolCallId: "question-call", messages: [] });
       await vi.advanceTimersByTimeAsync(25_001);
       expect(await waiting).toMatchObject({ status: "pending", blockId: block.id });
-      expect(await getUiBlock(env, ownerId, session.agentName, block.id)).toMatchObject({ ownerId, runId: session.agentName, status: "pending", block });
+      expect(await getUiBlock(env, ownerId, runId, block.id)).toMatchObject({ ownerId, runId, status: "pending", block });
       expect(await getUiBlock(env, "attacker", session.agentName, block.id)).toBeNull();
-      await answerUiBlock(env, ownerId, session.agentName, block.id, { blockId: block.id, optionIds: ["continue"] }, "web");
+      await answerUiBlock(env, ownerId, runId, block.id, { blockId: block.id, optionIds: ["continue"] }, "web");
       expect(await execute(block, { toolCallId: "question-resume", messages: [] })).toMatchObject({ status: "answered", answer: { optionIds: ["continue"] } });
       expect(sqlite.prepare("SELECT count(*) AS n FROM ui_block_questions").get()).toEqual({ n: 1 });
+      Object.assign(instance, { messages: [{ role: "user", id: "later-task", parts: [] }] });
+      const later = execute(block, {});
+      await vi.advanceTimersByTimeAsync(25_001);
+      expect(await later).toMatchObject({ status: "pending" });
+      expect(await getUiBlock(env, ownerId, uiBlockRunId(session.agentName, "later-task"), block.id)).toMatchObject({ status: "pending" });
+      Object.assign(instance, { messages: [{ role: "user", id: "third-task", parts: [] }] });
+      const third = execute(block, {});
+      await vi.advanceTimersByTimeAsync(25_001);
+      expect(await third).toMatchObject({ status: "pending" });
     } finally { sqlite.close(); }
   });
 
@@ -69,12 +80,13 @@ describe("production orchestrator ask_ui", () => {
       const waiting = execute(block, {});
       await vi.advanceTimersByTimeAsync(25_001);
       expect(await waiting).toMatchObject({ status: "pending" });
-      const stored = await getUiBlock(env, ownerId, name, block.id);
-      expect(stored).toMatchObject({ ownerId, runId: name });
-      expect(postToThread).toHaveBeenCalledWith(stored!.fallbackText, expect.objectContaining({ causationId: `ui-block:${name}:${block.id}:0` }));
+      const runId = uiBlockRunId(name, "turn");
+      const stored = await getUiBlock(env, ownerId, runId, block.id);
+      expect(stored).toMatchObject({ ownerId, runId });
+      expect(postToThread).toHaveBeenCalledWith(stored!.fallbackText, expect.objectContaining({ causationId: `ui-block:${runId}:${block.id}:0` }));
       if (name.startsWith("slack:")) expect(postToThread.mock.calls[0]![1].blocks).toBeDefined();
       else expect(postToThread.mock.calls[0]![1].blocks).toBeUndefined();
-      await answerUiBlock(env, ownerId, name, block.id, { blockId: block.id, optionIds: ["continue"] }, "fallback");
+      await answerUiBlock(env, ownerId, runId, block.id, { blockId: block.id, optionIds: ["continue"] }, "fallback");
       expect(await execute(block, {})).toMatchObject({ status: "answered" });
       expect(postToThread).toHaveBeenCalledTimes(1);
     } finally { sqlite.close(); }

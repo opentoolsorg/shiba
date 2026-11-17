@@ -3,7 +3,7 @@ import type { UiAnswer } from "@shiba/shared";
 import { createCompletionDrivenPoll, documentVisibilityPause } from "../polling";
 import { UiBlockCard } from "./UiBlockCard";
 
-interface Question { blockId: string; block: unknown; fallbackText: string; status: "pending" | "answered" | "cancelled"; answer?: UiAnswer }
+interface Question { runId?: string; blockId: string; block: unknown; fallbackText: string; status: "pending" | "answered" | "cancelled"; answer?: UiAnswer }
 
 export function UiBlockQuestions({ runId, sessionId }: { runId: string; sessionId?: string }) {
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -27,6 +27,6 @@ export function UiBlockQuestions({ runId, sessionId }: { runId: string; sessionI
   }, [runId, sessionId]);
   return <section aria-label="Interactive questions">
     {error ? <p role="alert" className="text-sm text-[var(--destructive)]">{error}</p> : null}
-    {questions.map((question) => <UiBlockCard key={`${runId}:${question.blockId}`} {...question} runId={runId} sessionId={sessionId} />)}
+    {questions.map((question) => <UiBlockCard key={`${question.runId ?? runId}:${question.blockId}`} {...question} runId={question.runId ?? runId} sessionId={sessionId} />)}
   </section>;
 }

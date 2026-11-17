@@ -62,8 +62,15 @@ export async function getUiBlock(env: StoreEnv, ownerId: string, runId: string, 
   return row ? parseRow(row) : null;
 }
 
-export async function listUiBlocks(env: StoreEnv, ownerId: string, runId: string, includeAnswered = false): Promise<UiBlockQuestion[]> {
+export async function listUiBlocks(env: StoreEnv, ownerId: string, runId: string, includeAnswered = false, includeTasks = false): Promise<UiBlockQuestion[]> {
   const db = database(env);
+  if (includeTasks) {
+    const prefix = `${runId}:ui-task:`;
+    const rows = await db.prepare(
+      `SELECT * FROM ui_block_questions WHERE tenant_id=? AND owner_id=? AND (run_id=? OR substr(run_id,1,?)=?) AND ${includeAnswered ? "status IN ('pending','answered')" : "status='pending'"} ORDER BY created_at DESC LIMIT 100`,
+    ).bind(COLLAB_TENANT_ID, ownerId, runId, prefix.length, prefix).all<Row>();
+    return rows.results.map(parseRow);
+  }
   const pending = await db.prepare(
     "SELECT * FROM ui_block_questions WHERE tenant_id=? AND owner_id=? AND run_id=? AND status='pending' ORDER BY created_at DESC",
   ).bind(COLLAB_TENANT_ID, ownerId, runId).all<Row>();
