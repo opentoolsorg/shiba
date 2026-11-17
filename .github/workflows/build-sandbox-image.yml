@@ -16,7 +16,7 @@ jobs:
   build-push:
     runs-on: ubuntu-latest
     outputs:
-      image: ${{ steps.image.outputs.image }}
+      digest: ${{ steps.image.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -38,7 +38,7 @@ jobs:
           image=$(docker image inspect --format '{{join .RepoDigests "\n"}}' "$ref" \
             | grep -E "^registry[.]cloudflare[.]com/${CLOUDFLARE_ACCOUNT_ID}/shiba-ai-coworker-sandbox-dogfood@sha256:[a-f0-9]{64}$")
           test -n "$image"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "digest=${image##*@}" >> "$GITHUB_OUTPUT"
           echo "$image"
           {
             echo '### Dogfood sandbox image'
