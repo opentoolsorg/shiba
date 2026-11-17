@@ -53,8 +53,8 @@ export async function handleKnowledgeOutputs(request: Request, env: Env): Promis
     if (env.AGENT_AUDIT && (!type || type === "output")) {
       const files = await env.AGENT_AUDIT.prepare(
         `SELECT id, name, mime, size, updated_at FROM files
-         WHERE workspace_id=? AND archived_at IS NULL AND mime LIKE 'image/%' ORDER BY updated_at DESC LIMIT 40`,
-      ).bind(workspaceId).all<{ id: string; name: string; mime: string; size: number; updated_at: number }>();
+         WHERE workspace_id=? AND archived_at IS NULL AND (mime LIKE 'image/%' OR mime='video/mp4') AND (scope='workspace' OR created_by=?) ORDER BY updated_at DESC LIMIT 40`,
+      ).bind(workspaceId, userId).all<{ id: string; name: string; mime: string; size: number; updated_at: number }>();
       for (const row of files.results) {
         items.push({
           id: row.id,

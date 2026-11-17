@@ -1503,10 +1503,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       if (decidedRef.current.has(approvalId)) return;
       decidedRef.current.add(approvalId);
       setDecisions((current) => ({ ...current, [approvalId]: approved }));
+      const videoGeneration = pendingApprovals.some((item) => item.approvalId === approvalId && item.tool === "generate_video");
       try {
         await chat.addToolApprovalResponse({ id: approvalId, approved });
         setApprovalAnnouncement(
-          `Task ${approved ? "approved" : "rejected"}. ${
+          videoGeneration ? `Video generation ${approved ? "approved. Paid provider generation is now permitted." : "rejected. No video will be generated."}` : `Task ${approved ? "approved" : "rejected"}. ${
             approved
               ? "Sandbox execution is now permitted."
               : "No sandbox will start for this tool call."
@@ -1528,7 +1529,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         );
       }
     },
-    [chat],
+    [chat, pendingApprovals],
   );
 
   const [storedDecisions, setStoredDecisions] = useState<Record<string, boolean>>({});
