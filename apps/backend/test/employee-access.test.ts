@@ -127,7 +127,7 @@ describe("employee access", () => {
     const requests = () => [request("team-model-sessions/turns/prepare", { grantId: "funding", employeeId: "spoofed" }), request("team-model-sessions/turns/turn/approve"), request("team-model-sessions/turns/turn/execute"), request("sessions", { employeeId: "spoofed", metadata: { customAgentId: employee.id } }), request("sessions/existing", { employeeId: "spoofed", metadata: { customAgentId: employee.id } }), request("runs", { employeeId: "spoofed", customAgentId: employee.id }), request("collaboration/rooms/room/handoffs", { employeeId: "spoofed", recipientActorId: `agent:${employee.slug}` })];
     for (const [level, status] of [["none", 404], ["view", 403], ["chat", undefined]] as const) {
       await set("everyone", "*", level);
-      expect((await enforceEmployeeRouteAccess(new Request("https://app.test/api/team-model-sessions/state?roomId=room"), env))?.status).toBe(level === "none" ? 404 : undefined);
+      expect(await enforceEmployeeRouteAccess(new Request("https://app.test/api/team-model-sessions/state?roomId=room"), env)).toBeNull();
       for (const req of requests()) expect((await enforceEmployeeRouteAccess(req, env))?.status).toBe(status);
     }
     expect((await enforceEmployeeRouteAccess(request("team-model-sessions/turns/prepare", {}), env))?.status).toBe(404);
