@@ -140,4 +140,16 @@ it("meters an executing run before the sandbox.ready signal lands", async () => 
     expect(instance.state.runs[0]!.errorCode).toBe("budget_exceeded");
   });
 
+it("fences the generation when a run is held so the aborted execution cannot terminalize it", async () => {
+    const live = running("held", { signals: undefined, checkpoint: "executing" });
+    const instance = budgetHost({ dailyLimitUsd: null, monthlyLimitUsd: null, perRunLimitUsd: 0.00001, onExceed: "ask" }, [live]);
+    const before = instance.state.runs[0]!.generation;
+    await (instance as unknown as { holdRunForBudget(run: DelegatedRun, blockedPeriods: ("daily" | "monthly" | "run")[], now: number): Promise<void> })
+      .holdRunForBudget(instance.state.runs[0]!, ["run"], 10_000);
+    const after = instance.state.runs[0]!;
+    expect(after.status).toBe("pending");
+    expect(after.budgetHold?.blockedPeriods).toContain("run");
+    expect(after.generation).toBe(before + 1);
+  });
+
 });

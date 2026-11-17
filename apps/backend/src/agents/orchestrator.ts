@@ -5463,6 +5463,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const latest = this.store.get(run.runId) ?? run;
     this.store.replace(run.runId, {
       ...latest,
+      generation: latest.generation + 1,
       status: "pending",
       checkpoint: "dispatching",
       budgetHold: { approvalId: override.approvalId, blockedPeriods, at: now },
