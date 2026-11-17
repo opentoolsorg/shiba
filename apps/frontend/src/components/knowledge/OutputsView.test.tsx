@@ -30,13 +30,13 @@ describe("Outputs gallery", () => {
     const mock = api();
     render(<OutputsView />);
     await screen.findByRole("option", { name: "Flux Schnell" });
-    fireEvent.click(screen.getByRole("button", { name: "Videos", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Videos" }));
     await waitFor(() => expect(mock).toHaveBeenCalledWith("/api/outputs?type=video", expect.anything()));
     fireEvent.change(screen.getByLabelText("Shape"), { target: { value: "16:9" } });
     expect(screen.queryByRole("option", { name: "Flux Schnell" })).toBeNull();
     fireEvent.change(screen.getByLabelText("Describe your image"), { target: { value: "A mountain" } });
     fireEvent.change(screen.getByLabelText("Style"), { target: { value: "lucid" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create image", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Create image" }));
     await waitFor(() => expect(mock).toHaveBeenCalledWith("/api/outputs/images", expect.objectContaining({ method: "POST", body: JSON.stringify({ prompt: "A mountain", model: "lucid", aspectRatio: "16:9" }) })));
     await waitFor(() => expect(mock).toHaveBeenCalledWith("/api/outputs?type=image", expect.anything()));
   });
@@ -46,7 +46,7 @@ describe("Outputs gallery", () => {
     expect(await screen.findByText("No outputs yet")).toBeTruthy();
     await screen.findByRole("option", { name: "Lucid Origin" });
     fireEvent.change(screen.getByLabelText("Describe your image"), { target: { value: "A mountain" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create image", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Create image" }));
     expect(await screen.findByText("Please try another description.")).toBeTruthy();
   });
 });
