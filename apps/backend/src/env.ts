@@ -586,6 +586,7 @@ export interface Env {
   INGEST_QUEUE?: Queue;
   WEBHOOK_QUEUE?: Queue;
   EMAIL_QUEUE?: Queue;
+  JOBS_QUEUE?: Queue;
   SLACK_IMPORT_WORKFLOW?: Workflow;
   AUTOMATION_RUN_WORKFLOW?: Workflow;
   /** General file storage (WS07); distinct from run-scoped ARTIFACTS. */

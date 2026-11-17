@@ -338,6 +338,16 @@ bring-your-own-agent differentiator, not the first adapter.
 
 ---
 
+### Cron job queue rollout
+
+The five-minute cron sends one message per queue-safe task to `shiba-jobs`; consumers run independently with five retries delayed by 60 seconds and a `shiba-jobs-dlq`. Batch size is one so jobs do not share an invocation's CPU budget. The registry is `apps/backend/src/scheduled-jobs.ts`; existing claims and occurrence keys prevent duplicate provider reads and Slack sends. `automations.tick` stays inline: its load/dispatch/merge sequence has no tick-wide claim, so stable command IDs alone do not prove concurrent budget accounting safe.
+
+For an existing Wrangler install, run `pnpm exec wrangler queues create shiba-jobs` and `pnpm exec wrangler queues create shiba-jobs-dlq` in the deployment account before deploying the updated config. Alchemy provisions both queues and the consumer, using the same stage suffix as other resources. No D1 migration is needed.
+
+Queues are optional at runtime: deployments without `JOBS_QUEUE` run each task inline, catching failures independently. To keep that mode on a non-Queues host, omit the jobs producer and consumer entries from its deploy config. A failed queue send is surfaced, not replayed inline, because a partial send may already have accepted jobs.
+
+Rollback: pause the jobs consumer and let active invocations finish; drain or explicitly discard pending jobs before removing the producer/consumer config and `JOBS_QUEUE` binding (or reverting this change). The next cron resumes inline execution. Keep the queues and DLQ until outstanding messages have been inspected; do not replay stale DLQ messages blindly.
+
 ## 9. Known architectural gaps
 
 Not bugs — deliberate or inherited, recorded so they are not rediscovered:
