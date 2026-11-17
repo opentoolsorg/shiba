@@ -14,6 +14,7 @@ import { handleAcpProviders } from "../src/acp-provider-routes.js";
 import { ACP_PROVIDER_REGISTRY, acpAdapterPlan } from "../src/acp-providers.js";
 import { handleSubscriptionAuth } from "../src/auth-routes.js";
 import type { Env } from "../src/env.js";
+import { readUserProviderSecret } from "../src/user-provider-keys.js";
 import { ACP_LANES } from "../src/harness/index.js";
 
 vi.mock("../../frontend/src/live-status", () => ({
@@ -748,5 +749,102 @@ describe("Providers page states", () => {
     expect(html).toContain("Model connections");
     expect(html).not.toContain(">Coding connections<");
     expect(html).not.toContain("provider-card-");
+  });
+});
+
+
+describe("live Anthropic credential validation", () => {
+  const token = "sk-ant-oat01-synthetic-invalid-test-value";
+  const card = (body: AcpProvidersSnapshot, id = "claude") => {
+    const provider = body.providers.find((p) => p.id === id);
+    if (!provider) throw new Error(`Missing provider ${id}`);
+    return provider.connection;
+  };
+  const post = (id: string, action: string, body: Record<string, unknown> = {}) =>
+    request(`/api/providers/${id}/${action}`, { method: "POST", body: JSON.stringify(body) });
+
+  it.each([401, 403, 500, 429, "timeout"])("does not store Claude credentials after %s", async (status) => {
+    const deployment = env({ MODEL_CREDENTIAL_KEY: "ab".repeat(32) });
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
+      if (status === "timeout") throw new DOMException("Timed out", "TimeoutError");
+      return new Response("{}", { status: status as number });
+    });
+    await snapshot(await handleAcpProviders(post("claude", "connect", { mode: "oauth" }), deployment, { fetchImpl }));
+    const rejected = await snapshot(await handleAcpProviders(post("claude", "verify", { credential: token }), deployment, { fetchImpl }));
+    expect(card(rejected).phase).toBe("waiting");
+    expect(card(rejected).message).toContain(status === 401 || status === 403 ? "Anthropic rejected this token" : "Couldn't reach Anthropic");
+    expect(JSON.stringify(rejected)).not.toContain(token);
+    expect(await readUserProviderSecret(deployment, "default", "claude-setup")).toBeNull();
+    const listed = await snapshot(await handleAcpProviders(request("/api/providers"), deployment, { fetchImpl }));
+    expect(card(listed).phase).toBe("waiting");
+    expect(card(listed).testOk).not.toBe(true);
+    expect((await handleAcpProviders(post("claude", "test"), deployment, { fetchImpl }))?.status).toBe(409);
+    const disconnected = await snapshot(await handleAcpProviders(post("claude", "disconnect"), deployment, { fetchImpl }));
+    expect(card(disconnected).phase).toBe("disconnected");
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("stores only an accepted token, checks it live, and retains a rejected saved token until disconnect", async () => {
+    const deployment = env({ MODEL_CREDENTIAL_KEY: "ab".repeat(32) });
+    let status = 200;
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response("{}", { status }));
+    const deps = { fetchImpl };
+    await snapshot(await handleAcpProviders(post("claude", "connect", { mode: "setup-token" }), deployment, deps));
+    const verified = await snapshot(await handleAcpProviders(post("claude", "verify", { credential: token }), deployment, deps));
+    expect(card(verified).phase).toBe("connected");
+    expect(await readUserProviderSecret(deployment, "default", "claude-setup")).toBe(token);
+    expect(JSON.stringify(verified)).not.toContain(token);
+    const tested = await snapshot(await handleAcpProviders(post("claude", "test"), deployment, deps));
+    expect(card(tested)).toMatchObject({ phase: "connected", testOk: true });
+    status = 503;
+    const unavailable = await snapshot(await handleAcpProviders(post("claude", "test"), deployment, deps));
+    expect(card(unavailable)).toMatchObject({ phase: "connected", testOk: false });
+    expect(card(unavailable).message).toContain("Couldn't reach Anthropic");
+    status = 401;
+    const rejected = await snapshot(await handleAcpProviders(post("claude", "test"), deployment, deps));
+    expect(card(rejected)).toMatchObject({ phase: "failed", testOk: false, message: "Anthropic rejected the saved token. Paste a new one." });
+    expect(card(await snapshot(await handleAcpProviders(request("/api/providers"), deployment, deps))).phase).toBe("failed");
+    expect(await readUserProviderSecret(deployment, "default", "claude-setup")).toBe(token);
+    await snapshot(await handleAcpProviders(post("claude", "disconnect"), deployment, deps));
+    expect(await readUserProviderSecret(deployment, "default", "claude-setup")).toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  it.each(["claude", "anthropic"])("does not save %s credentials when disconnect lands during validation", async (id) => {
+    const deployment = env({ MODEL_CREDENTIAL_KEY: "ab".repeat(32) });
+    let signalEntered: () => void = () => {};
+    let release: (response: Response) => void = () => {};
+    const entered = new Promise<void>((resolve) => { signalEntered = resolve; });
+    const response = new Promise<Response>((resolve) => { release = resolve; });
+    const fetchImpl = vi.fn<typeof fetch>(() => { signalEntered(); return response; });
+    const deps = { fetchImpl };
+    if (id === "claude") {
+      await snapshot(await handleAcpProviders(post(id, "connect", { mode: "setup-token" }), deployment, deps));
+    }
+    const verifying = handleAcpProviders(post(id, id === "claude" ? "verify" : "connect", {
+      ...(id === "anthropic" ? { mode: "api-key" } : {}), credential: token,
+    }), deployment, deps);
+    await entered;
+    await snapshot(await handleAcpProviders(post(id, "disconnect"), deployment, deps));
+    release(new Response("{}"));
+    expect(card(await snapshot(await verifying), id).phase).toBe("disconnected");
+    expect(await readUserProviderSecret(deployment, "default", id === "claude" ? "claude-setup" : "anthropic-api")).toBeNull();
+  });
+
+  it("checks pasted Anthropic API keys before saving and during Test", async () => {
+    const deployment = env({ MODEL_CREDENTIAL_KEY: "ab".repeat(32) });
+    let status = 401;
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response("{}", { status }));
+    const deps = { fetchImpl };
+    const connect = () => handleAcpProviders(post("anthropic", "connect", { mode: "api-key", credential: "sk-ant-api-synthetic-test-value" }), deployment, deps);
+    const rejected = await snapshot(await connect());
+    expect(card(rejected, "anthropic").phase).toBe("failed");
+    expect(await readUserProviderSecret(deployment, "default", "anthropic-api")).toBeNull();
+    status = 200;
+    expect(card(await snapshot(await connect()), "anthropic").phase).toBe("connected");
+    expect(card(await snapshot(await handleAcpProviders(post("anthropic", "test"), deployment, deps)), "anthropic").testOk).toBe(true);
+    status = 403;
+    expect(card(await snapshot(await handleAcpProviders(post("anthropic", "test"), deployment, deps)), "anthropic")).toMatchObject({ phase: "failed", testOk: false });
+    expect(await readUserProviderSecret(deployment, "default", "anthropic-api")).not.toBeNull();
   });
 });

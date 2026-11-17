@@ -383,4 +383,42 @@ describe("workspace-shared connections with real route/SQLite and fixture siblin
     const history = await f.call("/approvals");
     expect(JSON.stringify(history.body)).not.toContain("Exact human approved title");
   });
+
+  it("degrades to a configured:false setup card when OpenConnector is unbound", async () => {
+    const f = await fixture();
+    const unbound = { ...f.env, OPEN_CONNECTOR: undefined } as unknown as Env;
+    const ask = async (path: string, method = "GET", body?: unknown) => {
+      const response = await handleWorkspaceIntegrations(f.request(path, method, body), unbound);
+      return { status: response!.status, body: await response!.json() as Record<string, unknown> };
+    };
+    const catalog = await ask("/catalog");
+    expect(catalog.status).toBe(200);
+    expect(catalog.body).toMatchObject({ ok: true, configured: false, workspaceId: f.workspace.workspaceId });
+    expect((catalog.body.items as Array<{ id: string }>).map((item) => item.id)).toEqual(expect.arrayContaining(["stripe", "hubspot", "google-ads", "meta-ads", "notion", "gmail", "google-calendar"]));
+    for (const path of ["", "/connections"]) {
+      const list = await ask(path);
+      expect(list.status, path).toBe(200);
+      expect(list.body).toMatchObject({ ok: true, configured: false, connections: [] });
+    }
+    const connected = await ask("/connect", "POST", { providerKey: "github", audienceConsent: "workspace-members" });
+    expect(connected.status).toBe(409);
+    expect(connected.body).toMatchObject({ configured: false, code: "setup_required" });
+    expect(f.transport).not.toHaveBeenCalled();
+  });
+
+  it("keeps configured provider HTTP failures as 503", async () => {
+    const f = await fixture();
+    f.transport.mockResolvedValueOnce(Response.json({ error: "unavailable" }, { status: 503 }));
+    const catalog = await f.call("/catalog");
+    expect(catalog.response.status).toBe(503);
+    expect(catalog.body).toEqual({ error: "workspace_integrations_unavailable" });
+  });
+
+  it("merges live provider rows into featured entries when bound", async () => {
+    const f = await fixture();
+    const catalog = await f.call("/catalog");
+    expect(catalog.response.status).toBe(200);
+    expect(catalog.body).toMatchObject({ configured: true });
+    expect((catalog.body.featured as Array<{ id: string; available: boolean }>).find((item) => item.id === "github")?.available).toBe(true);
+  });
 });

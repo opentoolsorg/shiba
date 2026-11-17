@@ -380,3 +380,67 @@ describe("automation tick webhook and schedule state", () => {
     expect(fetch.mock.calls.filter(([request]) => request.method === "POST")).toHaveLength(2);
   });
 });
+
+
+describe("routine approval gate", () => {
+  it("queues one approval, skips later occurrences while pending, and respects pause", async () => {
+    const item = createAutomation({ id: "weekly-routine", name: "Weekly summary", prompt: "Summarize", repoUrl: REPO,
+      triggers: [{ kind: "schedule", cron: "0 10 * * 3", timezone: "UTC" }],
+    }).automation;
+    const { automation, orchestrator, fetch, storage } = makeDo([item]);
+    fetch.mockImplementation(async (request: Request) => {
+      const path = new URL(request.url).pathname;
+      if (request.method === "GET" && path === "/api/approvals") return Response.json({ approvals: [{ approvalId: "pending-approval", status: "pending" }] });
+      if (request.method === "GET") return Response.json({ runs: [] });
+      return Response.json({ approvalId: "pending-approval" });
+    });
+    expect(await automation.tick(orchestrator, NOW)).toEqual({ fired: 1 });
+    expect(await automation.tick(orchestrator, NOW + 7 * 86_400_000)).toEqual({ fired: 0 });
+    expect(fetch.mock.calls.filter(([request]) => request.method === "POST")).toHaveLength(1);
+    expect((await storage.get<AutomationsState>("state"))?.items[0]?.lastSkip?.reason).toContain("waiting for approval");
+    const patch = (body: unknown) => automation.fetch(new Request("https://internal/api/automations/weekly-routine", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }));
+    expect((await patch({ skipWhilePending: false })).status).toBe(200);
+    expect(await automation.tick(orchestrator, NOW + 7 * 86_400_000)).toEqual({ fired: 1 });
+    expect((await patch({ enabled: false })).status).toBe(200);
+    expect(await automation.tick(orchestrator, NOW + 14 * 86_400_000)).toEqual({ fired: 0 });
+    expect(fetch.mock.calls.filter(([request]) => request.method === "POST")).toHaveLength(2);
+  });
+
+  it("creates, lists, and deletes a paused weekly routine through the dashboard API", async () => {
+    const { automation } = makeDo([]);
+    const response = await automation.fetch(new Request("https://internal/api/automations", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        id: "qa-routine", name: "QA weekly summary", prompt: "qa-routine: weekly summary", repoUrl: REPO,
+        enabled: false, triggers: [{ kind: "schedule", cron: "0 9 * * 1", timezone: "Asia/Kolkata" }],
+      }),
+    }));
+    expect(response.status).toBe(201);
+    const created = await response.json() as { automation: Automation & { nextRunAt: number | null } };
+    expect(created.automation).toMatchObject({ name: "QA weekly summary", enabled: false, nextRunAt: null, skipWhilePending: true });
+    const list = await automation.fetch(new Request("https://internal/api/automations"));
+    expect(await list.json()).toMatchObject({ automations: [{ id: "qa-routine", enabled: false, nextRunAt: null }] });
+    const deleted = await automation.fetch(new Request("https://internal/api/automations/qa-routine", { method: "DELETE" }));
+    expect(deleted.status).toBe(200);
+    expect(await (await automation.fetch(new Request("https://internal/api/automations"))).json()).toEqual({ automations: [] });
+  });
+});
+
+
+it("allows the next occurrence after a known pending approval expires", async () => {
+  const item = createAutomation({ id: "expires", prompt: "Summarize", repoUrl: REPO,
+    triggers: [{ kind: "schedule", cron: "*/5 * * * *" }],
+  }).automation;
+  const { automation, orchestrator, fetch, storage } = makeDo([item]);
+  expect(await automation.tick(orchestrator, NOW)).toEqual({ fired: 1 });
+  fetch.mockImplementation(async (request: Request) => {
+    if (request.method === "GET") return Response.json({ approvals: [], decided: [], runs: [] });
+    return Response.json({ approvalId: "next-approval" });
+  });
+  // Absence alone must not release an approval before its TTL.
+  expect(await automation.tick(orchestrator, NOW + 5 * 60_000)).toEqual({ fired: 0 });
+  expect(await automation.tick(orchestrator, NOW + 35 * 60_000)).toEqual({ fired: 1 });
+  const saved = (await storage.get<AutomationsState>("state"))?.items[0];
+  expect(saved?.occurrences?.map((occurrence) => occurrence.outcome)).toEqual(["expired", "approval-pending"]);
+});

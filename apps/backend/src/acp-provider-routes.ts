@@ -84,17 +84,18 @@ export async function handleAcpProviders(
   if (url.pathname !== "/api/providers" && !url.pathname.startsWith("/api/providers/")) {
     return null;
   }
-  const lanes: SignInLanes = { forwardClaude: deps.forwardClaude };
+  const lanes: SignInLanes = { forwardClaude: deps.forwardClaude, fetchImpl: deps.fetchImpl };
   const origin = url.origin;
   const flowDeps: ProviderDeps = {
     origin,
+    fetchImpl: deps.fetchImpl,
     beginOauth:
       deps.beginOauth ??
       ((e, provider, org, ctx) => beginProviderSignIn(e, provider, org, ctx, lanes)),
     completeOauth:
       deps.completeOauth ??
-      ((e, provider, org, callbackUrl, credential) =>
-        completeProviderSignIn(e, provider, org, callbackUrl, credential)),
+      ((e, provider, org, callbackUrl, credential, canStore) =>
+        completeProviderSignIn(e, provider, org, callbackUrl, credential, deps.fetchImpl, canStore)),
     inspectOauth:
       deps.inspectOauth ??
       ((e, provider, org) => inspectProviderSignIn(e, provider, org, lanes)),
