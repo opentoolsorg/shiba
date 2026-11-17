@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import worker from "../src/index.js";
@@ -29,9 +29,9 @@ function database() {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec("CREATE TABLE scheduled_job_slots (job_name TEXT NOT NULL, slot INTEGER NOT NULL, state TEXT NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER, PRIMARY KEY (job_name, slot))");
   return { prepare(sql: string) {
-    let params: unknown[] = [];
+    let params: SQLInputValue[] = [];
     return {
-      bind(...values: unknown[]) { params = values; return this; },
+      bind(...values: SQLInputValue[]) { params = values; return this; },
       async run() { sqlite.prepare(sql).run(...params); return { meta: { changes: Number((sqlite.prepare("SELECT changes() AS count").get() as { count: number }).count) } }; },
       async first<T>() { return sqlite.prepare(sql).get(...params) as T | undefined; },
     };
