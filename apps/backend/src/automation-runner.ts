@@ -421,7 +421,11 @@ async function commitAutomationFire(
       resolvedQueued = await deps.queueRun(queueInput);
     }
     const scheduleKey = recheck.trigger.kind === "schedule" ? `t${recheck.triggerIndex}` : undefined;
-    const next = resolvedQueued.deduped ? automation : recordTrigger(automation, nowMs, scheduleKey);
+    const hookAlreadyCharged = event.kind === "hook" && automation.chargedHookCommands?.includes(commandId);
+    const next = hookAlreadyCharged ? automation : recordTrigger(automation, nowMs, scheduleKey);
+    if (event.kind === "hook" && !hookAlreadyCharged) {
+      next.chargedHookCommands = [...(automation.chargedHookCommands ?? []), commandId].slice(-50);
+    }
     const queuedOccurrence = occurrence("queued", "approval-pending", nowMs, resolvedQueued.approvalId);
     return {
       fired: true,

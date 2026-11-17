@@ -118,6 +118,7 @@ export interface Automation {
   /** Set only when a webhook trigger exists. Never re-issued — see createAutomation. */
   webhookSecret?: string;
   hookSecret?: { keyId: string; cipher: string };
+  chargedHookCommands?: string[];
   lastTriggeredAt?: number;
   /** Per schedule-trigger last fire (key `t{index}`), so multiple crons do not block each other. */
   scheduleFiredAt?: Record<string, number>;

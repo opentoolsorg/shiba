@@ -1148,14 +1148,17 @@ export class Automations {
 
 function mergeAutomationFireState(base: Automation, fired: Automation, latest: Automation): Automation {
   const updated: Automation = { ...latest };
-  const runCountDelta = Math.max(0, fired.runCount - base.runCount);
+  const newHookCommands = (fired.chargedHookCommands ?? []).filter((id) => !base.chargedHookCommands?.includes(id));
+  const repeatedHookCharges = newHookCommands.filter((id) => latest.chargedHookCommands?.includes(id)).length;
+  if (newHookCommands.length > 0) updated.chargedHookCommands = [...new Set([...(latest.chargedHookCommands ?? []), ...newHookCommands])].slice(-50);
+  const runCountDelta = Math.max(0, fired.runCount - base.runCount - repeatedHookCharges);
   if (runCountDelta > 0) updated.runCount = latest.runCount + runCountDelta;
 
   const firedDay = fired.runDayStartedAt;
   const baseDay = base.runDayStartedAt;
-  const firedTodayDelta = firedDay === baseDay
+  const firedTodayDelta = Math.max(0, (firedDay === baseDay
     ? Math.max(0, (fired.runsToday ?? 0) - (base.runsToday ?? 0))
-    : fired.runsToday ?? 0;
+    : fired.runsToday ?? 0) - repeatedHookCharges);
   if (firedTodayDelta > 0 && firedDay !== undefined) {
     if (latest.runDayStartedAt === firedDay) {
       updated.runsToday = (latest.runsToday ?? 0) + firedTodayDelta;
@@ -1195,8 +1198,8 @@ function mergeAutomationFireState(base: Automation, fired: Automation, latest: A
   return updated;
 }
 
-function publicAutomation(automation: Automation): Omit<Automation, "webhookSecret" | "hookSecret"> & { hasWebhookSecret: boolean; hasHookSecret: boolean; nextRunAt: number | null } {
-  const { webhookSecret, hookSecret, ...rest } = automation;
+function publicAutomation(automation: Automation): Omit<Automation, "webhookSecret" | "hookSecret" | "chargedHookCommands"> & { hasWebhookSecret: boolean; hasHookSecret: boolean; nextRunAt: number | null } {
+  const { webhookSecret, hookSecret, chargedHookCommands: _chargedHookCommands, ...rest } = automation;
   const schedule = automation.triggers.find((trigger) => trigger.kind === "schedule");
   return { ...rest, hasWebhookSecret: Boolean(webhookSecret), hasHookSecret: Boolean(hookSecret), nextRunAt: automation.enabled && schedule ? computeNextRunAt(schedule) : null };
 }

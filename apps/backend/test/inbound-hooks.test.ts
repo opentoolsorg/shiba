@@ -67,6 +67,8 @@ describe("signed hook ingress", () => {
     expect(state.items[0]!.runCount).toBe(1);
     expect(state.items[0]!.runsToday).toBe(1);
     expect(f.receipts.get("hook:delivery")?.state).toBe("done");
+    const publicResponse = await f.instance.fetch(new Request("https://internal/api/automations"));
+    expect(await publicResponse.text()).not.toContain("chargedHookCommands");
   });
   it("creates an encrypted secret once and refuses creation without encryption", async () => {
     const f = await fixture();
