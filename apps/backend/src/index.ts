@@ -345,6 +345,8 @@ export default {
       if (paletteResponse) return paletteResponse;
       const askUserResponse = await (await import("./ask-user-routes.js")).handleAskUser(request, env);
       if (askUserResponse) return askUserResponse;
+      const uiBlockResponse = await (await import("./ui-block-routes.js")).handleUiBlocks(request, env);
+      if (uiBlockResponse) return uiBlockResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);
       if (workspaceResponse) return workspaceResponse;
       const governanceResponse = await handleGovernance(request, env);
