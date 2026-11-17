@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { Env } from "../env.js";
 import { readUserProviderSecret } from "../user-provider-keys.js";
 import { getFile, insertFileRecord } from "../files/files-store.js";
-import { filesBucket } from "../knowledge/knowledge-ingestion.js";
 import { insertMediaGeneration } from "./media-store.js";
 
 export const videoModes = ["text-to-video", "image-to-video", "reference-to-video", "motion-control", "video-editing"] as const;
@@ -125,7 +124,14 @@ export async function generateVideo(env: Env, raw: unknown, context: VideoContex
         throw new Error(video ? "Source video must be your MP4 artifact (up to 50 MB)." : "Source image must be your PNG or JPEG artifact (up to 10 MB).");
       }
       const row = await env.AGENT_AUDIT.prepare("SELECT r2_key FROM files WHERE id=?").bind(file.id).first<{ r2_key: string }>();
-      const object = row && await filesBucket(env).get(row.r2_key);
+      const buckets = [env.FILES, env.ARTIFACTS].flatMap((bucket) => (bucket ? [bucket] : []));
+      let object: R2ObjectBody | null = null;
+      if (row) {
+        for (const bucket of buckets) {
+          object = await bucket.get(row.r2_key);
+          if (object) break;
+        }
+      }
       if (!object || object.size > cap) throw new Error(video ? "Source video is unavailable." : "Source image is unavailable.");
       const bytes = new Uint8Array(await object.arrayBuffer());
       let binary = "";

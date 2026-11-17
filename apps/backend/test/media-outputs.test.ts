@@ -5,7 +5,8 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { generateImage } from "../src/tools/image-gen.js";
 import { FLUX_MODEL, imageDimensions, imageModels } from "../src/tools/image-models.js";
 import { handleKnowledgeOutputs } from "../src/knowledge/knowledge-outputs-routes.js";
-import { GoogleVideoBackend, videoInputSchema, videoModes } from "../src/tools/video-gen.js";
+import { generateVideo, GoogleVideoBackend, videoInputSchema, videoModes } from "../src/tools/video-gen.js";
+import { insertFileRecord } from "../src/files/files-store.js";
 
 vi.mock("../src/request-auth.js", async (original) => ({ ...await original<typeof import("../src/request-auth.js")>(), resolveRequestIdentity: async (request: Request) => ({ authorized: request.headers.has("x-test-user"), userId: request.headers.get("x-test-user") }) }));
 vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: async () => ({ orgId: "team:ws", workspace: { workspaceId: "ws" } }) }));
@@ -119,4 +120,41 @@ describe("video modes", () => {
       expect(sent.input.at(-1)).toMatchObject({ type: "text", text: expect.stringContaining("Make a clip") });
     }
   });
+  it("loads a generated video source from ARTIFACTS when FILES is also bound", async () => {
+    const { database, sqlite } = customAgentD1({ bare: true });
+    databases.push(sqlite);
+    for (const name of ["0050_files_notes.sql", "0062_media_generations.sql"]) sqlite.exec(readFileSync(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
+    const sourceBytes = new Uint8Array([1, 2, 3, 4]);
+    const sourceKey = "outputs/videos/source.mp4";
+    const filesGet = vi.fn(async () => null);
+    const artifactsGet = vi.fn(async (key: string) => key === sourceKey
+      ? { size: sourceBytes.byteLength, arrayBuffer: async () => sourceBytes.buffer }
+      : null);
+    const artifactsPut = vi.fn(async () => ({}));
+    const env = {
+      SHIBA_VIDEO_GENERATION: "1",
+      SHIBA_VIDEO_BACKEND: "google",
+      AGENT_AUDIT: database,
+      AGENT_TOKENS: {},
+      MODEL_CREDENTIAL_KEY: {},
+      FILES: { get: filesGet },
+      ARTIFACTS: { get: artifactsGet, put: artifactsPut },
+    } as unknown as Env;
+    const file = await insertFileRecord(env, { workspaceId: "ws", scope: "personal", name: "source.mp4", mime: "video/mp4", size: sourceBytes.byteLength, r2Key: sourceKey, sha256: "x", createdBy: "alice", ingestionState: "done" });
+    let sentVideo: string | undefined;
+    const backend = {
+      supportedModes: videoModes,
+      start: vi.fn(async (_input: unknown, _image: unknown, sources?: { video?: { data: string } }) => {
+        sentVideo = sources?.video?.data;
+        return "job";
+      }),
+      poll: vi.fn(async () => ({ status: "completed" as const, mp4: new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112, 1, 2, 3, 4]) })),
+    };
+    const result = await generateVideo(env, { prompt: "Edit it", mode: "video-editing", sourceVideoArtifactId: file.id, duration: 3, aspectRatio: "16:9" }, { runId: "run", userId: "alice", workspaceId: "ws" }, { backend, wait: async () => {}, maxPolls: 1 });
+    expect(result).toMatchObject({ ok: true, artifactId: expect.stringMatching(/^file_/) });
+    expect(sentVideo).toBe(btoa(String.fromCharCode(...sourceBytes)));
+    expect(backend.start).toHaveBeenCalledOnce();
+    expect(artifactsPut).toHaveBeenCalledOnce();
+  });
+
 });
