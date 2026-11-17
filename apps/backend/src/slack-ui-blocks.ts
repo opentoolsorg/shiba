@@ -1,6 +1,7 @@
 import { uiBlockFallbackQuestions, type UiBlock, type UiAnswer } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { parseSlackThreadName } from "./slack-thread.js";
+import { uiBlockThreadId } from "./ui-block-scope.js";
 import { answerUiBlock, getUiBlock, UiBlockError } from "./ui-block-store.js";
 
 const plain = (text: string) => ({ type: "plain_text", text, emoji: false });
@@ -63,10 +64,11 @@ export async function answerSlackUiBlock(env: Env, payload: SlackUiPayload): Pro
   const action = payload.actions?.[0];
   if (action?.action_id === "ui_block:selection") return null;
   const p = pointer(action?.selected_option?.value ?? action?.value);
-  const thread = parseSlackThreadName(p.runId);
+  const threadId = uiBlockThreadId(p.runId);
+  const thread = parseSlackThreadName(threadId);
   if (!thread || thread.teamId !== payload.team?.id || thread.channelId !== payload.channel?.id || thread.threadTs !== (payload.message?.thread_ts ?? payload.message?.ts)) throw new Error("Question does not belong to this Slack thread.");
   const { chatLaneActorId } = await import("./chat-employee.js");
-  const ownerId = chatLaneActorId(env, p.runId);
+  const ownerId = chatLaneActorId(env, threadId);
   if (!ownerId) throw new Error("Question has no configured chat owner.");
   const question = await getUiBlock(env, ownerId, p.runId, p.blockId);
   if (!question) throw new Error("Question not found.");

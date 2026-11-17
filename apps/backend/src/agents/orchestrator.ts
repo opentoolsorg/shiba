@@ -100,6 +100,7 @@ import { isAppToolsOnlyTurn, isChatOnlyTurn, toolsForConversationMode } from "..
 import { createChatAgentMediaTools } from "../tools/chat-agent-tools.js";
 import { createAskUiAgentTools } from "../tools/ask-ui.js";
 import { renderUiBlockToSlack } from "../slack-ui-blocks.js";
+import { uiBlockRunId } from "../ui-block-scope.js";
 import { closeBrowserSession } from "../tools/browser-sessions.js";
 import { createEmployeeRunTools, employeeCanRetainDraft, employeeRunToolPolicyMode, resolveAppToolsEmployeeContext, resolveEmployeeRunToolContext } from "../employee-run-tools.js";
 import { onboardingRunFields, onboardingSourceInstructions, type OnboardingRunFields } from "@shiba/shared";
@@ -1454,7 +1455,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         const employee = await resolveAppToolsEmployeeContext(this.env, this.name);
         if (!employee || employee.actorId !== ownerId) return null;
       }
-      return { ownerId, runId: this.name };
+      const taskId = this.messages?.filter((message) => message.role === "user").at(-1)?.id;
+      if (!taskId) return null;
+      return { ownerId, runId: uiBlockRunId(this.name, taskId) };
     }, {
       onCreated: (question) => {
         const rendered = parseSlackThreadName(this.name) ? renderUiBlockToSlack(question.block, { runId: question.runId }) : null;
