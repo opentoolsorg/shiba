@@ -4,6 +4,7 @@
  * webhooks share lastTriggeredAt / daily budget / lastSkip.
  */
 import { APPROVAL_TTL_MS } from "./pending-approvals.js";
+import { MAX_APPROVED_TASK_CHARS } from "./task-limits.js";
 import { generateInboundSecret, verifyInboundSignature } from "./webhooks/inbound-signing.js";
 import { openInboundSecret, sealInboundSecret } from "./webhooks/secrets.js";
 import { computeNextRunAt } from "./automation-schedules.js";
@@ -16,6 +17,7 @@ import {
 import { reviewerTask } from "./review/prompt.js";
 import {
   fireMatchingAutomations,
+  buildAutomationTask,
   githubWebhookToEvent,
   linearEventToAutomation,
   slackEventToAutomation,
@@ -1059,6 +1061,9 @@ export class Automations {
       const now = Date.now();
       const deliveryId = await verifyInboundSignature(request.headers, body, secret, now);
       if (!deliveryId || !automation?.hookSecret || !automation.triggers.some((trigger) => trigger.kind === "webhook")) return Response.json({ error: "Invalid webhook signature." }, { status: 401 });
+      if (buildAutomationTask(automation, { kind: "hook", deliveryId, body }).length > MAX_APPROVED_TASK_CHARS) {
+        return Response.json({ error: `Webhook payload, routine prompt and selected skill instructions exceed the ${MAX_APPROVED_TASK_CHARS}-character task limit.` }, { status: 413 });
+      }
       const db = this.env.AGENT_AUDIT;
       if (!db) return Response.json({ error: "Inbound webhook receipt storage unavailable." }, { status: 503 });
       const cutoff = now - 7 * 24 * 60 * 60 * 1000;

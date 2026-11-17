@@ -221,7 +221,7 @@ import {
   type TaskAttemptStatus,
 } from "../task-attempts.js";
 
-const MAX_APPROVED_TASK_CHARS = 4000;
+import { MAX_APPROVED_TASK_CHARS } from "../task-limits.js";
 import {
   acquireSandboxOps,
   destroyManagedContainer,
