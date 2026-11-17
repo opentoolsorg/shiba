@@ -41,7 +41,6 @@ export {
   unregisterSandboxProvider,
 } from "./registry.js";
 export { registerBuiltinSandboxProviders } from "./register-builtins.js";
-export { describeSandboxProviderContract } from "./contract-suite.js";
 
 import { registerBuiltinSandboxProviders } from "./register-builtins.js";
 registerBuiltinSandboxProviders();

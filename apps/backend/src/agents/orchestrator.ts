@@ -94,7 +94,8 @@ import { Effect } from "effect";
 import { z } from "zod";
 import type { TokenRecord } from "../agent-tokens.js";
 import { postToChatThread } from "../chat-lane.js";
-import { createRunCodeTool, ORCHESTRATOR_PRINCIPAL, ORCHESTRATOR_SCOPES } from "../codemode.js";
+import { ORCHESTRATOR_PRINCIPAL, ORCHESTRATOR_SCOPES } from "../codemode-principal.js";
+import { createLazyRunCodeTool, warmRunCodeTool } from "../run-code-lazy.js";
 import { isAppToolsOnlyTurn, isChatOnlyTurn, toolsForConversationMode } from "../conversation-mode.js";
 import { createChatAgentMediaTools } from "../tools/chat-agent-tools.js";
 import { closeBrowserSession } from "../tools/browser-sessions.js";
@@ -536,6 +537,7 @@ function repoPullUrl(output: string, repoUrl: string): string | undefined {
 
 export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   override maxConcurrentAgentTools = 1;
+  private warmedRunCode: import("ai").Tool | null | undefined;
   private specialistTurn: { turnId: string; budget: SpecialistTurnBudget } | undefined;
   private publicationReviewInFlight?: Map<string, Promise<void>>;
   override runAgentTool<Input = unknown>(
@@ -1417,8 +1419,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const codePrincipal: TokenRecord = codeOwner
       ? { principal: codeOwner, scopes: ORCHESTRATOR_SCOPES, created: 0, revoked: false }
       : ORCHESTRATOR_PRINCIPAL;
-    const runCode = createRunCodeTool(this.env, ownerMemoryId, codePrincipal, memoryScopeForConversation(this.name));
+    const memoryPrincipal = memoryScopeForConversation(this.name);
+    const warmed = this.warmedRunCode;
+    const runCode = warmed ?? createLazyRunCodeTool(this.env, ownerMemoryId, codePrincipal, memoryPrincipal);
     if (runCode) tools.run_code = runCode;
+    if (this.warmedRunCode === undefined && this.env.LOADER) {
+      void warmRunCodeTool(this.env, ownerMemoryId, codePrincipal, memoryPrincipal).then((tool) => {
+        this.warmedRunCode = tool ?? null;
+      });
+    }
     return tools;
   }
 

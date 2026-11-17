@@ -6,8 +6,9 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@cloudflare/think", () => ({ Think: class { getTools() { return {}; } } }));
 vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
-vi.mock("../src/codemode.js", async (original) => ({
-  ...await original<typeof import("../src/codemode.js")>(), createRunCodeTool: mocks.codeTool,
+vi.mock("../src/run-code-lazy.js", () => ({
+  createLazyRunCodeTool: mocks.codeTool,
+  warmRunCodeTool: vi.fn(async () => null),
 }));
 vi.mock("../src/session-distill.js", async (original) => ({
   ...await original<typeof import("../src/session-distill.js")>(), distillSession: mocks.distill,

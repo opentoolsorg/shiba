@@ -21,13 +21,11 @@ import { handleAutomations } from "../automations-routes.js";
 import { handleComputers } from "../computers-routes.js";
 import { handleGitHubWebhook } from "../github-webhook-routes.js";
 import { handleIntegrationsRoutes } from "../integrations-routes.js";
-import { handleIntegrationProviderRoutes } from "../integrations-provider-routes.js";
 import { handleLinearWebhook } from "../linear/routes.js";
 import { handleGmail } from "../gmail-routes.js";
 import { handleSentryWebhook } from "../sentry-webhook-routes.js";
 import { handleInbox } from "../inbox-routes.js";
 import { handleLocalAdapter, isLocalRuntimePath } from "../local-routes.js";
-import { handleMcp } from "../mcp-routes.js";
 import { handleMemory } from "../memory-routes.js";
 import { handleFiles } from "../files/files-routes.js";
 import { handleNotes } from "../notes/notes-routes.js";
@@ -35,13 +33,11 @@ import { handleKnowledge } from "../knowledge/knowledge-routes.js";
 import { handleKnowledgeOutputs } from "../knowledge/knowledge-outputs-routes.js";
 import { handleKnowledgeProjects } from "../knowledge/knowledge-projects-routes.js";
 import { handleOAuth } from "../oauth-mcp.js";
-import { handleAcpProviders } from "../acp-provider-routes.js";
 import { handleCapabilityCatalog } from "../capability-catalog-routes.js";
 import { handleApiKeys } from "../api-keys-routes.js";
 import { handleOutboundWebhooks } from "../webhooks/routes.js";
 import { handleCustomAgents } from "../custom-agents-routes.js";
 import { handleEmployeeTools } from "../employee-tool-routes.js";
-import { handleSkillLibrary } from "../skill-library-routes.js";
 import { handleSkills } from "../skills-routes.js";
 import { handleSpaces } from "../spaces-routes.js";
 import { handleRunOutputArchives } from "../run-output-archive-routes.js";
@@ -63,7 +59,6 @@ import { handleWebSessions } from "../sessions-routes.js";
 import { handleSlackCanvas } from "../slack-canvas-routes.js";
 import { redactSecrets } from "../security.js";
 import { handleBetterAuth } from "../better-auth.js";
-import "../email/delivery.js";
 import { handleEmailDeliveryRoutes } from "../email/routes.js";
 import { SIGNATURE_AUTHENTICATED } from "../request-auth.js";
 import { handleSlackInteract } from "../slack-approval.js";
@@ -78,7 +73,6 @@ import { handleSandboxRoutes } from "../sandbox-routes.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
 import { isOrgApiPath } from "../public-routes.js";
 import { handleWaitlist } from "../waitlist.js";
-import "../knowledge/knowledge-ingest-queue.js";
 import {
   isAuthorizedSessionAgent,
   parseSessionAgentName,
@@ -86,7 +80,7 @@ import {
   WEB_SESSION_PREFIX,
 } from "../web-sessions.js";
 
-import { DASHBOARD_VIEWS, MARKETING_SECTIONS } from "./shell.js";
+import { isDashboardViewPath, isMarketingSection } from "../app-host-routing.js";
 import type { RequestContext } from "./context.js";
 
 // Thin adapters preserve the original checks, return-null behavior and lazy module boundaries.
@@ -131,11 +125,11 @@ export const handlers = {
     const { request, env, url } = context;
     if (request.method === "GET" || request.method === "HEAD") {
       const section = url.pathname.split("/")[1] ?? "";
-      if (MARKETING_SECTIONS.has(section)) {
+      if (isMarketingSection(section)) {
         return Response.redirect(`https://tryshiba.dev${url.pathname}${url.search}`, 301);
       }
       // The shell is static and shows sign-in itself; single segment so /agents/<do>/… still routes.
-      if (DASHBOARD_VIEWS.has(section) && /^\/[^/]*\/?$/.test(url.pathname)) {
+      if (isDashboardViewPath(section, url.pathname)) {
         return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
       }
       // WS02: password reset surfaces share the dashboard shell.
@@ -269,8 +263,10 @@ export const handlers = {
     return handleOnboardingProgress(request, env);
   },
   async acpProviderResponse(context: RequestContext): Promise<Response | null> {
-    const { request, env } = context;
-    return handleAcpProviders(request, env);
+    const { request, env, url } = context;
+    return url.pathname === "/api/providers" || url.pathname.startsWith("/api/providers/")
+      ? (await import("../acp-provider-routes.js")).handleAcpProviders(request, env)
+      : null;
   },
   async capabilityCatalogResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
@@ -298,7 +294,7 @@ export const handlers = {
   },
   async skillLibraryResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
-    return handleSkillLibrary(request, env);
+    return (await import("../skill-library-routes.js")).handleSkillLibrary(request, env);
   },
   async skillsResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
@@ -399,7 +395,7 @@ export const handlers = {
   },
   async mcpResponse(context: RequestContext): Promise<Response | null> {
     const { request, env, execution: ctx } = context;
-    const mcpResponse = await handleMcp(
+    const mcpResponse = await (await import("../mcp-routes.js")).handleMcp(
       request,
       env,
       ctx ?? ({ waitUntil: () => {} } as unknown as ExecutionContext),
@@ -640,8 +636,10 @@ export const handlers = {
     return null;
   },
   async integrationProviderResponse(context: RequestContext): Promise<Response | null> {
-    const { request, env } = context;
-    return handleIntegrationProviderRoutes(request, env);
+    const { request, env, url } = context;
+    return url.pathname === "/api/integrations/provider" || url.pathname.startsWith("/api/integrations/provider/")
+      ? (await import("../integrations-provider-routes.js")).handleIntegrationProviderRoutes(request, env)
+      : null;
   },
   async sentryResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
