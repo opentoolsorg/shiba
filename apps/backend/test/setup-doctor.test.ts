@@ -10,6 +10,7 @@ import type { Connection } from "../src/model-connections.js";
 function env(overrides: Partial<Env> = {}): Env {
   return {
     GATEWAY_ID: "default",
+    INTERNAL_SIGNING_KEY: "ab".repeat(32),
     ORCHESTRATOR_MODEL: "",
     CODING_MODEL: "google/gemini-3.5-flash-lite",
     AI_GATEWAY_TOKEN: "gateway-token",
@@ -37,6 +38,11 @@ const readyAnthropic = (id = "conn_a"): Connection => ({
 });
 
 describe("runSetupDoctor", () => {
+  it("reports a missing internal signing key without exposing secrets", async () => {
+    const report = await runSetupDoctor(env({ INTERNAL_SIGNING_KEY: undefined }), { gateway: { token: true, reachable: "yes" } });
+    expect(report.findings).toContainEqual(expect.objectContaining({ id: "internal.signing", severity: "error", message: "INTERNAL_SIGNING_KEY not set" }));
+    expect(JSON.stringify(report)).not.toContain("gateway-token");
+  });
   it("marks gateway-backed roles ok when AI_GATEWAY_TOKEN is set", async () => {
     const status = await readSetupStatus(env(), false);
     const report = await runSetupDoctor(env(), { gateway: status.gateway });

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { RUN_DEADLINE_MS } from "@shiba/shared";
-import { assertChildDispatchAuthorized, childDispatchEnvelopeHash, sealChildDispatch } from "../src/child-dispatch.js";
+import {
+  assertChildDispatchAuthorized,
+  childDispatchEnvelopeHash,
+  sealChildDispatch,
+} from "../src/child-dispatch.js";
 import type { CodingTaskInput } from "../src/opencode-input.js";
 
 const KEY = "ab".repeat(32);
@@ -14,7 +18,11 @@ const INPUT: CodingTaskInput = {
   codingModel: "google/gemini-3.5-flash-lite",
 };
 const APPROVED_ROUTE: NonNullable<CodingTaskInput["route"]> = {
-  purpose: "coding", connectionId: null, modelId: INPUT.codingModel, harness: "opencode", policyVersion: 1,
+  purpose: "coding",
+  connectionId: null,
+  modelId: INPUT.codingModel,
+  harness: "opencode",
+  policyVersion: 1,
 };
 
 const FULL_INPUT: CodingTaskInput = {
@@ -48,33 +56,114 @@ const FULL_INPUT: CodingTaskInput = {
 };
 
 async function seal(input = INPUT) {
-  return sealChildDispatch({ MODEL_CREDENTIAL_KEY: KEY }, {
-    approvalId: "agent-tool:abc",
-    sandboxId: input.sandboxId,
-    inputHash: "c".repeat(64),
-  }, input, NOW);
+  return sealChildDispatch(
+    { INTERNAL_SIGNING_KEY: KEY, MODEL_CREDENTIAL_KEY: KEY },
+    {
+      approvalId: "agent-tool:abc",
+      sandboxId: input.sandboxId,
+      inputHash: "c".repeat(64),
+    },
+    input,
+    NOW,
+  );
 }
 
 describe("child dispatch seal", () => {
-  it("accepts a parent-sealed envelope and rejects a forged one", async () => {
-    const env = { MODEL_CREDENTIAL_KEY: KEY };
-    const seal = await sealChildDispatch(env, {
+  it("signs without the new key only during legacy grace", async () => {
+    const env = { MODEL_CREDENTIAL_KEY: KEY, SHIBA_LEGACY_SIGNING_FALLBACK: "1" };
+    const fields = {
       approvalId: "agent-tool:abc",
       sandboxId: INPUT.sandboxId,
       inputHash: "c".repeat(64),
-    }, INPUT);
-    await expect(assertChildDispatchAuthorized(env, { ...INPUT, ...seal })).resolves.toBeUndefined();
+    };
+    const sealed = { ...INPUT, ...(await sealChildDispatch(env, fields, INPUT, NOW)) };
+    expect(sealed.dispatchSig).toMatch(/^[a-f0-9]{64}$/);
+    await expect(assertChildDispatchAuthorized(env, sealed, NOW)).resolves.toBeUndefined();
+    await expect(
+      sealChildDispatch({ ...env, SHIBA_LEGACY_SIGNING_FALLBACK: "0" }, fields, INPUT, NOW),
+    ).rejects.toThrow(/not configured/);
+  });
+
+  it("rejects a tampered versioned signature", async () => {
+    const sealed = { ...INPUT, ...(await seal()) };
+    expect(sealed.dispatchSig).toMatch(/^v1:/);
+    const signature = sealed.dispatchSig ?? "";
+    sealed.dispatchSig = signature.slice(0, -1) + (signature.endsWith("0") ? "1" : "0");
+    await expect(
+      assertChildDispatchAuthorized({ INTERNAL_SIGNING_KEY: KEY }, sealed, NOW),
+    ).rejects.toThrow(/invalid/);
+  });
+  it("verifies legacy encryption-key seals only during the grace window", async () => {
+    const sealed = { ...INPUT, ...(await seal()) };
+    const message = [
+      "opencode-child-dispatch-v2",
+      sealed.dispatchApprovalId,
+      sealed.sandboxId,
+      sealed.dispatchInputHash,
+      sealed.dispatchEnvelopeHash,
+    ].join("\n");
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(KEY),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const mac = new Uint8Array(
+      await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message)),
+    );
+    sealed.dispatchSig = Array.from(mac, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    await expect(
+      assertChildDispatchAuthorized(
+        { MODEL_CREDENTIAL_KEY: KEY, SHIBA_LEGACY_SIGNING_FALLBACK: "1" },
+        sealed,
+        NOW,
+      ),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertChildDispatchAuthorized(
+        { MODEL_CREDENTIAL_KEY: KEY, SHIBA_LEGACY_SIGNING_FALLBACK: "0" },
+        sealed,
+        NOW,
+      ),
+    ).rejects.toThrow(/invalid/);
+  });
+
+  it("accepts a parent-sealed envelope and rejects a forged one", async () => {
+    const env = { INTERNAL_SIGNING_KEY: KEY, MODEL_CREDENTIAL_KEY: KEY };
+    const seal = await sealChildDispatch(
+      env,
+      {
+        approvalId: "agent-tool:abc",
+        sandboxId: INPUT.sandboxId,
+        inputHash: "c".repeat(64),
+      },
+      INPUT,
+    );
+    await expect(
+      assertChildDispatchAuthorized(env, { ...INPUT, ...seal }),
+    ).resolves.toBeUndefined();
     await expect(
       assertChildDispatchAuthorized(env, { ...INPUT, ...seal, dispatchSig: "d".repeat(64) }),
     ).rejects.toThrow(/invalid/i);
   });
   it("binds every execution and owner routing field to the parent seal", async () => {
-    const env = { MODEL_CREDENTIAL_KEY: KEY };
-    const sealed = { ...FULL_INPUT, ...await seal(FULL_INPUT) };
+    const env = { INTERNAL_SIGNING_KEY: KEY, MODEL_CREDENTIAL_KEY: KEY };
+    const sealed = { ...FULL_INPUT, ...(await seal(FULL_INPUT)) };
     const changes: Partial<CodingTaskInput>[] = [
       { task: "Different task" },
-      { repoUrl: "https://github.com/other/repo", executionTarget: { kind: "repository", repoUrl: "https://github.com/other/repo", baseBranch: INPUT.baseBranch } },
-      { baseBranch: "release", executionTarget: { kind: "repository", repoUrl: INPUT.repoUrl, baseBranch: "release" } },
+      {
+        repoUrl: "https://github.com/other/repo",
+        executionTarget: {
+          kind: "repository",
+          repoUrl: "https://github.com/other/repo",
+          baseBranch: INPUT.baseBranch,
+        },
+      },
+      {
+        baseBranch: "release",
+        executionTarget: { kind: "repository", repoUrl: INPUT.repoUrl, baseBranch: "release" },
+      },
       { sandboxId: "run-other" },
       { publishPullRequest: true },
       { codingModel: "openai/gpt-5.3-codex" },
@@ -112,26 +201,46 @@ describe("child dispatch seal", () => {
     ];
     await expect(assertChildDispatchAuthorized(env, sealed, NOW)).resolves.toBeUndefined();
     for (const change of changes) {
-      await expect(assertChildDispatchAuthorized(env, { ...sealed, ...change }, NOW), JSON.stringify(Object.keys(change)))
-        .rejects.toThrow();
+      await expect(
+        assertChildDispatchAuthorized(env, { ...sealed, ...change }, NOW),
+        JSON.stringify(Object.keys(change)),
+      ).rejects.toThrow();
     }
   });
 
   it("accepts equivalent objects with different top level and nested key order", async () => {
     const envelope = await seal(FULL_INPUT);
     const reordered: CodingTaskInput = {
-      ...Object.fromEntries(Object.entries(FULL_INPUT).reverse()) as CodingTaskInput,
+      ...(Object.fromEntries(Object.entries(FULL_INPUT).reverse()) as CodingTaskInput),
       runRoom: { runId: "run-one", sessionId: "session-one", ownerId: "owner@example.test" },
       slackThread: { threadTs: "1.2", channelId: "C123" },
-      route: { policyVersion: 1, harness: "opencode", modelId: INPUT.codingModel, connectionId: null, purpose: "coding" },
+      route: {
+        policyVersion: 1,
+        harness: "opencode",
+        modelId: INPUT.codingModel,
+        connectionId: null,
+        purpose: "coding",
+      },
     };
-    expect(await childDispatchEnvelopeHash(FULL_INPUT)).toBe(await childDispatchEnvelopeHash(reordered));
-    await expect(assertChildDispatchAuthorized({ MODEL_CREDENTIAL_KEY: KEY }, { ...reordered, ...envelope }, NOW))
-      .resolves.toBeUndefined();
+    expect(await childDispatchEnvelopeHash(FULL_INPUT)).toBe(
+      await childDispatchEnvelopeHash(reordered),
+    );
+    await expect(
+      assertChildDispatchAuthorized(
+        { INTERNAL_SIGNING_KEY: KEY, MODEL_CREDENTIAL_KEY: KEY },
+        { ...reordered, ...envelope },
+        NOW,
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it("binds repo free workspace identity and template to the seal", async () => {
-    const workspace = { kind: "artifact-workspace" as const, workspaceId: "workspace-one", template: "research", expectedDeliverables: [] };
+    const workspace = {
+      kind: "artifact-workspace" as const,
+      workspaceId: "workspace-one",
+      template: "research",
+      expectedDeliverables: [],
+    };
     const input: CodingTaskInput = {
       ...INPUT,
       repoUrl: "",
@@ -140,32 +249,60 @@ describe("child dispatch seal", () => {
       executionTarget: workspace,
     };
     const envelope = await seal(input);
-    await expect(assertChildDispatchAuthorized({ MODEL_CREDENTIAL_KEY: KEY }, { ...input, ...envelope }, NOW)).resolves.toBeUndefined();
+    await expect(
+      assertChildDispatchAuthorized(
+        { INTERNAL_SIGNING_KEY: KEY, MODEL_CREDENTIAL_KEY: KEY },
+        { ...input, ...envelope },
+        NOW,
+      ),
+    ).resolves.toBeUndefined();
     for (const change of [{ workspaceId: "workspace-two" }, { template: "marketing" }]) {
       const executionTarget = { ...workspace, ...change };
-      await expect(assertChildDispatchAuthorized({ MODEL_CREDENTIAL_KEY: KEY }, { ...input, ...envelope, executionTarget }, NOW))
-        .rejects.toThrow(/envelope changed/);
+      await expect(
+        assertChildDispatchAuthorized(
+          { INTERNAL_SIGNING_KEY: KEY, MODEL_CREDENTIAL_KEY: KEY },
+          { ...input, ...envelope, executionTarget },
+          NOW,
+        ),
+      ).rejects.toThrow(/envelope changed/);
     }
   });
 
   it("rejects missing evidence and missing signing configuration", async () => {
-    const env = { MODEL_CREDENTIAL_KEY: KEY };
-    const sealed = { ...INPUT, ...await seal() };
+    const env = { INTERNAL_SIGNING_KEY: KEY, MODEL_CREDENTIAL_KEY: KEY };
+    const sealed = { ...INPUT, ...(await seal()) };
     await expect(assertChildDispatchAuthorized(env, INPUT, NOW)).rejects.toThrow(/approved parent/);
-    for (const field of ["dispatchApprovalId", "dispatchInputHash", "dispatchEnvelopeHash", "dispatchSig"] as const) {
-      await expect(assertChildDispatchAuthorized(env, { ...sealed, [field]: undefined }, NOW)).rejects.toThrow(/approved parent/);
+    for (const field of [
+      "dispatchApprovalId",
+      "dispatchInputHash",
+      "dispatchEnvelopeHash",
+      "dispatchSig",
+    ] as const) {
+      await expect(
+        assertChildDispatchAuthorized(env, { ...sealed, [field]: undefined }, NOW),
+      ).rejects.toThrow(/approved parent/);
     }
     await expect(assertChildDispatchAuthorized({}, sealed, NOW)).rejects.toThrow(/not configured/);
-    await expect(sealChildDispatch({}, { approvalId: "abc", sandboxId: INPUT.sandboxId, inputHash: "c".repeat(64) }, INPUT, NOW))
-      .rejects.toThrow(/not configured/);
+    await expect(
+      sealChildDispatch(
+        {},
+        { approvalId: "abc", sandboxId: INPUT.sandboxId, inputHash: "c".repeat(64) },
+        INPUT,
+        NOW,
+      ),
+    ).rejects.toThrow(/not configured/);
   });
 
   it("expires exactly at the run deadline and refuses future or extended timestamps", async () => {
-    const env = { MODEL_CREDENTIAL_KEY: KEY };
-    const sealed = { ...INPUT, ...await seal() };
+    const env = { INTERNAL_SIGNING_KEY: KEY, MODEL_CREDENTIAL_KEY: KEY };
+    const sealed = { ...INPUT, ...(await seal()) };
     expect(sealed.dispatchExpiresAt).toBe(NOW + RUN_DEADLINE_MS);
-    await expect(assertChildDispatchAuthorized(env, sealed, NOW + RUN_DEADLINE_MS - 1)).resolves.toBeUndefined();
-    await expect(assertChildDispatchAuthorized(env, sealed, NOW + RUN_DEADLINE_MS)).rejects.toThrow(/deadline/);
+    await expect(
+      assertChildDispatchAuthorized(env, sealed, NOW + RUN_DEADLINE_MS - 1),
+    ).resolves.toBeUndefined();
+    await expect(assertChildDispatchAuthorized(env, sealed, NOW + RUN_DEADLINE_MS)).rejects.toThrow(
+      /deadline/,
+    );
     await expect(assertChildDispatchAuthorized(env, sealed, NOW - 1)).rejects.toThrow(/deadline/);
     for (const change of [
       { dispatchExpiresAt: NOW + RUN_DEADLINE_MS + 1 },
@@ -174,13 +311,27 @@ describe("child dispatch seal", () => {
       { dispatchIssuedAt: NOW + 1 },
       { dispatchExpiresAt: NOW },
     ]) {
-      await expect(assertChildDispatchAuthorized(env, { ...sealed, ...change }, NOW)).rejects.toThrow(/deadline/);
+      await expect(
+        assertChildDispatchAuthorized(env, { ...sealed, ...change }, NOW),
+      ).rejects.toThrow(/deadline/);
     }
   });
 
   it("does not accept a seal created under a different signing key", async () => {
-    const sealed = { ...INPUT, ...await seal() };
-    await expect(assertChildDispatchAuthorized({ MODEL_CREDENTIAL_KEY: "cd".repeat(32) }, sealed, NOW)).rejects.toThrow(/invalid/);
-    await expect(assertChildDispatchAuthorized({ MODEL_CREDENTIAL_KEY: KEY, INTERNAL_SIGNING_KEY: "another-key" }, sealed, NOW)).rejects.toThrow(/invalid/);
+    const sealed = { ...INPUT, ...(await seal()) };
+    await expect(
+      assertChildDispatchAuthorized(
+        { INTERNAL_SIGNING_KEY: "cd".repeat(32), MODEL_CREDENTIAL_KEY: "cd".repeat(32) },
+        sealed,
+        NOW,
+      ),
+    ).rejects.toThrow(/invalid/);
+    await expect(
+      assertChildDispatchAuthorized(
+        { MODEL_CREDENTIAL_KEY: KEY, INTERNAL_SIGNING_KEY: "another-key" },
+        sealed,
+        NOW,
+      ),
+    ).rejects.toThrow(/invalid/);
   });
 });

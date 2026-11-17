@@ -79,7 +79,7 @@ describe("standing founder reads with real parent D1/HMAC callbacks and fixed ga
   const input={...f.input,operations:[{connectionId:"connection-googleads",connectionVersion:1,operationId:"googleads.campaign_daily_metrics",arguments:{customerId:"1234567890",loginCustomerId:"9876543210",startDate:"2026-10-01",endDate:"2026-10-30"}}]};
   const draft=await f.call("","POST",input);expect(draft.response.status,JSON.stringify(draft.body)).toBe(200);expect(draft.body.grant?.contract.operations[0]?.sourceFingerprint).toBe(fingerprint);expect(f.provider).not.toHaveBeenCalled();
   const scoped=f.env as Env & {OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS:string},originalMap=scoped.OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS;
-  expect(draft.body.grant?.contract.operations[0]?.runtimeKeyFingerprint).toMatch(/^[a-f0-9]{64}$/);expect(JSON.stringify(draft.body)).not.toContain(`oct_${"s".repeat(43)}`);
+  expect(draft.body.grant?.contract.operations[0]?.runtimeKeyFingerprint).toMatch(/^v1:[a-f0-9]{16}:[a-f0-9]{64}$/);expect(JSON.stringify(draft.body)).not.toContain(`oct_${"s".repeat(43)}`);
   scoped.OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS=originalMap.replace(`oct_${"s".repeat(43)}`,`oct_${"t".repeat(43)}`);
   expect((await f.call("/enable","POST",f.decision(draft.body))).response.status).toBe(409);expect(f.provider).not.toHaveBeenCalled();
   scoped.OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS=originalMap;

@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { newRunOutputArchivePolicy, runInputHash, createPendingApproval } from "@shiba/shared";
+import { stableHash, newRunOutputArchivePolicy, runInputHash, createPendingApproval } from "@shiba/shared";
 import type { Env } from "../src/env.js";
 import { sealChildDispatch } from "../src/child-dispatch.js";
 import type { CodingTaskInput } from "../src/opencode-input.js";
 import type { PreparedRuntimeExecution } from "../src/runtime-recovery.js";
-import { bindArchiveSource, type ArchiveSource } from "../src/run-output-archive.js";
+import { bindArchiveSource, sealArchiveAuthorization, verifyArchiveAuthorization, verifyArchiveSource, type ArchiveSource } from "../src/run-output-archive.js";
 import { prepareRunOutputArchive } from "../src/run-output-archive-admission.js";
 import { reserveRunOutputArchive, revokeRoomOutputArchives } from "../src/run-output-archive-reservations.js";
 import { ConversationRoom } from "../src/conversation-room-do.js";
@@ -59,6 +59,30 @@ async function fixture() {
     afterInspection: (fn: () => void) => { afterInspection = fn; }, restart: () => { room = new ConversationRoom(ctx, env); return room; }, room: () => room };
 }
 describe("bounded private output archive, real SQLite with a native binding fixture", () => {
+  it("seals admission and source with only the legacy key during grace", async () => {
+    const f = await fixture();
+    const env = { ...f.env, INTERNAL_SIGNING_KEY: undefined, MODEL_CREDENTIAL_KEY: "ab".repeat(32), SHIBA_LEGACY_SIGNING_FALLBACK: "1" };
+    const auth = await sealArchiveAuthorization(env, f.auth.reservation);
+    expect(auth.signature).toMatch(/^[a-f0-9]{64}$/);
+    await expect(verifyArchiveAuthorization(env, auth)).resolves.toBeUndefined();
+    const source = await bindArchiveSource(env, auth);
+    expect(source.signature).toMatch(/^[a-f0-9]{64}$/);
+    await expect(verifyArchiveSource(env, auth.reservation, source)).resolves.toMatchObject({ jobId: f.source.jobId });
+    await expect(sealArchiveAuthorization({ ...env, SHIBA_LEGACY_SIGNING_FALLBACK: "0" }, auth.reservation)).rejects.toThrow("INTERNAL_SIGNING_KEY not set");
+  });
+
+  it("versions archive seals and gates legacy verification", async () => {
+    const f = await fixture();
+    expect(f.auth.signature).toMatch(/^v1:[a-f0-9]{16}:[a-f0-9]{64}$/);
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey("raw", encoder.encode(f.env.INTERNAL_SIGNING_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(`shiba.run-output-archive-admission.v1\n${stableHash(f.auth.reservation)}`));
+    const legacy = { ...f.auth, signature: Array.from(new Uint8Array(mac), byte => byte.toString(16).padStart(2, "0")).join("") };
+    await expect(verifyArchiveAuthorization(f.env, legacy)).resolves.toBeUndefined();
+    await expect(verifyArchiveAuthorization({ ...f.env, SHIBA_LEGACY_SIGNING_FALLBACK: "0" }, legacy)).rejects.toThrow(/seal/);
+    await expect(verifyArchiveAuthorization({ ...f.env, SHIBA_LEGACY_SIGNING_FALLBACK: "0" }, f.auth)).resolves.toBeUndefined();
+  });
+
   it("binds exact policy into human approval/hash and immutable dispatch, without upgrading legacy approvals", async () => {
     const f = await fixture(), before = runInputHash(f.input);
     expect(runInputHash({ ...f.input, outputArchive: { ...f.input.outputArchive!, expiresAt: f.input.outputArchive!.expiresAt - 1 } })).not.toBe(before);

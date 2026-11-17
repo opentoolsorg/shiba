@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orchestrator.js";
 import { runInputHash, type PendingApproval } from "@shiba/shared";
 import type { Env } from "../src/env.js";
-import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { StoredApprovalCard } from "../../frontend/src/components/WorkspacePanel.js";
 const mock = vi.hoisted(() => ({ native: true, execute: vi.fn() }));
@@ -30,7 +30,7 @@ function fixture() {
     setState(next: OrchestratorState) { setStateLikeProduction(this, next); },
   });
   return { ...db, instance, namespace, async queue(extra: Record<string, unknown> = {}) {
-    return instance.onRequest(new Request("https://internal/api/runs", { method: "POST", headers: { "Content-Type": "application/json", "X-Shiba-Intake": "dashboard" }, body: JSON.stringify({ ...INPUT, threadKey: OWNER, ...extra }) }));
+    return sendWorkerRequest(instance, new Request("https://internal/api/runs", { method: "POST", headers: { "Content-Type": "application/json", "X-Shiba-Intake": "dashboard" }, body: JSON.stringify({ ...INPUT, threadKey: OWNER, ...extra }) }));
   } };
 }
 describe("native output archive frozen before the actual queue approval", () => {

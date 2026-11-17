@@ -116,7 +116,7 @@ import {
   finishCapabilityInvocationApproval,
   resolveCapabilityInvocationApproval,
 } from "../capability-invocations.js";
-import { carriesVouchedHeaders, verifyInternalRequest } from "../edge-identity.js";
+import { verifyInternalRequest } from "../edge-identity.js";
 import type { Env } from "../env.js";
 import { isGitHubPublishConfigured, resolveGitHubCredential } from "../github-auth.js";
 import {
@@ -5960,20 +5960,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * case that cannot wait — a touch that just dropped expired sends
    * (or a DO restart, where the floor starts at zero anyway).
    */
-  private signingWarned = false;
-
-  private warnSigningDisabledOnce(): void {
-    // INTERNAL_SIGNING_KEY unset → header-trust fallback. Once per DO
-    // lifetime so operators see it without log spam.
-    if (this.signingWarned) return;
-    this.signingWarned = true;
-    console.warn(
-      "edge-identity: INTERNAL_SIGNING_KEY unset — trusting vouched headers " +
-        "(X-Agent-Principal / X-Shiba-Intake) unsigned. Set the secret on " +
-        "the Worker to require signed internal requests.",
-    );
-  }
-
   private sweepStaleDrafts(force = false): void {
     const now = Date.now();
     if (!force && now - (this.lastStaleSweepAt ?? 0) < STALE_SWEEP_INTERVAL_MS) {
@@ -6741,7 +6727,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/internal/slack-canvas") {
-      const origin = await verifySlackCanvasRequest(request, this.env.INTERNAL_SIGNING_KEY, this.name);
+      const origin = await verifySlackCanvasRequest(request, this.env.INTERNAL_SIGNING_KEY, this.name, Date.now(), this.env.SHIBA_LEGACY_SIGNING_FALLBACK);
       const approvalId = url.searchParams.get("approval") ?? "";
       if (request.method !== "GET" || !origin || url.searchParams.get("origin") !== origin ||
         url.searchParams.getAll("origin").length !== 1 || url.searchParams.getAll("approval").length !== 1 ||
@@ -6772,9 +6758,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         { error: `Internal signature verification failed (${verification.reason}).` },
         { status: 401 },
       );
-    }
-    if (!verification.signed && carriesVouchedHeaders(request)) {
-      this.warnSigningDisabledOnce();
     }
     // Worker-vouched agent identity: only mcp-run-tools sets this after
     // bearer auth, so it scopes reads/cancels to records that principal
@@ -6923,7 +6906,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (url.pathname === "/api/slack/buffer") {
       if (agentPrincipal !== null || !parseSlackThreadName(this.name) ||
-          !await verifySlackBufferRequest(request, this.env.INTERNAL_SIGNING_KEY)) {
+          !await verifySlackBufferRequest(request, this.env.INTERNAL_SIGNING_KEY, Date.now(), this.env.SHIBA_LEGACY_SIGNING_FALLBACK)) {
         return Response.json({ error: "Forbidden." }, { status: 403 });
       }
       const body = await request.json().catch(() => null) as Record<string, unknown> | null;
@@ -7353,7 +7336,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return super.onRequest(request);
     }
     if (request.method === "POST" && url.pathname === "/api/runs") {
-      const trustedSlackOrigin = await verifySlackCanvasIntake(request, this.env.INTERNAL_SIGNING_KEY, this.name);
+      const trustedSlackOrigin = await verifySlackCanvasIntake(request, this.env.INTERNAL_SIGNING_KEY, this.name, Date.now(), this.env.SHIBA_LEGACY_SIGNING_FALLBACK);
       if (!trustedSlackOrigin && ["X-Shiba-Slack-Canvas-Origin", "X-Shiba-Slack-Canvas-Timestamp", "X-Shiba-Slack-Canvas-Signature"].some((header) => request.headers.has(header))) {
         return Response.json({ error: "Invalid Slack intake provenance." }, { status: 403 });
       }
