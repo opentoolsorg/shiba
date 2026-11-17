@@ -10,7 +10,7 @@ import { OpenCodeAgent } from "./agents/opencode-agent.js";
 import { CodingOrchestrator } from "./agents/orchestrator.js";
 import { ExplorerAgent } from "./agents/specialists/explorer-agent.js";
 import { ReviewerAgent } from "./agents/specialists/reviewer-agent.js";
-import { AUDIT_RETENTION_MS, pruneAuditLog } from "./audit.js";
+import { consumeScheduledJobs, runScheduledJobs } from "./scheduled-jobs.js";
 import { Automations } from "./automations-do.js";
 import { automationsStub } from "./automations-stub.js";
 import { ensureLiveCodingModel } from "./coding-model.js";
@@ -23,7 +23,6 @@ import { ContainerProxy } from "./sandbox/npm-shim.js";
 import { withVerifiedAccessIdentity } from "./access-jwt.js";
 import { enforceTeamMemberApiPolicy } from "./team-member-auth.js";
 import { LocalDispatch } from "./local-dispatch.js";
-import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import { registerWebhookQueueConsumers } from "./webhooks/consumer.js";
 import { Spaces } from "./spaces-do.js";
 import { ComputerSession } from "./computer-session.js";
@@ -90,84 +89,11 @@ export { DASHBOARD_VIEWS } from "./routes/shell.js";
 
 export default {
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
-    await dispatchQueueBatch(batch, env, ctx);
+    if (/^shiba-jobs(?:-|$)/.test(batch.queue)) await consumeScheduledJobs(batch, env);
+    else await dispatchQueueBatch(batch, env, ctx);
   },
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil((async () => {
-      try { await (await import("./founder-stripe-runtime.js")).tickFounderStripeReads(env); }
-      catch (error) { console.error("Founder Stripe read scheduling failed", redactSecrets(String(error))); }
-      try { await (await import("./founder-meta-runtime.js")).tickFounderMetaReads(env); }
-      catch (error) { console.error("Founder Meta read scheduling failed", redactSecrets(String(error))); }
-      try { await (await import("./founder-hubspot-runtime.js")).tickFounderHubSpotReads(env); }
-      catch (error) { console.error("Founder HubSpot read scheduling failed", redactSecrets(String(error))); }
-      try { await (await import("./founder-reconciliation-schedule-runtime.js")).tickFounderReconciliationSchedules(env); }
-      catch (error) { console.error("Founder standing comparison scheduling failed", redactSecrets(String(error))); }
-      try { await (await import("./founder-auto-read-runtime.js")).tickFounderAutomaticReads(env); }
-      catch (error) { console.error("Founder automatic read scheduling failed", redactSecrets(String(error))); }
-      try { await (await import("./founder-automatic-slack-tick.js")).tickFounderAutomaticSlack(env); }
-      catch (error) { console.error("Founder automatic Slack scheduling failed", redactSecrets(String(error))); }
-      try { await (await import("./founder-automatic-slack-stripe-tick.js")).tickFounderStripeAutomaticSlack(env); }
-      catch (error) { console.error("Founder Stripe Slack scheduling failed", redactSecrets(String(error))); }
-      try { await (await import("./founder-reconciliation-slack-tick.js")).tickFounderReconciliationSlack(env); }
-      catch (error) { console.error("Founder combined-report Slack scheduling failed", redactSecrets(String(error))); }
-      try { await (await import("./slack-coworker-private-status.js")).tickSlackCoworkerPrivateStatus(env); }
-      catch (error) { console.error("Private Slack status scheduling failed", redactSecrets(String(error))); }
-    })());
-    ctx.waitUntil(import("./founder-review-schedules.js").then((m) => m.tickFounderReviewSchedules(env)).catch((error: unknown) => {
-      console.error("Founder review scheduling failed", redactSecrets(String(error)));
-    }));
-    ctx.waitUntil(import("./founder-connector-jobs.js").then((m) => m.tickFounderConnectorJobs(env)).catch((error: unknown) => {
-      console.error("Founder connector scheduling failed", redactSecrets(String(error)));
-    }));
-    ctx.waitUntil(
-      automationsStub(env)
-        .fetch(new Request("https://internal/internal/tick", { method: "POST" }))
-        .then((response) => {
-          if (!response.ok) {
-            console.error(`automation tick failed: ${response.status}`);
-          }
-        })
-        .catch((error: unknown) => {
-          console.error(redactSecrets(error instanceof Error ? error.message : String(error)));
-        }),
-    );
-    // Stale-draft sweep: the approvals-poll and restart paths only run it
-    // when a human is watching — the cron is the backstop that frees a
-    // `sending`-locked draft in an idle system (review finding). Same
-    // shared "default" instance the email-kind mints pin to.
-    ctx.waitUntil(
-      getAgentByName(env.CodingOrchestrator, ORCHESTRATOR_NAME)
-        .then((stub) =>
-          stub.fetch(new Request("https://internal/internal/sweep-drafts", { method: "POST" })),
-        )
-        .then((response) => {
-          if (!response.ok) {
-            console.error(`stale draft sweep failed: ${response.status}`);
-          }
-        })
-        .catch((error: unknown) => {
-          console.error(redactSecrets(error instanceof Error ? error.message : String(error)));
-        }),
-    );
-    // Retention: audit_log keeps 90 days — pruned here on the same cron
-    // that ticks automations (megaplan T13). Best-effort like the writer:
-    // a D1 hiccup warns and retries on the next tick, never blocks it.
-    if (env.AGENT_AUDIT !== undefined) {
-      ctx.waitUntil(
-        Promise.all([
-          pruneAuditLog(env, Date.now() - AUDIT_RETENTION_MS),
-          pruneCapabilityInvocations(env, Date.now() - AUDIT_RETENTION_MS),
-        ]).then(([auditDeleted, invocationDeleted]) => {
-            if (auditDeleted > 0) console.log(`audit prune deleted ${auditDeleted} row(s) older than 90 days`);
-            if (invocationDeleted > 0) console.log(`capability invocation prune deleted ${invocationDeleted} row(s) older than 90 days`);
-          })
-          .catch((error: unknown) => {
-            console.warn(
-              `audit prune failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
-            );
-          }),
-      );
-    }
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runScheduledJobs(controller.scheduledTime ?? Date.now(), env));
   },
   // Email Routing delivery — registered-mailbox gate + store, see email-handler.ts.
   async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {

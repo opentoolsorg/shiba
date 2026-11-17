@@ -149,6 +149,9 @@ const AgentTokens = Cloudflare.KV.Namespace("AGENT_TOKENS", {
   title: `shiba-agent-tokens${resSuffix}`,
 });
 
+const JobsQueue = Cloudflare.Queues.Queue("JOBS_QUEUE", { name: `shiba-jobs${resSuffix}` });
+const JobsDlq = Cloudflare.Queues.Queue("JOBS_DLQ", { name: `shiba-jobs-dlq${resSuffix}` });
+
 export const Worker = Cloudflare.Worker("Worker", {
   name: workerName,
   main: new URL("./apps/backend/src/index.ts", import.meta.url).href,
@@ -321,6 +324,7 @@ export const Worker = Cloudflare.Worker("Worker", {
   INGEST_QUEUE: Cloudflare.Queues.Queue("INGEST_QUEUE", { name: `shiba-ingest${resSuffix}` }),
   WEBHOOK_QUEUE: Cloudflare.Queues.Queue("WEBHOOK_QUEUE", { name: `shiba-webhooks${resSuffix}` }),
   EMAIL_QUEUE: Cloudflare.Queues.Queue("EMAIL_QUEUE", { name: `shiba-email${resSuffix}` }),
+  JOBS_QUEUE: JobsQueue,
 
   SLACK_IMPORT_WORKFLOW: Cloudflare.Workflow("SlackImportWorkflow", {
     className: "SlackImportWorkflow",
@@ -556,6 +560,14 @@ export default Alchemy.Stack(
       );
     }
     const worker = yield* Worker;
+    const jobs = yield* JobsQueue;
+    const jobsDlq = yield* JobsDlq;
+    yield* Cloudflare.Queues.Consumer("JobsConsumer", {
+      queueId: jobs.queueId,
+      scriptName: worker.workerName,
+      deadLetterQueue: jobsDlq.queueName,
+      settings: { batchSize: 1, maxRetries: 5 },
+    });
     // The sibling is deployed separately from unmodified upstream source.
     if (process.env.OPEN_CONNECTOR_WORKER) {
       yield* worker.bind`OPEN_CONNECTOR`({
