@@ -2,6 +2,7 @@ import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import type { Env } from "../env.js";
 import { browserClick, browserOpen, browserRead, browserScreenshot, browserType } from "./browser.js";
+import { generateVideo, videoCapability, videoInputSchema } from "./video-gen.js";
 import { generateImage } from "./image-gen.js";
 import { runWebSearch, webSearchConfigured } from "./web-search.js";
 import { DEFAULT_WEB_SEARCH_BUDGET, incrementToolUsage } from "./tool-usage-store.js";
@@ -11,6 +12,7 @@ import { closeBrowserSession } from "./browser-sessions.js";
 export interface ChatAgentToolsContext {
   runId: string;
   orgId?: string;
+  userId?: string;
   onClose?: () => void;
 }
 
@@ -18,6 +20,7 @@ export interface ChatAgentToolsContext {
 export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext): ToolSet {
   const orgId = ctx.orgId ?? "self-hosted";
   const runId = ctx.runId;
+  const userId = ctx.userId;
 
   return {
     web_search: tool({
@@ -63,6 +66,14 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
       inputSchema: z.object({}).strict(),
       execute: async () => browserScreenshot(env, runId),
     }),
+    ...(videoCapability(env).enabled && userId ? {
+      generate_video: tool({
+        description: "Generate a paid short MP4 from text or your image artifact. Requires human confirmation before spending.",
+        inputSchema: videoInputSchema,
+        needsApproval: true,
+        execute: async (input) => generateVideo(env, input, { runId, userId, workspaceId: orgId.replace(/^team:/, "") }),
+      }),
+    } : {}),
     generate_image: tool({
       description: "Generate an image from a prompt using Workers AI FLUX.",
       inputSchema: z.object({

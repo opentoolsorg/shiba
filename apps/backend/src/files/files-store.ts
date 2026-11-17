@@ -80,7 +80,7 @@ export async function insertFileRecord(
   env: Env,
   input: {
     workspaceId: string; scope: KnowledgeScope; folderId?: string | null; name: string; mime: string;
-    size: number; r2Key: string; sha256: string; createdBy: string; projectId?: string | null;
+    size: number; r2Key: string; sha256: string; createdBy: string; projectId?: string | null; ingestionState?: "pending" | "done";
   },
 ): Promise<KnowledgeFile> {
   const id = `file_${randomHex(12)}`;
@@ -88,10 +88,10 @@ export async function insertFileRecord(
   await env.AGENT_AUDIT.prepare(
     `INSERT INTO files
      (id, workspace_id, scope, folder_id, name, mime, size, r2_key, sha256, project_id, created_by, version, created_at, updated_at, ingestion_state)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,'pending')`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`,
   ).bind(
     id, input.workspaceId, input.scope, input.folderId ?? null, input.name, input.mime, input.size,
-    input.r2Key, input.sha256, input.projectId ?? null, input.createdBy, now, now,
+    input.r2Key, input.sha256, input.projectId ?? null, input.createdBy, now, now, input.ingestionState ?? "pending",
   ).run();
   const file = await getFile(env, id);
   if (!file) throw new FilesStoreError("File record missing after insert.", 500);

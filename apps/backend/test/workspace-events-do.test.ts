@@ -3,20 +3,24 @@ import { VERIFIED_SUBSCRIBER_HEADER, WorkspaceEvents, workspaceEventsName } from
 import { handleWorkspaceEvents } from "../src/platform/workspace-events-routes.js";
 
 const getCollaborationMembership = vi.hoisted(() => vi.fn());
+const workspaceMember = vi.hoisted(() => vi.fn(async () => true));
+const slackAudience = vi.hoisted(() => vi.fn(async () => true));
 
 vi.mock("../src/collaboration-store.js", () => ({
   COLLAB_TENANT_ID: "self-hosted",
   humanActorId: (userId: string) => `human:${userId}`,
   getCollaborationMembership,
+  isCollaborationSlackRoomAudienceAuthorized: slackAudience,
 }));
 
-vi.mock("../src/request-auth.js", () => ({
-  isAuthorizedRequest: vi.fn(async () => true),
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
+  resolveRequestIdentity: async () => ({ authorized: true, userId: "alice@example.test" }), isAuthorizedRequest: vi.fn(async () => true),
   resolveUserId: vi.fn(async () => "alice@example.test"),
 }));
 
 vi.mock("../src/team-workspaces-store.js", () => ({
-  isTeamWorkspaceMember: vi.fn(async () => true),
+  isTeamWorkspaceMember: workspaceMember,
 }));
 
 const ALICE = "alice@example.test";
@@ -84,6 +88,8 @@ function messages(socket: FakeSocket): Record<string, unknown>[] {
 
 describe("workspace events", () => {
   beforeEach(() => {
+    workspaceMember.mockReset().mockResolvedValue(true);
+    slackAudience.mockReset().mockResolvedValue(true);
     getCollaborationMembership.mockReset();
     getCollaborationMembership.mockResolvedValue(null);
     vi.stubGlobal("WebSocketPair", FakeWebSocketPair);
@@ -179,6 +185,63 @@ describe("workspace events", () => {
       resourceId: "task_1",
       version: 4,
     });
+  });
+
+  it.each(["room.created", "room.updated", "note.created", "note.updated", "task.created", "task.updated", "task.archived"])(
+    "fans out %s to two clients within one second", async (kind) => {
+      const { hub, sockets } = harness();
+      const first = await connect(hub, sockets, ALICE);
+      const second = await connect(hub, sockets, ALICE);
+      const outsider = await connect(hub, sockets, EVE);
+      const started = performance.now();
+      const result = await publish(hub, {
+        id: `evt_${kind}`, kind, entityId: "entity_1",
+        payload: { title: "Changed" }, audience: { userIds: [ALICE] },
+      });
+      expect(result.delivered).toBe(2);
+      expect(performance.now() - started).toBeLessThan(1000);
+      expect(messages(first)[0]).toMatchObject({ kind, payload: { title: "Changed" } });
+      expect(messages(second)).toEqual(messages(first));
+      expect(outsider.sent).toEqual([]);
+    },
+  );
+
+  it("stops workspace and room delivery after workspace membership is revoked", async () => {
+    const { hub, sockets } = harness();
+    const alice = await connect(hub, sockets, ALICE);
+    getCollaborationMembership.mockResolvedValue({ status: "active" });
+    workspaceMember.mockResolvedValue(false);
+    await publish(hub, { id: "evt_note", kind: "note.created", entityId: "note_1" });
+    await publish(hub, { id: "evt_room", kind: "room.updated", entityId: ROOM, audience: { roomId: ROOM } });
+    expect(alice.sent).toEqual([]);
+    workspaceMember.mockRejectedValue(new Error("Storage unavailable"));
+    await publish(hub, { id: "evt_fail_closed", kind: "note.created", entityId: "note_2" });
+    expect(alice.sent).toEqual([]);
+  });
+
+  it("never broadens an empty recipient list into a broadcast", async () => {
+    const { hub, sockets } = harness();
+    const alice = await connect(hub, sockets, ALICE);
+    expect((await publish(hub, {
+      id: "evt_empty", kind: "note.updated", entityId: "note_private", audience: { userIds: [] },
+    })).delivered).toBe(0);
+    expect(alice.sent).toEqual([]);
+  });
+
+  it("checks current membership and Slack audience even for an explicitly listed user", async () => {
+    getCollaborationMembership.mockResolvedValue({ status: "active" });
+    slackAudience.mockResolvedValue(false);
+    const { hub, sockets } = harness();
+    const alice = await connect(hub, sockets, ALICE);
+    const event = { id: "evt_restricted", kind: "room.updated", entityId: ROOM, audience: { roomId: ROOM, userIds: [ALICE] } };
+    expect((await publish(hub, event)).delivered).toBe(0);
+    slackAudience.mockResolvedValue(true);
+    expect((await publish(hub, event)).delivered).toBe(1);
+    getCollaborationMembership.mockResolvedValue({ status: "revoked" });
+    expect((await publish(hub, event)).delivered).toBe(0);
+    getCollaborationMembership.mockRejectedValue(new Error("Storage unavailable"));
+    expect((await publish(hub, event)).delivered).toBe(0);
+    expect(alice.sent).toHaveLength(1);
   });
 
   it("ignores a spoofed client userId", async () => {

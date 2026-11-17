@@ -107,6 +107,8 @@ export type AutomationTrigger =
 export interface Automation {
   id: string;
   prompt: string;
+  name?: string;
+  skipWhilePending?: boolean;
   repoUrl: string;
   /** Absent on legacy repo automations; frozen target for new scheduling paths. */
   executionTarget?: ExecutionTarget;
@@ -167,8 +169,8 @@ export interface ScheduleOccurrence {
   id: string;
   scheduledAt: number;
   commandId: string;
-  status: "queued" | "queue-unknown" | "rejected" | "approved" | "running" | "completed" | "error" | "aborted" | "cancelled" | "unknown";
-  outcome: "approval-pending" | "queue-outcome-unknown" | "not-queued" | "approved" | "rejected" | "running" | "completed" | "error" | "aborted" | "cancelled" | "unknown";
+  status: "queued" | "queue-unknown" | "rejected" | "approved" | "running" | "completed" | "error" | "aborted" | "cancelled" | "expired" | "unknown";
+  outcome: "approval-pending" | "queue-outcome-unknown" | "not-queued" | "approved" | "rejected" | "running" | "completed" | "error" | "aborted" | "cancelled" | "expired" | "unknown";
   approvalId?: string;
   runId?: string;
   updatedAt: number;
@@ -426,9 +428,9 @@ function matchesCron(parsed: ParsedCron, date: Date): boolean {
 
 const DOW_INTL: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
-function cronPartsInTimeZone(nowMs: number, timeZone: string): { minute: number; hour: number; dom: number; month: number; dow: number } | null {
+function cronPartsInTimeZone(nowMs: number, timeZone: string, formatter?: Intl.DateTimeFormat): { minute: number; hour: number; dom: number; month: number; dow: number } | null {
   try {
-    const fmt = new Intl.DateTimeFormat("en-US", {
+    const fmt = formatter ?? new Intl.DateTimeFormat("en-US", {
       timeZone,
       year: "numeric",
       month: "numeric",
@@ -453,8 +455,8 @@ function cronPartsInTimeZone(nowMs: number, timeZone: string): { minute: number;
   }
 }
 
-function matchesCronZoned(parsed: ParsedCron, nowMs: number, timeZone: string): boolean {
-  const parts = cronPartsInTimeZone(nowMs, timeZone);
+function matchesCronZoned(parsed: ParsedCron, nowMs: number, timeZone: string, formatter?: Intl.DateTimeFormat): boolean {
+  const parts = cronPartsInTimeZone(nowMs, timeZone, formatter);
   if (!parts) return false;
   if (!parsed.minute.has(parts.minute)) return false;
   if (!parsed.hour.has(parts.hour)) return false;
@@ -499,6 +501,35 @@ export function scheduleOccurrenceMs(cron: string, nowMs: number, timeZone = "UT
       ? matchesCron(parsed, new Date(fireMs))
       : matchesCronZoned(parsed, fireMs, tz);
     if (matches) return fireMs;
+  }
+  return null;
+}
+
+/** First matching instant strictly after the supplied time, bounded to the next leap-year span. */
+export function nextScheduleOccurrenceMs(cron: string, fromMs: number, timeZone = "UTC"): number | null {
+  const parsed = parseCron(cron);
+  if (!parsed || !Number.isFinite(fromMs) || !isValidAutomationTimeZone(timeZone)) return null;
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone, month: "numeric", day: "numeric", hour: "numeric", minute: "numeric",
+    weekday: "short", hourCycle: "h23",
+  });
+  const firstHour = Math.floor(fromMs / 3_600_000) * 3_600_000;
+  for (let hour = firstHour; hour <= fromMs + 366 * 86_400_000; hour += 3_600_000) {
+    const parts = cronPartsInTimeZone(hour, timeZone, formatter);
+    if (!parts) return null;
+    // Fractional-hour zones shift the minute field too. Offset changes are
+    // evaluated afresh each hour, preserving local cadence through DST.
+    // Some zones change by thirty minutes within a UTC hour. Consider both
+    // offsets, then verify each candidate in the named zone.
+    const endParts = cronPartsInTimeZone(hour + 3_599_999, timeZone, formatter);
+    const offsetMinutes = [parts.minute, endParts ? (endParts.minute + 1) % 60 : parts.minute];
+    const minutes = [...new Set(offsetMinutes.flatMap((offset) =>
+      [...parsed.minute].map((minute) => (minute - offset + 60) % 60),
+    ))].sort((a, b) => a - b);
+    for (const minute of minutes) {
+      const candidate = hour + minute * 60_000;
+      if (candidate > fromMs && matchesCronZoned(parsed, candidate, timeZone, formatter)) return candidate;
+    }
   }
   return null;
 }
@@ -624,6 +655,8 @@ function randomHex(bytes: number): string {
 
 export interface CreateAutomationInput {
   id?: string;
+  name?: string;
+  skipWhilePending?: boolean;
   prompt: string;
   repoUrl?: string;
   executionTarget?: ExecutionTarget;
@@ -653,6 +686,12 @@ export interface CreatedAutomation {
  * trigger with no events.
  */
 export function createAutomation(input: CreateAutomationInput): CreatedAutomation {
+  if (input.name !== undefined && (typeof input.name !== "string" || !input.name.trim() || input.name.trim().length > 120)) {
+    throw new InputError("Routine name must be 1–120 characters.");
+  }
+  if (input.skipWhilePending !== undefined && typeof input.skipWhilePending !== "boolean") {
+    throw new InputError("skipWhilePending must be a boolean.");
+  }
   const prompt = input.prompt.trim();
   if (!prompt) {
     throw new InputError("Automation prompt must be a non-empty string.");
@@ -746,6 +785,8 @@ export function createAutomation(input: CreateAutomationInput): CreatedAutomatio
     automation: {
       id,
       prompt,
+      name: input.name?.trim() ?? (prompt.split("\n")[0] ?? "").slice(0, 120),
+      skipWhilePending: input.skipWhilePending ?? true,
       repoUrl,
       ...(executionTarget !== undefined ? { executionTarget } : {}),
       triggers,

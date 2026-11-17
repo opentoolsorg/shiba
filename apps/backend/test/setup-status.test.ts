@@ -44,6 +44,14 @@ describe("readSetupStatus mailbox signals", () => {
 });
 
 describe("GET /api/setup/status subscription diagnostics", () => {
+  it("offers the provider fix on a fresh workspace without a gateway", async () => {
+    const response = await handleMeta(new Request("https://app.test/api/setup/status", {
+      headers: { "CF-Access-Authenticated-User-Email": "new@example.com" },
+    }), setupStatusEnv());
+    expect(response?.status).toBe(200);
+    const status = await response?.json() as Awaited<ReturnType<typeof readSetupStatus>>;
+    expect(status.modelRoute).toMatchObject({ ready: false, via: null, fix: { href: "/settings/?section=providers" } });
+  });
   it("checks each user's ChatGPT plan without a gateway token", async () => {
     const checkedUsers: string[] = [];
     const env = setupStatusEnv({
@@ -67,6 +75,8 @@ describe("GET /api/setup/status subscription diagnostics", () => {
 
     expect(connectedResponse?.status).toBe(200);
     expect(missingResponse?.status).toBe(200);
+    expect(connectedStatus.modelRoute).toMatchObject({ ready: true, via: "personal-provider" });
+    expect(missingStatus.modelRoute).toMatchObject({ ready: false });
     expect(checkedUsers).toContain("ada@example.com");
     expect(checkedUsers).toContain("grace@example.com");
     expect(connectedStatus.doctor.roles.find((row) => row.role === "fixer")).toMatchObject({
@@ -128,9 +138,47 @@ describe("GET /api/setup/status subscription diagnostics", () => {
     });
     expect(fixer(connected)).toMatchObject({ connectionId: connection.id, ok: true });
     expect(fixer(disconnected)).toMatchObject({
-      connectionId: connection.id, ok: false, message: expect.stringMatching(/no authenticated account/),
+      connectionId: connection.id, ok: false, message: expect.stringMatching(/Connect this provider in Settings/),
     });
+    expect(connected.modelRoute).toMatchObject({ ready: true, via: "connection" });
+    expect(disconnected.modelRoute).toMatchObject({ ready: false });
+    expect(noInitiator.modelRoute).toMatchObject({ ready: false });
     expect(connected.doctor.ok).toBe(true);
     expect(disconnected.doctor.ok).toBe(false);
+  });
+});
+
+describe("readSetupStatus SSO diagnostics", () => {
+  it("keeps SSO disabled by default", async () => {
+    const status = await readSetupStatus(setupStatusEnv(), false);
+    expect(status.sso.enabled).toBe(false);
+    expect(status.doctor.findings.some(row => row.id === "sso.config")).toBe(false);
+  });
+
+  it("reports missing setting names when SSO is requested", async () => {
+    const status = await readSetupStatus(setupStatusEnv({ SHIBA_SSO_ENABLED: "1", SSO_OIDC_ISSUER: "https://identity.example.test" }), false);
+    expect(status.sso).toMatchObject({ enabled: false,
+      configured: ["SSO_OIDC_ISSUER"],
+      missing: expect.arrayContaining(["SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET"]),
+    });
+    expect(status.doctor.findings.find(row => row.id === "sso.config")).toMatchObject({
+      severity: "warn", message: expect.stringContaining("SSO_OIDC_CLIENT_SECRET"),
+    });
+  });
+
+  it("reports configured setting names without identity provider values", async () => {
+    const configured = {
+      SHIBA_SSO_ENABLED: "1", SSO_OIDC_ISSUER: "https://identity.example.test",
+      SSO_OIDC_CLIENT_ID: "private-client-id", SSO_OIDC_CLIENT_SECRET: "private-client-secret",
+      SSO_ALLOWED_DOMAINS: "example.test",
+    };
+    const status = await readSetupStatus(setupStatusEnv(configured), false);
+    expect(status.sso).toEqual({ enabled: true,
+      configured: ["SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET"], missing: [],
+    });
+    expect(status.doctor.findings.find(row => row.id === "sso.config")).toMatchObject({ severity: "ok" });
+    for (const name of ["SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET"] as const) {
+      expect(JSON.stringify(status)).not.toContain(configured[name]);
+    }
   });
 });

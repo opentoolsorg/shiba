@@ -5,79 +5,120 @@ export interface UseWorkspaceEventsOptions {
   workspaceId: string | null;
   enabled: boolean;
   onEvent: (event: WorkspaceEvent) => void;
+  onReconnect?: () => void;
 }
 
-function parseEvent(raw: string, onEvent: (event: WorkspaceEvent) => void) {
-  try {
-    const event = JSON.parse(raw) as WorkspaceEvent;
-    if (typeof event.kind === "string" && typeof event.entityId === "string") onEvent(event);
-  } catch {
-    // Ignore malformed frames.
-  }
-}
+type Subscriber = {
+  event: (event: WorkspaceEvent) => void;
+  status: (connected: boolean) => void;
+  catchUp: () => void;
+};
 
-/** WebSocket on the WorkspaceEvents Durable Object, with SSE when the binding is absent. */
-export function useWorkspaceEvents({ workspaceId, enabled, onEvent }: UseWorkspaceEventsOptions): boolean {
-  const handler = useRef(onEvent);
-  handler.current = onEvent;
-  const [connected, setConnected] = useState(false);
+// All mounted consumers of one workspace share its transport and retry timer.
+const connections = new Map<string, ReturnType<typeof connectWorkspace>>();
 
-  useEffect(() => {
-    if (!enabled || !workspaceId) {
-      setConnected(false);
-      return;
-    }
-    const path = workspaceEventsPath(workspaceId);
-    let closed = false;
-    let socket: WebSocket | null = null;
-    const startSocket = () => {
-      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      socket = new WebSocket(`${proto}//${window.location.host}${path}`);
-      socket.onopen = () => setConnected(true);
-      socket.onclose = () => setConnected(false);
-      socket.onerror = () => setConnected(false);
-      socket.onmessage = (message) => {
-        if (typeof message.data === "string" && message.data !== "pong") parseEvent(message.data, (event) => handler.current(event));
-      };
+function connectWorkspace(workspaceId: string) {
+  const subscribers = new Set<Subscriber>();
+  let socket: WebSocket | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let stopped = false;
+  let connected = false;
+  let attempted = false;
+  let failures = 0;
+  const status = (value: boolean) => {
+    connected = value;
+    for (const subscriber of subscribers) subscriber.status(value);
+  };
+  const schedule = () => {
+    status(false);
+    if (stopped) return;
+    retry = setTimeout(start, Math.min(30_000, 500 * 2 ** Math.min(failures++, 6)));
+  };
+  const start = () => {
+    if (stopped) return;
+    const catchUp = attempted;
+    attempted = true;
+    const url = new URL(workspaceEventsPath(workspaceId), window.location.href);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    let current: WebSocket;
+    try { current = new WebSocket(url); } catch { schedule(); return; }
+    socket = current;
+    let lastFrame = Date.now();
+    const active = () => !stopped && socket === current;
+    current.onopen = () => {
+      if (!active()) return;
+      failures = 0;
+      lastFrame = Date.now();
+      status(true);
+      if (catchUp) for (const subscriber of subscribers) subscriber.catchUp();
+      heartbeat = setInterval(() => {
+        if (!active()) return;
+        if (Date.now() - lastFrame > 65_000) current.close();
+        else { try { current.send("ping"); } catch { current.close(); } }
+      }, 25_000);
     };
-    void fetch(path, { headers: { Accept: "text/event-stream" }, credentials: "same-origin" }).then((response) => {
-      if (closed) return;
-      if (response.headers.get("content-type")?.includes("text/event-stream") && response.body) {
-        setConnected(true);
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        const pump = async () => {
-          while (!closed) {
-            const chunk = await reader.read();
-            if (chunk.done) break;
-            buffer += decoder.decode(chunk.value, { stream: true });
-            const frames = buffer.split("\n\n");
-            buffer = frames.pop() ?? "";
-            for (const frame of frames) {
-              const data = frame.split("\n").find((line) => line.startsWith("data:"))?.slice(5).trim();
-              if (data && data !== "{}") parseEvent(data, (event) => handler.current(event));
-            }
-          }
-          if (!closed) setConnected(false);
-        };
-        void pump();
-        return;
-      }
-      startSocket();
-    }).catch(() => {
-      if (!closed) startSocket();
-    });
-    const ping = window.setInterval(() => {
-      if (socket?.readyState === WebSocket.OPEN) socket.send("ping");
-    }, 25_000);
-    return () => {
-      closed = true;
-      window.clearInterval(ping);
+    current.onmessage = (message) => {
+      if (!active() || typeof message.data !== "string") return;
+      lastFrame = Date.now();
+      if (message.data === "pong" || message.data.length > 65_536) return;
+      try {
+        const event = JSON.parse(message.data) as WorkspaceEvent;
+        if (!event || event.workspaceId !== workspaceId || typeof event.kind !== "string" || typeof event.entityId !== "string") return;
+        for (const subscriber of subscribers) subscriber.event(event);
+      } catch { /* Ignore malformed frames. */ }
+    };
+    current.onclose = () => {
+      if (!active()) return;
+      socket = undefined;
+      clearInterval(heartbeat);
+      schedule();
+    };
+    current.onerror = () => { if (active()) current.close(); };
+  };
+  return {
+    subscribers,
+    start,
+    get connected() { return connected; },
+    stop() {
+      stopped = true;
+      clearTimeout(retry);
+      clearInterval(heartbeat);
       socket?.close();
-      setConnected(false);
+    },
+  };
+}
+
+/** Disconnected callers keep their existing HTTP polling; reconnect repairs missed events. */
+export function useWorkspaceEvents(options: UseWorkspaceEventsOptions): boolean {
+  const callbacks = useRef(options);
+  callbacks.current = options;
+  const [state, setState] = useState({ workspaceId: "", connected: false });
+  const { enabled } = options;
+  const workspaceId = options.workspaceId?.trim().toLowerCase() ?? "";
+  useEffect(() => {
+    if (!enabled || !workspaceId || typeof WebSocket === "undefined") return;
+    let connection = connections.get(workspaceId);
+    const fresh = !connection;
+    if (!connection) {
+      connection = connectWorkspace(workspaceId);
+      connections.set(workspaceId, connection);
+    }
+    const subscriber: Subscriber = {
+      event: (event) => callbacks.current.onEvent(event),
+      status: (connected) => setState({ workspaceId, connected }),
+      catchUp: () => callbacks.current.onReconnect?.(),
+    };
+    connection.subscribers.add(subscriber);
+    subscriber.status(connection.connected);
+    if (fresh) connection.start();
+    return () => {
+      connection.subscribers.delete(subscriber);
+      if (!connection.subscribers.size) {
+        connection.stop();
+        connections.delete(workspaceId);
+      }
     };
   }, [enabled, workspaceId]);
-
-  return connected;
+  return enabled && state.workspaceId === workspaceId && state.connected;
 }

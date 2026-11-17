@@ -4,8 +4,9 @@ import type { PersonalExecutionSnapshot } from "@shiba/shared";
  * CodingOrchestrator DO (or a session DO when ?session= names one).
  * Extracted from index.ts; the per-surface Access gate stays here.
  */
+import { readRoutines, routineForRecord } from "./routine-metadata.js";
 import { getAgentByName } from "agents/routing";
-import { AGENT_PRINCIPAL_HEADER, LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER, isSafeDeliverablePath, MAX_DELIVERABLE_BYTES, type ExecutionTarget } from "@shiba/shared";
+import { AGENT_PRINCIPAL_HEADER, LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER, deliverableByteLimit, isSafeDeliverablePath, type ExecutionTarget } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { isBetterAuthConfigured } from "./better-auth.js";
 import { DASHBOARD_ORG_ID, resolveOrgForApiRequest, type ResolvedOrgAuth } from "./org-request-auth.js";
@@ -14,6 +15,7 @@ import { collaborationExecutorIdentity } from "./collaboration-executor.js";
 import { COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID } from "./collaboration-store.js";
 import { isRestrictedTeamMember } from "./team-member-auth.js";
 import { deliverableStorageKey } from "./run-deliverables.js";
+import { deliverableResponse, deliverableViewOptions } from "./deliverable-response.js";
 import { buildRunProof } from "./run-proof.js";
 import { signInternalRequest } from "./edge-identity.js";
 
@@ -153,6 +155,21 @@ export async function handleRuns(request: Request, env: Env): Promise<Response |
     else if (Array.isArray(body?.runs) && body.runs.some(isTeamScopedRecord)) {
       const headers = new Headers(res.headers); headers.delete("content-length"); headers.delete("content-encoding");
       res = Response.json({ ...body, runs: body.runs.filter((run) => !isTeamScopedRecord(run)) }, { status: res.status, headers });
+    }
+    if (res.ok) {
+      const routines = await readRoutines(env);
+      if (routines.length) {
+        type Run = import("@shiba/shared").DelegatedRun;
+        const visible = await res.clone().json() as { runs?: Run[]; run?: Run };
+        const decorate = (run: Run) => {
+          const routine = routineForRecord({ ...run, approvalId: run.approval?.approvalId }, routines);
+          return { ...run, ...(routine ? { routine } : {}) };
+        };
+        res = Response.json({ ...visible,
+          ...(visible.runs ? { runs: visible.runs.map(decorate) } : {}),
+          ...(visible.run ? { run: decorate(visible.run) } : {}),
+        });
+      }
     }
   }
   // Run state is live: every response (errors included) is no-store; re-wrap since stub.fetch headers may be immutable.
@@ -494,7 +511,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
       deliverables?: { path: string; mediaType: string; bytes: number; sha256: string }[];
     } };
     const item = run?.deliverables?.[index];
-    if (isTeamScopedRecord(run) || run?.status !== "completed" || !run.sandboxId || !item || run.expectedDeliverables?.[index] !== item.path || !isSafeDeliverablePath(item.path) || !Number.isInteger(item.bytes) || item.bytes < 1 || item.bytes > MAX_DELIVERABLE_BYTES || !/^[a-f0-9]{64}$/.test(item.sha256)) {
+    if (isTeamScopedRecord(run) || run?.status !== "completed" || !run.sandboxId || !item || run.expectedDeliverables?.[index] !== item.path || !isSafeDeliverablePath(item.path) || !Number.isInteger(item.bytes) || item.bytes < 1 || item.bytes > deliverableByteLimit(item.path) || !/^[a-f0-9]{64}$/.test(item.sha256)) {
       return Response.json({ error: "Deliverable not found." }, { status: 404 });
     }
     if (!env.ATTACHMENTS) return Response.json({ error: "Deliverable storage is unavailable." }, { status: 503 });
@@ -504,16 +521,31 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
     const body = await object.arrayBuffer();
     const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", body)), (byte) => byte.toString(16).padStart(2, "0")).join("");
     if (body.byteLength !== item.bytes || hash !== item.sha256) return Response.json({ error: "Deliverable integrity check failed." }, { status: 409 });
-    const types: Record<string, string> = { md: "text/markdown; charset=utf-8", txt: "text/plain; charset=utf-8", json: "application/json; charset=utf-8", csv: "text/csv; charset=utf-8" };
-    const mediaType = types[item.path.split(".").pop()!.toLowerCase()]!;
-    return new Response(body, { headers: {
-      "content-type": mediaType,
-      "content-disposition": `attachment; filename="${item.path.split("/").pop()!}"`,
-      "x-content-type-options": "nosniff",
-      "content-length": String(item.bytes),
-    } });
+    return deliverableResponse(item.path, body, deliverableViewOptions(url));
   }
   const response = await stub.fetch(rewritten);
+  if (url.pathname === "/api/tasks" && request.method === "GET" && response.ok) {
+    type TaskDto = ReturnType<typeof import("./task-attempts.js").taskHistoryDto>;
+    const body = await response.json() as { tasks: TaskDto[] };
+    const routines = await readRoutines(env);
+    const tasks = body.tasks ?? [];
+    // Use the same shared-read authority as the run registry. Session reads
+    // stay scoped to their selected conversation.
+    if (targetAgentName === resolved.userId && targetAgentName !== ORCHESTRATOR_NAME &&
+        isApprover(resolved.userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS))) {
+      const shared = await getAgentByName(env.CodingOrchestrator, ORCHESTRATOR_NAME);
+      const sharedResponse = await shared.fetch("https://internal/api/tasks");
+      if (sharedResponse.ok) {
+        const sharedBody = await sharedResponse.json() as { tasks: TaskDto[] };
+        const seen = new Set(tasks.map((task) => task.taskId));
+        tasks.push(...sharedBody.tasks.filter((task) => !seen.has(task.taskId) && routineForRecord(task, routines)));
+      }
+    }
+    return Response.json({ tasks: tasks.sort((a, b) => b.updatedAt - a.updatedAt).map((task) => {
+      const routine = routineForRecord(task, routines);
+      return { ...task, ...(routine ? { routine } : {}) };
+    }) });
+  }
   const runMatch = url.pathname.match(/^\/api\/runs(?:\/([^/]+))?$/);
   if (
     !isSpine &&

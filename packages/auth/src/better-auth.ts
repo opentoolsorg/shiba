@@ -21,6 +21,8 @@
  */
 // better-auth loads on first use (see createBetterAuth): evaluating it at
 // Worker startup pushed deploys past the startup CPU limit.
+import { getSsoConfig, isSsoEmailAllowed, type SsoEnv } from "./sso.js";
+export { getSsoConfig, isSsoEmailAllowed } from "./sso.js";
 import { BOOTSTRAP_VERIFICATION_DDL, handleBootstrapVerification, type BootstrapVerificationAdapter } from "./bootstrap-verification.js";
 export type { BootstrapVerificationAdapter } from "./bootstrap-verification.js";
 import {
@@ -44,7 +46,7 @@ export const BETTER_AUTH_INVITATION_HEADER = "x-shiba-workspace-invitation";
  * The lane reads only these env slots — the worker's `Env` satisfies it,
  * and tests can build the shape directly without the full env surface.
  */
-export interface BetterAuthLaneEnv {
+export interface BetterAuthLaneEnv extends SsoEnv {
   AGENT_AUDIT?: D1Database;
   BETTER_AUTH_SECRET?: string;
   BETTER_AUTH_URL?: string;
@@ -226,7 +228,7 @@ function socialProviders(env: BetterAuthLaneEnv) {
 }
 
 export function enabledBetterAuthProviderIds(env: BetterAuthLaneEnv): string[] {
-  return isBetterAuthConfigured(env) ? Object.keys(socialProviders(env)) : [];
+  return isBetterAuthConfigured(env) ? [...Object.keys(socialProviders(env)), ...(getSsoConfig(env).enabled ? ["sso"] : [])] : [];
 }
 
 export function bootstrapRequirements(env: BetterAuthLaneEnv): {
@@ -368,7 +370,21 @@ function withDeadline(work: Promise<Response>, ms: number): Promise<Response> {
 
 async function createBetterAuth(env: BetterAuthLaneEnv, enrollment?: BetterAuthEnrollmentAdapter) {
   const { APIError, betterAuth } = await import("better-auth");
+  const sso = getSsoConfig(env);
+  const plugins = [];
+  if (sso.enabled) {
+    const { genericOAuth } = await import("better-auth/plugins/generic-oauth");
+    plugins.push(genericOAuth({ config: [{
+      providerId: "sso", name: sso.displayName,
+      discoveryUrl: `${sso.issuer}/.well-known/openid-configuration`,
+      clientId: sso.clientId ?? "", clientSecret: sso.clientSecret,
+      pkce: true, scopes: ["openid", "email", "profile"],
+      requireIdTokenVerification: true, requireEmailVerification: true,
+      disableSignUp: true, overrideUserInfo: false,
+    }] }));
+  }
   return betterAuth({
+    plugins,
     appName: "shiba",
     // Upstream background-task logging can include raw transport exceptions.
     // The outer handler owns sanitized errors and explicit delivery outcomes.
@@ -402,6 +418,10 @@ async function createBetterAuth(env: BetterAuthLaneEnv, enrollment?: BetterAuthE
         const local = await env.AGENT_AUDIT.prepare(`SELECT email,emailVerified FROM "user" WHERE id=?`)
           .bind(user.id).first<{ email: string; emailVerified: number }>();
         const email = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
+        if (source.oauth?.providerId === "sso" && !isSsoEmailAllowed(env, email) &&
+          !(policy?.kind === "bootstrap" && policy.email === email)) {
+          return { error: "sso_domain_not_allowed", errorDescription: "Your email domain is not allowed to sign in with SSO." };
+        }
         if (!policy || !local || local.emailVerified !== 1 || policy.email !== email ||
           local.email.trim().toLowerCase() !== email) return deny;
       },
@@ -548,7 +568,9 @@ export async function handleBetterAuth(
   }
   if (url.pathname === `${BETTER_AUTH_BASE_PATH}/social-providers` && request.method === "GET") {
     const enabled = enabledBetterAuthProviderIds(env);
-    return Response.json({ providers: { google: enabled.includes("google"), slack: enabled.includes("slack") } }, {
+    const sso = getSsoConfig(env);
+    return Response.json({ providers: { google: enabled.includes("google"), slack: enabled.includes("slack") },
+      sso: { enabled: sso.enabled, displayName: sso.displayName } }, {
       headers: { "Cache-Control": "no-store" },
     });
   }
@@ -630,12 +652,33 @@ export async function resolveBetterAuthUserId(
   return account && (account.policy.kind === "bootstrap" || account.emailVerified) ? account.policy.email : null;
 }
 
-/** Always re-read provenance, verification and session revocation from D1, even with cookie-cache hits. */
-export async function resolveBetterAuthSessionAccount(
+type SessionAccount = { policy: BetterAuthAccountPolicy; emailVerified: boolean; sessionId?: string; sessionExpiresAt?: number };
+const sessionAccounts = new WeakMap<Request, WeakMap<BetterAuthLaneEnv, Promise<SessionAccount | null>>>();
+
+/** Re-read D1 once per request, including cookie-cache hits. Clones resolve independently. */
+export function resolveBetterAuthSessionAccount(
   request: Request,
   env: BetterAuthLaneEnv,
   redact: SecretRedactor = identityRedact,
-): Promise<{ policy: BetterAuthAccountPolicy; emailVerified: boolean; sessionId?: string; sessionExpiresAt?: number } | null> {
+): Promise<SessionAccount | null> {
+  let byEnv = sessionAccounts.get(request);
+  if (!byEnv) {
+    byEnv = new WeakMap();
+    sessionAccounts.set(request, byEnv);
+  }
+  let account = byEnv.get(env);
+  if (!account) {
+    account = readSessionAccount(request, env, redact);
+    byEnv.set(env, account);
+  }
+  return account;
+}
+
+async function readSessionAccount(
+  request: Request,
+  env: BetterAuthLaneEnv,
+  redact: SecretRedactor,
+): Promise<SessionAccount | null> {
   if (!isBetterAuthConfigured(env) || env.AGENT_AUDIT === undefined || !requestHasBetterAuthSessionCredential(request)) {
     return null;
   }

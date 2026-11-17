@@ -56,7 +56,7 @@ import { deliverApprovedSlackRoomIntent, type SlackRoomOutboxDeps } from "./slac
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import type { Env } from "./env.js";
 import { resolveTeamCollaborationScope } from "./team-collaboration-scope.js";
-import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
+import { resolveRequestIdentity } from "./request-auth.js";
 import { queueCollaborationRun } from "./runs-routes.js";
 import { isSupportedEmployeeToolScope, resolveEmployeeRunToolContext } from "./employee-run-tools.js";
 import { signInternalRequest } from "./edge-identity.js";
@@ -365,9 +365,9 @@ export async function handleCollaboration(
 ): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== PREFIX && !url.pathname.startsWith(`${PREFIX}/`)) return null;
-  if (!(await isAuthorizedRequest(request, env)))
+  const { userId: resolvedUserId, authorized } = await resolveRequestIdentity(request, env);
+  if (!authorized)
     return json({ error: "Authentication required." }, 401);
-  const resolvedUserId = await resolveUserId(request, env);
   if (!resolvedUserId?.trim()) return json({ error: "Authenticated user required." }, 401);
   if (!env.AGENT_AUDIT) return json({ error: "Collaboration storage is unavailable." }, 503);
   let resolvedScope: CollaborationScope | null;

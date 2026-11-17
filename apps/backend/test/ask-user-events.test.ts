@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { handleAskUser } from "../src/ask-user-routes.js";
 
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: async () => true,
   resolveUserId: async () => "owner@example.test",
 }));

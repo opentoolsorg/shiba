@@ -4,14 +4,15 @@
  * subscribe at `/api/workspaces/:id/events`.
  *
  * A published event may name an audience. With no audience the event goes to
- * every authenticated socket in the workspace. With an audience it goes only
- * to sockets whose user is listed, or whose user is a member of the named
- * room. Room membership is read on the server. The socket user id is taken
+ * every current workspace member. A room audience always requires current
+ * room membership and Slack access; user-only audiences require a listed user.
+ * Membership is read on the server. The socket user id is taken
  * from the verified subscriber header the Worker sets after authentication.
  */
 import { DurableObject } from "cloudflare:workers";
-import { COLLAB_TENANT_ID, getCollaborationMembership, humanActorId } from "../collaboration-store.js";
+import { COLLAB_TENANT_ID, getCollaborationMembership, humanActorId, isCollaborationSlackRoomAudienceAuthorized } from "../collaboration-store.js";
 import type { Env } from "../env.js";
+import { isTeamWorkspaceMember } from "../team-workspaces-store.js";
 
 export const VERIFIED_SUBSCRIBER_HEADER = "x-shiba-verified-user";
 
@@ -86,13 +87,13 @@ function parseWorkspaceEventAudience(value: unknown): WorkspaceEventAudience | u
       if (!id) return null;
       if (!ids.includes(id)) ids.push(id);
     }
-    if (ids.length > 0) audience.userIds = ids;
+    audience.userIds = ids;
   }
   if (record.roomId != null) {
     if (typeof record.roomId !== "string" || !ROOM_ID.test(record.roomId.trim().toLowerCase())) return null;
     audience.roomId = record.roomId.trim().toLowerCase();
   }
-  if (!audience.userIds && !audience.roomId) return undefined;
+  if (!audience.userIds && !audience.roomId) return null;
   return audience;
 }
 
@@ -160,7 +161,8 @@ async function isRoomMember(env: Env, workspaceId: string, roomId: string, userI
       roomId,
       humanActorId(userId),
     );
-    return membership !== null && membership.status === "active";
+    return membership !== null && membership.status === "active" &&
+      await isCollaborationSlackRoomAudienceAuthorized(env, { tenantId: COLLAB_TENANT_ID, workspaceId, userId }, roomId);
   } catch {
     return false;
   }
@@ -250,10 +252,18 @@ export class WorkspaceEvents extends DurableObject<Env> {
   }
 
   private async visibleTo(userId: string, published: PublishedEvent, membership: Map<string, Promise<boolean>>): Promise<boolean> {
+    if (published.workspaceId !== "default") {
+      const key = `workspace\0${userId}`;
+      let current = membership.get(key);
+      if (!current) {
+        current = isTeamWorkspaceMember(this.env, published.workspaceId, userId).catch(() => false);
+        membership.set(key, current);
+      }
+      if (!await current) return false;
+    }
     const audience = published.audience;
     if (!audience) return true;
-    if (audience.userIds?.includes(userId)) return true;
-    if (!audience.roomId) return false;
+    if (!audience.roomId) return audience.userIds?.includes(userId) ?? false;
     const key = `${audience.roomId}\0${userId}`;
     let pending = membership.get(key);
     if (!pending) {

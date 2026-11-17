@@ -58,6 +58,17 @@ describe("SettingsPanel", () => {
 });
 
 describe("SettingsPage", () => {
+  it("offers Slack settings and setup steps when only one Slack secret is configured", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ slack: { botToken: true, signingSecret: false } })));
+    const onSelect = vi.fn();
+    render(<SettingsPanel active="slack" onSelect={onSelect} />);
+    fireEvent.click(screen.getByRole("button", { name: "Slack" }));
+    expect(onSelect).toHaveBeenCalledWith("slack");
+    cleanup();
+    render(<SettingsPage section="slack" />);
+    await screen.findByTestId("slack-setup-card");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
   it("renders breadcrumb Settings > <Section> and updates with the selected section", () => {
     const onBack = vi.fn();
     const { rerender } = render(

@@ -1,3 +1,4 @@
+import type { RoutineInfo } from "./routines";
 // Shared run-record shapes for the dashboard workbench.
 // Wire contracts come from @shiba/shared (the single source of truth the
 // backend serves); genuinely UI-only or server-projected shapes stay local.
@@ -23,7 +24,7 @@ export type { EmailDirection } from "@shiba/shared";
  */
 // Summary-projection rows (GET /api/runs?view=summary) keep every required
 // DelegatedRun field plus `hasDiff`; heavy fields stay optional/absent.
-export type RetainedRun = DelegatedRun & { hasDiff?: boolean };
+export type RetainedRun = DelegatedRun & { hasDiff?: boolean; routine?: RoutineInfo };
 
 export interface ToolRunPart {
   text?: string;
@@ -80,7 +81,7 @@ export interface InboxEmail {
  * dashboard run approvals). `payload` is the frozen input that executes
  * on approve; `repoUrl`/`task` carry the human-readable summary.
  */
-export type StoredApproval = PendingApproval;
+export type StoredApproval = PendingApproval & { routine?: RoutineInfo };
 
 /**
  * Registered MCP-token principal from `GET /api/agents` — one row per
