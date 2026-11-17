@@ -127,7 +127,7 @@ async function queueOnOrchestrator(
     expectedCustomAgentVersion?: number;
     orgId?: string;
   },
-): Promise<{ approvalId: string }> {
+): Promise<{ approvalId: string; deduped?: boolean }> {
   const queued = await stub.fetch(
     new Request("https://internal/api/runs", {
       method: "POST",
@@ -140,11 +140,11 @@ async function queueOnOrchestrator(
     `Queue failed (${queued.status}).`,
     queued.status === 408 || queued.status === 429 || queued.status >= 500,
   );
-  const body = (await queued.json().catch(() => ({}))) as { approvalId?: string };
+  const body = (await queued.json().catch(() => ({}))) as { approvalId?: string; deduped?: boolean };
   if (typeof body.approvalId !== "string" || !body.approvalId) {
     throw new QueueFailure("Orchestrator did not return an approval id.", true);
   }
-  return { approvalId: body.approvalId };
+  return { approvalId: body.approvalId, deduped: body.deduped === true };
 }
 
 async function resolveOnOrchestrator(

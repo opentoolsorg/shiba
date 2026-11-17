@@ -69,7 +69,7 @@ export interface FireAutomationDeps {
   canPublishPullRequest?: boolean;
   /** When set, durable automation workflow rows are written around queueRun. */
   env?: import("./env.js").Env;
-  queueRun: (input: QueueAutomationRunInput) => Promise<{ approvalId: string }>;
+  queueRun: (input: QueueAutomationRunInput) => Promise<{ approvalId: string; deduped?: boolean }>;
   resolveCustomAgentPin?: (pin: NonNullable<Automation["customAgentPin"]>) => Promise<{ version: number; configSha256: string } | null>;
   resolveApproval?: (input: {
     threadKey: string;
@@ -400,7 +400,7 @@ async function commitAutomationFire(
         orgId: automation.customAgentPin.orgId,
       } : {}),
     };
-    let resolvedQueued: { approvalId: string };
+    let resolvedQueued: { approvalId: string; deduped?: boolean };
     if (deps.env?.AGENT_AUDIT) {
       const { startAutomationRunWorkflow } = await import("./platform/automation-run-runner.js");
       const result = await startAutomationRunWorkflow(deps.env, {
@@ -416,12 +416,12 @@ async function commitAutomationFire(
       if (!result.approvalId) {
         throw new Error(result.status === "failed" ? "workflow_failed" : "queue_failed");
       }
-      resolvedQueued = { approvalId: result.approvalId };
+      resolvedQueued = { approvalId: result.approvalId, deduped: result.deduped };
     } else {
       resolvedQueued = await deps.queueRun(queueInput);
     }
     const scheduleKey = recheck.trigger.kind === "schedule" ? `t${recheck.triggerIndex}` : undefined;
-    const next = recordTrigger(automation, nowMs, scheduleKey);
+    const next = resolvedQueued.deduped ? automation : recordTrigger(automation, nowMs, scheduleKey);
     const queuedOccurrence = occurrence("queued", "approval-pending", nowMs, resolvedQueued.approvalId);
     return {
       fired: true,
