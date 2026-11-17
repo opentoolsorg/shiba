@@ -88,6 +88,9 @@ function toTrigger(raw: Record<string, unknown>): AutomationTrigger | Response {
     const schedule = raw.schedule;
     if (raw.eventKind !== undefined && raw.eventKind !== null) return invalid();
     if (!isObject(schedule)) return invalid("schedule triggers need a schedule.");
+    if (schedule.mode === "interval") {
+      return notImplemented("Interval schedules are not supported on the v1 automations API.");
+    }
     const tz = typeof schedule.timezone === "string" ? schedule.timezone.trim() : "";
     if (!tz) return invalid("schedule.timezone is required.");
     try {
@@ -98,13 +101,6 @@ function toTrigger(raw: Record<string, unknown>): AutomationTrigger | Response {
     if (schedule.mode === "cron") {
       if (typeof schedule.expression !== "string") return invalid();
       return { kind: "schedule", cron: schedule.expression, timezone: tz };
-    }
-  if (schedule.mode === "interval") {
-      const minutes = Number(schedule.everyMinutes ?? schedule.minutes);
-      if (!Number.isFinite(minutes)) return invalid("schedule.everyMinutes is required.");
-      const structured: StructuredSchedule = { mode: "interval", everyMinutes: minutes, timezone: tz };
-      const compiled = normalizeScheduleTrigger({ kind: "schedule", cron: "0 9 * * *", structured, timezone: tz });
-      return compiled;
     }
     if (schedule.mode === "daily") {
       const structured: StructuredSchedule = {
