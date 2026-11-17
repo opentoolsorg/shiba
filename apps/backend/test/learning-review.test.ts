@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Env } from "../src/env.js";
-import { createExtensionSkill, getExtensionSkill } from "../src/extension-skills-store.js";
+import {
+  createExtensionSkill,
+  getExtensionSkill,
+  listExtensionSkills,
+} from "../src/extension-skills-store.js";
 import { d1LearningPort } from "../src/ports/learning/d1-adapter.js";
 import {
   LEARNING_IDLE_MS,
@@ -16,7 +20,9 @@ import {
   MAX_SKILL_INSTRUCTIONS,
   parseLearningOutcome,
   runLearningReview,
+  sweepIdleLearningThreads,
 } from "../src/ports/learning/review.js";
+import { isOrgApiPath } from "../src/public-routes.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const SECRET = "ghp_abcdefghijklmnopqrstuvwxyz0123456789AB";
@@ -251,5 +257,58 @@ describe("learning output redaction and caps", () => {
     expect(JSON.stringify(fact)).not.toContain(SECRET);
     expect(learningTurnText(`use ${SECRET}`, "ok")).not.toContain(SECRET);
     expect(parseLearningOutcome({ response: "not json" })).toEqual({ kind: "none" });
+  });
+});
+
+describe("learning review fixes", () => {
+  it("re-reads the thread under the lease instead of replaying a stale snapshot", async () => {
+    const { env, port, calls } = harness(() => ({ response: JSON.stringify({ kind: "none" }) }));
+    const stale = await addTurns(port, 3);
+    const now = 1_000 + LEARNING_IDLE_MS;
+    expect(await runLearningReview(env, port, ref.threadKey, "idle", { now })).toMatchObject({
+      status: "reviewed",
+    });
+    expect(
+      await runLearningReview(env, port, ref.threadKey, "idle", { now, state: stale }),
+    ).toEqual({ status: "skipped", reason: "not_due" });
+    expect(calls).toHaveLength(1);
+    expect(await port.claimReview(ref.threadKey, now, 1_000)).toBe(true);
+  });
+
+  it("sweeps only idle threads that can trigger", async () => {
+    const { env, port } = harness(() => ({ response: JSON.stringify({ kind: "none" }) }));
+    await addTurns(port, 2);
+    const other = { ...ref, threadKey: "alice#main:run-x", workspaceId: "ws-off", orgId: "ws-off" };
+    await port.setSetting("ws-off", "off", 0);
+    for (let i = 0; i < 3; i += 1)
+      await port.recordTurn(other, { runId: `x-${i}`, text: "t", completedAt: 1_000 });
+    const eligible = { ...ref, threadKey: "alice#main:run-y" };
+    for (let i = 0; i < 3; i += 1)
+      await port.recordTurn(eligible, { runId: `y-${i}`, text: "t", completedAt: 2_000 });
+    const idle = await port.idleThreads(2_000, 1);
+    expect(idle.map((thread) => thread.threadKey)).toEqual([eligible.threadKey]);
+    expect(await sweepIdleLearningThreads(env, port, 2_000 + LEARNING_IDLE_MS, 1)).toBe(1);
+  });
+
+  it("creates learned skills in the thread's workspace", async () => {
+    const { env, port } = harness(() => ({
+      response: JSON.stringify({
+        kind: "skill",
+        name: "Release notes",
+        description: "How we write release notes",
+        instructions: "Lead with user impact.",
+      }),
+    }));
+    await addTurns(port, 3);
+    await runLearningReview(env, port, ref.threadKey, "closed");
+    const skills = await listExtensionSkills(env, ref.orgId, ref.ownerId, {
+      workspaceId: ref.workspaceId,
+    });
+    expect(skills.map((skill) => skill.name)).toEqual(["Release notes"]);
+  });
+
+  it("lets the learning routes check org API keys themselves", () => {
+    expect(isOrgApiPath("/api/learning/settings")).toBe(true);
+    expect(isOrgApiPath("/api/learning/suggestions/abc/apply")).toBe(true);
   });
 });
