@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DelegatedRun } from "@shiba/shared";
+import type { DelegatedRun, PendingApproval } from "@shiba/shared";
 
 vi.mock("@cloudflare/think", () => ({ Think: class {
   setState(next: unknown) { Object.assign(this, { state: next }); }
@@ -150,6 +150,31 @@ it("fences the generation when a run is held so the aborted execution cannot ter
     expect(after.status).toBe("pending");
     expect(after.budgetHold?.blockedPeriods).toContain("run");
     expect(after.generation).toBe(before + 1);
+  });
+
+it("stops a held run when its budget override has expired", async () => {
+    const held = running("expired", {
+      status: "pending",
+      checkpoint: "dispatching",
+      signals: undefined,
+      budgetHold: { approvalId: "budget-override:expired:1", blockedPeriods: ["run"], at: 1000 },
+    });
+    const approval = {
+      threadKey: "owner@example.test",
+      approvalId: "budget-override:expired:1",
+      repoUrl: "https://github.com/o/r",
+      task: "fix",
+      kind: "budget_override",
+      budgetHoldRunId: "expired",
+      status: "pending",
+      createdAt: 1000,
+    } as PendingApproval;
+    const instance = budgetHost({ dailyLimitUsd: null, monthlyLimitUsd: null, perRunLimitUsd: null, onExceed: "ask" }, [held]);
+    instance.state.pendingApprovals = [approval];
+    await (instance as unknown as { enforceUsageBudget(now: number): Promise<void> })
+      .enforceUsageBudget(1000 + 31 * 60 * 1000);
+    expect(instance.state.runs[0]!.status).toBe("cancelled");
+    expect(instance.state.runs[0]!.budgetHold).toBeUndefined();
   });
 
 });

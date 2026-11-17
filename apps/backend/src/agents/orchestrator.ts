@@ -3964,6 +3964,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       { threadKey, approvalId, approved, decidedBy },
       now,
     );
+    const deniedBudgetHoldRunId = result.result === "approved"
+      ? undefined
+      : this.approvals.find(
+          (approval) => approval.approvalId === approvalId && approval.threadKey === threadKey && approval.kind === "budget_override",
+        )?.budgetHoldRunId;
     // Failed admission leaves the persisted approval pending and retryable.
     if (result.result === "approved") {
       const record = this.approvals.find(
@@ -4076,10 +4081,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // A denied or expired budget override releases nothing — its held run
     // is stopped by the budget it could not pass.
     if (result.result !== "approved") {
-      const overrideTarget = this.approvals.find(
-        (approval) => approval.approvalId === approvalId && approval.kind === "budget_override",
-      )?.budgetHoldRunId;
-      const held = overrideTarget !== undefined ? this.store.get(overrideTarget) : null;
+      const held = deniedBudgetHoldRunId !== undefined ? this.store.get(deniedBudgetHoldRunId) : null;
       if (held && isActiveStatus(held.status)) await this.stopRunForBudget(held);
     }
     // Rejecting frees the queued draft back to `draft`, and expired
@@ -5519,6 +5521,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   private async enforceUsageBudget(now = Date.now()): Promise<void> {
     const policy = this.usageBudgetPolicy();
     const meter = this.usageBudgetMeter();
+    for (const approval of this.approvals) {
+      if (approval.kind !== "budget_override" || approval.status !== "pending" || !isApprovalExpired(approval, now)) continue;
+      const held = approval.budgetHoldRunId !== undefined ? this.store.get(approval.budgetHoldRunId) : null;
+      if (held && isActiveStatus(held.status)) await this.stopRunForBudget(held);
+    }
     const budget = evaluateUsageBudget(policy, this.store.list(), now, meter);
     for (const run of this.store.list()) {
       if (!isActiveStatus(run.status) || run.budgetHold !== undefined) continue;
@@ -6278,10 +6285,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * aged out. Decided records are dropped from the listing — a
    * resolved pointer must never be re-listed.
    */
-  private listApprovals(agentPrincipal: string | null): Response {
+  private async listApprovals(agentPrincipal: string | null): Promise<Response> {
     const now = Date.now();
     this.evictExpiredWebSessions(now);
     const expiredSends = this.expiredEmailSends(now);
+    for (const approval of this.approvals) {
+      if (approval.kind !== "budget_override" || approval.status !== "pending" || !isApprovalExpired(approval, now)) continue;
+      const held = approval.budgetHoldRunId !== undefined ? this.store.get(approval.budgetHoldRunId) : null;
+      if (held && isActiveStatus(held.status)) await this.stopRunForBudget(held);
+    }
     const pruned = pruneApprovals(this.approvals, now);
     if (pruned.length !== this.approvals.length) {
       this.writeApprovals(pruned);
