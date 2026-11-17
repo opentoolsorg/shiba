@@ -224,7 +224,7 @@ describe("worker-level 401 codes", () => {
       makeEnv({ ...credentials, AGENT_AUDIT: undefined }));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(await response.json()).toEqual({ providers });
+    expect(await response.json()).toEqual({ providers, sso: { enabled: false, displayName: "Company SSO" } });
   });
 
   it("keeps social readiness dark without the auth signing secret", async () => {
