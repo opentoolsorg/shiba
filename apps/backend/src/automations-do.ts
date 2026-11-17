@@ -4,6 +4,8 @@
  * webhooks share lastTriggeredAt / daily budget / lastSkip.
  */
 import { APPROVAL_TTL_MS } from "./pending-approvals.js";
+import { generateInboundSecret, verifyInboundSignature } from "./webhooks/inbound-signing.js";
+import { openInboundSecret, sealInboundSecret } from "./webhooks/secrets.js";
 import { computeNextRunAt } from "./automation-schedules.js";
 import { getAgentByName } from "agents/routing";
 import {
@@ -291,6 +293,7 @@ export class Automations {
       this.fireDeps(orchestrator, nowMs),
     );
     await this.mergeFireState(target, automations);
+    if (event.kind === "hook" && results.some((result) => result.reason.startsWith("Queue failed:"))) throw new Error("Webhook queue failed.");
     return {
       fired: results.filter((r) => r.fired).length,
       skipped: results.filter((r) => !r.fired).length,
@@ -857,6 +860,12 @@ export class Automations {
           }
         }
         const created = createAutomation(input);
+        let hookSecret: string | undefined;
+        if (created.automation.triggers.some((trigger) => trigger.kind === "webhook")) {
+          hookSecret = generateInboundSecret();
+          try { created.automation.hookSecret = await sealInboundSecret(this.env, created.automation.id, hookSecret); }
+          catch { return Response.json({ error: "MODEL_CREDENTIAL_KEY is not configured for inbound webhooks." }, { status: 503 }); }
+        }
         const inserted = await this.ctx.storage.transaction(async (transaction) => {
           const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
           if (state.items.some((item) => item.id === created.automation.id)) return false;
@@ -867,7 +876,7 @@ export class Automations {
           return Response.json({ error: "Automation id already exists." }, { status: 409 });
         }
         return Response.json(
-          { automation: publicAutomation(created.automation), webhookSecret: created.webhookSecret },
+          { automation: publicAutomation(created.automation), webhookSecret: created.webhookSecret, hookSecret },
           { status: 201 },
         );
       } catch (error) {
@@ -1015,6 +1024,57 @@ export class Automations {
       const result = await this.fireEvent({ kind: "manual" }, await this.orchestrator(), Date.now(), automation.id);
       return Response.json({ ok: true, id: automation.id, ...result });
     }
+    const secretId = /^\/api\/automations\/([^/]+)\/hook-secret\/?$/.exec(url.pathname)?.[1];
+    if (secretId && (request.method === "POST" || request.method === "DELETE")) {
+      let id: string;
+      try { id = decodeURIComponent(secretId); } catch { return Response.json({ error: "Invalid route." }, { status: 400 }); }
+      const secret = request.method === "POST" ? generateInboundSecret() : undefined;
+      let sealed: Automation["hookSecret"];
+      if (secret) {
+        try { sealed = await sealInboundSecret(this.env, id, secret); }
+        catch { return Response.json({ error: "MODEL_CREDENTIAL_KEY is not configured for inbound webhooks." }, { status: 503 }); }
+      }
+      return this.ctx.storage.transaction(async (transaction) => {
+        const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
+        const automation = state.items.find((item) => item.id === id);
+        if (!automation?.triggers.some((trigger) => trigger.kind === "webhook")) return Response.json({ error: "Webhook routine not found." }, { status: 404 });
+        if (sealed) automation.hookSecret = sealed;
+        else delete automation.hookSecret;
+        await transaction.put("state", state);
+        return Response.json({ ok: true, hookSecret: secret });
+      });
+    }
+    const hookId = /^\/api\/hooks\/([^/]+)\/?$/.exec(url.pathname)?.[1];
+    if (hookId && request.method === "POST") {
+      let id = hookId;
+      try { id = decodeURIComponent(id); } catch { /* Invalid ids use the same denial. */ }
+      const automation = (await this.load()).get(id);
+      const body = await webhookBody(request);
+      if (body === null) return Response.json({ error: "Webhook payload exceeds 32000 bytes." }, { status: 413 });
+      let secret = `whsec_${btoa("0".repeat(32))}`;
+      if (automation?.hookSecret) {
+        try { secret = await openInboundSecret(this.env, id, automation.hookSecret); }
+        catch { return Response.json({ error: "Inbound webhook secret storage unavailable." }, { status: 503 }); }
+      }
+      const now = Date.now();
+      const deliveryId = await verifyInboundSignature(request.headers, body, secret, now);
+      if (!deliveryId || !automation?.hookSecret || !automation.triggers.some((trigger) => trigger.kind === "webhook")) return Response.json({ error: "Invalid webhook signature." }, { status: 401 });
+      const db = this.env.AGENT_AUDIT;
+      if (!db) return Response.json({ error: "Inbound webhook receipt storage unavailable." }, { status: 503 });
+      const cutoff = now - 7 * 24 * 60 * 60 * 1000;
+      try {
+        const receipt = await db.prepare("INSERT INTO inbound_webhook_receipts (route_id, delivery_id, received_at) VALUES (?, ?, ?) ON CONFLICT(route_id, delivery_id) DO UPDATE SET received_at = excluded.received_at WHERE inbound_webhook_receipts.received_at <= ?").bind(id, deliveryId, now, cutoff).run();
+        if (!receipt.meta.changes) return Response.json({ ok: true, duplicate: true });
+        try {
+          const result = await this.fireEvent({ kind: "hook", deliveryId, body }, await this.orchestrator(), now, id);
+          await db.prepare("DELETE FROM inbound_webhook_receipts WHERE received_at < ?").bind(cutoff).run().catch(() => undefined);
+          return Response.json({ ok: true, ...result });
+        } catch {
+          await db.prepare("DELETE FROM inbound_webhook_receipts WHERE route_id = ? AND delivery_id = ? AND received_at = ?").bind(id, deliveryId, now).run();
+          return Response.json({ error: "Webhook queue unavailable. Retry delivery." }, { status: 503 });
+        }
+      } catch { return Response.json({ error: "Inbound webhook receipt storage unavailable." }, { status: 503 }); }
+    }
     const webhookId = parseAutomationWebhookPath(url.pathname);
     if (webhookId && request.method === "POST") {
       const store = await this.load();
@@ -1125,8 +1185,8 @@ function mergeAutomationFireState(base: Automation, fired: Automation, latest: A
   return updated;
 }
 
-function publicAutomation(automation: Automation): Omit<Automation, "webhookSecret"> & { hasWebhookSecret: boolean; nextRunAt: number | null } {
-  const { webhookSecret, ...rest } = automation;
+function publicAutomation(automation: Automation): Omit<Automation, "webhookSecret" | "hookSecret"> & { hasWebhookSecret: boolean; hasHookSecret: boolean; nextRunAt: number | null } {
+  const { webhookSecret, hookSecret, ...rest } = automation;
   const schedule = automation.triggers.find((trigger) => trigger.kind === "schedule");
-  return { ...rest, hasWebhookSecret: Boolean(webhookSecret), nextRunAt: automation.enabled && schedule ? computeNextRunAt(schedule) : null };
+  return { ...rest, hasWebhookSecret: Boolean(webhookSecret), hasHookSecret: Boolean(hookSecret), nextRunAt: automation.enabled && schedule ? computeNextRunAt(schedule) : null };
 }

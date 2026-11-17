@@ -19,7 +19,7 @@ export function useRoutines(enabled: boolean, refreshToken = 0) {
         const response = await fetch("/api/automations");
         if (!response.ok) throw new Error(`Routines request failed (${response.status}).`);
         const body = await response.json() as { automations?: RoutineRecord[] };
-        if (current && generation === requestGeneration) { setRoutines((body.automations ?? []).filter((item) => item.triggers.some((trigger) => trigger.kind === "schedule"))); setError(""); }
+        if (current && generation === requestGeneration) { setRoutines((body.automations ?? []).filter((item) => item.triggers.some((trigger) => trigger.kind === "schedule" || trigger.kind === "webhook"))); setError(""); }
       } catch (cause) { if (current && generation === requestGeneration) setError(cause instanceof Error ? cause.message : "Could not load routines."); }
     };
     void load();
@@ -38,6 +38,18 @@ function routineOutcome(outcome: string | undefined, triggered: boolean): string
 export function RoutinesList({ routines, error, onChanged }: { routines: RoutineRecord[]; error?: string; onChanged(): void }) {
   const [busy, setBusy] = useState("");
   const [mutationError, setMutationError] = useState("");
+  const [revealed, setRevealed] = useState<{ id: string; secret: string } | null>(null);
+  const changeSecret = async (id: string, method: "POST" | "DELETE") => {
+    setBusy(id); setMutationError(""); setRevealed(null);
+    try {
+      const response = await fetch(`/api/automations/${encodeURIComponent(id)}/hook-secret`, { method });
+      const body = await response.json() as { hookSecret?: string; error?: string };
+      if (!response.ok) throw new Error(body.error || "Could not change webhook secret.");
+      if (body.hookSecret) setRevealed({ id, secret: body.hookSecret });
+      onChanged();
+    } catch (cause) { setMutationError(cause instanceof Error ? cause.message : "Could not change webhook secret."); }
+    finally { setBusy(""); }
+  };
   const toggle = async (routine: RoutineRecord) => {
     setBusy(routine.id); setMutationError("");
     try {
@@ -54,9 +66,15 @@ export function RoutinesList({ routines, error, onChanged }: { routines: Routine
       const routine = routineInfo(record);
       return <article key={record.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-1)] py-3 text-sm">
         <div className="min-w-0"><h3 className="break-words font-medium">{routine.name}</h3>
-          <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">Repeats {routineCadence(routine.schedule, routine.timezone).replace(/^Every /, "every ")}</p>
+          <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">{routine.schedule ? `Repeats ${routineCadence(routine.schedule, routine.timezone).replace(/^Every /, "every ")}` : "Webhook routine"}</p>
           <p className="mt-1 text-xs">{record.enabled ? `Next run: ${routine.nextRunAt ? new Date(routine.nextRunAt).toLocaleString(undefined, { timeZone: routine.timezone }) : "Unavailable"}` : "Paused"}</p>
           <p className="mt-1 text-xs">Last run: {routineOutcome(record.occurrences?.at(-1)?.outcome, Boolean(record.lastTriggeredAt))}</p>
+          {record.triggers.some((trigger) => trigger.kind === "webhook") ? <div className="mt-2 flex flex-wrap items-center gap-2">
+            <code className="break-all">{`${window.location.origin}/api/hooks/${encodeURIComponent(record.id)}`}</code>
+            <button type="button" className={control} disabled={busy === record.id} onClick={() => void changeSecret(record.id, "POST")}>Rotate secret</button>
+            <button type="button" className={control} disabled={busy === record.id} onClick={() => void changeSecret(record.id, "DELETE")}>Revoke secret</button>
+            {revealed?.id === record.id ? <div><p>Save this secret now. It will not be shown again.</p><code className="break-all">{revealed.secret}</code><button type="button" className={control} onClick={() => void navigator.clipboard.writeText(revealed.secret).catch(() => setMutationError("Could not copy secret."))}>Copy secret</button><button type="button" className={control} onClick={() => setRevealed(null)}>Hide secret</button></div> : null}
+          </div> : null}
         </div>
         <button type="button" role="switch" aria-checked={record.enabled} aria-label={`Enable ${routine.name}`} disabled={busy === record.id} className={control} onClick={() => void toggle(record)}>{record.enabled ? "On" : "Off"}</button>
       </article>;
