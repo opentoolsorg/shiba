@@ -4,14 +4,23 @@ import { governanceD1Fixture } from "./fixtures/governance-d1.js";
 import { acceptTeamWorkspaceInvitation, createTeamWorkspace, createTeamWorkspaceInvitation } from "../src/team-workspaces-store.js";
 import { addWorkspaceGroupMember, createWorkspaceGroup, removeWorkspaceGroupMember } from "../src/governance/governance-store.js";
 import { createCustomAgent } from "../src/custom-agents-store.js";
-import { employeeAccessDenial, listEmployeeAccess, resolveEmployeeAccess, setEmployeeAccess, visibleEmployees } from "../src/governance/employee-access.js";
+import { employeeAccessDenial, filterEmployeesByAccess, listEmployeeAccess, resolveEmployeeAccess, setEmployeeAccess, visibleEmployees } from "../src/governance/employee-access.js";
 import { enforceEmployeeRouteAccess } from "../src/governance/employee-route-auth.js";
 import { handleEmployeeAccess } from "../src/governance/employee-access-routes.js";
 import { resolveOrgForApiRequest } from "../src/org-request-auth.js";
 import { resolveUserId } from "../src/request-auth.js";
+import { verifyToken } from "../src/agent-tokens.js";
+import { addCollaborationMember, COLLAB_TENANT_ID, createCollaborationRoom, ensureCollaborationSchema, listCollaborationMemberships } from "../src/collaboration-store.js";
+import { coordinateHumanMessage, setWorkspacePrimaryBot } from "../src/collaboration-router.js";
+import { ackListenAllAgents, ackThreadOwner } from "../src/collaboration-reply-claims.js";
+import { loadRankedBots, primaryActorId } from "../src/collaboration-router-rank.js";
+import { applyCollabV2Migrations } from "./fixtures/collab-v2-migrations.js";
+import { listPaletteBots, searchPaletteBots } from "../src/palette-store.js";
+import { handleCustomAgents } from "../src/custom-agents-routes.js";
 
 vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: vi.fn() }));
 vi.mock("../src/request-auth.js", async (original) => ({ ...await original<typeof import("../src/request-auth.js")>(), resolveUserId: vi.fn() }));
+vi.mock("../src/agent-tokens.js", async (original) => ({ ...await original<typeof import("../src/agent-tokens.js")>(), verifyToken: vi.fn(async () => null) }));
 const owner = "alice@example.test", member = "bob@example.test";
 async function fixture() {
   const { env, sqlite } = await governanceD1Fixture();
@@ -30,6 +39,79 @@ async function fixture() {
 }
 
 describe("employee access", () => {
+  it("does not let human API keys or arbitrary authorization headers bypass access", async () => {
+    const { env, employee, workspaceId, set, auth } = await fixture(); auth();
+    await set("everyone", "*", "none");
+    const record = { principal: member, orgId: `team:${workspaceId}`, kind: "api_key" as const, scopes: ["api:read" as const], created: 1, revoked: false };
+    vi.mocked(verifyToken).mockResolvedValue(record);
+    vi.mocked(resolveOrgForApiRequest).mockResolvedValue({ orgId: record.orgId, principal: { ...record, scopes: record.scopes } });
+    vi.mocked(resolveUserId).mockResolvedValue(null);
+    const request = new Request(`https://app.test/api/custom-agents/${employee.id}`, { headers: { authorization: "Bearer human-key" } });
+    expect((await enforceEmployeeRouteAccess(request, env))?.status).toBe(404);
+    expect(await (await handleCustomAgents(new Request("https://app.test/api/custom-agents", { headers: request.headers }), env))?.json()).toMatchObject({ agents: [] });
+    vi.mocked(verifyToken).mockResolvedValue(null);
+    auth();
+    expect((await enforceEmployeeRouteAccess(request, env))?.status).toBe(404);
+    vi.mocked(verifyToken).mockResolvedValue({ ...record, kind: "agent" });
+    expect(await enforceEmployeeRouteAccess(request, env)).toBeNull();
+    vi.mocked(verifyToken).mockResolvedValue(null);
+  });
+  it("requires chat for funded turn prepare, approve and execute and direct employee session selection", async () => {
+    const { env, sqlite, employee, set, auth, workspaceId } = await fixture(); auth();
+    sqlite.exec(`CREATE TABLE team_model_funding (id TEXT, workspace_id TEXT, contract_json TEXT);
+      CREATE TABLE team_model_turns (id TEXT, workspace_id TEXT, grant_id TEXT);`);
+    sqlite.prepare("INSERT INTO team_model_funding VALUES ('funding', ?, ?)").run(workspaceId, JSON.stringify({ employeeId: employee.id }));
+    sqlite.prepare("INSERT INTO team_model_turns VALUES ('turn', ?, 'funding')").run(workspaceId);
+    const request = (path: string, body = {}) => new Request(`https://app.test/api/${path}`, { method: "POST", body: JSON.stringify(body) });
+    const requests = () => [request("team-model-sessions/turns/prepare", { grantId: "funding", employeeId: "spoofed" }), request("team-model-sessions/turns/turn/approve"), request("team-model-sessions/turns/turn/execute"), request("sessions", { employeeId: "spoofed", metadata: { customAgentId: employee.id } }), request("sessions/existing", { employeeId: "spoofed", metadata: { customAgentId: employee.id } }), request("runs", { employeeId: "spoofed", customAgentId: employee.id }), request("collaboration/rooms/room/handoffs", { employeeId: "spoofed", recipientActorId: `agent:${employee.slug}` })];
+    for (const [level, status] of [["none", 404], ["view", 403], ["chat", undefined]] as const) {
+      await set("everyone", "*", level);
+      for (const req of requests()) expect((await enforceEmployeeRouteAccess(req, env))?.status).toBe(status);
+    }
+    expect((await enforceEmployeeRouteAccess(request("team-model-sessions/turns/prepare", {}), env))?.status).toBe(404);
+    expect((await enforceEmployeeRouteAccess(request("team-model-sessions/turns/missing/execute"), env))?.status).toBe(404);
+    expect((await enforceEmployeeRouteAccess(new Request("https://app.test/api/team-model-sessions/turns/prepare", { method: "POST", body: "{" }), env))?.status).toBe(400);
+    expect(await enforceEmployeeRouteAccess(request("sessions"), env)).toBeNull();
+  });
+  it("filters every coordination selector using the posting member, canonicalizes slugs, and hides discovery", async () => {
+    const { env, sqlite, employee, workspaceId, set } = await fixture();
+    await ensureCollaborationSchema(env); applyCollabV2Migrations(sqlite);
+    for (const file of ["0036_team_work_tasks.sql", "0052_search_fts.sql", "0053_ask_user_and_claims.sql", "0060_palette_search.sql"]) sqlite.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
+    const scope = { tenantId: COLLAB_TENANT_ID, workspaceId, userId: owner };
+    const room = await createCollaborationRoom(env, scope, { roomId: "room_access", title: "Team", visibility: "private", createdAt: 1 });
+    await addCollaborationMember(env, scope, room.roomId, { userId: member, displayName: member, actorId: `human:${member}`, kind: "human", createdAt: 2 });
+    const allowed = await createCustomAgent({ AGENT_AUDIT: env.AGENT_AUDIT! }, `team:${workspaceId}`, "engineer", { name: "Engineer", instructions: "Engineering tasks", harness: "opencode" });
+    for (const bot of [employee, allowed]) await addCollaborationMember(env, scope, room.roomId, { userId: owner, displayName: bot.config.name!, actorId: `agent:${bot.slug}`, kind: "agent", profileVersion: 1, createdAt: 2 });
+    const posting = { ...scope, userId: member };
+    await setWorkspacePrimaryBot(env, scope, `agent:${employee.slug}`, 1);
+    await set("everyone", "*", "none");
+    const items = [employee.id, `agent:${employee.slug}`, allowed.id];
+    expect(await filterEmployeesByAccess(env, posting, items, "chat", (id) => id)).toEqual([allowed.id]);
+    expect(await resolveEmployeeAccess(env, workspaceId, employee.slug, member)).toBe("none");
+    expect((await loadRankedBots(env, posting, room.roomId, "channel", "Finance tasks")).map((bot) => bot.actorId)).toEqual(["agent:engineer"]);
+    expect(await primaryActorId(env, posting)).toBe("agent:engineer");
+    const members = await listCollaborationMemberships(env, posting, room.roomId);
+    expect(members.filter((row) => row.actorKind === "agent").map((row) => row.actorId)).toEqual(["agent:engineer"]);
+    expect((await listPaletteBots(env, workspaceId, `team:${workspaceId}`, member)).map((bot) => bot.agentId)).toEqual([allowed.id]);
+    expect(await searchPaletteBots(env, workspaceId, `team:${workspaceId}`, member, "Finance", 10)).toEqual([]);
+    const mentions = await coordinateHumanMessage(env, posting, { roomId: room.roomId, messageId: "blocked-mention", body: "@agent:finance", now: 10 });
+    expect(mentions.handoffs).toEqual([]);
+    sqlite.prepare(`INSERT INTO collaboration_task_threads (tenant_id,workspace_id,room_id,root_message_id,owner_actor_id,task_id,title,owner_user_id,status,created_at,updated_at) VALUES (?,?,?,?,?,'task','Finance','${owner}','open',1,1)`)
+      .run(scope.tenantId, workspaceId, room.roomId, "root", "agent:finance");
+    expect(await ackThreadOwner(env, posting, { roomId: room.roomId, triggerMessageId: "owner-blocked", threadRootId: "root", now: 11 })).toBe(false);
+    for (const bot of [employee, allowed]) sqlite.prepare("INSERT INTO collaboration_agent_listen_mode VALUES (?,?,?,?, 'all', 1)").run(scope.tenantId, workspaceId, room.roomId, `agent:${bot.slug}`);
+    expect(await ackListenAllAgents(env, posting, { roomId: room.roomId, triggerMessageId: "listen", now: 12 })).toBe(true);
+    expect(sqlite.prepare("SELECT actor_id FROM collaboration_reply_claims WHERE trigger_message_id='listen'").get()).toMatchObject({ actor_id: "agent:engineer" });
+    await set("everyone", "*", "view");
+    expect((await listCollaborationMemberships(env, posting, room.roomId)).filter((row) => row.actorKind === "agent")).toHaveLength(2);
+    expect((await coordinateHumanMessage(env, posting, { roomId: room.roomId, messageId: "view-mention", body: "@agent:finance", now: 13 })).handoffs).toEqual([]);
+    await set("everyone", "*", "chat");
+    expect((await coordinateHumanMessage(env, posting, { roomId: room.roomId, messageId: "chat-mention", body: "@agent:finance", now: 14 })).handoffs).toHaveLength(1);
+    expect(await ackThreadOwner(env, posting, { roomId: room.roomId, triggerMessageId: "owner-allowed", threadRootId: "root", now: 15 })).toBe(true);
+    expect(await filterEmployeesByAccess(env, posting, [], "chat", (id: string) => id)).toEqual([]);
+    sqlite.exec("DROP TABLE employee_access");
+    await expect(filterEmployeesByAccess(env, posting, [employee.id], "chat", (id) => id)).rejects.toThrow();
+  });
   it("defaults compatibly, denies nonmembers and preserves owner/admin authority", async () => {
     const { resolve, set } = await fixture();
     expect(await resolve()).toBe("manage");

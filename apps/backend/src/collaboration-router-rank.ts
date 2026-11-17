@@ -3,6 +3,7 @@ import { collaborationEmployeeOrgId, type CollaborationScope } from "./collabora
 import { listCustomAgents } from "./custom-agents-store.js";
 import { ensureCoordinationSchema } from "./coordination-schema.js";
 import type { Env } from "./env.js";
+import { filterEmployeesByAccess } from "./governance/employee-access.js";
 
 export const ROUTER_MARGIN = 2;
 
@@ -77,7 +78,7 @@ export async function loadRankedBots(
     .bind(scope.tenantId, scope.workspaceId)
     .all<{ owner_actor_id: string; n: number }>();
   const success = new Map((done.results ?? []).map((row) => [row.owner_actor_id, Number(row.n)]));
-  return (memberships.results ?? []).map((row) => {
+  return (await filterEmployeesByAccess(env, scope, memberships.results ?? [], "chat", (row) => row.actor_id)).map((row) => {
     const profile = byActor.get(row.actor_id) ?? { name: row.display_name, text: "", skills: [] };
     const base = {
       name: profile.name || row.display_name,
@@ -143,14 +144,14 @@ export async function primaryActorId(env: Env, scope: CollaborationScope): Promi
   const saved = await env.AGENT_AUDIT.prepare(
     "SELECT actor_id FROM workspace_primary_bot WHERE tenant_id=? AND workspace_id=?",
   ).bind(scope.tenantId, scope.workspaceId).first<{ actor_id: string }>();
-  if (saved?.actor_id) return saved.actor_id;
+  if (saved?.actor_id && (await filterEmployeesByAccess(env, scope, [saved], "chat", (row) => row.actor_id)).length) return saved.actor_id;
   const agents = await listCustomAgents(env, collaborationEmployeeOrgId(scope)).catch(() => []);
-  const earliest = [...agents].sort((a, b) => a.createdAt - b.createdAt)[0];
+  const earliest = (await filterEmployeesByAccess(env, scope, agents, "chat", (agent) => agent.id)).sort((a, b) => a.createdAt - b.createdAt)[0];
   if (earliest) return `agent:${earliest.slug}`;
   const member = await env.AGENT_AUDIT.prepare(
     `SELECT actor_id FROM collaboration_memberships
      WHERE tenant_id=? AND workspace_id=? AND actor_kind='agent' AND status='active'
      ORDER BY created_at, actor_id LIMIT 1`,
   ).bind(scope.tenantId, scope.workspaceId).first<{ actor_id: string }>();
-  return member?.actor_id ?? null;
+  return member && (await filterEmployeesByAccess(env, scope, [member], "chat", (row) => row.actor_id)).length ? member.actor_id : null;
 }
