@@ -13,7 +13,7 @@ function request(path = PATH, method = "GET", host = "http://localhost") {
 }
 function fixture() {
   const f = customAgentD1({ bare: true });
-  f.sqlite.exec(readFileSync(new URL("../migrations/0061_workspace_channel_facts.sql", import.meta.url), "utf8"));
+  f.sqlite.exec(readFileSync(new URL("../migrations/0063_workspace_channel_facts.sql", import.meta.url), "utf8"));
   return { ...f, env: { AGENT_AUDIT: f.database } as Env, store: new WorkspaceChannelFactsStore(f.database) };
 }
 
