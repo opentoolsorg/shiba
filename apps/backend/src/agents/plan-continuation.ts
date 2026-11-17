@@ -11,6 +11,14 @@ export interface ContinuationState {
   lastResponseId?: string;
 }
 
+function hasPreparedGoal(metadata: unknown): boolean {
+  if (typeof metadata !== "object" || metadata === null) return false;
+  if (Object.hasOwn(metadata, "shibaDraftTaskId") || Object.hasOwn(metadata, "shibaDraftTaskVersion")) return true;
+  const task = (metadata as Record<string, unknown>).shibaTask;
+  return typeof task === "object" && task !== null &&
+    (Object.hasOwn(task, "draftTaskId") || Object.hasOwn(task, "draftTaskVersion"));
+}
+
 export function continuationDecision(input: {
   text: string;
   plan: readonly PlanStep[];
@@ -18,8 +26,10 @@ export function continuationDecision(input: {
   pendingApproval: boolean;
   limitReached: boolean;
   completed: boolean;
+  messageMetadata?: unknown;
 }): { continue: boolean; reason: string } {
   if (!input.completed) return { continue: false, reason: "turn_not_completed" };
+  if (hasPreparedGoal(input.messageMetadata)) return { continue: false, reason: "prepared_goal" };
   if (input.pendingApproval) return { continue: false, reason: "pending_approval" };
   if (input.limitReached || /\b(?:budget|usage|rate|token|quota)\b.{0,50}\b(?:limit|exhausted|exceeded|reached)\b/i.test(input.text)) {
     return { continue: false, reason: "usage_limit" };

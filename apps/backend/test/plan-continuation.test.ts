@@ -3,10 +3,13 @@ import type { ChatResponseResult } from "@cloudflare/think";
 import { continuationDecision, type PlanStep } from "../src/agents/plan-continuation.js";
 import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { onboardingTaskText } from "@shiba/shared";
+import { resolvePreparedOnboardingDraft } from "../src/onboarding-progress.js";
 
 vi.mock("@cloudflare/think", () => ({ Think: class {} }));
 vi.mock("agents/agent-tools", () => ({ agentTool: () => ({}) }));
 vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
+vi.mock("../src/onboarding-progress.js", () => ({ resolvePreparedOnboardingDraft: vi.fn() }));
 
 const openPlan: PlanStep[] = [{ step: "Finish tests", status: "pending" }];
 const defaults = { text: "Working.", plan: openPlan, count: 0, pendingApproval: false, limitReached: false, completed: true };
@@ -26,6 +29,14 @@ describe("continuation policy", () => {
   });
   it("stops for pending approval", () => {
     expect(continuationDecision({ ...defaults, pendingApproval: true }).reason).toBe("pending_approval");
+  });
+  it.each([
+    { shibaDraftTaskId: "prepared-goal" },
+    { shibaDraftTaskVersion: 1 },
+    { shibaTask: { draftTaskId: "prepared-goal", task: "Prepared brief" } },
+    { shibaTask: { draftTaskVersion: 1 } },
+  ])("stops for prepared goal metadata: %j", (messageMetadata) => {
+    expect(continuationDecision({ ...defaults, messageMetadata })).toEqual({ continue: false, reason: "prepared_goal" });
   });
   it("stops at a budget limit", () => {
     expect(continuationDecision({ ...defaults, limitReached: true }).reason).toBe("usage_limit");
@@ -62,6 +73,20 @@ const response = (id = "answer-1"): ChatResponseResult => ({ requestId: "turn-1"
   message: { id, role: "assistant", parts: [{ type: "text", text: "Shall I continue?" }] } });
 
 describe("orchestrator completion hook", () => {
+  it("does not replace a prepared app-tools brief with continuation text", async () => {
+    const { instance, runTurn } = host();
+    const draftTask = { goal: "Write a sourced draft", audience: "Owner", acceptance: "Editable draft", employeeId: "writer", sourceIds: [] };
+    const reference = { draftTaskId: "draft_11111111-1111-4111-8111-111111111111", draftTaskVersion: 1 };
+    vi.mocked(resolvePreparedOnboardingDraft).mockResolvedValue({ draftTask, draftTaskId: reference.draftTaskId, version: 1 } as never);
+    Object.assign(instance, { messages: [{ id: "request-1", role: "user", parts: [{ type: "text", text: onboardingTaskText(draftTask) }],
+      metadata: { shibaWorkTarget: "app-tools", shibaDraftTaskId: reference.draftTaskId, shibaDraftTaskVersion: 1 } }] });
+    const binding = instance as unknown as { employeeOnboardingBinding(employeeId: string): Promise<unknown> };
+    await expect(binding.employeeOnboardingBinding("writer")).resolves.toMatchObject(reference);
+    instance.onChatResponse(response());
+    expect(runTurn).not.toHaveBeenCalled();
+    expect(instance.state.events?.at(-1)?.payload).toMatchObject({ summary: "Plan continuation stopped: prepared_goal" });
+    await expect(binding.employeeOnboardingBinding("writer")).resolves.toMatchObject(reference);
+  });
   it("durably queues a continuation, logs the reason, preserves scope, and deduplicates hook replay", async () => {
     const { instance, runTurn, held } = host();
     instance.onChatResponse(response());
