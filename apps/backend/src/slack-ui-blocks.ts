@@ -30,14 +30,16 @@ export function renderUiBlockToSlack(block: UiBlock, { runId }: { runId: string 
     blocks.push({ type: "actions", elements: block.options.map((option) => button(option.id, option.label, option.danger)) });
   } else if (!block.multiple) {
     const danger = block.options.some((option) => option.danger);
-    blocks.push({ type: "actions", elements: [{ type: "static_select", action_id: "ui_block:select", placeholder: plain("Choose an option"),
-      options: block.options.map((option) => ({ text: plain(option.label), value: value(runId, block.id, option.id, danger) })),
+    const context = `ui_block:${JSON.stringify([runId, block.id, danger])}`;
+    if (context.length > 255) throw new Error("Slack select context exceeds 255 characters.");
+    blocks.push({ type: "actions", block_id: context, elements: [{ type: "static_select", action_id: "ui_block:select", placeholder: plain("Choose an option"),
+      options: block.options.map((option) => ({ text: plain(option.label), value: option.id })),
       ...(danger ? { confirm: confirmation() } : {}),
     }] });
   } else {
     for (let i = 0; i < block.options.length; i += 10) {
       blocks.push({ type: "actions", block_id: `ui_block:${block.id}:${i}`, elements: [{ type: "checkboxes", action_id: "ui_block:selection",
-        options: block.options.slice(i, i + 10).map((option) => ({ text: plain(option.danger ? `${option.label.slice(0, 61)} (destructive)` : option.label), value: value(runId, block.id, option.id) })),
+        options: block.options.slice(i, i + 10).map((option) => ({ text: plain(option.danger ? `${option.label.slice(0, 61)} (destructive)` : option.label), value: option.id })),
       }] });
     }
     blocks.push({ type: "actions", elements: [button("submit", "Submit choices", block.options.some((option) => option.danger))] });
@@ -55,7 +57,7 @@ function pointer(raw: unknown): Pointer {
 
 export interface SlackUiPayload {
   team?: { id?: string }; channel?: { id?: string }; message?: { thread_ts?: string; ts?: string };
-  actions?: { action_id?: string; value?: string; selected_option?: { value?: string } }[];
+  actions?: { action_id?: string; block_id?: string; value?: string; selected_option?: { value?: string } }[];
   state?: { values?: Record<string, Record<string, { selected_options?: { value?: string }[] }>> };
 }
 
@@ -63,7 +65,13 @@ export interface SlackUiPayload {
 export async function answerSlackUiBlock(env: Env, payload: SlackUiPayload): Promise<string | null> {
   const action = payload.actions?.[0];
   if (action?.action_id === "ui_block:selection") return null;
-  const p = pointer(action?.selected_option?.value ?? action?.value);
+  let p: Pointer;
+  if (action?.action_id === "ui_block:select") {
+    if (!action.block_id?.startsWith("ui_block:")) throw new Error("Missing select context.");
+    const context: unknown = JSON.parse(action.block_id.slice("ui_block:".length));
+    if (!Array.isArray(context) || context.length !== 3 || typeof context[0] !== "string" || typeof context[1] !== "string" || typeof context[2] !== "boolean" || typeof action.selected_option?.value !== "string") throw new Error("Invalid select context.");
+    p = { runId: context[0], blockId: context[1], optionId: action.selected_option.value, ...(context[2] ? { confirmed: true } : {}) };
+  } else p = pointer(action?.value);
   const threadId = uiBlockThreadId(p.runId);
   const thread = parseSlackThreadName(threadId);
   if (!thread || thread.teamId !== payload.team?.id || thread.channelId !== payload.channel?.id || thread.threadTs !== (payload.message?.thread_ts ?? payload.message?.ts)) throw new Error("Question does not belong to this Slack thread.");
@@ -83,9 +91,8 @@ export async function answerSlackUiBlock(env: Env, payload: SlackUiPayload): Pro
     for (const [blockId, actions] of Object.entries(payload.state?.values ?? {})) {
       if (!blockId.startsWith(`ui_block:${p.blockId}:`)) continue;
       for (const selected of actions["ui_block:selection"]?.selected_options ?? []) {
-        const item = pointer(selected.value);
-        if (item.runId !== p.runId || item.blockId !== p.blockId) throw new Error("Invalid selected question.");
-        options.push(item.optionId);
+        if (typeof selected.value !== "string" || selected.value.length > 150) throw new Error("Invalid selected question.");
+        options.push(selected.value);
       }
     }
     answer = { blockId: p.blockId, optionIds: options, confirmed: p.confirmed === true };

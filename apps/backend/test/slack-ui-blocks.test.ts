@@ -40,7 +40,10 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("Slack UI renderer", () => {
   for (const block of blocks) it(`renders ${block.id}`, () => {
-    expect(renderUiBlockToSlack(block, { runId })).toMatchSnapshot();
+    const rendered = renderUiBlockToSlack(block, { runId });
+    expect(rendered).toMatchSnapshot();
+    const actions = rendered.blocks as { elements?: { options?: { value: string }[] }[] }[];
+    for (const section of actions) for (const element of section.elements ?? []) for (const option of element.options ?? []) expect(option.value.length).toBeLessThanOrEqual(150);
   });
   it("keeps full fallback text and bounds action pointers", () => {
     const rendered = renderUiBlockToSlack(blocks[1]!, { runId });
@@ -119,9 +122,19 @@ describe("signed Slack UI answers", () => {
       expect((await getUiBlock(env, ownerId, runId, block.id))?.status).toBe("pending");
       await handleSlackInteract(await request(payload(block, "submit", true)), env, { respond, replaceCard });
       expect((await getUiBlock(env, ownerId, runId, block.id))?.status).toBe("pending");
-      const submit = { ...payload(block, "submit", true), state: { values: { "ui_block:many:0": { "ui_block:selection": { selected_options: ["first", "second"].map((optionId) => ({ value: JSON.stringify({ runId, blockId: block.id, optionId }) })) } } } } };
+      const submit = { ...payload(block, "submit", true), state: { values: { "ui_block:many:0": { "ui_block:selection": { selected_options: ["first", "second"].map((optionId) => ({ value: optionId })) } } } } };
       await handleSlackInteract(await request(submit), env, { respond, replaceCard });
       expect((await getUiBlock(env, ownerId, runId, block.id))?.answer?.optionIds).toEqual(["first", "second"]);
+    });
+  });
+  it("resolves short select values from verified block context", async () => {
+    const block = blocks[5]!;
+    await setup(block, async (env) => {
+      const respond = vi.fn(async () => {});
+      const replaceCard = vi.fn(async () => {});
+      const selected = { ...payload(block, "unused"), actions: [{ action_id: "ui_block:select", block_id: `ui_block:${JSON.stringify([runId, block.id, true])}`, selected_option: { value: "option_5" } }] };
+      await handleSlackInteract(await request(selected), env, { respond, replaceCard });
+      expect((await getUiBlock(env, ownerId, runId, block.id))?.answer).toMatchObject({ optionIds: ["option_5"], confirmed: true });
     });
   });
 });
