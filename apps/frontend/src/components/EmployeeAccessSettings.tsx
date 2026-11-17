@@ -40,7 +40,7 @@ export function EmployeeAccessSettings({ workspaceId, employeeId }: { workspaceI
     return () => controller.abort();
   }, [workspaceId, endpoint]);
 
-  async function save(principal: typeof principals[number], level: EmployeeAccessLevel) {
+  async function save(principal: typeof principals[number], level: EmployeeAccessLevel | "inherit") {
     setBusy(true); setError(null); setNotice(null);
     try {
       const updated = await read<Settings>(await fetch(endpoint, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({ principalKind: principal.principalKind, principalId: principal.principalId, level }) }));
@@ -61,8 +61,8 @@ export function EmployeeAccessSettings({ workspaceId, employeeId }: { workspaceI
       const grant = settings.grants.find((row) => row.principalKind === principal.principalKind && row.principalId === principal.principalId);
       return <label key={`${principal.principalKind}:${principal.principalId}`} className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="break-all">{principal.name}{principal.principalKind === "group" ? " · Group" : ""}</span>
-        <select aria-label={`${principal.name} access`} className={field} disabled={busy} value={grant?.level ?? (principal.principalKind === "everyone" ? "manage" : "inherit")} onChange={(event) => void save(principal, event.target.value as EmployeeAccessLevel)}>
-          {!grant && principal.principalKind !== "everyone" ? <option value="inherit">Inherited</option> : null}
+        <select aria-label={`${principal.name} access`} className={field} disabled={busy} value={grant?.level ?? (principal.principalKind === "everyone" ? "manage" : "inherit")} onChange={(event) => void save(principal, event.target.value as EmployeeAccessLevel | "inherit")}>
+          {principal.principalKind !== "everyone" ? <option value="inherit">Inherit</option> : null}
           {levels.map((level) => <option key={level} value={level}>{level}</option>)}
         </select>
       </label>;
