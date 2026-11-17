@@ -3,10 +3,11 @@ import type { Env } from "../src/env.js";
 import { dispatchQueueBatch } from "../src/platform/queues.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { insertFileRecord } from "../src/files/files-store.js";
-import "../src/knowledge/knowledge-ingest-queue.js";
+import { ensureQueueConsumersRegistered } from "../src/platform/queue-consumers.js";
 
 describe("knowledge ingest queue", () => {
   it.each(["workspace", "personal"] as const)("consumes %s ingestion and scopes its completion event", async (scope) => {
+    await ensureQueueConsumersRegistered();
     const { database } = customAgentD1();
     const objects = new Map<string, Uint8Array>();
     const events: Record<string, unknown>[] = [];

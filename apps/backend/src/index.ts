@@ -7,29 +7,23 @@ import { createRequestContext } from "./routes/context.js";
 import { dispatchRoutes } from "./routes/table.js";
 import { timeAuth, withRequestTiming, withTimingDatabase } from "./platform/request-timing.js";
 import { getAgentByName } from "agents/routing";
-import { OpenCodeAgent } from "./agents/opencode-agent.js";
-import { CodingOrchestrator } from "./agents/orchestrator.js";
-import { ExplorerAgent } from "./agents/specialists/explorer-agent.js";
-import { ReviewerAgent } from "./agents/specialists/reviewer-agent.js";
 import { consumeScheduledJobs, runScheduledJobs } from "./scheduled-jobs.js";
 import { Automations } from "./automations-do.js";
 import { automationsStub } from "./automations-stub.js";
 import { ensureLiveCodingModel } from "./coding-model.js";
 import type { Env } from "./env.js";
 import { Mailbox } from "./mailbox-do.js";
-import { MCP_PRINCIPAL_HEADER } from "./mcp-gateway.js";
+import { MCP_PRINCIPAL_HEADER } from "./mcp-principal.js";
 import { Memory } from "./memory-do.js";
 import { Sandbox, SandboxOutbound } from "./sandbox.js";
 import { ContainerProxy } from "./sandbox/npm-shim.js";
 import { withVerifiedAccessIdentity } from "./access-jwt.js";
 import { enforceTeamMemberApiPolicy } from "./team-member-auth.js";
 import { LocalDispatch } from "./local-dispatch.js";
-import { registerWebhookQueueConsumers } from "./webhooks/consumer.js";
 import { Spaces } from "./spaces-do.js";
 import { ComputerSession } from "./computer-session.js";
 import { redactSecrets } from "./security.js";
 import { isBetterAuthConfigured } from "./better-auth.js";
-import "./email/delivery.js";
 import { isAccessConfigured, isAuthorizedRequest } from "./request-auth.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 import { isOrgApiPath, isPublicRequest } from "./public-routes.js";
@@ -41,26 +35,25 @@ import { ConversationRoom } from "./conversation-room-do.js";
 import { WorkspaceEvents } from "./platform/workspace-events-do.js";
 import { SlackImportWorkflow, AutomationRunWorkflow } from "./platform/workflows.js";
 import { dispatchQueueBatch } from "./platform/queues.js";
-import "./knowledge/knowledge-ingest-queue.js";
 // Rarely-hit route and cron handlers (founder-*, report/slack coworker, v1,
 // collaboration, team-model, first-run seed, inbound email) are loaded with
 // `await import()` at their call sites: evaluating them at Worker startup
 // pushed deploys past the startup CPU limit.
 
+export { CodingOrchestrator } from "./agents/orchestrator.js";
+export { OpenCodeAgent } from "./agents/opencode-agent.js";
+export { ExplorerAgent } from "./agents/specialists/explorer-agent.js";
+export { ReviewerAgent } from "./agents/specialists/reviewer-agent.js";
 export {
-  ExplorerAgent,
-  ReviewerAgent,
   Automations,
   ChatGptAuth,
   ConversationRoom,
   ComputerSession,
   UserProviderOAuth,
-  CodingOrchestrator,
   LocalDispatch,
   Mailbox,
   Memory,
   ModelConfig,
-  OpenCodeAgent,
   Sandbox,
   SandboxOutbound,
   ContainerProxy,
@@ -82,11 +75,9 @@ export {
 } from "./request-auth.js";
 export { handleWebSessions } from "./sessions-routes.js";
 
-registerWebhookQueueConsumers();
+export { getDashboardViews } from "./app-host-routing.js";
 
 let claudeSubscriptionDeprecationWarned = false;
-
-export { DASHBOARD_VIEWS } from "./routes/shell.js";
 
 export default {
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {

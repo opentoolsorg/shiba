@@ -51,6 +51,7 @@ import { registerAllMcpTools } from "./mcp-tool-registration.js";
 import { registerExtensionSkillMcpPrompts } from "./mcp-skill-prompts.js";
 import { registerExternalMcpTools } from "./external-mcp.js";
 import type { Env } from "./env.js";
+import { MCP_PRINCIPAL_HEADER } from "./mcp-principal.js";
 import { redactSecrets } from "./security.js";
 
 /**
@@ -58,7 +59,7 @@ import { redactSecrets } from "./security.js";
  * deletes any client copy before setting it, so its presence always means
  * "verified upstream" — never a client claim.
  */
-export const MCP_PRINCIPAL_HEADER = "x-shiba-principal";
+export { MCP_PRINCIPAL_HEADER } from "./mcp-principal.js";
 
 /**
  * ByteString-safe JSON for the principal header: `Headers.set` rejects
