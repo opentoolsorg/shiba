@@ -3223,6 +3223,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               submitNotice={notice}
               route={{ harness, codingModel, connectionId, runTarget }}
               onOpenModels={() => { setSettingsSection("models"); setMainView("settings"); }}
+              onOpenProviders={() => { setSettingsSection("providers"); setMainView("settings"); }}
               onSubmit={(event, agentId) => submitTask(event, { forceWork: true, customAgentId: agentId })}
               onOpenRun={(runId) => { void handleSelectSession(runId); }}
               onOpenApproval={() => setMainView("approvals")}
