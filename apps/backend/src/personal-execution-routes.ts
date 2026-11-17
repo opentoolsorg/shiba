@@ -3,6 +3,7 @@ import { personalExecutionSnapshotSchema } from "@shiba/shared";
 import { mintDaemonPairing } from "./computers-routes.js";
 import { personalExecutionEnabled, resolvePersonalExecutionOwner, isPersonalOwnerCurrent, personalComputerRows, personalComputerMatches,
   canonicalPersonalRepository, isPublicPersonalRepository, createPersonalExecutionGrant, listPersonalExecutionGrants, revokePersonalExecutionGrant, resolvePersonalExecutionStopOwner, type PersonalExecutionEnv } from "./personal-execution-store.js";
+import { localDispatchFor } from "./platform/do-resolver.js";
 
 const PREFIX = "/api/personal-execution";
 const BODY_LIMIT = 8_192;
@@ -36,8 +37,8 @@ export async function handlePersonalExecution(request: Request, env: PersonalExe
   if (url.pathname !== PREFIX && !url.pathname.startsWith(`${PREFIX}/`)) return null;
   if (!personalExecutionEnabled(env)) return respond({ error: "personal_execution_unavailable" }, 404);
   if (request.method !== "GET" && (request.headers.get("Origin") !== url.origin || request.headers.get("Sec-Fetch-Site") === "cross-site" || request.headers.get("Content-Type")?.split(";")[0]?.trim() !== "application/json")) return respond({ error: "same_origin_json_required" }, 403);
-  const forward = async (path: string, body: unknown) => {
-    const response = await env.LocalDispatch!.get(env.LocalDispatch!.idFromName("local-dispatch"))
+  const forward = async (path: string, body: unknown, ownerId = "owner-default") => {
+    const response = await localDispatchFor(env, { ownerId })
       .fetch(new Request(`https://local-dispatch/${path}`, { method: "POST", body: JSON.stringify(body) }));
     const headers = new Headers(response.headers); headers.set("Cache-Control", "no-store");
     return new Response(response.body, { status: response.status, headers });
@@ -53,11 +54,11 @@ export async function handlePersonalExecution(request: Request, env: PersonalExe
     try {
       if (unpair) {
         const input = z.strictObject({ expectedRevision: z.number().int().positive() }).parse(body);
-        return await forward("revoke-personal-computer", { ...input, machineId: unpair[1], stopOwner });
+        return await forward("revoke-personal-computer", { ...input, machineId: unpair[1], stopOwner }, stopOwner.ownerAccountId);
       }
       const input = z.strictObject({ sandboxId: z.string().min(1).max(128), grantVersion: z.number().int().positive(),
         machineRevision: z.number().int().positive(), interrupt: z.literal(true) }).parse(body);
-      return await forward("personal-harness-control", { ...input, stopOwner });
+      return await forward("personal-harness-control", { ...input, stopOwner }, stopOwner.ownerAccountId);
     } catch { return respond({ error: "personal_execution_stop_invalid" }, 400); }
   }
   const owner = await resolvePersonalExecutionOwner(request, env);
@@ -65,12 +66,12 @@ export async function handlePersonalExecution(request: Request, env: PersonalExe
   let result: Response;
   try {
     if (url.pathname === `${PREFIX}/computers` && request.method === "GET") result = respond({ computers: await personalComputerRows(env, owner) });
-    else if (url.pathname === `${PREFIX}/harness` && request.method === "GET") result = await forward("personal-harness", { scope: owner, canDecide: true });
+    else if (url.pathname === `${PREFIX}/harness` && request.method === "GET") result = await forward("personal-harness", { scope: owner, canDecide: true }, owner.ownerAccountId);
     else if (url.pathname === `${PREFIX}/harness/decide` && request.method === "POST") {
       const input = z.strictObject({ sandboxId: z.string().min(1).max(128), requestId: z.string().min(1).max(128),
         actionHash: z.string().regex(/^[a-f0-9]{64}$/), expiresAt: z.number().int().positive(), grantVersion: z.number().int().positive(),
         machineRevision: z.number().int().positive(), decision: z.enum(["allow", "deny"]) }).parse(body);
-      result = await forward("personal-harness-decide", { ...input, scope: owner });
+      result = await forward("personal-harness-decide", { ...input, scope: owner }, owner.ownerAccountId);
     }
     else if (url.pathname === `${PREFIX}/pairing-token` && request.method === "POST") {
       const selected = z.strictObject({ harness: z.enum(["claude-code", "codex"]), accountFingerprint: z.string().regex(/^[a-f0-9]{64}$/) }).parse(body);
@@ -95,11 +96,11 @@ export async function handlePersonalExecution(request: Request, env: PersonalExe
       if (match[1] === "grants") {
         const input = z.strictObject({ expectedVersion: z.number().int().positive() }).parse(body);
         if (!await revokePersonalExecutionGrant(env, owner, match[2]!, input.expectedVersion)) return respond({ error: "grant_changed_or_unavailable" }, 409);
-        const cancelled = await forward("revoke-personal-grant", { scope: owner, grantId: match[2] });
+        const cancelled = await forward("revoke-personal-grant", { scope: owner, grantId: match[2] }, owner.ownerAccountId);
         result = cancelled.ok ? respond({ revoked: true, version: input.expectedVersion + 1 }) : respond({ error: "revoked_queue_cancellation_pending", revoked: true }, 503);
       } else {
         const input = z.strictObject({ expectedRevision: z.number().int().positive() }).parse(body);
-        result = await forward("revoke-personal-computer", { scope: owner, machineId: match[2], expectedRevision: input.expectedRevision });
+        result = await forward("revoke-personal-computer", { scope: owner, machineId: match[2], expectedRevision: input.expectedRevision }, owner.ownerAccountId);
       }
     }
     return await isPersonalOwnerCurrent(env, owner) ? result : respond({ error: "workspace_authority_changed" }, 404);
