@@ -1472,10 +1472,10 @@ function summarizeRun(
     ? `workspace ${input.executionTarget.workspaceName ?? input.executionTarget.workspaceId ?? input.sandboxId}`
     : `${input.repoUrl} (${input.baseBranch})`;
   const header = `${harnessName} completed for ${destination}: ${changedFiles.length} changed files.`;
-  if (changedFiles.length === 0) {
+  if (changedFiles.length === 0 && !input.routineRun) {
     return `${header} No file changes detected.`;
   }
-  const preview = stdoutTail.trim().slice(-2000);
+  const preview = redactSecrets(stdoutTail).trim().slice(-2000);
   return preview ? `${header}\n${preview}` : header;
 }
 
