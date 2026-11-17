@@ -1327,8 +1327,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (this.sessionDeleted || this.state.personalExecutionOnly || isChatOnlyTurn(this.messages)) return;
     const saved = this.currentContinuation();
     if (!saved || saved.lastResponseId === result.message.id) return;
+    const user = (this.messages ?? []).filter((message) => message.role === "user").at(-1);
     const decision = continuationDecision({
       text: messageText(result.message), plan: saved.plan, count: saved.count,
+      messageMetadata: user?.metadata,
       completed: result.status === "completed",
       pendingApproval: this.approvals.some((approval) => approval.status === "pending"),
       limitReached: executionBudgetSnapshot(this.store.list(), this.budgetConfig()).limitReached,
@@ -1341,7 +1343,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     this.setState({ ...this.state, planContinuation: { ...saved, count, lastResponseId: result.message.id,
       messageIds: decision.continue ? [...saved.messageIds, `${id}:message`] : saved.messageIds } });
     if (!decision.continue) return;
-    const user = (this.messages ?? []).filter((message) => message.role === "user").at(-1);
     this.holdOpen(this.runTurn({ mode: "submit", submissionId: id, idempotencyKey: id,
       input: { id: `${id}:message`, role: "user", metadata: user?.metadata,
         parts: [{ type: "text", text: "Continue the same requested work and remaining plan steps. Do not start a new action or bypass any approval or usage limit. Update the plan as steps finish." }] },
