@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { deriveOnboardingStatus } from "@shiba/shared";
 import { handleOnboardingProgress, readAcceptedDeliverableEvidence, readSuccessfulRunEvidence, resolvePreparedOnboardingDraft, readOnboardingSourceRefs, type OnboardingIdentity, type OnboardingProgress, type OnboardingSourceRef } from "../src/onboarding-progress.js";
 import { createCustomAgent, updateCustomAgent } from "../src/custom-agents-store.js";
-import { ensureBetterAuthSchema } from "../src/better-auth.js";
+import { BETTER_AUTH_STATEMENTS, ensureBetterAuthSchema } from "../src/better-auth.js";
 import type { Env } from "../src/env.js";
 import { createWebSession } from "../src/web-sessions.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
@@ -324,6 +324,8 @@ describe("server-owned onboarding progress", () => {
 
   it("resolves execution handoff only for the current auth owner and current configured employee", async () => {
     const ctx = context();
+    // The fixture includes the migration marker; seed the schema it represents.
+    for (const statement of BETTER_AUTH_STATEMENTS) ctx.sqlite.exec(statement);
     await ensureBetterAuthSchema(ctx.env);
     ctx.sqlite.prepare(`INSERT INTO "user" (id,name,email,emailVerified,createdAt,updatedAt) VALUES ('auth-user-a','A','a@example.test',1,1,1)`).run();
     const config = { name: "Research", emoji: "R", instructions: "Produce a draft", harness: "opencode" as const };

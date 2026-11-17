@@ -5,6 +5,7 @@ import type { AppNavView } from "./AppNavRail";
 import { providerPhaseLabel } from "./provider-phase";
 import { ToneChip } from "./ToneChip";
 import { EMPLOYEE_TEMPLATES, type EmployeeTemplate } from "../employee-templates";
+import { ModelRouteCard } from "./SetupCards";
 import type { OnboardingDraft } from "../onboarding-draft";
 
 export type FirstRunStepId = "channels" | "agent" | "models" | "employee";
@@ -516,6 +517,7 @@ export function FirstRunWizard({
 
       {step === 2 ? (
         <div ref={routingRef} tabIndex={-1}>
+          <ModelRouteCard modelRoute={status?.modelRoute} />
           {setup.state.kind === "error" ? (
             <div className="space-y-2 text-[11px] text-[var(--warning-fg)]">
               <p>Model routing could not be loaded. You can continue setup and check it later.</p>
@@ -585,6 +587,7 @@ export function FirstRunWizard({
 
       {step === 3 ? (
         <div className="space-y-3">
+          <ModelRouteCard modelRoute={status?.modelRoute} />
           <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
             Employees are reusable role instructions for Shiba’s existing approval-gated task runner.
             Choose a starting point; you can review and edit the profile before saving it.
