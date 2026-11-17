@@ -244,8 +244,8 @@
       {
         "queue": "shiba-jobs-dogfood",
         "dead_letter_queue": "shiba-jobs-dlq-dogfood",
-        "max_batch_size": 1,
-        "max_retries": 5
+        "max_batch_size": 10,
+        "max_retries": 3
       }
     ]
   },

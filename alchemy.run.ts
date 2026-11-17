@@ -366,6 +366,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "LINEAR_OAUTH_ACCESS_TOKEN",
       "LINEAR_DEFAULT_REPO_URL",
       "SLACK_SIGNING_SECRET",
+      "WEB_SEARCH_API_KEY",
       "SLACK_INSTALLATION_KEYRING",
       "FOUNDER_STRIPE_CREDENTIAL_KEY",
       "FOUNDER_META_CREDENTIAL_KEY",
@@ -571,7 +572,7 @@ export default Alchemy.Stack(
       queueId: jobs.queueId,
       scriptName: worker.workerName,
       deadLetterQueue: jobsDlq.queueName,
-      settings: { batchSize: 1, maxRetries: 5 },
+      settings: { batchSize: 10, maxRetries: 3 },
     });
     // The sibling is deployed separately from unmodified upstream source.
     if (!isPreview && process.env.OPEN_CONNECTOR_WORKER) {
