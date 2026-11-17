@@ -1,3 +1,5 @@
+import { RoutinesList, useRoutines } from "./RoutinesView";
+import { routineCadence, routineInfo, type RoutineInfo } from "../routines";
 import { ListChecks, Search, X } from "lucide-react";
 import { type JSX, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isTeamWorkAssignedToViewer, selectTeamWorkItems, type TeamWorkItem, teamWorkNeedsViewer } from "../team-work-items";
@@ -31,9 +33,13 @@ export interface WorkTask {
   createdAt?: number;
   /** Original run/session status, used to keep failure kinds distinct on the board. */
   rawStatus?: string;
+  routine?: RoutineInfo;
 }
 
 export interface WorkViewProps {
+  routinesEnabled?: boolean;
+  routinesRefreshToken?: number;
+  onRepeatTask?: (run: RetainedRun) => void;
   runs?: RetainedRun[];
   sessions?: SessionItem[];
   storedApprovals?: StoredApproval[];
@@ -237,6 +243,8 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
     onOpenEmployee,
   } = props;
 
+  const routineState = useRoutines(Boolean(props.routinesEnabled), props.routinesRefreshToken);
+  const [showRoutines, setShowRoutines] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const focusSearch = useCallback((input: HTMLInputElement | null) => { input?.focus(); }, []);
@@ -245,7 +253,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
     const map = new Map<string, WorkTask>();
     for (const a of storedApprovals) {
       if (a.status !== "pending") continue;
-      map.set(`approval-${a.approvalId}`, { id: a.approvalId, kind: "approval", title: a.task || "Pending approval request", repo: parseRepoName(a.repoUrl) || "", group: "needs-approval", stateLabel: "Needs approval", updatedAt: a.createdAt });
+      map.set(`approval-${a.approvalId}`, { id: a.approvalId, kind: "approval", title: a.task || "Pending approval request", repo: parseRepoName(a.repoUrl) || "", group: "needs-approval", stateLabel: "Needs approval", updatedAt: a.createdAt, routine: a.routine });
     }
     // Chat approval metadata has no timestamp or repository; keep unknown values undated.
     for (const p of pendingApprovals) {
@@ -255,7 +263,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
     for (const r of runs) {
       if (r.archivedAt !== undefined) continue;
       const group: WorkTask["group"] = r.status === "pending" ? "queued" : r.status === "running" ? "running" : r.status !== "completed" ? "attention" : r.pullUrl ? "pr-open" : "done";
-      map.set(`run-${r.runId}`, { id: r.runId, kind: "run", title: r.task || "Untitled run", repo: parseRepoName(r.repoUrl) || "", group, stateLabel: group === "attention" ? statusLabel(r.status) : STATUS_GROUPS.find((g) => g.id === group)!.name, createdAt: r.createdAt, updatedAt: r.updatedAt || r.createdAt, rawStatus: r.status });
+      map.set(`run-${r.runId}`, { id: r.runId, kind: "run", title: r.task || "Untitled run", repo: parseRepoName(r.repoUrl) || "", group, stateLabel: group === "attention" ? statusLabel(r.status) : STATUS_GROUPS.find((g) => g.id === group)!.name, createdAt: r.createdAt, updatedAt: r.updatedAt || r.createdAt, rawStatus: r.status, routine: r.routine });
     }
     const runIds = new Set(runs.map((r) => r.runId));
     for (const s of sessions) {
@@ -263,8 +271,15 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
       const group: WorkTask["group"] = s.status === "waiting-approval" || s.status === "needs-approval" ? "needs-approval" : s.status === "running" || s.status === "live" || s.live ? "running" : s.status === "pending" || s.status === "queued" ? "queued" : s.status === "completed" ? "done" : s.status === "ready" ? "ready" : "attention";
       map.set(`session-${s.id}`, { id: s.id, kind: "session", title: s.title || "Untitled thread", repo: s.repoName || "", group, stateLabel: statusLabel(s.status), updatedAt: s.updatedAt, rawStatus: s.status });
     }
+    for (const record of routineState.routines) {
+      const info = routineInfo(record);
+      for (const task of map.values()) {
+        if (record.occurrences?.some((item) => task.kind === "run" ? item.runId === task.id || Boolean(item.approvalId && `agent-tool:${item.approvalId}` === task.id) : item.approvalId === task.id) ||
+            task.kind === "approval" && storedApprovals.some((item) => item.approvalId === task.id && item.threadKey === `automation:${record.id}`)) task.routine = info;
+      }
+    }
     return Array.from(map.values()).sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [runs, sessions, storedApprovals, pendingApprovals]);
+  }, [runs, sessions, storedApprovals, pendingApprovals, routineState.routines]);
 
   const q = filterQuery.trim().toLowerCase();
   const filteredTasks = tasks.filter((t) => !q || `${t.title} ${t.repo} ${t.stateLabel}`.toLowerCase().includes(q));
@@ -323,6 +338,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
           >
             <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${dotClass}`} />
             <span className="min-w-0 flex-1 text-[13px] text-[var(--fg)]">{task.title}</span>
+            {task.routine ? <span title={`Routine: ${task.routine.name}`} className="rounded border border-[var(--border-1)] px-2 py-0.5 text-[11px]">Routine · {routineCadence(task.routine.schedule, task.routine.timezone)}</span> : null}
             {task.repo ? <span className="shrink-0 font-mono text-xs text-[var(--muted-foreground-2)]">{task.repo}</span> : null}
             <span className="rounded-full bg-[var(--section)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-1)]">{task.stateLabel}</span>
           </button>
@@ -398,6 +414,11 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
         </div>
       ) : null}
 
+      {props.routinesEnabled ? <div role="tablist" aria-label="Tasks filter" className="flex gap-2 border-b border-[var(--border-1)] px-4 py-2">
+        <button type="button" role="tab" aria-selected={!showRoutines} className={viewButtonClass} onClick={() => setShowRoutines(false)}>Tasks</button>
+        <button type="button" role="tab" aria-selected={showRoutines} className={viewButtonClass} onClick={() => setShowRoutines(true)}>Routines</button>
+      </div> : null}
+      {showRoutines ? <RoutinesList {...routineState} onChanged={routineState.refresh} /> : <>
       {/* Quick Add dashed row */}
       <div className="px-4 pt-3 pb-2 shrink-0">
         <WorkQuickAdd
@@ -473,6 +494,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
           />
         </section>
       )}
+      </>}
     </div>
   );
   return <>
@@ -480,6 +502,10 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
     {selected ? <WorkPeek
       key={`${selected.kind}:${selected.id}`}
       task={selected}
+      onRepeat={props.onRepeatTask && selected.kind === "run" ? () => {
+        const run = runs.find((item) => item.runId === selected.id);
+        if (run) { props.onClosePeek(); props.onRepeatTask?.(run); }
+      } : undefined}
       run={selected.kind === "run" ? runs.find((run) => run.runId === selected.id) : undefined}
       storedApproval={selected.kind === "approval" ? storedApprovals.find((approval) => approval.approvalId === selected.id) : undefined}
       pendingApproval={selected.kind === "approval" ? pendingApprovals.find((approval) => approval.approvalId === selected.id) : undefined}

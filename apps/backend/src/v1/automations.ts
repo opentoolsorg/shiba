@@ -55,14 +55,13 @@ function toPublicAutomation(automation: PublicAutomation, projectId: string) {
       : null }));
   const first = triggers[0];
   return { id: automation.id, projectId, repoFullName: automation.repoUrl.replace(/^https:\/\/github\.com\//, ""),
-    // No name field on the record: the prompt's first line stands in.
-    name: automation.prompt.split("\n")[0]!.trim().slice(0, 120), enabled: automation.enabled, prompt: automation.prompt,
+    name: automation.name ?? automation.prompt.split("\n")[0]!.trim().slice(0, 120), enabled: automation.enabled, prompt: automation.prompt,
     triggerKind: first?.triggerKind ?? "webhook", eventKind: first?.eventKind ?? null, schedule: first?.schedule ?? null, triggers,
     modelId: null, workflow: null, conditions: null, sentryBindingId: null, sentryTriggerPolicy: null, targetThreadId: null,
     isDraft: false, maxSpendPerThreadMicros: null, webhookTokenPrefix: null,
     nextRunAt: (() => {
       const schedule = automation.triggers.find((t): t is ScheduleTrigger => t.kind === "schedule");
-      return schedule ? iso(computeNextRunAt(schedule) ?? undefined) : null;
+      return automation.enabled && schedule ? iso(computeNextRunAt(schedule) ?? undefined) : null;
     })(),
     lastRunAt: iso(automation.lastTriggeredAt) };
 }
@@ -89,6 +88,9 @@ function toTrigger(raw: Record<string, unknown>): AutomationTrigger | Response {
     const schedule = raw.schedule;
     if (raw.eventKind !== undefined && raw.eventKind !== null) return invalid();
     if (!isObject(schedule)) return invalid("schedule triggers need a schedule.");
+    if (schedule.mode === "interval") {
+      return notImplemented("Interval schedules are not supported on the v1 automations API.");
+    }
     const tz = typeof schedule.timezone === "string" ? schedule.timezone.trim() : "";
     if (!tz) return invalid("schedule.timezone is required.");
     try {
@@ -99,13 +101,6 @@ function toTrigger(raw: Record<string, unknown>): AutomationTrigger | Response {
     if (schedule.mode === "cron") {
       if (typeof schedule.expression !== "string") return invalid();
       return { kind: "schedule", cron: schedule.expression, timezone: tz };
-    }
-  if (schedule.mode === "interval") {
-      const minutes = Number(schedule.everyMinutes ?? schedule.minutes);
-      if (!Number.isFinite(minutes)) return invalid("schedule.everyMinutes is required.");
-      const structured: StructuredSchedule = { mode: "interval", everyMinutes: minutes, timezone: tz };
-      const compiled = normalizeScheduleTrigger({ kind: "schedule", cron: "0 9 * * *", structured, timezone: tz });
-      return compiled;
     }
     if (schedule.mode === "daily") {
       const structured: StructuredSchedule = {
@@ -233,7 +228,7 @@ export async function handleAutomations(ctx: V1Context): Promise<Response | null
         if (existing && !sameRepo(existing.repoUrl, projectId)) return Response.json({ ok: false, error: "idempotency_key_conflict" }, { status: 409 });
         if (existing) return Response.json({ ok: true, automation: toPublicAutomation(existing, projectId), secretUnavailable: existing.hasWebhookSecret }, { status: 201 });
       }
-      const response = await call("POST", "/api/automations", { ...(id ? { id } : {}), prompt: body.prompt, repoUrl, triggers,
+      const response = await call("POST", "/api/automations", { ...(id ? { id } : {}), name: body.name, prompt: body.prompt, repoUrl, triggers,
         enabled: body.enabled ?? true });
       const created = await response.json() as { automation?: PublicAutomation; webhookSecret?: string | null; error?: string };
       if (response.status === 400) return invalid(created.error);
@@ -257,14 +252,15 @@ export async function handleAutomations(ctx: V1Context): Promise<Response | null
       return Response.json({ ok: true, result: { id: automation.id } });
     }
     if (action === "item") {
-      const ignored = new Set(["clientOperationId", "webhookOperationId", "enabled", "prompt"]);
+      const ignored = new Set(["clientOperationId", "webhookOperationId", "enabled", "prompt", "name"]);
       if (Object.keys(body).some((field) => !CREATE_KEYS.has(field) && field !== "webhookOperationId") ||
           (body.webhookOperationId !== undefined && (typeof body.webhookOperationId !== "string" || !body.webhookOperationId || body.webhookOperationId.length > 64)) ||
+          (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim() || body.name.length > 120)) ||
           (body.enabled !== undefined && typeof body.enabled !== "boolean") ||
           (body.prompt !== undefined && (typeof body.prompt !== "string" || !body.prompt.trim() || body.prompt.length > 100_000))) return invalid();
       const unsupported = Object.keys(body).filter((field) => !ignored.has(field));
-      if (unsupported.length) return notImplemented(`Only enabled and prompt can be updated; got ${unsupported.join(", ")}.`);
-      const response = await call("PATCH", path, { enabled: body.enabled, prompt: body.prompt });
+      if (unsupported.length) return notImplemented(`Only enabled, prompt, and name can be updated; got ${unsupported.join(", ")}.`);
+      const response = await call("PATCH", path, { enabled: body.enabled, prompt: body.prompt, name: body.name });
       const updated = await response.json() as { automation?: PublicAutomation; error?: string };
       if (response.status === 404) return notFound();
       if (response.status === 400) return invalid(updated.error);

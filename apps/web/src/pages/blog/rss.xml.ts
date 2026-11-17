@@ -33,7 +33,7 @@ export async function GET() {
 		'  <channel>',
 		'    <title>Shiba Journal</title>',
 		`    <link>${SITE}/blog/</link>`,
-		'    <description>Guides and engineering notes on running approval-gated coding agents in your own Cloudflare account.</description>',
+		'    <description>Guides and engineering notes on running approval-gated coding agents on your own servers.</description>',
 		'    <language>en</language>',
 		`    <atom:link href="${SITE}/blog/rss.xml" rel="self" type="application/rss+xml" />`,
 		items,
