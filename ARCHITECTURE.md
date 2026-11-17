@@ -129,8 +129,36 @@ The optional `ComputerSession` class owns a separately approved, offline human d
 | `LocalDispatch` | local-runtime dispatch mailbox: pending/claimed/settled run envelopes | v9 |
 | `ConversationRoom` | per-owner/session presence, typing, room messages, and persisted live assistant streams | v15 |
 
-Logical task history is an additive `tasks` field on each existing
-`CodingOrchestrator` state, not a new Durable Object or SQLite schema. Existing
+With `SHIBA_SCOPED_DO=1`, authenticated automation API calls select the
+workspace's `Automations` instance. The legacy root is a directory and ingress
+fan-out, not a schedule executor. It registers workspaces on first use and
+lazily registers `self-hosted` for deployment-wide ingress. Only `self-hosted`
+imports legacy shared records; team workspaces initialize empty. Verified
+webhooks and scheduled ticks dispatch to that durable registry. Workspace and
+thread name components are encoded to avoid collisions; existing private
+user/session and Slack thread identities are retained.
+
+Scheduled ticks carry a five-minute slot. Workspace instances serialize ticks
+and remember completed slots across eviction; schedule occurrences also retain
+stable command IDs so retried queue delivery reuses the orchestrator receipt.
+The scope flag is an ownership cutover, not replication: the old root is not
+kept in sync with workspace writes. Rollback after live writes requires a
+deliberate state restore, not simply disabling the flag.
+
+Orchestrator state responsibilities live in `agents/orchestrator-runs.ts`,
+`orchestrator-approvals.ts`, `orchestrator-slack.ts`,
+`orchestrator-reviews.ts`, and `orchestrator-sessions.ts`.
+`orchestrator-state-sql.ts` adapts the SDK's SQL state-row boundary: collection
+members occupy separate DO SQLite rows, while the SDK row retains scalar
+metadata and a collection manifest. Legacy snapshots migrate transactionally
+on first read, independently of the scope flag. Memory state and SDK broadcasts
+still expose the full logical projection. Writes commit collection changes and
+their manifest together; missing manifests, missing collection rows, and invalid
+JSON fail closed rather than resetting retained work. Interrupted review
+publication recovers as unknown, without repeating the external publication.
+
+Logical task history is an additive `tasks` projection on each existing
+`CodingOrchestrator`, backed by the same collection store, not a new DO. Existing
 run IDs and `/api/runs` remain canonical; unlinked retained runs are backfilled
 as one-attempt legacy tasks on task-history reads. Frozen approval snapshots
 stay in orchestrator state and are omitted from the authenticated history DTO.
