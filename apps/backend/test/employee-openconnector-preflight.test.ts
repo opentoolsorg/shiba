@@ -10,7 +10,8 @@ import { OpenConnectorIntegrationProvider } from "../src/integrations/openconnec
 import { CREDENTIAL_INPUT_UNAVAILABLE } from "../src/integrations/action-input-policy.js";
 
 const auth = vi.hoisted(() => ({ human: true, sessions: [] as unknown[] }));
-vi.mock("../src/request-auth.js", () => ({ isAuthorizedRequest: async () => auth.human, resolveUserId: async () => "owner@example.test" }));
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(), isAuthorizedRequest: async () => auth.human, resolveUserId: async () => "owner@example.test" }));
 vi.mock("../src/gmail-routes.js", () => ({ gmailOwner: async () => auth.human ? '["better-auth","owner-a"]' : null }));
 vi.mock("../src/v1-auth.js", async (original) => ({ ...await original<typeof import("../src/v1-auth.js")>(), authorizeV1Request: async () => null }));
 vi.mock("../src/agent-tokens.js", async (original) => ({ ...await original<typeof import("../src/agent-tokens.js")>(),
