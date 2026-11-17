@@ -414,6 +414,12 @@ const envValue = props.get("env");
 let env;
 try {
   env = membersToMap(splitMembers(blockBody(envValue, envValue.indexOf("{")).body));
+  const liveOnly = /\.\.\.\(!isPreview\s*\?\s*\{/.exec(envValue);
+  if (liveOnly) {
+    const block = blockBody(envValue, liveOnly.index + liveOnly[0].length - 1);
+    if (!/^\s*:\s*\{\}\s*\)/.test(envValue.slice(block.end))) throw new Error("Unreviewed preview binding conditional");
+    for (const member of splitMembers(block.body)) env.set(member.key, member.value);
+  }
 } catch (err) {
   console.error(`check-alchemy-drift: cannot parse env block in ${alchemyPath}: ${err.message}`);
   process.exit(1);
@@ -467,7 +473,7 @@ const workersDev = membersToMap(subMembers(props.get("workersDev") ?? ""));
 if (cfg.preview_urls === false && literal(workersDev.get("previewsEnabled")) !== false) {
   drift.push("preview_urls:false in wrangler but workersDev.previewsEnabled is not false");
 }
-const crons = literal(props.get("crons"));
+const crons = literal(props.get("crons")?.replace(/^isPreview\s*\?\s*\[\]\s*:\s*/, ""));
 if (JSON.stringify(crons ?? []) !== JSON.stringify(cfg.triggers?.crons ?? [])) {
   drift.push(`crons: wrangler ${JSON.stringify(cfg.triggers?.crons)} vs ${JSON.stringify(crons)}`);
 }
