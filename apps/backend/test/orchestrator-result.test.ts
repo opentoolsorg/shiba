@@ -87,7 +87,7 @@ describe("T8 orchestrator structured result", () => {
   it("settles cancelled routine workflows and ignores a late child result", async () => {
     const orchestrator = makeOrchestrator();
     const db = customAgentD1();
-    for (const migration of ["0055_automation_workflow_runs.sql", "0061_routine_outcomes.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+    for (const migration of ["0055_automation_workflow_runs.sql", "0066_routine_outcomes.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
     orchestrator.env.AGENT_AUDIT = db.database;
     const pending: Promise<unknown>[] = [];
     orchestrator.ctx = { waitUntil: (promise: Promise<unknown>) => pending.push(promise) };
