@@ -73,7 +73,7 @@ describe("orchestrator budget enforcement", () => {
     await (instance as unknown as { enforceUsageBudget(now: number): Promise<void> }).enforceUsageBudget(10_000);
     const run = instance.state.runs[0]!;
     expect(run.status).toBe("cancelled");
-    expect(run.error?.code ?? run.errorCode).toBe("budget_exceeded");
+    expect(run.errorCode).toBe("budget_exceeded");
   });
 
   it("holds an active run behind a budget_override approval (onExceed=ask)", async () => {
