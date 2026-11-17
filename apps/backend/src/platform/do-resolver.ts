@@ -9,7 +9,7 @@ export interface DoScope {
   ownerId?: string;
 }
 
-const DEFAULT_WORKSPACE = "owner-default";
+const DEFAULT_WORKSPACE = "self-hosted";
 const DEFAULT_OWNER = "owner-default";
 
 function scoped(env: Pick<Env, "SHIBA_SCOPED_DO">): boolean {
@@ -18,20 +18,20 @@ function scoped(env: Pick<Env, "SHIBA_SCOPED_DO">): boolean {
 
 export function orchestratorNameFor(env: Pick<Env, "SHIBA_SCOPED_DO">, scope: DoScope): string {
   if (!scoped(env)) return "default";
-  const workspaceId = scope.workspaceId?.trim() || DEFAULT_WORKSPACE;
+  const workspaceId = encodeURIComponent(scope.workspaceId?.trim() || DEFAULT_WORKSPACE);
   return scope.threadKey?.trim()
-    ? `ws:${workspaceId}:thread:${scope.threadKey.trim()}`
+    ? `ws:${workspaceId}:thread:${encodeURIComponent(scope.threadKey.trim())}`
     : `ws:${workspaceId}`;
 }
 
 export function automationsNameFor(env: Pick<Env, "SHIBA_SCOPED_DO">, scope: DoScope): string {
   if (!scoped(env)) return AUTOMATIONS_DO_NAME;
-  return `ws:${scope.workspaceId?.trim() || DEFAULT_WORKSPACE}`;
+  return `ws:${encodeURIComponent(scope.workspaceId?.trim() || DEFAULT_WORKSPACE)}`;
 }
 
 export function localDispatchNameFor(env: Pick<Env, "SHIBA_SCOPED_DO">, scope: DoScope): string {
   if (!scoped(env)) return LOCAL_DISPATCH_DO_NAME;
-  return `dev:${scope.ownerId?.trim() || DEFAULT_OWNER}`;
+  return `dev:${encodeURIComponent(scope.ownerId?.trim() || DEFAULT_OWNER)}`;
 }
 
 export async function orchestratorFor(env: Env, scope: DoScope) {

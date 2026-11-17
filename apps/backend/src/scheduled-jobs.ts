@@ -18,8 +18,10 @@ const jobRunners = {
   "slack.private-status": async (env: Env) => (await import("./slack-coworker-private-status.js")).tickSlackCoworkerPrivateStatus(env),
   "founder.reviews": async (env: Env) => (await import("./founder-review-schedules.js")).tickFounderReviewSchedules(env),
   "founder.connectors": async (env: Env) => (await import("./founder-connector-jobs.js")).tickFounderConnectorJobs(env),
-  "automations.tick": async (env: Env) => {
-    const response = await automationsStub(env).fetch(new Request("https://internal/internal/tick", { method: "POST" }));
+  "automations.tick": async (env: Env, scheduledAt: number) => {
+    const response = await automationsStub(env).fetch(new Request("https://internal/internal/tick", {
+      method: "POST", headers: { "X-Shiba-Schedule-Slot": String(Math.floor(scheduledAt / 300_000)) },
+    }));
     if (!response.ok) throw new Error(`automation tick failed: ${response.status}`);
   },
   "drafts.sweep": async (env: Env) => {
