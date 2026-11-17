@@ -8,6 +8,7 @@ import { signSlackBufferRequest, SlackTurnBuffer, type SlackBufferStorage } from
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
 import { createRun } from "../src/runs.js";
+import { handleSlackEvent, type SlackMentionDeps } from "../src/slack-mention.js";
 
 const THREAD = "slack:T1:C1:1700.0001";
 const KEY = "integration-only-slack-buffer-signing-key";
@@ -137,6 +138,27 @@ beforeEach(() => { vi.resetAllMocks(); mocks.destroy.mockResolvedValue(undefined
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("Slack buffering at the orchestrator boundary", () => {
+  it.each(["Please include tests", "thanks"])("deduplicates mention/message deliveries for idle thread input %s", async (text) => {
+    const prior = { ...createRun({ runId: "prior", sandboxId: "s1", repoUrl: REPO, task: "previous task", baseBranch: "main", publishPullRequest: false }), status: "completed" as const };
+    const { instance, storage } = host(undefined, { runs: [prior] });
+    const queueRun = vi.fn(async () => ({ approvalId: "next-approval" }));
+    const addReaction = vi.fn(async () => {});
+    const bufferMessage: NonNullable<SlackMentionDeps["bufferMessage"]> = async (input) => {
+      const response = await sendBuffer(instance, { ...input });
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const deps = { bufferMessage, queueRun, addReaction, postMessage: vi.fn(async () => {}), fetchThread: async () => [] };
+    await Promise.all(["app_mention", "message"].map((type, index) => handleSlackEvent({
+      type: "event_callback", event_id: `Ev${index}`, team_id: "T1",
+      event: { type, user: "U1", channel: "C1", thread_ts: "1700.0001", ts: "1700.0002", text },
+    }, instance.env, deps)));
+    expect(queueRun).toHaveBeenCalledTimes(text === "thanks" ? 0 : 1);
+    expect(addReaction).toHaveBeenCalledTimes(text === "thanks" ? 1 : 0);
+    const restored = host(storage, instance.state).instance;
+    expect(await (await sendBuffer(restored, { eventId: "later-delivery", messageTs: "1700.0002", text })).json()).toMatchObject({ status: "duplicate" });
+  });
+
   it("returns no continuation for an unengaged thread", async () => {
     const { instance } = host();
     expect(await (await sendBuffer(instance)).json()).toEqual({ buffered: false, continuation: null });

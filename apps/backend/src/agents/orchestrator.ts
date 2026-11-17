@@ -257,7 +257,7 @@ import {
   slackRunStarted,
 } from "../slack-persona.js";
 import { latestSlackThreadRun, parseSlackCommandScope, parseSlackThreadName } from "../slack-thread.js";
-import { SlackTurnBuffer, verifySlackBufferRequest } from "../slack-turn-buffer.js";
+import { SlackTurnBuffer, verifySlackBufferRequest, type BufferedSlackMessage } from "../slack-turn-buffer.js";
 import { publishRunRoomEvent, type RunRoomIdentity } from "../run-room-events.js";
 import { executePrPublishApproval, readPrPublicationReviewInput, publicationReviewMatches, validatePrPublicationProposal, type PrPublicationProposal, type PublicationReviewRecord } from "../pr-publish-approval.js";
 import { extractPullRequestUrl, messageText } from "../transcript.js";
@@ -6942,7 +6942,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const body = await request.json().catch(() => null) as Record<string, unknown> | null;
       if (!body || body.threadKey !== this.name) return Response.json({ error: "Invalid thread." }, { status: 400 });
       if (body.lookupOnly === true || !this.store.list().some((run) => isActiveStatus(run.status))) {
-        return Response.json({ buffered: false, continuation: latestSlackThreadRun(this.store.list()) });
+        const continuation = latestSlackThreadRun(this.store.list());
+        if (continuation || body.lookupOnly === true) {
+          const status = await new SlackTurnBuffer(this.ctx.storage).recordContinuation(body as unknown as BufferedSlackMessage);
+          if (status !== "recorded") return Response.json({ buffered: false, status }, status === "invalid" ? { status: 400 } : undefined);
+        }
+        return Response.json({ buffered: false, continuation });
       }
       if (typeof body.eventId !== "string" || typeof body.userId !== "string" || typeof body.text !== "string" || typeof body.createdAt !== "number" ||
           (body.messageTs !== undefined && typeof body.messageTs !== "string")) {

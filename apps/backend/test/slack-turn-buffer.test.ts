@@ -16,6 +16,26 @@ function message(eventId: string, text = "Please include tests", userId = "U1"):
 }
 
 describe("durable Slack turn buffer", () => {
+  it("records continuations durably without buffering, sharing dedupe with active follow-ups", async () => {
+    const storage = memoryStorage();
+    const input = { ...message("E1"), messageTs: "1700.0002" };
+    expect(await new SlackTurnBuffer(storage).recordContinuation(input)).toBe("recorded");
+    const buffer = new SlackTurnBuffer(storage);
+    expect(await buffer.claim()).toBeNull();
+    expect(await buffer.recordContinuation({ ...input, eventId: "E2" })).toBe("duplicate");
+    expect(await buffer.enqueue({ ...input, eventId: "E3" })).toBe("duplicate");
+    expect(await buffer.enqueue({ ...input, eventId: "E4", messageTs: "1700.0003" })).toBe("buffered");
+    expect(await buffer.recordContinuation({ ...input, eventId: "E5", messageTs: "1700.0003" })).toBe("duplicate");
+  });
+
+  it("does not record invalid or empty continuations", async () => {
+    const buffer = new SlackTurnBuffer(memoryStorage());
+    expect(await buffer.recordContinuation(message("E1", ""))).toBe("invalid");
+    expect(await buffer.recordContinuation({ ...message("E1"), messageTs: "not-a-timestamp" })).toBe("invalid");
+    expect(await buffer.recordContinuation(message("E1"))).toBe("recorded");
+    expect(await buffer.claim()).toBeNull();
+  });
+
   it("persists attributed FIFO comments and a claim across object replacement", async () => {
     const storage = memoryStorage();
     await new SlackTurnBuffer(storage).enqueue(message("E1", "first", "U1"));
