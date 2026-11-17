@@ -277,8 +277,15 @@ export async function runLearningReview(
   if (!(await port.claimReview(threadKey, now, REVIEW_LEASE_MS)))
     return { status: "skipped", reason: "in_progress" };
   try {
-    const turns = await port.turnsSince(threadKey, state.reviewedThrough, MAX_REVIEW_TURNS);
-    const through = turns.at(-1)?.seq ?? state.reviewedThrough;
+    // The caller's snapshot may predate a review that finished before this lease.
+    const current = (await port.getThread(threadKey)) ?? state;
+    const currentTrigger = learningTrigger(current, setting, event, now);
+    if (!currentTrigger) {
+      await port.releaseReview(threadKey);
+      return { status: "skipped", reason: "not_due" };
+    }
+    const turns = await port.turnsSince(threadKey, current.reviewedThrough, MAX_REVIEW_TURNS);
+    const through = turns.at(-1)?.seq ?? current.reviewedThrough;
     if (turns.length === 0) {
       await port.completeReview(threadKey, through);
       return { status: "skipped", reason: "no_turns" };
@@ -296,7 +303,7 @@ export async function runLearningReview(
     await port.recordUsage(state, modelUsage(result, model), now);
     const outcome = await applyOutcome(env, port, state, parseLearningOutcome(result), now);
     await port.completeReview(threadKey, through);
-    return { status: "reviewed", trigger, outcome };
+    return { status: "reviewed", trigger: currentTrigger, outcome };
   } catch (error) {
     await port.releaseReview(threadKey).catch(() => {});
     throw new Error(redactSecrets(error instanceof Error ? error.message : String(error)));
