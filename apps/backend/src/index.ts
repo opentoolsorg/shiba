@@ -11,6 +11,8 @@ import { Automations } from "./automations-do.js";
 import { automationsStub, seenDelivery } from "./automations-stub.js";
 import { ensureLiveCodingModel } from "./coding-model.js";
 import type { Env } from "./env.js";
+import { reportError } from "./observability.js";
+import { handleObservability } from "./observability-routes.js";
 import { Mailbox } from "./mailbox-do.js";
 import { MCP_PRINCIPAL_HEADER } from "./mcp-principal.js";
 import { isDashboardViewPath, isMarketingSection } from "./app-host-routing.js";
@@ -148,34 +150,40 @@ let claudeSubscriptionDeprecationWarned = false;
 
 export default {
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
-    await dispatchQueueBatch(batch, env, ctx);
+    try { await dispatchQueueBatch(batch, env, ctx); }
+    catch (error) {
+      ctx.waitUntil(reportError(env, "queue", error));
+      throw error;
+    }
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
       try { await (await import("./founder-stripe-runtime.js")).tickFounderStripeReads(env); }
-      catch (error) { console.error("Founder Stripe read scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder Stripe read scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-meta-runtime.js")).tickFounderMetaReads(env); }
-      catch (error) { console.error("Founder Meta read scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder Meta read scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-hubspot-runtime.js")).tickFounderHubSpotReads(env); }
-      catch (error) { console.error("Founder HubSpot read scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder HubSpot read scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-reconciliation-schedule-runtime.js")).tickFounderReconciliationSchedules(env); }
-      catch (error) { console.error("Founder standing comparison scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder standing comparison scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-auto-read-runtime.js")).tickFounderAutomaticReads(env); }
-      catch (error) { console.error("Founder automatic read scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder automatic read scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-automatic-slack-tick.js")).tickFounderAutomaticSlack(env); }
-      catch (error) { console.error("Founder automatic Slack scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder automatic Slack scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-automatic-slack-stripe-tick.js")).tickFounderStripeAutomaticSlack(env); }
-      catch (error) { console.error("Founder Stripe Slack scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder Stripe Slack scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-reconciliation-slack-tick.js")).tickFounderReconciliationSlack(env); }
-      catch (error) { console.error("Founder combined-report Slack scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder combined-report Slack scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./slack-coworker-private-status.js")).tickSlackCoworkerPrivateStatus(env); }
-      catch (error) { console.error("Private Slack status scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Private Slack status scheduling failed", redactSecrets(String(error))); }
     })());
     ctx.waitUntil(import("./founder-review-schedules.js").then((m) => m.tickFounderReviewSchedules(env)).catch((error: unknown) => {
       console.error("Founder review scheduling failed", redactSecrets(String(error)));
+      ctx.waitUntil(reportError(env, "scheduled", error));
     }));
     ctx.waitUntil(import("./founder-connector-jobs.js").then((m) => m.tickFounderConnectorJobs(env)).catch((error: unknown) => {
       console.error("Founder connector scheduling failed", redactSecrets(String(error)));
+      ctx.waitUntil(reportError(env, "scheduled", error));
     }));
     ctx.waitUntil(
       automationsStub(env)
@@ -183,10 +191,12 @@ export default {
         .then((response) => {
           if (!response.ok) {
             console.error(`automation tick failed: ${response.status}`);
+            ctx.waitUntil(reportError(env, "scheduled", null));
           }
         })
         .catch((error: unknown) => {
           console.error(redactSecrets(error instanceof Error ? error.message : String(error)));
+          ctx.waitUntil(reportError(env, "scheduled", error));
         }),
     );
     // Stale-draft sweep: the approvals-poll and restart paths only run it
@@ -201,10 +211,12 @@ export default {
         .then((response) => {
           if (!response.ok) {
             console.error(`stale draft sweep failed: ${response.status}`);
+            ctx.waitUntil(reportError(env, "scheduled", null));
           }
         })
         .catch((error: unknown) => {
           console.error(redactSecrets(error instanceof Error ? error.message : String(error)));
+          ctx.waitUntil(reportError(env, "scheduled", error));
         }),
     );
     // Retention: audit_log keeps 90 days — pruned here on the same cron
@@ -220,6 +232,7 @@ export default {
             if (invocationDeleted > 0) console.log(`capability invocation prune deleted ${invocationDeleted} row(s) older than 90 days`);
           })
           .catch((error: unknown) => {
+            ctx.waitUntil(reportError(env, "scheduled", error));
             console.warn(
               `audit prune failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
             );
@@ -229,7 +242,11 @@ export default {
   },
   // Email Routing delivery — registered-mailbox gate + store, see email-handler.ts.
   async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
-    await (await import("./email-handler.js")).handleInboundEmail(message, env, ctx);
+    try { await (await import("./email-handler.js")).handleInboundEmail(message, env, ctx); }
+    catch (error) {
+      ctx.waitUntil(reportError(env, "email", error));
+      throw error;
+    }
   },
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     return withRequestTiming(request, async () => {
@@ -321,6 +338,8 @@ export default {
       }
       const memberPolicyResponse = await enforceTeamMemberApiPolicy(request, env);
       if (memberPolicyResponse) return memberPolicyResponse;
+      const observabilityResponse = await handleObservability(request, env, ctx);
+      if (observabilityResponse) return observabilityResponse;
       const outputArchiveResponse = await handleRunOutputArchives(request, env);
       if (outputArchiveResponse) return outputArchiveResponse;
       const slackInstallationResponse = await handleSlackInstallations(request, env);
@@ -708,6 +727,9 @@ export default {
       return env.ASSETS.fetch(request);
     } catch (error) {
       // The client gets a generic 500; the redacted detail stays in the log.
+      const delivery = reportError(env, "worker", error);
+      if (ctx) ctx.waitUntil(delivery);
+      else await delivery;
       console.error(redactSecrets(error instanceof Error ? error.message : String(error)));
       return Response.json({ error: "Internal error." }, { status: 500 });
     }
