@@ -19,7 +19,8 @@ import { DynamicWorkerExecutor } from "@cloudflare/codemode";
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { SCOPES, type Scope, type TokenRecord } from "./agent-tokens.js";
+import type { TokenRecord } from "./agent-tokens.js";
+import { ORCHESTRATOR_PRINCIPAL } from "./codemode-principal.js";
 import type { Env } from "./env.js";
 import { createToolRegistry, type ToolRegistry } from "./mcp-gateway.js";
 import { registerEmailTools } from "./mcp-email-tools.js";
@@ -28,15 +29,7 @@ import { registerRunTools } from "./mcp-run-tools.js";
 import { registerExtensionSkillMcpTools } from "./extension-skills-tools.js";
 import { memoryScopeForConversation } from "./memory-scope.js";
 
-/** The shared cross-user principal must never inherit personal Gmail access. */
-export const ORCHESTRATOR_SCOPES: Scope[] = SCOPES.filter((s) => s !== "admin:tokens" && s !== "gmail:read");
-
-export const ORCHESTRATOR_PRINCIPAL: TokenRecord = {
-  principal: "orchestrator-agent",
-  scopes: ORCHESTRATOR_SCOPES,
-  created: 0,
-  revoked: false,
-};
+export { ORCHESTRATOR_PRINCIPAL, ORCHESTRATOR_SCOPES } from "./codemode-principal.js";
 
 function resultText(result: CallToolResult): string {
   return result.content

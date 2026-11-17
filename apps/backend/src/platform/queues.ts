@@ -41,6 +41,8 @@ export async function dispatchQueueBatch(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> {
+  const { ensureQueueConsumersRegistered } = await import("./queue-consumers.js");
+  await ensureQueueConsumersRegistered();
   const queueName = batch.queue;
   const handlers = handlersByQueue[queueName] ?? [];
   if (handlers.length === 0) {

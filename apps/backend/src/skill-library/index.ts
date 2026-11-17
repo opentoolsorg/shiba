@@ -292,14 +292,38 @@ This skill does not connect accounts, grant access, start a sandbox or configure
   },
 ];
 
-export const SKILL_LIBRARY: LibrarySkill[] = z.array(librarySkillSchema).parse(RAW_LIBRARY);
+let skillLibraryCache: LibrarySkill[] | undefined;
+let skillBySlug: Map<string, LibrarySkill> | undefined;
 
-const bySlug = new Map(SKILL_LIBRARY.map((skill) => [skill.slug, skill]));
+function ensureSkillLibraryParsed(): LibrarySkill[] {
+  if (!skillLibraryCache) {
+    skillLibraryCache = z.array(librarySkillSchema).parse(RAW_LIBRARY);
+    skillBySlug = new Map(skillLibraryCache.map((skill) => [skill.slug, skill]));
+  }
+  return skillLibraryCache;
+}
+
+/** Parsed catalog — built on first access (avoids zod work at Worker cold start). */
+export function getSkillLibraryRecords(): readonly LibrarySkill[] {
+  return ensureSkillLibraryParsed();
+}
+
+/** @deprecated Prefer getSkillLibraryRecords(); lazily parsed on first property access. */
+export const SKILL_LIBRARY: LibrarySkill[] = new Proxy([] as LibrarySkill[], {
+  get(_target, prop) {
+    const lib = ensureSkillLibraryParsed();
+    if (prop === "length") return lib.length;
+    if (prop === Symbol.iterator) return lib[Symbol.iterator].bind(lib);
+    const value = Reflect.get(lib, prop, lib);
+    return typeof value === "function" ? value.bind(lib) : value;
+  },
+});
 
 export function getLibrarySkill(slug: string): LibrarySkill | undefined {
-  return bySlug.get(slug);
+  ensureSkillLibraryParsed();
+  return skillBySlug!.get(slug);
 }
 
 export function listLibrarySkills(): LibrarySkill[] {
-  return [...SKILL_LIBRARY];
+  return [...ensureSkillLibraryParsed()];
 }
