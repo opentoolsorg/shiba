@@ -51,7 +51,7 @@ function minimalCodingInput(params: RunPreflightInput): CodingTaskInput {
  * Throws an operator-readable error when the resolved route cannot execute
  * yet (missing secret, unsigned subscription, disabled connection, etc.).
  */
-export async function assertRunPreflight(
+export async function assertModelRunPreflight(
   env: Env,
   params: RunPreflightInput,
   snapshot: ModelConfigSnapshot,
@@ -112,8 +112,16 @@ export async function assertRunPreflight(
   }
 
   await assertHarnessAuthorized(env, harness, minimalCodingInput(params));
+}
 
-  if (localDaemon) return;
+/** Model authorization and sandbox capabilities are checked together at intake. */
+export async function assertRunPreflight(
+  env: Env,
+  params: RunPreflightInput,
+  snapshot: ModelConfigSnapshot,
+): Promise<void> {
+  await assertModelRunPreflight(env, params, snapshot);
+  if (params.runtime === "local") return;
 
   await assertSandboxRunPreflight(
     env,

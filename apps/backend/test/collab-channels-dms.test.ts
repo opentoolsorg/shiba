@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createChannel, joinChannel, leaveChannel } from "../src/collaboration-v2-store.js";
 import { ensureCollaborationSchema } from "../src/collaboration-store.js";
 import { handleCollaboration } from "../src/collaboration-routes.js";
 import type { Env } from "../src/env.js";
@@ -47,6 +48,18 @@ describe("collab v2 channels and dms", () => {
     authState.userId = "member@example.test";
     expect((await f.send(`/channels/${created.channel.roomId}/join`, "POST"))?.status).toBe(201);
     expect((await f.send(`/channels/${created.channel.roomId}/leave`, "POST"))?.status).toBe(200);
+  });
+
+  it("reports only actual membership writes when a channel join is repeated", async () => {
+    const { database } = customAgentD1();
+    const env = { AGENT_AUDIT: database } as unknown as Env;
+    const owner = { tenantId: "default", workspaceId: "default", userId: "owner@example.test" };
+    const member = { ...owner, userId: "member@example.test" };
+    await createChannel(env, owner, { roomId: "repeat-join", title: "Engineering", createdAt: 1 });
+    expect(await joinChannel(env, member, "repeat-join", 2)).toBe(true);
+    expect(await joinChannel(env, member, "repeat-join", 3)).toBe(false);
+    expect(await leaveChannel(env, owner, "repeat-join", 4)).toBe(false);
+    expect(await leaveChannel(env, member, "repeat-join", 5)).toBe(true);
   });
 
   it("opens a stable dm key for two users", async () => {
