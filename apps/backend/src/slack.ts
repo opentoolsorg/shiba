@@ -77,7 +77,15 @@ export class SlackPostRejectedError extends Error {
  */
 export async function postSlackMessageWithReceipt(
   token: string,
-  input: { channel: string; threadTs?: string; text: string; blocks?: unknown[]; clientMsgId?: string; persona?: SlackPersonaRole },
+  input: {
+    channel: string;
+    threadTs?: string;
+    text: string;
+    blocks?: unknown[];
+    clientMsgId?: string;
+    persona?: SlackPersonaRole;
+    native?: Record<string, unknown>;
+  },
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ channel: string; ts: string }> {
   const response = await fetchImpl(SLACK_POST_MESSAGE, {
@@ -94,6 +102,7 @@ export async function postSlackMessageWithReceipt(
       text: input.text,
       ...slackAgentPersona(input.persona),
       ...(input.blocks ? { blocks: input.blocks } : {}),
+      ...input.native,
     }),
   });
   let json: { ok?: boolean; error?: string; channel?: string; ts?: string };
@@ -185,14 +194,14 @@ export async function verifySlackRequest(
 
 export async function updateSlackMessage(
   token: string,
-  input: { channel: string; ts: string; text: string; blocks?: unknown[] },
+  input: { channel: string; ts: string; text: string; blocks?: unknown[]; native?: Record<string, unknown> },
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
   const response = await fetchImpl("https://slack.com/api/chat.update", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
     signal: AbortSignal.timeout(SLACK_POST_TIMEOUT_MS),
-    body: JSON.stringify(input),
+    body: JSON.stringify((({ native, ...rest }) => ({ ...rest, ...native }))(input)),
   });
   const body = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
   if (!response.ok || body?.ok !== true) {

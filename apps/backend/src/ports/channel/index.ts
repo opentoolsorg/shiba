@@ -80,7 +80,7 @@ export interface ChannelAdapter {
   readonly capabilities: ReadonlySet<ChannelCapability>;
   post(input: ChannelPostInput): Promise<ChannelMessageRef>;
   edit(input: ChannelEditInput): Promise<void>;
-  /** Emoji name without colons ("white_check_mark") or a unicode emoji. */
+  /** Slack-style name ("eyes", ":eyes:") or a unicode emoji; adapters convert to what the platform takes. */
   react(ref: ChannelMessageRef, emoji: string): Promise<void>;
   upload(input: ChannelUploadInput): Promise<ChannelMessageRef>;
   /** A platform file id or URL taken from an inbound message. */

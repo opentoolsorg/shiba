@@ -195,3 +195,45 @@ describe("channel registry", () => {
     expect(channelForConversationKey("constructor:x")).toBeNull();
   });
 });
+
+describe("channel adapter outbound details", () => {
+  const capture = (reply: unknown) => {
+    const calls: { url: string; body: string }[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), body: typeof init?.body === "string" ? init.body : "" });
+      return json(reply);
+    }) as typeof fetch;
+    return { calls, fetchImpl };
+  };
+
+  it("converts reaction names and glyphs to each platform's format", async () => {
+    const slack = capture({ ok: true });
+    await slackChannel.createAdapter({ SLACK_BOT_TOKEN: "x" } as Env, { fetch: slack.fetchImpl })!.react({ placeId: "C1", messageId: "1.2" }, "👀");
+    expect(JSON.parse(slack.calls[0]!.body)).toMatchObject({ name: "eyes" });
+
+    const discord = capture({});
+    await discordChannel.createAdapter({ DISCORD_BOT_TOKEN: "d" } as Env, { fetch: discord.fetchImpl })!.react({ placeId: "1", messageId: "2" }, ":eyes:");
+    expect(discord.calls[0]!.url).toContain(`/reactions/${encodeURIComponent("👀")}/@me`);
+
+    const telegram = capture({ ok: true, result: true });
+    await telegramChannel.createAdapter({ TELEGRAM_BOT_TOKEN: "t" } as Env, { fetch: telegram.fetchImpl })!.react({ placeId: "5", messageId: "9" }, "eyes");
+    expect(JSON.parse(telegram.calls[0]!.body).reaction).toEqual([{ type: "emoji", emoji: "👀" }]);
+  });
+
+  it("keeps the thread on a Discord upload reference", async () => {
+    const discord = capture({ id: "m1" });
+    const ref = await discordChannel.createAdapter({ DISCORD_BOT_TOKEN: "d" } as Env, { fetch: discord.fetchImpl })!
+      .upload({ placeId: "1", threadId: "t1", filename: "a.txt", contentType: "text/plain", data: new TextEncoder().encode("hi") });
+    expect(ref).toEqual({ placeId: "1", messageId: "m1", threadId: "t1" });
+    expect(discord.calls[0]!.url).toContain("/channels/t1/messages");
+  });
+
+  it("passes Slack native options through on post and edit", async () => {
+    const slack = capture({ ok: true, channel: "C1", ts: "1.2" });
+    const adapter = slackChannel.createAdapter({ SLACK_BOT_TOKEN: "x" } as Env, { fetch: slack.fetchImpl })!;
+    await adapter.post({ placeId: "C1", text: "hi", native: { unfurl_links: false, blocks: [] } });
+    await adapter.edit({ ref: { placeId: "C1", messageId: "1.2" }, text: "hi", native: { unfurl_links: false } });
+    expect(JSON.parse(slack.calls[0]!.body)).toMatchObject({ unfurl_links: false, blocks: [] });
+    expect(JSON.parse(slack.calls[1]!.body)).toEqual({ channel: "C1", ts: "1.2", text: "hi", unfurl_links: false });
+  });
+});

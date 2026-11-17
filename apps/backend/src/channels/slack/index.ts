@@ -8,6 +8,7 @@
  */
 import type { Env } from "../../env.js";
 import { postSlackMessageWithReceipt, SLACK_POST_TIMEOUT_MS, updateSlackMessage, verifySlackRequest } from "../../slack.js";
+import { reactionName } from "../emoji.js";
 import { buildSlackThreadName } from "../../slack-thread.js";
 import {
   dedupeIds,
@@ -79,26 +80,24 @@ export function createSlackAdapter(input: { token: string; fetch?: typeof fetch 
     channel: "slack",
     capabilities: CAPABILITIES,
     async post(message) {
-      const blocks = Array.isArray(message.native?.blocks) ? message.native.blocks as unknown[] : undefined;
       const receipt = await postSlackMessageWithReceipt(input.token, {
         channel: message.placeId,
         ...(message.threadId ? { threadTs: message.threadId } : {}),
         text: message.text,
-        ...(blocks ? { blocks } : {}),
+        ...(message.native ? { native: message.native } : {}),
       }, fetchImpl);
       return { placeId: receipt.channel, messageId: receipt.ts, ...(message.threadId ? { threadId: message.threadId } : {}) };
     },
     async edit(edit) {
-      const blocks = Array.isArray(edit.native?.blocks) ? edit.native.blocks as unknown[] : undefined;
       await updateSlackMessage(input.token, {
         channel: edit.ref.placeId,
         ts: edit.ref.messageId,
         text: edit.text,
-        ...(blocks ? { blocks } : {}),
+        ...(edit.native ? { native: edit.native } : {}),
       }, fetchImpl);
     },
     async react(ref, emoji) {
-      await post("reactions.add", { channel: ref.placeId, timestamp: ref.messageId, name: emoji.replace(/^:|:$/g, "") });
+      await post("reactions.add", { channel: ref.placeId, timestamp: ref.messageId, name: reactionName(emoji) });
     },
     async upload(upload) {
       const slot = await get("files.getUploadURLExternal", { filename: upload.filename, length: String(upload.data.byteLength) });
