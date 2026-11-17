@@ -38,7 +38,6 @@ import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
 import { handleGitHubWebhook } from "./github-webhook-routes.js";
 import { handleIntegrationsRoutes } from "./integrations-routes.js";
-import { handleIntegrationProviderRoutes } from "./integrations-provider-routes.js";
 import { handleLinearWebhook } from "./linear/routes.js";
 import { handleGmail } from "./gmail-routes.js";
 import { handleSentryWebhook } from "./sentry-webhook-routes.js";
@@ -52,7 +51,6 @@ import { handleKnowledge } from "./knowledge/knowledge-routes.js";
 import { handleKnowledgeOutputs } from "./knowledge/knowledge-outputs-routes.js";
 import { handleKnowledgeProjects } from "./knowledge/knowledge-projects-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
-import { handleAcpProviders } from "./acp-provider-routes.js";
 import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
 import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import { handleApiKeys } from "./api-keys-routes.js";
@@ -377,7 +375,9 @@ export default {
       if (teamOnboardingTask) return teamOnboardingTask;
       const onboardingResponse = await handleOnboardingProgress(request, env);
       if (onboardingResponse) return onboardingResponse;
-      const acpProviderResponse = await handleAcpProviders(request, env);
+      const acpProviderResponse = url.pathname === "/api/providers" || url.pathname.startsWith("/api/providers/")
+        ? await (await import("./acp-provider-routes.js")).handleAcpProviders(request, env)
+        : null;
       if (acpProviderResponse) return acpProviderResponse;
       const capabilityCatalogResponse = await handleCapabilityCatalog(request, env);
       if (capabilityCatalogResponse) return capabilityCatalogResponse;
@@ -614,7 +614,9 @@ export default {
         const response = await handleOperatorEnrollmentReviews(request, env);
         if (response) return response;
       }
-      const integrationProviderResponse = await handleIntegrationProviderRoutes(request, env);
+      const integrationProviderResponse = url.pathname === "/api/integrations/provider" || url.pathname.startsWith("/api/integrations/provider/")
+        ? await (await import("./integrations-provider-routes.js")).handleIntegrationProviderRoutes(request, env)
+        : null;
       if (integrationProviderResponse) {
         return integrationProviderResponse;
       }
