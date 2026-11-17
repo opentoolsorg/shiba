@@ -35,9 +35,11 @@ export function approvalResolveForbidden(
       : "Not authorized to resolve shared approvals.";
   }
 
-  if (input.source === "telegram" || input.source === "discord") {
+  if (input.source === "telegram" || input.source === "discord" || input.source === "teams") {
     const prefix = `${input.source}:`;
-    const allowlist = input.source === "telegram" ? env.TELEGRAM_APPROVERS : env.DISCORD_APPROVERS;
+    const allowlist = input.source === "telegram"
+      ? env.TELEGRAM_APPROVERS
+      : input.source === "discord" ? env.DISCORD_APPROVERS : env.TEAMS_APPROVERS;
     return input.decidedBy.startsWith(prefix) &&
       isApprover(input.decidedBy.slice(prefix.length), parseApproverAllowlist(allowlist))
       ? null
