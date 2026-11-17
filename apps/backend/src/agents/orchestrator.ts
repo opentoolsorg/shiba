@@ -1,4 +1,10 @@
 import { connectedDefaultForUser } from "../acp-providers.js";
+import { isTerminalStatus, usageBudgetPolicySchema, type UsageBudgetPolicy } from "@shiba/shared";
+import { meterSandboxRun } from "../sandbox-metering.js";
+import { resolveInstanceType } from "../instance-type.js";
+import { defaultUsageBudgetPolicy } from "../usage.js";
+import { audit } from "../audit.js";
+import { sha256Hex } from "../agent-tokens.js";
 import { personalExecutionSnapshotSchema, personalExecutionClaimSchema, personalExecutionContextDigest, APPROVAL_TTL_MS as PERSONAL_APPROVAL_TTL_MS, type PersonalExecutionSnapshot } from "@shiba/shared";
 import { revalidatePersonalExecutionSnapshot } from "../personal-execution-store.js";
 import { personalClaimPrincipal } from "../personal-execution-claim.js";
@@ -277,6 +283,7 @@ import { resolveRoleModel } from "./roles.js";
 export const SESSION_DELETED_CLOSE_CODE = 4410;
 
 export interface OrchestratorState {
+  usageBudgetPolicy?: UsageBudgetPolicy;
   /** Server-only isolated host. Parent inference and unrelated work are forbidden. */
   personalExecutionOnly?: true;
   runs: DelegatedRun[];
@@ -775,6 +782,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    */
   override setState(next: OrchestratorState): void {
     if (this.statePersistenceFailed) throw new Error("Durable state persistence failed. This instance must reset.");
+    next = { ...next, runs: next.runs.map((run) => {
+      const previous = this.state?.runs?.find((item) => item.runId === run.runId);
+      if (previous?.sandboxMeter) return { ...run, sandboxMeter: previous.sandboxMeter };
+      if (!previous || isTerminalStatus(previous.status) || !isTerminalStatus(run.status)) return run;
+      return { ...run, sandboxMeter: meterSandboxRun(run, run.updatedAt, resolveInstanceType(this.env.INSTANCE_TYPE), true) };
+    }) };
     this.applySpine(next);
     try {
       super.setState(next);
@@ -6832,6 +6845,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // Cron backstop for the poll-driven stale-draft sweep — in a quiet
     // system no approvals fetch or DO restart ever calls it, so a human
     // who stops polling would leave `sending`-locked drafts held forever.
+    if (url.pathname === "/api/usage/budget") {
+      if (agentPrincipal) return Response.json({ error: "Dashboard access required." }, { status: 403 });
+      if (request.method === "GET") return Response.json({ policy: this.state?.usageBudgetPolicy ?? defaultUsageBudgetPolicy(this.env) });
+      if (request.method !== "PUT") return Response.json({ error: "Method not allowed." }, { status: 405 });
+      const parsed = usageBudgetPolicySchema.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return Response.json({ error: "Invalid budget policy." }, { status: 400 });
+      this.setState({ ...this.state, usageBudgetPolicy: parsed.data });
+      if (this.env.AGENT_AUDIT) await audit(this.env, { principal: parsed.data.updatedBy, tool: "usage.budget.update",
+        argsHash: await sha256Hex(JSON.stringify({ owner: this.name, policy: parsed.data })), outcome: "ok" });
+      return Response.json({ policy: parsed.data });
+    }
     if (request.method === "POST" && url.pathname === "/internal/sweep-drafts") {
       this.sweepStaleDrafts(true);
       return Response.json({ ok: true });

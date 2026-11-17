@@ -38,6 +38,7 @@ export type RunStatus =
   | "unknown";
 
 export interface DelegatedRun extends OnboardingRunFields {
+  sandboxMeter?: import("./usage-budget.js").SandboxMeter;
   outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   runId: string;
   sandboxId: string;
