@@ -545,7 +545,12 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
           let pullUrl: string | undefined;
           let screenshotUrl: string | undefined;
           let browserE2eManifestUrl: string | undefined;
-          if (result.status === "completed" && input.publishPullRequest && input.deferPullRequestPublish === true) {
+          const publishPullRequest = input.publishPullRequest && (!input.routineRun ||
+            result.changedFiles.length > 0 || result.files.length > 0 || result.diff.trim() !== "");
+          if (result.status === "completed" && input.routineRun && publishPullRequest && result.routineOutcome?.noUpdate) {
+            result = { ...result, routineOutcome: { ...result.routineOutcome, noUpdate: false } };
+          }
+          if (result.status === "completed" && publishPullRequest && input.deferPullRequestPublish === true) {
             if (!input.accessAgent || !input.dispatchApprovalId) throw new Error("Publication proposals require the approved run owner and identity.");
             const publicationProposal = await stagePrPublishApproval(this.env, {
               ownerId: input.accessAgent,
@@ -560,7 +565,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             result = { ...result, publicationProposal };
             checkCancelled();
           }
-          if (result.status === "completed" && input.publishPullRequest && input.deferPullRequestPublish !== true) {
+          if (result.status === "completed" && publishPullRequest && input.deferPullRequestPublish !== true) {
             const published = await this.publishResult(input, result, signal);
             pullUrl = published.pullUrl;
             screenshotUrl = published.screenshotUrl;
