@@ -201,7 +201,7 @@ describe("orchestrator budget enforcement", () => {
       decidedBy: "owner@example.test",
       decidedAt: 2,
     } as PendingApproval;
-    const execute = vi.fn(async () => "ok");
+    const execute = vi.fn(async (_input: unknown, _options?: { toolCallId?: string }) => "ok");
     const instance = host({ runs: [held], pendingApprovals: [override] } as OrchestratorState);
     const internals = instance as unknown as {
       dispatchApprovedRun(run: DelegatedRun, record: PendingApproval | undefined, approvalId: string): void;
