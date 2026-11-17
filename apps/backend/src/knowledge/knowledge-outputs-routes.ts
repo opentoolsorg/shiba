@@ -2,7 +2,7 @@
  * Outputs gallery: run deliverables and generated media (`kind=output` in FILES).
  */
 import type { Env } from "../env.js";
-import { isAuthorizedRequest, resolveUserId } from "../request-auth.js";
+import { resolveRequestIdentity } from "../request-auth.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
 import { filesBucket } from "./knowledge-ingestion.js";
 
@@ -23,8 +23,8 @@ export interface OutputItem {
 export async function handleKnowledgeOutputs(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/outputs")) return null;
-  if (!(await isAuthorizedRequest(request, env))) return json({ error: "Authentication required." }, 401);
-  const userId = await resolveUserId(request, env);
+  const { userId, authorized } = await resolveRequestIdentity(request, env);
+  if (!authorized) return json({ error: "Authentication required." }, 401);
   if (!userId) return json({ error: "Authentication required." }, 401);
   const org = await resolveOrgForApiRequest(request, env);
   if (org instanceof Response) return org;
@@ -53,8 +53,8 @@ export async function handleKnowledgeOutputs(request: Request, env: Env): Promis
     if (env.AGENT_AUDIT && (!type || type === "output")) {
       const files = await env.AGENT_AUDIT.prepare(
         `SELECT id, name, mime, size, updated_at FROM files
-         WHERE workspace_id=? AND archived_at IS NULL AND mime LIKE 'image/%' ORDER BY updated_at DESC LIMIT 40`,
-      ).bind(workspaceId).all<{ id: string; name: string; mime: string; size: number; updated_at: number }>();
+         WHERE workspace_id=? AND archived_at IS NULL AND (mime LIKE 'image/%' OR mime='video/mp4') AND (scope='workspace' OR created_by=?) ORDER BY updated_at DESC LIMIT 40`,
+      ).bind(workspaceId, userId).all<{ id: string; name: string; mime: string; size: number; updated_at: number }>();
       for (const row of files.results) {
         items.push({
           id: row.id,

@@ -9,7 +9,9 @@ import { postRoomEvent } from "../src/collaboration-thread-post.js";
 import type { Env } from "../src/env.js";
 
 const auth = vi.hoisted(() => ({ userId: "owner@example.test" }));
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
+  resolveRequestIdentity: vi.fn(async () => ({ authorized: true, userId: auth.userId })),
   isAuthorizedRequest: vi.fn(async () => true),
   resolveUserId: vi.fn(async () => auth.userId),
 }));

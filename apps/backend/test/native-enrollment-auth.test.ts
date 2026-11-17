@@ -76,10 +76,10 @@ describe("invitation-only verified native enrollment", () => {
     expect(await isRestrictedTeamMember(sessionRequest, f.env)).toBe(true);
     // The same signed cached cookie must not override fresh verification revocation.
     f.sqlite.prepare(`UPDATE "user" SET emailVerified=0 WHERE email=?`).run(member);
-    expect(await resolveBetterAuthUserId(sessionRequest, f.env)).toBeNull();
+    expect(await resolveBetterAuthUserId(new Request(sessionRequest), f.env)).toBeNull();
     f.sqlite.prepare(`UPDATE "user" SET emailVerified=1 WHERE email=?`).run(member);
     f.sqlite.prepare(`DELETE FROM "session" WHERE userId=(SELECT id FROM "user" WHERE email=?)`).run(member);
-    expect(await resolveBetterAuthUserId(sessionRequest, f.env)).toBeNull();
+    expect(await resolveBetterAuthUserId(new Request(sessionRequest), f.env)).toBeNull();
   });
 
   it("requires exact recipient and current invitation, and does not consume it during enrollment", async () => {

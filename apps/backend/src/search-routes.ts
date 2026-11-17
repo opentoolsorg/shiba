@@ -1,5 +1,5 @@
 import type { Env } from "./env.js";
-import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
+import { resolveRequestIdentity } from "./request-auth.js";
 import { isTeamWorkspaceId } from "@shiba/shared";
 import { humanActorId } from "./collaboration-store.js";
 import { getTeamWorkspaceMembership, normalizeTeamWorkspaceEmail } from "./team-workspaces-store.js";
@@ -41,12 +41,15 @@ export async function handleSearch(request: Request, env: Env): Promise<Response
   const url = new URL(request.url);
   if (url.pathname !== "/api/search") return null;
   if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
-  if (request.headers.has("Authorization") || !(await isAuthorizedRequest(request, env))) {
+  if (request.headers.has("Authorization")) {
+    return json({ error: "Authenticated human session required." }, 401);
+  }
+  const { userId: identity, authorized } = await resolveRequestIdentity(request, env);
+  if (!authorized) {
     return json({ error: "Authenticated human session required." }, 401);
   }
   const workspaceId = request.headers.get("X-Shiba-Workspace") ?? url.searchParams.get("workspaceId") ?? "";
   if (!isTeamWorkspaceId(workspaceId)) return json({ error: "Workspace not found." }, 404);
-  const identity = await resolveUserId(request, env);
   if (!identity) return json({ error: "Authenticated human session required." }, 401);
   let userId: string;
   try { userId = normalizeTeamWorkspaceEmail(identity); }

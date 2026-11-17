@@ -45,8 +45,9 @@ const state = vi.hoisted(() => ({
   queueReceipts: new Map<string, { approvalId: string; task: string }>(),
 }));
 
-vi.mock("../src/request-auth.js", () => ({
-  isAuthorizedRequest: vi.fn(async () => true),
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
+  resolveRequestIdentity: async () => ({ authorized: true, userId: state.userId }), isAuthorizedRequest: vi.fn(async () => true),
   resolveUserId: vi.fn(async () => state.userId),
 }));
 vi.mock("../src/runs-routes.js", () => ({

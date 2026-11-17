@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
-import { betterAuthFor, handleBetterAuth, resolveBetterAuthUserId, type BetterAuthLaneEnv } from "../src/better-auth.js";
+import { betterAuthFor, ensureBetterAuthSchema, handleBetterAuth, resolveBetterAuthSessionAccount, resolveBetterAuthUserId, type BetterAuthLaneEnv } from "../src/better-auth.js";
 import { applyAuthMigrations } from "./fixtures/auth-migrations.js";
 
 const BASE = "http://localhost:8787";
@@ -254,5 +254,50 @@ describe.each(["google", "slack"] as const)("%s social account policy", provider
     }
     expect(f.sqlite.prepare('SELECT email,emailVerified FROM "user"').get()).toEqual({ email: "local@example.test", emailVerified: 1 });
     expect(f.sqlite.prepare('SELECT COUNT(*) AS c FROM "session"').get()?.c).toBe(0);
+  });
+});
+
+
+describe("request session resolution", () => {
+  async function signedIn() {
+    const f = await fixture();
+    seed(f);
+    const response = await oauth(f, "google");
+    expect(response.headers.get("location")).toBe(`${BASE}/app/`);
+    const request = new Request(`${BASE}/api/whoami`, { headers: { cookie: cookieHeader(response) } });
+    return { ...f, request, getSession: vi.spyOn(f.auth.api, "getSession") };
+  }
+
+  it("shares one session and D1 policy read across concurrent and repeated callers", async () => {
+    const f = await signedIn();
+    const prepare = vi.spyOn(f.db, "prepare");
+    const first = resolveBetterAuthSessionAccount(f.request, f.env);
+    expect(resolveBetterAuthSessionAccount(f.request, f.env)).toBe(first);
+    const [account, userId] = await Promise.all([first, resolveBetterAuthUserId(f.request, f.env)]);
+    expect(account?.policy.email).toBe("local@example.test");
+    expect(userId).toBe("local@example.test");
+    expect(await resolveBetterAuthUserId(f.request, f.env)).toBe(userId);
+    expect(f.getSession).toHaveBeenCalledTimes(1);
+    expect(prepare.mock.calls.filter(([sql]) => sql.includes("FROM shiba_auth_account_policy WHERE"))).toHaveLength(1);
+  });
+
+  it("resolves new and cloned requests independently and rechecks revoked sessions", async () => {
+    const f = await signedIn();
+    expect(await resolveBetterAuthUserId(f.request, f.env)).toBe("local@example.test");
+    expect(await resolveBetterAuthUserId(f.request.clone(), f.env)).toBe("local@example.test");
+    f.sqlite.prepare('DELETE FROM "session"').run();
+    const next = new Request(f.request.url, { headers: f.request.headers });
+    expect(await resolveBetterAuthUserId(next, f.env)).toBeNull();
+    expect(f.getSession).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not reuse an account across environments", async () => {
+    const f = await signedIn();
+    expect(await resolveBetterAuthUserId(f.request, f.env)).toBe("local@example.test");
+    const other = await fixture();
+    const getSession = vi.spyOn(other.auth.api, "getSession");
+    expect(await resolveBetterAuthUserId(f.request, other.env)).toBeNull();
+    expect(f.getSession).toHaveBeenCalledTimes(1);
+    expect(getSession).toHaveBeenCalledTimes(1);
   });
 });

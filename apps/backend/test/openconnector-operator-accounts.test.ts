@@ -5,7 +5,8 @@ import { createCustomAgent } from "../src/custom-agents-store.js";
 import { handleEmployeeTools } from "../src/employee-tool-routes.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
-vi.mock("../src/request-auth.js", () => ({ isAuthorizedRequest: async () => true, resolveUserId: async () => "owner@example.test" }));
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(), isAuthorizedRequest: async () => true, resolveUserId: async () => "owner@example.test" }));
 vi.mock("../src/gmail-routes.js", () => ({ gmailOwner: async () => '["better-auth","owner-a"]' }));
 vi.mock("../src/v1-auth.js", async (original) => ({ ...await original<typeof import("../src/v1-auth.js")>(), authorizeV1Request: async () => null }));
 

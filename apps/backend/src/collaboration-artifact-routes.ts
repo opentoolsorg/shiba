@@ -1,4 +1,4 @@
-import { isSafeDeliverablePath, MAX_DELIVERABLE_BYTES, runInputHash, type DelegatedRun, type RunDeliverable } from "@shiba/shared";
+import { deliverableByteLimit, isSafeDeliverablePath, runInputHash, type DelegatedRun, type RunDeliverable } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
 import { isCollaborationApprovalDispatchable } from "./collaboration-context.js";
 import { collaborationExecutorIdentity } from "./collaboration-executor.js";
@@ -6,6 +6,7 @@ import { canReadCollaborationRoom } from "./collaboration-room-access.js";
 import { getCollaborationHandoff, type CollaborationHandoffRow, type CollaborationScope } from "./collaboration-store.js";
 import { signInternalRequest } from "./edge-identity.js";
 import type { Env } from "./env.js";
+import { deliverableResponse, deliverableViewOptions } from "./deliverable-response.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { deliverableStorageKey } from "./run-deliverables.js";
 import { resolveTeamCollaborationScope } from "./team-collaboration-scope.js";
@@ -45,7 +46,7 @@ function validRun(run: DelegatedRun | undefined, handoff: CollaborationHandoffRo
         typeof run.task !== "string" || !Array.isArray(run.expectedDeliverables) || !Array.isArray(run.deliverables) ||
         run.deliverables.length > 8 || !item || run.expectedDeliverables[index] !== item.path ||
         typeof item.path !== "string" || !isSafeDeliverablePath(item.path) ||
-        !Number.isSafeInteger(item.bytes) || item.bytes < 1 || item.bytes > MAX_DELIVERABLE_BYTES ||
+        !Number.isSafeInteger(item.bytes) || item.bytes < 1 || item.bytes > deliverableByteLimit(item.path) ||
         typeof item.sha256 !== "string" || !SHA256.test(item.sha256) ||
         typeof item.artifactId !== "string" || !ARTIFACT_ID.test(item.artifactId) ||
         !Number.isSafeInteger(item.version) || Number(item.version) < 1 || item.sourceRunId !== run.runId) return null;
@@ -164,12 +165,7 @@ export async function handleCollaborationArtifact(request: Request, env: Env): P
     if (hash !== item.sha256) return failure(409);
     // Body reads and hashing yield: removed members and revoked selected sources must lose cached output too.
     if (!await hasSharedArtifactRef(env, scope, handoff, index, item) || !await currentAccess(request, env, scope, handoff, run)) return failure();
-    const types: Record<string, string> = { md: "text/markdown; charset=utf-8", txt: "text/plain; charset=utf-8", json: "application/json; charset=utf-8", csv: "text/csv; charset=utf-8" };
-    return new Response(body, { headers: {
-      "Cache-Control": "private, no-store", "content-type": types[item.path.split(".").pop()!.toLowerCase()]!,
-      "content-disposition": `attachment; filename="${item.path.split("/").pop()!}"`,
-      "content-length": String(item.bytes), "x-content-type-options": "nosniff",
-    } });
+    return deliverableResponse(item.path, body, deliverableViewOptions(url), { "Cache-Control": "private, no-store" });
   } catch {
     // Do not disclose executor identity, private object keys or upstream errors.
     return failure(503);

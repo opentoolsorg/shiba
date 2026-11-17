@@ -213,6 +213,18 @@ const RESULT: LocalRunResult = {
 };
 
 describe("local immutable publication identity", () => {
+  it("transports full-sized HTML and base64 PDF files while keeping legacy file limits", () => {
+    const files = [
+      { path: "dashboard.html", content: "x".repeat(524_288), encoding: "utf8" },
+      { path: "report.pdf", content: Buffer.alloc(10_485_760).toString("base64"), encoding: "base64" },
+    ];
+    expect(localRunResultSchema.safeParse({ ...RESULT, files }).success).toBe(true);
+    for (const file of files) {
+      expect(localRunResultSchema.safeParse({ ...RESULT, files: [{ ...file, content: `${file.content}x` }] }).success).toBe(false);
+    }
+    expect(localRunResultSchema.safeParse({ ...RESULT, files: [{ path: "code.ts", content: "x".repeat(200_001), encoding: "utf8" }] }).success).toBe(false);
+  });
+
   it("preserves a frozen 40-hex base revision while accepting older daemon results", () => {
     const baseRevision = "a".repeat(40);
     expect(localRunResultSchema.parse({ ...RESULT, baseRevision }).baseRevision).toBe(baseRevision);
@@ -796,6 +808,23 @@ describe("LocalRuntimeAdapter", () => {
     expect(state.dispatched[0]).toMatchObject({ repoUrl: "", executionTarget, expectedDeliverables: ["out/brief.md"] });
     expect(state.dispatched[0]?.task).toContain("current working directory");
     expect(result.files).toEqual([{ path: "out/brief.md", content: "# Complete brief\n", encoding: "utf8" }]);
+  });
+
+  it("preserves complete approved HTML and PDF bodies after local verification", async () => {
+    const files: LocalRunResult["files"] = [
+      { path: "dashboard.html", content: `<h1>Report</h1>${"x".repeat(210_000)}`, encoding: "utf8" },
+      { path: "report.pdf", content: Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(210_000, 0xff)]).toString("base64"), encoding: "base64" },
+    ];
+    const expectedDeliverables = files.map((file) => file.path);
+    const executionTarget = { kind: "artifact-workspace" as const, expectedDeliverables };
+    const { client } = makeClient({ status: async () => ({ status: "settled", result: {
+      ...RESULT, baseRevision: undefined, changedFiles: expectedDeliverables, diff: "", files,
+    } }) as never });
+    const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, repoUrl: "", executionTarget,
+      expectedDeliverables } as never, NOOP_EMIT, {});
+    expect(result.status).toBe("completed");
+    expect(result.files).toEqual(files);
   });
 
   it("rejects unapproved artifact bytes from a daemon response", async () => {

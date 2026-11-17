@@ -5,6 +5,7 @@
  */
 import { createRequestContext } from "./routes/context.js";
 import { dispatchRoutes } from "./routes/table.js";
+import { timeAuth, withRequestTiming, withTimingDatabase } from "./platform/request-timing.js";
 import { getAgentByName } from "agents/routing";
 import { OpenCodeAgent } from "./agents/opencode-agent.js";
 import { CodingOrchestrator } from "./agents/orchestrator.js";
@@ -100,6 +101,8 @@ export default {
     await (await import("./email-handler.js")).handleInboundEmail(message, env, ctx);
   },
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+    return withRequestTiming(request, async () => {
+    env = withTimingDatabase(env);
     try {
       // A one-purpose Worker capability, verified before any identity or D1 lookup.
       // No dashboard, model or Durable Object execution authority is inherited.
@@ -114,7 +117,7 @@ export default {
           "SHIBA_CLAUDE_SUBSCRIPTION is enabled: the claude-subscription harness stores Claude.ai tokens at the Worker egress boundary, which may violate Anthropic's terms — prefer claude-login (https://code.claude.com/docs/en/legal-and-compliance).",
         );
       }
-      request = await withVerifiedAccessIdentity(request, env);
+      request = await timeAuth(() => withVerifiedAccessIdentity(request, env));
       // MCP_PRINCIPAL_HEADER is minted only by the verified-bearer path in
       // handleMcp — no external caller may set it. Strip at ingress so a
       // future route cannot accidentally trust a client-supplied copy.
@@ -169,5 +172,6 @@ export default {
       console.error(redactSecrets(error instanceof Error ? error.message : String(error)));
       return Response.json({ error: "Internal error." }, { status: 500 });
     }
+    });
   },
 } satisfies ExportedHandler<Env>;

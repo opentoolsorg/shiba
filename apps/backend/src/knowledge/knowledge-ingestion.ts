@@ -126,11 +126,12 @@ export async function runIngestionJob(env: Env, message: IngestQueueMessage): Pr
       `UPDATE ${message.sourceKind === "file" ? "files" : "notes"}
        SET ingestion_state='done', ingestion_error=NULL, updated_at=? WHERE id=? AND version=?`,
     ).bind(now, message.sourceId, message.version).run();
-    await publishWorkspaceEvent(env, message.workspaceId, {
+    if (message.scope === "workspace" || createdBy) await publishWorkspaceEvent(env, message.workspaceId, {
       type: message.sourceKind === "file" ? "file.ingestion.done" : "note.ingestion.done",
       resourceId: message.sourceId,
       version: message.version,
-    });
+      ...(message.scope === "personal" ? { audience: { userIds: [createdBy] } } : {}),
+    }).catch(() => { /* A delivery failure must not fail completed ingestion. */ });
   } catch (error) {
     const messageText = error instanceof Error ? error.message : "Ingestion failed.";
     await env.AGENT_AUDIT.prepare(

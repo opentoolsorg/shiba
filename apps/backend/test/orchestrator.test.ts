@@ -2436,7 +2436,7 @@ describe("personal provider routing", () => {
     const route = (input: Record<string, unknown>) => (instance as unknown as {
       resolveRoute(input: unknown): Promise<{ harness: string; codingModel: string; route: { connectionId: string | null } }>;
     }).resolveRoute(input);
-    return { instance, identities, route };
+    return { instance, identities, route, records };
   }
 
   it("uses the owner's connected Codex default and carries that identity to subscription admission", async () => {
@@ -2446,6 +2446,28 @@ describe("personal provider routing", () => {
     expect(selected.codingModel).toMatch(/^openai-subscription\//);
     expect(selected.route.connectionId).toBeNull();
     expect(host.identities).toContain("provider-owner");
+  });
+
+  it("routes to the latest connected provider when several connections have no saved default", async () => {
+    const host = providerHost(true);
+    host.records.delete("acp_provider_default:provider-owner");
+    host.records.set("acp_provider:provider-owner:claude", JSON.stringify({
+      phase: "connected", authMode: "oauth", updatedAt: 1,
+    }));
+    const selected = await host.route({ task: "fix", publishPullRequest: false });
+    expect(selected.harness).toBe("codex-subscription");
+    expect(host.identities).toContain("provider-owner");
+  });
+
+  it.each(["daemon", "disabled"])("excludes a newer %s connection from automatic routing", async (kind) => {
+    const host = providerHost(true);
+    host.records.delete("acp_provider_default:provider-owner");
+    host.records.set("acp_provider:provider-owner:claude", JSON.stringify({
+      phase: "connected", authMode: "oauth", updatedAt: Date.now() + 1_000,
+      signInKind: kind === "daemon" ? "claude-daemon" : "claude-setup-token",
+    }));
+    if (kind === "disabled") Object.assign(host.instance.env, { SHIBA_CLAUDE_SUBSCRIPTION: "0" });
+    expect((await host.route({ task: "fix", publishPullRequest: false })).harness).toBe("codex-subscription");
   });
 
   it("keeps a pinned subscription on that lane and refuses an unconnected owner", async () => {

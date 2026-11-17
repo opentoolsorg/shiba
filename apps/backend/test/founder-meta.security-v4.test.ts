@@ -7,7 +7,7 @@ import { verifyFounderMetaAccount,tickFounderMetaReads } from "../src/founder-me
 import { metaAccountUrl,metaInsightsUrl,projectMetaInsights } from "../src/founder-meta-read.js";
 import { handleFounderMetaReads } from "../src/founder-meta-routes.js";
 const native=vi.hoisted(()=>({expiresAt:Date.now()+86400000}));
-vi.mock("../src/request-auth.js", async original => ({ ...await original<typeof import("../src/request-auth.js")>(), isAuthorizedRequest: async () => true, resolveUserId: async () => "meta-owner@example.test" }));
+vi.mock("../src/request-auth.js", async original => ({ ...await original<typeof import("../src/request-auth.js")>(), resolveRequestIdentity: async () => ({ authorized: true, userId: "meta-owner@example.test" }), isAuthorizedRequest: async () => true, resolveUserId: async () => "meta-owner@example.test" }));
 vi.mock("@shiba/auth/better-auth", async original => ({ ...await original<typeof import("@shiba/auth/better-auth")>(), resolveBetterAuthSessionAccount: async () => ({ policy: { accountId: "native-owner", email: "meta-owner@example.test", kind: "invited" }, emailVerified: true, sessionId:"session-fixture", sessionExpiresAt:native.expiresAt }) }));
 const email="meta-owner@example.test",account="native-owner";
 const session=()=>({id:"session-fixture",expiresAt:native.expiresAt});

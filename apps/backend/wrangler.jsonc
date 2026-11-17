@@ -4,6 +4,7 @@
   "main": "src/index.ts",
   // Optional secret VAULT_KEYRING: {"current":"k2","keys":{"k2":"<hex64>"}}.
   // VAULT_WRITE_V2=1 opts into keyed ciphertext; default off preserves legacy writes.
+  "placement": { "mode": "smart" },
   "compatibility_date": "2026-06-01",
   "compatibility_flags": ["nodejs_compat", "legacy_module_registry"],
   "version_metadata": { "binding": "CF_VERSION_METADATA" },

@@ -6,11 +6,14 @@ import { insertFileRecord } from "../src/files/files-store.js";
 import "../src/knowledge/knowledge-ingest-queue.js";
 
 describe("knowledge ingest queue", () => {
-  it("consumes WS01 QueuePayload on shiba-ingest", async () => {
-    const { database } = customAgentD1();
+  it.each(["workspace", "personal"] as const)("consumes %s ingestion and scopes its completion event", async (scope) => {
+    const { database, sqlite } = customAgentD1();
+    sqlite.exec(readFileSync(new URL("../migrations/0050_files_notes.sql", import.meta.url), "utf8"));
     const objects = new Map<string, Uint8Array>();
+    const events: Record<string, unknown>[] = [];
     const env = {
       AGENT_AUDIT: database,
+      WorkspaceEvents: { getByName: () => ({ fetch: async (request: Request) => { events.push(await request.json() as Record<string, unknown>); return Response.json({ ok: true }); } }) },
       FILES: {
         async get(key: string) {
           const bytes = objects.get(key);
@@ -28,7 +31,7 @@ describe("knowledge ingest queue", () => {
     const bytes = new TextEncoder().encode("queued body");
     await env.FILES.put("files/ws_q/workspace/queued.md", bytes);
     const file = await insertFileRecord(env, {
-      workspaceId: "ws_q", scope: "workspace", name: "queued.md", mime: "text/markdown",
+      workspaceId: "ws_q", scope, name: "queued.md", mime: "text/markdown",
       size: bytes.byteLength, r2Key: "files/ws_q/workspace/queued.md", sha256: "c".repeat(64), createdBy: "alice@example.test",
     });
     await database.prepare(
@@ -62,5 +65,8 @@ describe("knowledge ingest queue", () => {
     expect(ack).toHaveBeenCalledTimes(1);
     const row = await database.prepare(`SELECT ingestion_state FROM files WHERE id=?`).bind(file.id).first<{ ingestion_state: string }>();
     expect(row?.ingestion_state).toBe("done");
+    expect(events).toHaveLength(1);
+    if (scope === "personal") expect(events[0]?.audience).toEqual({ userIds: ["alice@example.test"] });
+    else expect(events[0]).not.toHaveProperty("audience");
   });
 });

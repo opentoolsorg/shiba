@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { handleOrgSandboxSettings } from "../src/org-sandbox-routes.js";
 
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: vi.fn(async () => true),
 }));
 

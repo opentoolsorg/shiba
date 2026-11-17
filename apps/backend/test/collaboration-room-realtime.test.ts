@@ -1,5 +1,6 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WorkspaceEvents } from "../src/platform/workspace-events-do.js";
 import { ConversationRoom } from "../src/conversation-room-do.js";
 import { handleCollaborationWithRealtime } from "../src/collaboration-room-routes.js";
 import { canReadCollaborationRoom, collaborationRoomName, notifyCollaborationHandoffChange } from "../src/collaboration-room-access.js";
@@ -10,7 +11,9 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { acceptTeamWorkspaceInvitation, createTeamWorkspace, createTeamWorkspaceInvitation } from "../src/team-workspaces-store.js";
 
 const auth = vi.hoisted(() => ({ userId: "owner@example.test", authorized: true }));
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
+  resolveRequestIdentity: vi.fn(async () => ({ authorized: auth.authorized, userId: auth.userId })),
   isAuthorizedRequest: vi.fn(async () => auth.authorized),
   resolveUserId: vi.fn(async () => auth.userId),
 }));
@@ -48,7 +51,7 @@ async function fixture() {
   const room = new ConversationRoom(ctx, env);
   const addSocket = async (userId: string, nonce = "22222222-2222-4222-8222-222222222222", roomIdentity = identity) => {
     const socket = new Socket();
-    socket.serializeAttachment({ ownerId: `collaboration:${roomIdentity.tenantId}:${roomIdentity.workspaceId}`, actorId: userId, sessionId: roomIdentity.roomId, viewerId: await authenticatedRoomViewerId(userId, nonce), joinedAt: 1, typing: false, typingAt: 0, connectionId: crypto.randomUUID(), cursor: null, cursorAt: 0, collaboration: roomIdentity });
+    socket.serializeAttachment({ ownerId: `collaboration:${roomIdentity.tenantId}:${roomIdentity.workspaceId}`, actorId: userId, sessionId: roomIdentity.roomId, viewerId: await authenticatedRoomViewerId(userId, nonce), joinedAt: 1, status: "online", lastSeenAt: Date.now(), typing: false, typingAt: 0, connectionId: crypto.randomUUID(), cursor: null, cursorAt: 0, collaboration: roomIdentity });
     sockets.push(socket);
     return socket;
   };
@@ -69,6 +72,50 @@ describe("authenticated shared-room realtime", () => {
     expect(viewers.find((viewer) => viewer.label === scope.userId)?.cursor).toBeNull();
     expect(db.prepare("SELECT COUNT(*) AS count FROM room_messages").get()?.count).toBe(0);
     expect(db.prepare("SELECT COUNT(*) AS count FROM room_run_events").get()?.count).toBe(0);
+  });
+  it("tracks away/online status and drops viewers that stop heartbeating", async () => {
+    const { room, addSocket } = await fixture(); const owner = await addSocket(scope.userId), teammate = await addSocket("teammate@example.test");
+    let now = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => now);
+    const send = (socket: Socket, frame: unknown) => room.webSocketMessage(socket as unknown as WebSocket, typeof frame === "string" ? frame : JSON.stringify(frame));
+    const seen = () => owner.events.at(-1)?.viewers as Array<{ label: string; status: string; lastSeenAt: number }>;
+    await send(teammate, { type: "client_presence", status: "away" });
+    expect(seen().find((viewer) => viewer.label === "teammate@example.test")?.status).toBe("away");
+    await send(owner, { type: "client_presence", status: "bogus" });
+    expect(owner.events.at(-1)?.type).toBe("error");
+    now += 40_000; await send(owner, "ping");
+    now += 40_000; await room.alarm();
+    expect(seen().map((viewer) => viewer.label)).toEqual([scope.userId]);
+    await send(teammate, "ping");
+    now += 1; await send(teammate, { type: "client_presence", status: "online" });
+    expect(seen().find((viewer) => viewer.label === "teammate@example.test")).toMatchObject({ status: "online", lastSeenAt: now });
+  });
+  it("keeps the stale peer expiry deadline under active heartbeats and publishes an unchanged-status return", async () => {
+    const { room, addSocket, ctx } = await fixture();
+    let now = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => now);
+    const owner = await addSocket(scope.userId), teammate = await addSocket("teammate@example.test");
+    const startedAt = now;
+    const heartbeat = () => room.webSocketMessage(owner as unknown as WebSocket, "ping");
+    await heartbeat();
+    for (let elapsed = 10_000; elapsed < 60_000; elapsed += 10_000) {
+      now = startedAt + elapsed; await heartbeat();
+    }
+    expect(ctx.storage.setAlarm).toHaveBeenLastCalledWith(startedAt + 60_000);
+    now = startedAt + 60_000; await room.alarm();
+    expect(JSON.stringify(owner.events.at(-1))).not.toContain("teammate@example.test");
+    owner.events = [];
+    await room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", status: "online" }));
+    expect(owner.events).toHaveLength(1);
+    expect(owner.events[0]?.viewers).toEqual(expect.arrayContaining([expect.objectContaining({ label: "teammate@example.test", status: "online" })]));
+  });
+  it("throttles repeated typing frames but always publishes a stop", async () => {
+    const { room, addSocket } = await fixture(); const owner = await addSocket(scope.userId), teammate = await addSocket("teammate@example.test");
+    let now = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => now);
+    const typing = (value: boolean) => room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", typing: value }));
+    await typing(true); await typing(true); await typing(true);
+    expect(owner.events).toHaveLength(1);
+    now += 1_000; await typing(true); expect(owner.events).toHaveLength(2);
+    await typing(false); expect(owner.events).toHaveLength(3);
+    expect((owner.events.at(-1)?.viewers as Array<{ typing: boolean }>).some((viewer) => viewer.typing)).toBe(false);
   });
   it("rejects malformed/out-of-bounds cursor frames and an unattached sender", async () => {
     const { room, addSocket } = await fixture(); const owner = await addSocket(scope.userId), teammate = await addSocket("teammate@example.test");
@@ -277,8 +324,9 @@ describe("authenticated shared-room realtime", () => {
     expect(response?.status).toBe(201);
     expect(notify).toHaveBeenCalledOnce();
     expect(published).toEqual([expect.objectContaining({
-      type: "collaboration.change",
-      resourceId: identity.roomId,
+      kind: "message.created",
+      entityId: identity.roomId,
+      payload: { message: expect.objectContaining({ body: "Durable shared note", senderKind: "human" }) },
       audience: { roomId: identity.roomId },
     })]);
     for (const socket of [owner, teammate]) {
@@ -289,6 +337,50 @@ describe("authenticated shared-room realtime", () => {
     expect(denied?.status).toBe(403);
     expect(notify).toHaveBeenCalledOnce();
     expect(published).toHaveLength(1);
+  });
+
+  it("fans committed room and message writes through the DO to two clients without leaking to outsiders", async () => {
+    const { env } = await fixture();
+    const clients = [new Socket(), new Socket(), new Socket()];
+    clients.forEach((socket, index) => socket.serializeAttachment({ userId: index === 2 ? "outsider@example.test" : scope.userId }));
+    const hub = new WorkspaceEvents({ getWebSockets: () => clients } as unknown as DurableObjectState, env);
+    env.WorkspaceEvents = { getByName: () => ({ fetch: (request: Request) => hub.fetch(request) }) } as unknown as Env["WorkspaceEvents"];
+    const headers = { Origin: "https://worker.test", "Content-Type": "application/json" };
+    const start = performance.now();
+    const response = await handleCollaborationWithRealtime(new Request("https://worker.test/api/collaboration/rooms", {
+      method: "POST", headers, body: JSON.stringify({ title: "Instant room", visibility: "private" }),
+    }), env);
+    const { room } = await response!.json() as { room: { roomId: string } };
+    for (const client of clients.slice(0, 2)) expect(client.events[0]).toMatchObject({ kind: "room.updated", entityId: room.roomId });
+    expect(performance.now() - start).toBeLessThan(1000);
+    const sentAt = performance.now();
+    const posted = await handleCollaborationWithRealtime(new Request(`https://worker.test/api/collaboration/rooms/${room.roomId}/messages`, {
+      method: "POST", headers, body: JSON.stringify({ body: "Instant message" }),
+    }), env);
+    expect(posted?.status).toBe(201);
+    for (const client of clients.slice(0, 2)) expect(client.events[1]).toMatchObject({ kind: "message.created", payload: { message: { body: "Instant message" } } });
+    expect(performance.now() - sentAt).toBeLessThan(1000);
+    expect(clients[2]!.events).toEqual([]);
+  });
+
+  it("publishes a room-list patch after create without requiring the room socket binding", async () => {
+    const { env } = await fixture();
+    const published: Array<Record<string, unknown>> = [];
+    env.WorkspaceEvents = { getByName: () => ({ fetch: async (request: Request) => {
+      published.push(await request.json() as Record<string, unknown>);
+      return Response.json({ ok: true });
+    } }) } as unknown as Env["WorkspaceEvents"];
+    const response = await handleCollaborationWithRealtime(new Request("https://worker.test/api/collaboration/rooms", {
+      method: "POST", headers: { Origin: "https://worker.test", "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Instant room", visibility: "private" }),
+    }), env);
+    expect(response?.status).toBe(201);
+    const { room } = await response!.json() as { room: { roomId: string } };
+    expect(published).toEqual([expect.objectContaining({ kind: "room.updated", entityId: room.roomId,
+      audience: { roomId: room.roomId }, payload: { room: {
+        roomId: room.roomId, title: "Instant room", visibility: "private", kind: "room",
+      } },
+    })]);
   });
 
   it("invalidates the exact room after cancellation and an internal settlement hint", async () => {

@@ -1,8 +1,9 @@
 /**
  * GET /api/setup/status — reports which deploy-time pieces are configured so
  * the onboarding checklist can show live state instead of static steps.
- * Booleans only: never echo secret values or names of unrelated vars.
+ * Returns presence signals and relevant setting names, never secret values.
  */
+import { getSsoConfig } from "@shiba/auth/better-auth";
 import type { Env } from "./env.js";
 import { isGitHubPublishConfigured } from "./github-auth.js";
 import { describeRoleModels, type RoleModelStatus } from "./agents/roles.js";
@@ -27,6 +28,7 @@ export interface SetupStatus {
   gateway: { id: string; token: boolean; reachable: "yes" | "unauthorized" | "error" | "unknown" };
   access: { required: boolean };
   betterAuth: { configured: boolean };
+  sso: { enabled: boolean; configured: string[]; missing: string[] };
   models: { orchestrator: string; coding: string; harness: string; roles: RoleModelStatus[] };
   automations: { enabled: boolean; typeSafe: boolean };
   mailbox: { addressOverride: boolean; sendEnabled: boolean };
@@ -68,6 +70,8 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);
+  const sso = getSsoConfig(env);
+  const ssoSettings = ["SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET"];
   const modelSnapshot = await readModelConfig(env);
   const rolePins = modelSnapshot.policy.rolePins;
   const base: Omit<SetupStatus, "doctor" | "deployment" | "missingSecrets" | "modelRoute" | "toolSetup"> = {
@@ -98,6 +102,11 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
     },
     access: { required: isAccessConfigured(env) },
     betterAuth: { configured: isBetterAuthConfigured(env) },
+    sso: {
+      enabled: sso.enabled,
+      configured: ssoSettings.filter(name => !sso.missing.includes(name)),
+      missing: sso.missing,
+    },
     models: {
       orchestrator: env.ORCHESTRATOR_MODEL,
       coding: env.CODING_MODEL,

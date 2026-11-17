@@ -10,6 +10,16 @@ const approval = {
 };
 
 describe("ApprovalCard", () => {
+  it("explains the paid provider action and preserves its frozen inputs", () => {
+    const videoApproval = { ...approval, tool: "generate_video", input: { prompt: "A bird in flight", duration: 8 } };
+    const { rerender } = render(<ApprovalCard approval={videoApproval} decided={false} onDecideApproval={vi.fn()} />);
+    expect(screen.getByText(/This spends money on that provider account/)).toBeTruthy();
+    expect(screen.getByText(/A bird in flight/).textContent).toContain('"duration": 8');
+    expect(screen.queryByText(/isolated sandbox/)).toBeNull();
+    rerender(<ApprovalCard approval={videoApproval} decided decision onDecideApproval={vi.fn()} />);
+    expect(screen.getByRole("status").textContent).toBe("Approved — paid video generation permitted");
+  });
+
   it("keeps the frozen payload visible and requires an explicit decision", () => {
     const decide = vi.fn();
     render(<ApprovalCard approval={approval} decided={false} onDecideApproval={decide} />);
