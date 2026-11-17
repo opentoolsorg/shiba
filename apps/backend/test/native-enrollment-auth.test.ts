@@ -1,9 +1,10 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 const emailOutboxMigration = readFileSync(new URL("../migrations/0040_email_outbox.sql", import.meta.url), "utf8");
-import { BETTER_AUTH_STATEMENTS, ensureBetterAuthSchema, handleBetterAuth, resolveBetterAuthUserId } from "../src/better-auth.js";
+import { handleBetterAuth, resolveBetterAuthUserId } from "../src/better-auth.js";
 import type { Env } from "../src/env.js";
 import { sendNativeEnrollmentVerification } from "../src/native-enrollment-email.js";
 import { enforceTeamMemberApiPolicy, isRestrictedTeamMember, isTeamDeploymentOperator } from "../src/team-member-auth.js";
@@ -11,8 +12,8 @@ import { acceptTeamWorkspaceInvitation, createTeamWorkspace, createTeamWorkspace
 
 const BASE = "https://team.example.test";
 const owner = "owner@example.test", member = "member@example.test";
-function fixture() {
-  const sqlite = new DatabaseSync(":memory:");
+function fixture(through = Infinity) {
+  const sqlite = new DatabaseSync(":memory:"); applyAllMigrations(sqlite, through);
   sqlite.exec(emailOutboxMigration);
   const bindValue = (value: unknown): never => (value instanceof Date ? value.getTime() : typeof value === "boolean" ? Number(value) : value ?? null) as never;
   const prepared = (sql: string, params: unknown[] = []) => ({
@@ -121,20 +122,19 @@ describe("invitation-only verified native enrollment", () => {
     const f = fixture(); const cookie = await bootstrap(f);
     expect(await resolveBetterAuthUserId(request("/api/whoami", "GET", undefined, { cookie }), f.env)).toBe(owner);
     f.sqlite.prepare(`INSERT INTO "user"(id,name,email,emailVerified,createdAt,updatedAt) VALUES('unmarked','Unexpected',?,1,?,?)`).run(member, Date.now(), Date.now());
-    await ensureBetterAuthSchema(f.env as Env & { AGENT_AUDIT: D1Database });
+    applyAllMigrations(f.sqlite);
     expect(f.sqlite.prepare("SELECT COUNT(*) AS c FROM shiba_auth_account_policy WHERE account_id='unmarked'").get()?.c).toBe(0);
   });
 
   it("seeds the exact preexisting bootstrap once and refuses to guess in a multi-user legacy database", async () => {
     for (const count of [1, 2]) {
-      const f = fixture();
-      for (const sql of BETTER_AUTH_STATEMENTS) await f.env.AGENT_AUDIT.prepare(sql).run();
+      const f = fixture(60);
       for (let i = 0; i < count; i++) f.sqlite.prepare(`INSERT INTO "user"(id,name,email,emailVerified,createdAt,updatedAt) VALUES(?,?,?,0,?,?)`)
         .run(`legacy-${i}`, "Legacy", `legacy-${i}@example.test`, Date.now(), Date.now());
-      await ensureBetterAuthSchema(f.env as Env & { AGENT_AUDIT: D1Database });
+      applyAllMigrations(f.sqlite);
       expect(f.sqlite.prepare("SELECT account_id FROM shiba_auth_account_policy").all()).toEqual(count === 1 ? [{ account_id: "legacy-0" }] : []);
       f.sqlite.prepare(`INSERT INTO "user"(id,name,email,emailVerified,createdAt,updatedAt) VALUES('later','Later','later@example.test',1,?,?)`).run(Date.now(), Date.now());
-      await ensureBetterAuthSchema(f.env as Env & { AGENT_AUDIT: D1Database });
+      applyAllMigrations(f.sqlite);
       expect(f.sqlite.prepare("SELECT COUNT(*) AS c FROM shiba_auth_account_policy").get()?.c).toBe(count === 1 ? 1 : 0);
     }
   });

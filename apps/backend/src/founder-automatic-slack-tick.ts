@@ -11,7 +11,6 @@ import { SlackPostRejectedError } from "./slack.js";
 import { hashToolArgs } from "./mcp-gateway.js";
 import { FOUNDER_SQL_NOW } from "./founder-connector-context.js";
 import {
-  ensureAutomaticSlackSchema,
   automaticSlackAvailable,
   automaticSlackGrantGuard,
   automaticSlackLink,
@@ -77,7 +76,6 @@ export async function tickFounderAutomaticSlack(
 ): Promise<{ sent: number; blocked: number; unknown: number; unavailable: string | null }> {
   const unavailable = automaticSlackAvailable(env);
   if (unavailable) return { sent: 0, blocked: 0, unknown: 0, unavailable };
-  await ensureAutomaticSlackSchema(env);
   // An orphaned send is never replayed. An active bounded send is not reclaimed early.
   await env.AGENT_AUDIT.batch([
     env.AGENT_AUDIT.prepare(

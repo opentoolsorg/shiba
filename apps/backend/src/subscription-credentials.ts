@@ -8,20 +8,6 @@ import { parseCodexAuthJson } from "@shiba/shared";
 export const OPENAI_SUBSCRIPTION_KIND = "openai-subscription";
 export const DEFAULT_WORKSPACE_ID = "default";
 
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS user_subscription_credentials (
-    workspace_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    auth_cipher TEXT NOT NULL,
-    account_email_hash TEXT,
-    expires_at INTEGER,
-    saved_at INTEGER NOT NULL,
-    PRIMARY KEY (workspace_id, user_id, kind)
-  )`,
-];
-const initialized = new WeakSet<D1Database>();
-
 export interface SubscriptionCredentialStatus {
   connected: boolean;
   accountEmailHash?: string;
@@ -105,9 +91,6 @@ export async function decryptAuthJson(
 
 export async function ensureSubscriptionCredentialSchema(env: Pick<Env, "AGENT_AUDIT">): Promise<void> {
   if (!env.AGENT_AUDIT) throw new SubscriptionCredentialError("Subscription storage unavailable.", 503);
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await env.AGENT_AUDIT.batch(SCHEMA.map((sql) => env.AGENT_AUDIT.prepare(sql)));
-  initialized.add(env.AGENT_AUDIT);
 }
 
 function jwtExp(accessToken: string): number | undefined {

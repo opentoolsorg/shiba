@@ -3,7 +3,7 @@ import { CUSTOM_AGENT_ROLE_TEMPLATE_IDS, deriveOnboardingStatus, onboardingTaskT
 import { z } from "zod";
 import type { Env } from "./env.js";
 import { readProviderSnapshot } from "./acp-providers.js";
-import { betterAuthFor, ensureBetterAuthSchema, isBetterAuthConfigured } from "./better-auth.js";
+import { betterAuthFor, isBetterAuthConfigured } from "./better-auth.js";
 import { getCustomAgentById, getCustomAgentVersion } from "./custom-agents-store.js";
 import { DASHBOARD_ORG_ID, resolveOrgForApiRequest } from "./org-request-auth.js";
 import { withCurrentSkillAuthority } from "./team-skill-authority.js";
@@ -96,52 +96,6 @@ export interface OnboardingProgressDeps {
   now?: () => number;
 }
 
-const initialized = new WeakSet<D1Database>();
-
-async function ensureSchema(db: D1Database): Promise<void> {
-  if (initialized.has(db)) return;
-  await db.prepare(`CREATE TABLE IF NOT EXISTS user_onboarding_progress (
-    user_id TEXT PRIMARY KEY,
-    draft_task_id TEXT,
-    draft_task_json TEXT,
-    current_step TEXT NOT NULL DEFAULT 'channels' CHECK (current_step IN ('channels','agent','models','employee')),
-    dismissed_at INTEGER,
-    connection_verified_at INTEGER,
-    first_successful_run_at INTEGER,
-    accepted_artifact_at INTEGER,
-    activated_at INTEGER,
-    revision INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  )`).run();
-  // Existing self-hosted installs created this table before artifact acceptance existed.
-  let addedAcceptedArtifactColumn = false;
-  try {
-    await db.prepare(`ALTER TABLE user_onboarding_progress ADD COLUMN accepted_artifact_at INTEGER`).run();
-    addedAcceptedArtifactColumn = true;
-  } catch (error) {
-    if (!/duplicate column name/i.test(error instanceof Error ? error.message : String(error))) throw error;
-  }
-  if (addedAcceptedArtifactColumn) {
-    // Earlier activation was based on any completed run. Keep it from being
-    // mistaken for the stronger accepted-deliverable signal after upgrade.
-    await db.prepare(`UPDATE user_onboarding_progress SET activated_at=NULL,revision=revision+1,
-      updated_at=MAX(updated_at,CAST(strftime('%s','now') AS INTEGER)*1000)
-      WHERE accepted_artifact_at IS NULL AND activated_at IS NOT NULL`).run();
-  }
-  for (const column of ["draft_task_id", "draft_task_json"]) {
-    try {
-      await db.prepare(`ALTER TABLE user_onboarding_progress ADD COLUMN ${column} TEXT`).run();
-    } catch (error) {
-      if (!/duplicate column name/i.test(error instanceof Error ? error.message : String(error))) throw error;
-    }
-  }
-  // Legacy acceptance had no goal binding. This is retryable after partial schema upgrades.
-  await db.prepare(`UPDATE user_onboarding_progress SET accepted_artifact_at=NULL,activated_at=NULL,revision=revision+1
-    WHERE draft_task_id IS NULL AND (accepted_artifact_at IS NOT NULL OR activated_at IS NOT NULL)`).run();
-  initialized.add(db);
-}
-
 async function readStored(db: D1Database, userId: string): Promise<StoredProgress | null> {
   return db.prepare(`SELECT draft_task_id,draft_task_json,current_step,dismissed_at,connection_verified_at,first_successful_run_at,accepted_artifact_at,activated_at,revision
     FROM user_onboarding_progress WHERE user_id=?`).bind(userId).first<StoredProgress>();
@@ -171,7 +125,6 @@ function toProgress(row: StoredProgress, evidence: OnboardingProgress["evidence"
 async function resolveIdentity(request: Request, env: Env): Promise<OnboardingIdentity | null> {
   if (!isBetterAuthConfigured(env) || !env.AGENT_AUDIT) return null;
   try {
-    await ensureBetterAuthSchema(env);
     const session = await (await betterAuthFor(env)).api.getSession({ headers: request.headers });
     const userId = session?.user?.id;
     const ownerEmail = session?.user?.email;
@@ -336,8 +289,6 @@ export async function resolvePreparedOnboardingDraft(env: Env, trustedOwnerEmail
     !/^draft_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(reference.draftTaskId) ||
     !Number.isSafeInteger(reference.version) || reference.version < 1) return null;
   try {
-    await ensureBetterAuthSchema(env);
-    await ensureSchema(env.AGENT_AUDIT);
     const users = await env.AGENT_AUDIT.prepare(`SELECT id FROM "user" WHERE lower(trim(email))=? LIMIT 2`).bind(trustedOwnerEmail.trim().toLowerCase()).all<{ id: string }>();
     if (users.results.length !== 1 || !users.results[0]?.id) return null;
     const row = await readStored(env.AGENT_AUDIT, users.results[0].id);
@@ -482,7 +433,6 @@ export async function handleOnboardingProgress(request: Request, env: Env, deps:
     if (!env.AGENT_AUDIT) throw new Error("Progress storage unavailable.");
     const db = env.AGENT_AUDIT;
     const now = (deps.now ?? Date.now)();
-    await ensureSchema(db);
     await db.prepare(`INSERT INTO user_onboarding_progress (user_id,current_step,revision,created_at,updated_at)
       SELECT ?,'channels',0,?,? WHERE 1=1${guard.sql} ON CONFLICT(user_id) DO NOTHING`).bind(storedIdentity.userId, now, now, ...guard.values).run();
     const update = action && (action.action === "save-draft" || action.action === "prepare-task")

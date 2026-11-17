@@ -3,7 +3,7 @@ import { getFounderSkillLibraryEntry } from "@shiba/shared";
 import type { Env } from "./env.js";
 import type { WorkspaceActionBinding } from "./workspace-integration-actions.js";
 import type { WorkspaceNativeMember } from "./workspace-native-authority.js";
-import { membershipSql, assertWorkspaceMemberCurrent, ensureWorkspaceIntegrationSchema, WorkspaceIntegrationError } from "./workspace-integrations-store.js";
+import { membershipSql, assertWorkspaceMemberCurrent, WorkspaceIntegrationError } from "./workspace-integrations-store.js";
 import { founderConnectorContextPredicate, founderConnectorRecipeHash, FOUNDER_SQL_NOW } from "./founder-connector-context.js";
 import { founderConnectionAllowed } from "./founder-connector-jobs.js";
 import { getCustomAgentById, listCustomAgents } from "./custom-agents-store.js";
@@ -18,12 +18,6 @@ const FORMAT = "shiba.founder-evidence.v1";
 const MODE = "local-and-connection-metadata" as const;
 const MAX_BYTES = 262_144;
 const QUALIFIERS = { sourceKind: "bounded-stored-excerpt", captureCompleteness: "unknown", datasetCompleteness: "unknown", businessSuccess: "unverified" } as const;
-const schema = `CREATE TABLE IF NOT EXISTS founder_evidence_reports (
-  id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL,owner_id TEXT NOT NULL,owner_account_id TEXT NOT NULL,
-  library_id TEXT NOT NULL,request_id TEXT NOT NULL,report_hash TEXT NOT NULL,manifest_digest TEXT NOT NULL,
-  authority_json TEXT NOT NULL,markdown TEXT NOT NULL,json TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('active','revoked')),
-  expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,UNIQUE(workspace_id,owner_account_id,request_id))`;
-const initialized = new WeakSet<D1Database>();
 const bytes = (text: string) => new TextEncoder().encode(text).length;
 type Ref = { approvalId: string; inputHash: string; resultDigest: string };
 export interface FounderEvidenceInput { employeeId: string; employeeVersion: number; skillId: string; skillVersion: number; receipts: Ref[]; expiresAt: number }
@@ -44,14 +38,7 @@ export interface FounderEvidenceAuthority {
 interface ReportRow { id: string; workspace_id: string; owner_id: string; owner_account_id: string; library_id: string; request_id: string;
   report_hash: string; manifest_digest: string; authority_json: string; markdown: string; json: string; state: "active" | "revoked"; expires_at: number; created_at: number }
 interface ReadOptions { requireExportOwnership?: boolean; beforeFinalRead?: () => Promise<void> }
-async function ensure(env: Env) {
-  await ensureWorkspaceIntegrationSchema(env);
-  if (!initialized.has(env.AGENT_AUDIT)) {
-    await env.AGENT_AUDIT.prepare(schema).run();
-    await env.AGENT_AUDIT.prepare("CREATE INDEX IF NOT EXISTS founder_evidence_owner ON founder_evidence_reports(workspace_id,owner_account_id,created_at)").run();
-    initialized.add(env.AGENT_AUDIT);
-  }
-}
+
 function stable(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stable);
   if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable((value as Record<string, unknown>)[key])]));
@@ -169,7 +156,7 @@ async function sources(env: Env, member: WorkspaceNativeMember, libraryId: strin
   return found.sort((a,b) => a.id.localeCompare(b.id));
 }
 async function basePins(env: Env, member: WorkspaceNativeMember, libraryId: string, input: FounderEvidenceInput): Promise<Pins> {
-  await ensure(env); await assertWorkspaceMemberCurrent(env, member, true);
+  await assertWorkspaceMemberCurrent(env, member, true);
   const [employee, skill, install] = await Promise.all([getCustomAgentById(env, `team:${member.workspaceId}`, input.employeeId), getSkill(env, `team:${member.workspaceId}`, member.userId, input.skillId), getSkillInstall(env, `team:${member.workspaceId}`, member.userId, libraryId)]);
   const recipe = await founderConnectorRecipeHash(libraryId);
   if (!recipe || !employee || employee.version !== input.employeeVersion || !skill || install?.skillId !== skill.id || skill.version !== input.skillVersion || skill.status !== "active" || skill.activeVersion !== skill.version || skill.reviewedVersion !== skill.version || skill.reviewedInstructions !== skill.content.instructions) throw new WorkspaceIntegrationError("report_sources_changed", 409);
@@ -229,7 +216,7 @@ export async function loadFounderEvidenceReport(env: Env, member: WorkspaceNativ
   return loadStoredReport(env, member, libraryId, reportId, options);
 }
 async function loadStoredReport(env: Env, member: WorkspaceNativeMember, libraryId: string, reportId: string, options: ReadOptions, connectionProof?: Pins) {
-  await ensure(env); await assertWorkspaceMemberCurrent(env, member, true);
+  await assertWorkspaceMemberCurrent(env, member, true);
   const row = await env.AGENT_AUDIT.prepare("SELECT * FROM founder_evidence_reports WHERE id=? AND workspace_id=? AND owner_id=? AND owner_account_id=? AND library_id=?")
     .bind(reportId, member.workspaceId, member.userId, member.accountId, libraryId).first<ReportRow>();
   if (!row) throw new WorkspaceIntegrationError("report_unavailable", 404);
@@ -244,7 +231,7 @@ async function loadStoredReport(env: Env, member: WorkspaceNativeMember, library
   return { report: dto(row, pins), authority: value };
 }
 export async function revokeFounderEvidenceReport(env: Env, member: WorkspaceNativeMember, libraryId: string, reportId: string, reportHash: string, options: ReadOptions = {}) {
-  await ensure(env); const actor = membershipSql(member, true);
+  const actor = membershipSql(member, true);
   const row = await env.AGENT_AUDIT.prepare("SELECT * FROM founder_evidence_reports WHERE id=? AND workspace_id=? AND owner_id=? AND owner_account_id=? AND library_id=? AND report_hash=?")
     .bind(reportId, member.workspaceId, member.userId, member.accountId, libraryId, reportHash).first<ReportRow>();
   if (!row) throw new WorkspaceIntegrationError("report_unavailable", 404);
@@ -258,7 +245,7 @@ export async function revokeFounderEvidenceReport(env: Env, member: WorkspaceNat
 function summary(row: ReportRow, pins: Pins, readable: boolean) { return { id: row.id, reportHash: row.report_hash, createdAt: row.created_at, expiresAt: row.expires_at,
   state: row.state, canRead: readable, canRevoke: row.state === "active", employeeId: pins.employeeId, employeeVersion: pins.employeeVersion, sourceCount: pins.sources.length }; }
 export async function listFounderEvidenceReports(env: Env, member: WorkspaceNativeMember, libraryId: string, options: ReadOptions = {}) {
-  await ensure(env); const actor = membershipSql(member, true);
+  const actor = membershipSql(member, true);
   await options.beforeFinalRead?.();
   // Summaries contain no receipt content; full source authorization occurs on an explicit read.
   const rows = await env.AGENT_AUDIT.prepare(`SELECT * FROM founder_evidence_reports WHERE workspace_id=? AND owner_id=? AND owner_account_id=? AND library_id=? AND ${actor.sql} ORDER BY created_at DESC,id LIMIT 100`)
@@ -266,7 +253,7 @@ export async function listFounderEvidenceReports(env: Env, member: WorkspaceNati
   return { ...scope(member, libraryId), reports: rows.results.map((row) => summary(row, JSON.parse(row.authority_json) as Pins, row.state === "active" && row.expires_at > Date.now())) };
 }
 export async function founderEvidenceOptions(env: Env, member: WorkspaceNativeMember, libraryId: string, employeeId?: string, employeeVersion?: number, options: ReadOptions = {}) {
-  await ensure(env); await assertWorkspaceMemberCurrent(env, member, true);
+  await assertWorkspaceMemberCurrent(env, member, true);
   if (!getFounderSkillLibraryEntry(libraryId)) throw new WorkspaceIntegrationError("report_recipe_unavailable", 404);
   const install = await getSkillInstall(env, `team:${member.workspaceId}`, member.userId, libraryId);
   const skill = install ? await getSkill(env, `team:${member.workspaceId}`, member.userId, install.skillId) : null;

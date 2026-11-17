@@ -22,8 +22,7 @@ const OWNER = "owner@example.test", INPUT = { repoUrl: "https://github.com/fixtu
 function fixture() {
   const db = customAgentD1(); databases.push(db.sqlite);
   db.sqlite.exec(readFileSync(new URL("../migrations/0022_run_output_archives.sql", import.meta.url), "utf8"));
-  db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT,emailVerified INTEGER);CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT,kind TEXT)');
-  db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run("native-owner", OWNER); db.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?,'bootstrap')").run("native-owner", OWNER);
+  db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run("native-owner", OWNER); db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind) VALUES(?,?,'bootstrap')").run("native-owner", OWNER);
   const namespace = vi.fn(() => { throw new Error("No sandbox before explicit human approval"); });
   const instance = Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
     env: { ...productionEnvStubs(), Sandbox: { get: namespace, idFromName: namespace }, AGENT_AUDIT: db.database } as unknown as Env,

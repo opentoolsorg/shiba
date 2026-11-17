@@ -12,7 +12,6 @@ import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import { SlackPostRejectedError, verifySlackBotInstallation } from "./slack.js";
 import { redactSecrets } from "./security.js";
 import { hashToolArgs } from "./mcp-gateway.js";
-import { REPORT_SLACK_SCHEMA } from "./report-slack-schema.js";
 import { postReportSlackMessage } from "./report-slack-sender.js";
 import { loadFounderEvidenceReport, founderEvidenceReportGuard, type FounderEvidenceAuthority } from "./founder-evidence-reports.js";
 import { activeSlackInstallationForTeam, ensureSlackInstallations, readSlackInstallationCredential, slackInstallationGuard, slackOAuthConfiguration } from "./slack-installations-store.js";
@@ -34,7 +33,6 @@ export interface ReportSlackDeps {
 }
 type SessionFence = () => Promise<void>;
 interface Guard { sql: string; values: unknown[] }
-const initialized = new WeakSet<D1Database>();
 const nowSql = "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)";
 const audienceSql = `(SELECT json_group_array(json_object('actorId',a.actor_id,'userId',a.user_id,'kind',a.actor_kind,'role',a.role,'capabilities',a.capabilities_json,'profileVersion',a.profile_version,'createdAt',a.created_at))
   FROM (SELECT * FROM collaboration_memberships WHERE tenant_id=l.tenant_id AND workspace_id=l.workspace_id AND room_id=l.room_id AND status='active'
@@ -59,10 +57,7 @@ function configured(env: Env): boolean {
 function approver(env: Env, member: WorkspaceNativeMember): boolean { return member.role !== "member" && isApprover(member.userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS)); }
 export async function ensureReportSlackSchema(env: Env): Promise<void> {
   if (!env.AGENT_AUDIT) fail("report_slack_storage_unavailable", 503);
-  if (initialized.has(env.AGENT_AUDIT)) return;
   await ensureCollaborationSchema(env); await ensureTeamWorkspacesSchema(env); await ensureSlackInstallations(env);
-  for (const sql of REPORT_SLACK_SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
-  initialized.add(env.AGENT_AUDIT);
 }
 function policyFor(env: Env, destination: ReportSlackDestination) {
   return parseSlackCanvasOwners(env.SLACK_CANVAS_OWNERS).find((policy) => policy.teamId === destination.teamId && policy.channelId === destination.channelId && policy.ownerId === destination.ownerId);

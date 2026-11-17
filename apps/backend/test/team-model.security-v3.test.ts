@@ -23,11 +23,10 @@ type TurnReceipt = { id: string; version: number; inputHash: string; status: str
 function aiResponse(content: string) { return { id: `fixture_${crypto.randomUUID()}`, model: TEAM_MODEL_TEXT_MODEL, usage: { prompt_tokens: 32, completion_tokens: 8, total_tokens: 40 }, choices: [{ message: { content } }] }; }
 async function fixture(enabled = true) {
   const db = customAgentD1();
-  db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT,kind TEXT)');
   for (const email of [OPERATOR, MEMBER, MANAGER, "other@example.test"]) {
     const id = crypto.randomUUID(); user.accounts[email] = id;
-    db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(id, email);
-    db.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?,?)").run(id, email, email === OPERATOR ? "bootstrap" : "invited");
+    db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(id, email);
+    db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) SELECT ?,?,kind,CASE WHEN kind='invited' THEN 'fixture-invite' END,CASE WHEN kind='invited' THEN 'fixture-workspace' END FROM (SELECT ? AS kind)").run(id, email, email === OPERATOR ? "bootstrap" : "invited");
   }
   const calls: Array<{ model: string; input: Record<string, unknown>; signal: AbortSignal }> = [];
   let held: Promise<unknown> | undefined, release: ((result: unknown) => void) | undefined;

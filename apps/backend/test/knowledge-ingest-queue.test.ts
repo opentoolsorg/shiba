@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { dispatchQueueBatch } from "../src/platform/queues.js";
@@ -8,8 +7,7 @@ import "../src/knowledge/knowledge-ingest-queue.js";
 
 describe("knowledge ingest queue", () => {
   it("consumes WS01 QueuePayload on shiba-ingest", async () => {
-    const { database, sqlite } = customAgentD1();
-    sqlite.exec(readFileSync(new URL("../migrations/0050_files_notes.sql", import.meta.url), "utf8"));
+    const { database } = customAgentD1();
     const objects = new Map<string, Uint8Array>();
     const env = {
       AGENT_AUDIT: database,

@@ -22,18 +22,18 @@ const request = (suffix = "", method = "GET", body?: unknown, headers?: Record<s
 beforeEach(() => { identity.owner = "owner@example.test"; identity.orgId = "self-hosted"; identity.principal = null; identity.workspace = undefined; identity.revoked = false; identity.native = true; identity.accountId = "native-owner"; });
 async function fixture(team = false) {
   const f = customAgentD1();
-  f.sqlite.exec(`CREATE TABLE "user" (id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER);
-    CREATE TABLE shiba_auth_account_policy (account_id TEXT PRIMARY KEY,email TEXT);
-    INSERT INTO "user" VALUES ('native-owner','owner@example.test',1),('native-other','other@example.test',1);
-    INSERT INTO shiba_auth_account_policy VALUES ('native-owner','owner@example.test'),('native-other','other@example.test');`);
+  f.sqlite.exec(`
+
+    INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES ('native-owner','owner@example.test',1,'Owner',1,1),('native-other','other@example.test',1,'Other',1,1);
+    INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES ('native-owner','owner@example.test','invited','fixture-invite','fixture-workspace'),('native-other','other@example.test','invited','fixture-invite','fixture-workspace');`);
   const env = { AGENT_AUDIT: f.database } as Env;
   for (const name of ["AI", "CodingOrchestrator", "Sandbox", "Automations", "OPENCONNECTOR_ADMIN_KEY", "SLACK_BOT_TOKEN", "TYPESAFE_API_KEY"])
     Object.defineProperty(env, name, { get: () => { throw new Error(`Unexpected execution access ${name}`); } });
   if (team) {
     identity.orgId = "team:ws_aaaaaaaaaaaaaaaaaaaaaaaa";
     identity.workspace = { workspaceId: "ws_aaaaaaaaaaaaaaaaaaaaaaaa", userId: identity.owner, role: "owner", version: 1, joinedAt: 1 };
-    f.sqlite.exec(`CREATE TABLE team_workspace_memberships (tenant_id TEXT,workspace_id TEXT,user_id TEXT,role TEXT,status TEXT,version INTEGER);
-      INSERT INTO team_workspace_memberships VALUES ('self-hosted','ws_aaaaaaaaaaaaaaaaaaaaaaaa','owner@example.test','owner','active',1);`);
+    f.sqlite.exec(`INSERT INTO team_workspaces(tenant_id,workspace_id,name,version,created_at) VALUES ('self-hosted','ws_aaaaaaaaaaaaaaaaaaaaaaaa','Fixture workspace',1,1);
+      INSERT INTO team_workspace_memberships(tenant_id,workspace_id,user_id,role,status,version,joined_at) VALUES ('self-hosted','ws_aaaaaaaaaaaaaaaaaaaaaaaa','owner@example.test','owner','active',1,1);`);
   }
   const entry = getFounderSkillLibraryEntry(libraryId)!;
   const options = team ? { teamGrant: { ...identity.workspace!, role: "owner" as const } } : {};
@@ -138,7 +138,7 @@ describe("founder review draft HTTP routes", () => {
           if (/FROM org_custom_agents/.test(sql)) {
             if (change === "membership") f.sqlite.exec("UPDATE team_workspace_memberships SET status='removed',version=2");
             else f.sqlite.exec(`DELETE FROM "user" WHERE id='native-owner'; DELETE FROM shiba_auth_account_policy WHERE account_id='native-owner';
-              INSERT INTO "user" VALUES ('new-owner','owner@example.test',1); INSERT INTO shiba_auth_account_policy VALUES ('new-owner','owner@example.test');`);
+              INSERT INTO "user" (id,email,emailVerified,name,createdAt,updatedAt) VALUES ('new-owner','owner@example.test',1,'Owner',1,1); INSERT INTO shiba_auth_account_policy(account_id,email,kind) VALUES ('new-owner','owner@example.test','bootstrap');`);
           }
           return result;
         },

@@ -1,14 +1,13 @@
-import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
-import { ensureCollaborationSchema } from "../src/collaboration-store.js";
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 it.each([false, true])("initializes collaboration executor pinning and source deduplication (existing executor column: %s)", async (existingExecutor) => {
-  const { database, sqlite } = customAgentD1({ bare: true });
+  const { sqlite } = customAgentD1({ bare: true });
   try {
-    sqlite.exec(readFileSync(new URL("../migrations/0046_collab_v2.sql", import.meta.url), "utf8"));
+    applyAllMigrations(sqlite, 60);
     if (existingExecutor) sqlite.exec("ALTER TABLE collaboration_handoffs ADD COLUMN executor_agent_name TEXT");
-    await ensureCollaborationSchema({ AGENT_AUDIT: database });
+    applyAllMigrations(sqlite);
     sqlite.exec(`INSERT INTO collaboration_rooms (
       room_id, tenant_id, workspace_id, title, visibility, created_by_user_id, created_at
     ) VALUES ('room_1', 'self-hosted', 'ws_1', 'Work', 'private', 'owner@example.test', 1);

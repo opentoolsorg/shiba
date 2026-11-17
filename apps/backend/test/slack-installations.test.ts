@@ -6,7 +6,7 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { createTeamWorkspace } from "../src/team-workspaces-store.js";
 import { handleSlackInstallations } from "../src/slack-installations-routes.js";
 import { handleMultiInstallationSlackCallback } from "../src/slack-installations-routing.js";
-import { activeSlackInstallationForTeam, ensureSlackInstallations, readSlackInstallationCredential, SLACK_INSTALLATION_SCHEMA, slackInstallationGuard, type SlackInstallationEnv } from "../src/slack-installations-store.js";
+import { activeSlackInstallationForTeam, ensureSlackInstallations, readSlackInstallationCredential, slackInstallationGuard, type SlackInstallationEnv } from "../src/slack-installations-store.js";
 import { sealSlackSecret, openSlackSecret } from "../src/slack-installations-crypto.js";
 import { verifySlackInstallationBot, type SlackOAuthDeps } from "../src/slack-installations-oauth.js";
 
@@ -18,8 +18,7 @@ beforeEach(() => { identity.email=OWNER; identity.native=true; identity.accounts
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function fixture() {
   const db = customAgentD1();
-  db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT)');
-  for (const email of [OWNER,OTHER]) { identity.accounts[email]=crypto.randomUUID(); db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(identity.accounts[email]!,email); db.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?)").run(identity.accounts[email]!,email); }
+  for (const email of [OWNER,OTHER]) { identity.accounts[email]=crypto.randomUUID(); db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(identity.accounts[email]!,email); db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')").run(identity.accounts[email]!,email); }
   const env = { AGENT_AUDIT:db.database, SLACK_INSTALLATIONS_ENABLED:"true", SLACK_OAUTH_APP_ID:"A123", SLACK_OAUTH_CLIENT_ID:"123.456", SLACK_OAUTH_REDIRECT_URI:"https://shiba.test/api/slack/installations/callback",
     SLACK_OAUTH_PKCE_ENABLED:"true", SLACK_OAUTH_QUERY_REDACTION_VERIFIED:"true", SLACK_SIGNING_SECRET:"fixture-signing-secret-only", SLACK_INSTALLATION_KEYRING:JSON.stringify({activeKeyId:"v1",keys:{v1:"11".repeat(32)}}),
     SLACK_BOT_TOKEN:"legacy-fixture-token-must-not-fallback" } as unknown as SlackInstallationEnv;
@@ -95,7 +94,7 @@ describe("native bot-workspace Slack installation",()=>{
   it("rejects same-email native UUID replacement before exchanging any code",async()=>{
     const f=await fixture(),authorize=await f.begin(),original=identity.accounts[OWNER]!;
     f.sqlite.prepare('DELETE FROM "user" WHERE id=?').run(original);f.sqlite.prepare("DELETE FROM shiba_auth_account_policy WHERE account_id=?").run(original);
-    identity.accounts[OWNER]=crypto.randomUUID();f.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(identity.accounts[OWNER]!,OWNER);f.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?)").run(identity.accounts[OWNER]!,OWNER);
+    identity.accounts[OWNER]=crypto.randomUUID();f.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(identity.accounts[OWNER]!,OWNER);f.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')").run(identity.accounts[OWNER]!,OWNER);
     expect((await f.callback(authorize))?.status).toBe(403);expect(f.exchange).not.toHaveBeenCalled();
   });
   it("rejects replayed or changed activation decisions and keeps reinstall generations separate",async()=>{
@@ -189,8 +188,8 @@ describe("native bot-workspace Slack installation",()=>{
     expect(await activeSlackInstallationForTeam(f.env,"A123","T123")).toBeNull();await expect(readSlackInstallationCredential(f.env,snapshot)).rejects.toThrow();
     expect(f.sqlite.prepare("SELECT state,generation FROM slack_installations").get()).toMatchObject({state:"revoked",generation:snapshot.generation+1});
   });
-  it("applies the migration twice on a fresh database with runtime schema parity",()=>{
-    const sqlite=new DatabaseSync(":memory:"),sql=readFileSync(new URL("../migrations/0018_slack_installations.sql",import.meta.url),"utf8");sqlite.exec(sql);sqlite.exec(sql);for(const statement of SLACK_INSTALLATION_SCHEMA)sqlite.exec(statement);
+  it("applies the migration twice on a fresh database",()=>{
+    const sqlite=new DatabaseSync(":memory:"),sql=readFileSync(new URL("../migrations/0018_slack_installations.sql",import.meta.url),"utf8");sqlite.exec(sql);sqlite.exec(sql);
     expect(sqlite.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name LIKE 'slack_installations_owner_%'").get()).toMatchObject({n:2});sqlite.close();
   });
   it("checks bot metadata on the fixed endpoint without redirects or raw error leakage",async()=>{

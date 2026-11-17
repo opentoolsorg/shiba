@@ -17,9 +17,9 @@ afterEach(() => vi.restoreAllMocks());
 
 async function fixture() {
   const db = customAgentD1(), email = "rolling@example.test", accountId = "native-rolling", asOf = 1700000000;
-  db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT); CREATE TABLE proof_state(current INTEGER NOT NULL); INSERT INTO proof_state VALUES(1); CREATE TABLE session(id TEXT PRIMARY KEY,userId TEXT,expiresAt INTEGER)');
-  db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(accountId, email);
-  db.sqlite.prepare('INSERT INTO shiba_auth_account_policy VALUES(?,?)').run(accountId, email);
+  db.sqlite.exec('  CREATE TABLE proof_state(current INTEGER NOT NULL); INSERT INTO proof_state VALUES(1); ');
+  db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(accountId, email);
+  db.sqlite.prepare(`INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')`).run(accountId, email);
   db.sqlite.exec(readFileSync(new URL("../migrations/0030_founder_reconciliation.sql", import.meta.url), "utf8"));
   const env = { AGENT_AUDIT: db.database, FOUNDER_STRIPE_READS_ENABLED: "true", FOUNDER_STRIPE_CREDENTIAL_KEY: "ab".repeat(32), FOUNDER_HUBSPOT_READS_ENABLED: "true", FOUNDER_HUBSPOT_CREDENTIAL_KEY: "cd".repeat(32) } as StripeEnv;
   const ws = await createTeamWorkspace(env, email, { name: "Rolling fixture" });
@@ -27,7 +27,7 @@ async function fixture() {
   const session = { id: "rolling-session", expiresAt: Date.now() + 600000 };
   state.member = member;
   state.session = session;
-  db.sqlite.prepare("INSERT INTO session VALUES(?,?,?)").run(session.id, accountId, session.expiresAt);
+  db.sqlite.prepare('INSERT INTO "session"(id,userId,expiresAt,token,createdAt,updatedAt) VALUES(?,?,?,lower(hex(randomblob(16))),1,1)').run(session.id, accountId, session.expiresAt);
   const expiresAt = Date.now() + 300000, hash = "a".repeat(64);
   const input = { hubspot: { grantId: `fhc_${"a".repeat(32)}`, grantVersion: 1, occurrenceId: `fhr_${"b".repeat(32)}`, sourceOrdinal: 0 }, stripe: { grantId: `fsc_${"a".repeat(32)}`, receiptId: `fsr_${"b".repeat(32)}` }, mapping: { invoiceIdProperty: "invoice_id", paidAmountProperty: "paid", currencyProperty: "currency", amountUnit: "major-decimal", basisAttestation: "crm-property-represents-stripe-invoice-amount-paid" }, expiresAt };
   state.proof = {

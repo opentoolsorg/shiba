@@ -26,10 +26,8 @@ const OWNER = "owner@example.test", EPOCH = "11111111-1111-4111-8111-11111111111
 async function fixture() {
   const d1 = customAgentD1(); databases.push(d1.sqlite);
   d1.sqlite.exec(readFileSync(new URL("../migrations/0022_run_output_archives.sql", import.meta.url), "utf8"));
-  d1.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT,emailVerified INTEGER);CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT,kind TEXT)');
-  d1.sqlite.exec('CREATE TABLE "session"(id TEXT PRIMARY KEY,userId TEXT,expiresAt INTEGER)');
-  d1.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(session.id, OWNER); d1.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?,'bootstrap')").run(session.id, OWNER);
-  d1.sqlite.prepare('INSERT INTO "session" VALUES(?,?,?)').run("native-fixture-session", session.id, Date.now() + 86_400_000);
+  d1.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(session.id, OWNER); d1.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind) VALUES(?,?,'bootstrap')").run(session.id, OWNER);
+  d1.sqlite.prepare('INSERT INTO "session"(id,userId,expiresAt,token,createdAt,updatedAt) VALUES(?,?,?,lower(hex(randomblob(16))),1,1)').run("native-fixture-session", session.id, Date.now() + 86_400_000);
   const db = new DatabaseSync(":memory:"); databases.push(db);
   const storage = { ...fakeSqlStorage(db), sql: { exec: (sql: string, ...params: unknown[]) => {
     const rows = db.prepare(sql).all(...params as never[]); return { toArray: () => rows };

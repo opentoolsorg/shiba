@@ -1,5 +1,4 @@
 import type { AuditEnv } from "./audit.js";
-import { initAudit } from "./audit.js";
 import {
   getDecryptedOrgSecret,
   getOrgSecretMeta,
@@ -7,35 +6,6 @@ import {
   type StoredSecretMeta,
 } from "./org-secrets-store.js";
 import { InputError, validateRunnerUrl } from "./security.js";
-
-const STATEMENTS: readonly string[] = [
-  `CREATE TABLE IF NOT EXISTS org_sandbox_settings (
-     org_id TEXT PRIMARY KEY,
-     provider_id TEXT NOT NULL,
-     computesdk_backend TEXT,
-     runner_url TEXT,
-     updated_at INTEGER NOT NULL
-   )`,
-];
-
-const initialized = new WeakSet<D1Database>();
-
-async function ensure(env: AuditEnv): Promise<void> {
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await initAudit(env);
-  for (const statement of STATEMENTS) {
-    await env.AGENT_AUDIT.prepare(statement).run();
-  }
-  // Safe migration: add runner_url column if table already existed without it
-  try {
-    await env.AGENT_AUDIT.prepare(
-      `ALTER TABLE org_sandbox_settings ADD COLUMN runner_url TEXT`,
-    ).run();
-  } catch (error) {
-    if (!/duplicate column/i.test(error instanceof Error ? error.message : String(error))) throw error;
-  }
-  initialized.add(env.AGENT_AUDIT);
-}
 
 export interface OrgSandboxSettings {
   orgId: string;
@@ -50,7 +20,6 @@ export async function getOrgSandboxProvider(
   env: AuditEnv,
   orgId: string,
 ): Promise<OrgSandboxSettings | null> {
-  await ensure(env);
   const row = await env.AGENT_AUDIT.prepare(`SELECT * FROM org_sandbox_settings WHERE org_id = ?`)
     .bind(orgId)
     .first();
@@ -81,7 +50,6 @@ export async function setOrgSandboxProvider(
   params: SetOrgSandboxParams | string,
   legacyBackend?: string,
 ): Promise<OrgSandboxSettings> {
-  await ensure(env);
   const now = Date.now();
   const providerId = typeof params === "string" ? params : params.providerId;
   const computesdkBackend = typeof params === "string" ? legacyBackend : params.computesdkBackend;

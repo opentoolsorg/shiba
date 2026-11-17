@@ -3,7 +3,7 @@ import { founderAutomaticReadReportHash, type FounderAutomaticReadReport } from 
 import { hash, boundedBody, type ReadRequest, type GatewayReadReceipt } from "@shiba/openconnector-read-gateway";
 import type { Env } from "./env.js";
 import type { WorkspaceNativeMember } from "./workspace-native-authority.js";
-import { automaticAvailability, automaticRuntime, ensureAutomaticReadSchema, automaticContract, automaticPins, automaticPinsGuard, automaticGrantGuard, type AutomaticPins, type AutomaticGrantRow, type AutomaticOccurrenceRow, type AutomaticStepRow } from "./founder-auto-read-store.js";
+import { automaticAvailability, automaticRuntime, automaticContract, automaticPins, automaticPinsGuard, automaticGrantGuard, type AutomaticPins, type AutomaticGrantRow, type AutomaticOccurrenceRow, type AutomaticStepRow } from "./founder-auto-read-store.js";
 import { mintAutomaticReadCapabilities } from "./founder-auto-read-permits.js";
 import { FOUNDER_SQL_NOW } from "./founder-connector-context.js";
 import { nextFounderReviewDue } from "./founder-review-schedules.js";
@@ -20,7 +20,6 @@ async function unknown(env:Env,grant:AutomaticGrantRow,occurrence:AutomaticOccur
 }
 export async function tickFounderAutomaticReads(env:Env):Promise<{created:number;completed:number;blocked:number;unavailable:string|null}>{
   const availability=automaticAvailability(env);if(availability)return{created:0,completed:0,blocked:0,unavailable:availability};
-  await ensureAutomaticReadSchema(env);
   const rows=await env.AGENT_AUDIT.prepare("SELECT * FROM founder_automatic_read_grants WHERE state='enabled' ORDER BY checked_at,id LIMIT 2").all<AutomaticGrantRow>();let created=0,completed=0,blocked=0;
   for(const grant of rows.results){const contract=automaticContract(grant),pins=automaticPins(grant),now=Date.now(),source=await automaticGrantGuard(env,grant);
     const active=await env.AGENT_AUDIT.prepare("SELECT * FROM founder_automatic_read_occurrences WHERE grant_id=? AND grant_version=? AND state IN ('claimed','running','unknown') ORDER BY created_at DESC LIMIT 1").bind(grant.id,grant.version).first<AutomaticOccurrenceRow>();
@@ -91,7 +90,7 @@ async function settleAutomaticReport(env:Env,grant:AutomaticGrantRow,occurrenceI
   return state==="completed"||state==="partial";
 }
 export async function readAutomaticReadReport(env:Env,member:WorkspaceNativeMember,libraryId:string,occurrenceId:string,beforeFinalRead?:()=>Promise<void>):Promise<FounderAutomaticReadReport>{
-  await ensureAutomaticReadSchema(env);const actor=membershipSql(member,true),grant=await env.AGENT_AUDIT.prepare(`SELECT * FROM founder_automatic_read_grants WHERE workspace_id=? AND owner_id=? AND owner_account_id=? AND library_id=? AND ${actor.sql}`).bind(member.workspaceId,member.userId,member.accountId,libraryId,...actor.values).first<AutomaticGrantRow>();
+  const actor=membershipSql(member,true),grant=await env.AGENT_AUDIT.prepare(`SELECT * FROM founder_automatic_read_grants WHERE workspace_id=? AND owner_id=? AND owner_account_id=? AND library_id=? AND ${actor.sql}`).bind(member.workspaceId,member.userId,member.accountId,libraryId,...actor.values).first<AutomaticGrantRow>();
   const occurrence=grant?await env.AGENT_AUDIT.prepare("SELECT * FROM founder_automatic_read_occurrences WHERE id=? AND grant_id=? AND grant_version=? AND state IN ('completed','partial','failed')").bind(occurrenceId,grant.id,grant.version).first<AutomaticOccurrenceRow>():null;
   if(!grant||!occurrence?.markdown||!occurrence.json||!occurrence.report_hash||!occurrence.report_sources_json)throw new WorkspaceIntegrationError("automatic_read_report_unavailable",404);
   const expected=founderAutomaticReadReportHash({id:occurrence.id,grantId:grant.id,grantVersion:grant.version,expiresAt:occurrence.expires_at,markdown:occurrence.markdown,json:occurrence.json});if(expected!==occurrence.report_hash)throw new WorkspaceIntegrationError("automatic_read_report_changed",409);
@@ -126,7 +125,6 @@ export function automaticReadReportAuthorityGuard(env:Env,authority:AutomaticRep
 /** Scheduler authority remains separate from the human who explicitly consented to these reads. */
 export async function loadAutomaticReadReportAuthority(env:Env,input:{kind:"schedule";grantId:string;grantVersion:number;occurrenceId:string}):Promise<AutomaticReportAuthority>{
   if(input.kind!=="schedule")throw new WorkspaceIntegrationError("automatic_report_principal_required",403);
-  await ensureAutomaticReadSchema(env);
   const grant=await env.AGENT_AUDIT.prepare("SELECT * FROM founder_automatic_read_grants WHERE id=? AND version=? AND state IN ('enabled','exhausted')").bind(input.grantId,input.grantVersion).first<AutomaticGrantRow>();
   const occurrence=grant?await env.AGENT_AUDIT.prepare("SELECT * FROM founder_automatic_read_occurrences WHERE id=? AND grant_id=? AND grant_version=?").bind(input.occurrenceId,grant.id,grant.version).first<AutomaticOccurrenceRow>():null;
   if(!grant||!occurrence)throw new WorkspaceIntegrationError("automatic_read_report_unavailable",404);

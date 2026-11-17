@@ -22,35 +22,9 @@ export interface WorkspaceGrantRow {
   permissions_json: string; state: "active" | "revoked"; version: number;
   manager_id: string; manager_account_id: string; manager_version: number; manager_role: string; updated_at: number;
 }
-export const WORKSPACE_INTEGRATION_SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS workspace_app_connections (
-    id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, provider_key TEXT NOT NULL, version INTEGER NOT NULL,
-    generation INTEGER NOT NULL, state TEXT NOT NULL, issuer_id TEXT NOT NULL, issuer_account_id TEXT NOT NULL, issuer_version INTEGER NOT NULL,
-    issuer_role TEXT NOT NULL, pending_id TEXT NOT NULL, pending_expires_at INTEGER NOT NULL, fingerprint TEXT,
-    provider_connection_id TEXT, identity_label TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS workspace_app_connection_active ON workspace_app_connections(workspace_id,provider_key) WHERE state<>'revoked'`,
-  `CREATE TABLE IF NOT EXISTS workspace_app_grants (
-    id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, connection_id TEXT NOT NULL, connection_version INTEGER NOT NULL,
-    generation INTEGER NOT NULL, fingerprint TEXT NOT NULL, employee_id TEXT NOT NULL, employee_version INTEGER NOT NULL,
-    actor_id TEXT NOT NULL, actor_account_id TEXT NOT NULL, actor_version INTEGER NOT NULL, actor_role TEXT NOT NULL, permissions_json TEXT NOT NULL,
-    state TEXT NOT NULL, version INTEGER NOT NULL, manager_id TEXT NOT NULL, manager_account_id TEXT NOT NULL, manager_version INTEGER NOT NULL,
-    manager_role TEXT NOT NULL, updated_at INTEGER NOT NULL, UNIQUE(connection_id,employee_id,actor_id))`,
-  `CREATE TABLE IF NOT EXISTS workspace_app_approvals (
-    id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, request_id TEXT NOT NULL, requester_id TEXT NOT NULL,
-    binding_json TEXT NOT NULL, employee_id TEXT NOT NULL, employee_version INTEGER NOT NULL, employee_name TEXT NOT NULL,
-    connection_id TEXT NOT NULL, connection_version INTEGER NOT NULL, action_id TEXT NOT NULL, arguments_json TEXT NOT NULL,
-    input_hash TEXT NOT NULL, status TEXT NOT NULL, expires_at INTEGER NOT NULL, decision_id TEXT, decision_account_id TEXT, decision_version INTEGER,
-    decision_role TEXT, decided_at INTEGER, result_json TEXT, error_code TEXT, created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL, UNIQUE(workspace_id,requester_id,request_id))`,
-] as const;
-const initialized = new WeakSet<D1Database>();
 export async function ensureWorkspaceIntegrationSchema(env: Env): Promise<void> {
   if (!env.AGENT_AUDIT) throw new WorkspaceIntegrationError("workspace_storage_unavailable", 503);
-  if (initialized.has(env.AGENT_AUDIT)) return;
   await ensureTeamWorkspacesSchema(env);
-  await listCustomAgents(env, "__workspace_schema_only__");
-  for (const sql of WORKSPACE_INTEGRATION_SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
-  initialized.add(env.AGENT_AUDIT);
 }
 export function membershipSql(member: WorkspaceNativeMember, manager = false) {
   const native = nativeWorkspaceAccountSql(member);

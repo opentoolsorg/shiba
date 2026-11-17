@@ -5,7 +5,7 @@ import { resolveWorkspaceNativeMember } from './workspace-native-authority.js';
 import { rejectCrossOriginMutation, rejectNonJsonMutation } from './dashboard-mutation.js';
 import { membershipSql, WorkspaceIntegrationError } from './workspace-integrations-store.js';
 import { listReportSlackDestinations, reportSlackDestinationGuard } from './report-slack-store.js';
-import { automaticSlackApprover, ensureAutomaticSlackSchema, packAutomaticSlackGuard } from './founder-automatic-slack-store.js';
+import { automaticSlackApprover, packAutomaticSlackGuard } from './founder-automatic-slack-store.js';
 import { resolveStripeHumanSession, stripeSessionGuard, stripeSessionExpiry } from './founder-stripe-session.js';
 import { prepareReconciliationSlack, readReconciliationSlackGrant, reconciliationSlackAvailable, reconciliationSlackView, transitionReconciliationSlack, reconciliationSlackPin, reconciliationSlackLink, assertReconciliationSlackDigest, type ReconciliationSlackGrantRow } from './founder-reconciliation-slack-store.js';
 import type { ReconciliationSlackEnv } from './founder-reconciliation-slack-source.js';
@@ -22,7 +22,6 @@ export async function handleFounderReconciliationSlack(request:Request,env:Recon
   const member=await resolveWorkspaceNativeMember(request,env,auth.workspace);if(!member)return json({error:'automatic_slack_native_manager_required'},403);
   const session=await resolveStripeHumanSession(request,env,member);if(!session)return json({error:'stripe_native_session_required'},403);
   const verify=async()=>{request.signal.throwIfAborted();const latest=await resolveOrgForApiRequest(request,env);if(latest instanceof Response||!latest.workspace||latest.principal)throw new WorkspaceIntegrationError('automatic_slack_authority_changed',403);const m=await resolveWorkspaceNativeMember(request,env,latest.workspace),s=m?await resolveStripeHumanSession(request,env,m):null;if(!m||!s||m.accountId!==member.accountId||m.userId!==member.userId||m.workspaceId!==member.workspaceId||m.version!==member.version||m.role!==member.role||s.id!==session.id||s.expiresAt!==session.expiresAt)throw new WorkspaceIntegrationError('automatic_slack_authority_changed',403);request.signal.throwIfAborted();};
-  await ensureAutomaticSlackSchema(env);
   const match=/^\/api\/founder-reconciliation-slack(?:\/(arsg_[a-f0-9]{32})(?:\/(disclose|approve|pause|revoke))?)?\/?$/.exec(url.pathname);if(!match)return json({error:'not_found'},404);
   const id=match[1],action=match[2] as 'disclose'|'approve'|'pause'|'revoke'|undefined;
   if(request.method==='GET'&&!id){
