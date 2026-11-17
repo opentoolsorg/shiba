@@ -73,8 +73,6 @@ function publicEntry(entry: ToolCatalogEntry, withSchema: boolean) {
   };
 }
 
-export type ToolCatalogResult = ReturnType<typeof publicEntry>;
-
 export class ToolCatalog {
   constructor(private readonly sources: readonly ToolCatalogSource[]) {}
 
