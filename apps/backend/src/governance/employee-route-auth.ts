@@ -5,6 +5,7 @@ import { resolveUserId } from "../request-auth.js";
 import { COLLAB_TENANT_ID } from "../collaboration-store.js";
 import { verifyToken } from "../agent-tokens.js";
 import { getAgentByName } from "agents/routing";
+import { resolveTeamCollaborationScope } from "../team-collaboration-scope.js";
 import { employeeAccessDenial, resolveEmployeeAccess } from "./employee-access.js";
 
 type Route = { path: RegExp; required: (method: string) => EmployeeAccessLevel; source: "path" | "body" | "handoff" | "turn" | "turn-body" | "state" | "session"; bodyKey?: "recipientActorId" | "metadata" | "customAgentId" };
@@ -30,6 +31,15 @@ export async function enforceEmployeeRouteAccess(request: Request, env: Env): Pr
   const path = new URL(request.url).pathname;
   const route = employeeRouteAuth.find((entry) => entry.path.test(path));
   if (!route) return null;
+  if (request.method === "GET" && /^\/api\/collaboration\/rooms\/[^/]+\/handoffs\/[^/]+\/artifacts\/[^/]+$/.test(path)) {
+    const scope = await resolveTeamCollaborationScope(request, env);
+    if (!scope) return Response.json({ error: "Not found." }, { status: 404 });
+    if (scope.workspaceId.startsWith("ws_")) {
+      const headers = new Headers(request.headers);
+      headers.set("X-Shiba-Workspace", scope.workspaceId);
+      request = new Request(request, { headers });
+    }
+  }
   // Agent credentials retain their existing capability-based tool authority.
   const bearer = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1];
   if (bearer && (await verifyToken(env, bearer))?.kind === "agent") return null;
