@@ -4,6 +4,7 @@
  * TypeScript + zod only: no cloudflare:*, agents, or DOM imports.
  */
 export * from "./audit.js";
+export * from "./observability.js";
 export * from "./approvals.js";
 export * from "./chat.js";
 export * from "./decide.js";

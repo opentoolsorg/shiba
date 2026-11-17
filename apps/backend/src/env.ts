@@ -9,6 +9,15 @@ import type { Sandbox } from "./sandbox.js";
 import type { ConversationRoom } from "./conversation-room-do.js";
 
 export interface Env {
+  /** Optional outbound observability. No adapter is enabled by credentials alone. */
+  SHIBA_ERROR_REPORTING?: string;
+  SENTRY_DSN?: string;
+  SHIBA_ANALYTICS?: string;
+  POSTHOG_HOST?: string;
+  POSTHOG_API_KEY?: string;
+  SHIBA_OPEN_TELEMETRY?: string;
+  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT?: string;
+  OTEL_EXPORTER_OTLP_HEADERS?: string;
   /** Cloudflare-provided immutable version metadata, never supplied by a caller. */
   CF_VERSION_METADATA?: { id: string; tag: string; timestamp: string };
   AI: Ai;
