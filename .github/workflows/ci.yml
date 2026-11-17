@@ -42,6 +42,7 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
+      - run: pnpm routes:check
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm lint:imports
