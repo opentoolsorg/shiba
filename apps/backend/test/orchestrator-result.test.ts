@@ -104,6 +104,17 @@ describe("T8 orchestrator structured result", () => {
     expect(response.status).toBe(200);
     expect(orchestrator.state.pendingApprovals[0]?.routineRun).toEqual({ automationId: "trusted", test: true });
   });
+  it.each([false, true])("does not accept an unsigned routine voucher (signing configured: %s)", async (configured) => {
+    const orchestrator = makeOrchestrator();
+    orchestrator.name = "default";
+    if (configured) orchestrator.env.INTERNAL_SIGNING_KEY = "ab".repeat(32);
+    const response = await orchestrator.onRequest(new Request("https://internal/api/runs", {
+      method: "POST", headers: { "content-type": "application/json", [LOCAL_INTAKE_HEADER]: "routine:forged:test" },
+      body: JSON.stringify(DELEGATE_INPUT),
+    }));
+    expect(response.status).toBe(configured ? 401 : 200);
+    expect(orchestrator.state.pendingApprovals?.[0]?.routineRun).toBeUndefined();
+  });
   it.each([
     [false, false, undefined, false], [true, false, undefined, true], [true, true, undefined, false],
     [false, false, "cannot fetch report", false], [true, false, "cannot fetch report", false],
