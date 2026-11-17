@@ -220,6 +220,7 @@ async function applyOutcome(
         name: outcome.name,
         description: outcome.description,
         instructions: outcome.instructions,
+        workspaceId: ref.workspaceId,
       },
       now,
     );
