@@ -641,7 +641,7 @@ function BudgetLimitsCard({ budget, sessionId, sessionApiAvailable }: { budget: 
     const trimmed = raw.trim();
     if (trimmed === "") return null;
     const n = Number(trimmed);
-    return Number.isFinite(n) && n > 0 ? n : null;
+    return Number.isFinite(n) && n >= 0 ? n : null;
   };
 
   const startEditing = (): void => {
