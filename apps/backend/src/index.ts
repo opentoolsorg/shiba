@@ -89,6 +89,7 @@ import { handleSlackRoomEvent } from "./slack-room-bridge.js";
 import { ORCHESTRATOR_NAME, handleSlackCommand } from "./slack-routes.js";
 import { handleDiscordInteractions } from "./discord.js";
 import { handleTelegramWebhook } from "./telegram.js";
+import { handleTeamsMessages } from "./teams.js";
 import { handleTrigger } from "./trigger.js";
 import { handleSandboxRoutes } from "./sandbox-routes.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
@@ -546,6 +547,12 @@ export default {
       const discordResponse = await handleDiscordInteractions(request, env, chatCtx);
       if (discordResponse) {
         return discordResponse;
+      }
+      const teamsResponse = await handleTeamsMessages(request, env, chatCtx, {
+        dedupe: (activityId) => seenDelivery(env, `teams-activity:${activityId}`),
+      });
+      if (teamsResponse) {
+        return teamsResponse;
       }
       const managedSlackResponse = await handleMultiInstallationSlackCallback(request, env);
       if (managedSlackResponse) return managedSlackResponse;

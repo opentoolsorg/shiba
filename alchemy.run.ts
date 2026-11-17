@@ -407,6 +407,8 @@ export const Worker = Cloudflare.Worker("Worker", {
       "TELEGRAM_BOT_TOKEN",
       "TELEGRAM_WEBHOOK_SECRET",
       "DISCORD_PUBLIC_KEY",
+      "TEAMS_APP_ID",
+      "TEAMS_APP_PASSWORD",
       // T52: HMAC key for dashboard-minted pairing tokens (optional —
       // falls back to LOCAL_ADAPTER_TOKEN when unset).
       "PAIRING_SECRET",
@@ -506,6 +508,11 @@ export const Worker = Cloudflare.Worker("Worker", {
       "DISCORD_APPROVERS",
       "DISCORD_CHANNEL_REPOS",
       "DISCORD_AGENT_HARNESS",
+      "TEAMS_APPROVERS",
+      "TEAMS_CHANNEL_REPOS",
+      "TEAMS_APP_TENANT_ID",
+      "TEAMS_SERVICE_URL",
+      "TEAMS_AGENT_HARNESS",
       "GMAIL_CLIENT_ID",
       "BETTER_AUTH_VERIFICATION_FROM",
       "GMAIL_REDIRECT_URI",

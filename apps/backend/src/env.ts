@@ -352,6 +352,20 @@ export interface Env {
   TELEGRAM_APPROVERS?: string;
   /** Optional. JSON map `{chatId: "https://github.com/owner/repo"}` for commands without a URL. */
   TELEGRAM_CHAT_REPOS?: string;
+  /** Optional. Teams bot (Entra app registration) id; with TEAMS_APP_PASSWORD enables POST /api/teams/messages. */
+  TEAMS_APP_ID?: string;
+  /** Optional. Teams bot client secret; used only for the Bot Framework client-credentials token. */
+  TEAMS_APP_PASSWORD?: string;
+  /** Optional. Tenant id for a single-tenant bot; unset = multi-tenant (botframework.com). */
+  TEAMS_APP_TENANT_ID?: string;
+  /** Optional. Connector base for proactive post-back; replies use the activity's serviceUrl. */
+  TEAMS_SERVICE_URL?: string;
+  /** Optional. Comma-separated Teams user ids (Entra object ids) allowed to approve; unset = nobody. */
+  TEAMS_APPROVERS?: string;
+  /** Optional. JSON map of Teams conversation id to GitHub repo URL. */
+  TEAMS_CHANNEL_REPOS?: string;
+  /** Optional. Teams harness override (blank = AGENT_HARNESS). */
+  TEAMS_AGENT_HARNESS?: string;
   /** Optional. Discord application public key (hex); verifies interactions, unset disables the route. */
   DISCORD_PUBLIC_KEY?: string;
   /** Optional. Discord bot token, used only to post run progress back into the channel. */

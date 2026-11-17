@@ -299,6 +299,6 @@ export function postToChatThread(env: Env, threadName: string, text: string): Pr
   if (!ids || ids.platform === "web") return null;
   const adapter = createChannelAdapter(env, ids.platform);
   if (!adapter) return null;
-  const limit = ids.platform === "telegram" ? 4000 : 2000;
+  const limit = ids.platform === "discord" ? 2000 : 4000;
   return adapter.post({ placeId: ids.conversationId, text: text.slice(0, limit) }).then(() => undefined);
 }

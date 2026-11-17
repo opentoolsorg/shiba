@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { discordChannel } from "../src/channels/discord/index.js";
 import { slackChannel } from "../src/channels/slack/index.js";
+import { createTeamsTransport, teamsChannel } from "../src/channels/teams/index.js";
 import { telegramChannel } from "../src/channels/telegram/index.js";
 import type { Env } from "../src/env.js";
 import { runChannelContractSuite } from "../src/ports/channel/contract-suite.js";
@@ -145,6 +146,7 @@ runChannelContractSuite("discord", async () => {
 runChannelContractSuite("telegram", () => ({
   definition: telegramChannel,
   env: { TELEGRAM_BOT_TOKEN: "123:tg", TELEGRAM_WEBHOOK_SECRET: "tg-secret" } as Env,
+  bodyUnsigned: true,
   sign: async () => new Headers({ "X-Telegram-Bot-Api-Secret-Token": "tg-secret" }),
   message: {
     rawBody: JSON.stringify({
@@ -184,9 +186,137 @@ runChannelContractSuite("telegram", () => ({
   file: "file-id-1",
 }));
 
+const teamsKeys = crypto.subtle.generateKey(
+  { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+  true,
+  ["sign", "verify"],
+) as Promise<CryptoKeyPair>;
+const b64url = (data: Uint8Array | string) =>
+  btoa(String.fromCharCode(...(typeof data === "string" ? new TextEncoder().encode(data) : data)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const TEAMS_SERVICE = "https://smba.trafficmanager.net/teams/";
+const TEAMS_CONVERSATION = "19:abc@thread.tacv2";
+
+async function signTeamsJwt(claims: Record<string, unknown>, keys: CryptoKeyPair): Promise<string> {
+  const head = b64url(JSON.stringify({ alg: "RS256", kid: "k1", typ: "JWT" }));
+  const body = b64url(JSON.stringify(claims));
+  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", keys.privateKey, new TextEncoder().encode(`${head}.${body}`));
+  return `${head}.${body}.${b64url(new Uint8Array(signature))}`;
+}
+
+async function teamsKeyFetch(keys: CryptoKeyPair): Promise<typeof fetch> {
+  const jwk = await crypto.subtle.exportKey("jwk", keys.publicKey);
+  return (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/openidconfiguration")) return json({ jwks_uri: "https://login.botframework.com/v1/.well-known/keys" });
+    return json({ keys: [{ kty: "RSA", kid: "k1", n: jwk.n, e: jwk.e, endorsements: ["msteams"] }] });
+  }) as typeof fetch;
+}
+
+runChannelContractSuite("teams", async () => {
+  const keys = await teamsKeys;
+  const activity = (extra: Record<string, unknown>) => JSON.stringify({
+    type: "message",
+    serviceUrl: TEAMS_SERVICE,
+    channelId: "msteams",
+    from: { id: "29:ana", aadObjectId: "aad-ana", name: "Ana" },
+    conversation: { id: TEAMS_CONVERSATION, conversationType: "channel", tenantId: "tid" },
+    recipient: { id: "28:bot", name: "Shiba" },
+    ...extra,
+  });
+  return {
+    definition: { ...teamsChannel, transport: createTeamsTransport({ fetch: await teamsKeyFetch(keys) }) },
+    env: { TEAMS_APP_ID: "app-1", TEAMS_APP_PASSWORD: "pw" } as Env,
+    bodyUnsigned: true,
+    sign: async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const token = await signTeamsJwt(
+        { iss: "https://api.botframework.com", aud: "app-1", exp: now + 600, nbf: now - 10, serviceUrl: TEAMS_SERVICE },
+        keys,
+      );
+      return new Headers({ Authorization: `Bearer ${token}` });
+    },
+    message: {
+      rawBody: activity({
+        id: "act-1",
+        text: "<at>Shiba</at> hello <at>Bob</at>",
+        entities: [
+          { type: "mention", text: "<at>Shiba</at>", mentioned: { id: "28:bot" } },
+          { type: "mention", text: "<at>Bob</at>", mentioned: { id: "29:bob" } },
+        ],
+      }),
+      expected: {
+        deliveryId: "act-1",
+        placeId: TEAMS_CONVERSATION,
+        authorId: "aad-ana",
+        text: "<at>Shiba</at> hello <at>Bob</at>",
+        mentionedUserIds: ["28:bot", "29:bob"],
+        conversationKey: `teams:${TEAMS_CONVERSATION}`,
+      },
+    },
+    action: {
+      rawBody: activity({ id: "act-3", replyToId: "act-2", value: { shiba: "approve:a1", card: "card" } }),
+      expected: { deliveryId: "act-3", placeId: TEAMS_CONVERSATION, actorId: "aad-ana", value: "approve:a1", conversationKey: `teams:${TEAMS_CONVERSATION}` },
+    },
+    mentions: { text: "<at>Alice</at> and <at>Bob</at> and <at>Alice</at>", ids: ["Alice", "Bob"] },
+    respond(url) {
+      if (url.hostname === "login.microsoftonline.com") return json({ access_token: "tok", expires_in: 3600 });
+      if (url.pathname.includes("/attachments/")) return bytes();
+      return json({ id: "act-9" });
+    },
+    hosts: ["login.microsoftonline.com", "smba.trafficmanager.net"],
+    ref: { placeId: TEAMS_CONVERSATION, messageId: "act-2" },
+    thread: { placeId: TEAMS_CONVERSATION, threadId: "act-2" },
+    file: "https://smba.trafficmanager.net/teams/v3/attachments/a1/views/original",
+  };
+});
+
+describe("teams transport", () => {
+  it("rejects a token for another app, another serviceUrl, an expired token or an unendorsed channel", async () => {
+    const keys = await teamsKeys;
+    const transport = createTeamsTransport({ fetch: await teamsKeyFetch(keys) });
+    const env = { TEAMS_APP_ID: "app-1", TEAMS_APP_PASSWORD: "pw" } as Env;
+    const now = Math.floor(Date.now() / 1000);
+    const good = { iss: "https://api.botframework.com", aud: "app-1", exp: now + 600, serviceUrl: TEAMS_SERVICE };
+    const body = (channelId = "msteams") => JSON.stringify({ type: "message", id: "1", serviceUrl: TEAMS_SERVICE, channelId });
+    const check = async (claims: Record<string, unknown>, raw = body()) =>
+      transport.verify(raw, new Headers({ Authorization: `Bearer ${await signTeamsJwt(claims, keys)}` }), env);
+    expect(await check(good)).toEqual({ ok: true });
+    expect(await check({ ...good, aud: "other" })).toMatchObject({ ok: false, status: 401 });
+    expect(await check({ ...good, iss: "https://evil.example" })).toMatchObject({ ok: false, status: 401 });
+    expect(await check({ ...good, serviceUrl: "https://evil.example/" })).toMatchObject({ ok: false, status: 401 });
+    expect(await check({ ...good, exp: now - 3600 })).toMatchObject({ ok: false, status: 401 });
+    expect(await check(good, body("webchat"))).toMatchObject({ ok: false, status: 401 });
+    const other = await crypto.subtle.generateKey(
+      { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+      true,
+      ["sign", "verify"],
+    ) as CryptoKeyPair;
+    const forged = await signTeamsJwt(good, other);
+    expect(await transport.verify(body(), new Headers({ Authorization: `Bearer ${forged}` }), env)).toMatchObject({ ok: false, status: 401 });
+  });
+
+  it("only sends the bot token to the Connector host on download", async () => {
+    const seen: { url: string; auth: string | null }[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      seen.push({ url, auth: new Headers(init?.headers).get("Authorization") });
+      if (url.includes("login.microsoftonline.com")) return json({ access_token: "tok", expires_in: 3600 });
+      return bytes();
+    }) as typeof fetch;
+    const adapter = teamsChannel.createAdapter({ TEAMS_APP_ID: "app-1", TEAMS_APP_PASSWORD: "pw" } as Env, { fetch: fetchImpl })!;
+    await adapter.download("https://contoso.sharepoint.com/file.txt");
+    expect(seen.find((s) => s.url.includes("sharepoint"))?.auth).toBeNull();
+    await adapter.download(`${TEAMS_SERVICE}v3/attachments/a/views/original`);
+    expect(seen.find((s) => s.url.includes("/v3/attachments/"))?.auth).toBe("Bearer tok");
+    await expect(adapter.download("http://smba.trafficmanager.net/x")).rejects.toThrow();
+  });
+});
+
 describe("channel registry", () => {
-  it("registers slack, discord and telegram and resolves conversation keys to their channel", () => {
-    expect(listChannels().map((c) => c.id).sort()).toEqual(["discord", "slack", "telegram"]);
+  it("registers slack, discord, telegram and teams and resolves conversation keys to their channel", () => {
+    expect(listChannels().map((c) => c.id).sort()).toEqual(["discord", "slack", "teams", "telegram"]);
+    expect(channelForConversationKey(`teams:${TEAMS_CONVERSATION}`)).toBe(teamsChannel);
     expect(getChannel("slack")).toBe(slackChannel);
     expect(channelForConversationKey("slack:T1:C1:1.2")).toBe(slackChannel);
     expect(channelForConversationKey("telegram:-100")).toBe(telegramChannel);
