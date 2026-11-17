@@ -55,6 +55,7 @@ jobs:
       # SEO tests skip in the earlier unit step when dist does not exist.
       - run: pnpm test:built
       - run: pnpm check:deploy
+      - run: pnpm check:source-layout
       - run: cp .env.example .env
       - run: node scripts/check-dev-vars-example.mjs
       - name: Validate example environment with a synthetic account

@@ -32,6 +32,7 @@
     "check:ci": "biome ci --formatter-enabled=false --assist-enabled=false . && knip --reporter compact --max-issues 6",
     "check:deploy": "node scripts/check-alchemy-drift.mjs && node scripts/check-dogfood-drift.mjs && node scripts/check-env-types.mjs && node --experimental-strip-types --test scripts/deploy-config.test.mjs scripts/check-dogfood-drift.test.mjs",
     "check:dev-vars": "node scripts/check-dev-vars-example.mjs",
+    "check:source-layout": "node scripts/source-layout.mjs --check",
     "format": "biome format --write .",
     "knip": "knip",
     "lint": "biome lint .",
