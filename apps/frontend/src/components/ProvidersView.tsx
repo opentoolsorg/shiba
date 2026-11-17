@@ -241,20 +241,33 @@ function WaitingSignIn({
         </label>
       ) : null}
       {needsToken ? (
-        <label className="mt-3 block">
-          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
-            Setup token
-          </span>
-          <input
-            type="password"
-            data-testid={`provider-setup-token-${card.id}`}
-            className="mt-1 w-full border border-[var(--border-1)] bg-[var(--card)] p-2 font-mono text-[11px] text-[var(--fg)]"
-            value={credential}
-            onChange={(event) => setCredential(event.target.value)}
-            autoComplete="off"
-            disabled={busy}
-          />
-        </label>
+        <>
+          <label className="mt-3 block">
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
+              Setup token
+            </span>
+            <input
+              type="password"
+              data-testid={`provider-setup-token-${card.id}`}
+              className="mt-1 w-full border border-[var(--border-1)] bg-[var(--card)] p-2 font-mono text-[11px] text-[var(--fg)]"
+              value={credential}
+              onChange={(event) => setCredential(event.target.value)}
+              autoComplete="off"
+              disabled={busy}
+              aria-describedby={card.connection.message ? `provider-token-message-${card.id}` : undefined}
+            />
+          </label>
+          {card.connection.message ? (
+            <p
+              id={`provider-token-message-${card.id}`}
+              data-testid={`provider-signin-message-${card.id}`}
+              className="mt-2 font-mono text-[11px] leading-relaxed text-[var(--fg)]"
+              role="status"
+            >
+              {card.connection.message}
+            </p>
+          ) : null}
+        </>
       ) : null}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {verificationUri && device ? (
@@ -588,7 +601,7 @@ function ProviderCard({
           <dt>Account / billing</dt><dd>{route.account}</dd>
         </dl>
         <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">{route.note}</p>
-        {card.connection.message ? (
+        {card.connection.message && !(card.connection.phase === "waiting" && card.connection.signInKind === "claude-setup-token") ? (
           <p
             data-testid={`provider-signin-message-${card.id}`}
             className="mt-2 font-mono text-[11px] leading-relaxed text-[var(--fg)]"
