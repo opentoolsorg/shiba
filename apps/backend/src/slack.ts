@@ -78,8 +78,9 @@ export class SlackPostRejectedError extends Error {
 export async function postSlackMessageWithReceipt(
   token: string,
   input: { channel: string; threadTs?: string; text: string; blocks?: unknown[]; clientMsgId?: string; persona?: SlackPersonaRole },
+  fetchImpl: typeof fetch = fetch,
 ): Promise<{ channel: string; ts: string }> {
-  const response = await fetch(SLACK_POST_MESSAGE, {
+  const response = await fetchImpl(SLACK_POST_MESSAGE, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -185,8 +186,9 @@ export async function verifySlackRequest(
 export async function updateSlackMessage(
   token: string,
   input: { channel: string; ts: string; text: string; blocks?: unknown[] },
+  fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
-  const response = await fetch("https://slack.com/api/chat.update", {
+  const response = await fetchImpl("https://slack.com/api/chat.update", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
     signal: AbortSignal.timeout(SLACK_POST_TIMEOUT_MS),
