@@ -80,6 +80,7 @@ export async function answerSlackUiBlock(env: Env, payload: SlackUiPayload): Pro
   if (!ownerId) throw new Error("Question has no configured chat owner.");
   const question = await getUiBlock(env, ownerId, p.runId, p.blockId);
   if (!question) throw new Error("Question not found.");
+  if (!question.block) throw new Error("unsupported_block");
   let answer: UiAnswer;
   if (question.block.type === "confirm") {
     if (p.optionId !== "yes" && p.optionId !== "no") throw new Error("Invalid confirmation choice.");

@@ -28,7 +28,7 @@ export interface UiBlockQuestion {
   ownerId: string;
   runId: string;
   blockId: string;
-  block: UiBlock;
+  block: UiBlock | null;
   fallbackText: string;
   status: Row["status"];
   answer?: UiAnswer;
@@ -43,11 +43,12 @@ function database(env: StoreEnv): D1Database {
 }
 
 function parseRow(row: Row): UiBlockQuestion {
-  const parsed = parseUiBlock(JSON.parse(row.block_json));
-  if (!parsed.ok) throw new UiBlockError("Stored UI block is invalid.", 503);
+  let input: unknown = null;
+  try { input = JSON.parse(row.block_json); } catch { /* Preserve the stored fallback for unreadable blocks. */ }
+  const parsed = parseUiBlock(input);
   return {
     ownerId: row.owner_id, runId: row.run_id, blockId: row.block_id,
-    block: parsed.block, fallbackText: row.fallback_text, status: row.status,
+    block: parsed.ok ? parsed.block : null, fallbackText: row.fallback_text, status: row.status,
     createdAt: row.created_at,
     ...(row.answer_json ? { answer: uiAnswerSchema.parse(JSON.parse(row.answer_json)) } : {}),
     ...(row.answered_via ? { answeredVia: row.answered_via } : {}),
@@ -100,6 +101,7 @@ export async function createUiBlock(env: StoreEnv, ownerId: string, runId: strin
 export async function answerUiBlock(env: StoreEnv, ownerId: string, runId: string, blockId: string, input: unknown, answeredVia: string, now = Date.now()) {
   const question = await getUiBlock(env, ownerId, runId, blockId);
   if (!question) throw new UiBlockError("Question not found.", 404);
+  if (!question.block) throw new UiBlockError("unsupported_block", 400);
   if (question.status !== "pending") throw new UiBlockError("Question is already resolved.", 409);
   const checked = validateUiAnswer(question.block, input);
   if (!checked.ok) throw new UiBlockError("Invalid UI answer.", 400, checked.errors);

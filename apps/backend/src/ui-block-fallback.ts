@@ -11,7 +11,7 @@ export async function tryAnswerUiBlockFallback(env: Env, threadId: string, sende
   const ownerId = chatLaneActorId(env, threadId);
   if (!ownerId) return false;
   const latest = (await listUiBlocks(env, ownerId, threadId, true, true))[0];
-  if (!latest || latest.status !== "pending") return false;
+  if (!latest?.block || latest.status !== "pending") return false;
   const answer = parseUiBlockFallbackReply(latest.block, text);
   if ("error" in answer) return false;
   try { await answerUiBlock(env, ownerId, latest.runId, latest.blockId, answer, "fallback"); }
