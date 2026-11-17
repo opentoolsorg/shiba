@@ -75,16 +75,16 @@ describe("Outputs routes", () => {
   it("creates an image and lists metadata only to its owner with type filters", async () => {
     const { env } = fixture();
     expect((await handleKnowledgeOutputs(request("/images", { prompt: "A town", aspectRatio: "16:9" }), env))?.status).toBe(201);
-    const list = await (await handleKnowledgeOutputs(request("?type=image"), env))!.json();
+    const list = await (await handleKnowledgeOutputs(request("?type=image"), env))!.json() as { items: Array<{ media?: unknown }> };
     expect(list.items).toHaveLength(1);
-    expect(list.items[0].media).toMatchObject({ kind: "image", mode: "text-to-image", label: "Lucid Origin", prompt: "A town", aspectRatio: "16:9", width: 1024, height: 576, sourceIds: [] });
-    for (const path of ["?type=video", "?type=archive"]) expect(await (await handleKnowledgeOutputs(request(path), env))!.json()).toEqual({ items: [] });
-    expect((await (await handleKnowledgeOutputs(request("?type=output"), env))!.json()).items).toHaveLength(1);
+    expect(list.items[0]?.media).toMatchObject({ kind: "image", mode: "text-to-image", label: "Lucid Origin", prompt: "A town", aspectRatio: "16:9", width: 1024, height: 576, sourceIds: [] });
+    for (const path of ["?type=video", "?type=archive"]) expect(await (await handleKnowledgeOutputs(request(path), env))!.json() as { items: unknown[] }).toEqual({ items: [] });
+    expect(((await (await handleKnowledgeOutputs(request("?type=output"), env))!.json()) as { items: unknown[] }).items).toHaveLength(1);
     expect(await (await handleKnowledgeOutputs(request("", undefined, "bob"), env))!.json()).toEqual({ items: [] });
   });
   it("lists video options only when enabled and returns image styles", async () => {
     const { env } = fixture();
-    const body = await (await handleKnowledgeOutputs(request("/media-options"), env))!.json();
+    const body = await (await handleKnowledgeOutputs(request("/media-options"), env))!.json() as { imageModels: unknown[]; imageAspectRatios: string[]; video: unknown };
     expect(body.imageModels).toHaveLength(4);
     expect(body.imageAspectRatios).toEqual(Object.keys(imageDimensions));
     expect(body.video).toEqual({ enabled: false, modes: [], aspectRatios: [] });
@@ -100,8 +100,8 @@ describe("video modes", () => {
     if (mode !== "text-to-video") expect(videoInputSchema.safeParse({ prompt: "Make a clip", mode }).success).toBe(false);
     expect(videoInputSchema.safeParse({ prompt: "Make a clip", mode, ...sources[mode], ...(mode === "video-editing" ? { sourceImageArtifactId: image } : { sourceVideoArtifactId: video }) }).success).toBe(false);
   });
-  it.each([[], [image, image, image, image]])("rejects an invalid reference count", (referenceImageArtifactIds) => {
-    expect(videoInputSchema.safeParse({ prompt: "Clip", mode: "reference-to-video", referenceImageArtifactIds }).success).toBe(false);
+  it.each([{ ids: [] }, { ids: [image, image, image, image] }])("rejects an invalid reference count", ({ ids }) => {
+    expect(videoInputSchema.safeParse({ prompt: "Clip", mode: "reference-to-video", referenceImageArtifactIds: ids }).success).toBe(false);
   });
   it.each(videoModes)("sends content parts for %s", async (mode) => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ id: "job_1" }));
