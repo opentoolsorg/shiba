@@ -67,7 +67,7 @@ export async function listUiBlocks(env: StoreEnv, ownerId: string, runId: string
   if (includeTasks) {
     const prefix = `${runId}:ui-task:`;
     const rows = await db.prepare(
-      `SELECT * FROM ui_block_questions WHERE tenant_id=? AND owner_id=? AND (run_id=? OR substr(run_id,1,?)=?) AND ${includeAnswered ? "status IN ('pending','answered')" : "status='pending'"} ORDER BY created_at DESC LIMIT 100`,
+      `SELECT * FROM ui_block_questions WHERE tenant_id=? AND owner_id=? AND (run_id=? OR substr(run_id,1,?)=?) AND ${includeAnswered ? "status IN ('pending','answered')" : "status='pending'"} ORDER BY created_at DESC, rowid DESC LIMIT 100`,
     ).bind(COLLAB_TENANT_ID, ownerId, runId, prefix.length, prefix).all<Row>();
     return rows.results.map(parseRow);
   }
