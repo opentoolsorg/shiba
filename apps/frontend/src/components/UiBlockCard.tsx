@@ -28,13 +28,15 @@ function answerText(block: UiBlock, answer: UiAnswer): string {
 }
 
 function KnownUiBlockCard({ runId, block, fallbackText, status = "pending", answer, sessionId }: UiBlockCardProps & { block: UiBlock }) {
-  const [selected, setSelected] = useState<string[]>([]);
-  const [values, setValues] = useState<Record<string, string | boolean>>({});
+  const [selected, setSelected] = useState<string[]>(answer?.optionIds ?? []);
+  const [values, setValues] = useState<Record<string, string | boolean>>(answer?.values ?? {});
   const [staged, setStaged] = useState<UiAnswer | null>(null);
   const [submitted, setSubmitted] = useState<UiAnswer | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const recorded = answer ?? submitted;
+  const shownSelected = recorded?.optionIds ?? selected;
+  const shownValues = recorded?.values ?? values;
   const disabled = busy || status !== "pending" || Boolean(recorded);
 
   async function submit(input: UiAnswer) {
@@ -83,7 +85,7 @@ function KnownUiBlockCard({ runId, block, fallbackText, status = "pending", answ
         {block.type === "choice" ? <>
           <p className="text-xs">Choose {block.minSelections ?? 1}–{block.maxSelections ?? (block.multiple ? block.options.length : 1)}.</p>
           {block.options.map((option) => <label key={option.id} className="flex items-start gap-2 text-sm">
-            <input type={block.multiple ? "checkbox" : "radio"} name={`${runId}:${block.id}`} checked={selected.includes(option.id)}
+            <input type={block.multiple ? "checkbox" : "radio"} name={`${runId}:${block.id}`} checked={shownSelected.includes(option.id)}
               disabled={Boolean(block.multiple && !selected.includes(option.id) && selected.length >= (block.maxSelections ?? block.options.length))}
               onChange={() => { setStaged(null); setSelected(block.multiple ? selected.includes(option.id) ? selected.filter((id) => id !== option.id) : [...selected, option.id] : [option.id]); }} />
             <span>{option.label}{option.danger ? " (destructive)" : ""}{option.description ? <span className="block text-xs">{option.description}</span> : null}</span>
@@ -93,12 +95,12 @@ function KnownUiBlockCard({ runId, block, fallbackText, status = "pending", answ
         {block.type === "form" ? <form className="flex flex-col gap-3" onSubmit={(event) => { event.preventDefault(); choose({ blockId: block.id, values }); }}>
           {block.fields.map((field) => <label key={field.id} className="flex flex-col gap-1 text-sm">
             <span>{field.label}{field.required ? " (required)" : ""}</span>
-            {field.kind === "checkbox" ? <input type="checkbox" required={field.required} checked={values[field.id] === true} onChange={(event) => setValues({ ...values, [field.id]: event.target.checked })} />
-              : field.kind === "select" ? <select className={inputClass} required={field.required} value={String(values[field.id] ?? "")} onChange={(event) => setValues({ ...values, [field.id]: event.target.value })}>
+            {field.kind === "checkbox" ? <input type="checkbox" required={field.required} checked={shownValues[field.id] === true} onChange={(event) => setValues({ ...values, [field.id]: event.target.checked })} />
+              : field.kind === "select" ? <select className={inputClass} required={field.required} value={String(shownValues[field.id] ?? "")} onChange={(event) => setValues({ ...values, [field.id]: event.target.value })}>
                 <option value="">Choose…</option>{field.options.map((option) => <option key={option.id} value={option.id}>{option.label}{option.danger ? " (destructive)" : ""}</option>)}
               </select>
-                : field.kind === "textarea" ? <textarea className={inputClass} required={field.required} placeholder={field.placeholder} maxLength={field.maxLength} value={String(values[field.id] ?? "")} onChange={(event) => setValues({ ...values, [field.id]: event.target.value })} />
-                  : <input className={inputClass} type="text" required={field.required} placeholder={field.placeholder} maxLength={field.maxLength} value={String(values[field.id] ?? "")} onChange={(event) => setValues({ ...values, [field.id]: event.target.value })} />}
+                : field.kind === "textarea" ? <textarea className={inputClass} required={field.required} placeholder={field.placeholder} maxLength={field.maxLength} value={String(shownValues[field.id] ?? "")} onChange={(event) => setValues({ ...values, [field.id]: event.target.value })} />
+                  : <input className={inputClass} type="text" required={field.required} placeholder={field.placeholder} maxLength={field.maxLength} value={String(shownValues[field.id] ?? "")} onChange={(event) => setValues({ ...values, [field.id]: event.target.value })} />}
           </label>)}
           <button className={buttonClass} type="submit">{block.submitLabel}</button>
         </form> : null}
