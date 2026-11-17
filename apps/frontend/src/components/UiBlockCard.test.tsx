@@ -117,6 +117,19 @@ describe("UiBlockCard", () => {
     expect(screen.getByRole("status").textContent).toBe("Answered: Next");
     expect(screen.getByRole("button", { name: "Next" }).closest("fieldset")?.disabled).toBe(true);
   });
+  it("restores settled choice and form controls, including answers received by polling", () => {
+    const { rerender } = render(<UiBlockCard {...props} block={choice} status="answered" answer={{ blockId: choice.id, optionIds: ["two"] }} />);
+    expect((screen.getByRole("checkbox", { name: "Two" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "One" }) as HTMLInputElement).checked).toBe(false);
+    rerender(<UiBlockCard {...props} block={form} status="answered" answer={{ blockId: form.id, values: { name: "Ada", notes: "Saved notes", color: "blue", agree: true } }} />);
+    expect((screen.getByLabelText("Name (required)") as HTMLInputElement).value).toBe("Ada");
+    expect((screen.getByLabelText("Notes") as HTMLTextAreaElement).value).toBe("Saved notes");
+    expect((screen.getByLabelText("Color") as HTMLSelectElement).value).toBe("blue");
+    expect((screen.getByLabelText("Agree") as HTMLInputElement).checked).toBe(true);
+    rerender(<UiBlockCard {...props} block={choice} />);
+    rerender(<UiBlockCard {...props} block={choice} status="answered" answer={{ blockId: choice.id, optionIds: ["one"] }} />);
+    expect((screen.getByRole("checkbox", { name: "One" }) as HTMLInputElement).checked).toBe(true);
+  });
 });
 
 describe("UiBlockQuestions", () => {
