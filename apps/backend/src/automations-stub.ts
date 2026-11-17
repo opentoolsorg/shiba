@@ -3,11 +3,21 @@
  * fan-outs and the cron tick. Extracted from index.ts (PLAN.md §18.0).
  */
 import type { Env } from "./env.js";
-import { automationsFor } from "./platform/do-resolver.js";
+import { AUTOMATIONS_DO_NAME } from "./automation-runner.js";
+import { AUTOMATION_WORKSPACE_HEADER } from "./platform/automations-scope.js";
 
 export function automationsStub(env: Env, workspaceId?: string) {
-  // TODO(scope): pass authenticated workspace IDs at each automation ingress before enabling scoped DOs.
-  return automationsFor(env, { workspaceId });
+  const stub = env.Automations.get(env.Automations.idFromName(AUTOMATIONS_DO_NAME));
+  if (env.SHIBA_SCOPED_DO !== "1") return stub;
+  return {
+    fetch(input: Request | string, init?: RequestInit) {
+      const request = new Request(input, init);
+      const headers = new Headers(request.headers);
+      headers.delete(AUTOMATION_WORKSPACE_HEADER);
+      if (workspaceId) headers.set(AUTOMATION_WORKSPACE_HEADER, workspaceId);
+      return stub.fetch(new Request(request, { headers }));
+    },
+  };
 }
 
 /** Durable check-and-record for a retried delivery id. True = already seen. */
