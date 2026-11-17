@@ -159,7 +159,7 @@ import {
 } from "../pending-approvals.js";
 import { makeReceipt } from "../receipts.js";
 import { logStructured } from "../log.js";
-import { runTimedOut } from "../public-error.js";
+import { dependentRuns, serializeRun, terminalStatusFor } from "./orchestrator-projections.js";
 import { restartDisposition } from "../run-resume.js";
 import { recordQueuedAck, syncRunMilestones } from "../run-milestones.js";
 import { releaseRepoClaim } from "../repo-work-claims.js";
@@ -330,17 +330,6 @@ export interface OrchestratorState {
   specialistBudget?: { turnId: string; remaining: number };
   publicationReviews?: PublicationReviewRecord[];
   runResultContext?: Record<string, { summary: string; exitCode: number; changedFileCount: number }>;
-}
-
-/** A classified error lands as its matching terminal status. */
-function terminalStatusFor(code: RunErrorCode): RunStatus {
-  // Indeterminate family: the run ended but its side effects are unverified —
-  // the record is "unknown" so the wire projection and the dashboard agree.
-  return code === "cancelled"
-    ? "cancelled"
-    : code === "outcome_unknown" || code === "container_lost"
-      ? "unknown"
-      : "error";
 }
 
 /** Exported for tests — the tool-call surface stays the single caller. */
@@ -5316,21 +5305,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   /** Find the complete dependent tree, including children of terminal runs. */
   private dependentRuns(runId: string): DelegatedRun[] {
-    const visited = new Set([runId]);
-    const pending = [runId];
-    const dependents: DelegatedRun[] = [];
-    for (let index = 0; index < pending.length; index += 1) {
-      const parentId = pending[index]!;
-      for (const run of this.store.list()) {
-        if (visited.has(run.runId) || (run.reviewOf !== parentId && run.parentRunId !== parentId)) continue;
-        visited.add(run.runId);
-        pending.push(run.runId);
-        // A finished intermediary can still have an active subagent or review.
-        // Its own terminal state stays immutable while traversal continues.
-        dependents.push(run);
-      }
-    }
-    return dependents;
+    return dependentRuns(this.store.list(), runId);
   }
 
   private stampCheckpoint(runId: string, checkpoint: NonNullable<DelegatedRun["checkpoint"]>): void {
@@ -5570,12 +5545,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   /** Wire projection for API responses: errorCode -> {status, code, userMessage}. */
   private serializeRun(run: DelegatedRun): DelegatedRun & { errorWire?: RunErrorWire; timedOut?: boolean } {
-    const timedOut = runTimedOut(run);
-    // T68: the sealed env never leaves the DO through the API.
-    const visible = { ...run };
-    delete visible.envSealed;
-    const projected = visible.errorCode ? { ...visible, errorWire: runErrorWire(visible.errorCode) } : visible;
-    return timedOut ? { ...projected, timedOut: true } : projected;
+    return serializeRun(run);
   }
 
   /** Mirror the per-isolate leak registry into DO state so hibernation
