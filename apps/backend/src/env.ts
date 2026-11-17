@@ -395,16 +395,10 @@ export interface Env {
   GITHUB_PROJECT_NUMBER?: string;
   /** Optional. Server-side credential for AI Gateway. Never sent to containers. */
   AI_GATEWAY_TOKEN?: string;
-  /**
-   * Optional. HMAC key for edge identity signing (edge-identity.ts): the
-   * Worker signs requests that carry vouched headers (X-Agent-Principal,
-   * X-Shiba-Intake) into DO stubs, and DO consumers verify the signature
-   * before trusting those headers. Unset keeps the pre-signing header-trust
-   * behavior (with a once-per-lifetime warning) so local dev keeps working.
-   * One secret shared by every DO type — set the same value on all stages
-   * that should sign/verify each other.
-   */
+  /** Worker-only root for purpose-derived internal signatures. */
   INTERNAL_SIGNING_KEY?: string;
+  /** One-release grace: defaults to "1"; set "0" to reject legacy signatures. */
+  SHIBA_LEGACY_SIGNING_FALLBACK?: string;
   /**
    * Personal Claude subscription kill switch: exactly "0" disables the lane.
    * Unset allows per-user storage. Legacy operator routes still require "1".

@@ -1,3 +1,4 @@
+import { signInternal, verifyInternal } from "./security/signing.js";
 import type {
   PersonalExecutionSnapshot,
   PersonalPairingScope,
@@ -363,19 +364,6 @@ export async function prepareSlackCoworkerSubmission(
   if (!saved || !(await current(env, saved, session))) fail();
   return preview;
 }
-async function mac(secret: string, value: string) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  return Array.from(
-    new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value))),
-    (b) => b.toString(16).padStart(2, "0"),
-  ).join("");
-}
 function bodyFor(row: Row) {
   const p = parsed(row);
   return {
@@ -391,20 +379,17 @@ function bodyFor(row: Row) {
     grantedCapabilities: ["room.read", "message.send"],
   };
 }
-async function proofValue(secret: string, row: Row, body: unknown) {
-  return mac(
-    secret,
-    JSON.stringify([
-      "shiba:slack-coworker-submission:v2",
-      row.id,
-      row.account_id,
-      row.workspace_id,
-      row.session_id,
-      row.session_expires_at,
-      row.expires_at,
-      body,
-    ]),
-  );
+function proofPayload(row: Row, body: unknown) {
+  return JSON.stringify([
+    "shiba:slack-coworker-submission:v2",
+    row.id,
+    row.account_id,
+    row.workspace_id,
+    row.session_id,
+    row.session_expires_at,
+    row.expires_at,
+    body,
+  ]);
 }
 export async function claimSlackCoworkerSubmission(
   env: Env,
@@ -463,7 +448,7 @@ export async function claimSlackCoworkerSubmission(
     );
   const body = bodyFor(row),
     headers = new Headers(request.headers);
-  headers.set(HEADER, `${row.id}.${await proofValue(secret, row, body)}`);
+  headers.set(HEADER, `${row.id}.${await signInternal(env, "shiba/slack-coworker-submission/v1", proofPayload(row, body))}`);
   headers.set("content-type", "application/json");
   return {
     handoffId: row.handoff_id,
@@ -486,7 +471,7 @@ export async function consumeSlackCoworkerSubmission(
 ): Promise<boolean> {
   try {
     const secret = env.INTERNAL_SIGNING_KEY?.trim(),
-      match = /^(scp_[a-f0-9]{32})\.([a-f0-9]{64})$/.exec(request.headers.get(HEADER) ?? "");
+      match = /^(scp_[a-f0-9]{32})\.((?:v1:[a-f0-9]{16}:)?[a-f0-9]{64})$/.exec(request.headers.get(HEADER) ?? "");
     if (!secret || secret.length < 32 || !match) return false;
     const row = await env.AGENT_AUDIT.prepare(
       "SELECT * FROM slack_coworker_execution_v2 WHERE id=? AND workspace_id=? AND handoff_id=? AND state='dispatching'",
@@ -504,34 +489,7 @@ export async function consumeSlackCoworkerSubmission(
       !(await current(env, row, session))
     )
       return false;
-    const key = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(secret),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["verify"],
-    );
-    const expected = Uint8Array.from(match[2]!.match(/../g)!, (v) => parseInt(v, 16));
-    if (
-      !(await crypto.subtle.verify(
-        "HMAC",
-        key,
-        expected,
-        new TextEncoder().encode(
-          JSON.stringify([
-            "shiba:slack-coworker-submission:v2",
-            row.id,
-            row.account_id,
-            row.workspace_id,
-            row.session_id,
-            row.session_expires_at,
-            row.expires_at,
-            body,
-          ]),
-        ),
-      ))
-    )
-      return false;
+    if (!await verifyInternal(env, "shiba/slack-coworker-submission/v1", proofPayload(row, body), match[2] ?? "", secret)) return false;
     const sg = sessionGuard(member, session),
       g = slackCoworkerDraftGuard(member);
     const consumed =

@@ -1,5 +1,6 @@
 /** Parent-only one-use capabilities. The INTERNAL_SIGNING_KEY never reaches the gateway. */
 import { digest, hash, readRequestDigest, boundedBody, type ReadRequest, type GatewayReadReceipt } from "@shiba/openconnector-read-gateway";
+import { signInternal, verifyInternal } from "./security/signing.js";
 import type { Env } from "./env.js";
 import { automaticAvailability, automaticGrantGuard, automaticPinsGuard, automaticPins, automaticContract, type AutomaticPins, type AutomaticGrantRow, type AutomaticStepRow, type AutomaticOccurrenceRow } from "./founder-auto-read-store.js";
 import { scopedGoogleReadToken, verifiedGoogleReadToken } from "./founder-auto-read-keys.js";
@@ -11,8 +12,10 @@ interface Capability {format:"shiba.auto-read.cap.v1";stage:Stage;stepId:string;
 const encoder=new TextEncoder(),domain="shiba:auto-read-capability:v1\n";
 function encode(bytes:Uint8Array){let text="";for(const b of bytes)text+=String.fromCharCode(b);return btoa(text).replaceAll("+","-").replaceAll("/","_").replace(/=+$/u,"");}
 function decode(text:string){if(!/^[A-Za-z0-9_-]+$/.test(text))throw new Error("invalid");const raw=atob(text.replaceAll("-","+").replaceAll("_","/"));return Uint8Array.from(raw,c=>c.charCodeAt(0));}
-async function key(env:Env){if(!env.INTERNAL_SIGNING_KEY||env.INTERNAL_SIGNING_KEY.length<32)throw new WorkspaceIntegrationError("automatic_read_authority_unavailable",503);return crypto.subtle.importKey("raw",encoder.encode(env.INTERNAL_SIGNING_KEY),{name:"HMAC",hash:"SHA-256"},false,["sign","verify"]);}
-async function seal(env:Env,payload:Capability){const encoded=encode(encoder.encode(JSON.stringify(payload))),signature=await crypto.subtle.sign("HMAC",await key(env),encoder.encode(domain+encoded));return`${encoded}.${encode(new Uint8Array(signature))}`;}
+const PURPOSE="shiba/automatic-read-capability/v1";
+function signingSecret(env:Env){const secret=env.INTERNAL_SIGNING_KEY?.trim();if(!secret||secret.length<32)throw new WorkspaceIntegrationError("automatic_read_authority_unavailable",503);return secret;}
+// Encode the versioned signature text; legacy tokens encoded the raw 32-byte MAC.
+async function seal(env:Env,payload:Capability){signingSecret(env);const encoded=encode(encoder.encode(JSON.stringify(payload))),signature=await signInternal(env,PURPOSE,domain+encoded);return`${encoded}.${encode(encoder.encode(signature))}`;}
 export async function mintAutomaticReadCapabilities(env:Env,input:Omit<ReadRequest,"capabilities">,nonce:string){
   const bound={...input,capabilities:{claim:"unused",dispatch:"unused",complete:"unused"}},requestDigest=await readRequestDigest(bound);
   const base={format:"shiba.auto-read.cap.v1" as const,stepId:input.stepId,nonce,requestDigest,expiresAt:input.expiresAt};
@@ -29,7 +32,10 @@ export async function mintGoogleAdsAttestation(env:Env,pins:AutomaticPins,bound:
 }
 async function verify(env:Env,wire:unknown,stage:Stage,requestDigest:string):Promise<Capability>{
   try{if(typeof wire!=="string"||wire.length>4096)throw new Error("invalid");const parts=wire.split(".");if(parts.length!==2)throw new Error("invalid");
-    const payload=decode(parts[0]!),signature=decode(parts[1]!);if(payload.length>2048||signature.length!==32||!await crypto.subtle.verify("HMAC",await key(env),signature,encoder.encode(domain+parts[0])))throw new Error("invalid");
+    const payload=decode(parts[0]!);
+    const wireSignature=decode(parts[1]!);
+    const signature=wireSignature.length===32?Array.from(wireSignature,byte=>byte.toString(16).padStart(2,"0")).join(""):new TextDecoder("utf-8",{fatal:true}).decode(wireSignature);
+    if(payload.length>2048||!await verifyInternal(env,PURPOSE,domain+parts[0],signature,signingSecret(env)))throw new Error("invalid");
     const p=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(payload)) as Capability;
     if(!p||Object.keys(p).sort().join(",")!=="expiresAt,format,nonce,requestDigest,stage,stepId"||p.format!=="shiba.auto-read.cap.v1"||p.stage!==stage||p.requestDigest!==requestDigest||!/^[A-Za-z0-9_:-]{1,200}$/.test(p.stepId)||!/^[a-f0-9]{64}$/.test(p.nonce)||!Number.isSafeInteger(p.expiresAt)||p.expiresAt<=Date.now()||p.expiresAt>Date.now()+60000)throw new Error("invalid");return p;
   }catch{throw new WorkspaceIntegrationError("automatic_read_capability_denied",403);}

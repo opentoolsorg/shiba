@@ -24,7 +24,7 @@ import {
 } from "@shiba/shared";
 import worker from "../src/index.js";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
-import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { LOCAL_MACHINE_HEADER, LOCAL_DASHBOARD_OWNER_HEADER, LocalDispatch } from "../src/local-dispatch.js";
 import { LocalRuntimeAdapter, type LocalDispatchClient } from "../src/runtime.js";
 import { resolveHarness } from "../src/harness/index.js";
@@ -482,7 +482,7 @@ describe("T51 intake boundary", () => {
 
   it("freezes explicitly selected local artifacts without starting execution", async () => {
     const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1", AI_GATEWAY_TOKEN: "" });
-    const response = await orchestrator.onRequest(queueRequest(artifactInput, { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }));
+    const response = await sendWorkerRequest(orchestrator, queueRequest(artifactInput, { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }));
     expect(response.status, await response.clone().text()).toBe(200);
     expect(orchestrator.state.pendingApprovals?.[0]).toMatchObject({ status: "pending", runtime: "local", repoUrl: "",
       expectedDeliverables: ["out/brief.md"], executionTarget: artifactInput.executionTarget });
@@ -493,7 +493,7 @@ describe("T51 intake boundary", () => {
     { headers: {}, env: { [LOCAL_RUNTIME_FLAG]: "1" }, status: 403 },
     { headers: { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }, env: {}, status: 403 },
   ])("retains local artifact authority gates: %j", async ({ headers, env, status }) => {
-    expect((await makeOrchestrator(env).onRequest(queueRequest(artifactInput, headers as Record<string, string>))).status).toBe(status);
+    expect((await sendWorkerRequest(makeOrchestrator(env), queueRequest(artifactInput, headers as Record<string, string>))).status).toBe(status);
   });
 
   it.each([
@@ -501,7 +501,7 @@ describe("T51 intake boundary", () => {
     { publishPullRequest: true }, { runSetup: true }, { repoUrl: "https://github.com/o/r" },
   ])("rejects conflicting local artifact authority: %j", async (extra) => {
     const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" });
-    expect((await orchestrator.onRequest(queueRequest({ ...artifactInput, ...extra }, { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }))).status).toBe(400);
+    expect((await sendWorkerRequest(orchestrator, queueRequest({ ...artifactInput, ...extra }, { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }))).status).toBe(400);
     expect(orchestrator.state.pendingApprovals ?? []).toEqual([]);
   });
 
@@ -513,7 +513,7 @@ describe("T51 intake boundary", () => {
   });
 
   it("refuses runtime:\"local\" when the deployment flag is off", async () => {
-    const res = await makeOrchestrator({}).onRequest(
+    const res = await sendWorkerRequest(makeOrchestrator({}),
       queueRequest({ ...RUN_BODY, runtime: "local" }, { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }),
     );
     expect(res.status).toBe(403);
@@ -532,14 +532,14 @@ describe("T51 intake boundary", () => {
   });
 
   it("refuses a forged voucher value", async () => {
-    const res = await makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" }).onRequest(
+    const res = await sendWorkerRequest(makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" }),
       queueRequest({ ...RUN_BODY, runtime: "local" }, { [LOCAL_INTAKE_HEADER]: "slack" }),
     );
     expect(res.status).toBe(403);
   });
 
   it("refuses a harness that does not declare the local runtime", async () => {
-    const res = await makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" }).onRequest(
+    const res = await sendWorkerRequest(makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" }),
       queueRequest(
         { ...RUN_BODY, runtime: "local", harness: "grok" },
         { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD },
@@ -551,7 +551,7 @@ describe("T51 intake boundary", () => {
 
   it("mints an approval carrying the frozen runtime when flag + voucher + harness all hold", async () => {
     const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" });
-    const res = await orchestrator.onRequest(
+    const res = await sendWorkerRequest(orchestrator,
       queueRequest({ ...RUN_BODY, runtime: "local", harness: "opencode" }, { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }),
     );
     expect(res.status).toBe(200);
@@ -563,7 +563,7 @@ describe("T51 intake boundary", () => {
 
   describe("targetMachineId intake", () => {
     const queueLocal = (extra: Record<string, unknown>, orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" })) =>
-      orchestrator.onRequest(
+      sendWorkerRequest(orchestrator,
         queueRequest({ ...RUN_BODY, runtime: "local", harness: "opencode", ...extra }, { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }),
       );
 
@@ -670,6 +670,7 @@ function workerEnv(orchestrator: { onRequest: (r: Request) => Promise<Response> 
     },
   }));
   return {
+    INTERNAL_SIGNING_KEY: productionEnvStubs().INTERNAL_SIGNING_KEY,
     CodingOrchestrator: {} as never,
     ...(dispatch !== undefined
       ? {

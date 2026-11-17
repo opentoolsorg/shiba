@@ -1,52 +1,13 @@
-/**
- * Edge identity signing (PLAN-V2-NEXT edge-identity phase).
- *
- * Vouched headers — X-Agent-Principal and X-Shiba-Intake — carry authority
- * only because the Worker stamps them after authenticating the caller. Today
- * the DO trusts them by construction; with INTERNAL_SIGNING_KEY configured the
- * producer signs and the consumer verifies, so a forged vouched header on any
- * internal path is rejected instead of granting another principal's scope.
- *
- * Rollout: when INTERNAL_SIGNING_KEY is unset the DO keeps the pre-signing
- * behavior (header trust) and logs a once-per-lifetime warning — local dev
- * and unstaged deploys keep working. Set the same secret on the Worker and it
- * signs every vouched call; consumers fail closed on a bad or missing
- * signature for requests that carry vouched headers. Requests without any
- * vouched header pass unverified, matching today's trust level for them.
- */
+/** Worker-to-DO authority headers use purpose-derived, versioned signatures. */
 import { AGENT_PRINCIPAL_HEADER, LOCAL_INTAKE_HEADER } from "@shiba/shared";
+import { legacySigningFallback, signInternal, verifyInternal, type SigningEnv } from "./security/signing.js";
 
 export const INTERNAL_SIGNATURE_HEADER = "X-Shiba-Internal-Sig";
 export const INTERNAL_TIMESTAMP_HEADER = "X-Shiba-Internal-Ts";
 
 const MAX_SKEW_MS = 60_000;
 
-const encoder = new TextEncoder();
-
-async function importKey(secret: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign", "verify"],
-  );
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  let hex = "";
-  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
-  return hex;
-}
-
-function hexToBytes(hex: string): Uint8Array | null {
-  if (!/^[0-9a-f]{64}$/i.test(hex)) return null;
-  const out = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return out;
-}
+const PURPOSE = "shiba/edge-identity/v1";
 
 /** The fields that make a request "vouched" — what the signature protects. */
 export function vouchedValues(request: Request): { principal: string | null; intake: string | null } {
@@ -76,16 +37,15 @@ function canonical(request: Request, timestamp: string): string {
 /**
  * Sign a request headed for a DO stub (or another internal consumer). Mutates
  * the request's headers — call after vouched headers are stamped, before
- * `stub.fetch`. No-op when INTERNAL_SIGNING_KEY is unset.
+ * `stub.fetch`. Missing-key requests remain unsigned only during legacy grace.
  */
-export async function signInternalRequest(request: Request, env: { INTERNAL_SIGNING_KEY?: string }): Promise<void> {
+export async function signInternalRequest(request: Request, env: SigningEnv): Promise<void> {
   const secret = env.INTERNAL_SIGNING_KEY?.trim();
-  if (!secret) return;
+  if (!secret && legacySigningFallback(env)) return;
   const timestamp = Date.now().toString();
-  const key = await importKey(secret);
-  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(canonical(request, timestamp)));
+  const sig = await signInternal(env, PURPOSE, canonical(request, timestamp));
   request.headers.set(INTERNAL_TIMESTAMP_HEADER, timestamp);
-  request.headers.set(INTERNAL_SIGNATURE_HEADER, bytesToHex(new Uint8Array(sig)));
+  request.headers.set(INTERNAL_SIGNATURE_HEADER, sig);
 }
 
 export type InternalVerification =
@@ -96,18 +56,20 @@ export type InternalVerification =
  * Verify an inbound internal request. Called by DO consumers that read
  * vouched headers as authority.
  *
- * - Key unset → `signed: false`, ok (fallback trust; caller may warn once).
+ * - Key unset → legacy grace permits unsigned requests; strict mode refuses them.
  * - Key set + no vouched headers → ok, nothing to verify.
  * - Key set + vouched headers → valid signature within skew required; a
  *   missing/late/bad signature fails closed.
  */
 export async function verifyInternalRequest(
   request: Request,
-  env: { INTERNAL_SIGNING_KEY?: string },
+  env: SigningEnv,
   now = Date.now(),
 ): Promise<InternalVerification> {
   const secret = env.INTERNAL_SIGNING_KEY?.trim();
-  if (!secret) return { ok: true, signed: false };
+  if (!secret) return legacySigningFallback(env)
+    ? { ok: true, signed: false }
+    : { ok: false, reason: "INTERNAL_SIGNING_KEY not set" };
   if (!carriesVouchedHeaders(request)) return { ok: true, signed: false };
 
   const timestamp = request.headers.get(INTERNAL_TIMESTAMP_HEADER);
@@ -118,15 +80,9 @@ export async function verifyInternalRequest(
   if (!Number.isFinite(ts) || Math.abs(now - ts) > MAX_SKEW_MS) {
     return { ok: false, reason: "stale_signature" };
   }
-  const sigBytes = hexToBytes(signature);
-  if (!sigBytes) return { ok: false, reason: "malformed_signature" };
-
-  const key = await importKey(secret);
-  const valid = await crypto.subtle.verify(
-    "HMAC",
-    key,
-    sigBytes as BufferSource,
-    encoder.encode(canonical(request, timestamp)),
-  );
+  if (!/^(?:v1:[a-f0-9]{16}:)?[a-f0-9]{64}$/.test(signature)) {
+    return { ok: false, reason: "malformed_signature" };
+  }
+  const valid = await verifyInternal(env, PURPOSE, canonical(request, timestamp), signature, secret);
   return valid ? { ok: true, signed: true } : { ok: false, reason: "bad_signature" };
 }

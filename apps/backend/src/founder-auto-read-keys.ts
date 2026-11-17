@@ -1,3 +1,4 @@
+import { signInternal, verifyInternal } from "./security/signing.js";
 import type { Env } from "./env.js";
 import { WorkspaceIntegrationError } from "./workspace-integrations-store.js";
 
@@ -51,18 +52,20 @@ export function workspaceManifestToken(env: Env, workspaceId: string): string {
     throw new WorkspaceIntegrationError("automatic_read_authority_unavailable",503);
   }
 }
-async function fingerprintKey(env: Env) {
-  if(!env.INTERNAL_SIGNING_KEY || env.INTERNAL_SIGNING_KEY.length<32) throw new WorkspaceIntegrationError("automatic_read_authority_unavailable",503);
-  return crypto.subtle.importKey("raw",encoder.encode(env.INTERNAL_SIGNING_KEY),{name:"HMAC",hash:"SHA-256"},false,["sign","verify"]);
+const PURPOSE = "shiba/google-runtime-fingerprint/v1";
+function signingSecret(env: Env): string {
+  const secret = env.INTERNAL_SIGNING_KEY?.trim();
+  if (!secret || secret.length < 32) throw new WorkspaceIntegrationError("automatic_read_authority_unavailable", 503);
+  return secret;
 }
-function bound(workspaceId:string,connectionId:string,token:string) { return encoder.encode(JSON.stringify(["shiba.googleads.runtime-key.v1",workspaceId,connectionId,"googleads.campaign_daily_metrics",token])); }
+function bound(workspaceId:string,connectionId:string,token:string) { return JSON.stringify(["shiba.googleads.runtime-key.v1",workspaceId,connectionId,"googleads.campaign_daily_metrics",token]); }
 export async function googleRuntimeFingerprint(env:Env,workspaceId:string,connectionId:string,token:string) {
-  const signature=await crypto.subtle.sign("HMAC",await fingerprintKey(env),bound(workspaceId,connectionId,token));
-  return [...new Uint8Array(signature)].map(v=>v.toString(16).padStart(2,"0")).join("");
+  signingSecret(env);
+  return signInternal(env,PURPOSE,bound(workspaceId,connectionId,token));
 }
 export async function verifiedGoogleReadToken(env:Env,workspaceId:string,connectionId:string,fingerprint:string|undefined) {
-  if(!fingerprint || !/^[a-f0-9]{64}$/.test(fingerprint)) throw new WorkspaceIntegrationError("automatic_read_scoped_runtime_changed",409);
-  const token=scopedGoogleReadToken(env,workspaceId,connectionId),bytes=Uint8Array.from(fingerprint.match(/../g)!,v=>Number.parseInt(v,16));
-  if(!await crypto.subtle.verify("HMAC",await fingerprintKey(env),bytes,bound(workspaceId,connectionId,token)))throw new WorkspaceIntegrationError("automatic_read_scoped_runtime_changed",409);
+  if(!fingerprint) throw new WorkspaceIntegrationError("automatic_read_scoped_runtime_changed",409);
+  const token=scopedGoogleReadToken(env,workspaceId,connectionId);
+  if(!await verifyInternal(env,PURPOSE,bound(workspaceId,connectionId,token),fingerprint,signingSecret(env)))throw new WorkspaceIntegrationError("automatic_read_scoped_runtime_changed",409);
   return token;
 }

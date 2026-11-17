@@ -219,6 +219,10 @@ describe("separate native-funded offline shared computer, real SQLite/DO with fa
     const f = await fixture(), running = await f.start(), runtime = f.instances.get(running.id)!, row = await readComputerRow(f.env, f.workspace.workspaceId, running.id);
     const actor = { accountId: auth.ids[OWNER]!, userId: OWNER };
     const captureOp = await signComputerOperation(f.env, row, actor, { operation: "capture" });
+    expect(captureOp.signature).toMatch(/^v1:[a-f0-9]{16}:[a-f0-9]{64}$/);
+    for (const signature of ["", "nothex", "a".repeat(63), `v1:${"a".repeat(15)}:${"a".repeat(64)}`]) {
+      await expect(runtime.captureFrame({ ...captureOp, signature })).rejects.toThrow("shared_computer_operation_invalid");
+    }
     await expect(runtime.stopSession(captureOp)).rejects.toThrow();
     await expect(runtime.captureFrame({ ...captureOp, body: { ...captureOp.body, accountId: auth.ids[VIEWER]! } })).rejects.toThrow();
     const foreign = await signComputerOperation(f.env, row, { accountId: auth.ids[OTHER]!, userId: OTHER }, { operation: "capture" });

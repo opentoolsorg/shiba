@@ -293,6 +293,10 @@ export async function runSetupDoctor(
 ): Promise<SetupDoctorReport> {
   const checkedAt = Date.now();
   const findings: DoctorFinding[] = [];
+  if (!env.INTERNAL_SIGNING_KEY?.trim()) {
+    push(findings, "internal.signing", "error", "INTERNAL_SIGNING_KEY not set", "Run wrangler secret put INTERNAL_SIGNING_KEY with a random 32-byte hex value.");
+  }
+
 
   checkGateway(hints.gateway, findings);
   await checkSandboxProvider(env, findings);
