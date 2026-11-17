@@ -152,6 +152,13 @@ export default {
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
+      if (env.AGENT_AUDIT) {
+        try {
+          const learning = await import("./ports/learning/review.js");
+          const { d1LearningPort } = await import("./ports/learning/d1-adapter.js");
+          await learning.sweepIdleLearningThreads(env, d1LearningPort(env.AGENT_AUDIT));
+        } catch (error) { console.error("Learning idle review failed", redactSecrets(String(error))); }
+      }
       try { await (await import("./founder-stripe-runtime.js")).tickFounderStripeReads(env); }
       catch (error) { console.error("Founder Stripe read scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-meta-runtime.js")).tickFounderMetaReads(env); }
@@ -335,6 +342,8 @@ export default {
       if (personalExecutionResponse) return personalExecutionResponse;
       const teamModelResponse = await (await import("./team-model-routes.js")).handleTeamModelSessions(request, env);
       if (teamModelResponse) return teamModelResponse;
+      const learningResponse = await (await import("./learning-routes.js")).handleLearning(request, env);
+      if (learningResponse) return learningResponse;
       const workResponse = await handleTeamWork(request, env);
       if (workResponse) return workResponse;
       const primaryBotResponse = await handlePrimaryBot(request, env);
