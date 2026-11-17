@@ -45,6 +45,19 @@ describe("orchestrator cost policy persistence", () => {
     expect((await instance.onRequest(new Request(read(), { method: "POST" }))).status).toBe(405);
     expect((await instance.onRequest(new Request(read(), { headers: { "X-Agent-Principal": "agent" } }))).status).toBe(403);
   });
+
+  it("persists a zero-limit policy on a fresh orchestrator with no prior state", async () => {
+    const instance = host();
+    instance.state = undefined as unknown as OrchestratorState;
+    const policy = { ...defaultUsageBudgetPolicy({}), dailyLimitUsd: 0, monthlyLimitUsd: 0, perRunLimitUsd: 0,
+      onExceed: "stop" as const, updatedBy: "owner@example.test", updatedAt: 1000 };
+    const response = await instance.onRequest(new Request("https://internal/api/usage/budget", {
+      method: "PUT", body: JSON.stringify(policy),
+    }));
+    expect(response.status).toBe(200);
+    expect(instance.state?.usageBudgetPolicy).toEqual(policy);
+    expect(instance.state?.runs).toEqual([]);
+  });
 });
 
 describe("orchestrator budget enforcement", () => {

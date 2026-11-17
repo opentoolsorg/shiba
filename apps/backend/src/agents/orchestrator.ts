@@ -784,12 +784,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    */
   override setState(next: OrchestratorState): void {
     if (this.statePersistenceFailed) throw new Error("Durable state persistence failed. This instance must reset.");
-    next = { ...next, runs: next.runs.map((run) => {
+    const runs = (Array.isArray(next.runs) ? next.runs : this.state?.runs ?? []).map((run) => {
       const previous = this.state?.runs?.find((item) => item.runId === run.runId);
       if (previous?.sandboxMeter) return { ...run, sandboxMeter: previous.sandboxMeter };
       if (!previous || isTerminalStatus(previous.status) || !isTerminalStatus(run.status)) return run;
       return { ...run, sandboxMeter: meterSandboxRun(run, run.updatedAt, resolveInstanceType(this.env.INSTANCE_TYPE), true) };
-    }) };
+    });
+    next = { ...next, runs };
     this.applySpine(next);
     try {
       super.setState(next);
