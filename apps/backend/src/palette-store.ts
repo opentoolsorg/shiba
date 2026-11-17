@@ -2,6 +2,7 @@ import { getAgentByName } from "agents/routing";
 import { COLLAB_TENANT_ID, humanActorId } from "./collaboration-store.js";
 import { listCustomAgents } from "./custom-agents-store.js";
 import type { Env } from "./env.js";
+import { visibleEmployees } from "./governance/employee-access.js";
 
 export type PaletteBotState = "working" | "needs_you" | "idle";
 
@@ -169,7 +170,7 @@ export async function listPaletteBots(env: StoreEnv, workspaceId: string, orgId:
   const pinByActor = new Map(pins.results.map((row) => [row.actor_id, row.slot]));
   const viewerActorId = humanActorId(userId);
   const roots = await threadRoots(env, workspaceId, [...activity.values()].map((row) => row.last_message_id));
-  const bots = agents.map((agent) => {
+  const bots = (await visibleEmployees(env, workspaceId, userId, agents)).map((agent) => {
     const actorId = `agent:${agent.id}`;
     const row = activity.get(actorId);
     const session = sessions.get(agent.id);

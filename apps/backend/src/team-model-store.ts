@@ -7,6 +7,7 @@ import type { Env } from "./env.js";
 import { COLLAB_TENANT_ID, ensureCollaborationSchema, getCollaborationMembership, getCollaborationRoom, humanActorId, listCollaborationMessages } from "./collaboration-store.js";
 import { snapshotCollaborationMemory, type CollaborationMemoryNote } from "./collaboration-memory.js";
 import { getCustomAgentById, listCustomAgents } from "./custom-agents-store.js";
+import { visibleEmployees as filterVisibleEmployees } from "./governance/employee-access.js";
 import { getTeamWorkspaceMembership } from "./team-workspaces-store.js";
 import { membershipSql, assertWorkspaceMemberCurrent, insertGuarded, updateGuarded } from "./workspace-integrations-store.js";
 import { resolveWorkspaceNativeGrantTarget, type WorkspaceNativeMember } from "./workspace-native-authority.js";
@@ -446,7 +447,7 @@ export async function readTeamModelState(env: Env, member: WorkspaceNativeMember
     .bind(member.workspaceId, roomId).all<TeamModelFundingRow>();
   const turnRows = await env.AGENT_AUDIT.prepare("SELECT * FROM team_model_turns WHERE workspace_id=? AND room_id=? AND requester_id=? AND requester_account_id=? ORDER BY created_at DESC LIMIT 20")
     .bind(member.workspaceId, roomId, member.userId, member.accountId).all<TeamModelTurnRow>();
-  const employees = await listCustomAgents(env, `team:${member.workspaceId}`), visibleEmployees = [];
+  const employees = await filterVisibleEmployees(env, member.workspaceId, member.userId, await listCustomAgents(env, `team:${member.workspaceId}`)), visibleEmployees = [];
   for (const employee of employees) {
     try { const room = await participant(env, member, roomId, `agent:${employee.id}`); if (room.kind === "agent" && room.profileVersion === employee.version) visibleEmployees.push({ id: employee.id, name: employee.config.name, version: employee.version }); } catch { /* Not an active room employee. */ }
   }

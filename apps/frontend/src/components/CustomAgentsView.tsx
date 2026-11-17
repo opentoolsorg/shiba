@@ -1,4 +1,5 @@
 import { EmployeeRoutines } from "./RoutinesView";
+import { EmployeeAccessSettings } from "./EmployeeAccessSettings";
 import { useCallback, useEffect, useId, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { ChevronRight } from "lucide-react";
 import { LoadErrorState } from "./LoadErrorState";
@@ -531,6 +532,7 @@ function ScopedCustomAgentsView({
               <h3 className="text-xs font-medium">Instructions</h3>
               <p className="mt-1 whitespace-pre-wrap break-words text-sm text-[var(--ink-2)]">{selectedAgent.config.instructions}</p>
               {!workspaceId ? <EmployeeRoutines key={selectedAgent.id} employeeId={selectedAgent.id} /> : null}
+              {workspaceId ? <EmployeeAccessSettings key={selectedAgent.id} workspaceId={workspaceId} employeeId={selectedAgent.id} /> : null}
               {!showArchived ? <button type="button" disabled={busy} onClick={() => startEdit(selectedAgent)} className="mt-3 min-h-11 border border-[var(--line)] px-3 text-xs disabled:opacity-50">Edit profile</button> : null}
             </section>
           ) : null}

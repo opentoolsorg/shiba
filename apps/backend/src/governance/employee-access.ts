@@ -1,0 +1,85 @@
+import { employeeAccessLevelSchema, type EmployeeAccessGrant, type EmployeeAccessLevel } from "@shiba/shared";
+import type { Env } from "../env.js";
+import { COLLAB_TENANT_ID } from "../collaboration-store.js";
+import { getTeamWorkspaceMembership } from "../team-workspaces-store.js";
+import { getCustomAgentById } from "../custom-agents-store.js";
+import { initAudit } from "../audit.js";
+import { randomHex } from "../mailbox-store.js";
+import { GovernanceError, hashOpaqueToken, listActiveGroupIdsForUser } from "./governance-store.js";
+
+type AccessEnv = Pick<Env, "AGENT_AUDIT">;
+const rank: Record<EmployeeAccessLevel, number> = { none: 0, view: 1, chat: 2, manage: 3 };
+
+export function employeeAccessDenial(level: EmployeeAccessLevel, required: EmployeeAccessLevel): Response | null {
+  if (level === "none") return Response.json({ error: "Not found." }, { status: 404 });
+  if (rank[level] < rank[required]) return Response.json({ error: "Employee access denied." }, { status: 403 });
+  return null;
+}
+
+export async function listEmployeeAccess(env: AccessEnv, workspaceId: string, employeeId: string): Promise<EmployeeAccessGrant[]> {
+  if (!env.AGENT_AUDIT) throw new GovernanceError("Workspace storage unavailable.", 503);
+  const rows = await env.AGENT_AUDIT.prepare(`SELECT principal_kind AS principalKind, principal_id AS principalId,
+    principal_name AS name, level FROM employee_access WHERE tenant_id=? AND workspace_id=? AND employee_id=?
+    ORDER BY principal_kind, principal_id`).bind(COLLAB_TENANT_ID, workspaceId, employeeId).all<EmployeeAccessGrant>();
+  return rows.results ?? [];
+}
+
+export async function resolveEmployeeAccess(env: AccessEnv, workspaceId: string, employeeId: string, userId: string): Promise<EmployeeAccessLevel> {
+  const membership = await getTeamWorkspaceMembership(env, workspaceId, userId);
+  if (!membership) return "none";
+  if (membership.role === "owner" || membership.role === "admin") return "manage";
+  const grants = await listEmployeeAccess(env, workspaceId, employeeId);
+  const direct = grants.find((grant) => grant.principalKind === "user" && grant.principalId === membership.userId);
+  if (direct) return direct.level;
+  const groups = grants.some((grant) => grant.principalKind === "group")
+    ? await listActiveGroupIdsForUser(env, workspaceId, membership.userId) : [];
+  const matching = grants.filter((grant) => grant.principalKind === "group" && groups.includes(grant.principalId));
+  if (matching.length) return matching.reduce((best, grant) => rank[grant.level] > rank[best] ? grant.level : best, "none" as EmployeeAccessLevel);
+  return grants.find((grant) => grant.principalKind === "everyone")?.level ?? "manage";
+}
+
+export async function visibleEmployees<T extends { id: string }>(env: AccessEnv, workspaceId: string, userId: string, employees: T[]): Promise<T[]> {
+  if (!workspaceId.startsWith("ws_")) return employees;
+  const visible = await Promise.all(employees.map(async (employee) =>
+    await resolveEmployeeAccess(env, workspaceId, employee.id, userId) !== "none"));
+  return employees.filter((_, index) => visible[index]);
+}
+
+export async function setEmployeeAccess(env: AccessEnv, workspaceId: string, employeeId: string, actorId: string, input: Record<string, unknown>): Promise<void> {
+  const denied = employeeAccessDenial(await resolveEmployeeAccess(env, workspaceId, employeeId, actorId), "manage");
+  if (denied) throw new GovernanceError(denied.status === 404 ? "Not found." : "Employee manage access required.", denied.status);
+  if (!env.AGENT_AUDIT) throw new GovernanceError("Workspace storage unavailable.", 503);
+  const employee = await getCustomAgentById({ AGENT_AUDIT: env.AGENT_AUDIT }, `team:${workspaceId}`, employeeId);
+  if (!employee) throw new GovernanceError("Employee not found.", 404);
+  const level = employeeAccessLevelSchema.safeParse(input.level);
+  if (!level.success) throw new GovernanceError("Invalid employee access level.");
+  const kind = input.principalKind;
+  if (kind !== "everyone" && kind !== "user" && kind !== "group") throw new GovernanceError("Invalid principal kind.");
+  let principalId = typeof input.principalId === "string" ? input.principalId.trim() : "";
+  let name = "Everyone";
+  if (kind === "everyone") principalId = "*";
+  if (kind === "user") {
+    principalId = principalId.toLowerCase();
+    const member = await getTeamWorkspaceMembership(env, workspaceId, principalId);
+    if (!member) throw new GovernanceError("Member not found.", 404);
+    name = member.userId;
+  }
+  if (kind === "group") {
+    const group = await env.AGENT_AUDIT.prepare(`SELECT name FROM workspace_groups WHERE tenant_id=? AND workspace_id=? AND group_id=?`)
+      .bind(COLLAB_TENANT_ID, workspaceId, principalId).first<{ name: string }>();
+    if (!group) throw new GovernanceError("Group not found.", 404);
+    name = group.name;
+  }
+  const before = (await listEmployeeAccess(env, workspaceId, employeeId)).find((grant) => grant.principalKind === kind && grant.principalId === principalId)?.level ?? null;
+  if (before === level.data) return;
+  const detail = JSON.stringify({ workspaceId, employeeId, employeeName: employee.config.name, actorName: actorId, principalKind: kind, principalId, principalName: name, before, after: level.data });
+  await initAudit({ AGENT_AUDIT: env.AGENT_AUDIT });
+  await env.AGENT_AUDIT.batch([
+    env.AGENT_AUDIT.prepare(`INSERT INTO employee_access (tenant_id,workspace_id,employee_id,principal_kind,principal_id,principal_name,level)
+      VALUES (?,?,?,?,?,?,?) ON CONFLICT(tenant_id,workspace_id,employee_id,principal_kind,principal_id)
+      DO UPDATE SET principal_name=excluded.principal_name, level=excluded.level`)
+      .bind(COLLAB_TENANT_ID, workspaceId, employeeId, kind, principalId, name, level.data),
+    env.AGENT_AUDIT.prepare(`INSERT INTO audit_log (id,ts,principal,tool,args_hash,outcome,detail) VALUES (?,?,?,?,?,?,?)`)
+      .bind(`aud-${randomHex(16)}`, Date.now(), actorId, "employee.access.changed", await hashOpaqueToken(detail), "ok", detail),
+  ]);
+}

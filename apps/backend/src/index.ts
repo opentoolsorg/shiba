@@ -33,6 +33,8 @@ import { handleSubscriptionAuth } from "./auth-routes.js";
 import { handleUserOpenAiSubscription } from "./subscription-auth-routes.js";
 import { handleAudit } from "./audit-routes.js";
 import { handleGovernance } from "./governance-routes.js";
+import { handleEmployeeAccess } from "./governance/employee-access-routes.js";
+import { enforceEmployeeRouteAccess } from "./governance/employee-route-auth.js";
 import { handleShare } from "./share-routes.js";
 import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
@@ -321,6 +323,10 @@ export default {
       }
       const memberPolicyResponse = await enforceTeamMemberApiPolicy(request, env);
       if (memberPolicyResponse) return memberPolicyResponse;
+      const employeeAccessResponse = await enforceEmployeeRouteAccess(request, env);
+      if (employeeAccessResponse) return employeeAccessResponse;
+      const employeeAccessSettingsResponse = await handleEmployeeAccess(request, env);
+      if (employeeAccessSettingsResponse) return employeeAccessSettingsResponse;
       const outputArchiveResponse = await handleRunOutputArchives(request, env);
       if (outputArchiveResponse) return outputArchiveResponse;
       const slackInstallationResponse = await handleSlackInstallations(request, env);
