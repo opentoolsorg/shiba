@@ -1,4 +1,5 @@
 import { MAX_COMMAND_RECEIPTS, stableHash } from "@shiba/shared";
+import { videoCapabilityForUser } from "../tools/video-gen.js";
 import { agentCliCatalog } from "../harness/catalog.js";
 import type { V1Context } from "./context.js";
 
@@ -30,6 +31,7 @@ export async function handleSystem(ctx: V1Context): Promise<Response | null> {
   const catalog = agentCliCatalog(ctx.env);
   if (ctx.url.pathname === "/api/v1/capabilities") {
     return Response.json({ ok: true, principalId: ctx.principal.principal,
+      video: await videoCapabilityForUser(ctx.env, ctx.principal.apiKey ? null : ctx.principal.principal),
       orgId: ctx.principal.orgId, projectIds: null, permissions: null,
       operations: OPERATIONS.map(([operationId, method, path]) => ({ operationId, method, path: `/api/v1${path}`, permissions: [] })),
       availability: { runs: ctx.principal.apiKey === undefined, models: catalog.length > 0, questions: false, compaction: false,

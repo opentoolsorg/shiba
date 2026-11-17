@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LOCAL_RUN_ROOT_TOKEN } from "@shiba/shared";
 
-interface CapturedFile { path: string; content: string; encoding: "utf8" }
+interface CapturedFile { path: string; content: string; encoding: "utf8" | "base64" }
 const helperUrl = new URL("../../../scripts/local-deliverables.mjs", import.meta.url);
 const { captureExpectedDeliverables, readContainedChangedFile } = await import(helperUrl.href) as {
   captureExpectedDeliverables: (root: string, paths?: unknown) => Promise<CapturedFile[]>;
@@ -52,6 +52,34 @@ describe("strict requested deliverable capture", () => {
     expect((await captureExpectedDeliverables(repo, ["brief.txt"]))[0]?.content).toBe(complete);
     await put("brief.txt", `${complete}é`);
     await expect(captureExpectedDeliverables(repo, ["brief.txt"])).rejects.toThrow("16384");
+  });
+
+  it("captures HTML and binary PDFs at their limits without charging the text budget", async () => {
+    const html = "x".repeat(524_288);
+    const pdf = Buffer.alloc(10_485_760, 0xff);
+    pdf.write("%PDF-1.7\n");
+    await put("dashboard.html", html);
+    await put("report.PDF", pdf);
+    await put("brief.txt", "x".repeat(16_384));
+    const files = await captureExpectedDeliverables(repo, ["dashboard.html", "report.PDF", "brief.txt"]);
+    expect(files[0]).toEqual({ path: "dashboard.html", content: html, encoding: "utf8" });
+    expect(files[1]?.encoding).toBe("base64");
+    expect(Buffer.from(files[1]?.content ?? "", "base64").equals(pdf)).toBe(true);
+    await put("dashboard.html", `${html}x`);
+    await expect(captureExpectedDeliverables(repo, ["dashboard.html"])).rejects.toThrow("524288");
+    await put("report.PDF", Buffer.concat([pdf, Buffer.from("x")]));
+    await expect(captureExpectedDeliverables(repo, ["report.PDF"])).rejects.toThrow("10485760");
+  });
+
+  it("rejects fake PDFs and the combined HTML/PDF budget", async () => {
+    await put("report.pdf", "plain text pretending to be a PDF");
+    await expect(captureExpectedDeliverables(repo, ["report.pdf"])).rejects.toThrow("not a valid PDF file");
+    const pdf = Buffer.alloc(10_485_760);
+    pdf.write("%PDF-");
+    await put("report.pdf", pdf);
+    await put("a.html", "x".repeat(524_288));
+    await put("b.html", "x");
+    await expect(captureExpectedDeliverables(repo, ["report.pdf", "a.html", "b.html"])).rejects.toThrow("11010048");
   });
 
   it("preserves a UTF-8 BOM so returned content retains the file's exact bytes", async () => {
@@ -306,6 +334,15 @@ console.log('agent claims success');`, undefined, 1);
 });
 
 describe("repository-free daemon artifact execution", () => {
+  it("returns HTML and binary PDF files through the daemon result transport", async () => {
+    const result = await daemonRun(`const fs = require('node:fs');
+fs.writeFileSync('dashboard.html', '<h1>Report</h1>' + 'x'.repeat(210000));
+fs.writeFileSync('report.pdf', Buffer.from([37,80,68,70,45,49,46,55,10,255,0]));`, ["dashboard.html", "report.pdf"], 0, { artifact: true });
+    expect(result?.status).toBe("completed");
+    expect(result?.files[0]?.content.length).toBeGreaterThan(200_000);
+    expect(result?.files[1]).toEqual({ path: "report.pdf", content: Buffer.from([37,80,68,70,45,49,46,55,10,255,0]).toString("base64"), encoding: "base64" });
+  }, 40_000);
+
   it.each([false, true])("captures only approved artifacts without Git state (native Claude: %s)", async (native) => {
     const result = await daemonRun(`const fs = require('node:fs');
 if (fs.existsSync('.git')) throw new Error('artifact workspace must not require Git');

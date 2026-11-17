@@ -2,6 +2,7 @@
   "$schema": "https://developers.cloudflare.com/workers/wrangler/configuration-schema.json",
   "name": "shiba-ai-coworker-dogfood",
   "main": "src/index.ts",
+  "placement": { "mode": "smart" },
   "compatibility_date": "2026-06-01",
   "compatibility_flags": [
     "nodejs_compat",
@@ -16,6 +17,7 @@
     "not_found_handling": "404-page"
   },
   "preview_urls": false,
+  "previews": {},
   "workers_dev": true,
   "keep_vars": true,
   "vars": {

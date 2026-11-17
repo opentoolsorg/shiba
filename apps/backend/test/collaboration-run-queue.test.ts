@@ -3,7 +3,8 @@ import type { Env } from "../src/env.js";
 import { handleRuns, queueCollaborationRun } from "../src/runs-routes.js";
 
 const seen = vi.hoisted(() => ({ name: "", body: null as Record<string, unknown> | null }));
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: vi.fn(async () => true),
   resolveUserId: vi.fn(async () => "owner@example.test"),
 }));

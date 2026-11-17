@@ -39,8 +39,11 @@ interface BootstrapPolicy {
   locked: boolean;
 }
 
-type SocialProvider = "google" | "slack";
-type SocialProviderStatus = { providers?: Partial<Record<SocialProvider, boolean>> };
+type SocialProvider = "google" | "slack" | "sso";
+type SocialProviderStatus = {
+  providers?: Partial<Record<SocialProvider, boolean>>;
+  sso?: { enabled: boolean; displayName: string };
+};
 
 export { SessionPending } from "./SessionPending";
 
@@ -83,13 +86,18 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
   const [password, setPassword] = useState("");
   const [setupToken, setSetupToken] = useState("");
   const [policy, setPolicy] = useState<BootstrapPolicy | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("error") === "sso_domain_not_allowed"
+      ? "Your email domain is not allowed to sign in with SSO."
+      : null,
+  );
   const [pending, setPending] = useState(false);
   const [invitationToken, setInvitationToken] = useState(initialInvitation);
   const [invitationPolicy, setInvitationPolicy] = useState<{ enabled: boolean; reason?: string } | null>(null);
   const [verificationPending, setVerificationPending] = useState(false);
   const [socialProviders, setSocialProviders] = useState<SocialProvider[]>([]);
   const [socialPending, setSocialPending] = useState<SocialProvider | null>(null);
+  const [sso, setSso] = useState<SocialProviderStatus["sso"]>();
 
   useEffect(() => {
     let cancelled = false;
@@ -107,8 +115,12 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
     void fetch("/api/auth/social-providers", { cache: "no-store" })
       .then(async (response) => response.ok ? await response.json() as SocialProviderStatus : null)
       .then((body) => {
-        if (!cancelled && body?.providers) {
+        if (cancelled) return;
+        if (body?.providers) {
           setSocialProviders((["google", "slack"] as const).filter((provider) => body.providers?.[provider] === true));
+        }
+        if (body?.sso?.enabled === true && typeof body.sso.displayName === "string" && body.sso.displayName.trim()) {
+          setSso(body.sso);
         }
       })
       .catch(() => {});
@@ -294,6 +306,13 @@ export function AuthScreen({ onSignedIn, invitationToken: suppliedInvitation }: 
             ? "Set a new password. Other dashboard sessions will be signed out."
             : "Welcome back to Shiba."}
         </p>
+        {mode === "signin" && sso?.enabled ? (
+          <button type="button" disabled={pending || socialPending !== null}
+            onClick={() => void signInSocial("sso")}
+            className="w-full min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-sm font-medium text-[var(--ink)] hover:bg-[var(--panel-2)] disabled:opacity-60">
+            {socialPending === "sso" ? "Opening…" : `Continue with ${sso.displayName}`}
+          </button>
+        ) : null}
         {mode === "signin" && socialProviders.includes("google") ? (
           <>
             <button type="button" disabled={pending || socialPending !== null}

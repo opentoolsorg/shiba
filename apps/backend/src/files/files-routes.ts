@@ -1,6 +1,6 @@
 import type { KnowledgeScope } from "@shiba/shared";
 import type { Env } from "../env.js";
-import { isAuthorizedRequest, requireSameOriginBrowserMutation, resolveUserId } from "../request-auth.js";
+import { requireSameOriginBrowserMutation, resolveRequestIdentity } from "../request-auth.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
 import { InputError } from "../security.js";
 import { assertKnowledgeRead, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
@@ -19,8 +19,8 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
 
 function workspaceFromRequest(request: Request, env: Env): Promise<{ workspaceId: string; userId: string } | Response> {
   return (async () => {
-    if (!(await isAuthorizedRequest(request, env))) return json({ error: "Authentication required." }, 401);
-    const userId = await resolveUserId(request, env);
+    const { userId, authorized } = await resolveRequestIdentity(request, env);
+    if (!authorized) return json({ error: "Authentication required." }, 401);
     if (!userId) return json({ error: "Authentication required." }, 401);
     const org = await resolveOrgForApiRequest(request, env);
     if (org instanceof Response) return org;
@@ -153,8 +153,11 @@ export async function handleFiles(request: Request, env: Env): Promise<Response 
   }
 
   if (suffix === "/download" && request.method === "GET") {
-    const bucket = filesBucket(env);
-    const object = await bucket.get((await env.AGENT_AUDIT.prepare(`SELECT r2_key FROM files WHERE id=?`).bind(fileId).first<{ r2_key: string }>())!.r2_key);
+    const stored = await env.AGENT_AUDIT.prepare(`SELECT r2_key FROM files WHERE id=?`).bind(fileId).first<{ r2_key: string }>();
+    if (!stored) return json({ error: "File bytes missing." }, 404);
+    const bucket = stored.r2_key.startsWith("outputs/videos/") ? env.ARTIFACTS : filesBucket(env);
+    if (!bucket) return json({ error: "File storage unavailable." }, 503);
+    const object = await bucket.get(stored.r2_key);
     if (!object) return json({ error: "File bytes missing." }, 404);
     return new Response(object.body, {
       headers: {

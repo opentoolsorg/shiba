@@ -9,7 +9,8 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const auth = vi.hoisted(() => ({ orgId: "self-hosted", owner: "owner@example.test" }));
 vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: vi.fn(async () => ({ orgId: auth.orgId, principal: null })) }));
-vi.mock("../src/request-auth.js", () => ({ resolveUserId: vi.fn(async () => auth.owner) }));
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(), resolveUserId: vi.fn(async () => auth.owner) }));
 
 const id = "founder-stripe-revenue-pulse";
 const request = (suffix: string, method = "GET") => new Request(`https://shiba.test/api/founder-skills${suffix}`, { method });

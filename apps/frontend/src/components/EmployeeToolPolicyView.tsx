@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
+import { useSetupStatus } from "../live-status";
+import { ToolSetupList } from "./SetupCards";
 import { PageHeader, SkeletonLines, StatusNotice } from "./surface";
 import type { AgentPrincipal } from "../types";
 import { integrationProviderConnectionsResponseSchema, type IntegrationProviderConnection } from "@shiba/shared";
@@ -50,6 +52,7 @@ export function EmployeeToolPolicyView(): JSX.Element {
   const [gmailQuery, setGmailQuery] = useState("");
   const [gmailCandidates, setGmailCandidates] = useState<GmailCandidate[]>([]);
   const [gmailSearching, setGmailSearching] = useState(false);
+  const setupStatus = useSetupStatus().state;
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -279,6 +282,8 @@ export function EmployeeToolPolicyView(): JSX.Element {
         </div>
         <div className="flex flex-wrap items-center gap-2"><button type="button" className={BUTTON} disabled={busy || !employeeId || !policy || !actorId} onClick={() => void save()}>{busy ? "Saving…" : selected.length || selectedExternal.length ? "Save grants" : "Revoke all grants"}</button><span className="text-[10px] text-[var(--muted-foreground-2)]">{policy ? `Employee version ${policy.employeeVersion}` : "Policy unavailable"}</span></div>
       </section>
+
+      {setupStatus.kind === "data" ? <ToolSetupList tools={setupStatus.data.toolSetup} /> : null}
 
       <section className="space-y-3">
         <div><h3 className="text-sm font-semibold text-[var(--fg)]">Pending exact-payload approvals</h3><p className="mt-1 text-xs text-[var(--muted-foreground-2)]">A request appears after an employee MCP agent invokes an approved write action. Approval authorizes only the recorded payload, resource and connection generation.</p></div>

@@ -10,7 +10,8 @@ const authState = vi.hoisted(() => ({
   principal: null as null | { principal: string; orgId: string; scopes: string[] },
 }));
 
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: vi.fn(async () => authState.dashboard),
   resolveUserId: vi.fn(async () => authState.dashboard ? "owner@example.test" : null),
 }));

@@ -1,8 +1,9 @@
 /**
  * GET /api/setup/status — reports which deploy-time pieces are configured so
  * the onboarding checklist can show live state instead of static steps.
- * Booleans only: never echo secret values or names of unrelated vars.
+ * Returns presence signals and relevant setting names, never secret values.
  */
+import { getSsoConfig } from "@shiba/auth/better-auth";
 import type { Env } from "./env.js";
 import { isGitHubPublishConfigured } from "./github-auth.js";
 import { describeRoleModels, type RoleModelStatus } from "./agents/roles.js";
@@ -12,6 +13,7 @@ import { isAccessConfigured } from "./request-auth.js";
 import { runSetupDoctor, type SetupDoctorReport } from "./setup-doctor.js";
 import { listMissingSetupSecrets, type SetupSecretRow } from "./setup-missing-secrets.js";
 import { LOCAL_RUNTIME_FLAG } from "@shiba/shared";
+import { readModelRoute, readToolSetup, type ModelRouteStatus, type ToolSetupRow } from "./model-route-status.js";
 
 export interface SetupStatus {
   slack: {
@@ -26,6 +28,7 @@ export interface SetupStatus {
   gateway: { id: string; token: boolean; reachable: "yes" | "unauthorized" | "error" | "unknown" };
   access: { required: boolean };
   betterAuth: { configured: boolean };
+  sso: { enabled: boolean; configured: string[]; missing: string[] };
   models: { orchestrator: string; coding: string; harness: string; roles: RoleModelStatus[] };
   automations: { enabled: boolean; typeSafe: boolean };
   mailbox: { addressOverride: boolean; sendEnabled: boolean };
@@ -40,6 +43,9 @@ export interface SetupStatus {
     workspaceEvents: boolean;
   };
   missingSecrets: SetupSecretRow[];
+  /** Can this workspace start a task right now, and if not, what to do. */
+  modelRoute: ModelRouteStatus;
+  toolSetup: ToolSetupRow[];
   doctor: SetupDoctorReport;
 }
 
@@ -64,9 +70,11 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);
+  const sso = getSsoConfig(env);
+  const ssoSettings = ["SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET"];
   const modelSnapshot = await readModelConfig(env);
   const rolePins = modelSnapshot.policy.rolePins;
-  const base: Omit<SetupStatus, "doctor" | "deployment" | "missingSecrets"> = {
+  const base: Omit<SetupStatus, "doctor" | "deployment" | "missingSecrets" | "modelRoute" | "toolSetup"> = {
     slack: {
       signingSecret: Boolean(env.SLACK_SIGNING_SECRET),
       botToken: Boolean(env.SLACK_BOT_TOKEN),
@@ -94,6 +102,11 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
     },
     access: { required: isAccessConfigured(env) },
     betterAuth: { configured: isBetterAuthConfigured(env) },
+    sso: {
+      enabled: sso.enabled,
+      configured: ssoSettings.filter(name => !sso.missing.includes(name)),
+      missing: sso.missing,
+    },
     models: {
       orchestrator: env.ORCHESTRATOR_MODEL,
       coding: env.CODING_MODEL,
@@ -129,6 +142,8 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
       workspaceEvents: env.WorkspaceEvents !== undefined,
     },
     missingSecrets,
+    modelRoute: await readModelRoute(env, initiatorUserId, base.gateway.reachable),
+    toolSetup: readToolSetup(env),
     doctor,
   };
 }

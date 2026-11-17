@@ -5,10 +5,11 @@
  */
 import {
   handleBetterAuth as handleBetterAuthLane,
-  resolveBetterAuthUserId as resolveBetterAuthUserIdLane,
+  resolveBetterAuthSessionAccount as resolveBetterAuthSessionAccountLane,
   type BetterAuthEnrollmentAdapter,
   type BootstrapVerificationAdapter,
 } from "@shiba/auth/better-auth";
+import { timeAuth } from "./platform/request-timing.js";
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
 import {
@@ -97,9 +98,20 @@ export async function handleBetterAuth(
   return handleBetterAuthLane(request, env, redactSecrets, enrollmentAdapter(env, options.teamMemberPolicyEnabled === true), bootstrapVerificationAdapter(env));
 }
 
-export async function resolveBetterAuthUserId(
-  request: Request,
-  env: Env,
-): Promise<string | null> {
-  return resolveBetterAuthUserIdLane(request, env, redactSecrets);
+const accounts = new WeakMap<Request, WeakMap<Env, ReturnType<typeof resolveBetterAuthSessionAccountLane>>>();
+
+export function resolveBetterAuthSessionAccount(request: Request, env: Env) {
+  let byEnv = accounts.get(request);
+  if (!byEnv) { byEnv = new WeakMap(); accounts.set(request, byEnv); }
+  let result = byEnv.get(env);
+  if (!result) {
+    result = timeAuth(() => resolveBetterAuthSessionAccountLane(request, env, redactSecrets));
+    byEnv.set(env, result);
+  }
+  return result;
+}
+
+export async function resolveBetterAuthUserId(request: Request, env: Env): Promise<string | null> {
+  const account = await resolveBetterAuthSessionAccount(request, env);
+  return account && (account.policy.kind === "bootstrap" || account.emailVerified) ? account.policy.email : null;
 }

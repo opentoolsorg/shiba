@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { V1Principal } from "../src/v1-auth.js";
 import type { Env } from "../src/env.js";
+import { getIntegrationProvider } from "../src/integrations/runtime.js";
+import { OpenConnectorIntegrationProviderError } from "../src/integrations/openconnector-provider.js";
 import { handleV1 } from "../src/v1-routes.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { assertConnectorRegistryAllowsRuntime } from "../src/extensions/connectors-store.js";
@@ -34,6 +36,29 @@ const fixture = () => {
 };
 
 describe("workspace connectors registry", () => {
+  it("serves the unbound directory and rejects connect with setup metadata", async () => {
+    const f = fixture();
+    const response = await f.send("/api/v1/extensions/connectors/directory");
+    expect(response?.status).toBe(200);
+    expect(await response!.json()).toMatchObject({ ok: true, configured: false, items: expect.arrayContaining([
+      expect.objectContaining({ id: "stripe", available: false, reason: "setup_required" }),
+    ]) });
+    const connect = await f.send("/api/v1/extensions/connectors", "POST", { providerKey: "stripe", connectedAccountId: "fixture-account" });
+    expect(connect?.status).toBe(409);
+    expect(await connect!.json()).toMatchObject({ configured: false, code: "setup_required" });
+  });
+
+  it("preserves 503 for configured directory outages", async () => {
+    const f = fixture();
+    f.env.OPEN_CONNECTOR_URL = "https://oc.example.test";
+    const spy = vi.spyOn(getIntegrationProvider(f.env), "listCatalog")
+      .mockRejectedValue(new OpenConnectorIntegrationProviderError("Could not reach OpenConnector."));
+    try {
+      const response = await f.send("/api/v1/extensions/connectors/directory");
+      expect(response?.status).toBe(503);
+    } finally { spy.mockRestore(); }
+  });
+
   it("rejects runtime grants when the registry row is archived", async () => {
     const { env } = fixture();
     const workspaceId = "self-hosted";
