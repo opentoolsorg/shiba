@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import type { RunDeliverable, RunStatus } from "@shiba/shared";
 import { VideoArtifactPlayer } from "./VideoArtifactPlayer";
+import { DeliverablePreview } from "./DeliverablePreview";
 
 interface ArtifactVersion {
   runId: string;
@@ -236,6 +237,32 @@ function ArtifactDetails({
       setSaving(false);
     }
   };
+  const [rooms, setRooms] = useState<Array<{ roomId: string; title: string }> | null>(null);
+  const [roomId, setRoomId] = useState("");
+  const [shareMessage, setShareMessage] = useState("");
+  const loadRooms = async () => {
+    try {
+      const response = await fetch("/api/collaboration/rooms", { headers: { accept: "application/json" } });
+      const body = (await response.json()) as { rooms?: Array<{ roomId: string; title: string }> };
+      setRooms(response.ok ? body.rooms ?? [] : []);
+    } catch {
+      setRooms([]);
+    }
+  };
+  const shareToRoom = async () => {
+    setShareMessage("");
+    try {
+      const response = await fetch(`/api/collaboration/rooms/${encodeURIComponent(roomId)}/shared-deliverables`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId, index, ...(sessionId && sessionId !== "default" ? { sessionId } : {}) }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      setShareMessage(response.ok ? "Shared to the room." : result.error ?? "Could not share to the room.");
+    } catch {
+      setShareMessage("Could not share to the room.");
+    }
+  };
   return (
     <>
       <span className="text-[var(--muted-foreground-2)]">
@@ -270,6 +297,25 @@ function ArtifactDetails({
       >
         Download {filePath}
       </a>
+      {completed && <DeliverablePreview src={href} path={filePath} downloadHref={href} />}
+      {completed && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          {rooms === null ? (
+            <button type="button" className="text-[var(--primary)] underline" onClick={() => void loadRooms()}>Share to room</button>
+          ) : rooms.length === 0 ? (
+            <span className="text-[var(--muted-foreground-2)]">No rooms to share to.</span>
+          ) : (
+            <>
+              <select aria-label={`Room for ${filePath}`} className="rounded border border-[var(--border-1)] bg-[var(--card)] px-1 py-0.5" value={roomId} onChange={(event) => setRoomId(event.target.value)}>
+                <option value="">Choose a room</option>
+                {rooms.map((room) => <option key={room.roomId} value={room.roomId}>{room.title}</option>)}
+              </select>
+              <button type="button" className="text-[var(--primary)] underline disabled:opacity-50" disabled={!roomId} onClick={() => void shareToRoom()}>Share to room</button>
+            </>
+          )}
+          {shareMessage && <span role="status" className="text-[var(--muted-foreground-2)]">{shareMessage}</span>}
+        </div>
+      )}
       {savedReview && (
         <span className="text-[11px] text-[var(--muted-foreground-2)]">
           Current saved review: {savedReview.status.replaceAll("_", " ")}

@@ -2,6 +2,7 @@ import type { WorkspaceMessagePatch } from "@shiba/shared";
 import { handleCollaboration } from "./collaboration-routes.js";
 import { handleCollaborationApproval } from "./collaboration-approval-routes.js";
 import { handleCollaborationArtifact } from "./collaboration-artifact-routes.js";
+import { handleCollaborationShare } from "./collaboration-share-routes.js";
 import { handleCollaborationLive } from "./collaboration-live-routes.js";
 import type { CollaborationScope } from "./collaboration-store.js";
 import { canReadCollaborationRoom, collaborationRoomName } from "./collaboration-room-access.js";
@@ -59,7 +60,8 @@ export async function handleCollaborationWithRealtime(request: Request, env: Env
   if (artifact) return artifact;
   const messageInput = request.method === "POST" && /\/rooms\/[^/]+\/messages$/.test(url.pathname)
     ? await request.clone().json().catch(() => null) as { threadRootMessageId?: string } | null : null;
-  const response = await handleCollaboration(request, env);
+  const shared = await handleCollaborationShare(request, env);
+  const response = shared ?? await handleCollaboration(request, env);
   if (response?.ok && request.method !== "GET" && request.method !== "HEAD") {
     const body = await response.clone().json().catch(() => null) as {
       room?: { roomId: string; title: string; visibility: string; kind?: string };

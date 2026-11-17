@@ -29,6 +29,7 @@ import { PersonalExecutionSetup } from "./PersonalExecutionSetup";
 import { TeamModelSessions } from "./TeamModelSessions";
 import { SharedComputerSessions } from "./SharedComputerSessions";
 import { BootstrapVerificationPanel } from "./BootstrapVerificationPanel";
+import { DeliverablePreview } from "./DeliverablePreview";
 import type { PersonalExecutionGrant } from "../personal-execution-client";
 
 interface Room {
@@ -1465,6 +1466,15 @@ function ScopedCollaborationView({
                                   </span>
                                 ),
                               )}
+                            </div>
+                          )}
+                          {item.messageKind === "shared_deliverable" && item.sourceArtifactRefs?.[0] && (
+                            <div className="mt-2 border-t border-[var(--line)] pt-2">
+                              <DeliverablePreview
+                                src={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/shared-deliverables/${encodeURIComponent(item.messageId)}${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`}
+                                path={item.sourceArtifactRefs[0].path}
+                                downloadHref={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/shared-deliverables/${encodeURIComponent(item.messageId)}${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`}
+                              />
                             </div>
                           )}
                           {item.sourceSlackEventId && (
