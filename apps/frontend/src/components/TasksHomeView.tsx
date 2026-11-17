@@ -6,6 +6,7 @@ import type { EmployeeRole } from "../employee-templates";
 import { formatTimeAgo, type PendingApproval as ChatPendingApproval } from "../ui-helpers";
 import { AgentAvatar } from "./AgentAvatar";
 import { useSetupStatus } from "../live-status";
+import { ModelRouteCard } from "./SetupCards";
 import { taskReadiness, type TaskRouteSelection } from "../task-readiness";
 import { normalizeRepositoryInput, REPOSITORY_INPUT_ERROR } from "../repository-input";
 
@@ -272,6 +273,7 @@ export function TasksHomeView({
   agentsOpen = true,
   route = {},
   onOpenModels,
+  onOpenProviders,
   submitError,
   submitNotice,
   workspaceId,
@@ -292,6 +294,7 @@ export function TasksHomeView({
   onSubmit: (event: FormEvent<HTMLFormElement>, agentId: string) => void | Promise<void>;
   route?: TaskRouteSelection;
   onOpenModels?: () => void;
+  onOpenProviders?: () => void;
   submitError?: string | null;
   submitNotice?: string | null;
   workspaceId?: string;
@@ -454,6 +457,7 @@ export function TasksHomeView({
           </p>
         </section>
 
+    {setup.state.kind === "data" && route.runTarget !== "local" ? <div className="mt-8"><ModelRouteCard modelRoute={setup.state.data.modelRoute} onConnect={onOpenProviders} /></div> : null}
     <form onSubmit={(event) => { void submit(event); }} aria-label="Hand off work" aria-busy={busy || submitting} className="mt-8 border border-[var(--border-2)] bg-[var(--card)] shadow-[2px_2px_0_var(--paper-shadow)] focus-within:border-[var(--primary)]">
           <label htmlFor="tasks-home-prompt" className="sr-only">What do you want done?</label>
           <textarea
@@ -524,6 +528,7 @@ export function TasksHomeView({
               disabled={busy || submitting || readiness.blocked || !task.trim() || agentsLoading || !repoUrl.trim()}
               aria-describedby="tasks-home-readiness"
               aria-label="Send task"
+              title={readiness.blocked ? readiness.message : undefined}
               className="inline-flex size-9 items-center justify-center border border-[var(--navy)] bg-[var(--navy)] text-[var(--primary-text)] shadow-[2px_2px_0_var(--paper-shadow)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               {busy || submitting ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : <ArrowUp className="size-4" aria-hidden="true" />}
@@ -532,7 +537,10 @@ export function TasksHomeView({
         </form>
 
         <div role="group" className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-4" aria-label="Task queues">
-          <TaskQueue title="Needs you" items={buckets.needsYou} emptyText="Nothing waiting for review." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
+          <div className="space-y-3">
+            {setup.state.kind === "data" && route.runTarget !== "local" ? <ModelRouteCard modelRoute={setup.state.data.modelRoute} onConnect={onOpenProviders} /> : null}
+            <TaskQueue title="Needs you" items={buckets.needsYou} emptyText="Nothing waiting for review." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
+          </div>
           <TaskQueue title="Working" items={buckets.working} emptyText="No agents currently running." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
           <TaskQueue title="Waiting" items={buckets.waiting} emptyText="No tasks in queue." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
         </div>
