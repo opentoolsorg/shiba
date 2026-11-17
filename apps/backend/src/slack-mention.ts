@@ -4,7 +4,7 @@
  */
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
-import { postSlackMessage, SLACK_POST_TIMEOUT_MS } from "./slack.js";
+import { postSlackMessage, postSlackMessageWithReceipt, updateSlackMessage, deleteSlackMessage, addSlackReaction, SLACK_POST_TIMEOUT_MS } from "./slack.js";
 import { buildSlackCanvasUrl, signSlackCanvasIntake, slackCanvasOwner } from "./slack-canvas.js";
 import { postSystemOne, readChoiceAnswer, type TypeSafeFetch } from "./typesafe.js";
 import { buildApprovalBlocks, slackCanvasUrl } from "./slack-approval.js";
@@ -30,6 +30,7 @@ import {
   resolveSlackHarness,
   resolveThreadTs,
   slackWorkspaceTarget,
+  type SlackContinuationTarget,
 } from "./slack-thread.js";
 import {
   chatEmployeeQueueExtras,
@@ -45,8 +46,8 @@ export interface SlackMentionQueueResult {
 }
 
 export interface SlackMentionDeps {
-  bufferMessage?: (input: BufferedSlackMessage & { threadKey: string }) => Promise<{ buffered: boolean; status?: string }>;
-  queueRun?: (input: {
+  bufferMessage?: (input: BufferedSlackMessage & { threadKey: string; lookupOnly?: boolean }) => Promise<{ buffered: boolean; status?: string; continuation?: SlackContinuationTarget | null }>;
+  queueRun?: (input: Partial<SlackContinuationTarget> & {
     threadKey: string;
     repoUrl: string;
     task: string;
@@ -62,6 +63,10 @@ export interface SlackMentionDeps {
     text: string;
     blocks?: unknown[];
   }) => Promise<void>;
+  postMessageWithReceipt?: (input: { channel: string; threadTs: string; text: string }) => Promise<{ channel: string; ts: string }>;
+  updateMessage?: (input: { channel: string; ts: string; text: string; blocks?: unknown[] }) => Promise<void>;
+  deleteMessage?: (input: { channel: string; ts: string }) => Promise<void>;
+  addReaction?: (input: { channel: string; timestamp: string; name: string }) => Promise<void>;
   fetchThread?: (channel: string, threadTs: string) => Promise<SlackThreadMessage[]>;
   /** Injected in tests to mock the TypeSafe API call for intent classification. */
   typeSafeFetch?: MentionFetchImpl;
@@ -108,8 +113,9 @@ function mergeIncomingMessage(history: SlackThreadMessage[], incoming: SlackThre
 
 function asAppMention(event: unknown): AppMentionEvent | null {
   if (typeof event !== "object" || event === null) return null;
-  const candidate = event as { type?: unknown };
+  const candidate = event as Record<string, unknown>;
   if (candidate.type !== "app_mention") return null;
+  if (typeof candidate.bot_id === "string" || typeof candidate.subtype === "string") return null;
   return event as AppMentionEvent;
 }
 
@@ -117,8 +123,7 @@ function asAppMention(event: unknown): AppMentionEvent | null {
  * A top-level DM to the intern is a task request, same as a channel
  * @mention. Only `message` events in an IM channel with no bot_id and no
  * subtype qualify — bot echoes and edits/joins/leaves are not tasks.
- * Thread replies are ignored: "thanks" or "ok" under an old card must not
- * queue a new run.
+ * Thread replies use the conversation continuation path instead.
  */
 function asDirectMessage(event: unknown): AppMentionEvent | null {
   if (typeof event !== "object" || event === null) return null;
@@ -139,6 +144,14 @@ function asThreadReply(event: unknown): AppMentionEvent | null {
 
 function stripMentionMarkers(text: string): string {
   return text.replace(/<@[A-Z0-9]+>/gi, " ").replace(/\s+/g, " ").trim();
+}
+
+export function isSlackAcknowledgmentOnly(text: string): boolean {
+  const stripped = stripMentionMarkers(text);
+  if (stripped.length > 100 || /[?？¿؟‽⁇⁈⁉❓❔]/u.test(stripped)) return false;
+  const normalized = stripped.toLowerCase().replace(/:\+1:/g, "👍").replace(/\uFE0F/g, "")
+    .replace(/[\p{P}\s]+/gu, " ").trim();
+  return /^(?:(?:thanks|thank you|ty|ok|okay|got it|cool|great|perfect|sounds good|👍|🙏)(?:\s+|$))+$/u.test(normalized);
 }
 
 function requireSlackOk(response: Response, json: Record<string, unknown>): void {
@@ -268,8 +281,7 @@ export async function handleSlackEvent(
   env: Env,
   deps: SlackMentionDeps = {},
 ): Promise<void> {
-  // @mentions in channels and direct messages both start work; everything
-  // else (channel chatter, bot echoes, edits) is ignored.
+  // Mentions, direct messages and engaged thread replies can start work.
   const reply = asThreadReply(body.event);
   const event = asAppMention(body.event) ?? asDirectMessage(body.event) ?? reply;
   if (!event) return;
@@ -278,8 +290,11 @@ export async function handleSlackEvent(
   const teamId = typeof body.team_id === "string" ? body.team_id : "";
   const channelId = event.channel?.trim() ?? "";
   const userId = event.user?.trim() ?? "";
+  if (Array.isArray(body.authorizations) && body.authorizations.some((auth: unknown) =>
+    auth !== null && typeof auth === "object" && (auth as Record<string, unknown>).is_bot === true &&
+    (auth as Record<string, unknown>).user_id === userId)) return;
   const mentionText = event.text ?? "";
-  const workspaceTarget = slackWorkspaceTarget(stripMentionMarkers(mentionText));
+  let workspaceTarget = slackWorkspaceTarget(stripMentionMarkers(mentionText));
   const threadTs = resolveThreadTs({ thread_ts: event.thread_ts, ts: event.ts });
   if (!channelId || !threadTs || !isSlackMessageTimestamp(event.ts)) return;
   const incoming: SlackThreadMessage = {
@@ -292,25 +307,32 @@ export async function handleSlackEvent(
   // An aside stays outside both the active-turn queue and task fallback.
   if (applyThreadControls([incoming]).length === 0) return;
 
-  const postMessage =
+  const sendMessage =
     deps.postMessage ??
     (token ? (input: Parameters<NonNullable<SlackMentionDeps["postMessage"]>>[0]) => defaultPostMessage(token, input) : undefined);
   // No bot token: cannot ask or post a card, so start no run.
-  if (!postMessage) return;
+  if (!sendMessage) return;
+  let postMessage: NonNullable<SlackMentionDeps["postMessage"]> = async (input) => {
+    try { await sendMessage(input); }
+    catch (error) { console.error("Slack message post failed", redactSecrets(String(error))); }
+  };
+  let continuation: SlackContinuationTarget | null = null;
+  const ackOnly = Boolean(event.thread_ts) && isSlackAcknowledgmentOnly(mentionText);
 
   if (event.thread_ts) {
     const threadKey = buildSlackThreadName(teamId, channelId, threadTs);
-    const buffer = deps.bufferMessage ?? (env.CodingOrchestrator ? async (input: BufferedSlackMessage & { threadKey: string }) => {
+    const buffer = deps.bufferMessage ?? (env.CodingOrchestrator ? async (input: BufferedSlackMessage & { threadKey: string; lookupOnly?: boolean }) => {
       const stub = await getSlackThreadStub<{ fetch(request: Request): Promise<Response> }>(env, { teamId, channelId, threadTs });
       const response = await stub.fetch(await signSlackBufferRequest(new Request("https://internal/api/slack/buffer", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
       }), env.INTERNAL_SIGNING_KEY ?? ""));
       if (!response.ok) throw new Error(`Slack buffer unavailable (${response.status}).`);
-      return await response.json() as { buffered: boolean; status?: string };
+      return await response.json() as { buffered: boolean; status?: string; continuation?: SlackContinuationTarget | null };
     } : undefined);
     if (buffer) {
       try {
-        const result = await buffer({ threadKey, eventId: body.event_id, userId, text: mentionText, createdAt: Date.now(), messageTs: event.ts });
+        const result = await buffer({ threadKey, eventId: body.event_id, userId, text: mentionText, createdAt: Date.now(), messageTs: event.ts, ...(ackOnly ? { lookupOnly: true } : {}) });
+        continuation = result.continuation ?? null;
         if (result.buffered || result.status === "duplicate") return;
         if (result.status === "full" || result.status === "invalid") {
           await postMessage({ channel: channelId, threadTs, text: "That follow-up could not fit in the queue. Please send a shorter message after this turn completes." });
@@ -322,7 +344,34 @@ export async function handleSlackEvent(
         return;
       }
     }
-    if (reply) return;
+    if (reply && !continuation) return;
+    const postReceipt = deps.postMessageWithReceipt ?? (!deps.postMessage && token ? (input: Parameters<NonNullable<SlackMentionDeps["postMessageWithReceipt"]>>[0]) => postSlackMessageWithReceipt(token, input) : undefined);
+    let receipt: { channel: string; ts: string } | undefined;
+    if (postReceipt) {
+      try { receipt = await postReceipt({ channel: channelId, threadTs, text: "Working on it…" }); }
+      catch (error) { console.error("Slack interim post failed", redactSecrets(String(error))); }
+    }
+    if (ackOnly) {
+      if (receipt) {
+        try { await (deps.deleteMessage ?? ((input) => deleteSlackMessage(token, input)))(receipt); }
+        catch (error) { console.error("Slack interim delete failed", redactSecrets(String(error))); }
+      }
+      try { await (deps.addReaction ?? ((input) => addSlackReaction(token, input)))({ channel: channelId, timestamp: event.ts, name: "white_check_mark" }); }
+      catch (error) { console.error("Slack acknowledgment reaction failed", redactSecrets(String(error))); }
+      return;
+    }
+    if (receipt) {
+      const fallback = postMessage;
+      const interim = receipt;
+      postMessage = async (input) => {
+        try { await (deps.updateMessage ?? ((message) => updateSlackMessage(token, message)))({ channel: interim.channel, ts: interim.ts, text: input.text, ...(input.blocks ? { blocks: input.blocks } : {}) }); }
+        catch (error) {
+          console.error("Slack interim update failed", redactSecrets(String(error)));
+          await fallback(input);
+        }
+      };
+    }
+    if (continuation) workspaceTarget = undefined;
   }
 
   let threadMessages = [incoming];
@@ -355,7 +404,7 @@ export async function handleSlackEvent(
     return;
   }
 
-  const employeeResolution = workspaceTarget
+  const employeeResolution = workspaceTarget || continuation
     ? { kind: "none" as const, taskText: task }
     : await resolveChatEmployeeFromText(env, task);
   if (employeeResolution.kind === "error") {
@@ -406,20 +455,20 @@ ${taskForRun}` : taskForRun;
     }
   }
 
-  if (!workspaceTarget && !employeeExtras?.ok && resolution.kind === "ask") {
+  if (!continuation && !workspaceTarget && !employeeExtras?.ok && resolution.kind === "ask") {
     await postMessage({ channel: channelId, threadTs, text: slackAskForRepo() });
     return;
   }
 
-  const repoUrl = workspaceTarget ? "" : employeeExtras?.ok
+  const repoUrl = continuation ? continuation.repoUrl : workspaceTarget ? "" : employeeExtras?.ok
     ? (employeeExtras.extras.repoUrl ?? "")
     : resolution.kind === "ask"
       ? ""
       : resolution.repoUrl;
-  const harness = employeeExtras?.ok && employeeExtras.extras.harness
+  const harness = continuation?.harness ?? (employeeExtras?.ok && employeeExtras.extras.harness
     ? employeeExtras.extras.harness
-    : resolveSlackHarness(env);
-  const payload = buildSlackRunPayload({
+    : resolveSlackHarness(env));
+  const payload = { ...buildSlackRunPayload({
     repoUrl,
     ...(workspaceTarget ? { workspaceTarget } : {}),
     task: employeeExtras?.ok ? employeeExtras.task : taskWithHint,
@@ -440,7 +489,7 @@ ${taskForRun}` : taskForRun;
           publishPullRequest: employeeExtras.extras.publishPullRequest,
         }
       : {}),
-  });
+  }), ...(continuation ?? {}) };
   const queueRun =
     deps.queueRun ??
     (async (input) => {
@@ -466,6 +515,7 @@ ${taskForRun}` : taskForRun;
 
   try {
     const { approvalId } = await queueRun({
+      ...payload,
       threadKey,
       repoUrl,
       task: payload.task,

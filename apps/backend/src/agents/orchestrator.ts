@@ -256,7 +256,7 @@ import {
   slackRunFailed,
   slackRunStarted,
 } from "../slack-persona.js";
-import { parseSlackCommandScope, parseSlackThreadName } from "../slack-thread.js";
+import { latestSlackThreadRun, parseSlackCommandScope, parseSlackThreadName } from "../slack-thread.js";
 import { SlackTurnBuffer, verifySlackBufferRequest } from "../slack-turn-buffer.js";
 import { publishRunRoomEvent, type RunRoomIdentity } from "../run-room-events.js";
 import { executePrPublishApproval, readPrPublicationReviewInput, publicationReviewMatches, validatePrPublicationProposal, type PrPublicationProposal, type PublicationReviewRecord } from "../pr-publish-approval.js";
@@ -6941,7 +6941,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
       const body = await request.json().catch(() => null) as Record<string, unknown> | null;
       if (!body || body.threadKey !== this.name) return Response.json({ error: "Invalid thread." }, { status: 400 });
-      if (!this.store.list().some((run) => isActiveStatus(run.status))) return Response.json({ buffered: false });
+      if (body.lookupOnly === true || !this.store.list().some((run) => isActiveStatus(run.status))) {
+        return Response.json({ buffered: false, continuation: latestSlackThreadRun(this.store.list()) });
+      }
       if (typeof body.eventId !== "string" || typeof body.userId !== "string" || typeof body.text !== "string" || typeof body.createdAt !== "number" ||
           (body.messageTs !== undefined && typeof body.messageTs !== "string")) {
         return Response.json({ error: "Invalid follow-up message." }, { status: 400 });

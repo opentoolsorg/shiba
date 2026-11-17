@@ -15,6 +15,27 @@
  */
 import { getAgentByName } from "agents/routing";
 import type { Env } from "./env.js";
+import type { DelegatedRun } from "@shiba/shared";
+
+export type SlackContinuationTarget = Pick<DelegatedRun,
+  "repoUrl" | "baseBranch" | "publishPullRequest" | "orgId" | "customAgentId" |
+  "customAgentVersion" | "employeeToolPolicyVersion" | "executionTarget" |
+  "runtime" | "targetMachineId" | "authAccount" | "sandboxProvider"
+> & { harness?: string; codingModel?: string; connectionId?: string };
+
+export function latestSlackThreadRun(runs: DelegatedRun[]): SlackContinuationTarget | null {
+  const run = runs.filter((item) => !item.parentRunId && !item.reviewOf && !item.slackCommandOrigin)
+    .sort((a, b) => b.createdAt - a.createdAt)[0];
+  if (!run) return null;
+  return {
+    repoUrl: run.repoUrl, baseBranch: run.baseBranch, publishPullRequest: run.publishPullRequest,
+    orgId: run.orgId, customAgentId: run.customAgentId, customAgentVersion: run.customAgentVersion,
+    employeeToolPolicyVersion: run.employeeToolPolicyVersion, executionTarget: run.executionTarget,
+    runtime: run.runtime, targetMachineId: run.targetMachineId, authAccount: run.authAccount,
+    sandboxProvider: run.sandboxProvider, harness: run.route?.harness,
+    codingModel: run.route?.modelId, ...(run.route?.connectionId ? { connectionId: run.route.connectionId } : {}),
+  };
+}
 
 /** The Slack path opens a pull request by default. */
 export const SLACK_DEFAULT_PUBLISH_PR = true;
