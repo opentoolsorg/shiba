@@ -471,7 +471,7 @@ export function App(): React.JSX.Element {
   const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
 
   useEffect(() => {
-    document.title = "Shiba Dashboard · Self-Hosted AI Software Engineer";
+    document.title = "Shiba · Hire AI employees you own";
   }, []);
 
   // Surface transient notices through the toast channel (aria-live inside sonner).
