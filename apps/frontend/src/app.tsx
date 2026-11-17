@@ -3314,6 +3314,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 aria-busy={busy}
               >
                 <AgentChatHeader
+                  sideQuestion={sessionCustomAgentId && selectedSessionId !== "default" && !teamWorkspaceId ? { employeeId: sessionCustomAgentId, threadId: selectedSessionId } : undefined}
                   agent={chatAgent}
                   participants={[{ id: "you", name: "You" }, { id: chatAgent.id, name: chatAgent.name }]}
                   panelOpen={agentDetailsOpen}

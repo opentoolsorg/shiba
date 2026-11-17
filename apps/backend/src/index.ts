@@ -77,6 +77,7 @@ import { handleScreenshot } from "./screenshots-routes.js";
 import { handleE2eEvidence } from "./e2e-evidence-routes.js";
 import { handleDevOAuthLoopback } from "./dev-oauth-loopback-routes.js";
 import { handleWebSessions } from "./sessions-routes.js";
+import { handleSideQuestion } from "./side-question-routes.js";
 import { handleSlackCanvas } from "./slack-canvas-routes.js";
 import { redactSecrets } from "./security.js";
 import { handleBetterAuth, isBetterAuthConfigured } from "./better-auth.js";
@@ -507,6 +508,8 @@ export default {
         return e2eEvidenceResponse;
       }
       const webSessionsResponse = await handleWebSessions(request, env);
+      const sideQuestionResponse = await handleSideQuestion(request, env);
+      if (sideQuestionResponse) return sideQuestionResponse;
       if (webSessionsResponse) {
         return webSessionsResponse;
       }
