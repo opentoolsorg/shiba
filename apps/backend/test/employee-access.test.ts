@@ -21,7 +21,7 @@ import { handleWebSessions } from "../src/sessions-routes.js";
 import { getAgentByName } from "agents/routing";
 
 vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: vi.fn() }));
-vi.mock("../src/request-auth.js", async (original) => ({ ...await original<typeof import("../src/request-auth.js")>(), resolveUserId: vi.fn() }));
+vi.mock("../src/request-auth.js", async (original) => ({ ...await original<typeof import("../src/request-auth.js")>(), isAuthorizedRequest: vi.fn(async () => true), resolveUserId: vi.fn() }));
 vi.mock("../src/agent-tokens.js", async (original) => ({ ...await original<typeof import("../src/agent-tokens.js")>(), verifyToken: vi.fn(async () => null) }));
 vi.mock("agents/routing", () => ({ getAgentByName: vi.fn() }));
 const owner = "alice@example.test", member = "bob@example.test";
@@ -42,6 +42,17 @@ async function fixture() {
 }
 
 describe("employee access", () => {
+  it("supports workspace query selectors for artifact downloads without overriding conflicting selectors", async () => {
+    const { env, sqlite, workspaceId, employee, set, auth } = await fixture(); auth();
+    sqlite.exec("CREATE TABLE collaboration_handoffs (tenant_id TEXT,workspace_id TEXT,handoff_id TEXT,recipient_actor_id TEXT)");
+    sqlite.prepare("INSERT INTO collaboration_handoffs VALUES (?,?, 'handoff',?)").run(COLLAB_TENANT_ID, workspaceId, `agent:${employee.id}`);
+    const url = `https://app.test/api/collaboration/rooms/room/handoffs/handoff/artifacts/0?workspaceId=${workspaceId}`;
+    expect(await enforceEmployeeRouteAccess(new Request(url), env)).toBeNull();
+    expect(new Headers(vi.mocked(resolveOrgForApiRequest).mock.lastCall?.[0].headers).get("X-Shiba-Workspace")).toBe(workspaceId);
+    await set("everyone", "*", "none");
+    expect((await enforceEmployeeRouteAccess(new Request(url), env))?.status).toBe(404);
+    expect((await enforceEmployeeRouteAccess(new Request(url, { headers: { "X-Shiba-Workspace": "ws_" + "f".repeat(24) } }), env))?.status).toBe(404);
+  });
   it("hides employee sessions and resolves resume authority from stored metadata", async () => {
     const { env, employee, workspaceId, auth, set } = await fixture(); auth();
     const session = { id: "ses_1234567890abcdef12345678", name: "Finance", createdAt: 1, updatedAt: 1, metadata: { customAgentId: employee.id, orgId: `team:${workspaceId}`, teamWorkspaceId: workspaceId } };
