@@ -1,4 +1,5 @@
 import { onboardingSourceInstructions } from "@shiba/shared";
+import { parseRoutineOutcome, routineCommandFiles, routineTask } from "./routine-outcome.js";
 import type { JournalExecutionOptions, JournalFrame } from "@shiba/sandbox";
 import { approvedRuntimeIdentity, assertPreparedRuntimeExecution, runtimeIdentity, type PreparedRuntimeExecution } from "./runtime-recovery.js";
 /**
@@ -237,7 +238,21 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     this.harness = harness;
   }
 
-  async runCodingTask(
+  async runCodingTask(...args: Parameters<RuntimeAdapter["runCodingTask"]>): Promise<CodingTaskResult> {
+    const result = await this.runCodingTaskImpl(...args);
+    const [ops, input, , opts] = args;
+    const commands = routineCommandFiles(input);
+    if (!commands || result.routineOutcome) return result;
+    try {
+      const file = await ops.readFile(commands.outcomePath, { maxBytes: 65_536, signal: opts?.signal });
+      if (file.kind === "utf8") return { ...result, routineOutcome: parseRoutineOutcome(opts?.scrub ? opts.scrub(file.content) : file.content) };
+    } catch {
+      // Preparation may fail before the outcome file is installed.
+    }
+    return result;
+  }
+
+  private async runCodingTaskImpl(
     ops: SandboxOps,
     input: CodingTaskInput,
     emit: ProgressEmitter,
@@ -262,7 +277,8 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
   ): Promise<CodingTaskResult> {
     throwIfAborted(opts?.signal);
     const approvedInput = opts?.approvedInput ?? input;
-    input = withDeliverableInstructions(input);
+    input = routineTask(withDeliverableInstructions(input));
+    const routineCommands = routineCommandFiles(input);
     const ephemeral = isEphemeralWorkspace(input.executionTarget);
     const workdir = ephemeral ? "/workspace" : `/workspace/${input.sandboxId}`;
     const harnessInput = withAttachmentNote(input);
@@ -351,9 +367,14 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     let jobId: string;
     try {
       executionEnv = { ...opts?.env, ...this.harness.env(input, config?.path ?? null) };
+      if (routineCommands) executionEnv.PATH = `${routineCommands.directory}:${executionEnv.PATH ?? "/opt/shiba-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}`;
       setupCommands = this.harness.setupCommands?.(input, workdir) ?? [];
+      if (routineCommands) setupCommands = [
+        ["mkdir", "-p", routineCommands.directory],
+        ...setupCommands,
+      ];
       commandIdentity = await runtimeIdentity({ command: shellJoin(argv), workdir, configFiles, sessionFiles,
-        setupCommands, env: executionEnv });
+        setupCommands, env: executionEnv, ...(routineCommands ? { routineCommands } : {}) });
       jobId = await runtimeIdentity([
         "shiba:execution-journal:v1", input.sandboxId, input.dispatchApprovalId ?? "", input.dispatchInputHash ?? "", this.harness.name,
       ]);
@@ -503,6 +524,14 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         }
         for (const file of configFiles) {
           await ops.writeFile(file.path, file.contents);
+        }
+        if (routineCommands) {
+          for (const file of routineCommands.files) await ops.writeFile(file.path, file.contents);
+          await ops.writeFile(routineCommands.outcomePath, JSON.stringify({ noUpdate: false }));
+          const executable = await scopedExec(ops, shellJoin(["chmod", "700", ...routineCommands.files.map((file) => file.path)]), {
+            allowlist: SETUP_COMMAND_ALLOWLIST, signals, signal: opts?.signal,
+          });
+          if (executable.exitCode !== 0) throw new Error("Could not install routine commands.");
         }
         milestone("config.written", config?.path ?? "none");
       } catch (error) {
@@ -671,6 +700,11 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       });
       const completed: CodingTaskResult = {
         status: "completed",
+        ...(routineCommands ? { routineOutcome: await (async () => {
+          const file = await ops.readFile(routineCommands.outcomePath, { maxBytes: 65_536, signal: opts?.signal });
+          if (file.kind !== "utf8") throw new Error("Invalid routine outcome encoding.");
+          return parseRoutineOutcome(scrub(file.content));
+        })() } : {}),
         ...(baseRevision !== undefined ? { baseRevision } : {}),
         exitCode: 0,
         stderrTail,

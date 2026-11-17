@@ -38,6 +38,8 @@ export type RunStatus =
   | "unknown";
 
 export interface DelegatedRun extends OnboardingRunFields {
+  routineRun?: { automationId: string; test: boolean };
+  routineOutcome?: { noUpdate: boolean; failureReason?: string };
   outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   runId: string;
   sandboxId: string;
@@ -249,6 +251,7 @@ export function mergeRunUsage(base: RunUsage | undefined, delta: RunUsage | unde
 }
 
 export type RunPatch = {
+  routineOutcome?: { noUpdate: boolean; failureReason?: string };
   summary?: string;
   /** Public metadata for captured requested outputs. */
   deliverables?: RunDeliverable[];

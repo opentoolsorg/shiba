@@ -28,6 +28,7 @@ import { clampBurstWindowSeconds, DEFAULT_BURST_WINDOW_SECONDS } from "./slack-c
 export const AUTOMATIONS_DO_NAME = "default";
 
 export interface QueueAutomationRunInput {
+  routineRun?: { automationId: string; test: boolean };
   repoUrl: string;
   executionTarget?: Automation["executionTarget"];
   task: string;
@@ -377,6 +378,7 @@ async function commitAutomationFire(
       task += `\n\n---\nWebhook payloads (${event.batchedBodies.length}):\n${event.batchedBodies.join("\n---\n")}`;
     }
     const queueInput: QueueAutomationRunInput = {
+      routineRun: { automationId: automation.id, test: event.kind === "manual" },
       repoUrl: automation.repoUrl,
       ...(automation.executionTarget !== undefined ? { executionTarget: automation.executionTarget } : {}),
       task,
@@ -400,7 +402,7 @@ async function commitAutomationFire(
         task,
         publishPullRequest,
         unattendedApproved: false,
-        queueRun: async (input) => deps.queueRun(input),
+        queueRun: async () => deps.queueRun(queueInput),
       });
       if (!result.approvalId) {
         throw new Error(result.status === "failed" ? "workflow_failed" : "queue_failed");
