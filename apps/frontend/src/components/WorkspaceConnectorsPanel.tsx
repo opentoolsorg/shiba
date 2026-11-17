@@ -30,6 +30,8 @@ export function WorkspaceConnectorsPanel(props: WorkspaceConnectorsPanelProps): 
   const current = useRef(scope); current.current = scope;
   const [operatorReviewEnabled, setOperatorReviewEnabled] = useState<boolean | null>(null);
   useEffect(() => {
+    setOperatorReviewEnabled(null);
+    if (props.workspaceId) return;
     let active = true;
     void fetch("/api/setup/status", { cache: "no-store" })
       .then(async (response) => {
@@ -43,7 +45,7 @@ export function WorkspaceConnectorsPanel(props: WorkspaceConnectorsPanelProps): 
     return () => {
       active = false;
     };
-  }, []);
+  }, [props.workspaceId]);
   return <div className="flex h-full min-h-0 flex-1 flex-col">
     {(props.workspaceId || props.onChooseWorkspace) && <fieldset className="border-b border-[var(--line)] bg-[var(--card)] px-4 py-3 text-xs lg:px-8"><legend className="sr-only">App account ownership</legend><label className="flex flex-wrap items-center gap-3">Account ownership<select aria-label="App account ownership" value={props.workspaceId ? "workspace" : "personal"} className="min-h-11 min-w-0 max-w-full border border-[var(--input-line)] bg-[var(--paper)] px-3" onChange={(event) => { if (event.target.value === "personal") props.onPersonalScope?.(); else props.onChooseWorkspace?.(); }}><option value="personal" disabled={props.workspaceId ? !props.allowPersonalScope || !props.onPersonalScope : false}>Personal, only you</option><option value="workspace">Workspace-shared{props.workspaceName ? `, ${props.workspaceName}` : ", select a team"}</option></select></label><p className="mt-2 text-[var(--ink-2)]">{props.workspaceId ? props.allowPersonalScope ? "Personal account management opens your personal workspace. Accounts are never transferred by changing this selector." : "This invited session can use explicitly granted workspace accounts. Personal integration setup is unavailable here." : "Personal accounts stay private. Select a team workspace before starting a separate shared consent."}</p></fieldset>}
     {!props.workspaceId && operatorReviewEnabled === true ? <OperatorEnrollmentReviews actorId={props.actorId} /> : null}

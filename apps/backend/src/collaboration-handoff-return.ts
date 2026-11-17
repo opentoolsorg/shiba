@@ -1,3 +1,4 @@
+import { rowExists } from "./d1-write-check.js";
 import type { CollaborationScope } from "./collaboration-store.js";
 import { ensureCoordinationSchema } from "./coordination-schema.js";
 import { publishWorkspaceEvent } from "./platform/workspace-events-do.js";
@@ -83,7 +84,7 @@ export async function reportPendingHandoff(
     actorId: pending.parent_actor_id,
   });
   const db = env.AGENT_AUDIT;
-  const results = await db.batch([
+  await db.batch([
     db.prepare(
       `INSERT INTO collaboration_messages (
          message_id, tenant_id, workspace_id, room_id, sender_user_id, sender_actor_id, sender_kind,
@@ -115,10 +116,16 @@ export async function reportPendingHandoff(
     db.prepare(
       `UPDATE collaboration_handoff_returns
        SET status='reported', reported_message_id=?
-       WHERE changes()=1 AND tenant_id=? AND workspace_id=? AND handoff_id=? AND status='pending'`,
-    ).bind(messageId, scope.tenantId, scope.workspaceId, pending.handoff_id),
+       WHERE tenant_id=? AND workspace_id=? AND handoff_id=? AND status='pending'
+         AND EXISTS (SELECT 1 FROM collaboration_messages m
+           WHERE m.tenant_id=? AND m.workspace_id=? AND m.message_id=?)`,
+    ).bind(messageId, scope.tenantId, scope.workspaceId, pending.handoff_id,
+      scope.tenantId, scope.workspaceId, messageId),
   ]);
-  const inserted = Number(results[0]?.meta?.changes ?? 0) === 1;
+  const inserted = await rowExists(db,
+    "SELECT 1 FROM collaboration_messages WHERE tenant_id=? AND workspace_id=? AND message_id=?",
+    [scope.tenantId, scope.workspaceId, messageId],
+  );
   if (!inserted) return { reported: false };
   if (pending.parent_thread_root_id) {
     await db.prepare(
