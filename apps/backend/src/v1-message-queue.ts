@@ -42,6 +42,9 @@ export async function removeQueuedMessage(env: QueueEnv, threadId: string, messa
   const queue = await migratedQueue(env, threadId, resolve);
   const removed = (await queue.drain(threadId, Number.MAX_SAFE_INTEGER)).find(item => item.id === messageId);
   if (!removed) return null;
-  await queue.ack([removed.id]);
-  return removed;
+  return (await queue.ack([removed.id])).includes(removed.id) ? removed : null;
+}
+
+export async function releaseQueuedMessage(env: QueueEnv, threadId: string, messageId: string, resolve: QueueResolver = threadQueueFor): Promise<void> {
+  await (await migratedQueue(env, threadId, resolve)).release(messageId);
 }

@@ -1,6 +1,6 @@
 import { isActiveStatus } from "@shiba/shared";
 import { requireV1Write, v1Forbidden } from "../v1-auth.js";
-import { enqueueThreadMessage, listQueuedMessages, removeQueuedMessage } from "../v1-message-queue.js";
+import { enqueueThreadMessage, listQueuedMessages, releaseQueuedMessage, removeQueuedMessage } from "../v1-message-queue.js";
 import type { V1Context } from "./context.js";
 import { readRun } from "./runs.js";
 
@@ -34,9 +34,7 @@ export async function handleSendMessage(ctx: V1Context): Promise<Response | null
     if (run instanceof Response) return run;
     let removed;
     try {
-      removed = action === "cancel"
-        ? await removeQueuedMessage(ctx.env, id, eventId!)
-        : (await listQueuedMessages(ctx.env, id)).find(item => item.id === eventId);
+      removed = await removeQueuedMessage(ctx.env, id, eventId!);
     } catch { return queueUnavailable(); }
     if (!removed) {
       return Response.json({ _tag: "shiba/MessageNotFound", eventId }, { status: 404 });
@@ -44,12 +42,21 @@ export async function handleSendMessage(ctx: V1Context): Promise<Response | null
     if (action === "cancel") {
       return Response.json({ ok: true, cancelled: true, id: removed.id });
     }
-    const steer = await ctx.forward("POST", `/api/runs/${encodeURIComponent(id)}/steer`, {
-      message: removed.text,
-    });
-    if (!steer.ok) return steer;
-    try { await removeQueuedMessage(ctx.env, id, removed.id); }
-    catch { return queueUnavailable(); }
+    let steer: Response;
+    try {
+      steer = await ctx.forward("POST", `/api/runs/${encodeURIComponent(id)}/steer`, {
+        message: removed.text,
+      });
+    } catch {
+      try { await releaseQueuedMessage(ctx.env, id, removed.id); }
+      catch {}
+      return queueUnavailable();
+    }
+    if (!steer.ok) {
+      try { await releaseQueuedMessage(ctx.env, id, removed.id); }
+      catch { return queueUnavailable(); }
+      return steer;
+    }
     const body = await steer.json() as { approvalId?: string };
     return Response.json({ ok: true, id: removed.id, approvalId: body.approvalId, delivery: "interrupt" });
   }

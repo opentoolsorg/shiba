@@ -32,10 +32,18 @@ export class D1ThreadQueue implements ThreadQueue {
   }
 
   async ack(ids: string[]) {
+    const claimed: string[] = [];
     // Bound statement variables and keep each acknowledgment independently retryable.
     for (const id of ids) {
-      const result = await this.db.prepare("UPDATE thread_queue SET acknowledged = 1 WHERE id = ?").bind(id).run();
+      const result = await this.db.prepare("UPDATE thread_queue SET acknowledged = 1 WHERE id = ? AND acknowledged = 0").bind(id).run();
       if (!result.success) throw new Error("Thread queue acknowledgment failed");
+      if (result.meta.changes > 0) claimed.push(id);
     }
+    return claimed;
+  }
+
+  async release(id: string) {
+    const result = await this.db.prepare("UPDATE thread_queue SET acknowledged = 0 WHERE id = ? AND acknowledged = 1").bind(id).run();
+    if (!result.success) throw new Error("Thread queue release failed");
   }
 }

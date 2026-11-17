@@ -124,6 +124,8 @@ export interface Env {
    * would be a quota-exhaustion vector. Keyed on `cf-connecting-ip`.
    */
   MCP_RATE_LIMIT?: RateLimit;
+  /** Optional dedicated OAuth issuance limit; absent bindings deny issuance. */
+  OAUTH_RATE_LIMIT?: RateLimit;
   /** Comma-separated exact HTTPS destination hostnames trusted for outbound MCP. Empty means disabled. */
   MCP_TRUSTED_HOSTS?: string;
   /** Optional vendor-registered client IDs for curated remote MCP OAuth. */

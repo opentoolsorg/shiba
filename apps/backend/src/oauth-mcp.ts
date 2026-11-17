@@ -110,7 +110,7 @@ const REFRESH_TOKEN_RE = /^shr_[0-9a-f]{16}_[0-9a-f]{48}$/;
 const S256_RE = /^[A-Za-z0-9_-]{43}$/;
 
 export interface OAuthEnv extends AgentTokensEnv, AuditEnv {
-  MCP_RATE_LIMIT?: RateLimit;
+  OAUTH_RATE_LIMIT?: RateLimit;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,11 +181,11 @@ function asRecord<T extends object>(value: unknown, required: readonly string[])
 }
 
 // ---------------------------------------------------------------------------
-// Rate limit — use the existing Workers binding (100 requests per 60 seconds).
+// Dedicated issuance budget: 10 per minute; Workers cannot express hourly periods.
 // Missing or unavailable bindings deny issuance.
 async function rateLimited(env: OAuthEnv, bucket: string): Promise<boolean> {
   try {
-    return !(await env.MCP_RATE_LIMIT?.limit({ key: `oauth:${await sha256Hex(bucket)}` }))?.success;
+    return !(await env.OAUTH_RATE_LIMIT?.limit({ key: `oauth:${await sha256Hex(bucket)}` }))?.success;
   } catch {
     return true;
   }

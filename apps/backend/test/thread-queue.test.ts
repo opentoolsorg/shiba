@@ -79,6 +79,23 @@ describe("v1 queue", () => {
     kv.set("msgq_r1", JSON.stringify([item]));
     expect(await listQueuedMessages(env, "r1")).toEqual([item]);
   });
+  it("steers exactly once for concurrent send-now requests", async () => {
+    const { message } = await enqueueThreadMessage(env, "r1", "send once");
+    const steer = vi.fn(async () => Response.json({ approvalId: "a1" }));
+    const routeDeps = { ...deps, getStub: async () => ({ fetch: async (request: Request) => request.method === "GET"
+      ? Response.json({ run: { runId: "r1", status: "running" } })
+      : steer() }) };
+    const sendNow = () => handleV1(new Request(`https://worker.test/api/v1/threads/r1/messages/${message.id}/send-now`, {
+      method: "POST",
+    }), env, routeDeps);
+    const responses = await Promise.all([sendNow(), sendNow()]);
+    expect(responses.map(response => response?.status).sort()).toEqual([200, 404]);
+    expect(await responses.find(response => response?.status === 404)?.json()).toEqual({
+      _tag: "shiba/MessageNotFound", eventId: message.id,
+    });
+    expect(steer).toHaveBeenCalledTimes(1);
+    expect(await listQueuedMessages(env, "r1")).toEqual([]);
+  });
   it("keeps a queued message when send-now is rejected", async () => {
     const { message } = await enqueueThreadMessage(env, "r1", "keep me");
     const response = await handleV1(new Request(`https://worker.test/api/v1/threads/r1/messages/${message.id}/send-now`, {
@@ -86,6 +103,18 @@ describe("v1 queue", () => {
     }), env, { ...deps, getStub: async () => ({ fetch: async request => request.method === "GET"
       ? Response.json({ run: { runId: "r1", status: "running" } })
       : new Response("steer failed", { status: 503 }) }) });
+    expect(response?.status).toBe(503);
+    expect(await response?.text()).toBe("steer failed");
+    expect(await listQueuedMessages(env, "r1")).toEqual([message]);
+  });
+  it("releases the claim when forwarding send-now throws", async () => {
+    const { message } = await enqueueThreadMessage(env, "r1", "retry me");
+    const response = await handleV1(new Request(`https://worker.test/api/v1/threads/r1/messages/${message.id}/send-now`, {
+      method: "POST",
+    }), env, { ...deps, getStub: async () => ({ fetch: async request => {
+      if (request.method === "GET") return Response.json({ run: { runId: "r1", status: "running" } });
+      throw new Error("forward unavailable");
+    } }) });
     expect(response?.status).toBe(503);
     expect(await listQueuedMessages(env, "r1")).toEqual([message]);
   });
