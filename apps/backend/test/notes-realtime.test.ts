@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleNotes } from "../src/notes/notes-routes.js";
 
 const { publish, create, update, get } = vi.hoisted(() => ({ publish: vi.fn(), create: vi.fn(), update: vi.fn(), get: vi.fn() }));
-vi.mock("../src/request-auth.js", () => ({ isAuthorizedRequest: async () => true, resolveUserId: async () => "alice", requireSameOriginBrowserMutation: () => null }));
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
+  resolveRequestIdentity: async () => ({ authorized: true, userId: "alice" }),
+  isAuthorizedRequest: async () => true,
+  resolveUserId: async () => "alice",
+  requireSameOriginBrowserMutation: () => null,
+}));
 vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: async () => ({ workspace: { workspaceId: "ws_1" } }) }));
 vi.mock("../src/knowledge/knowledge-access.js", () => ({ assertKnowledgeRead: async () => {}, KnowledgeAccessError: class extends Error {} }));
 vi.mock("../src/knowledge/knowledge-ingestion.js", () => ({ enqueueIngestion: async () => "job_1", filesBucket: vi.fn() }));

@@ -5,7 +5,10 @@ import { handleIntegrationProviderRoutes } from "../src/integrations-provider-ro
 import { OpenConnectorIntegrationProviderError } from "../src/integrations/openconnector-provider.js";
 import { getIntegrationProvider, resetIntegrationProviderCacheForTests } from "../src/integrations/runtime.js";
 
-vi.mock("../src/request-auth.js", () => ({ isAuthorizedRequest: vi.fn(async () => true) }));
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
+  isAuthorizedRequest: vi.fn(async () => true),
+}));
 vi.mock("../src/gmail-routes.js", () => ({ gmailOwner: vi.fn(async () => "authenticated-owner") }));
 
 const origin = "https://app.example.test";

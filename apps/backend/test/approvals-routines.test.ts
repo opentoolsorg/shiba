@@ -11,7 +11,8 @@ vi.mock("agents/routing", () => ({
     },
   }),
 }));
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: async () => true,
   resolveUserId: async () => "operator@example.com",
 }));
