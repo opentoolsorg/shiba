@@ -643,9 +643,9 @@ for (const name of alchemySet) {
 // path the Worker itself exempts from Access identity — a bypassed edge
 // path that still requires Access identity 401s machine callers, and a
 // signature route missing from the bypass list 403s at the edge. The
-// exemption evidence lives in the entry's auth dispatch: index.ts plus
-// the request-auth module it delegates to.
-const indexText = ["src/index.ts", "src/request-auth.ts", "src/mcp-routes.ts"]
+// exemption evidence includes the modules reached by the entry's ordered
+// auth dispatch, including the extracted artifact-download handler.
+const indexText = ["src/index.ts", "src/request-auth.ts", "src/mcp-routes.ts", "src/routes/handlers.ts"]
   .map((rel) => {
     const p = resolve(wranglerDir, rel);
     try {
