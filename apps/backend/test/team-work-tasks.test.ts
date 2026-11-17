@@ -22,7 +22,7 @@ async function fixture(withEvents = false) {
   const { database, sqlite } = customAgentD1(); databases.push(sqlite);
   sqlite.exec(readFileSync(new URL("../migrations/0052_search_fts.sql", import.meta.url), "utf8"));
   const env = { AGENT_AUDIT: database } as unknown as Env;
-  const frames: Array<{ kind: string; audience: { userIds: string[] } }> = [];
+  const frames: Array<{ kind: string; entityId: string; audience: { userIds: string[] }; payload: { task: Record<string, unknown> } }> = [];
   if (withEvents) env.WorkspaceEvents = { getByName: () => ({ fetch: async (request: Request) => {
     frames.push(await request.json() as typeof frames[number]);
     return Response.json({ ok: true });
@@ -43,7 +43,7 @@ async function fixture(withEvents = false) {
     expect(created.status).toBe(201);
     return created.body.task;
   };
-  return { send, create, frames };
+  return { send, create, frames, env };
 }
 
 describe("writable shared Work tasks", () => {
@@ -54,6 +54,23 @@ describe("writable shared Work tasks", () => {
     await vi.waitFor(() => expect(f.frames).toHaveLength(2));
     expect(f.frames.map((frame) => frame.kind)).toEqual(["task.created", "task.updated"]);
     for (const frame of f.frames) expect(frame.audience.userIds.sort()).toEqual([MEMBER, OWNER].sort());
+    expect(f.frames[0]?.payload.task).toMatchObject({ id: task.id, title: task.title, status: "todo", version: 1 });
+    expect(f.frames[1]?.payload.task).toMatchObject({ id: task.id, status: "done", version: 2 });
+    for (const frame of f.frames) {
+      expect(frame.payload.task).not.toHaveProperty("objective");
+      expect(frame.payload.task).not.toHaveProperty("context");
+      expect(frame.payload.task).not.toHaveProperty("activity");
+    }
+    await f.send("POST", `/${task.id}/archive`, {});
+    expect(f.frames.at(-1)?.payload.task).toMatchObject({ id: task.id, archived: true, version: 3 });
+  });
+
+  it("keeps committed writes successful when realtime publication fails", async () => {
+    const f = await fixture(true);
+    f.env.WorkspaceEvents = { getByName: () => ({ fetch: async () => { throw new Error("socket unavailable"); } }) } as unknown as NonNullable<Env["WorkspaceEvents"]>;
+    const task = await f.create();
+    expect((await f.send("PATCH", `/${task.id}`, { patch: { status: "done" } })).status).toBe(200);
+    expect((await f.send("GET")).body.tasks[0]?.status).toBe("done");
   });
 
   it("creates, edits, comments on and archives a task with recorded activity", async () => {

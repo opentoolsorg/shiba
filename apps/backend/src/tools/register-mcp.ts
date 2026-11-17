@@ -5,6 +5,7 @@ import type { ToolRegistry } from "../mcp-gateway.js";
 import { registerAskUserTool } from "./ws08-ask-user.js";
 import { registerKnowledgeSearchTool } from "./ws07-knowledge-search.js";
 import { browserClick, browserOpen, browserRead, browserScreenshot, browserToolError, browserType } from "./browser.js";
+import { videoCapability, videoInputSchema } from "./video-gen.js";
 import { generateImage } from "./image-gen.js";
 import { runWebSearch, webSearchConfigured } from "./web-search.js";
 import { DEFAULT_WEB_SEARCH_BUDGET, incrementToolUsage } from "./tool-usage-store.js";
@@ -158,6 +159,17 @@ export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): vo
       annotations: { readOnlyHint: true },
     },
   );
+
+  if (videoCapability(env).enabled) {
+    registry.registerTool("generate_video", "api:write", async () => jsonResult({
+      ok: false, status: "approval_required",
+      error: "Generate videos in dashboard chat and confirm the paid tool request there. MCP cannot approve spending.",
+    }), {
+      description: "Video generation requires a human confirmation in dashboard chat.",
+      inputSchema: videoInputSchema.shape,
+      annotations: { readOnlyHint: false },
+    });
+  }
 
   registry.registerTool(
     "generate_image",

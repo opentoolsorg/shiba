@@ -1,6 +1,6 @@
 /** Dedicated owner-only Gmail routes, always mounted after the global auth gate. */
 import { verifiedAccessOwner } from "./access-jwt.js";
-import { betterAuthFor, ensureBetterAuthSchema, isBetterAuthConfigured } from "./better-auth.js";
+import { isBetterAuthConfigured, resolveBetterAuthSessionAccount } from "./better-auth.js";
 import type { Env } from "./env.js";
 import { beginGmailConnect, cancelGmailConnect, disconnectGmail, finishGmailConnect, GMAIL_BASE, GmailError,
   gmailStatus, grantGmail, revokeGmailGrant, searchGmailResourceCandidates } from "./gmail.js";
@@ -13,12 +13,9 @@ export async function gmailOwner(request: Request, env: Env): Promise<string | n
     return env.ACCESS_AUD ? verifiedAccessOwner(request, env.ACCESS_AUD) : null;
   }
   if (!isBetterAuthConfigured(env) || !env.AGENT_AUDIT) return null;
-  try {
-    await ensureBetterAuthSchema(env);
-    const session = await (await betterAuthFor(env)).api.getSession({ headers: request.headers });
-    const id = session?.user?.id;
-    return typeof id === "string" && id.trim() !== "" ? JSON.stringify(["better-auth", id]) : null;
-  } catch { return null; }
+  const account = await resolveBetterAuthSessionAccount(request, env);
+  if (!account || (account.policy.kind !== "bootstrap" && !account.emailVerified)) return null;
+  return JSON.stringify(["better-auth", account.policy.accountId]);
 }
 
 function json(value: unknown, status = 200): Response {

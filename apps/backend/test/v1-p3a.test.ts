@@ -164,7 +164,7 @@ describe("v1 P3a handlers", () => {
       expect(created!.status).toBe(201);
       const body = await created!.json() as { automation: Record<string, unknown>; webhookToken?: string };
       expect(body.webhookToken).toBeUndefined();
-      expect(body.automation).toMatchObject({ projectId: "https://github.com/acme/repo", repoFullName: "acme/repo", name: "Bump deps",
+      expect(body.automation).toMatchObject({ projectId: "https://github.com/acme/repo", repoFullName: "acme/repo", name: "Nightly",
         enabled: true, triggerKind: "schedule", schedule: { mode: "cron", expression: "0 3 * * *", timezone: "UTC" },
         triggers: [{ id: "t0", triggerKind: "schedule", eventKind: null, schedule: { mode: "cron", expression: "0 3 * * *", timezone: "UTC" } }] });
       await call(`/projects/${encodeURIComponent("other/repo")}/automations`, "POST", create);
@@ -214,13 +214,14 @@ describe("v1 P3a handlers", () => {
       expect((await call(`/projects/${encodeURIComponent("other/repo")}/automations`, "POST", create, { "Idempotency-Key": "k1" }))!.status).toBe(409);
     });
 
-    it("patches enabled/prompt, 501s other fields, and deletes", async () => {
+    it("patches enabled, prompt, and routine name, rejects other fields, and deletes", async () => {
       const { call } = withDo();
       const { automation } = await (await call(`/projects/${PROJECT}/automations`, "POST", create))!.json() as { automation: { id: string } };
       const item = `/projects/${PROJECT}/automations/${automation.id}`;
       const patched = await (await call(item, "PATCH", { enabled: false, prompt: "New prompt", clientOperationId: "op" }))!.json() as { automation: Record<string, unknown> };
-      expect(patched.automation).toMatchObject({ enabled: false, prompt: "New prompt", name: "New prompt" });
-      expect((await call(item, "PATCH", { name: "Renamed" }))!.status).toBe(501);
+      expect(patched.automation).toMatchObject({ enabled: false, prompt: "New prompt", name: "Nightly", nextRunAt: null });
+      expect(await (await call(item, "PATCH", { name: "Renamed" }))!.json()).toMatchObject({ automation: { name: "Renamed" } });
+      expect((await call(item, "PATCH", { name: "" }))!.status).toBe(400);
       expect((await call(item, "PATCH", { enabled: "no" }))!.status).toBe(400);
       expect((await call(`/projects/${encodeURIComponent("other/repo")}/automations/${automation.id}`, "DELETE"))!.status).toBe(404);
       expect(await (await call(item, "DELETE"))!.json()).toEqual({ ok: true, result: { id: automation.id } });

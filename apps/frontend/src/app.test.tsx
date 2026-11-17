@@ -594,7 +594,8 @@ describe("app Work and Threads routing", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Room A" });
     fireEvent.click(screen.getByRole("button", { name: "Open command menu" }));
-    fireEvent.click(await screen.findByText("Go to Collaboration"));
+    fireEvent.change(within(screen.getByRole("dialog", { name: "Search" })).getByRole("combobox"), { target: { value: "Collaboration" } });
+    fireEvent.click(await screen.findByRole("option", { name: "Go to Collaboration" }));
     await waitFor(() => expect(window.location.pathname).toBe("/collaboration/"));
     expect(window.location.search).toBe("");
     fireEvent.click(screen.getByRole("button", { name: /Room B private/ }));
@@ -638,7 +639,8 @@ describe("app Work and Threads routing", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/settings/"));
     expect(window.location.search).toMatch(/^\?section=/);
     fireEvent.click(screen.getByRole("button", { name: "Open command menu" }));
-    fireEvent.click(await screen.findByText("Go to Collaboration"));
+    fireEvent.change(within(screen.getByRole("dialog", { name: "Search" })).getByRole("combobox"), { target: { value: "Collaboration" } });
+    fireEvent.click(await screen.findByRole("option", { name: "Go to Collaboration" }));
     await waitFor(() => expect(window.location.pathname).toBe("/collaboration/"));
     fireEvent.click(screen.getByRole("button", { name: /Room B private/ }));
     await screen.findByRole("heading", { name: "Room B" });

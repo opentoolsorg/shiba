@@ -18,7 +18,7 @@ import {
   reconcileConnectionOrder,
   type Connection,
 } from "./model-connections.js";
-import { isAccessConfigured, isAuthorizedRequest, resolveUserId, requireSameOriginBrowserMutation } from "./request-auth.js";
+import { isAccessConfigured, isAuthorizedRequest, resolveUserId, resolveRequestIdentity, requireSameOriginBrowserMutation } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 import { readSetupStatus } from "./setup-status.js";
 import { applySetupFix, setupWizardCatalog } from "./setup-fixes.js";
@@ -79,8 +79,6 @@ export async function handleMeta(request: Request, env: Env): Promise<Response |
     if (request.method !== "GET") {
       return Response.json({ error: "Method not allowed." }, { status: 405 });
     }
-    const marks = startServerTiming();
-  const authStart = performance.now();
     // `auth` tells the dashboard which lane proved this identity so it can
     // offer the matching affordances (e.g. sign-out only for better-auth).
     const auth = isAccessConfigured(env)
@@ -88,14 +86,11 @@ export async function handleMeta(request: Request, env: Env): Promise<Response |
       : isBetterAuthConfigured(env)
         ? "better-auth"
         : "none";
-    const agent = (await resolveUserId(request, env)) ?? "default";
-    marks.authMs = performance.now() - authStart;
-    return withServerTiming(
-      Response.json(
-        { agent, auth, ...(await isRestrictedTeamMember(request, env) ? { teamMember: true } : {}) },
-        { headers: { "Cache-Control": "no-store" } },
-      ),
-      marks,
+    const { userId } = await resolveRequestIdentity(request, env);
+    const agent = userId ?? "default";
+    return Response.json(
+      { agent, auth, ...(await isRestrictedTeamMember(request, env) ? { teamMember: true } : {}) },
+      { headers: { "Cache-Control": "no-store" } },
     );
   }
   if (url.pathname === "/api/email/openapi.json") {

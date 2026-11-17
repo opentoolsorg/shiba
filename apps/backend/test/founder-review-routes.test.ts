@@ -12,7 +12,8 @@ const identity = vi.hoisted(() => ({ owner: "owner@example.test", orgId: "self-h
   workspace: undefined as { workspaceId: string; userId: string; role: "owner" | "admin" | "member"; version: number; joinedAt: number } | undefined,
   revoked: false, native: true, accountId: "native-owner" }));
 vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: vi.fn(async () => identity.revoked ? Response.json({ error: "revoked" }, { status: 404 }) : ({ orgId: identity.orgId, principal: identity.principal, workspace: identity.workspace })) }));
-vi.mock("../src/request-auth.js", () => ({ resolveUserId: vi.fn(async () => identity.owner) }));
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(), resolveUserId: vi.fn(async () => identity.owner) }));
 vi.mock("@shiba/auth/better-auth", () => ({ resolveBetterAuthSessionAccount: vi.fn(async () => identity.native ? { emailVerified: true, policy: { email: identity.owner, accountId: identity.accountId } } : null) }));
 const libraryId = "founder-stripe-revenue-pulse";
 const base = `/api/founder-skills/${libraryId}/review-schedule`;

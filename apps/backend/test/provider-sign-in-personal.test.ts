@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { connectedDefaultForUser } from "../src/acp-providers.js";
 import { resolveCodexSubscriptionAuthJson } from "../src/codex-subscription-credential.js";
 import type { Env } from "../src/env.js";
@@ -17,6 +17,7 @@ function storage(): Env {
   } as unknown as Env;
 }
 
+const fetchOk = vi.fn<typeof fetch>(async () => new Response("{}", { status: 200 }));
 const context = { mode: "oauth" as const, origin: "http://localhost", now: 0 };
 
 describe("personal subscription sign-in", () => {
@@ -37,8 +38,8 @@ describe("personal subscription sign-in", () => {
     const env = storage();
     await putUserProviderSecret(env, "alice", "claude-setup", crypto.randomUUID());
     const provider = { id: "claude", label: "Claude" };
-    expect((await inspectProviderSignIn(env, provider, "alice")).ok).toBe(true);
-    expect((await inspectProviderSignIn(env, provider, "bob")).ok).toBe(false);
+    expect((await inspectProviderSignIn(env, provider, "alice", { fetchImpl: fetchOk })).ok).toBe(true);
+    expect((await inspectProviderSignIn(env, provider, "bob", { fetchImpl: fetchOk })).ok).toBe(false);
   });
 
   it.each([
@@ -51,8 +52,8 @@ describe("personal subscription sign-in", () => {
     const provider = { id, label: id };
     for (const verdict of [
       await beginProviderSignIn(env, provider, "alice", context),
-      await completeProviderSignIn(env, provider, "alice", null, crypto.randomUUID()),
-      await inspectProviderSignIn(env, provider, "alice"),
+      await completeProviderSignIn(env, provider, "alice", null, crypto.randomUUID(), fetchOk),
+      await inspectProviderSignIn(env, provider, "alice", { fetchImpl: fetchOk }),
     ]) {
       expect(verdict.ok).toBe(false);
       expect(verdict.message).toMatch(/disabled/);
@@ -63,7 +64,7 @@ describe("personal subscription sign-in", () => {
     const env = storage();
     const provider = { id: "claude", label: "Claude" };
     expect((await beginProviderSignIn(env, provider, "alice", context)).pending).toBe(true);
-    expect((await completeProviderSignIn(env, provider, "alice", null, crypto.randomUUID())).ok).toBe(true);
-    expect((await inspectProviderSignIn(env, provider, "alice")).ok).toBe(true);
+    expect((await completeProviderSignIn(env, provider, "alice", null, crypto.randomUUID(), fetchOk)).ok).toBe(true);
+    expect((await inspectProviderSignIn(env, provider, "alice", { fetchImpl: fetchOk })).ok).toBe(true);
   });
 });
