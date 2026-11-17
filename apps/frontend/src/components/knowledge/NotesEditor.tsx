@@ -10,6 +10,7 @@ import { useWorkspaceEvents } from "../../state/workspace-events";
 import { optimisticMutation } from "../../state/optimistic";
 import { patchNotes } from "../../state/note-events";
 import { MainCard } from "../ui/ContextPanel";
+import { NoteChatPanel } from "./NoteChatPanel";
 
 const SLASH_COMMANDS = [
   { id: "heading", label: "Heading", prefix: "## " },
@@ -284,6 +285,10 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
         ) : null}
         <EditorContent editor={editor} className="prose prose-sm max-w-none min-h-[18rem] text-[var(--fg)] [&_.ProseMirror]:min-h-[18rem] [&_.ProseMirror]:outline-none" />
       </section>
+      {activeId ? <NoteChatPanel key={`${workspaceId}:${scope}:${activeId}`} noteId={activeId} notes={notes} scope={scope} workspaceId={workspaceId} disabled={bodyLoading || !editor} onAdd={(text) => {
+        if (!editor || !bodyReady.current) return;
+        editor.commands.insertContentAt(editor.state.doc.content.size, text.split("\n").map((line) => ({ type: "paragraph", ...(line ? { content: [{ type: "text", text: line }] } : {}) })));
+      }} /> : null}
     </div>
   );
 }
