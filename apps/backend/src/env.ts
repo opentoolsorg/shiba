@@ -9,6 +9,8 @@ import type { Sandbox } from "./sandbox.js";
 import type { ConversationRoom } from "./conversation-room-do.js";
 
 export interface Env {
+  /** Opt in to workspace or owner scoped Durable Object names during migration. */
+  SHIBA_SCOPED_DO?: string;
   /** Cloudflare-provided immutable version metadata, never supplied by a caller. */
   CF_VERSION_METADATA?: { id: string; tag: string; timestamp: string };
   AI: Ai;

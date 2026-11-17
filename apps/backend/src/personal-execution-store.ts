@@ -3,6 +3,7 @@ import { resolveBetterAuthSessionAccount } from "@shiba/auth/better-auth";
 import type { Env } from "./env.js";
 import { getTeamWorkspaceMembership } from "./team-workspaces-store.js";
 import { redactSecrets } from "./security.js";
+import { localDispatchFor } from "./platform/do-resolver.js";
 
 export type PersonalExecutionEnv = Env & { SHIBA_PERSONAL_LOCAL_EXECUTION?: string };
 export interface PersonalExecutionStopOwner { ownerAccountId: string; workspaceId: string; origin: string }
@@ -131,7 +132,7 @@ export async function revokePersonalExecutionGrant(env: PersonalExecutionEnv, sc
 
 export async function personalComputerRows(env: PersonalExecutionEnv, scope: PersonalPairingScope): Promise<ConnectedComputer[]> {
   if (!env.LocalDispatch || !await isPersonalOwnerCurrent(env, scope)) return [];
-  const stub = env.LocalDispatch.get(env.LocalDispatch.idFromName("local-dispatch"));
+  const stub = localDispatchFor(env, { ownerId: scope.ownerAccountId });
   const response = await stub.fetch(new Request("https://local-dispatch/personal-computers", { method: "POST", body: JSON.stringify({ scope }) }));
   if (!response.ok) return [];
   const body = await response.json() as { computers?: ConnectedComputer[] };
