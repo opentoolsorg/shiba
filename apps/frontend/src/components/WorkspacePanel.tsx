@@ -20,6 +20,7 @@ export function storedApprovalKind(approval: StoredApproval): string {
   if (approval.kind === "email_delete") return "Email delete";
   if (approval.kind === "pr_merge") return "Merge pull request";
   if (approval.kind === "pr_publish") return "Publish pull request";
+  if (approval.kind === "budget_override") return "Budget approval";
   if (approval.kind === undefined || approval.kind === "run") return "Run task";
   return approval.kind;
 }

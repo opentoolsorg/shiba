@@ -19,6 +19,7 @@ export type RunErrorCode =
   | "container_lost"
   | "credential_expired"
   | "quota_exhausted"
+  | "budget_exceeded"
   | "timeout_scope"
   | "supervision_exhausted";
 
@@ -95,6 +96,10 @@ export const RUN_ERROR_DEFS = {
   quota_exhausted: {
     userFacing: true,
     summary: "A Cloudflare or account quota was exhausted — check usage limits and billing.",
+  },
+  budget_exceeded: {
+    userFacing: true,
+    summary: "Stopped because it would go over your spending limit.",
   },
   timeout_scope: {
     userFacing: true,
