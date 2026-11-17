@@ -7,6 +7,18 @@ import { listAutomationWorkflowRuns } from "../src/platform/automation-workflow-
 import type { Env } from "../src/env.js";
 
 describe("automation workflow runs", () => {
+  it("propagates replay metadata from the approval queue", async () => {
+    const db = customAgentD1();
+    db.sqlite.exec(readFileSync(new URL("../migrations/0055_automation_workflow_runs.sql", import.meta.url), "utf8"));
+    const automation = createAutomation({ id: "replay", prompt: "Task", repoUrl: "https://github.com/o/r", triggers: [{ kind: "webhook" }] }).automation;
+    const result = await startAutomationRunWorkflow({ AGENT_AUDIT: db.database } as unknown as Env, {
+      automation, commandId: "same-command", threadKey: "automation:replay", repoUrl: automation.repoUrl,
+      task: automation.prompt, publishPullRequest: false, unattendedApproved: false,
+      queueRun: async () => ({ approvalId: "same-approval", deduped: true }),
+    });
+    expect(result.approvalId).toBe("same-approval");
+    expect(result.deduped).toBe(true);
+  });
   it("records a dispatched workflow row when D1 is available", async () => {
     const db = customAgentD1();
     db.sqlite.exec(readFileSync(new URL("../migrations/0055_automation_workflow_runs.sql", import.meta.url), "utf8"));

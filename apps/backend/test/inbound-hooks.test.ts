@@ -10,6 +10,7 @@ import { sealInboundSecret } from "../src/webhooks/secrets.js";
 import { generateInboundSecret } from "../src/webhooks/inbound-signing.js";
 import { isAuthenticated } from "../src/request-auth.js";
 import type { Env } from "../src/env.js";
+import type { FireAutomationDeps } from "../src/automation-runner.js";
 
 async function fixture() {
   const secret = generateInboundSecret();
@@ -19,6 +20,7 @@ async function fixture() {
   const data = new Map<string, unknown>([["state", { items: [automation] }]]);
   const storage = { get: async (key: string) => structuredClone(data.get(key)), put: async (key: string, value: unknown) => { data.set(key, structuredClone(value)); }, transaction: async (fn: (s: unknown) => unknown) => fn(storage) };
   const receipts = new Map<string, { receivedAt: number; state: "pending" | "done" }>();
+  const failures = { doneUpdate: false };
   env.AGENT_AUDIT = { prepare: (sql: string) => ({ bind: (...args: (string | number)[]) => ({ first: async () => receipts.get(`${args[0]}:${args[1]}`) ?? null, run: async () => {
     const key = `${args[0]}:${args[1]}`;
     if (sql.startsWith("INSERT")) {
@@ -28,6 +30,7 @@ async function fixture() {
       return { meta: { changes: 1 } };
     }
     if (args.length === 3 && receipts.get(key)?.receivedAt === args[2]) {
+      if (sql.startsWith("UPDATE") && failures.doneUpdate) { failures.doneUpdate = false; throw new Error("done update failed"); }
       if (sql.startsWith("UPDATE")) receipts.get(key)!.state = "done";
       else receipts.delete(key);
     }
@@ -41,10 +44,30 @@ async function fixture() {
     const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${ts}.${id}.${body}`)));
     return instance.fetch(new Request(`https://internal/api/hooks/${route}`, { method: "POST", body, headers: { "x-shiba-timestamp": ts, "x-shiba-delivery-id": id, "x-shiba-signature": `sha256=${Array.from(signature, (b) => b.toString(16).padStart(2, "0")).join("")}` } }));
   }
-  return { instance, request, fire, receipts, env, secret };
+  return { instance, request, fire, receipts, env, secret, failures, data };
 }
 
 describe("signed hook ingress", () => {
+  it("charges once when queue succeeds but receipt completion fails before a retry", async () => {
+    const f = await fixture();
+    f.fire.mockRestore();
+    const approvals = new Map<string, string>();
+    const queueRun: FireAutomationDeps["queueRun"] = async (input) => {
+      const key = input.commandId!;
+      if (approvals.has(key)) return { approvalId: approvals.get(key)!, deduped: true };
+      approvals.set(key, "approval-one");
+      return { approvalId: "approval-one" };
+    };
+    vi.spyOn(f.instance as unknown as { fireDeps(): FireAutomationDeps }, "fireDeps").mockReturnValue({ ai: {} as FireAutomationDeps["ai"], model: "test", globalEnabled: true, queueRun });
+    f.failures.doneUpdate = true;
+    expect((await f.request()).status).toBe(503);
+    expect((await f.request()).status).toBe(200);
+    const state = f.data.get("state") as { items: { runCount: number; runsToday: number }[] };
+    expect(approvals.size).toBe(1);
+    expect(state.items[0]!.runCount).toBe(1);
+    expect(state.items[0]!.runsToday).toBe(1);
+    expect(f.receipts.get("hook:delivery")?.state).toBe("done");
+  });
   it("creates an encrypted secret once and refuses creation without encryption", async () => {
     const f = await fixture();
     const create = (id: string) => f.instance.fetch(new Request("https://internal/api/automations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, prompt: "Review event", repoUrl: "https://github.com/owner/repo", triggers: [{ kind: "webhook" }] }) }));
