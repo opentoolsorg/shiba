@@ -3,6 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { Env } from "../env.js";
 import type { ToolRegistry } from "../mcp-gateway.js";
 import { registerAskUserTool } from "./ws08-ask-user.js";
+import { registerAskUiTool } from "./ask-ui.js";
 import { registerKnowledgeSearchTool } from "./ws07-knowledge-search.js";
 import { browserClick, browserOpen, browserRead, browserScreenshot, browserToolError, browserType } from "./browser.js";
 import { videoCapability, videoInputSchema } from "./video-gen.js";
@@ -23,6 +24,7 @@ function runIdFromArgs(args: Record<string, unknown>, ctxRunId?: string): string
 export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): void {
   registerKnowledgeSearchTool(registry, env);
   registerAskUserTool(registry, env);
+  registerAskUiTool(registry, env);
 
   registry.registerTool(
     "web_search",
