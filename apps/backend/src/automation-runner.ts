@@ -23,6 +23,7 @@ import {
   type TypeSafeNoulFetch,
 } from "./automations.js";
 import { automationCommandId } from "./pending-approvals.js";
+import { sha256Hex } from "./agent-tokens.js";
 import { clampBurstWindowSeconds, DEFAULT_BURST_WINDOW_SECONDS } from "./slack-context.js";
 
 export const AUTOMATIONS_DO_NAME = "default";
@@ -328,7 +329,7 @@ async function commitAutomationFire(
 
   const threadKey = automationThreadKey(automation.id);
   const scheduleAt = recheck.trigger.kind === "schedule" ? recheck.scheduleOccurrenceMs ?? nowMs : undefined;
-  const commandId = (event.kind === "hook" ? `hook:${automation.id}:${event.deliveryId}:${nowMs}` : recheck.trigger.kind === "schedule" && scheduleAt !== undefined
+  const commandId = (event.kind === "hook" ? `hook:${await sha256Hex(JSON.stringify([automation.id, event.deliveryId]))}` : recheck.trigger.kind === "schedule" && scheduleAt !== undefined
     ? automationCommandId(automation.id, { kind: "schedule", nowMs: scheduleAt })
     : automationCommandId(automation.id, event)) ?? `automation:${automation.id}:${scheduleAt ?? nowMs}`;
   const occurrenceId = scheduleAt === undefined ? undefined : `${automation.id}:${commandId}`;
