@@ -304,6 +304,10 @@ export const Worker = Cloudflare.Worker("Worker", {
       namespaceId: "1001",
       simple: { limit: 100, period: 60 },
     }),
+    OAUTH_RATE_LIMIT: Cloudflare.RateLimit("OAUTH_RATE_LIMIT", {
+      namespaceId: "1004",
+      simple: { limit: 10, period: 60 },
+    }),
     AUTH_RATE_LIMIT: Cloudflare.RateLimit("AUTH_RATE_LIMIT", {
       namespaceId: "1002",
       simple: { limit: 30, period: 60 },

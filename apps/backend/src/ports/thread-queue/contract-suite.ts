@@ -19,12 +19,23 @@ export function threadQueueContract(name: string, create: () => ThreadQueue) {
       const results = await Promise.all(Array.from({ length: 10 }, () => queue.enqueue("thread", item)));
       expect(results.filter(result => !result.deduped)).toHaveLength(1);
       expect(await queue.enqueue("thread", { ...item, id: "retry", text: "changed" })).toEqual({ message: item, deduped: true });
-      await queue.ack([item.id]);
-      await queue.ack([item.id, "missing"]);
+      expect(await queue.ack([item.id])).toEqual([item.id]);
+      expect(await queue.ack([item.id, "missing"])).toEqual([]);
       expect(await queue.enqueue("thread", item)).toEqual({ message: item, deduped: true });
       expect(await queue.drain("thread", 50)).toEqual([]);
       await queue.enqueue("other", { ...item, id: "other", threadId: "other" });
       expect(await queue.drain("other", 50)).toHaveLength(1);
+    });
+    it("claims once concurrently and releases failed deliveries without changing order", async () => {
+      const queue = create();
+      await queue.enqueue("thread", msg("a"));
+      await queue.enqueue("thread", msg("b"));
+      const claims = await Promise.all([queue.ack(["a"]), queue.ack(["a"])]);
+      expect(claims.flat()).toEqual(["a"]);
+      expect(await queue.drain("thread", 10)).toEqual([msg("b")]);
+      await queue.release("a");
+      expect(await queue.drain("thread", 10)).toEqual([msg("a"), msg("b")]);
+      expect(await queue.ack(["a"])).toEqual(["a"]);
     });
     it("prioritizes an existing message ID over a conflicting client key", async () => {
       const queue = create();

@@ -11,6 +11,8 @@ export interface ThreadQueue {
   enqueue(threadKey: string, message: ThreadQueueMessage): Promise<{ message: ThreadQueueMessage; deduped: boolean }>;
   /** Non-destructive read in acceptance order. Unacked messages can be retried. */
   drain(threadKey: string, limit: number): Promise<ThreadQueueMessage[]>;
-  /** Idempotent acknowledgment; IDs remain reserved after acknowledgment. */
-  ack(ids: string[]): Promise<void>;
+  /** Returns only IDs transitioned by this call; acknowledged IDs remain reserved. */
+  ack(ids: string[]): Promise<string[]>;
+  /** Return a claimed message to the pending queue after failed delivery. */
+  release(id: string): Promise<void>;
 }
