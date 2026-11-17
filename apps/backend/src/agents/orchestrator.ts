@@ -98,6 +98,8 @@ import { ORCHESTRATOR_PRINCIPAL, ORCHESTRATOR_SCOPES } from "../codemode-princip
 import { createLazyRunCodeTool, warmRunCodeTool } from "../run-code-lazy.js";
 import { isAppToolsOnlyTurn, isChatOnlyTurn, toolsForConversationMode } from "../conversation-mode.js";
 import { createChatAgentMediaTools } from "../tools/chat-agent-tools.js";
+import { createAskUiAgentTools } from "../tools/ask-ui.js";
+import { renderUiBlockToSlack } from "../slack-ui-blocks.js";
 import { closeBrowserSession } from "../tools/browser-sessions.js";
 import { createEmployeeRunTools, employeeCanRetainDraft, employeeRunToolPolicyMode, resolveAppToolsEmployeeContext, resolveEmployeeRunToolContext } from "../employee-run-tools.js";
 import { onboardingRunFields, onboardingSourceInstructions, type OnboardingRunFields } from "@shiba/shared";
@@ -1370,6 +1372,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (isAppToolsOnlyTurn(this.messages)) {
       return {
+        ...this.askUiTools(),
         ...createEmployeeRunTools(this.env, () => null, () => this.name ?? null,
           () => "self-hosted", () => null, this.employeeDraftStore(),
           () => resolveAppToolsEmployeeContext(this.env, this.name ?? ""),
@@ -1405,6 +1408,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     });
     const tools: ToolSet = {
       ...super.getTools(),
+      ...this.askUiTools(),
       ...specialistTools,
       delegate_task: createDelegateTaskTool(specialistTools, this.specialistTurn.budget,
         (input) => this.queueSlackRun({ ...input, publishPullRequest: false, role: "fixer", threadKey: this.name }, MAX_APPROVED_TASK_CHARS, undefined,
@@ -1440,6 +1444,29 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       });
     }
     return tools;
+  }
+
+  private askUiTools() {
+    return createAskUiAgentTools(this.env, async () => {
+      const ownerId = chatLaneActorId(this.env, this.name) ?? (isDashboardAgentName(this.name) ? initiatorUserIdFromOrchestratorName(this.name) : undefined);
+      if (!ownerId || !this.name) return null;
+      if (isAppToolsOnlyTurn(this.messages)) {
+        const employee = await resolveAppToolsEmployeeContext(this.env, this.name);
+        if (!employee || employee.actorId !== ownerId) return null;
+      }
+      return { ownerId, runId: this.name };
+    }, {
+      onCreated: (question) => {
+        const rendered = parseSlackThreadName(this.name) ? renderUiBlockToSlack(question.block, { runId: question.runId }) : null;
+        const text = rendered?.text ?? question.fallbackText;
+        for (let offset = 0; offset < text.length; offset += 3000) {
+          this.postToThread(text.slice(offset, offset + 3000), {
+            causationId: `ui-block:${question.runId}:${question.blockId}:${offset}`,
+            ...(rendered && offset === 0 ? { blocks: rendered.blocks } : {}),
+          });
+        }
+      },
+    });
   }
 
   /**
@@ -1497,6 +1524,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const selectedSkills = context ? await this.employeeSelectedSkills(context.employeeId) : { instructions: "" };
       return {
         activeTools: Object.keys(ctx.tools).filter((name) => {
+          if (name === "ask_ui") return Boolean(context);
           if (name === "list_skills" || name === "get_skill_instructions") return Boolean(context);
           if (name === "employee_tool_catalog" || name === "employee_tool_call") return allowed;
           if (name === "employee_context_read") return Boolean(context && goal);
