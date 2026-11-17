@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: vi.fn(async () => true),
   resolveUserId: vi.fn(async () => "owner@example.test"),
 }));

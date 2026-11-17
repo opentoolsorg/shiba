@@ -10,7 +10,8 @@ vi.mock("../src/collaboration-store.js", () => ({
   getCollaborationMembership,
 }));
 
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   resolveRequestIdentity: async () => ({ authorized: true, userId: "alice@example.test" }), isAuthorizedRequest: vi.fn(async () => true),
   resolveUserId: vi.fn(async () => "alice@example.test"),
 }));

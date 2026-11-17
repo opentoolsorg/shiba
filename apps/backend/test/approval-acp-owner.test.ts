@@ -6,7 +6,8 @@ const { getAgentByName, userFetch, sharedFetch } = vi.hoisted(() => ({
   getAgentByName: vi.fn(), userFetch: vi.fn(), sharedFetch: vi.fn(),
 }));
 vi.mock("agents/routing", () => ({ getAgentByName }));
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: async () => true,
   resolveUserId: async () => "alice@example.test",
 }));
