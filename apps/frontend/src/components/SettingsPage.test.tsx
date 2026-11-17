@@ -58,6 +58,15 @@ describe("SettingsPanel", () => {
 });
 
 describe("SettingsPage", () => {
+  it("offers Workspace facts in navigation and mounts the settings list", async () => {
+    const onSelect = vi.fn();
+    render(<SettingsPanel active="workspace-facts" onSelect={onSelect} />);
+    fireEvent.click(screen.getByRole("button", { name: "Workspace facts" }));
+    expect(onSelect).toHaveBeenCalledWith("workspace-facts");
+    cleanup();
+    render(<SettingsPage section="workspace-facts" />);
+    expect(await screen.findByText("No workspace facts saved yet.")).toBeTruthy();
+  });
   it("offers Slack settings and setup steps when only one Slack secret is configured", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ slack: { botToken: true, signingSecret: false } })));
     const onSelect = vi.fn();

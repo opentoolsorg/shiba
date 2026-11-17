@@ -33,6 +33,7 @@ import { handleSubscriptionAuth } from "./auth-routes.js";
 import { handleUserOpenAiSubscription } from "./subscription-auth-routes.js";
 import { handleAudit } from "./audit-routes.js";
 import { handleGovernance } from "./governance-routes.js";
+import { handleWorkspaceFacts } from "./workspace-facts-routes.js";
 import { handleShare } from "./share-routes.js";
 import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
@@ -349,6 +350,8 @@ export default {
       if (workspaceResponse) return workspaceResponse;
       const governanceResponse = await handleGovernance(request, env);
       if (governanceResponse) return governanceResponse;
+      const workspaceFactsResponse = await handleWorkspaceFacts(request, env);
+      if (workspaceFactsResponse) return workspaceFactsResponse;
       const shareResponse = await handleShare(request, env);
       if (shareResponse) return shareResponse;
       // WS02: operator email delivery status (no message bodies).
