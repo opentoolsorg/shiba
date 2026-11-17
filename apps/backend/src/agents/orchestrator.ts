@@ -5354,7 +5354,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   private usageBudgetMeter(): BudgetMeter {
-    return (run, now) => meterSandboxRun(run, now, resolveInstanceType(this.env.INSTANCE_TYPE));
+    const instanceType = resolveInstanceType(this.env.INSTANCE_TYPE);
+    return (run, now) => {
+      const executing = isActiveStatus(run.status) && run.runtime !== "local" && run.checkpoint === "executing" &&
+        !run.signals?.some((signal) => signal.kind === "sandbox.ready");
+      const metered = executing
+        ? { ...run, signals: [{ kind: "sandbox.ready" as const, at: run.updatedAt }, ...(run.signals ?? [])] }
+        : run;
+      return meterSandboxRun(metered, now, instanceType);
+    };
   }
 
   private budgetOverrideFor(runId: string, status: PendingApproval["status"]): PendingApproval | undefined {

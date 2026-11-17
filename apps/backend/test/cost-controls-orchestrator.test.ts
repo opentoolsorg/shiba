@@ -132,4 +132,12 @@ describe("orchestrator budget enforcement", () => {
     expect(blocked).toBe(true);
     expect(instance.state.runs.find((run) => run.runId === "new")!.status).toBe("cancelled");
   });
+it("meters an executing run before the sandbox.ready signal lands", async () => {
+    const live = running("live", { signals: undefined, checkpoint: "executing" });
+    const instance = budgetHost({ dailyLimitUsd: null, monthlyLimitUsd: null, perRunLimitUsd: 0.00001, onExceed: "stop" }, [live]);
+    await (instance as unknown as { enforceUsageBudget(now: number): Promise<void> }).enforceUsageBudget(10_000);
+    expect(instance.state.runs[0]!.status).toBe("cancelled");
+    expect(instance.state.runs[0]!.errorCode).toBe("budget_exceeded");
+  });
+
 });
