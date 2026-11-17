@@ -30,3 +30,27 @@ describe("automation structured schedules", () => {
     expect(minute).toBe("00");
   });
 });
+
+describe("routine next run", () => {
+  const next = (cron: string, timezone: string, from: string) => computeNextRunAt({ kind: "schedule", cron, timezone }, Date.parse(from));
+
+  it("finds the next weekly occurrence rather than a past tick window", () => {
+    expect(next("0 9 * * 1", "Asia/Kolkata", "2026-11-17T10:00:00Z")).toBe(Date.parse("2026-11-23T03:30:00Z"));
+    expect(next("0 9 * * 1", "Asia/Kolkata", "2026-11-23T03:30:15Z")).toBe(Date.parse("2026-11-30T03:30:00Z"));
+  });
+
+  it("keeps wall-clock time across daylight saving changes", () => {
+    expect(next("0 9 * * 1", "America/New_York", "2026-03-06T15:00:00Z")).toBe(Date.parse("2026-03-09T13:00:00Z"));
+    expect(next("30 2 * * *", "America/New_York", "2026-03-08T06:59:00Z")).toBe(Date.parse("2026-03-09T06:30:00Z"));
+    expect(next("30 1 * * *", "America/New_York", "2026-11-01T05:31:00Z")).toBe(Date.parse("2026-11-01T06:30:00Z"));
+  });
+
+  it("handles a half-hour DST transition within a UTC hour", () => {
+    expect(next("45 2 * * *", "Australia/Lord_Howe", "2026-10-03T15:00:00Z")).toBe(Date.parse("2026-10-03T15:45:00Z"));
+  });
+
+  it("returns null for an invalid timezone or impossible annual date", () => {
+    expect(next("0 9 * * 1", "Unknown/Zone", "2026-11-17T10:00:00Z")).toBeNull();
+    expect(next("0 9 31 2 *", "UTC", "2026-11-17T10:00:00Z")).toBeNull();
+  });
+});

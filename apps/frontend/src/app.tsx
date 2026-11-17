@@ -1,3 +1,5 @@
+import { RepeatRoutineDialog } from "./components/RoutinesView";
+import { routineSourceFromRun, type RoutineSource } from "./routines";
 import { AppShell, AppAreaSidebar } from "./layouts/AppShell";
 import { pathForView, readNavigationView } from "./app-navigation";
 import { connectedTaskDefault } from "./supported-task-routes";
@@ -469,7 +471,7 @@ export function App(): React.JSX.Element {
   const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
 
   useEffect(() => {
-    document.title = "Shiba Dashboard · Self-Hosted AI Software Engineer";
+    document.title = "Shiba · Hire AI employees you own";
   }, []);
 
   // Surface transient notices through the toast channel (aria-live inside sonner).
@@ -491,6 +493,7 @@ export function App(): React.JSX.Element {
     setMemoryCounts((current) => (Object.entries(counts).every(([k, v]) => current[k as keyof MemoryCounts] === v) ? current : { ...current, ...counts }));
   }, []);
   const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
+  const [repeatSource, setRepeatSource] = useState<RoutineSource | null>(null);
   const [automationList, setAutomationList] = useState<AutomationRecord[]>([]);
   // Settings is a full page; the section lives in ?section= and "Back to app" returns to the previous view.
   const [settingsSection, setSettingsSection] = useState<string>(() =>
@@ -1439,7 +1442,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
   // Waking from background or regaining network: reconnect now instead of
   // waiting out the socket's backoff, and refetch runs/approvals/identity.
-  useEffect(() => { setShowClearModal(false); setShowOnboardingModal(false); }, [orchestratorName, teamWorkspaceId]);
+  useEffect(() => { setShowClearModal(false); setShowOnboardingModal(false); setRepeatSource(null); }, [orchestratorName, teamWorkspaceId]);
   const hiddenAt = useRef<number | null>(null);
   useEffect(() => {
     const revive = (force: boolean) => {
@@ -3081,6 +3084,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               />
             </div>
           ) : null}
+{repeatSource && privateDataEnabled && !teamWorkspaceId ? <RepeatRoutineDialog key={`${orchestratorName}:${selectedSessionId}`} source={repeatSource} employees={customAgentRecords.map((record) => ({ id: record.id, name: record.config.name }))} onClose={() => setRepeatSource(null)} onCreated={() => { setNotice("Routine created. Find it in Tasks → Routines."); refreshRuns(); }} /> : null}
 {showFirstRun && teamWorkspaceId && workspaceAuthorityReady ? (
             <TeamOnboardingDraft key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} workspaceName={teamWorkspace?.name} actorId={orchestratorName?.trim().toLowerCase()} onStageTask={stageTeamSetupTask} onConfigureEmployee={teamWorkspace && ["owner", "admin"].includes(teamWorkspace.membership.role) ? (templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); } : undefined} onClose={() => setShowFirstRun(false)} onOpenRooms={() => { setShowFirstRun(false); openView("threads"); }} />
           ) : showFirstRun && privateDataEnabled ? (
@@ -3104,6 +3108,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 {teamWorkspaceId ? <aside className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--card)] px-4 py-3 text-xs"><p>Plan your first team task with optional role and employee choices. Saved drafts start no work.</p><button type="button" disabled={authMode !== "better-auth"} className="min-h-11 border border-[var(--line)] px-3 disabled:opacity-50" onClick={() => setShowFirstRun(true)}>{authMode === "better-auth" ? "Set up a team task" : "Saved setup requires email sign-in"}</button></aside> : null}
                 {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
                 <WorkView
+                  key={`${orchestratorName}:${teamWorkspaceId || "personal"}`}
+                  routinesEnabled={privateDataEnabled && !teamWorkspaceId}
+                  routinesRefreshToken={refreshToken}
+                  onRepeatTask={!teamWorkspaceId ? (run) => setRepeatSource(routineSourceFromRun(run)) : undefined}
                   view={workViewMode}
                   onViewChange={setWorkViewMode}
                   sidebarCollapsed={workPanelCollapsed}
@@ -3222,6 +3230,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               submitNotice={notice}
               route={{ harness, codingModel, connectionId, runTarget }}
               onOpenModels={() => { setSettingsSection("models"); setMainView("settings"); }}
+              onOpenProviders={() => { setSettingsSection("providers"); setMainView("settings"); }}
               onSubmit={(event, agentId) => submitTask(event, { forceWork: true, customAgentId: agentId })}
               onOpenRun={(runId) => { void handleSelectSession(runId); }}
               onOpenApproval={() => setMainView("approvals")}
@@ -3695,6 +3704,16 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     </div>
                   ) : (
                   <TaskComposer
+                    onRepeat={privateDataEnabled && !teamWorkspaceId && !appToolsWork && runTarget === "sandbox" ? () => {
+                      const normalizedRepoUrl = normalizeRepositoryInput(repoUrl);
+                      if (executionTargetKind === "repository" && !normalizedRepoUrl) { setNotice(REPOSITORY_INPUT_ERROR); return; }
+                      const deliverables = parseArtifactDeliverables(artifactDeliverables);
+                      if (executionTargetKind === "artifact-workspace" && !deliverables.success) { setNotice("Choose valid deliverable paths before creating a routine."); return; }
+                      const fields = executionTargetKind === "repository"
+                        ? buildExecutionTargetFields({ kind: "repository", repoUrl: normalizedRepoUrl ?? repoUrl.trim(), baseBranch: baseBranch.trim() || "main" })
+                        : buildExecutionTargetFields({ kind: "artifact-workspace", workspaceName: artifactWorkspaceName, expectedDeliverables: deliverables.data ?? [] });
+                      setRepeatSource({ prompt: task.trim(), executionTarget: fields.executionTarget, customAgentId: customAgentId || undefined });
+                    } : undefined}
                     blockedReason={onboardingExecutionIssue}
                     appToolsWork={appToolsWork}
                     onAppToolsWorkChange={setAppToolsWork}
