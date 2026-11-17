@@ -146,6 +146,29 @@ describe("ordinary employee external MCP boundary", () => {
     expect(put).toHaveBeenCalledTimes(1); expect(reads.get(read.sourceReadId!)).toEqual(receipt);
   });
 
+  it("finds, describes and calls reviewed MCP tools through the lazy catalog without widening access", async () => {
+    const f = await fixture();
+    const tools = createEmployeeRunTools(f.env, () => f.binding.employeeId, () => f.binding.executionContextId, () => "self-hosted", () => owner, undefined,
+      () => resolveAppToolsEmployeeContext(f.env, f.binding.executionContextId));
+    type Exec = (input: object, options: unknown) => Promise<Record<string, unknown>>;
+    const search = tools.tool_search!.execute as Exec, describe = tools.tool_describe!.execute as Exec, call = tools.tool_call!.execute as Exec;
+    const found = await search({ queries: ["selected record"] }, { toolCallId: "lazy-search" }) as { matches: Array<{ name: string; source: string; inputSchema?: unknown }> };
+    expect(found.matches.map((match) => match.name).sort()).toEqual([f.read.gatewayName, f.write.gatewayName].sort());
+    expect(found.matches.every((match) => match.source === "mcp" && match.inputSchema)).toBe(true);
+    expect(JSON.stringify(found)).not.toContain("SECRET_UNAUTHORIZED_SCHEMA");
+    const hidden = f.tools.find((tool) => tool.remoteName === "hidden_item")!;
+    expect(await describe({ names: [f.read.gatewayName, hidden.gatewayName] }, { toolCallId: "lazy-describe" })).toMatchObject({
+      tools: [{ name: f.read.gatewayName, inputSchema: { required: ["resourceId"] } }], unavailable: [hidden.gatewayName] });
+    await expect(call({ name: hidden.gatewayName, args: { resourceId: "record-1" } }, { toolCallId: "lazy-hidden" })).rejects.toThrow("unavailable");
+    expect(await call({ name: f.read.gatewayName, args: { resourceId: "record-1" } }, { toolCallId: "lazy-read" })).toMatchObject({ ok: true });
+    expect(await call({ name: f.write.gatewayName, args: { resourceId: "record-1", body: "Exact write" } }, { toolCallId: "lazy-write" }))
+      .toMatchObject({ result: { structuredContent: { status: "pending_approval" } } });
+    expect(f.calls).toEqual([{ name: "read_item", arguments: { resourceId: "record-1" } }]);
+    await f.env.AGENT_AUDIT.prepare("UPDATE employee_tool_grants SET lifecycle='revoked' WHERE employee_id=?").bind(f.binding.employeeId).run();
+    expect(await search({ queries: ["record"] }, { toolCallId: "lazy-revoked" })).toMatchObject({ matches: [] });
+    await expect(call({ name: f.read.gatewayName, args: { resourceId: "record-1" } }, { toolCallId: "lazy-revoked-call" })).rejects.toThrow("unavailable");
+  });
+
   it("filters schemas/counts, calls a reviewed read, and dispatches an exact write only after owner consent", async () => {
     const f = await fixture();
     const catalog = await employeeExternalMcpCatalog(f.env, f.binding);
