@@ -5,10 +5,6 @@
  */
 import { timeAuth, withRequestTiming, withTimingDatabase } from "./platform/request-timing.js";
 import { getAgentByName, routeAgentRequest } from "agents/routing";
-import { OpenCodeAgent } from "./agents/opencode-agent.js";
-import { CodingOrchestrator } from "./agents/orchestrator.js";
-import { ExplorerAgent } from "./agents/specialists/explorer-agent.js";
-import { ReviewerAgent } from "./agents/specialists/reviewer-agent.js";
 import { handleArtifactDownload } from "./artifact-download.js";
 import { AUDIT_RETENTION_MS, pruneAuditLog } from "./audit.js";
 import { Automations } from "./automations-do.js";
@@ -16,7 +12,8 @@ import { automationsStub, seenDelivery } from "./automations-stub.js";
 import { ensureLiveCodingModel } from "./coding-model.js";
 import type { Env } from "./env.js";
 import { Mailbox } from "./mailbox-do.js";
-import { MCP_PRINCIPAL_HEADER } from "./mcp-gateway.js";
+import { MCP_PRINCIPAL_HEADER } from "./mcp-principal.js";
+import { isDashboardViewPath, isMarketingSection } from "./app-host-routing.js";
 import { Memory } from "./memory-do.js";
 import { Sandbox, SandboxOutbound, proxyToSandbox } from "./sandbox.js";
 import { ContainerProxy } from "./sandbox/npm-shim.js";
@@ -41,14 +38,12 @@ import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
 import { handleGitHubWebhook } from "./github-webhook-routes.js";
 import { handleIntegrationsRoutes } from "./integrations-routes.js";
-import { handleIntegrationProviderRoutes } from "./integrations-provider-routes.js";
 import { handleLinearWebhook } from "./linear/routes.js";
 import { handleGmail } from "./gmail-routes.js";
 import { handleSentryWebhook } from "./sentry-webhook-routes.js";
 import { handleInbox } from "./inbox-routes.js";
 import { handleLocalAdapter, isLocalRuntimePath } from "./local-routes.js";
 import { LocalDispatch } from "./local-dispatch.js";
-import { handleMcp } from "./mcp-routes.js";
 import { handleMemory } from "./memory-routes.js";
 import { handleFiles } from "./files/files-routes.js";
 import { handleNotes } from "./notes/notes-routes.js";
@@ -56,15 +51,12 @@ import { handleKnowledge } from "./knowledge/knowledge-routes.js";
 import { handleKnowledgeOutputs } from "./knowledge/knowledge-outputs-routes.js";
 import { handleKnowledgeProjects } from "./knowledge/knowledge-projects-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
-import { handleAcpProviders } from "./acp-provider-routes.js";
 import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
 import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import { handleApiKeys } from "./api-keys-routes.js";
 import { handleOutboundWebhooks } from "./webhooks/routes.js";
-import { registerWebhookQueueConsumers } from "./webhooks/consumer.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
 import { handleEmployeeTools } from "./employee-tool-routes.js";
-import { handleSkillLibrary } from "./skill-library-routes.js";
 import { handleSkills } from "./skills-routes.js";
 import { handleSpaces } from "./spaces-routes.js";
 import { Spaces } from "./spaces-do.js";
@@ -88,7 +80,6 @@ import { handleWebSessions } from "./sessions-routes.js";
 import { handleSlackCanvas } from "./slack-canvas-routes.js";
 import { redactSecrets } from "./security.js";
 import { handleBetterAuth, isBetterAuthConfigured } from "./better-auth.js";
-import "./email/delivery.js";
 import { handleEmailDeliveryRoutes } from "./email/routes.js";
 import { getUserId, isAccessConfigured, isAuthenticated, isAuthorizedRequest, resolveUserId, SIGNATURE_AUTHENTICATED } from "./request-auth.js";
 import { handleSlackInteract } from "./slack-approval.js";
@@ -111,7 +102,6 @@ import { ConversationRoom } from "./conversation-room-do.js";
 import { WorkspaceEvents } from "./platform/workspace-events-do.js";
 import { SlackImportWorkflow, AutomationRunWorkflow } from "./platform/workflows.js";
 import { dispatchQueueBatch } from "./platform/queues.js";
-import "./knowledge/knowledge-ingest-queue.js";
 import {
   isAuthorizedSessionAgent,
   parseSessionAgentName,
@@ -123,20 +113,20 @@ import {
 // `await import()` at their call sites: evaluating them at Worker startup
 // pushed deploys past the startup CPU limit.
 
+export { CodingOrchestrator } from "./agents/orchestrator.js";
+export { OpenCodeAgent } from "./agents/opencode-agent.js";
+export { ExplorerAgent } from "./agents/specialists/explorer-agent.js";
+export { ReviewerAgent } from "./agents/specialists/reviewer-agent.js";
 export {
-  ExplorerAgent,
-  ReviewerAgent,
   Automations,
   ChatGptAuth,
   ConversationRoom,
   ComputerSession,
   UserProviderOAuth,
-  CodingOrchestrator,
   LocalDispatch,
   Mailbox,
   Memory,
   ModelConfig,
-  OpenCodeAgent,
   Sandbox,
   SandboxOutbound,
   ContainerProxy,
@@ -152,55 +142,9 @@ export { isBetterAuthConfigured } from "./better-auth.js";
 export { getUserId, isAuthenticated, isAuthorizedRequest, resolveUserId, SIGNATURE_AUTHENTICATED } from "./request-auth.js";
 export { handleWebSessions } from "./sessions-routes.js";
 
-registerWebhookQueueConsumers();
+export { getDashboardViews } from "./app-host-routing.js";
 
 let claudeSubscriptionDeprecationWarned = false;
-
-// The landing site lives on tryshiba.dev; the app host only serves the dashboard.
-const MARKETING_SECTIONS = new Set([
-  "docs",
-  "blog",
-  "why-shiba",
-  "privacy",
-  "terms",
-  "waitlist",
-  "welcome",
-]);
-// Root paths of the dashboard's sidebar views (AppNavRail ids); "" is the Work home.
-export const DASHBOARD_VIEWS = new Set([
-  "slack-canvas",
-  "signin",
-  "login",
-  // Keep in sync with AppNavRail APP_NAV_ITEMS ids.
-  "",
-  "work",
-  "dashboard",
-  "tasks",
-  "threads",
-  "activity",
-  "analytics",
-  "diff",
-  "approvals",
-  "swarm",
-  "collaboration",
-  "team",
-  "agents",
-  "inbox",
-  "memory",
-  "files",
-  "notes",
-  "projects",
-  "outputs",
-  "automations",
-  "providers",
-  "employee-tools",
-  "integrations",
-  "skills",
-  "spaces",
-  "custom-agents",
-  "remote",
-  "settings",
-]);
 
 export default {
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -331,11 +275,11 @@ export default {
       }
       if (request.method === "GET" || request.method === "HEAD") {
         const section = url.pathname.split("/")[1] ?? "";
-        if (MARKETING_SECTIONS.has(section)) {
+        if (isMarketingSection(section)) {
           return Response.redirect(`https://tryshiba.dev${url.pathname}${url.search}`, 301);
         }
         // The shell is static and shows sign-in itself; single segment so /agents/<do>/… still routes.
-        if (DASHBOARD_VIEWS.has(section) && /^\/[^/]*\/?$/.test(url.pathname)) {
+        if (isDashboardViewPath(section, url.pathname)) {
           return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
         }
         // WS02: password reset surfaces share the dashboard shell.
@@ -431,7 +375,9 @@ export default {
       if (teamOnboardingTask) return teamOnboardingTask;
       const onboardingResponse = await handleOnboardingProgress(request, env);
       if (onboardingResponse) return onboardingResponse;
-      const acpProviderResponse = await handleAcpProviders(request, env);
+      const acpProviderResponse = url.pathname === "/api/providers" || url.pathname.startsWith("/api/providers/")
+        ? await (await import("./acp-provider-routes.js")).handleAcpProviders(request, env)
+        : null;
       if (acpProviderResponse) return acpProviderResponse;
       const capabilityCatalogResponse = await handleCapabilityCatalog(request, env);
       if (capabilityCatalogResponse) return capabilityCatalogResponse;
@@ -445,7 +391,7 @@ export default {
       if (employeeToolsResponse) return employeeToolsResponse;
       const reasonNetworkResponse = await handleReasonNetwork(request, env);
       if (reasonNetworkResponse) return reasonNetworkResponse;
-      const skillLibraryResponse = await handleSkillLibrary(request, env);
+      const skillLibraryResponse = await (await import("./skill-library-routes.js")).handleSkillLibrary(request, env);
       if (skillLibraryResponse) return skillLibraryResponse;
       const skillsResponse = await handleSkills(request, env);
       if (skillsResponse) return skillsResponse;
@@ -487,7 +433,7 @@ export default {
       if (subscriptionAuthResponse) {
         return subscriptionAuthResponse;
       }
-      const mcpResponse = await handleMcp(
+      const mcpResponse = await (await import("./mcp-routes.js")).handleMcp(
         request,
         env,
         ctx ?? ({ waitUntil: () => {} } as unknown as ExecutionContext),
@@ -668,7 +614,9 @@ export default {
         const response = await handleOperatorEnrollmentReviews(request, env);
         if (response) return response;
       }
-      const integrationProviderResponse = await handleIntegrationProviderRoutes(request, env);
+      const integrationProviderResponse = url.pathname === "/api/integrations/provider" || url.pathname.startsWith("/api/integrations/provider/")
+        ? await (await import("./integrations-provider-routes.js")).handleIntegrationProviderRoutes(request, env)
+        : null;
       if (integrationProviderResponse) {
         return integrationProviderResponse;
       }
