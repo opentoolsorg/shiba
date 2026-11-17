@@ -18,7 +18,7 @@
 import type { Env } from "./env.js";
 import type { ApprovalKind } from "./pending-approvals.js";
 import { redactSecrets } from "./security.js";
-import { verifySlackRequest } from "./slack.js";
+import { slackTransport } from "./channels/slack/index.js";
 import { buildSlackThreadName, parseSlackCommandScope, parseSlackThreadName, slackApprovalOrchestratorName } from "./slack-thread.js";
 
 export const SLACK_INTERACT_PATH = "/api/slack/interact";
@@ -557,18 +557,11 @@ export async function handleSlackInteract(
   if (url.pathname !== SLACK_INTERACT_PATH || request.method !== "POST") {
     return null;
   }
-  const secret = env.SLACK_SIGNING_SECRET ?? "";
-  if (!secret) {
-    console.warn("Webhook disabled: SLACK_SIGNING_SECRET is unset.");
-    return Response.json(
-      { error: "Webhook is disabled." },
-      { status: 503 },
-    );
-  }
   // The raw body is the exact signed payload — parse the form after verifying.
   const rawBody = await request.text();
-  if (!(await verifySlackRequest(rawBody, request.headers, secret))) {
-    return Response.json({ error: "Invalid Slack signature." }, { status: 401 });
+  const verified = await slackTransport.verify(rawBody, request.headers, env);
+  if (!verified.ok) {
+    return Response.json({ error: verified.error }, { status: verified.status });
   }
   let interaction: BlockActionPayload;
   try {

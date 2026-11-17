@@ -14,7 +14,7 @@ import { buildApprovalBlocks, slackCanvasUrl, type ExecutionContextLike } from "
 import { buildSlackCanvasUrl, signSlackCanvasIntake, slackCanvasOwner } from "./slack-canvas.js";
 import { saveSlackCommandReplyDestination } from "./slack-command-reply.js";
 import { buildSlackCommandScope, buildSlackRunPayload, resolveSlackHarness, slackWorkspaceTarget } from "./slack-thread.js";
-import { verifySlackRequest } from "./slack.js";
+import { slackTransport } from "./channels/slack/index.js";
 
 export const SLACK_COMMAND_PATH = "/api/slack/command";
 export const SLASH_COMMAND = "/shiba";
@@ -206,18 +206,11 @@ export async function handleSlackCommand(
   if (url.pathname !== SLACK_COMMAND_PATH || request.method !== "POST") {
     return null;
   }
-  const secret = env.SLACK_SIGNING_SECRET ?? "";
-  if (!secret) {
-    console.warn("Webhook disabled: SLACK_SIGNING_SECRET is unset.");
-    return Response.json(
-      { error: "Webhook is disabled." },
-      { status: 503 },
-    );
-  }
   // The raw body is the exact signed payload — parse the form after verifying.
   const rawBody = await request.text();
-  if (!(await verifySlackRequest(rawBody, request.headers, secret))) {
-    return Response.json({ error: "Invalid Slack signature." }, { status: 401 });
+  const verified = await slackTransport.verify(rawBody, request.headers, env);
+  if (!verified.ok) {
+    return Response.json({ error: verified.error }, { status: verified.status });
   }
   const params = new URLSearchParams(rawBody);
   if ((params.get("command") ?? "").trim() !== SLASH_COMMAND) {
