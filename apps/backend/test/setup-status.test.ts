@@ -44,6 +44,14 @@ describe("readSetupStatus mailbox signals", () => {
 });
 
 describe("GET /api/setup/status subscription diagnostics", () => {
+  it("offers the provider fix on a fresh workspace without a gateway", async () => {
+    const response = await handleMeta(new Request("https://app.test/api/setup/status", {
+      headers: { "CF-Access-Authenticated-User-Email": "new@example.com" },
+    }), setupStatusEnv());
+    expect(response?.status).toBe(200);
+    const status = await response?.json() as Awaited<ReturnType<typeof readSetupStatus>>;
+    expect(status.modelRoute).toMatchObject({ ready: false, via: null, fix: { href: "/settings/?section=providers" } });
+  });
   it("checks each user's ChatGPT plan without a gateway token", async () => {
     const checkedUsers: string[] = [];
     const env = setupStatusEnv({
@@ -67,6 +75,8 @@ describe("GET /api/setup/status subscription diagnostics", () => {
 
     expect(connectedResponse?.status).toBe(200);
     expect(missingResponse?.status).toBe(200);
+    expect(connectedStatus.modelRoute).toMatchObject({ ready: true, via: "personal-provider" });
+    expect(missingStatus.modelRoute).toMatchObject({ ready: false });
     expect(checkedUsers).toContain("ada@example.com");
     expect(checkedUsers).toContain("grace@example.com");
     expect(connectedStatus.doctor.roles.find((row) => row.role === "fixer")).toMatchObject({
@@ -128,8 +138,11 @@ describe("GET /api/setup/status subscription diagnostics", () => {
     });
     expect(fixer(connected)).toMatchObject({ connectionId: connection.id, ok: true });
     expect(fixer(disconnected)).toMatchObject({
-      connectionId: connection.id, ok: false, message: expect.stringMatching(/no authenticated account/),
+      connectionId: connection.id, ok: false, message: expect.stringMatching(/Connect this provider in Settings/),
     });
+    expect(connected.modelRoute).toMatchObject({ ready: true, via: "connection" });
+    expect(disconnected.modelRoute).toMatchObject({ ready: false });
+    expect(noInitiator.modelRoute).toMatchObject({ ready: false });
     expect(connected.doctor.ok).toBe(true);
     expect(disconnected.doctor.ok).toBe(false);
   });

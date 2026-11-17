@@ -17,6 +17,7 @@
     "not_found_handling": "404-page"
   },
   "preview_urls": false,
+  "previews": {},
   "workers_dev": true,
   "keep_vars": true,
   "vars": {

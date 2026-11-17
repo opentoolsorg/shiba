@@ -40,3 +40,15 @@ Invite the bot to a test channel and send a small `/shiba` request with a reposi
 Repository selection uses the supplied URL or thread context, then the channel mapping. If no repository can be resolved, Shiba asks for one. A missing bot token prevents mention replies and starts no run.
 
 Confirm model access and GitHub publishing separately. Use [Readiness](/docs/readiness/) for the deployment checks.
+
+## Workspace-owner installations
+
+The Slack installations panel uses a separate OAuth flow. Setting only `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` does not enable that panel. Its operator prerequisites are:
+
+- `SLACK_INSTALLATIONS_ENABLED=true`, `SLACK_OAUTH_APP_ID` and `SLACK_OAUTH_CLIENT_ID` for the Slack app.
+- `SLACK_SIGNING_SECRET` and `SLACK_OAUTH_REDIRECT_URI`, an HTTPS URL on your deployment ending in `/api/slack/installations/callback` with no query string.
+- `SLACK_INSTALLATION_KEYRING`, a Worker secret containing JSON with `activeKeyId` and a `keys` map of one to three short key IDs to 32-byte hexadecimal encryption keys.
+- `SLACK_OAUTH_PKCE_ENABLED=true` only after the administrator has enabled PKCE for the Slack app. This app setting requires Slack support to undo.
+- `SLACK_OAUTH_QUERY_REDACTION_VERIFIED=true` only after the operator has configured and verified query-string redaction in invocation and access logs. The OAuth callback includes temporary authorization data in its query.
+
+Keep secrets in Cloudflare secrets or your server's secret store. The panel requires a verified native workspace owner to review bot scopes, install the app, and separately review and activate the returned installation. It does not grant employee execution or provider access. See [Getting a workspace ready](/docs/workspace-ready/) for the other setup cards.
