@@ -35,6 +35,8 @@ import { handleSubscriptionAuth } from "./auth-routes.js";
 import { handleUserOpenAiSubscription } from "./subscription-auth-routes.js";
 import { handleAudit } from "./audit-routes.js";
 import { handleGovernance } from "./governance-routes.js";
+import { handleEmployeeAccess } from "./governance/employee-access-routes.js";
+import { enforceEmployeeRouteAccess } from "./governance/employee-route-auth.js";
 import { handleShare } from "./share-routes.js";
 import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
@@ -159,6 +161,13 @@ export default {
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
+      if (env.AGENT_AUDIT) {
+        try {
+          const learning = await import("./ports/learning/review.js");
+          const { d1LearningPort } = await import("./ports/learning/d1-adapter.js");
+          await learning.sweepIdleLearningThreads(env, d1LearningPort(env.AGENT_AUDIT));
+        } catch (error) { console.error("Learning idle review failed", redactSecrets(String(error))); }
+      }
       try { await (await import("./founder-stripe-runtime.js")).tickFounderStripeReads(env); }
       catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder Stripe read scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-meta-runtime.js")).tickFounderMetaReads(env); }
@@ -339,6 +348,10 @@ export default {
       }
       const memberPolicyResponse = await enforceTeamMemberApiPolicy(request, env);
       if (memberPolicyResponse) return memberPolicyResponse;
+      const employeeAccessResponse = await enforceEmployeeRouteAccess(request, env);
+      if (employeeAccessResponse) return employeeAccessResponse;
+      const employeeAccessSettingsResponse = await handleEmployeeAccess(request, env);
+      if (employeeAccessSettingsResponse) return employeeAccessSettingsResponse;
       const observabilityResponse = await handleObservability(request, env, ctx);
       if (observabilityResponse) return observabilityResponse;
       const outputArchiveResponse = await handleRunOutputArchives(request, env);
@@ -355,6 +368,8 @@ export default {
       if (personalExecutionResponse) return personalExecutionResponse;
       const teamModelResponse = await (await import("./team-model-routes.js")).handleTeamModelSessions(request, env);
       if (teamModelResponse) return teamModelResponse;
+      const learningResponse = await (await import("./learning-routes.js")).handleLearning(request, env);
+      if (learningResponse) return learningResponse;
       const workResponse = await handleTeamWork(request, env);
       if (workResponse) return workResponse;
       const primaryBotResponse = await handlePrimaryBot(request, env);
@@ -365,6 +380,8 @@ export default {
       if (paletteResponse) return paletteResponse;
       const askUserResponse = await (await import("./ask-user-routes.js")).handleAskUser(request, env);
       if (askUserResponse) return askUserResponse;
+      const uiBlockResponse = await (await import("./ui-block-routes.js")).handleUiBlocks(request, env);
+      if (uiBlockResponse) return uiBlockResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);
       if (workspaceResponse) return workspaceResponse;
       const governanceResponse = await handleGovernance(request, env);

@@ -6,6 +6,7 @@ import type { TokenRecord } from "./agent-tokens.js";
 import { verifyToken } from "./agent-tokens.js";
 import type { Env } from "./env.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
+import { employeeAccessDenial, resolveEmployeeAccess } from "./governance/employee-access.js";
 import { resolveUserId } from "./request-auth.js";
 import { gmailOwner } from "./gmail-routes.js";
 import { resolveOwnedAppSession } from "./employee-app-session.js";
@@ -171,8 +172,12 @@ function employeeReceiptReplay(receipt: { invocationId: string; status: string; 
 
 async function configurePolicy(request: Request, env: Env, employeeId: string): Promise<Response> {
   if (!env.AGENT_AUDIT) return jsonError("employee_policy_storage_unavailable", 503);
-  const auth = await resolveOrgForApiRequest(request, env);
+  const auth = await resolveOrgForApiRequest(request, env, { allowMemberWrite: true });
   if (auth instanceof Response) return auth;
+  if (auth.workspace) {
+    const denied = employeeAccessDenial(await resolveEmployeeAccess(env, auth.workspace.workspaceId, employeeId, auth.workspace.userId), "manage");
+    if (denied) return denied;
+  }
   if (auth.principal && !requireV1Write(auth.principal)) return v1Forbidden();
   const configurer = auth.principal?.principal ?? await resolveUserId(request, env);
   if (!configurer) return jsonError("authentication_required", 401);
@@ -594,7 +599,7 @@ export async function dispatchEmployeeToolForPrincipal(
 
 async function handleApprovals(request: Request, env: Env, approvalId?: string): Promise<Response> {
   if (!env.AGENT_AUDIT) return jsonError("employee_policy_storage_unavailable", 503);
-  const auth = await resolveOrgForApiRequest(request, env);
+  const auth = await resolveOrgForApiRequest(request, env, { allowMemberWrite: true });
   if (auth instanceof Response) return auth;
   if (auth.principal && (request.method === "GET" ? !requireV1Read(auth.principal) : !requireV1Write(auth.principal))) return v1Forbidden();
   // Payload previews can contain email text or repository tasks; only the
@@ -605,9 +610,12 @@ async function handleApprovals(request: Request, env: Env, approvalId?: string):
   const ownerAccountId = await gmailOwner(request, env);
   if (request.method === "GET" && !approvalId) {
     const rows = await listEmployeeActionApprovals(env, { orgId: auth.orgId, status: "pending", limit: 50 });
-    const visible = await Promise.all(rows.map(async (row) => row.employeeContext
-      ? await getExternalMcpServer(env, auth.orgId, ownerId, row.employeeId) ? row : null
-      : await nativeApprovalAudience(env, row, ownerId, ownerAccountId) ? row : null));
+    const visible = await Promise.all(rows.map(async (row) => {
+      if (auth.workspace && await resolveEmployeeAccess(env, auth.workspace.workspaceId, row.employeeId, ownerId) === "none") return null;
+      return row.employeeContext
+        ? await getExternalMcpServer(env, auth.orgId, ownerId, row.employeeId) ? row : null
+        : await nativeApprovalAudience(env, row, ownerId, ownerAccountId) ? row : null;
+    }));
     return Response.json({ ok: true, approvals: visible.filter((row) => row !== null) }, { headers: { "cache-control": "no-store" } });
   }
   if (request.method === "POST" && approvalId) {
@@ -617,6 +625,10 @@ async function handleApprovals(request: Request, env: Env, approvalId?: string):
       orgId: auth.orgId, employeeId: typeof body.employeeId === "string" ? body.employeeId : "", approvalId,
     });
     if (!record) return jsonError("not_found", 404);
+    if (auth.workspace) {
+      const denied = employeeAccessDenial(await resolveEmployeeAccess(env, auth.workspace.workspaceId, record.employeeId, ownerId), "chat");
+      if (denied) return denied;
+    }
     if (record.employeeContext) return jsonError("external_mcp_owner_approval_route_required", 409);
     if (!await nativeApprovalAudience(env, record, ownerId, ownerAccountId)) return jsonError("not_found", 404);
     const decided = await decideEmployeeActionApproval(env, {
