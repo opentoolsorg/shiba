@@ -70,12 +70,14 @@ async function main() {
   let threadId = cfg.threadId;
   if (!threadId) {
     const started = await rpc(proc, "thread/start", {});
-    threadId = started?.threadId || started?.thread_id;
+    // app-server returns { thread: { id } }; keep the flat fallbacks for older builds.
+    threadId = started?.thread?.id || started?.threadId || started?.thread_id;
     if (threadId) process.stdout.write(JSON.stringify({ type: "thread", threadId }) + "\\n");
   } else {
     await rpc(proc, "thread/resume", { threadId });
   }
-  await rpc(proc, "turn/start", { threadId, input: cfg.task, ...(cfg.model ? { model: cfg.model } : {}) });
+  // input is a list of typed items (docs/harness.md), not a bare string.
+  await rpc(proc, "turn/start", { threadId, input: [{ type: "text", text: cfg.task }], ...(cfg.model ? { model: cfg.model } : {}) });
   proc.stdin.end();
   proc.on("close", (code) => process.exit(code ?? 0));
 }
