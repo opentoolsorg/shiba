@@ -13,6 +13,7 @@ import { membershipSql, assertWorkspaceMemberCurrent, insertGuarded, updateGuard
 import { resolveWorkspaceNativeGrantTarget, type WorkspaceNativeMember } from "./workspace-native-authority.js";
 import { hashToolArgs } from "./mcp-gateway.js";
 import { redactSecrets } from "./security.js";
+import { isHostedProviderAccessStopped } from "./hosted-provider-kill-switch.js";
 import { prepareTeamModelMoney, requireTeamModelMoney, teamModelLedgerDebitSql } from "./team-model-money.js";
 
 export class TeamModelError extends Error { constructor(readonly code: string, readonly status = 409) { super(code); } }
@@ -45,6 +46,7 @@ export function teamModelPolicy(env: Env) {
     reason: enabled ? null : env.SHIBA_TEAM_MODEL_SESSIONS !== "1" ? "team_model_disabled" : "team_model_policy_unsupported" };
 }
 export function requireTeamModelPolicy(env: Env, expected?: string) {
+  if (isHostedProviderAccessStopped(env)) throw new TeamModelError("hosted_provider_access_disabled", 503);
   const policy = teamModelPolicy(env);
   if (!policy.enabled || (expected !== undefined && policy.key !== expected)) throw new TeamModelError(policy.reason ?? "team_model_policy_changed", 403);
   return policy;

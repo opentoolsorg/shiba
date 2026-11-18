@@ -426,6 +426,12 @@ export interface Env {
   GITHUB_PROJECT_NUMBER?: string;
   /** Optional. Server-side credential for AI Gateway. Never sent to containers. */
   AI_GATEWAY_TOKEN?: string;
+  /**
+   * Emergency stop for hosted inference: "1"/"true"/"on" refuses AI Gateway
+   * provider traffic and Workers AI team-model turns the deployment pays for.
+   * Personal keys, plan subscriptions and local daemons keep working.
+   */
+  SHIBA_HOSTED_PROVIDER_KILL_SWITCH?: string;
   /** Worker-only root for purpose-derived internal signatures. */
   INTERNAL_SIGNING_KEY?: string;
   /** One-release grace: defaults to "1"; set "0" to reject legacy signatures. */

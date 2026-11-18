@@ -13,12 +13,14 @@ import { parseResolvedCodexCredential, resolveCodexSubscriptionAuthJson } from "
 import { sanitizeContainerHeaders, stripCredentialParams } from "./provider-gateway.js";
 import { getDecryptedOrgModelKey } from "./org-model-keys-store.js";
 import { kindForHost, readProviderSecretForOrg, type UserSecretKind } from "./user-provider-keys.js";
+import { hostedProviderStoppedResponse, isHostedProviderAccessStopped } from "./hosted-provider-kill-switch.js";
 
 export type EgressEnv = Pick<
   WorkerEnv,
   | "AI"
   | "GATEWAY_ID"
   | "AI_GATEWAY_TOKEN"
+  | "SHIBA_HOSTED_PROVIDER_KILL_SWITCH"
   | "GITHUB_TOKEN"
   | "CLAUDE_SUBSCRIPTION_TOKEN"
   | "CODEX_SUBSCRIPTION_AUTH_JSON"
@@ -179,6 +181,7 @@ async function forwardProvider(
   }
   const kind = kindForHost(host);
   if (gatewayByokAlias) {
+    if (isHostedProviderAccessStopped(env)) return hostedProviderStoppedResponse();
     const slug = GATEWAY_PROVIDERS[host];
     if (!slug) {
       return new Response("Approved connection cannot reach this provider host.", { status: 403 });
@@ -222,6 +225,7 @@ async function forwardProvider(
     }
     return new Response("Invalid provider destination.", { status: 403 });
   }
+  if (isHostedProviderAccessStopped(env)) return hostedProviderStoppedResponse();
   try {
     // getUrl resolves the account from the binding; no account-id var or public callback.
     const base = await env.AI.gateway(env.GATEWAY_ID || "default").getUrl(slug);
