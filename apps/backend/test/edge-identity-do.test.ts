@@ -37,14 +37,15 @@ vi.mock("../src/slack.js", async (importOriginal) => ({
 }));
 setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 
-const KEY = "test-signing-secret-0123456789";
+const KEY = "test-signing-secret-0123456789abcd";
 
-function agent(keyed: boolean): CodingOrchestrator {
+function agent(keyed: boolean, strict = false): CodingOrchestrator {
   return Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
     env: {
       ...productionEnvStubs(),
       Sandbox: {},
-      ...(keyed ? { INTERNAL_SIGNING_KEY: KEY } : {}),
+      INTERNAL_SIGNING_KEY: keyed ? KEY : undefined,
+      SHIBA_LEGACY_SIGNING_FALLBACK: strict ? "0" : "1",
     },
     name: "edge-identity-test",
     ctx: { waitUntil: (promise: Promise<unknown>) => void promise.catch(() => undefined) },
@@ -66,6 +67,19 @@ describe("edge identity — DO consumer", () => {
     expect(res.status).toBe(401);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("missing_signature");
+  });
+
+  it.each([true, false])("explains missing signing configuration in a strict 401 (vouched=%s)", async (vouched) => {
+    const instance = agent(false, true);
+    const req = new Request("https://internal/internal/sweep-drafts", {
+      method: "POST",
+      headers: vouched ? { [AGENT_PRINCIPAL_HEADER]: "agent-alpha" } : {},
+    });
+    const res = await instance.onRequest(req);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({
+      error: "Internal signature verification failed (INTERNAL_SIGNING_KEY not set).",
+    });
   });
 
   it("accepts a properly signed vouched request when keyed", async () => {

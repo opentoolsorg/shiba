@@ -71,8 +71,10 @@
 # Comma-separated dashboard principals allowed to resolve shared approvals.
 # DASHBOARD_APPROVERS=
 
-# HMAC for Worker→DO vouched headers (X-Agent-Principal, X-Shiba-Intake).
+# Worker-only internal signing root: use a random 32-byte hex value.
 # INTERNAL_SIGNING_KEY=
+# One-release legacy verification grace; set 0 after migration.
+# SHIBA_LEGACY_SIGNING_FALLBACK=1
 # ARTIFACT_SIGNING_KEY=
 
 # Optional bearer token for POST /api/trigger (e.g. iPhone Apple Shortcuts).
@@ -127,6 +129,8 @@
 
 # Required for Dashboard Providers sign-in (encrypts tokens in D1). 64 hex chars.
 # MODEL_CREDENTIAL_KEY=
+# Optional vault keyring JSON {"current":"k2","keys":{"k2":"<64 hex chars>"}} for key rotation.
+# VAULT_KEYRING=
 # Antigravity / Gemini card: Google OAuth client secret (Worker egress exchange).
 # GOOGLE_ANTIGRAVITY_CLIENT_SECRET=
 
@@ -173,3 +177,33 @@ INTEGRATIONS_PROVIDER=openconnector
 
 # Optional owner-only metadata review. Never enables API-key actions.
 # OPEN_CONNECTOR_OPERATOR_REVIEW_ENABLED=false
+
+# Optional Google social-login client ID.
+# BETTER_AUTH_GOOGLE_CLIENT_ID=
+
+# Optional Slack social-login client ID.
+# BETTER_AUTH_SLACK_CLIENT_ID=
+
+# Optional Linear OAuth access token.
+# LINEAR_OAUTH_ACCESS_TOKEN=
+
+# Optional figma MCP OAuth client configuration.
+# MCP_OAUTH_CLIENT_FIGMA=
+
+# Optional jira_atlassian MCP OAuth client configuration.
+# MCP_OAUTH_CLIENT_JIRA_ATLASSIAN=
+
+# Optional notion MCP OAuth client configuration.
+# MCP_OAUTH_CLIENT_NOTION=
+
+# Optional posthog MCP OAuth client configuration.
+# MCP_OAUTH_CLIENT_POSTHOG=
+
+# Optional sentry MCP OAuth client configuration.
+# MCP_OAUTH_CLIENT_SENTRY=
+
+# Optional stripe MCP OAuth client configuration.
+# MCP_OAUTH_CLIENT_STRIPE=
+
+# Optional web search provider API key.
+# WEB_SEARCH_API_KEY=

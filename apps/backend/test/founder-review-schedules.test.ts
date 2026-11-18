@@ -17,17 +17,17 @@ const due = Date.UTC(2026, 10, 5, 8);
 const actor = { orgId: "self-hosted", ownerId: "owner@example.test", ownerAccountId: "native-owner" };
 async function fixture(team = false) {
   const db = customAgentD1();
-  db.sqlite.exec(`CREATE TABLE "user" (id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER);
-    CREATE TABLE shiba_auth_account_policy (account_id TEXT PRIMARY KEY,email TEXT);
-    INSERT INTO "user" VALUES ('native-owner','owner@example.test',1),('native-third','third@example.test',1);
-    INSERT INTO shiba_auth_account_policy VALUES ('native-owner','owner@example.test'),('native-third','third@example.test');`);
+  db.sqlite.exec(`
+
+    INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES ('native-owner','owner@example.test',1,'Owner',1,1),('native-third','third@example.test',1,'Other',1,1);
+    INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES ('native-owner','owner@example.test','invited','fixture-invite','fixture-workspace'),('native-third','third@example.test','invited','fixture-invite','fixture-workspace');`);
   const env = { AGENT_AUDIT: db.database } as Env;
   for (const name of ["AI", "CodingOrchestrator", "Sandbox", "Automations", "GITHUB_TOKEN", "OPENCONNECTOR_ADMIN_KEY", "SLACK_BOT_TOKEN", "TYPESAFE_API_KEY"])
     Object.defineProperty(env, name, { get: () => { throw new Error(`Review drafts must not access ${name}`); } });
   const selected = team ? { ...actor, orgId: "team:ws_aaaaaaaaaaaaaaaaaaaaaaaa",
     teamGrant: { workspaceId: "ws_aaaaaaaaaaaaaaaaaaaaaaaa", userId: actor.ownerId, role: "owner" as const, version: 1 } } : actor;
-  if (team) db.sqlite.exec(`CREATE TABLE team_workspace_memberships (tenant_id TEXT,workspace_id TEXT,user_id TEXT,role TEXT,status TEXT,version INTEGER);
-    INSERT INTO team_workspace_memberships VALUES ('self-hosted','ws_aaaaaaaaaaaaaaaaaaaaaaaa','owner@example.test','owner','active',1);`);
+  if (team) db.sqlite.exec(`INSERT INTO team_workspaces(tenant_id,workspace_id,name,version,created_at) VALUES ('self-hosted','ws_aaaaaaaaaaaaaaaaaaaaaaaa','Fixture workspace',1,1);
+    INSERT INTO team_workspace_memberships(tenant_id,workspace_id,user_id,role,status,version,joined_at) VALUES ('self-hosted','ws_aaaaaaaaaaaaaaaaaaaaaaaa','owner@example.test','owner','active',1,1);`);
   const entry = getFounderSkillLibraryEntry(libraryId)!;
   const installed = await installSkillDefinition(env, selected.orgId, selected.ownerId, { slug: libraryId, name: entry.name, instructions: entry.instructions, version: "1.0.0", sourceUrl: entry.sourceUrl }, "teamGrant" in selected ? { teamGrant: selected.teamGrant } : {});
   const options = "teamGrant" in selected ? { teamGrant: selected.teamGrant } : {};
@@ -165,7 +165,7 @@ describe("founder storage-only review schedules", () => {
     expect(await readFounderReviewSchedule(f.env, actor, libraryId)).toEqual({ schedule: null, occurrences: [] });
     await expect(readFounderReviewSchedule(f.env, { ...actor, orgId: f.actor.orgId }, libraryId)).rejects.toThrow("workspace_authority_changed");
     expect(await readFounderReviewSchedule(f.env, { orgId: "self-hosted", ownerId: "third@example.test", ownerAccountId: "native-third" }, libraryId)).toEqual({ schedule: null, occurrences: [] });
-    f.sqlite.exec("INSERT INTO team_workspace_memberships VALUES ('self-hosted','ws_aaaaaaaaaaaaaaaaaaaaaaaa','third@example.test','admin','active',1)");
+    f.sqlite.exec("INSERT INTO team_workspace_memberships(tenant_id,workspace_id,user_id,role,status,version,joined_at) VALUES ('self-hosted','ws_aaaaaaaaaaaaaaaaaaaaaaaa','third@example.test','admin','active',1,1)");
     expect(await readFounderReviewSchedule(f.env, { orgId: f.actor.orgId, ownerId: "third@example.test", ownerAccountId: "native-third", teamGrant: { workspaceId: "ws_aaaaaaaaaaaaaaaaaaaaaaaa", userId: "third@example.test", role: "admin", version: 1 } }, libraryId)).toEqual({ schedule: null, occurrences: [] });
   });
   it("binds each replacement configuration revision into a new review hash and refuses stale reconfiguration", async () => {
@@ -208,8 +208,8 @@ describe("founder storage-only review schedules", () => {
     await decideFounderReviewSchedule(f.env, f.actor, libraryId, "enable", decision(draft), now);
     await tickFounderReviewSchedules(f.env, due);
     f.sqlite.exec(`DELETE FROM "user" WHERE id='native-owner'; DELETE FROM shiba_auth_account_policy WHERE account_id='native-owner';
-      INSERT INTO "user" VALUES ('replacement-owner','owner@example.test',1);
-      INSERT INTO shiba_auth_account_policy VALUES ('replacement-owner','owner@example.test');`);
+      INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES ('replacement-owner','owner@example.test',1,'Owner',1,1);
+      INSERT INTO shiba_auth_account_policy(account_id,email,kind) VALUES ('replacement-owner','owner@example.test','bootstrap');`);
     expect(await readFounderReviewSchedule(f.env, { ...f.actor, ownerAccountId: "replacement-owner" }, libraryId)).toEqual({ schedule: null, occurrences: [] });
     await expect(readFounderReviewSchedule(f.env, f.actor, libraryId)).rejects.toThrow("founder_authority_changed");
     expect(await tickFounderReviewSchedules(f.env, due + 86_400_000)).toEqual({ created: 0, blocked: 1 });

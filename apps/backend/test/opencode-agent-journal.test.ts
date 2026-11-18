@@ -88,7 +88,7 @@ async function runJournal(
   const input = {
     ...base,
     ...(await sealChildDispatch(
-      { MODEL_CREDENTIAL_KEY: KEY },
+      { INTERNAL_SIGNING_KEY: KEY, MODEL_CREDENTIAL_KEY: KEY },
       {
         approvalId: "journal-test",
         sandboxId: base.sandboxId,
@@ -110,7 +110,7 @@ async function runJournal(
   const instance = Object.assign(Object.create(OpenCodeAgent.prototype) as OpenCodeAgent, {
     env: {
       GITHUB_TOKEN: token,
-      MODEL_CREDENTIAL_KEY: KEY,
+      INTERNAL_SIGNING_KEY: KEY, MODEL_CREDENTIAL_KEY: KEY,
       ConversationRoom: { getByName: () => room },
     } as unknown as Env,
     ctx: {

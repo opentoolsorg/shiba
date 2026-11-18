@@ -1,3 +1,4 @@
+import { signInternal, verifyInternal } from "./security/signing.js";
 import type {
   PersonalExecutionSnapshot,
   PersonalPairingScope,
@@ -96,17 +97,6 @@ async function digest(value: unknown) {
     ),
     (b) => b.toString(16).padStart(2, "0"),
   ).join("");
-}
-async function schema(env: Env) {
-  await env.AGENT_AUDIT.prepare(
-    `CREATE TABLE IF NOT EXISTS slack_coworker_execution_receipts (handoff_id TEXT PRIMARY KEY,draft_id TEXT NOT NULL UNIQUE,workspace_id TEXT NOT NULL,account_id TEXT NOT NULL,member_json TEXT NOT NULL,selection_json TEXT NOT NULL,state TEXT NOT NULL,created_at INTEGER NOT NULL)`,
-  ).run();
-  await env.AGENT_AUDIT.prepare(
-    `CREATE TABLE IF NOT EXISTS slack_coworker_execution_v2 (id TEXT PRIMARY KEY,request_id TEXT NOT NULL,draft_id TEXT NOT NULL,handoff_id TEXT NOT NULL,workspace_id TEXT NOT NULL,account_id TEXT NOT NULL,member_json TEXT NOT NULL,scope_json TEXT NOT NULL,preview_json TEXT NOT NULL,digest TEXT NOT NULL,audience_json TEXT NOT NULL,profile_json TEXT NOT NULL,state TEXT NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,session_id TEXT NOT NULL,session_expires_at INTEGER NOT NULL,frozen_task_hash TEXT,approval_id TEXT,UNIQUE(workspace_id,account_id,request_id))`,
-  ).run();
-  await env.AGENT_AUDIT.prepare(
-    `CREATE UNIQUE INDEX IF NOT EXISTS slack_coworker_execution_v2_claim ON slack_coworker_execution_v2(handoff_id) WHERE state<>'preview'`,
-  ).run();
 }
 function sessionGuard(member: WorkspaceNativeMember, session: SlackCoworkerSession) {
   return {
@@ -220,7 +210,6 @@ export async function prepareSlackCoworkerSubmission(
   session: SlackCoworkerSession,
   input: SlackCoworkerPrepare,
 ): Promise<SlackCoworkerPreview> {
-  await schema(env);
   if ((env.INTERNAL_SIGNING_KEY?.trim().length ?? 0) < 32)
     fail("slack_coworker_signing_unavailable", 503);
   const scope = await resolvePersonalExecutionOwner(request, env);
@@ -375,19 +364,6 @@ export async function prepareSlackCoworkerSubmission(
   if (!saved || !(await current(env, saved, session))) fail();
   return preview;
 }
-async function mac(secret: string, value: string) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  return Array.from(
-    new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value))),
-    (b) => b.toString(16).padStart(2, "0"),
-  ).join("");
-}
 function bodyFor(row: Row) {
   const p = parsed(row);
   return {
@@ -403,20 +379,17 @@ function bodyFor(row: Row) {
     grantedCapabilities: ["room.read", "message.send"],
   };
 }
-async function proofValue(secret: string, row: Row, body: unknown) {
-  return mac(
-    secret,
-    JSON.stringify([
-      "shiba:slack-coworker-submission:v2",
-      row.id,
-      row.account_id,
-      row.workspace_id,
-      row.session_id,
-      row.session_expires_at,
-      row.expires_at,
-      body,
-    ]),
-  );
+function proofPayload(row: Row, body: unknown) {
+  return JSON.stringify([
+    "shiba:slack-coworker-submission:v2",
+    row.id,
+    row.account_id,
+    row.workspace_id,
+    row.session_id,
+    row.session_expires_at,
+    row.expires_at,
+    body,
+  ]);
 }
 export async function claimSlackCoworkerSubmission(
   env: Env,
@@ -425,7 +398,6 @@ export async function claimSlackCoworkerSubmission(
   session: SlackCoworkerSession,
   input: SlackCoworkerSubmit,
 ): Promise<{ handoffId: string; request: Request }> {
-  await schema(env);
   const secret = env.INTERNAL_SIGNING_KEY?.trim();
   if (!secret || secret.length < 32) fail("slack_coworker_signing_unavailable", 503);
   if (input.reviewed !== true || input.audienceConsent !== PURPOSE) fail();
@@ -476,7 +448,7 @@ export async function claimSlackCoworkerSubmission(
     );
   const body = bodyFor(row),
     headers = new Headers(request.headers);
-  headers.set(HEADER, `${row.id}.${await proofValue(secret, row, body)}`);
+  headers.set(HEADER, `${row.id}.${await signInternal(env, "shiba/slack-coworker-submission/v1", proofPayload(row, body))}`);
   headers.set("content-type", "application/json");
   return {
     handoffId: row.handoff_id,
@@ -499,9 +471,8 @@ export async function consumeSlackCoworkerSubmission(
 ): Promise<boolean> {
   try {
     const secret = env.INTERNAL_SIGNING_KEY?.trim(),
-      match = /^(scp_[a-f0-9]{32})\.([a-f0-9]{64})$/.exec(request.headers.get(HEADER) ?? "");
+      match = /^(scp_[a-f0-9]{32})\.((?:v1:[a-f0-9]{16}:)?[a-f0-9]{64})$/.exec(request.headers.get(HEADER) ?? "");
     if (!secret || secret.length < 32 || !match) return false;
-    await schema(env);
     const row = await env.AGENT_AUDIT.prepare(
       "SELECT * FROM slack_coworker_execution_v2 WHERE id=? AND workspace_id=? AND handoff_id=? AND state='dispatching'",
     )
@@ -518,34 +489,7 @@ export async function consumeSlackCoworkerSubmission(
       !(await current(env, row, session))
     )
       return false;
-    const key = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(secret),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["verify"],
-    );
-    const expected = Uint8Array.from(match[2]!.match(/../g)!, (v) => parseInt(v, 16));
-    if (
-      !(await crypto.subtle.verify(
-        "HMAC",
-        key,
-        expected,
-        new TextEncoder().encode(
-          JSON.stringify([
-            "shiba:slack-coworker-submission:v2",
-            row.id,
-            row.account_id,
-            row.workspace_id,
-            row.session_id,
-            row.session_expires_at,
-            row.expires_at,
-            body,
-          ]),
-        ),
-      ))
-    )
-      return false;
+    if (!await verifyInternal(env, "shiba/slack-coworker-submission/v1", proofPayload(row, body), match[2] ?? "", secret)) return false;
     const sg = sessionGuard(member, session),
       g = slackCoworkerDraftGuard(member);
     const consumed =
@@ -696,7 +640,6 @@ export async function readSlackCoworkerSubmission(
   session: SlackCoworkerSession,
   draftId: string,
 ) {
-  await schema(env);
   await recoverExpiredSubmissions(env, member, session);
   const row = await env.AGENT_AUDIT.prepare(
     "SELECT * FROM slack_coworker_execution_v2 WHERE draft_id=? AND workspace_id=? AND account_id=? ORDER BY CASE WHEN state='preview' THEN 1 ELSE 0 END,created_at DESC LIMIT 1",
@@ -751,7 +694,6 @@ export async function listSlackCoworkerSubmissions(
   member: WorkspaceNativeMember,
   session: SlackCoworkerSession,
 ) {
-  await schema(env);
   await recoverExpiredSubmissions(env, member, session);
   const sg = sessionGuard(member, session),
     mg = membershipSql(member);

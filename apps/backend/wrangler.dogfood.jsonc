@@ -180,6 +180,14 @@
       }
     },
     {
+      "name": "OAUTH_RATE_LIMIT",
+      "namespace_id": "1004",
+      "simple": {
+        "limit": 10,
+        "period": 60
+      }
+    },
+    {
       "name": "AUTH_RATE_LIMIT",
       "namespace_id": "1002",
       "simple": {
@@ -209,6 +217,10 @@
       {
         "binding": "EMAIL_QUEUE",
         "queue": "shiba-email-dogfood"
+      },
+      {
+        "binding": "JOBS_QUEUE",
+        "queue": "shiba-jobs-dogfood"
       }
     ],
     "consumers": [
@@ -229,6 +241,12 @@
         "dead_letter_queue": "shiba-email-dlq-dogfood",
         "max_batch_size": 5,
         "max_retries": 5
+      },
+      {
+        "queue": "shiba-jobs-dogfood",
+        "dead_letter_queue": "shiba-jobs-dlq-dogfood",
+        "max_batch_size": 10,
+        "max_retries": 3
       }
     ]
   },

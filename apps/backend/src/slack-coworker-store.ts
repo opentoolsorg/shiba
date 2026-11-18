@@ -161,16 +161,8 @@ interface SlackExecutionReceipt {
   handoff_id: string; draft_id: string; workspace_id: string; account_id: string;
   member_json: string; selection_json: string; state: string;
 }
-async function executionSchema(env: SlackInstallationEnv) {
-  await env.AGENT_AUDIT.prepare(`CREATE TABLE IF NOT EXISTS slack_coworker_execution_receipts (
-    handoff_id TEXT PRIMARY KEY,draft_id TEXT NOT NULL UNIQUE,workspace_id TEXT NOT NULL,account_id TEXT NOT NULL,
-    member_json TEXT NOT NULL,selection_json TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('dispatching','queued','blocked','unknown')),
-    created_at INTEGER NOT NULL
-  )`).run();
-}
 /** One draft has one submission attempt; an uncertain queue result is never automatically replayed. */
 export async function claimSlackCoworkerExecution(env: SlackInstallationEnv, member: WorkspaceNativeMember, selection: SlackCoworkerExecutionSelection) {
-  await executionSchema(env);
   const guard = slackCoworkerDraftGuard(member);
   const draft = await env.AGENT_AUDIT.prepare(`SELECT d.text FROM slack_coworker_drafts d WHERE d.id=? AND ${guard.sql}`)
     .bind(selection.id, ...guard.values).first<{ text: string }>();

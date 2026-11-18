@@ -24,7 +24,6 @@ import {
   type ConnectedComputer,
   LOCAL_CLAIM_STALE_MS,
   LOCAL_COMPUTER_PRUNE_MS,
-  LOCAL_DISPATCH_DO_NAME,
   LOCAL_HEARTBEAT_STALE_MS,
   type LocalDispatchRecord,
   type LocalDispatchStatus,
@@ -45,6 +44,7 @@ import { randomHex } from "./mailbox-store.js";
 import type { Env } from "./env.js";
 import { isPersonalOwnerCurrent, personalComputerMatches, personalGrantFence, isPublicPersonalRepository } from "./personal-execution-store.js";
 import { validatePersonalExecutionClaim } from "./personal-execution-claim.js";
+import { localDispatchFor } from "./platform/do-resolver.js";
 
 const RECORD_PREFIX = "run:";
 const MAX_LOCAL_EVENT_BATCH = 64;
@@ -896,11 +896,9 @@ export class LocalDispatch extends DurableObject<Env> {
  * it cannot serve — callers check the flag first, and a missing binding is
  * a hard error, not a silent skip.
  */
-export function localDispatchStub(env: {
-  LocalDispatch?: DurableObjectNamespace;
-}): DurableObjectStub {
+export function localDispatchStub(env: Pick<Env, "LocalDispatch" | "SHIBA_SCOPED_DO">, ownerId?: string): DurableObjectStub {
   if (env.LocalDispatch === undefined) {
     throw new Error("LocalDispatch binding is not configured.");
   }
-  return env.LocalDispatch.get(env.LocalDispatch.idFromName(LOCAL_DISPATCH_DO_NAME));
+  return localDispatchFor(env, { ownerId });
 }

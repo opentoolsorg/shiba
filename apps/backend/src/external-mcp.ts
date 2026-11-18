@@ -12,7 +12,7 @@ import {
   type ToolPolicy,
 } from "@shiba/shared";
 import { z, type ZodType } from "zod";
-import { initAudit, audit } from "./audit.js";
+import { audit } from "./audit.js";
 import {
   deleteExternalMcpOAuthTokens,
   ensureExternalMcpOAuthSchema,
@@ -94,7 +94,6 @@ async function externalMcpSchemaReady(db: D1Database): Promise<boolean> {
 async function ensure(env: Env) {
   if (!env.AGENT_AUDIT) throw new Error("External MCP store unavailable.");
   if (initialized.has(env.AGENT_AUDIT)) return;
-  await initAudit(env);
   if (!(await externalMcpSchemaReady(env.AGENT_AUDIT))) {
     throw new Error("external_mcp_schema_missing");
   }

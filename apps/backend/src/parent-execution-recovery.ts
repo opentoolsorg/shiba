@@ -20,7 +20,7 @@ export function parentRecoveryKey(runId: string): string {
 }
 
 export async function validateParentExecutionRecovery(
-  env: Pick<Env, "INTERNAL_SIGNING_KEY" | "MODEL_CREDENTIAL_KEY">,
+  env: Pick<Env, "INTERNAL_SIGNING_KEY" | "MODEL_CREDENTIAL_KEY" | "SHIBA_LEGACY_SIGNING_FALLBACK">,
   owner: string,
   run: DelegatedRun,
   value: unknown,

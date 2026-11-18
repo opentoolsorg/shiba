@@ -64,7 +64,7 @@ async function workBody(response: Response | null): Promise<TeamWorkResponse> {
 
 async function fixture() {
   const { database, sqlite } = customAgentD1(); databases.push(sqlite);
-  const env = { AGENT_AUDIT: database, CodingOrchestrator: {}, INTERNAL_SIGNING_KEY: "fixture-worker-only-work-key" } as unknown as Env;
+  const env = { AGENT_AUDIT: database, CodingOrchestrator: {}, INTERNAL_SIGNING_KEY: "fixture-worker-only-work-key-minimum-32-characters" } as unknown as Env;
   const workspace = await createTeamWorkspace(env, OWNER, { name: "Product" }, 1);
   const invite = await createTeamWorkspaceInvitation(env, workspace.workspaceId, OWNER, { email: MEMBER, role: "member" }, 2);
   await acceptTeamWorkspaceInvitation(env, MEMBER, invite.token, 3);

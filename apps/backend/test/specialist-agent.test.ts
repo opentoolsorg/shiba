@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({ generate: vi.fn(), factory: vi.fn(), model: vi
 vi.mock("ai", async (importOriginal) => ({ ...await importOriginal<typeof import("ai")>(), generateText: mocks.generate }));
 vi.mock("workers-ai-provider", () => ({ createWorkersAI: mocks.factory }));
 
-const ENV = { INTERNAL_SIGNING_KEY: "test-key", AI: {}, ORCHESTRATOR_MODEL: "test-model" };
+const ENV = { INTERNAL_SIGNING_KEY: "test-key-minimum-32-characters-long-enough", AI: {}, ORCHESTRATOR_MODEL: "test-model" };
 const MOCK_ENV = { INTERNAL_SIGNING_KEY: ENV.INTERNAL_SIGNING_KEY, SHIBA_VERIFY_STANDIN: "1", GITHUB_API_BASE: "http://127.0.0.1:8799" };
 const PARENT = [{ className: "CodingOrchestrator", name: "owner" }];
 const observation = { agent: "explorer", status: "completed", summary: "Found a.", report: "a.ts declares a.", findings: [] };

@@ -24,8 +24,7 @@ beforeEach(() => { auth.user = OWNER; auth.native = true; auth.ids = {}; auth.ho
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 async function fixture() {
   const db = customAgentD1();
-  db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT,kind TEXT)');
-  for (const email of [OWNER, OPERATOR, VIEWER, OTHER]) { const uuid = crypto.randomUUID(); auth.ids[email] = uuid; db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(uuid, email); db.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?,?)").run(uuid, email, email === OPERATOR ? "bootstrap" : "invited"); }
+  for (const email of [OWNER, OPERATOR, VIEWER, OTHER]) { const uuid = crypto.randomUUID(); auth.ids[email] = uuid; db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(uuid, email); db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) SELECT ?,?,kind,CASE WHEN kind='invited' THEN 'fixture-invite' END,CASE WHEN kind='invited' THEN 'fixture-workspace' END FROM (SELECT ? AS kind)").run(uuid, email, email === OPERATOR ? "bootstrap" : "invited"); }
   const calls: string[][] = [], starts: unknown[] = [], instances = new Map<string, ComputerSession>(), containers = new Map<string, FakeContainer>();
   let failStart = false, failInput = false, failDestroy = false;
   class FakeContainer {
@@ -220,6 +219,10 @@ describe("separate native-funded offline shared computer, real SQLite/DO with fa
     const f = await fixture(), running = await f.start(), runtime = f.instances.get(running.id)!, row = await readComputerRow(f.env, f.workspace.workspaceId, running.id);
     const actor = { accountId: auth.ids[OWNER]!, userId: OWNER };
     const captureOp = await signComputerOperation(f.env, row, actor, { operation: "capture" });
+    expect(captureOp.signature).toMatch(/^v1:[a-f0-9]{16}:[a-f0-9]{64}$/);
+    for (const signature of ["", "nothex", "a".repeat(63), `v1:${"a".repeat(15)}:${"a".repeat(64)}`]) {
+      await expect(runtime.captureFrame({ ...captureOp, signature })).rejects.toThrow("shared_computer_operation_invalid");
+    }
     await expect(runtime.stopSession(captureOp)).rejects.toThrow();
     await expect(runtime.captureFrame({ ...captureOp, body: { ...captureOp.body, accountId: auth.ids[VIEWER]! } })).rejects.toThrow();
     const foreign = await signComputerOperation(f.env, row, { accountId: auth.ids[OTHER]!, userId: OTHER }, { operation: "capture" });

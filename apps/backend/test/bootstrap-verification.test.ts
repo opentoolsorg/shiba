@@ -1,3 +1,4 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
@@ -14,7 +15,7 @@ const BASE = "https://bootstrap.example.test", EMAIL = "owner@example.test";
 const databases: DatabaseSync[] = [];
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); for (const db of databases.splice(0)) db.close(); });
 function fixture() {
-  const sqlite = new DatabaseSync(":memory:"); databases.push(sqlite);
+  const sqlite = new DatabaseSync(":memory:"); applyAllMigrations(sqlite); databases.push(sqlite);
   sqlite.exec(emailOutboxMigration);
   const value = (item: unknown): never => (item instanceof Date ? item.getTime() : typeof item === "boolean" ? Number(item) : item ?? null) as never;
   const statement = (sql: string, values: unknown[] = []) => ({
@@ -70,7 +71,7 @@ describe("explicit bootstrap verification with real signed Better Auth proof", (
     expect(await isWorkspaceNativeAccountCurrent(f.env, { accountId: identity!.policy.accountId, userId: EMAIL, workspaceId: `ws_${"a".repeat(24)}`, role: "owner", version: 1, joinedAt: 1 })).toBe(true);
     expect(await isTeamModelFunder(f.env, nativeMember)).toBe(true);
     const again = await f.call("/api/auth/bootstrap-verification/confirm", "POST", { token: proof.token }); expect(again.ok).toBe(false);
-    expect(f.sqlite.prepare("SELECT COUNT(*) AS c FROM shiba_auth_bootstrap_verifications WHERE consumed_at IS NOT NULL").get()?.c).toBe(1);
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS c FROM shiba_auth_bootstrap_challenges WHERE consumed_at IS NOT NULL").get()?.c).toBe(1);
   });
   it("does not send on ordinary signup, sign-in or generic library resend", async () => {
     const f = fixture(), cookie = await bootstrap(f);
@@ -103,7 +104,7 @@ describe("explicit bootstrap verification with real signed Better Auth proof", (
     expect((await f.call("/api/auth/bootstrap-verification/confirm", "POST", { token: proof.token })).ok).toBe(false);
     vi.useRealTimers();
     expect(f.sqlite.prepare('SELECT emailVerified FROM "user"').get()?.emailVerified).toBe(0);
-    expect(f.sqlite.prepare("SELECT consumed_at FROM shiba_auth_bootstrap_verifications").get()?.consumed_at).toBeNull();
+    expect(f.sqlite.prepare("SELECT consumed_at FROM shiba_auth_bootstrap_challenges").get()?.consumed_at).toBeNull();
   });
   it.each(["email", "replacement", "provenance"])("rejects original proof after %s changes, including generic callback downgrade", async change => {
     const f = fixture(), proof = await issue(f, await bootstrap(f));

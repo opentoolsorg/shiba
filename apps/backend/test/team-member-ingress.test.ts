@@ -1,3 +1,4 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
@@ -30,7 +31,7 @@ afterEach(() => {
 });
 
 function fixture() {
-  const sqlite = new DatabaseSync(":memory:");
+  const sqlite = new DatabaseSync(":memory:"); applyAllMigrations(sqlite);
   applyEmailOutboxSchema(sqlite);
   databases.push(sqlite);
   const bindValue = (value: unknown): never =>
