@@ -205,14 +205,74 @@ export interface UsageDayWire {
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number;
+  computeCostUsd?: number;
+  computeCpuSeconds?: number;
+  computeRamGbSeconds?: number;
+  computeDiskGbSeconds?: number;
   groups: UsageGroupWire[];
+}
+
+export interface UsageBudgetPeriodWire {
+  llmUsd: number;
+  computeUsd: number;
+  totalUsd: number;
+  limitUsd: number | null;
+  remainingUsd: number | null;
+  reached: boolean;
+  startsAt: number;
+  resetsAt: number;
+}
+
+export interface UsageBudgetPolicyWire {
+  dailyLimitUsd: number | null;
+  monthlyLimitUsd: number | null;
+  perRunLimitUsd: number | null;
+  onExceed: "stop" | "ask";
+  updatedAt: number;
+  updatedBy: string;
+}
+
+export interface UsageBudgetWire {
+  policy: UsageBudgetPolicyWire;
+  today: UsageBudgetPeriodWire;
+  month: UsageBudgetPeriodWire;
+  blocked: boolean;
+  blockedPeriods: ("daily" | "monthly")[];
 }
 
 export interface UsageReportWire {
   generatedAt: number;
   timezone: string;
   budgetUsd: number | null;
+  budget?: UsageBudgetWire;
   days: UsageDayWire[];
+}
+
+export type UsageBudgetPolicyInput = Pick<
+  UsageBudgetPolicyWire,
+  "dailyLimitUsd" | "monthlyLimitUsd" | "perRunLimitUsd" | "onExceed"
+>;
+
+/** PUT /api/usage/budget — save the spending limits. Throws on non-2xx. */
+export async function putUsageBudgetPolicy(
+  input: UsageBudgetPolicyInput,
+  sessionId?: string,
+  sessionApiAvailable = false,
+): Promise<UsageBudgetPolicyWire> {
+  const path = sessionApiAvailable && sessionId !== undefined
+    ? `/api/usage/budget?session=${encodeURIComponent(sessionId)}`
+    : "/api/usage/budget";
+  const response = await fetch(path, {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...input, updatedAt: 0, updatedBy: "dashboard" }),
+  });
+  const body = (await response.json().catch(() => null)) as { policy?: UsageBudgetPolicyWire; error?: string } | null;
+  if (!response.ok || body?.policy === undefined) {
+    throw new Error(body?.error ?? `PUT ${path} failed: ${response.status}`);
+  }
+  return body.policy;
 }
 
 export function useUsageReport(

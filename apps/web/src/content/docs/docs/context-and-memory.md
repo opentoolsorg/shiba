@@ -61,4 +61,12 @@ If an upload is marked unresolved, it has no committed new version. Refresh to c
 
 Owner-private sources, shared room messages, employee instructions, and workspace skills have different audiences. When you intentionally use private context in shared work, review the resulting brief and output for information that audience should not receive. Room membership does not grant access to the original private library.
 
+## Notebook chat API (developers)
+
+The notes editor's **Ask about this note** panel uses `GET`, `POST`, and `DELETE /api/notes/:id/chat`. All three require authentication, the selected workspace, and read access to the active note. Chats are private to each user and note, even when the note is shared. GET returns the last 50 messages; DELETE clears only that user's chat. POST and DELETE require a same-origin browser request.
+
+POST accepts `{ message, mentions, noteBody? }`: 1–4,000 message characters and up to eight `{ kind: "note" | "file", id, name }` references. `noteBody` is an optional draft body (up to 24,000 characters) so the assistant sees the editor's unsaved text; when omitted, the saved active note body is used (up to 24,000 characters). Context also includes accessible mentioned note bodies (up to 24,000 each) and current-version extracted file chunks (up to 12,000 characters per file). Every mention must be in the same workspace and pass the knowledge read check. Missing, archived, or forbidden references contribute only “Not available”, without database names or contents. Mention metadata and reference text are untrusted data, not instructions.
+
+The backend uses the existing Workers AI binding and orchestrator model setting with recent chat history. It has no editing tools. **Add to note** appends a reply through the editor, using normal autosave and version-conflict handling. A successful turn stores both messages atomically; failed turns store neither, and the composer retains the draft. Missing AI returns 503; model failures return a generic 502 without internal details. Existing chat replies are retained snapshots, not live views of their reference sources; clearing chat removes those retained replies for that user.
+
 Next: [Work with your team](/docs/team-workspaces/), [Files and revisions](/docs/artifacts/), or [Permissions and roles](/docs/permissions/).

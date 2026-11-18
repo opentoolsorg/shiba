@@ -15,6 +15,7 @@ import {
   type ToolSet,
 } from "ai";
 import type { Env } from "../env.js";
+import { recordRunOutcome } from "../observability.js";
 import { publishFilesAsPullRequest } from "../github.js";
 import {
   addPullToProject,
@@ -619,10 +620,16 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             else await recoveryStore.failed(input);
           }
           write(finalText);
+          (this.ctx as DurableObjectState | undefined)?.waitUntil?.(
+            recordRunOutcome(this.env, safeResult.status === "completed" ? "completed" : "failed"),
+          );
           writer.write({ type: "text-end", id });
           if (safeResult.status === "error") writer.write({ type: "error", errorText: safeResult.summary });
           writer.write({ type: "finish", finishReason: safeResult.status === "error" ? "error" : "stop" });
         } catch (error) {
+          (this.ctx as DurableObjectState | undefined)?.waitUntil?.(
+            recordRunOutcome(this.env, signal?.aborted ? "cancelled" : "failed"),
+          );
           if (executionInput && recoveryStore) await recoveryStore.failed(executionInput).catch(() => undefined);
           const summary = deadlineSignal?.aborted
             ? "Run execution deadline expired."
