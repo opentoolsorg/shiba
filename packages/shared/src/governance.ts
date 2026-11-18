@@ -1,5 +1,18 @@
 import { z } from "zod";
 
+export const employeeAccessLevelSchema = z.enum(["none", "view", "chat", "manage"]);
+export type EmployeeAccessLevel = z.infer<typeof employeeAccessLevelSchema>;
+export interface EmployeeAccessGrant {
+  principalKind: "everyone" | "user" | "group";
+  principalId: string;
+  name: string;
+  level: EmployeeAccessLevel;
+}
+export interface EmployeeAccessSettings {
+  level: EmployeeAccessLevel;
+  grants: EmployeeAccessGrant[];
+}
+
 /** Resource kinds WS05–WS08 integrate against. */
 export const governanceResourceKindSchema = z.enum(["room", "file", "note", "task", "chat"]);
 export type GovernanceResourceKind = z.infer<typeof governanceResourceKindSchema>;
