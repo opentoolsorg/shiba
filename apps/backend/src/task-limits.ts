@@ -1,0 +1,1 @@
+export const MAX_APPROVED_TASK_CHARS = 4000;
