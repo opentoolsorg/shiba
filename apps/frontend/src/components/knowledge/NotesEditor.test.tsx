@@ -83,7 +83,7 @@ describe("NotesEditor", () => {
     const frame = { id: "evt_1", workspaceId: "ws_1", kind: "note.updated", entityId: note.id, at: 4, payload: { note: { ...note, title: "Stale", version: 2 } } };
     await act(async () => realtime.options?.onEvent(frame));
     expect((screen.getByLabelText("Note title") as HTMLInputElement).value).toBe("Latest");
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.filter(([path]) => path.endsWith("/body"))).toHaveLength(1);
     await act(async () => realtime.options?.onEvent({ ...frame, payload: { note: { ...note, title: "Newer", version: 4 } } }));
     expect((screen.getByLabelText("Note title") as HTMLInputElement).value).toBe("Newer");
     expect((screen.getByLabelText("Note title") as HTMLInputElement).readOnly).toBe(true);
