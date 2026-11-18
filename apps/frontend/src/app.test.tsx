@@ -1321,6 +1321,44 @@ describe("bot thread links", () => {
     expect(params.has("session")).toBe(false);
   });
 
+  it("keeps an unconfirmed link in the address bar and opens it once the registry answers", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/sessions" && options?.method !== "POST") return pending;
+      if (String(url) === "/api/custom-agents" && options?.method !== "POST") return Response.json({ agents: [research, engineering] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await act(async () => {});
+    // The followed link is not rewritten before the registry answers.
+    expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD);
+    await act(async () => { finish(Response.json({ sessions: threads, defaultSessionId: "default" })); });
+    await waitFor(() => expect(screen.getAllByText("Research bot").length).toBeGreaterThan(0));
+    expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD);
+  });
+
+  it("keeps a shared room's address when Back returns to it", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const workspaceId = `ws_${"a".repeat(24)}`;
+    const roomId = `room_${"b".repeat(24)}`;
+    window.history.replaceState(null, "", `/threads/?workspace=${workspaceId}&room=${roomId}`);
+    mocks.chat.messages = [];
+    stubThreads();
+    render(<App />);
+    await act(async () => {});
+    await act(async () => { window.history.pushState(null, "", "/team/"); });
+    await act(async () => { window.history.back(); });
+    await waitFor(() => expect(window.location.pathname).toBe("/threads/"));
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("room")).toBe(roomId);
+    expect(params.get("workspace")).toBe(workspaceId);
+  });
+
   it("drops the private thread selector inside a team workspace", async () => {
     const id = `ws_${"a".repeat(24)}`;
     const actor = "owner@example.com";
