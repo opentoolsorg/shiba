@@ -11,6 +11,7 @@ shell | ingress | GET | ^(?:/(?:docs|blog|why-shiba|privacy|terms|waitlist|welco
 shell-head | ingress | HEAD | ^(?:/(?:docs|blog|why-shiba|privacy|terms|waitlist|welcome)(?:/|$)|/(?:slack-canvas|signin|login||work|dashboard|tasks|threads|activity|analytics|diff|approvals|swarm|collaboration|team|agents|inbox|memory|files|notes|projects|outputs|automations|providers|employee-tools|integrations|skills|spaces|custom-agents|remote|settings)/?$|/auth/(?:forgot|reset)/?$|/spaces/[^/]+/?$|/share/[cf]/[^/]+/?$) | public | Read-only marketing redirect or dashboard shell; no private API data.
 share-read | ingress | GET | ^(?:/share/[cf]/[^/]+|/api/share/file/[^/]+)$ | public | Token capability read; unknown/expired tokens fail closed.
 share-early-management | ingress | * | ^/api/share$ | session | Management retains its own session verification.
+employeeAccessResponse | authenticated | * | ^/api/governance/employees/[^/]+/access/?$ | session |
 observabilityResponse | authenticated | * | ^/api/observability$ | session |
 outputArchiveResponse | authenticated | * | ^/api/run-output-archives(?:/|$) | session |
 slackInstallationResponse | authenticated | * | ^/api/slack/installations(?:/|$) | session |
@@ -19,11 +20,13 @@ sharedComputerResponse | authenticated | * | ^/api/shared-computers(?:/|$) | ses
 workspaceIntegrationResponse | authenticated | * | ^/api/workspace-integrations(?:/|$) | session |
 personalExecutionResponse | authenticated | * | ^/api/personal-execution(?:/|$) | session |
 teamModelResponse | authenticated | * | ^/api/team-model-sessions(?:/|$) | session |
+learningResponse | authenticated | * | ^/api/learning(?:/|$) | session |
 workResponse | authenticated | * | ^/api/(?:needs-you$|workspaces/[^/]+/work) | session |
 primaryBotResponse | authenticated | * | ^/api/workspaces/[^/]+/primary-bot | session |
 searchResponse | authenticated | * | ^/api/search$ | session |
 paletteResponse | authenticated | * | ^/api/palette/ | session |
 askUserResponse | authenticated | * | ^/api/runs/[^/]+/ask-user/ | session |
+uiBlockResponse | authenticated | * | ^/api/runs/[^/]+/ui-blocks(?:/|$) | session |
 workspaceResponse | authenticated | * | ^/api/workspaces(?:/|$) | session |
 governanceResponse | authenticated | * | ^/api/governance | session |
 share-late | authenticated | * | ^/api/share$ | session | Second legacy share invocation after ingress policies.

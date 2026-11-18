@@ -8,6 +8,12 @@ import { redactSecrets } from "./security.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 
 const jobRunners = {
+  "learning.sweep": async (env: Env) => {
+    if (env.AGENT_AUDIT === undefined) return;
+    const learning = await import("./ports/learning/review.js");
+    const { d1LearningPort } = await import("./ports/learning/d1-adapter.js");
+    await learning.sweepIdleLearningThreads(env, d1LearningPort(env.AGENT_AUDIT));
+  },
   "founder.stripe": async (env: Env) => (await import("./founder-stripe-runtime.js")).tickFounderStripeReads(env),
   "founder.meta": async (env: Env) => (await import("./founder-meta-runtime.js")).tickFounderMetaReads(env),
   "founder.hubspot": async (env: Env) => (await import("./founder-hubspot-runtime.js")).tickFounderHubSpotReads(env),

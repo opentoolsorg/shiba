@@ -8,7 +8,12 @@ const ts = createRequire(join(root, "package.json"))("typescript");
 const legacyDuplicate = new Set([
   "0036_slack_coworker_private_status.sql",
   "0036_team_work_tasks.sql",
+  // Both shipped on main under 0061; renaming would break applied history.
+  "0061_learning_review.sql",
+  "0061_note_chat.sql",
 ]);
+// main skipped these numbers when it added 0068/0069; never fill them retroactively.
+const skippedNumbers = new Set([66, 67]);
 
 const historicalNames = new Set([
   "0001_audit_log.sql",
@@ -94,12 +99,13 @@ export function checkMigrations(repository = root) {
     prefixes.set(prefix, group);
   }
   for (const [prefix, group] of prefixes) {
-    if (group.length > 1 && !(prefix === 36 && group.length === 2 && group.every(name => legacyDuplicate.has(name)))) {
+    if (group.length > 1 && !group.every(name => legacyDuplicate.has(name))) {
       errors.push(`Duplicate migration prefix: ${group.join(", ")}`);
     }
   }
   let previous = 60;
   for (const number of [...prefixes.keys()].filter(number => number > 60)) {
+    while (skippedNumbers.has(previous + 1)) previous++;
     if (number !== previous + 1) errors.push(`Migration sequence after 0060: expected ${previous + 1}, found ${number}`);
     previous = number;
   }
