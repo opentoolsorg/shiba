@@ -14,6 +14,7 @@ import { decodeCreateCustomAgent, decodeUpdateCustomAgent } from "./custom-agent
 import { resolveHarness } from "./harness/index.js";
 import { resolveUserId } from "./request-auth.js";
 import { recordEmployeeBundleProfileOwner } from "./employee-bundles-store.js";
+import { visibleEmployees } from "./governance/employee-access.js";
 
 function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number]) {
   return {
@@ -31,7 +32,7 @@ function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number
 export async function handleCustomAgents(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/custom-agents")) return null;
-  const auth = await resolveOrgForApiRequest(request, env);
+  const auth = await resolveOrgForApiRequest(request, env, { allowMemberWrite: Boolean(url.pathname.match(/^\/api\/custom-agents\/[^/]+/)) });
   if (auth instanceof Response) return auth;
   // Only explicit lifecycle suffixes are supported. An unknown suffix must
   // never turn DELETE /:id/unknown into deletion of the real agent.
@@ -87,7 +88,9 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     const agents = archived === "true"
       ? await listCustomAgents(env, auth.orgId, { archived: true })
       : await listCustomAgents(env, auth.orgId);
-    return Response.json({ ok: true, agents: agents.map(publicAgent) }, { headers: { "cache-control": "no-store" } });
+    const workspaceId = auth.workspace?.workspaceId ?? /^team:(ws_[a-f0-9]{24})$/.exec(auth.orgId)?.[1];
+    const visible = workspaceId ? await visibleEmployees(env, workspaceId, auth.principal?.principal ?? auth.workspace!.userId, agents) : agents;
+    return Response.json({ ok: true, agents: visible.map(publicAgent) }, { headers: { "cache-control": "no-store" } });
   }
 
   if (!agentId && request.method === "POST") {
