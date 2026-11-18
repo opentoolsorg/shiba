@@ -5,7 +5,7 @@ import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { rejectCrossOriginMutation } from "./dashboard-mutation.js";
 import { getIntegrationProvider } from "./integrations/runtime.js";
 import { isOpenConnectorSetupError, openConnectorConfigured, parseReadiness } from "./integrations-provider-routes.js";
-import { mergeFeaturedWithLive, setupRequiredCatalog } from "@shiba/shared";
+import { mergeFeaturedWithLive, parseIntegrationCollection, setupRequiredCatalog } from "@shiba/shared";
 import {
   WorkspaceIntegrationError, assertWorkspaceMemberCurrent, connectionDto, createWorkspaceConnection,
   disconnectWorkspaceConnection, listWorkspaceConnections, reconcileWorkspaceConnection, saveWorkspaceGrant, workspaceGrantDirectory,
@@ -95,11 +95,13 @@ async function dispatch(request: Request, env: Env, member: WorkspaceNativeMembe
   if (suffix === "/catalog" && request.method === "GET") {
     const readiness = parseReadiness(url.searchParams.get("readiness"));
     if (readiness === null) return json({ error: "invalid_readiness" }, 400);
+    const collection = parseIntegrationCollection(url.searchParams.get("collection"));
+    if (collection === null) return json({ error: "invalid_collection" }, 400);
     await assertWorkspaceMemberCurrent(env, member, true);
-    const setup = (query: string) => json({ ...setupRequiredCatalog(query), workspaceId: member.workspaceId });
+    const setup = (query: string) => json({ ...setupRequiredCatalog(query, collection?.serviceIds), workspaceId: member.workspaceId });
     if (!openConnectorConfigured(env)) return setup(url.searchParams.get("query") ?? "");
     let result: Awaited<ReturnType<ReturnType<typeof getIntegrationProvider>["listCatalog"]>>;
-    try { result = await getIntegrationProvider(env).listCatalog({ userId: member.userId, workspaceId: member.workspaceId, ...(readiness ? { readiness } : {}),
+    try { result = await getIntegrationProvider(env).listCatalog({ userId: member.userId, workspaceId: member.workspaceId, ...(readiness ? { readiness } : {}), ...(collection ? { services: collection.serviceIds } : {}),
       query: (url.searchParams.get("query") ?? "").slice(0, 200), limit: Math.max(1, Math.min(50, Number(url.searchParams.get("limit")) || 20)), cursor: url.searchParams.get("cursor") ?? undefined });
     } catch (error) { if (isOpenConnectorSetupError(error)) return setup(url.searchParams.get("query") ?? ""); throw error; }
     await assertWorkspaceMemberCurrent(env, member, true);

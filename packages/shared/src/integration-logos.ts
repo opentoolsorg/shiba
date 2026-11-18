@@ -216,6 +216,54 @@ const assets: Record<string, IntegrationLogoAsset> = {
   "moz": {
     "name": "Moz",
     "src": "/integration-logos/moz.ico"
+  },
+  "calendly": {
+    "name": "Calendly",
+    "src": "/integration-logos/calendly.svg"
+  },
+  "cal": {
+    "name": "Cal.com",
+    "src": "/integration-logos/cal.svg"
+  },
+  "zoom": {
+    "name": "Zoom",
+    "src": "/integration-logos/zoom.svg"
+  },
+  "pipedrive": {
+    "name": "Pipedrive",
+    "src": "/integration-logos/pipedrive.svg"
+  },
+  "close": {
+    "name": "Close",
+    "src": "/integration-logos/close.svg"
+  },
+  "affinity": {
+    "name": "Affinity",
+    "src": "/integration-logos/affinity.png"
+  },
+  "shopify": {
+    "name": "Shopify",
+    "src": "/integration-logos/shopify.svg"
+  },
+  "xero": {
+    "name": "Xero",
+    "src": "/integration-logos/xero.svg"
+  },
+  "dropbox": {
+    "name": "Dropbox",
+    "src": "/integration-logos/dropbox.svg"
+  },
+  "trello": {
+    "name": "Trello",
+    "src": "/integration-logos/trello.svg"
+  },
+  "vercel": {
+    "name": "Vercel",
+    "src": "/integration-logos/vercel.svg"
+  },
+  "supabase": {
+    "name": "Supabase",
+    "src": "/integration-logos/supabase.svg"
   }
 };
 
@@ -555,6 +603,45 @@ const aliases: Record<string, readonly string[]> = {
   ],
   "bright data": [
     "brightdata"
+  ],
+  "calendly": [
+    "calendly"
+  ],
+  "cal": [
+    "cal"
+  ],
+  "cal.com": [
+    "cal"
+  ],
+  "zoom": [
+    "zoom"
+  ],
+  "pipedrive": [
+    "pipedrive"
+  ],
+  "close": [
+    "close"
+  ],
+  "affinity": [
+    "affinity"
+  ],
+  "shopify": [
+    "shopify"
+  ],
+  "xero": [
+    "xero"
+  ],
+  "dropbox": [
+    "dropbox"
+  ],
+  "trello": [
+    "trello"
+  ],
+  "vercel": [
+    "vercel"
+  ],
+  "supabase": [
+    "supabase"
   ]
 };
 

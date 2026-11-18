@@ -5,6 +5,7 @@
  */
 import { getAgentByName } from "agents/routing";
 import { getCustomAgentById } from "./custom-agents-store.js";
+import { filterEmployeesByAccess } from "./governance/employee-access.js";
 import type { Env } from "./env.js";
 import { resolveHarness } from "./harness/index.js";
 import { DASHBOARD_ORG_ID, resolveOrgForApiRequest, type ResolvedOrgAuth } from "./org-request-auth.js";
@@ -181,7 +182,8 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
           return Response.json({ error: "Failed to list sessions." }, { status: response.status });
         }
         const body = (await response.json()) as { sessions?: WebSessionRecord[] };
-        const sessions = formatSessionList(userId, body.sessions ?? []).filter((session) => sessionInScope(session, auth));
+        const scoped = formatSessionList(userId, body.sessions ?? []).filter((session) => sessionInScope(session, auth));
+        const sessions = auth.workspace ? await filterEmployeesByAccess(env, { workspaceId: auth.workspace.workspaceId, userId }, scoped, "view", (session) => typeof session.metadata?.customAgentId === "string" ? session.metadata.customAgentId : null) : scoped;
         return Response.json(
           { sessions, defaultSessionId: auth.workspace ? null : DEFAULT_SESSION_ID },
           { headers: { "Cache-Control": "no-store" } },
