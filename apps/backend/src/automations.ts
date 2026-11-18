@@ -117,6 +117,8 @@ export interface Automation {
   runAs?: string;
   /** Set only when a webhook trigger exists. Never re-issued — see createAutomation. */
   webhookSecret?: string;
+  hookSecret?: { keyId: string; cipher: string };
+  chargedHookCommands?: string[];
   lastTriggeredAt?: number;
   /** Per schedule-trigger last fire (key `t{index}`), so multiple crons do not block each other. */
   scheduleFiredAt?: Record<string, number>;
@@ -212,6 +214,7 @@ export interface LinearAutomationEvent {
 }
 
 export type AutomationMatchEvent =
+  | { kind: "hook"; deliveryId: string; body: string }
   | ({ kind: "github" } & GitHubAutomationEvent)
   | ({ kind: "slack" } & SlackAutomationEvent)
   | ({ kind: "linear" } & LinearAutomationEvent)
@@ -829,6 +832,8 @@ export function matchAutomationEvent(
       if (matchLinearTrigger(trigger, event)) {
         return { triggerIndex: index, trigger };
       }
+    } else if (event.kind === "hook" && trigger.kind === "webhook") {
+      return { triggerIndex: index, trigger };
     } else if (event.kind === "webhook" && trigger.kind === "webhook") {
       if (verifyWebhookSecret(automation, event.secret)) {
         return { triggerIndex: index, trigger };
