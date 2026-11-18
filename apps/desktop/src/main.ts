@@ -34,6 +34,7 @@ import { DEFAULT_AUTH_HOSTS, isSafeAppPath, parseDeploymentUrl } from "./navigat
 import type { DesktopSupervisor } from "./pairing.js";
 import { emitStatusChanged, registerDesktopIpc } from "./pairing.js";
 import { handleDaemonMessage } from "./run-notify.js";
+import { stripControlChars } from "./safe-text.js";
 import type { Env } from "./shell-env.js";
 import { captureShellEnv } from "./shell-env.js";
 import { registerShellIpc } from "./shell-ipc.js";
@@ -165,10 +166,14 @@ function attachLoadFailure(win: BrowserWindow): void {
     if (!isMainFrame || code === -3) return;
     const origin = configuredOrigin();
     if (origin && validatedUrl.startsWith(origin)) {
-      logEvent({ event: "load-failed", code, url: origin, detail: description });
+      // The description is Chromium's own net-error vocabulary, not page text;
+      // it is still control-stripped and capped before it reaches the log or the
+      // setup page, and the numeric code goes on its own.
+      const reason = stripControlChars(description).slice(0, 120);
+      logEvent({ event: "load-failed", code, url: origin, detail: reason });
       // Recovery keeps the saved URL and shows the address form with the reason,
       // so a retry is one Continue away and nothing is silently forgotten.
-      loadSetup(`Could not load ${origin}: ${description}`);
+      loadSetup(`Could not load ${origin}: ${reason}`);
     }
   });
 }

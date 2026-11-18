@@ -35,7 +35,11 @@ The pairing token works once and expires after 15 minutes; the modal shows a cou
 
 If the token was expired, already used, or mistyped, the daemon exits with a message telling you to mint a new one. Mint a new token and run the command again.
 
-Pairing runs from the browser because that is where the token is minted, for your signed-in session. Shiba Desktop does not pair itself: its **Connect this computer** control answers `pairing_deferred` and points back to this command, so a shell without the browser session cannot mint authority of its own. A deployed shell older than this change may still offer the button and fail the same way; update the shell, or pair from the browser and restart it.
+Pairing runs from the browser because that is where the token is minted, for your signed-in session. Shiba Desktop does not pair itself: in the desktop window the Remote Access view shows this instruction instead of a connect control, and `bridge.pair()` answers `pairing_deferred`.
+
+### Rollout order
+
+The dashboard decides what the desktop window renders, so deploy this web change before or together with the shell that refuses native pairing. An older dashboard bundle opened in the new shell still contains its own **Add computer** button and token dialog — the shell cannot remove a control the page draws — and a new bundle in an older shell hides the button and shows the instruction. Either way the token comes from the browser session; the shell is not a second authority for it.
 
 ## Files on the machine
 
