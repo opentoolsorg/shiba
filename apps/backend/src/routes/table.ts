@@ -114,6 +114,8 @@ export const ROUTES: readonly RouteEntry[] = [
   route("v1-schema", "model", "*", "^/api/v1/openapi\\.json$", "public", handlers.v1Response, "Published API schema; ingress permits GET only."),
   route("v1", "model", "*", "^/api/v1/(?!openapi\\.json$)", "session", handlers.v1Response, "Public GET schema; other routes require session at ingress, scoped bearer only on org-exempt paths."),
   route("usageResponse", "model", "*", "^/api/usage$", "session", handlers.usageResponse),
+  route("billingWebhook", "model", "*", "^/api/billing/stripe/webhook$", "signature", handlers.billingResponse, "Stripe-Signature HMAC verified inside handler."),
+  route("billing", "model", "*", "^/api/billing(?:$|/(?:checkout|portal)$)", "session", handlers.billingResponse),
   route("voiceResponse", "model", "*", "^/api/voice/transcribe$", "session", handlers.voiceResponse),
   route("activityResponse", "model", "*", "^/api/activity$", "session", handlers.activityResponse),
   route("screenshotResponse", "model", "*", "^/api/screenshots/", "session", handlers.screenshotResponse),

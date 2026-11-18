@@ -231,3 +231,55 @@ describe("orchestrator budget enforcement", () => {
   });
 
 });
+
+describe("orchestrator prepaid credits", () => {
+  function creditDb(creditedMicroUsd: number) {
+    return {
+      prepare: (sql: string) => ({
+        bind: () => ({
+          run: async () => ({ meta: { changes: 0 } }),
+          first: async () => sql.includes("SUM(amount_micro_usd)") ? { total: creditedMicroUsd }
+            : { owner: "owner@example.test", stripe_customer_id: "cus_1", created_at: 0 },
+        }),
+      }),
+    };
+  }
+  function creditHost(runs: DelegatedRun[], creditedMicroUsd: number | null) {
+    const instance = host({ runs });
+    instance.env = { INSTANCE_TYPE: "basic", ...(creditedMicroUsd === null ? {} : {
+      STRIPE_SECRET_KEY: "sk_test_1", STRIPE_WEBHOOK_SECRET: "whsec_1", AGENT_AUDIT: creditDb(creditedMicroUsd),
+    }) } as unknown as typeof instance.env;
+    return instance as unknown as CodingOrchestrator & {
+      state: OrchestratorState;
+      enforceUsageBudget(now: number): Promise<void>;
+      gateRunOnUsageBudget(run: DelegatedRun, record: unknown): Promise<boolean>;
+    };
+  }
+  const queued = (runId: string, extra: Partial<DelegatedRun> = {}): DelegatedRun => ({
+    ...createRun({ runId, sandboxId: "s-" + runId, repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false, now: 1000 }),
+    status: "running", ...extra,
+  });
+
+  it("stops a dispatch when the workspace has no credits, even with an approved budget override", async () => {
+    const run = queued("r1");
+    const instance = creditHost([run], 0);
+    expect(await instance.gateRunOnUsageBudget(run, { kind: "budget_override", status: "approved" })).toBe(true);
+    expect(instance.state.runs[0]).toMatchObject({ status: "cancelled", errorCode: "budget_exceeded" });
+    expect(instance.state.runs[0]!.error).toMatch(/out of prepaid credits/);
+  });
+
+  it("lets a funded workspace start and stops active runs once spend uses the credits up", async () => {
+    const run = queued("r1", { usage: { costUsd: 4 } });
+    const funded = creditHost([run], 10_000_000);
+    expect(await funded.gateRunOnUsageBudget(run, undefined)).toBe(false);
+    const spent = creditHost([queued("r2", { usage: { costUsd: 12 } })], 10_000_000);
+    await spent.enforceUsageBudget(10_000);
+    expect(spent.state.runs[0]).toMatchObject({ status: "cancelled", errorCode: "budget_exceeded" });
+  });
+
+  it("ignores credits entirely when Stripe billing is not configured", async () => {
+    const run = queued("r1");
+    expect(await creditHost([run], null).gateRunOnUsageBudget(run, undefined)).toBe(false);
+  });
+});
+

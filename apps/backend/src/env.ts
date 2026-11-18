@@ -432,6 +432,12 @@ export interface Env {
    * Personal keys, plan subscriptions and local daemons keep working.
    */
   SHIBA_HOSTED_PROVIDER_KILL_SWITCH?: string;
+  /** Optional. Stripe secret key for workspace credit top-ups; Worker-only, never sent to the dashboard or containers. */
+  STRIPE_SECRET_KEY?: string;
+  /** Optional. Stripe webhook signing secret (whsec_…) for /api/billing/stripe/webhook. */
+  STRIPE_WEBHOOK_SECRET?: string;
+  /** Optional. Stripe Billing Portal configuration id (bpc_…); unset uses the account default. */
+  STRIPE_PORTAL_CONFIGURATION_ID?: string;
   /** Worker-only root for purpose-derived internal signatures. */
   INTERNAL_SIGNING_KEY?: string;
   /** One-release grace: defaults to "1"; set "0" to reject legacy signatures. */

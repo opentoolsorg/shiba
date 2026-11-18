@@ -122,6 +122,7 @@ export const ACCESS_BYPASS_PATHS = [
   // shared-secret token (sentry-webhook-routes.ts) and cannot complete an
   // Access login — same machine-caller class as the GitHub webhook.
   "/api/sentry/webhook",
+  "/api/billing/stripe/webhook",
   "/mcp",
   "/mcp/*",
   "/api/local/*",
@@ -382,6 +383,9 @@ export const Worker = Cloudflare.Worker("Worker", {
       "WEB_SEARCH_API_KEY",
       "SLACK_INSTALLATION_KEYRING",
       "FOUNDER_STRIPE_CREDENTIAL_KEY",
+      // Workspace credit top-ups (Stripe Checkout + Portal). Both unset = billing off.
+      "STRIPE_SECRET_KEY",
+      "STRIPE_WEBHOOK_SECRET",
       "FOUNDER_META_CREDENTIAL_KEY",
       "FOUNDER_HUBSPOT_CREDENTIAL_KEY",
       "SLACK_APPROVERS",

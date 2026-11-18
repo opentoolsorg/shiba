@@ -51,6 +51,7 @@ import { handleRuns } from "../runs-routes.js";
 import { handleSwarm } from "../swarm-routes.js";
 import { handleDenRoutes } from "../den-routes.js";
 import { handleUsage } from "../usage-routes.js";
+import { handleWorkspaceBilling } from "../workspace-billing-routes.js";
 import { handleVoiceRoutes } from "../voice-routes.js";
 import { handleScreenshot } from "../screenshots-routes.js";
 import { handleE2eEvidence } from "../e2e-evidence-routes.js";
@@ -492,6 +493,10 @@ export const handlers = {
   async usageResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
     return handleUsage(request, env);
+  },
+  async billingResponse(context: RequestContext): Promise<Response | null> {
+    const { request, env } = context;
+    return handleWorkspaceBilling(request, env);
   },
   async voiceResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
