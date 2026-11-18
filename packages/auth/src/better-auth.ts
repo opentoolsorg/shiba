@@ -8,9 +8,7 @@
  * gate and are never claimed by this lane.
  *
  * Tables live in the `AGENT_AUDIT` D1 database alongside `audit_log` — the
- * same provisioned store, self-healed once per isolate exactly like
- * audit.ts (`ensureBetterAuthSchema` runs the idempotent DDL before any
- * auth work, so a fresh deployment needs no manual migration step).
+ * same provisioned store. Apply the backend D1 migrations before serving auth.
  *
  * Sign-up defaults to bootstrap-only. A public deployment will not accept the first
  * account unless `BETTER_AUTH_BOOTSTRAP_TOKEN` is set; an owner email may
@@ -23,10 +21,10 @@
 // Worker startup pushed deploys past the startup CPU limit.
 import { getSsoConfig, isSsoEmailAllowed, type SsoEnv } from "./sso.js";
 export { getSsoConfig, isSsoEmailAllowed } from "./sso.js";
-import { BOOTSTRAP_VERIFICATION_DDL, handleBootstrapVerification, type BootstrapVerificationAdapter } from "./bootstrap-verification.js";
+import { handleBootstrapVerification, type BootstrapVerificationAdapter } from "./bootstrap-verification.js";
 export type { BootstrapVerificationAdapter } from "./bootstrap-verification.js";
 import {
-  ensureBetterAuthAccountPolicy, readBetterAuthAccountPolicy, recordBetterAuthAccountPolicy,
+  readBetterAuthAccountPolicy, recordBetterAuthAccountPolicy,
   type BetterAuthAccountPolicy,
 } from "./better-auth-account-policy.js";
 export type { BetterAuthAccountPolicy } from "./better-auth-account-policy.js";
@@ -91,80 +89,6 @@ export function isBetterAuthConfigured(env: {
   );
 }
 
-/**
- * Core Better Auth schema (sqlite) as emitted by `npx auth generate` for
- * 1.7.x — verbatim except `IF NOT EXISTS` so re-runs are no-ops.
- */
-export const BETTER_AUTH_STATEMENTS: readonly string[] = [
-  `CREATE TABLE IF NOT EXISTS "user" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "name" TEXT NOT NULL,
-    "email" TEXT NOT NULL UNIQUE,
-    "emailVerified" INTEGER NOT NULL,
-    "image" TEXT,
-    "createdAt" DATE NOT NULL,
-    "updatedAt" DATE NOT NULL
-  )`,
-  `CREATE TABLE IF NOT EXISTS "session" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "expiresAt" DATE NOT NULL,
-    "token" TEXT NOT NULL UNIQUE,
-    "createdAt" DATE NOT NULL,
-    "updatedAt" DATE NOT NULL,
-    "ipAddress" TEXT,
-    "userAgent" TEXT,
-    "userId" TEXT NOT NULL REFERENCES "user" ("id") ON DELETE CASCADE
-  )`,
-  `CREATE TABLE IF NOT EXISTS "account" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "accountId" TEXT NOT NULL,
-    "providerId" TEXT NOT NULL,
-    "userId" TEXT NOT NULL REFERENCES "user" ("id") ON DELETE CASCADE,
-    "accessToken" TEXT,
-    "refreshToken" TEXT,
-    "idToken" TEXT,
-    "accessTokenExpiresAt" DATE,
-    "refreshTokenExpiresAt" DATE,
-    "scope" TEXT,
-    "password" TEXT,
-    "createdAt" DATE NOT NULL,
-    "updatedAt" DATE NOT NULL
-  )`,
-  `CREATE TABLE IF NOT EXISTS "verification" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "identifier" TEXT NOT NULL,
-    "value" TEXT NOT NULL,
-    "expiresAt" DATE NOT NULL,
-    "createdAt" DATE NOT NULL,
-    "updatedAt" DATE NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS "session_userId_idx" ON "session" ("userId")`,
-  `CREATE INDEX IF NOT EXISTS "account_userId_idx" ON "account" ("userId")`,
-  `CREATE INDEX IF NOT EXISTS "verification_identifier_idx" ON "verification" ("identifier")`,
-  BOOTSTRAP_VERIFICATION_DDL,
-];
-
-/** D1/database handles whose auth schema is already ensured in this isolate. */
-const schemaInitialized = new WeakSet<object>();
-
-const AUTH_SCHEMA_MARKER = "ws01_better_auth_v1";
-
-async function authSchemaPresent(db: D1Database): Promise<boolean> {
-  const markerTable = await db
-    .prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'shiba_schema_markers' LIMIT 1`)
-    .first<{ ok: number }>();
-  if (markerTable?.ok === 1) {
-    const marker = await db
-      .prepare(`SELECT 1 AS ok FROM shiba_schema_markers WHERE marker_id = ? LIMIT 1`)
-      .bind(AUTH_SCHEMA_MARKER)
-      .first<{ ok: number }>();
-    if (marker?.ok === 1) return true;
-  }
-  const user = await db
-    .prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'user' LIMIT 1`)
-    .first<{ ok: number }>();
-  return user?.ok === 1;
-}
 
 /** True when the request might carry a Better Auth session (cookie or bearer). */
 export function requestHasBetterAuthSessionCredential(request: Request): boolean {
@@ -175,19 +99,11 @@ export function requestHasBetterAuthSessionCredential(request: Request): boolean
   return /(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=/i.test(cookie);
 }
 
-/** Apply auth DDL only when migrations have not run yet (tests / pre-migration deploys). */
+/** Verify storage availability; schema and legacy provenance are migration-owned. */
 export async function ensureBetterAuthSchema(env: {
   AGENT_AUDIT: D1Database;
 }): Promise<void> {
-  const db = env.AGENT_AUDIT;
-  if (schemaInitialized.has(db)) return;
-  if (!(await authSchemaPresent(db))) {
-    for (const statement of BETTER_AUTH_STATEMENTS) {
-      await db.prepare(statement).run();
-    }
-  }
-  await ensureBetterAuthAccountPolicy(db);
-  schemaInitialized.add(db);
+  if (!env.AGENT_AUDIT) throw new Error("Auth storage is unavailable.");
 }
 
 /** A pending instance: concurrent first callers share one construction. */

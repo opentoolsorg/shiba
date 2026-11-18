@@ -13,10 +13,10 @@ export interface RoutineMetadata {
 
 type RoutineRecord = Automation & { nextRunAt?: number | null };
 
-export async function readRoutines(env: Env): Promise<RoutineRecord[]> {
+export async function readRoutines(env: Env, workspaceId?: string): Promise<RoutineRecord[]> {
   if (!env.Automations) return [];
   try {
-    const response = await automationsStub(env).fetch(new Request("https://internal/api/automations"));
+    const response = await automationsStub(env, workspaceId).fetch(new Request("https://internal/api/automations"));
     if (!response.ok) return [];
     const body = await response.json() as { automations?: RoutineRecord[] };
     return (body.automations ?? []).filter((automation) => automation.triggers.some((trigger) => trigger.kind === "schedule"));

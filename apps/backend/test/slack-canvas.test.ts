@@ -94,7 +94,8 @@ describe("Slack canvas internal provenance", () => {
   it("binds body, target DO, method, path, query, origin and time", async () => {
     const original = new Request("https://internal/api/runs?command=one", { method: "POST", body: JSON.stringify({ task: "report", threadKey: ORIGIN }) });
     const signed = await signSlackCanvasIntake(original, KEY, ORIGIN, 1_000_000);
-    expect(await verifySlackCanvasIntake(signed, KEY, ORIGIN, 1_000_000)).toBe(ORIGIN);
+    expect(signed.headers.get("X-Shiba-Slack-Canvas-Signature")).toMatch(/^v1:[a-f0-9]{16}:[a-f0-9]{64}$/);
+    expect(await verifySlackCanvasIntake(signed, KEY, ORIGIN, 1_000_000, "0")).toBe(ORIGIN);
     expect(await verifySlackCanvasIntake(signed, KEY, "default", 1_000_000)).toBeNull();
     expect(await verifySlackCanvasIntake(signed, KEY, ORIGIN, 1_400_000)).toBeNull();
     expect(await verifySlackCanvasIntake(signed, "short", ORIGIN, 1_000_000)).toBeNull();

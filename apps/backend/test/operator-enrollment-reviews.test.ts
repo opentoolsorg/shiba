@@ -1,3 +1,4 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,14 +12,11 @@ const OWNER = "owner@example.test", ACCOUNT = "native-owner", ORIGIN = "https://
 const databases: DatabaseSync[] = [];
 const owner = () => ({ ownerId: OWNER, accountId: ACCOUNT, sessionId: "owner-session", sessionExpiresAt: Date.now() + 3600_000 });
 function fixture() {
-  const sqlite = new DatabaseSync(":memory:"); databases.push(sqlite);
+  const sqlite = new DatabaseSync(":memory:"); applyAllMigrations(sqlite); databases.push(sqlite);
   sqlite.exec(readFileSync(new URL("../migrations/0037_operator_enrollment_review.sql", import.meta.url), "utf8"));
-  sqlite.exec(`CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT,emailVerified INTEGER);
-    CREATE TABLE "session"(id TEXT PRIMARY KEY,userId TEXT,expiresAt INTEGER);
-    CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT,kind TEXT);`);
-  sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(ACCOUNT, OWNER);
-  sqlite.prepare('INSERT INTO "session" VALUES(?,?,?)').run("owner-session", ACCOUNT, Date.now() + 3600_000);
-  sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?,'bootstrap')").run(ACCOUNT, OWNER);
+  sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(ACCOUNT, OWNER);
+  sqlite.prepare('INSERT INTO "session"(id,userId,expiresAt,token,createdAt,updatedAt) VALUES(?,?,?,lower(hex(randomblob(16))),1,1)').run("owner-session", ACCOUNT, Date.now() + 3600_000);
+  sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind) VALUES(?,?,'bootstrap')").run(ACCOUNT, OWNER);
   const prepared = (sql: string, values: SQLInputValue[] = []) => ({
     bind: (...args: SQLInputValue[]) => prepared(sql, args),
     async all() { return { results: sqlite.prepare(sql).all(...values) }; },
@@ -78,7 +76,7 @@ describe("operator enrollment review metadata", () => {
     const { env, sqlite } = fixture(), row = await proposal(env);
     if (change === "session") sqlite.exec('DELETE FROM "session"');
     if (change === "verification") sqlite.exec('UPDATE "user" SET emailVerified=0');
-    if (change === "policy") sqlite.exec("UPDATE shiba_auth_account_policy SET kind='invited'");
+    if (change === "policy") sqlite.exec("UPDATE shiba_auth_account_policy SET kind='invited',invitation_id='fixture-invite',workspace_id='fixture-workspace'");
     if (change === "expiry") sqlite.exec('UPDATE "session" SET expiresAt=1');
     await expect(decideOperatorEnrollment(env, owner(), row.enrollmentId, { expectedOwnerAccountId: ACCOUNT, expectedVersion: 1, proposalDigest: row.proposalDigest, decision: "accept", reviewOnly: true })).rejects.toMatchObject({ status: 409 });
     expect(await listOperatorEnrollments(env, owner())).toEqual([]);

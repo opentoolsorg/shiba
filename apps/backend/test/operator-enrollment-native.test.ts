@@ -1,3 +1,4 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,7 +15,7 @@ function request(path: string, body?: unknown, headers: Record<string, string> =
     headers: { origin: BASE, "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 }
 function fixture() {
-  const sqlite = new DatabaseSync(":memory:"); databases.push(sqlite);
+  const sqlite = new DatabaseSync(":memory:"); applyAllMigrations(sqlite); databases.push(sqlite);
   sqlite.exec(readFileSync(new URL("../migrations/0037_operator_enrollment_review.sql", import.meta.url), "utf8"));
   const value = (input: unknown): SQLInputValue => input instanceof Date ? input.getTime() : typeof input === "boolean" ? Number(input) : input as SQLInputValue;
   const prepared = (sql: string, values: unknown[] = []) => ({

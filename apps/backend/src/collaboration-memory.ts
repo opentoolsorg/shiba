@@ -1,7 +1,6 @@
 import type { Env } from "./env.js";
 import {
   CollaborationStoreError,
-  ensureCollaborationSchema,
   getCollaborationMembership,
   getCollaborationRoom,
   humanActorId,
@@ -29,23 +28,8 @@ export interface CollaborationMemoryNote extends CollaborationMemoryRef {
   revokedAt: number | null;
 }
 
-const initialized = new WeakSet<D1Database>();
 const ID_PATTERN = /^ctx_[A-Za-z0-9_-]{1,96}$/;
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
-
-async function ensureSchema(env: Pick<Env, "AGENT_AUDIT">): Promise<void> {
-  await ensureCollaborationSchema(env);
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await env.AGENT_AUDIT.prepare(`CREATE TABLE IF NOT EXISTS collaboration_memory (
-    tenant_id TEXT NOT NULL, workspace_id TEXT NOT NULL, room_id TEXT NOT NULL,
-    context_id TEXT NOT NULL, version INTEGER NOT NULL CHECK(version=1),
-    title TEXT NOT NULL, content TEXT NOT NULL, sha256 TEXT NOT NULL,
-    created_by_user_id TEXT NOT NULL, created_at INTEGER NOT NULL, revoked_at INTEGER,
-    PRIMARY KEY(tenant_id,workspace_id,room_id,context_id),
-    FOREIGN KEY(room_id) REFERENCES collaboration_rooms(room_id) ON DELETE CASCADE
-  )`).run();
-  initialized.add(env.AGENT_AUDIT);
-}
 
 const READABLE = `EXISTS (SELECT 1 FROM collaboration_memberships reader
   WHERE reader.tenant_id=n.tenant_id AND reader.workspace_id=n.workspace_id AND reader.room_id=n.room_id
@@ -61,7 +45,6 @@ function note(row: Record<string, unknown>): CollaborationMemoryNote {
 }
 
 async function requireAccess(env: Env, scope: CollaborationScope, roomId: string, write = false) {
-  await ensureSchema(env);
   const room = await getCollaborationRoom(env, scope, roomId);
   const membership = await getCollaborationMembership(env, scope, roomId, humanActorId(scope.userId));
   if (!room || !membership || membership.actorKind !== "human" || !membership.capabilities.includes("room.read") ||

@@ -671,7 +671,7 @@ export async function handleSlackInteract(
   const runPointer = interaction.pointer;
   const approvedRun = interaction.actionId === APPROVE_ACTION_ID;
   const stubFor = async (pointer: ApprovalPointer) => {
-    if (deps.resolveOrchestrator) return deps.resolveOrchestrator(slackApprovalOrchestratorName(pointer.threadKey));
+    if (deps.resolveOrchestrator) return deps.resolveOrchestrator(slackApprovalOrchestratorName(pointer.threadKey, env));
     if (deps.orchestratorStub) return deps.orchestratorStub;
     throw new Error("Approval dispatch is not configured.");
   };

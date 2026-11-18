@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { handleObservability } from "../src/observability-routes.js";
+import { createRequestContext } from "../src/routes/context.js";
+import { handlers } from "../src/routes/handlers.js";
+import { dispatchRoutes } from "../src/routes/table.js";
 
 const env = {
   SHIBA_ERROR_REPORTING: "sentry", SENTRY_DSN: "https://publickey@errors.example.test/1",
@@ -12,6 +15,21 @@ const req = (body: string, headers: HeadersInit = {}) => new Request("http://loc
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("dashboard observability ingress", () => {
+  it("dispatches the authenticated relay before fallbacks and forwards background delivery", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response());
+    vi.stubGlobal("fetch", fetcher);
+    const pending: Promise<unknown>[] = [];
+    const execution = { waitUntil: (job: Promise<unknown>) => pending.push(job) } as unknown as ExecutionContext;
+    const response = await dispatchRoutes("authenticated", createRequestContext(req('{"event":"dashboard.render_error"}'), env, execution));
+    expect(response?.status).toBe(204);
+    expect(pending).toHaveLength(1);
+    await Promise.all(pending);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const denied = await dispatchRoutes("authenticated", createRequestContext(new Request("https://public.example/api/observability"), env));
+    expect(denied?.status).toBe(401);
+    expect(await handlers.observabilityResponse(createRequestContext(new Request("http://localhost/api/other"), env))).toBeNull();
+  });
+
   it("requires authentication and discloses booleans only", async () => {
     const denied = await handleObservability(new Request("https://public.example/api/observability"), env);
     expect(denied?.status).toBe(401);
