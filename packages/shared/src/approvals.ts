@@ -43,11 +43,13 @@ export interface JsonObject {
 /**
  * What an approval gates. `"run"` covers sandboxed delegation runs;
  * `"email_send"`/`"email_delete"` cover the frozen mailbox payloads the
- * orchestrator executes on approve instead of dispatching a run. Records
+ * orchestrator executes on approve instead of dispatching a run.
+ * `"budget_override"` releases a run the usage budget holds — approving
+ * dispatches that held run past the budget gate. Records
  * written before email approvals existed carry no `kind` — readers treat
  * absent as `"run"`.
  */
-export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge" | "pr_publish";
+export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge" | "pr_publish" | "budget_override";
 
 /** Stable provenance pointer for reviewed skill text frozen into an approval. */
 export interface SkillExecutionPin {
@@ -172,6 +174,12 @@ export interface PendingApproval extends OnboardingRunFields {
   kind?: ApprovalKind;
   /** Frozen email send/delete input for email-kind approvals. */
   payload?: JsonValue;
+  /**
+   * `"budget_override"` only: the held run this approval releases. The
+   * run waits in the registry; approving dispatches it past the budget
+   * gate instead of minting a new run.
+   */
+  budgetHoldRunId?: string;
   status: "pending" | "approved" | "rejected";
   createdAt: number;
   decidedBy?: string;
@@ -243,6 +251,8 @@ export interface CreateApprovalInput extends OnboardingRunFields {
   role?: AgentRole;
   kind?: ApprovalKind;
   payload?: JsonValue;
+  /** `"budget_override"` only: the held run released by this approval. */
+  budgetHoldRunId?: string;
   queuedBy?: string;
   createdAt: number;
 }
@@ -301,6 +311,7 @@ export function createPendingApproval(
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
       ...(input.payload !== undefined ? { payload: input.payload } : {}),
+      ...(input.budgetHoldRunId !== undefined ? { budgetHoldRunId: input.budgetHoldRunId } : {}),
       ...(input.queuedBy !== undefined ? { queuedBy: input.queuedBy } : {}),
       status: "pending",
       createdAt: input.createdAt,
