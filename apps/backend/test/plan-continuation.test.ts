@@ -5,6 +5,7 @@ import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orches
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { onboardingTaskText } from "@shiba/shared";
 import { resolvePreparedOnboardingDraft } from "../src/onboarding-progress.js";
+import { defaultUsageBudgetPolicy } from "../src/usage.js";
 
 vi.mock("@cloudflare/think", () => ({ Think: class {} }));
 vi.mock("agents/agent-tools", () => ({ agentTool: () => ({}) }));
@@ -137,6 +138,13 @@ describe("orchestrator completion hook", () => {
     const { instance, runTurn } = host();
     Object.assign(instance, { env: { ...productionEnvStubs(), SHIBA_DAILY_CONTAINER_BUDGET_USD: "1" } });
     instance.state.runs = [{ runId: "run-1", updatedAt: Date.now(), usage: { costUsd: 1 } } as OrchestratorState["runs"][number]];
+    instance.onChatResponse(response());
+    expect(runTurn).not.toHaveBeenCalled();
+    expect(instance.state.events?.at(-1)?.payload).toMatchObject({ summary: "Plan continuation stopped: usage_limit" });
+  });
+  it.each(["dailyLimitUsd", "monthlyLimitUsd"] as const)("respects the persisted %s usage budget", (limit) => {
+    const { instance, runTurn } = host();
+    instance.state.usageBudgetPolicy = { ...defaultUsageBudgetPolicy({}), [limit]: 0 };
     instance.onChatResponse(response());
     expect(runTurn).not.toHaveBeenCalled();
     expect(instance.state.events?.at(-1)?.payload).toMatchObject({ summary: "Plan continuation stopped: usage_limit" });
