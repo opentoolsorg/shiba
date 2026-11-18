@@ -285,6 +285,21 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
   );
 }
 
+/** Shown only while an admin has the hosted-provider kill switch on. */
+function HostedModelsStoppedNotice(): JSX.Element | null {
+  const setup = useSetupStatus();
+  if (setup.state.kind !== "data" || !setup.state.data.gateway?.hostedAccessStopped) return null;
+  return (
+    <div role="status" className="border border-[color-mix(in_oklch,var(--warning)_30%,transparent)] bg-[var(--warning-subtle)] px-4 py-3">
+      <div className="text-sm font-medium text-[var(--warning-fg)]">Hosted models are paused</div>
+      <p className="mt-1 text-xs leading-relaxed text-[var(--fg)]">
+        An admin turned on the emergency stop, so tasks that use this deployment&apos;s AI Gateway won&apos;t start. Connect your own provider
+        or plan below to keep working.
+      </p>
+    </div>
+  );
+}
+
 function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): JSX.Element {
   if (!status) {
     return (
@@ -325,6 +340,11 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
         detail="AI_GATEWAY_TOKEN — BYOK provider egress"
       />
       <ChecklistRow
+        label="Hosted models available"
+        ok={!status.gateway.hostedAccessStopped}
+        detail={status.gateway.hostedAccessStopped ? "SHIBA_HOSTED_PROVIDER_KILL_SWITCH is on — gateway-funded runs are refused" : "SHIBA_HOSTED_PROVIDER_KILL_SWITCH is off"}
+      />
+      <ChecklistRow
         label="AI Gateway reachable"
         ok={status.gateway.reachable === "yes"}
         detail={`gateway "${status.gateway.id}" — ${status.gateway.reachable}`}
@@ -351,6 +371,12 @@ const EXPERIMENTAL_FLAGS: { title: string; summary: string; setup: string; flag:
 ];
 
 const KILL_SWITCHES: { title: string; summary: string; flag: string; effect: string }[] = [
+  {
+    title: "Hosted models",
+    summary: "Emergency stop for models this deployment pays for through its AI Gateway, and for team model turns.",
+    flag: "SHIBA_HOSTED_PROVIDER_KILL_SWITCH",
+    effect: 'Set to "1" to stop them at once. Personal provider keys, ChatGPT or Claude plans, and paired computers keep working.',
+  },
   {
     title: "Memory summaries",
     summary: "Controls whether Shiba saves a short summary after a task finishes.",
@@ -888,6 +914,7 @@ export function SettingsSectionBody({
 
   if (section === "providers") return (
     <SectionShell title="Providers" description="Connect your own accounts. Tokens are encrypted for you and attached when a run calls the provider.">
+      <HostedModelsStoppedNotice />
       <ProvidersView embedded />
     </SectionShell>
   );
@@ -938,7 +965,7 @@ export function SettingsSectionBody({
         </Card>
         <Card>
           <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-            Memory setting
+            Kill switches
           </div>
           {KILL_SWITCHES.map((flag) => (
             <div key={flag.flag} className="border-b border-[var(--border-1)] px-4 py-3 last:border-b-0">
