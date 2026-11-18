@@ -1,35 +1,7 @@
 #!/usr/bin/env node
-/**
- * Ephemeral stack — deploys an isolated `--stage <prefix>` copy of the
- * app, smoke-tests it, then destroys the stage in a finally block.
- *
- * Two drivers:
- *   --alchemy (primary): `npx alchemy deploy --stage <prefix> --yes`
- *     against alchemy.run.ts. ALCHEMY_STAGE=<prefix> is exported to the
- *     child so the config's stage-conditional name produces
- *     `shiba-ai-coworker-<prefix>` — a pinned `name` is used verbatim by alchemy,
- *     so without that suffix the stage would overwrite the live worker.
- *   default (rollback): writes a TEMPORARY override config
- *     `apps/backend/.wrangler-ephemeral-<prefix>.jsonc` (apps/backend/wrangler.jsonc with the worker
- *     name suffixed `-<prefix>` and preview_urls forced off), then
- *     `wrangler deploy --config` + `wrangler delete --config`.
- *
- * Smoke test: GET `/` first — this worker has no `/healthz` route and
- * gates every path behind Access/auth, so ANY HTTP status (401 included)
- * counts as "worker reachable"; only a network error or timeout fails.
- *
- * Usage:
- *   node scripts/ephemeral-stack.mjs [--alchemy] [--prefix=<name>]
- *          [--wrangler=<path>] [--smoke-timeout-ms=<n>] [--keep]
- *   node scripts/ephemeral-stack.mjs --dry-run [--prefix=<name>]
- *
- * Requires Cloudflare credentials in the environment (CLOUDFLARE_API_TOKEN
- * / CLOUDFLARE_ACCOUNT_ID or an `alchemy profile`) when actually deploying,
- * or wrangler auth (`npx wrangler whoami`) in wrangler mode. Never prints
- * .dev.vars contents.
- */
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+// Historical dry-run diagnostics only; the former shared-binding apply path is retired.
+// Actual preview deployment and teardown use scripts/deploy.mjs.
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42,7 +14,8 @@ const arg = (name) => {
 const flag = (name) => process.argv.includes(`--${name}`);
 
 if (flag("help") || flag("h")) {
-  console.log(`Usage: node scripts/ephemeral-stack.mjs [options]
+  console.log(`Legacy dry-run diagnostic only. Apply moved to scripts/deploy.mjs --stage=pr-<number>.
+Usage: node scripts/ephemeral-stack.mjs --dry-run [options]
 
 Options:
   --alchemy                drive the alchemy CLI: deploy --stage <prefix>,
@@ -175,7 +148,6 @@ const tmpConfig = resolve(root, "apps", "backend", `.wrangler-ephemeral-${prefix
 // Alchemy mode: --stage <prefix> drives alchemy.run.ts; ALCHEMY_STAGE in
 // the child env makes the config's stage-conditional name resolve to the
 // same shiba-ai-coworker-<prefix> the wrangler mode writes into its temp config.
-const childEnv = useAlchemy ? { ...process.env, ALCHEMY_STAGE: prefix } : process.env;
 const deployCmd = useAlchemy
   ? `npx alchemy deploy --stage ${prefix} --yes`
   : `npx wrangler deploy --config ${tmpConfig}`;
@@ -198,92 +170,5 @@ if (dryRun) {
   process.exit(0);
 }
 
-if (!useAlchemy) {
-  cfg.name = workerName;
-  cfg.preview_urls = false;
-  // Plain JSON is valid JSONC; write the resolved config rather than patching text.
-  writeFileSync(tmpConfig, JSON.stringify(cfg, null, 2) + "\n");
-  log(`wrote ${tmpConfig} (name="${workerName}", preview_urls=false)`);
-}
-
-function run(cmdArgs) {
-  const res = spawnSync("npx", cmdArgs, {
-    cwd: root,
-    env: childEnv,
-    encoding: "utf8",
-    timeout: 600_000,
-  });
-  const out = `${res.stdout ?? ""}\n${res.stderr ?? ""}`;
-  return { ok: !res.error && res.status === 0, out };
-}
-
-function pickWorkerUrl(output) {
-  const m = output.match(/https:\/\/[a-z0-9][a-z0-9.-]*\.workers\.dev/i);
-  return m ? m[0] : null;
-}
-
-async function smoke(url) {
-  // This worker has no /healthz and Access-gates every path: any HTTP
-  // status — including 401/404 — proves it is live. Only network failure
-  // or timeout counts as a smoke failure.
-  for (const path of ["/", "/healthz"]) {
-    try {
-      const res = await fetch(`${url}${path}`, {
-        signal: AbortSignal.timeout(smokeTimeoutMs),
-        redirect: "manual",
-      });
-      log(`smoke: GET ${url}${path} -> ${res.status}`);
-      return res.status;
-    } catch (err) {
-      log(`smoke: GET ${url}${path} failed: ${err.message}`);
-    }
-  }
-  return null;
-}
-
-const deployArgs = useAlchemy
-  ? ["alchemy", "deploy", "--stage", prefix, "--yes"]
-  : ["wrangler", "deploy", "--config", tmpConfig];
-const destroyArgs = useAlchemy
-  ? ["alchemy", "destroy", "--stage", prefix, "--yes"]
-  : ["wrangler", "delete", "--config", tmpConfig, "--name", workerName];
-
-let exitCode = 0;
-try {
-  log(`deploying ${workerName} ...`);
-  const deploy = run(deployArgs);
-  if (!deploy.ok) {
-    console.error(`ephemeral-stack: deploy failed:\n${deploy.out.trim().split("\n").slice(-25).join("\n")}`);
-    exitCode = 1;
-  } else {
-    const url = pickWorkerUrl(deploy.out);
-    if (!url) {
-      log("no workers.dev URL in deploy output; skipping smoke test");
-    } else {
-      const status = await smoke(url);
-      if (status === null) {
-        console.error("ephemeral-stack: smoke test failed (worker unreachable)");
-        exitCode = 1;
-      }
-    }
-  }
-} finally {
-  if (keep) {
-    log(
-      `--keep: leaving ${workerName} live${useAlchemy ? "" : `; config kept at ${tmpConfig}`}`,
-    );
-  } else {
-    log(`tearing down ${workerName} ...`);
-    const del = run(destroyArgs);
-    if (!del.ok) {
-      console.error(`ephemeral-stack: teardown failed (manual cleanup needed): ${deleteCmd}`);
-      exitCode = exitCode || 1;
-    }
-    if (!useAlchemy) {
-      rmSync(tmpConfig, { force: true });
-      log(`removed ${tmpConfig}`);
-    }
-  }
-  log("done");
-}
-process.exit(exitCode);
+console.error("Ephemeral apply retired: use scripts/deploy.mjs --stage=pr-<number>; close the PR for guarded teardown.");
+process.exit(1);

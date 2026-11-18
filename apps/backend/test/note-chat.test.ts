@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
@@ -18,9 +17,6 @@ vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: async ()
 
 function setup() {
   const { database, sqlite } = customAgentD1();
-  for (const migration of ["0050_files_notes.sql", "0051_knowledge_indexes.sql", "0061_note_chat.sql"]) {
-    sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
-  }
   const objects = new Map<string, Uint8Array>();
   const env = { AGENT_AUDIT: database, AI: {}, FILES: {
     async put(key: string, bytes: Uint8Array) { objects.set(key, bytes); },

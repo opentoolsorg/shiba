@@ -98,7 +98,6 @@ const CLIENT_PREFIX = "oauth_client_";
 const CODE_PREFIX = "oauth_code_";
 const ACCESS_PREFIX = "oauth_at_";
 const REFRESH_PREFIX = "oauth_rt_";
-const RATE_PREFIX = "oauth_rate_";
 const CONSENT_PREFIX = "oauth_consent_";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -106,15 +105,13 @@ const CODE_TTL_MS = 10 * 60 * 1000;
 const CONSENT_TTL_MS = CODE_TTL_MS;
 export const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-/** Issuance endpoints: 20 hits per client IP per hour, KV-bucketed. */
-const ISSUE_RATE_LIMIT = 20;
-const ISSUE_RATE_WINDOW_MS = 60 * 60 * 1000;
-
 const ACCESS_TOKEN_RE = /^sho_[0-9a-f]{16}_[0-9a-f]{48}$/;
 const REFRESH_TOKEN_RE = /^shr_[0-9a-f]{16}_[0-9a-f]{48}$/;
 const S256_RE = /^[A-Za-z0-9_-]{43}$/;
 
-export interface OAuthEnv extends AgentTokensEnv, AuditEnv {}
+export interface OAuthEnv extends AgentTokensEnv, AuditEnv {
+  OAUTH_RATE_LIMIT?: RateLimit;
+}
 
 // ---------------------------------------------------------------------------
 // KV helpers — every read fails closed like agent-tokens.
@@ -184,22 +181,11 @@ function asRecord<T extends object>(value: unknown, required: readonly string[])
 }
 
 // ---------------------------------------------------------------------------
-// Rate limit — a KV minute bucket per caller. A KV outage denies issuance
-// (fail closed), matching verifyToken's posture.
-
+// Dedicated issuance budget: 10 per minute; Workers cannot express hourly periods.
+// Missing or unavailable bindings deny issuance.
 async function rateLimited(env: OAuthEnv, bucket: string): Promise<boolean> {
-  const key = `${RATE_PREFIX}${await sha256Hex(bucket)}`;
-  const now = Date.now();
-  const window = Math.floor(now / ISSUE_RATE_WINDOW_MS);
-  const windowKey = `${key}_${window}`;
   try {
-    const raw = await env.AGENT_TOKENS.get(windowKey, { type: "text" });
-    const count = raw === null ? 0 : Number.parseInt(raw, 10);
-    if (!Number.isFinite(count) || count >= ISSUE_RATE_LIMIT) return true;
-    await env.AGENT_TOKENS.put(windowKey, String(count + 1), {
-      expirationTtl: Math.ceil((ISSUE_RATE_WINDOW_MS * 2) / 1000),
-    });
-    return false;
+    return !(await env.OAUTH_RATE_LIMIT?.limit({ key: `oauth:${await sha256Hex(bucket)}` }))?.success;
   } catch {
     return true;
   }

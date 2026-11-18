@@ -141,6 +141,31 @@ describe("check-alchemy-drift", () => {
     expect(out.stderr).toContain("renamed-worker");
   });
 
+  it("recognizes the current artifact download Access-bypass evidence", () => {
+    const out = run("check-alchemy-drift.mjs");
+    expect([0, 1]).toContain(out.status);
+    expect(out.stderr).not.toContain('ACCESS_BYPASS_PATHS "/api/artifacts/download"');
+    for (const line of out.stderr.trim().split("\n").filter(Boolean)) expect(line).toMatch(/^check-alchemy-drift:/);
+  });
+
+  it("rejects artifact download bypass when the handler call is removed from all evidence files", () => {
+    const evidence = ["src/index.ts", "src/request-auth.ts", "src/mcp-routes.ts", "src/routes/handlers.ts"]
+      .map((file) => join(ROOT, "apps/backend", file));
+    const hook = `import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+const evidence = ${JSON.stringify(evidence)}, original = fs.readFileSync;
+fs.readFileSync = function(path, ...args) {
+  const body = original.call(this, path, ...args);
+  if (!evidence.includes(String(path))) return body;
+  const stripped = String(body).replace(/handleArtifactDownload\\s*\\(request,\\s*env\\)/g, "undefined");
+  return Buffer.isBuffer(body) ? Buffer.from(stripped) : stripped;
+};
+syncBuiltinESMExports();`;
+    const out = spawnSync(process.execPath, ["--import", `data:text/javascript,${encodeURIComponent(hook)}`, "scripts/check-alchemy-drift.mjs"], { cwd: ROOT, encoding: "utf8" });
+    expect(out.status).toBe(1);
+    expect(out.stderr).toContain('ACCESS_BYPASS_PATHS "/api/artifacts/download" has no Worker auth exemption');
+  });
+
   it("prints help", () => {
     const out = run("check-alchemy-drift.mjs", ["--help"]);
     expect(out.status).toBe(0);

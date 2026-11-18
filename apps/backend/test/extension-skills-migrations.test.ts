@@ -7,10 +7,9 @@ const migrations = new URL("../migrations/", import.meta.url);
 const files = readdirSync(migrations).filter((name) => name.endsWith(".sql")).sort();
 const orgMigration = "0009_org_extension_skills.sql";
 
-for (const initializeAtRuntime of [false, true]) {
-  describe(initializeAtRuntime ? "runtime extension skill tables" : "extension skill migrations", () => {
+describe("extension skill migrations", () => {
     it("preserves legacy skill rows and keeps new skills scoped to their organization", async () => {
-      const { database, sqlite } = customAgentD1();
+      const { database, sqlite } = customAgentD1({ bare: true });
       try {
         for (const file of files.filter((name) => name < orgMigration)) {
           sqlite.exec(readFileSync(new URL(file, migrations), "utf8"));
@@ -20,10 +19,8 @@ for (const initializeAtRuntime of [false, true]) {
           VALUES ('legacy', 'alice', 'workspace-1', 'workspace', 'Legacy skill', 'Existing description', 'Preserved body', 1, 2)`)
           .run();
         const original = sqlite.prepare("SELECT * FROM extension_skills WHERE id = 'legacy'").get();
-        if (!initializeAtRuntime) {
-          for (const file of files.filter((name) => name >= orgMigration)) {
-            sqlite.exec(readFileSync(new URL(file, migrations), "utf8"));
-          }
+        for (const file of files.filter((name) => name >= orgMigration)) {
+          sqlite.exec(readFileSync(new URL(file, migrations), "utf8"));
         }
         const env = { AGENT_AUDIT: database };
         const id = await createExtensionSkill(env, "org-1", "alice", {
@@ -40,11 +37,9 @@ for (const initializeAtRuntime of [false, true]) {
     });
 
     it("supports a fresh database", async () => {
-      const { database, sqlite } = customAgentD1();
+      const { database, sqlite } = customAgentD1({ bare: true });
       try {
-        if (!initializeAtRuntime) {
-          for (const file of files) sqlite.exec(readFileSync(new URL(file, migrations), "utf8"));
-        }
+        for (const file of files) sqlite.exec(readFileSync(new URL(file, migrations), "utf8"));
         const env = { AGENT_AUDIT: database };
         const id = await createExtensionSkill(env, "org-1", "alice", {
           name: "Fresh skill", description: "Description", instructions: "Body",
@@ -55,5 +50,4 @@ for (const initializeAtRuntime of [false, true]) {
         sqlite.close();
       }
     });
-  });
-}
+  })

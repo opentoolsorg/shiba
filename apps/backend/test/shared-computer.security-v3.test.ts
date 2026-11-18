@@ -23,8 +23,7 @@ beforeEach(() => { auth.user = OWNER; auth.native = true; auth.ids = {}; auth.ho
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 async function fixture() {
   const db = customAgentD1();
-  db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT,kind TEXT)');
-  for (const email of [OWNER, OPERATOR, VIEWER, OTHER]) { const uuid = crypto.randomUUID(); auth.ids[email] = uuid; db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(uuid, email); db.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?,?)").run(uuid, email, email === OPERATOR ? "bootstrap" : "invited"); }
+  for (const email of [OWNER, OPERATOR, VIEWER, OTHER]) { const uuid = crypto.randomUUID(); auth.ids[email] = uuid; db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(uuid, email); db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) SELECT ?,?,kind,CASE WHEN kind='invited' THEN 'fixture-invite' END,CASE WHEN kind='invited' THEN 'fixture-workspace' END FROM (SELECT ? AS kind)").run(uuid, email, email === OPERATOR ? "bootstrap" : "invited"); }
   const calls: string[][] = [], starts: unknown[] = [], instances = new Map<string, ComputerSession>(), containers = new Map<string, FakeContainer>();
   let failStart = false, failInput = false, failDestroy = false;
   class FakeContainer {
@@ -109,7 +108,7 @@ describe("offline policy cannot be upgraded into online or agent authority", { t
     const result = await f.call("/sessions/prepare", { ...f.input, [field as string]: value });
     expect(result.response.status).toBe(400);
     expect(result.body).toEqual({ error: "shared_computer_body_invalid" });
-    expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='shared_computer_sessions'").get()).toEqual({ count: 0 });
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM shared_computer_sessions").get()).toEqual({ count: 0 });
     expect(f.instances.size).toBe(0); expect(f.starts).toHaveLength(0); expect(f.calls).toHaveLength(0);
   });
   it("refuses online escalation at every reviewed control gate without consuming valid authority", async () => {

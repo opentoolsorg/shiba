@@ -24,11 +24,10 @@ afterEach(() => { vi.restoreAllMocks(); });
 type Account = { id: string; service: string; connectionName: string; configured: boolean; virtual: boolean; oauthAuthorizationId: string; profile: { displayName: string } };
 async function fixture() {
   const db = customAgentD1();
-  db.sqlite.exec('CREATE TABLE "user" (id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy (account_id TEXT PRIMARY KEY,email TEXT)');
   for (const email of [OWNER, MEMBER, ADMIN, "other-owner@example.test"]) {
     const accountId = crypto.randomUUID(); actor.accounts[email] = accountId;
-    db.sqlite.prepare('INSERT INTO "user"(id,email,emailVerified) VALUES(?,?,1)').run(accountId, email);
-    db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email) VALUES(?,?)").run(accountId, email);
+    db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(accountId, email);
+    db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')").run(accountId, email);
   }
   const accounts: Account[] = [{ id: "private-owned-row", service: "github", connectionName: await openConnectorConnectionName(OWNER), configured: true, virtual: false,
     oauthAuthorizationId: "private-consent", profile: { displayName: "Private account must stay private" } }];
