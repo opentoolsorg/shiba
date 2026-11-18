@@ -130,8 +130,7 @@ ok(".env written (mode 600, gitignored) — alchemy.run.ts binds every secret pr
 rl.close();
 
 // 4. Build + deploy. Alchemy replaces all secrets on each deploy, so .env is the source of truth.
-if (run("pnpm", ["build"]).status !== 0) process.exit(1);
-if (run("npx", ["alchemy", "deploy"]).status !== 0) {
+if (run("node", ["scripts/deploy.mjs", "--stage=prod"]).status !== 0) {
   console.log("Deploy failed — fix the error above and re-run `pnpm run bootstrap`.");
   process.exit(1);
 }

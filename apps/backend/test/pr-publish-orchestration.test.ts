@@ -5,7 +5,7 @@ import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orches
 import { formatAgentResult, parseAgentToolInput, type CodingTaskInput, type CodingTaskResult } from "../src/opencode-input.js";
 import { stagePrPublishApproval, type PrPublicationProposal } from "../src/pr-publish-approval.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
-import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 
 const mocks = vi.hoisted(() => ({ child: vi.fn(), specialist: vi.fn(), contextAppend: vi.fn(), publish: vi.fn(), destroy: vi.fn(), persist: vi.fn(), abort: vi.fn() }));
 vi.mock("../src/pr-publish-approval.js", async (importOriginal) => ({
@@ -108,7 +108,7 @@ async function drainHeldWork(held: Promise<unknown>[]): Promise<void> {
 }
 
 function decide(instance: CodingOrchestrator, record: PendingApproval, decidedBy = REVIEWER, principal?: string) {
-  return instance.onRequest(post("/api/approvals", {
+  return sendWorkerRequest(instance, post("/api/approvals", {
     threadKey: record.threadKey, approvalId: record.approvalId, approved: true, decidedBy,
   }, principal));
 }

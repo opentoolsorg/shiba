@@ -1,6 +1,7 @@
 // HMAC prevents offline guessing; AES-GCM binds sealed values to the owner and digest.
 import { parseRunEnv, type RunEnvVar } from "@shiba/shared";
 import type { Env } from "./env.js";
+import { timingSafeEqualString } from "./security.js";
 import type { CodingTaskResult } from "./opencode-input.js";
 import { decryptAuthJson, encryptAuthJson, modelCredentialKeyConfigured } from "./subscription-credentials.js";
 
@@ -16,7 +17,7 @@ const DIGEST_INFO = new TextEncoder().encode("shiba-run-env-digest-v1");
 // ponytail: shorter values aren't scrubbed — too likely to collide with ordinary text. Raise if users hit it.
 const MIN_SCRUB_CHARS = 8;
 
-function requireKey(env: Pick<Env, "MODEL_CREDENTIAL_KEY">): string {
+function requireKey(env: Pick<Env, "MODEL_CREDENTIAL_KEY" | "VAULT_KEYRING" | "VAULT_WRITE_V2">): string {
   if (!modelCredentialKeyConfigured(env)) {
     throw new Error("Per-run environment variables need the MODEL_CREDENTIAL_KEY secret.");
   }
@@ -39,20 +40,20 @@ async function keyedDigest(keyHex: string, owner: string, vars: readonly RunEnvV
 }
 
 export async function sealRunEnv(
-  env: Pick<Env, "MODEL_CREDENTIAL_KEY">,
+  env: Pick<Env, "MODEL_CREDENTIAL_KEY" | "VAULT_KEYRING" | "VAULT_WRITE_V2">,
   owner: string,
   raw: unknown,
 ): Promise<SealedRunEnv> {
   const key = requireKey(env);
   const vars = parseRunEnv(raw);
   const digest = await keyedDigest(key, owner, vars);
-  const sealed = await encryptAuthJson(JSON.stringify(vars), key, SCOPE, owner, digest);
+  const sealed = await encryptAuthJson(JSON.stringify(vars), { ...env, MODEL_CREDENTIAL_KEY: key }, SCOPE, owner, digest);
   return { sealed, names: vars.map((v) => v.name), digest };
 }
 
 /** Throws unless the blob was sealed for this owner with exactly this digest. */
 export async function openRunEnv(
-  env: Pick<Env, "MODEL_CREDENTIAL_KEY">,
+  env: Pick<Env, "MODEL_CREDENTIAL_KEY" | "VAULT_KEYRING" | "VAULT_WRITE_V2">,
   owner: string,
   sealed: string,
   digest: string,
@@ -60,12 +61,12 @@ export async function openRunEnv(
   const key = requireKey(env);
   let plaintext: string;
   try {
-    plaintext = await decryptAuthJson(sealed, key, SCOPE, owner, digest);
+    plaintext = await decryptAuthJson(sealed, { ...env, MODEL_CREDENTIAL_KEY: key }, SCOPE, owner, digest);
   } catch {
     throw new Error("Sealed environment variables do not belong to this run.");
   }
   const vars = parseRunEnv(JSON.parse(plaintext));
-  if ((await keyedDigest(key, owner, vars)) !== digest) {
+  if (!timingSafeEqualString(await keyedDigest(key, owner, vars), digest)) {
     throw new Error("Sealed environment variables do not match the approved digest.");
   }
   return Object.fromEntries(vars.map((v) => [v.name, v.value]));

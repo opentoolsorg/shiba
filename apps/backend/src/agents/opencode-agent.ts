@@ -196,8 +196,9 @@ export function createSandboxOps(
  * intra-deployment DO stub; the bearer-token front door is for the
  * operator daemon only, so these calls carry no credential.
  */
-function workerLocalDispatchClient(env: Env): LocalDispatchClient {
-  const stub = () => localDispatchStub(env);
+function workerLocalDispatchClient(env: Env, ownerId?: string): LocalDispatchClient {
+  // Legacy operator jobs have no authenticated owner and retain the default owner mailbox.
+  const stub = () => localDispatchStub(env, ownerId);
   return {
     async dispatch(envelope, targetMachineId, dashboardOwnerId) {
       const res = await stub().fetch(new Request("https://local-dispatch/dispatch", {
@@ -389,7 +390,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
                 throw new Error(LOCAL_DISPATCH_MESSAGE);
               }
               adapter = createRuntimeAdapter("local", harness, {
-                client: workerLocalDispatchClient(this.env),
+                client: workerLocalDispatchClient(this.env, input.personalExecution?.ownerAccountId ?? input.initiatorUserId),
               });
             } else {
               adapter = createRuntimeAdapter(runtimeName, harness);

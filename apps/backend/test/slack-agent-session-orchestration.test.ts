@@ -108,8 +108,9 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("native Slack lifecycle from committed orchestration with fixture HTTP", () => {
-  it("reports queue, human-approved active work and completion without approving from status", async () => {
+  it.each([undefined, "1"])("reports queue, human-approved active work and completion without approving from status (scope flag %s)", async (flag) => {
     const context = host();
+    context.env.SHIBA_SCOPED_DO = flag;
     const fixture = slackFixture(context);
     let finish!: (value: string) => void;
     mocks.child.mockImplementationOnce(() => new Promise<string>((resolve) => { finish = resolve; }));

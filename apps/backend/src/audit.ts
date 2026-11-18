@@ -8,8 +8,7 @@
  *
  * The write path is fire-and-forget safe — {@link audit} swallows every
  * failure into `console.warn`, so a D1 outage can never break the tool call
- * it records. A missing table self-heals: the first write per isolate runs
- * {@link initAudit} (idempotent DDL) before inserting.
+ * it records. Migrations provision the audit table and its indexes.
  */
 import type { AuditRow } from "@shiba/shared";
 import { randomHex } from "./mailbox-store.js";
@@ -19,25 +18,6 @@ import { redactSecrets } from "./security.js";
 export interface AuditEnv {
   AGENT_AUDIT: D1Database;
 }
-
-/**
- * Idempotent schema — apply statement-by-statement via {@link initAudit}.
- * `ts`/`principal` indexes serve the T13 `GET /api/audit` newest-first and
- * per-principal reads.
- */
-export const AUDIT_STATEMENTS: readonly string[] = [
-  `CREATE TABLE IF NOT EXISTS audit_log (
-     id TEXT PRIMARY KEY,
-     ts INTEGER NOT NULL,
-     principal TEXT NOT NULL,
-     tool TEXT NOT NULL,
-     args_hash TEXT NOT NULL,
-     outcome TEXT NOT NULL,
-     detail TEXT
-   )`,
-  `CREATE INDEX IF NOT EXISTS audit_log_ts ON audit_log(ts)`,
-  `CREATE INDEX IF NOT EXISTS audit_log_principal_ts ON audit_log(principal, ts)`,
-];
 
 export interface AuditEntry {
   principal: string;
@@ -55,36 +35,13 @@ export interface AuditEntry {
   ts?: number;
 }
 
-/** Create `audit_log` and its indexes if missing. Idempotent. */
-export async function initAudit(env: AuditEnv): Promise<void> {
-  for (const statement of AUDIT_STATEMENTS) {
-    await env.AGENT_AUDIT.prepare(statement).run();
-  }
-}
-
 /**
- * Bindings already initialized in this isolate. D1 objects are scoped to
- * the binding, so the WeakSet keys on the database, not the env — a second
- * write per isolate costs one round-trip instead of re-running the DDL.
- */
-const initialized = new WeakSet<D1Database>();
-
-/** Run the idempotent DDL once per isolate per binding. */
-async function ensureAuditTable(env: AuditEnv): Promise<void> {
-  if (!initialized.has(env.AGENT_AUDIT)) {
-    await initAudit(env);
-    initialized.add(env.AGENT_AUDIT);
-  }
-}
-
-/**
- * Insert one audit row. Never throws: init or insert failures log a
+ * Insert one audit row. Never throws: insert failures log a
  * (secret-redacted) warning and resolve — audit is observability, not a
  * gate on the tool call it records.
  */
 export async function audit(env: AuditEnv, entry: AuditEntry): Promise<void> {
   try {
-    await ensureAuditTable(env);
     await env.AGENT_AUDIT.prepare(
       `INSERT INTO audit_log (id, ts, principal, tool, args_hash, outcome, detail)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -120,7 +77,6 @@ export async function listAuditEntries(
   env: AuditEnv,
   options: { limit: number; principal?: string },
 ): Promise<AuditRow[]> {
-  await ensureAuditTable(env);
   const principal = options.principal?.trim();
   const statement = principal
     ? `SELECT id, ts, principal, tool, args_hash, outcome, detail
@@ -145,7 +101,6 @@ export const AUDIT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
  * retries, so a D1 hiccup never compounds.
  */
 export async function pruneAuditLog(env: AuditEnv, cutoffTs: number): Promise<number> {
-  await ensureAuditTable(env);
   const result = await env.AGENT_AUDIT.prepare(`DELETE FROM audit_log WHERE ts < ?`)
     .bind(cutoffTs)
     .run();

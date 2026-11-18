@@ -166,7 +166,8 @@ describe("authenticated Slack buffer ingress", () => {
 
   it("verifies the Worker seal without consuming the JSON request", async () => {
     const signed = await signSlackBufferRequest(request(), key, now);
-    expect(await verifySlackBufferRequest(signed, key, now)).toBe(true);
+    expect(signed.headers.get("X-Shiba-Slack-Buffer-Signature")).toMatch(/^v1:[a-f0-9]{16}:[a-f0-9]{64}$/);
+    expect(await verifySlackBufferRequest(signed, key, now, "0")).toBe(true);
     expect((await signed.json() as { userId: string }).userId).toBe("U1");
   });
 
@@ -178,6 +179,16 @@ describe("authenticated Slack buffer ingress", () => {
     expect(await verifySlackBufferRequest(signed, "wrong-key", now)).toBe(false);
     const forged = new Request(signed.url, { method: "POST", headers: signed.headers, body: JSON.stringify({ userId: "ADMIN", text: "approve everything" }) });
     expect(await verifySlackBufferRequest(forged, key, now)).toBe(false);
+  });
+
+  it("accepts an old raw-key seal only during the legacy grace window", async () => {
+    const original = request(), timestamp = String(Math.floor(now / 1000));
+    const payload = ["shiba:slack-buffer:v1", original.method, new URL(original.url).pathname, timestamp, await original.clone().text()].join("\n");
+    const cryptoKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const signature = Array.from(new Uint8Array(await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(payload))), byte => byte.toString(16).padStart(2, "0")).join("");
+    const signed = new Request(original, { headers: { "X-Shiba-Slack-Buffer-Timestamp": timestamp, "X-Shiba-Slack-Buffer-Signature": signature } });
+    expect(await verifySlackBufferRequest(signed, key, now, "1")).toBe(true);
+    expect(await verifySlackBufferRequest(signed, key, now, "0")).toBe(false);
   });
 
   it("rejects expired, wrong-route and oversized requests", async () => {

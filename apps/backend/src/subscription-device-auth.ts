@@ -6,20 +6,8 @@ import { codexDeviceAuthVolumeForUser } from "./harness/codex-device-auth.js";
 
 export type OpenAiUserAuthMode = "siwc" | "device-auth";
 
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS user_openai_auth_mode (
-    user_id TEXT PRIMARY KEY,
-    mode TEXT NOT NULL,
-    updated_at INTEGER NOT NULL
-  )`,
-];
-const initialized = new WeakSet<D1Database>();
-
 async function ensureSchema(env: Pick<Env, "AGENT_AUDIT">): Promise<void> {
   if (!env.AGENT_AUDIT) throw new Error("Auth mode storage unavailable.");
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await env.AGENT_AUDIT.batch(SCHEMA.map((sql) => env.AGENT_AUDIT.prepare(sql)));
-  initialized.add(env.AGENT_AUDIT);
 }
 
 export async function readUserOpenAiAuthMode(

@@ -15,6 +15,7 @@
  */
 import { getAgentByName } from "agents/routing";
 import type { Env } from "./env.js";
+import { orchestratorNameFor } from "./platform/do-resolver.js";
 import type { DelegatedRun } from "@shiba/shared";
 
 export type SlackContinuationTarget = Pick<DelegatedRun,
@@ -112,7 +113,7 @@ export interface SlackCommandScope {
   channelId: string;
 }
 
-/** A slash command shares the default DO while its approval stays bound to its origin. */
+/** A slash command's approval stays bound to its signed team/channel origin. */
 export function buildSlackCommandScope(teamId: string, channelId: string): string {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(teamId) || !/^[A-Za-z0-9_-]{1,128}$/.test(channelId)) {
     throw new Error("Slack command requires a valid workspace and channel.");
@@ -125,8 +126,9 @@ export function parseSlackCommandScope(scope: string): SlackCommandScope | null 
   return match?.[1] && match[2] ? { teamId: match[1], channelId: match[2] } : null;
 }
 
-export function slackApprovalOrchestratorName(threadKey: string): string {
-  return parseSlackCommandScope(threadKey) ? "default" : threadKey || "default";
+export function slackApprovalOrchestratorName(threadKey: string, env: Pick<Env, "SHIBA_SCOPED_DO"> = {}): string {
+  const command = parseSlackCommandScope(threadKey);
+  return command ? orchestratorNameFor(env, { workspaceId: command.teamId, threadKey }) : threadKey || "default";
 }
 
 export function slackWorkspaceTarget(text: string): { type: "ephemeral"; workspaceId: string } | undefined {
