@@ -192,6 +192,27 @@ export async function verifySlackRequest(
 }
 
 
+export async function deleteSlackMessage(token: string, input: { channel: string; ts: string }): Promise<void> {
+  await slackWrite(token, "chat.delete", input);
+}
+
+export async function addSlackReaction(token: string, input: { channel: string; timestamp: string; name: string }): Promise<void> {
+  await slackWrite(token, "reactions.add", input);
+}
+
+async function slackWrite(token: string, method: string, input: object): Promise<void> {
+  const response = await fetch(`https://slack.com/api/${method}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
+    signal: AbortSignal.timeout(SLACK_POST_TIMEOUT_MS),
+    body: JSON.stringify(input),
+  });
+  const body = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new SlackPostRejectedError(body?.error ?? `Slack API ${response.status}`, response.status < 500);
+  }
+}
+
 export async function updateSlackMessage(
   token: string,
   input: { channel: string; ts: string; text: string; blocks?: unknown[]; native?: Record<string, unknown> },

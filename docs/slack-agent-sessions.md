@@ -25,8 +25,8 @@ to `agent_view` cannot be reversed, so an operator must review that change.
      messages_tab_read_only_enabled: false
    ```
 
-2. Add `assistant:write` to the existing bot scopes. Keep `chat:write` and
-   `chat:write.customize`. Slack's [session guide](https://docs.slack.dev/ai/agent-sessions/)
+2. Add `assistant:write` to the existing bot scopes. Keep `chat:write`,
+   `chat:write.customize` and `reactions:write`. Slack's [session guide](https://docs.slack.dev/ai/agent-sessions/)
    requires an agent-declared app; declaring one adds `assistant:write`.
    Review and reinstall the app if Slack requires consent for the changed scope.
 3. Configure the existing `SLACK_CANVAS_OWNERS` exact team/channel owner policy.

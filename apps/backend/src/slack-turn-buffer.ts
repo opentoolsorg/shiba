@@ -75,6 +75,20 @@ export function bufferedSlackPrompt(messages: BufferedSlackMessage[]): string {
 export class SlackTurnBuffer {
   constructor(private readonly storage: SlackBufferStorage) {}
 
+  async recordContinuation(input: BufferedSlackMessage, now = Date.now()): Promise<"recorded" | "duplicate" | "invalid"> {
+    if (!validMessage(input, now)) return "invalid";
+    return this.storage.transaction(async (transaction) => {
+      const state = await transaction.get<BufferState>(BUFFER_KEY) ?? emptyState();
+      const all = [...(state.claim?.messages ?? []), ...state.pending];
+      if (state.seen.includes(input.eventId) || (input.messageTs !== undefined &&
+          ((state.seenMessageTs ?? []).includes(input.messageTs) || all.some((item) => item.messageTs === input.messageTs)))) return "duplicate";
+      state.seen = [...state.seen, input.eventId].slice(-SLACK_BUFFER_MAX_MESSAGES * 2);
+      if (input.messageTs !== undefined) state.seenMessageTs = [...(state.seenMessageTs ?? []), input.messageTs].slice(-SLACK_BUFFER_MAX_MESSAGES * 2);
+      await transaction.put(BUFFER_KEY, state);
+      return "recorded";
+    });
+  }
+
   async enqueue(input: BufferedSlackMessage, now = Date.now()): Promise<"buffered" | "duplicate" | "full" | "invalid"> {
     if (!validMessage(input, now)) return "invalid";
     const message = { ...input, text: redactSecrets(input.text.trim()) };

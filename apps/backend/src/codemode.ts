@@ -28,6 +28,8 @@ import { registerMemoryTools, registerOwnerMemoryTools } from "./mcp-memory-tool
 import { registerRunTools } from "./mcp-run-tools.js";
 import { registerExtensionSkillMcpTools } from "./extension-skills-tools.js";
 import { memoryScopeForConversation } from "./memory-scope.js";
+import { registerChannelFactsTools } from "./channel-facts-tools.js";
+import { workspaceFactsThread } from "./workspace-channel-facts.js";
 
 export { ORCHESTRATOR_PRINCIPAL, ORCHESTRATOR_SCOPES } from "./codemode-principal.js";
 
@@ -59,6 +61,7 @@ function buildRegistry(env: Env, ownerMemoryId?: string, memoryPrincipal?: strin
   registerEmailTools(registry, env);
   if (memoryPrincipal && memoryScopeForConversation(memoryPrincipal) === memoryPrincipal) {
     registerMemoryTools(registry, env, memoryPrincipal);
+    registerChannelFactsTools(registry, env, memoryPrincipal);
   }
   if (ownerMemoryId) registerOwnerMemoryTools(registry, env, ownerMemoryId);
   registerRunTools(registry, env);
@@ -86,6 +89,7 @@ export function createRunCodeTool(env: Env, ownerMemoryId?: string, principal?: 
       "Write an async arrow function (plain JS, no TypeScript syntax) calling " +
       "codemode.<tool>({...}); chain calls, loop, and filter in code — only the " +
       "returned value comes back. Sends and deletes still queue for human " +
-      "approval; approving is never possible from code.",
+      "approval; approving is never possible from code." +
+      (workspaceFactsThread(memoryPrincipal) ? " In Slack channels, channel_remember({fact}) saves durable workspace notes and channel_forget({id}) removes outdated notes without approval." : ""),
   });
 }
