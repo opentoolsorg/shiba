@@ -138,7 +138,8 @@ type HarnessGateEnv = {
 
 /** Personal subscription lanes are available with storage unless explicitly disabled. */
 const HARNESS_GATES: Partial<Record<AgentHarnessName, (env: HarnessGateEnv) => boolean>> = {
-  "claude-subscription": (env) => env?.SHIBA_CLAUDE_SUBSCRIPTION !== "0" &&
+  "claude-subscription": (env) =>
+    env?.SHIBA_CLAUDE_SUBSCRIPTION === "1" &&
     (modelCredentialKeyConfigured(env as Env) || Boolean(env?.CLAUDE_SUBSCRIPTION_TOKEN)),
   "codex-subscription": (env) => env?.SHIBA_CODEX_SUBSCRIPTION !== "0" &&
     (env?.SHIBA_CODEX_SUBSCRIPTION === "1" || modelCredentialKeyConfigured(env as Env)),

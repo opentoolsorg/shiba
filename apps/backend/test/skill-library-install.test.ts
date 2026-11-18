@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { installLibrarySkill, uninstallLibrarySkill } from "../src/skill-library/install.js";
 import { getSkillInstall, listSkillInstalls } from "../src/skill-library-store.js";
 import { activateSkill, disableSkill, getSkill, reviewSkill } from "../src/skills-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 
 const slug = "pr-review-checklist";
 const orgId = "org-test";
@@ -66,13 +66,13 @@ describe("library install ownership and concurrency", () => {
   });
 
   it("migrates previously applied org-scoped keys without losing existing installs", () => {
-    const { sqlite } = setup();
+    const { sqlite } = customAgentD1({ bare: true });
     sqlite.exec(`CREATE TABLE skill_installs (
       org_id TEXT NOT NULL, library_slug TEXT NOT NULL, library_version TEXT NOT NULL,
       skill_id TEXT NOT NULL, installed_by TEXT NOT NULL, installed_at INTEGER NOT NULL,
       PRIMARY KEY (org_id, library_slug)
     ); INSERT INTO skill_installs VALUES ('org', 'slug', '1', 'skill-a', 'owner-a', 1);`);
-    sqlite.exec(readFileSync(new URL("../migrations/0007_skill_installs_owner.sql", import.meta.url), "utf8"));
+    applyAllMigrations(sqlite);
     sqlite.exec("INSERT INTO skill_installs VALUES ('org', 'slug', '1', 'skill-b', 'owner-b', 2)");
     expect(sqlite.prepare("SELECT skill_id FROM skill_installs ORDER BY installed_at").all()).toEqual([
       { skill_id: "skill-a" }, { skill_id: "skill-b" },

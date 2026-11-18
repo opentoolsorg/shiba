@@ -10,6 +10,7 @@ import {
 } from "../src/custom-agents-store.js";
 
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 
 describe("custom agents store", () => {
   const env = { AGENT_AUDIT: customAgentD1().database };
@@ -123,10 +124,12 @@ describe("custom agent lifecycle and atomic versions", () => {
   });
 
   it("adds archive support to a legacy table without changing existing configuration", async () => {
-    const { database, sqlite } = customAgentD1();
+    const { database, sqlite } = customAgentD1({ bare: true });
+    applyAllMigrations(sqlite, 60);
     sqlite.exec(`CREATE TABLE org_custom_agents (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, slug TEXT NOT NULL,
       version INTEGER NOT NULL, config_json TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER)`);
     sqlite.prepare("INSERT INTO org_custom_agents VALUES (?,?,?,?,?,?,?,NULL)").run("legacy", "org-a", "legacy", 3, JSON.stringify(config), 1, 2);
+    applyAllMigrations(sqlite);
     const env = { AGENT_AUDIT: database };
     const saved = await getCustomAgentById(env, "org-a", "legacy");
     expect(saved).toMatchObject({ id: "legacy", version: 3, config });

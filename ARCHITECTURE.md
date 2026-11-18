@@ -129,8 +129,55 @@ The optional `ComputerSession` class owns a separately approved, offline human d
 | `LocalDispatch` | local-runtime dispatch mailbox: pending/claimed/settled run envelopes | v9 |
 | `ConversationRoom` | per-owner/session presence, typing, room messages, and persisted live assistant streams | v15 |
 
-Logical task history is an additive `tasks` field on each existing
-`CodingOrchestrator` state, not a new Durable Object or SQLite schema. Existing
+With `SHIBA_SCOPED_DO=1`, authenticated automation API calls select the
+workspace's `Automations` instance. The legacy root is a directory and ingress
+fan-out, not a schedule executor. It registers workspaces on first use and
+lazily registers `self-hosted` for deployment-wide ingress. Only `self-hosted`
+imports legacy shared records; team workspaces initialize empty. Verified
+webhooks and scheduled ticks dispatch to that durable registry. Workspace and
+thread name components are encoded to avoid collisions; existing private
+user/session and Slack thread identities are retained.
+
+Scheduled ticks carry a five-minute slot. Workspace instances serialize ticks
+and remember completed slots across eviction; schedule occurrences also retain
+stable command IDs so retried queue delivery reuses the orchestrator receipt.
+The scope flag is an ownership cutover, not replication: the old root is not
+kept in sync with workspace writes. Rollback after live writes requires a
+deliberate state restore, not simply disabling the flag.
+
+The flag defaults OFF. MCP run, screen, and email-approval tools and public
+API-key run reads use the authenticated token's organization/workspace, never
+request-body scope. Slack slash commands use the signed Slack team and command
+channel scope; approval buttons resolve that same thread instance. The shared
+trigger bearer and dashboard mailbox sends have no workspace identity and use
+`self-hosted`. Local dispatch, cancellation, and Reason Network companion
+lookups use the authenticated/frozen owner; legacy ownerless jobs retain the
+default owner mailbox. Draft sweeps enumerate every team workspace through the
+existing workspace store plus `self-hosted`, and report each workspace failure
+without preventing the others from sweeping.
+
+Enable `SHIBA_SCOPED_DO=1` only on new deployments or after draining pending
+approvals, runs, and local dispatch claims. Existing CodingOrchestrator
+`"default"` state is NOT migrated into scoped instances (the automation-root
+import described above is separate). Before any scoped writes, rollback is
+simply removing the flag. After scoped writes, drain scoped work and deliberately
+restore/export the desired state before disabling it: disabling switches new
+requests back to the old default state and does not merge scoped history.
+
+Orchestrator state responsibilities live in `agents/orchestrator-runs.ts`,
+`orchestrator-approvals.ts`, `orchestrator-slack.ts`,
+`orchestrator-reviews.ts`, and `orchestrator-sessions.ts`.
+`orchestrator-state-sql.ts` adapts the SDK's SQL state-row boundary: collection
+members occupy separate DO SQLite rows, while the SDK row retains scalar
+metadata and a collection manifest. Legacy snapshots migrate transactionally
+on first read, independently of the scope flag. Memory state and SDK broadcasts
+still expose the full logical projection. Writes commit collection changes and
+their manifest together; missing manifests, missing collection rows, and invalid
+JSON fail closed rather than resetting retained work. Interrupted review
+publication recovers as unknown, without repeating the external publication.
+
+Logical task history is an additive `tasks` projection on each existing
+`CodingOrchestrator`, backed by the same collection store, not a new DO. Existing
 run IDs and `/api/runs` remain canonical; unlinked retained runs are backfilled
 as one-attempt legacy tasks on task-history reads. Frozen approval snapshots
 stay in orchestrator state and are omitted from the authenticated history DTO.
@@ -338,6 +385,16 @@ bring-your-own-agent differentiator, not the first adapter.
 
 ---
 
+### Cron job queue rollout
+
+The five-minute cron sends one message per queue-safe task to `shiba-jobs`; consumers run independently with five retries delayed by 60 seconds and a `shiba-jobs-dlq`. Batch size is one so jobs do not share an invocation's CPU budget. The registry is `apps/backend/src/scheduled-jobs.ts`; existing claims and occurrence keys prevent duplicate provider reads and Slack sends. `automations.tick` stays inline: its load/dispatch/merge sequence has no tick-wide claim, so stable command IDs alone do not prove concurrent budget accounting safe.
+
+For an existing Wrangler install, run `pnpm exec wrangler queues create shiba-jobs` and `pnpm exec wrangler queues create shiba-jobs-dlq` in the deployment account before deploying the updated config. Alchemy provisions both queues and the consumer, using the same stage suffix as other resources. No D1 migration is needed.
+
+Queues are optional at runtime: deployments without `JOBS_QUEUE` run each task inline, catching failures independently. To keep that mode on a non-Queues host, omit the jobs producer and consumer entries from its deploy config. A failed queue send is surfaced, not replayed inline, because a partial send may already have accepted jobs.
+
+Rollback: pause the jobs consumer and let active invocations finish; drain or explicitly discard pending jobs before removing the producer/consumer config and `JOBS_QUEUE` binding (or reverting this change). The next cron resumes inline execution. Keep the queues and DLQ until outstanding messages have been inspected; do not replay stale DLQ messages blindly.
+
 ## 9. Known architectural gaps
 
 Optional operator observability lives in `apps/backend/src/observability.ts`:
@@ -388,3 +445,5 @@ Not bugs — deliberate or inherited, recorded so they are not rediscovered:
 | state and persistence | the nine DO classes in §4 (`*-do.ts` plus the agent classes) |
 | every ingress surface | `slack-routes.ts`, `chat-lane.ts`, `telegram.ts`, `discord.ts`, `email-handler.ts` |
 | what is planned and why | `PLAN.md` (§17 for parity roadmap, §4 for what was cut and why) |
+
+**Do not enable `SHIBA_SCOPED_DO` for personal desktop pairing yet.** Several LocalDispatch callers still resolve the default owner mailbox (`local-routes.ts`, `computers-routes.ts`, `provider-sign-in.ts`) while scoped personal dispatch resolves the account owner, so flag-on daemon routing needs its own review first.

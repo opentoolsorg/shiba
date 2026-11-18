@@ -18,34 +18,8 @@ interface InvitationRow {
 export class TeamWorkspaceError extends Error {
   constructor(message: string, readonly status = 400) { super(message); this.name = "TeamWorkspaceError"; }
 }
-const initialized = new WeakSet<D1Database>();
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS team_workspaces (
-    tenant_id TEXT NOT NULL, workspace_id TEXT NOT NULL, name TEXT NOT NULL,
-    version INTEGER NOT NULL CHECK(version>0), created_at INTEGER NOT NULL,
-    PRIMARY KEY(tenant_id,workspace_id))`,
-  `CREATE TABLE IF NOT EXISTS team_workspace_memberships (
-    tenant_id TEXT NOT NULL, workspace_id TEXT NOT NULL, user_id TEXT NOT NULL,
-    role TEXT NOT NULL CHECK(role IN ('owner','admin','member')),
-    status TEXT NOT NULL CHECK(status IN ('active','removed')), version INTEGER NOT NULL CHECK(version>0),
-    joined_at INTEGER NOT NULL, removed_at INTEGER, mutation_id TEXT,
-    PRIMARY KEY(tenant_id,workspace_id,user_id),
-    FOREIGN KEY(tenant_id,workspace_id) REFERENCES team_workspaces(tenant_id,workspace_id))`,
-  `CREATE INDEX IF NOT EXISTS team_workspace_memberships_user ON team_workspace_memberships(tenant_id,user_id,status)`,
-  `CREATE TABLE IF NOT EXISTS team_workspace_invitations (
-    tenant_id TEXT NOT NULL, workspace_id TEXT NOT NULL, invitation_id TEXT NOT NULL,
-    token_hash TEXT NOT NULL UNIQUE, email TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('owner','admin','member')),
-    issuer_user_id TEXT NOT NULL, issuer_version INTEGER NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('pending','accepted','revoked')),
-    created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, accepted_by_user_id TEXT, accepted_at INTEGER, revoked_at INTEGER,
-    PRIMARY KEY(tenant_id,workspace_id,invitation_id),
-    FOREIGN KEY(tenant_id,workspace_id) REFERENCES team_workspaces(tenant_id,workspace_id))`,
-];
 export async function ensureTeamWorkspacesSchema(env: StoreEnv): Promise<void> {
   if (!env.AGENT_AUDIT) throw new TeamWorkspaceError("Workspace storage is unavailable.", 503);
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  for (const sql of SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
-  initialized.add(env.AGENT_AUDIT);
 }
 export function normalizeTeamWorkspaceEmail(value: unknown): string {
   if (typeof value !== "string") throw new TeamWorkspaceError("A valid email is required.");

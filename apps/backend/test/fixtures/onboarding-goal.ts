@@ -1,13 +1,11 @@
 import { onboardingTaskText, type OnboardingSourceSnapshot } from "@shiba/shared";
 import type { Env } from "../../src/env.js";
-import { ensureBetterAuthSchema } from "../../src/better-auth.js";
 import { handleOnboardingProgress, type OnboardingProgress } from "../../src/onboarding-progress.js";
 
 /** Real D1 draft lifecycle with an owner-local, versioned source service fake. */
 export async function preparedGoal(env: Env, owner: string, employeeId: string, employeeVersion: number, withSource = true, contextAnswer?: string) {
   env.BETTER_AUTH_SECRET = "s".repeat(32);
   if (!env.AGENT_AUDIT) throw new Error("Fixture needs audit storage");
-  await ensureBetterAuthSchema(env);
   const userId = `user:${owner}`;
   await env.AGENT_AUDIT.prepare(`INSERT OR IGNORE INTO "user" (id,name,email,emailVerified,createdAt,updatedAt) VALUES (?,? ,?,1,1,1)`).bind(userId, owner, owner).run();
   const source: OnboardingSourceSnapshot["sources"][number] = {

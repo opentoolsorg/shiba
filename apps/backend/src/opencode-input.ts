@@ -137,7 +137,7 @@ const codingTaskInputSchema = z.object({
   dispatchEnvelopeHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   dispatchIssuedAt: z.number().int().nonnegative().optional(),
   dispatchExpiresAt: z.number().int().positive().optional(),
-  dispatchSig: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  dispatchSig: z.string().regex(/^(?:v1:[a-f0-9]{16}:)?[a-f0-9]{64}$/).optional(),
 });
 
 const codingTaskInputWithRouteSchema = codingTaskInputSchema.superRefine((input, ctx) => {

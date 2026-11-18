@@ -1,80 +1,50 @@
-/**
- * Queued follow-up messages for active threads (delivery=queue).
- */
+/** Queued follow-up messages for active threads (delivery=queue). */
 import type { AgentTokensEnv } from "./agent-tokens.js";
 import { randomHex } from "./mailbox-store.js";
-import { redactSecrets } from "./security.js";
+import type { ThreadQueue, ThreadQueueMessage } from "./ports/thread-queue/index.js";
+import { threadQueueFor, type ThreadQueueEnv } from "./ports/thread-queue/registry.js";
 
-const PREFIX = "msgq_";
+export type QueuedThreadMessage = ThreadQueueMessage;
+type QueueEnv = AgentTokensEnv & ThreadQueueEnv;
+type QueueResolver = (env: ThreadQueueEnv, threadKey: string) => ThreadQueue;
 
-export interface QueuedThreadMessage {
-  id: string;
-  threadId: string;
-  text: string;
-  clientKey?: string;
-  createdAt: number;
+/** Import before deleting; retries preserve IDs even after acknowledgment. */
+async function migratedQueue(env: QueueEnv, threadId: string, resolve: QueueResolver): Promise<ThreadQueue> {
+  const queue = resolve(env, threadId);
+  const key = `msgq_${threadId}`;
+  const raw = await env.AGENT_TOKENS.get(key, { type: "text" });
+  if (raw !== null) {
+    const items: unknown = JSON.parse(raw);
+    if (!Array.isArray(items)) throw new Error("Invalid legacy thread queue");
+    for (const item of items) {
+      if (!item || typeof item.id !== "string" || item.threadId !== threadId || typeof item.text !== "string"
+        || !Number.isFinite(item.createdAt) || (item.clientKey !== undefined && typeof item.clientKey !== "string")) {
+        throw new Error("Invalid legacy thread message");
+      }
+      await queue.enqueue(threadId, item as ThreadQueueMessage);
+    }
+    await env.AGENT_TOKENS.delete(key);
+  }
+  return queue;
 }
 
-function queueKey(threadId: string): string {
-  return `${PREFIX}${threadId}`;
+export async function listQueuedMessages(env: QueueEnv, threadId: string, resolve: QueueResolver = threadQueueFor): Promise<QueuedThreadMessage[]> {
+  return (await migratedQueue(env, threadId, resolve)).drain(threadId, Number.MAX_SAFE_INTEGER);
 }
 
-export async function listQueuedMessages(
-  env: AgentTokensEnv,
-  threadId: string,
-): Promise<QueuedThreadMessage[]> {
-  try {
-    const raw = await env.AGENT_TOKENS.get(queueKey(threadId), { type: "text" });
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as QueuedThreadMessage[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+export async function enqueueThreadMessage(env: QueueEnv, threadId: string, text: string, clientKey?: string, resolve: QueueResolver = threadQueueFor) {
+  const queue = await migratedQueue(env, threadId, resolve);
+  return queue.enqueue(threadId, { id: `msg_${randomHex(8)}`, threadId, text,
+    ...(clientKey ? { clientKey } : {}), createdAt: Date.now() });
 }
 
-export async function enqueueThreadMessage(
-  env: AgentTokensEnv,
-  threadId: string,
-  text: string,
-  clientKey?: string,
-): Promise<{ message: QueuedThreadMessage; deduped: boolean }> {
-  const queue = await listQueuedMessages(env, threadId);
-  if (clientKey) {
-    const prior = queue.find((item) => item.clientKey === clientKey);
-    if (prior) return { message: prior, deduped: true };
-  }
-  const message: QueuedThreadMessage = {
-    id: `msg_${randomHex(8)}`,
-    threadId,
-    text,
-    ...(clientKey ? { clientKey } : {}),
-    createdAt: Date.now(),
-  };
-  queue.push(message);
-  try {
-    await env.AGENT_TOKENS.put(queueKey(threadId), JSON.stringify(queue));
-  } catch (error: unknown) {
-    console.warn(
-      `v1-message-queue: KV put failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
-    );
-  }
-  return { message, deduped: false };
+export async function removeQueuedMessage(env: QueueEnv, threadId: string, messageId: string, resolve: QueueResolver = threadQueueFor): Promise<QueuedThreadMessage | null> {
+  const queue = await migratedQueue(env, threadId, resolve);
+  const removed = (await queue.drain(threadId, Number.MAX_SAFE_INTEGER)).find(item => item.id === messageId);
+  if (!removed) return null;
+  return (await queue.ack([removed.id])).includes(removed.id) ? removed : null;
 }
 
-export async function removeQueuedMessage(
-  env: AgentTokensEnv,
-  threadId: string,
-  messageId: string,
-): Promise<QueuedThreadMessage | null> {
-  const queue = await listQueuedMessages(env, threadId);
-  const index = queue.findIndex((item) => item.id === messageId);
-  if (index < 0) return null;
-  const [removed] = queue.splice(index, 1);
-  try {
-    await env.AGENT_TOKENS.put(queueKey(threadId), JSON.stringify(queue));
-  } catch {
-    /* deny below */
-  }
-  return removed ?? null;
+export async function releaseQueuedMessage(env: QueueEnv, threadId: string, messageId: string, resolve: QueueResolver = threadQueueFor): Promise<void> {
+  await (await migratedQueue(env, threadId, resolve)).release(messageId);
 }
