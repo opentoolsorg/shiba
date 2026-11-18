@@ -14,6 +14,7 @@ import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useConversationRoomRealtime, type ConversationRoomMessage } from "./conversation-room-realtime";
 import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startDashboardObservability } from "./observability";
 import { HARNESS_REASONING_EFFORTS, MAX_RUN_ATTACHMENTS, MAX_RUN_ATTACHMENT_BYTES, MAX_RUN_ATTACHMENTS_TOTAL_BYTES, onboardingTaskText, deriveOnboardingStatus, type OnboardingStepStatus, type ReasoningEffort, type RunAttachment, type TeamOnboardingTask, type AcpProvidersSnapshot } from "@shiba/shared";
 import { normalizeRunStatus, type VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
@@ -80,6 +81,7 @@ import {
   type ConversationMode,
 } from "./conversation-mode";
 import { StepTimeline } from "./components/StepTimeline";
+import { UiBlockQuestions } from "./components/UiBlockQuestions";
 import { DiffView } from "./components/DiffView";
 import { ApprovalsView } from "./components/ApprovalsView";
 import { InboxTab } from "./components/InboxTab";
@@ -755,6 +757,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const verifiedAccount = useRef<string | null>(null);
   const retryIdentity = useCallback(() => setIdentityAttempt((n) => n + 1), []);
   const signedIn = orchestratorName !== null && identityIssue === null;
+  useEffect(() => {
+    if (signedIn) return startDashboardObservability();
+  }, [signedIn]);
   const teamIdentityAvailable = signedIn && /^[^\s@:]+@[^\s@:]+\.[^\s@:]+$/.test(orchestratorName ?? "");
   const teamDirectory = useTeamWorkspaceDirectory({ actorId: teamIdentityAvailable ? orchestratorName?.trim().toLowerCase() ?? null : null, enabled: teamIdentityAvailable });
   const roomRoute = useRoomLinkRoute(teamIdentityAvailable ? orchestratorName?.trim().toLowerCase() ?? null : null, teamDirectory);
@@ -3150,10 +3155,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     if (tab !== "steps" || task.kind !== "session" || task.id !== selectedSessionId ||
                       sessionRegistryOwner !== orchestratorName || agent.name !== chatAgentName ||
                       !agent.identified || agent.connectionError || !chat.messages.length) return undefined;
-                    return <StepTimeline messages={chat.messages}
+                    return <><StepTimeline messages={chat.messages}
                       isStreaming={chat.isStreaming || chat.status === "streaming"}
                       pendingApprovals={pendingApprovals} decisions={decisions}
-                      onDecideApproval={decideApproval} reviewAfterPublishById={reviewAfterPublishById} />;
+                      onDecideApproval={decideApproval} reviewAfterPublishById={reviewAfterPublishById} />
+                      {chatAgentName ? <UiBlockQuestions key={chatAgentName} runId={chatAgentName} sessionId={selectedSessionId} /> : null}</>;
                   }}
                   onSearchChange={(state) => {
                     const query = updateWorkSearch(new URLSearchParams(window.location.search), state).toString();
@@ -3600,6 +3606,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   className={`flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${threadHasWork ? "" : "hidden"}`}
                 >
                   {conversationMode === "chat" ? <RemoteAgentStream stream={realtimeRemoteStream} /> : null}
+                  {privateDataEnabled && chatAgentName && conversationMode !== "chat" ? <UiBlockQuestions key={chatAgentName} runId={chatAgentName} sessionId={selectedSessionId} /> : null}
                   {chat.messages.length > 0 ? (
                     <StepTimeline
                       messages={chat.messages}

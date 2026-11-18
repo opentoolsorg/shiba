@@ -54,7 +54,7 @@ function wrapSandboxStub(
       if (prop === "registerSandboxName") return value;
       return async (...args: unknown[]) => {
         await touch();
-        return (value as (...a: unknown[]) => unknown).apply(target, args);
+        return Reflect.apply(value, target, args);
       };
     },
   }) as DurableObjectStub<Sandbox> & SandboxRpcFacade;
