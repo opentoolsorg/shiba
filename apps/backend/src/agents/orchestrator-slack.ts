@@ -5,6 +5,7 @@ import { isActiveStatus, RunStore } from "../runs.js";
 import type { RunRoomIdentity } from "../run-room-events.js";
 import type { SlackAgentSessionIntent } from "../slack-agent-sessions.js";
 import type { OrchestratorState } from "./orchestrator.js";
+import type { Env } from "../env.js";
 
 export function slackCanvasOriginPatch(
   state: OrchestratorState,
@@ -12,11 +13,12 @@ export function slackCanvasOriginPatch(
   approvalId: string,
   origin: string | undefined,
   room?: RunRoomIdentity | null,
+  env: Pick<Env, "SHIBA_SCOPED_DO"> = {},
 ): Pick<
   OrchestratorState,
   "slackCanvasOrigins" | "slackCanvasThreadOrigin" | "slackCanvasRunRooms"
 > {
-  if (!origin || parseSlackCanvasOrigin(origin)?.orchestratorName !== name) return {};
+  if (!origin || parseSlackCanvasOrigin(origin, env)?.orchestratorName !== name) return {};
   return {
     slackCanvasOrigins: Object.fromEntries(
       [

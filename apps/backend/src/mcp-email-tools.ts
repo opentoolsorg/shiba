@@ -35,7 +35,7 @@
  */
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import type { Scope } from "./agent-tokens.js";
+import { orgIdForRecord, type Scope } from "./agent-tokens.js";
 import {
   emailApprovalBridgeReady,
   queueEmailApproval,
@@ -799,7 +799,7 @@ export function registerEmailTools(registry: ToolRegistry, env: Env): void {
                 : {}),
               draft_id: queued.id,
             },
-          });
+          }, { workspaceId: orgIdForRecord(ctx.principal) });
         } catch (error) {
           // Compensating unqueue: the CAS landed but no approval exists
           // to release the row — without this the draft strands `queued`
@@ -845,7 +845,7 @@ export function registerEmailTools(registry: ToolRegistry, env: Env): void {
           subject: input.subject,
           body_text: input.body,
         },
-      });
+      }, { workspaceId: orgIdForRecord(ctx.principal) });
       return jsonResult({
         status: "pending_approval",
         kind: "email_send",
@@ -892,7 +892,7 @@ export function registerEmailTools(registry: ToolRegistry, env: Env): void {
           thread_id: email.thread_id,
           in_reply_to_email_id: email.id,
         },
-      });
+      }, { workspaceId: orgIdForRecord(ctx.principal) });
       return jsonResult({
         status: "pending_approval",
         kind: "email_send",
@@ -992,7 +992,7 @@ export function registerEmailTools(registry: ToolRegistry, env: Env): void {
           subject: email.subject,
           from_addr: email.from_addr,
         },
-      });
+      }, { workspaceId: orgIdForRecord(ctx.principal) });
       return jsonResult({
         status: "pending_approval",
         kind: "email_delete",

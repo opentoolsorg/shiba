@@ -2718,7 +2718,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (input.collaborationHandoffId !== undefined && [input.draftTaskId, input.draftTaskVersion,
       input.onboardingSourceSnapshot, input.projectContextId].some((value) => value !== undefined))
       return Response.json({ error: "Room execution accepts only its explicitly selected shared context, never private onboarding or project context." }, { status: 403 });
-    if (trustedSlackOrigin && (input.threadKey !== trustedSlackOrigin || parseSlackCanvasOrigin(trustedSlackOrigin)?.orchestratorName !== this.name)) {
+    if (trustedSlackOrigin && (input.threadKey !== trustedSlackOrigin || parseSlackCanvasOrigin(trustedSlackOrigin, this.env)?.orchestratorName !== this.name)) {
       return Response.json({ error: "Slack origin does not match this conversation." }, { status: 403 });
     }
     const personalParsed = input.personalExecution === undefined ? null : personalExecutionSnapshotSchema.safeParse(input.personalExecution);
@@ -3320,7 +3320,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...this.state,
         pendingApprovals,
         ...(personalExecution ? { personalExecutionOnly: true as const } : {}),
-        ...slackCanvasOriginPatch(this.state, this.name, approvalId, trustedSlackOrigin, canvasRoom),
+        ...slackCanvasOriginPatch(this.state, this.name, approvalId, trustedSlackOrigin, canvasRoom, this.env),
         tasks: [...(this.state?.tasks ?? []), taskRecord].slice(-300),
         ...(queueCommandId !== undefined
           ? {
@@ -5833,7 +5833,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       // A restart loses the adapter's abort listener; revoke any mailbox claim
       // here too so a native CLI cannot outlive an unknown/cancelled run.
       // The mailbox preserves settled results and makes repeated cancel safe.
-      const response = await localDispatchStub(this.env).fetch(new Request("https://local-dispatch/cancel", {
+      // Legacy runs without a frozen or actor owner retain the default owner mailbox.
+      const response = await localDispatchStub(this.env, run.personalExecution?.ownerAccountId ?? initiatorUserIdFromOrchestratorName(this.name)).fetch(new Request("https://local-dispatch/cancel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sandboxId: run.sandboxId }),
@@ -5983,7 +5984,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const response = await Promise.race([
-        localDispatchStub(this.env).fetch(new Request(`https://local-dispatch/status?sandboxId=${encodeURIComponent(sandboxId)}`)),
+        // Orphaned legacy leak records have no run owner; use this actor's owner when available.
+        localDispatchStub(this.env, initiatorUserIdFromOrchestratorName(this.name)).fetch(new Request(`https://local-dispatch/status?sandboxId=${encodeURIComponent(sandboxId)}`)),
         new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Local identity lookup timed out")), 2_000); }),
       ]);
       if (!response.ok) return false;
@@ -6906,7 +6908,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/internal/slack-canvas") {
-      const origin = await verifySlackCanvasRequest(request, this.env.INTERNAL_SIGNING_KEY, this.name, Date.now(), this.env.SHIBA_LEGACY_SIGNING_FALLBACK);
+      const origin = await verifySlackCanvasRequest(request, this.env.INTERNAL_SIGNING_KEY, this.name, Date.now(), this.env.SHIBA_LEGACY_SIGNING_FALLBACK, this.env);
       const approvalId = url.searchParams.get("approval") ?? "";
       if (request.method !== "GET" || !origin || url.searchParams.get("origin") !== origin ||
         url.searchParams.getAll("origin").length !== 1 || url.searchParams.getAll("approval").length !== 1 ||
@@ -7528,7 +7530,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return super.onRequest(request);
     }
     if (request.method === "POST" && url.pathname === "/api/runs") {
-      const trustedSlackOrigin = await verifySlackCanvasIntake(request, this.env.INTERNAL_SIGNING_KEY, this.name, Date.now(), this.env.SHIBA_LEGACY_SIGNING_FALLBACK);
+      const trustedSlackOrigin = await verifySlackCanvasIntake(request, this.env.INTERNAL_SIGNING_KEY, this.name, Date.now(), this.env.SHIBA_LEGACY_SIGNING_FALLBACK, this.env);
       if (!trustedSlackOrigin && ["X-Shiba-Slack-Canvas-Origin", "X-Shiba-Slack-Canvas-Timestamp", "X-Shiba-Slack-Canvas-Signature"].some((header) => request.headers.has(header))) {
         return Response.json({ error: "Invalid Slack intake provenance." }, { status: 403 });
       }

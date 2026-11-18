@@ -145,6 +145,25 @@ The scope flag is an ownership cutover, not replication: the old root is not
 kept in sync with workspace writes. Rollback after live writes requires a
 deliberate state restore, not simply disabling the flag.
 
+The flag defaults OFF. MCP run, screen, and email-approval tools and public
+API-key run reads use the authenticated token's organization/workspace, never
+request-body scope. Slack slash commands use the signed Slack team and command
+channel scope; approval buttons resolve that same thread instance. The shared
+trigger bearer and dashboard mailbox sends have no workspace identity and use
+`self-hosted`. Local dispatch, cancellation, and Reason Network companion
+lookups use the authenticated/frozen owner; legacy ownerless jobs retain the
+default owner mailbox. Draft sweeps enumerate every team workspace through the
+existing workspace store plus `self-hosted`, and report each workspace failure
+without preventing the others from sweeping.
+
+Enable `SHIBA_SCOPED_DO=1` only on new deployments or after draining pending
+approvals, runs, and local dispatch claims. Existing CodingOrchestrator
+`"default"` state is NOT migrated into scoped instances (the automation-root
+import described above is separate). Before any scoped writes, rollback is
+simply removing the flag. After scoped writes, drain scoped work and deliberately
+restore/export the desired state before disabling it: disabling switches new
+requests back to the old default state and does not merge scoped history.
+
 Orchestrator state responsibilities live in `agents/orchestrator-runs.ts`,
 `orchestrator-approvals.ts`, `orchestrator-slack.ts`,
 `orchestrator-reviews.ts`, and `orchestrator-sessions.ts`.

@@ -21,15 +21,15 @@ export async function assertAdminOperator(
     throw new GovernanceError("Deployment operator required.", 403);
 }
 
-export async function listAdminWorkspaces(env: StoreEnv): Promise<AdminWorkspaceRow[]> {
+export async function listAdminWorkspaces(env: StoreEnv, limit = 100): Promise<AdminWorkspaceRow[]> {
   const rows = await env
     .AGENT_AUDIT!.prepare(
       `SELECT w.workspace_id AS workspaceId, w.name,
       (SELECT COUNT(*) FROM team_workspace_memberships m WHERE m.tenant_id=w.tenant_id AND m.workspace_id=w.workspace_id AND m.status='active') AS memberCount,
       (SELECT MAX(ts) FROM audit_log WHERE principal=w.workspace_id) AS lastActivity
-     FROM team_workspaces w WHERE w.tenant_id=? ORDER BY w.created_at DESC LIMIT 100`,
+     FROM team_workspaces w WHERE w.tenant_id=? ORDER BY w.created_at DESC LIMIT ?`,
     )
-    .bind(COLLAB_TENANT_ID)
+    .bind(COLLAB_TENANT_ID, limit)
     .all<AdminWorkspaceRow>();
   return rows.results.map((r) => ({ ...r, lastActivity: r.lastActivity ?? null }));
 }
