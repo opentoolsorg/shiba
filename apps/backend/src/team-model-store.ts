@@ -4,15 +4,16 @@ import {
   isTeamModelMoneyContract, teamModelFundingContractSchema,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
-import { COLLAB_TENANT_ID, ensureCollaborationSchema, getCollaborationMembership, getCollaborationRoom, humanActorId, listCollaborationMessages } from "./collaboration-store.js";
+import { COLLAB_TENANT_ID, getCollaborationMembership, getCollaborationRoom, humanActorId, listCollaborationMessages } from "./collaboration-store.js";
 import { snapshotCollaborationMemory, type CollaborationMemoryNote } from "./collaboration-memory.js";
 import { getCustomAgentById, listCustomAgents } from "./custom-agents-store.js";
+import { filterEmployeesByAccess, visibleEmployees as filterVisibleEmployees } from "./governance/employee-access.js";
 import { getTeamWorkspaceMembership } from "./team-workspaces-store.js";
 import { membershipSql, assertWorkspaceMemberCurrent, insertGuarded, updateGuarded } from "./workspace-integrations-store.js";
 import { resolveWorkspaceNativeGrantTarget, type WorkspaceNativeMember } from "./workspace-native-authority.js";
 import { hashToolArgs } from "./mcp-gateway.js";
 import { redactSecrets } from "./security.js";
-import { TEAM_MODEL_MONEY_SCHEMA, prepareTeamModelMoney, requireTeamModelMoney, teamModelLedgerDebitSql } from "./team-model-money.js";
+import { prepareTeamModelMoney, requireTeamModelMoney, teamModelLedgerDebitSql } from "./team-model-money.js";
 
 export class TeamModelError extends Error { constructor(readonly code: string, readonly status = 409) { super(code); } }
 function requireChanged(result: D1Result) { if (result.meta.changes !== 1) throw new TeamModelError("team_model_authority_or_version_changed"); }
@@ -77,37 +78,8 @@ export interface TeamModelInput {
   max_completion_tokens?: number; max_tokens?: number; stream: false; n?: 1; modalities?: ["text"]; tool_choice?: "none"; store?: false;
   chat_template_kwargs?: { enable_thinking: false };
 }
-const FUNDING_SCHEMA = `CREATE TABLE IF NOT EXISTS team_model_funding (
-  id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL,room_id TEXT NOT NULL,issuer_id TEXT NOT NULL,recipient_id TEXT NOT NULL,
-  version INTEGER NOT NULL,digest TEXT NOT NULL,binding_json TEXT NOT NULL,contract_json TEXT NOT NULL,policy_key TEXT NOT NULL,
-  state TEXT NOT NULL CHECK(state IN ('draft','active','revoked','blocked')),review_expires_at INTEGER NOT NULL,
-  used_requests INTEGER NOT NULL DEFAULT 0,reserved_input_bytes INTEGER NOT NULL DEFAULT 0,reserved_output_tokens INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)`;
-const TURN_SCHEMA = `CREATE TABLE IF NOT EXISTS team_model_turns (
-  id TEXT PRIMARY KEY,grant_id TEXT NOT NULL,workspace_id TEXT NOT NULL,room_id TEXT NOT NULL,requester_id TEXT NOT NULL,requester_account_id TEXT NOT NULL,
-  request_id TEXT NOT NULL,request_hash TEXT NOT NULL,version INTEGER NOT NULL,grant_version INTEGER NOT NULL,input_hash TEXT NOT NULL,
-  prompt TEXT NOT NULL,input_json TEXT NOT NULL,sources_json TEXT NOT NULL,input_bytes INTEGER NOT NULL,expires_at INTEGER NOT NULL,
-  status TEXT NOT NULL,output TEXT,error_code TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,dispatch_deadline INTEGER,
-  UNIQUE(workspace_id,requester_account_id,request_id))`;
-const AFFECTED = `(json_extract(binding_json,'$.issuerRoom.actorId')=OLD.actor_id OR json_extract(binding_json,'$.recipientRoom.actorId')=OLD.actor_id OR json_extract(binding_json,'$.employeeRoom.actorId')=OLD.actor_id)`;
-export const TEAM_MODEL_SCHEMA = [FUNDING_SCHEMA, TURN_SCHEMA, TEAM_MODEL_MONEY_SCHEMA,
-  `CREATE INDEX IF NOT EXISTS team_model_money_grant ON team_model_money_ledger(grant_id,state)`,
-  `CREATE INDEX IF NOT EXISTS team_model_money_workspace ON team_model_money_ledger(workspace_id,grant_id)`,
-  `CREATE INDEX IF NOT EXISTS team_model_room_funding ON team_model_funding(workspace_id,room_id,created_at)`,
-  `CREATE INDEX IF NOT EXISTS team_model_grant_turns ON team_model_turns(grant_id,status,created_at)`,
-  `CREATE TRIGGER IF NOT EXISTS team_model_room_membership_changed AFTER UPDATE OF status,role,capabilities_json,profile_version,user_id,actor_kind ON collaboration_memberships
-   WHEN OLD.status IS NOT NEW.status OR OLD.role IS NOT NEW.role OR OLD.capabilities_json IS NOT NEW.capabilities_json OR OLD.profile_version IS NOT NEW.profile_version OR OLD.user_id IS NOT NEW.user_id OR OLD.actor_kind IS NOT NEW.actor_kind
-   BEGIN UPDATE team_model_funding SET state='blocked',version=version+1 WHERE workspace_id=OLD.workspace_id AND room_id=OLD.room_id AND state IN ('draft','active') AND ${AFFECTED}; END`,
-  `CREATE TRIGGER IF NOT EXISTS team_model_room_membership_deleted AFTER DELETE ON collaboration_memberships
-   BEGIN UPDATE team_model_funding SET state='blocked',version=version+1 WHERE workspace_id=OLD.workspace_id AND room_id=OLD.room_id AND state IN ('draft','active') AND ${AFFECTED}; END`,
-] as const;
-const initialized = new WeakSet<D1Database>();
 export async function ensureTeamModelSchema(env: Env) {
   if (!env.AGENT_AUDIT) throw new TeamModelError("team_model_storage_unavailable", 503);
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await ensureCollaborationSchema(env); await listCustomAgents(env, "__team_model_schema__");
-  for (const sql of TEAM_MODEL_SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
-  initialized.add(env.AGENT_AUDIT);
 }
 export function fundingContract(row: TeamModelFundingRow): TeamModelFundingContract {
   let value: unknown;
@@ -446,7 +418,7 @@ export async function readTeamModelState(env: Env, member: WorkspaceNativeMember
     .bind(member.workspaceId, roomId).all<TeamModelFundingRow>();
   const turnRows = await env.AGENT_AUDIT.prepare("SELECT * FROM team_model_turns WHERE workspace_id=? AND room_id=? AND requester_id=? AND requester_account_id=? ORDER BY created_at DESC LIMIT 20")
     .bind(member.workspaceId, roomId, member.userId, member.accountId).all<TeamModelTurnRow>();
-  const employees = await listCustomAgents(env, `team:${member.workspaceId}`), visibleEmployees = [];
+  const employees = await filterVisibleEmployees(env, member.workspaceId, member.userId, await listCustomAgents(env, `team:${member.workspaceId}`)), visibleEmployees = [];
   for (const employee of employees) {
     try { const room = await participant(env, member, roomId, `agent:${employee.id}`); if (room.kind === "agent" && room.profileVersion === employee.version) visibleEmployees.push({ id: employee.id, name: employee.config.name, version: employee.version }); } catch { /* Not an active room employee. */ }
   }
@@ -462,10 +434,12 @@ export async function readTeamModelState(env: Env, member: WorkspaceNativeMember
   for (const turn of turnRows.results) snapshots.push({ kind: "turn", grant: byId.get(turn.grant_id)!, turn });
   const final = await finalModelReadFence(env, member, roomId, roomMember, snapshots);
   const operatorManager = final.some((row) => row.kind === "funder"), canFund = policy.enabled && operatorManager, proof = new Map(final.map((row) => [`${row.kind}:${row.id}`, row]));
+  const visibleFunding = await filterEmployeesByAccess(env, member, [...byId.values()], "view", (row) => fundingContract(row).employeeId);
+  const visibleGrantIds = new Set(visibleFunding.map((row) => row.id));
   return { ok: true, workspaceId: member.workspaceId, roomId, actorId: member.userId, enabled: policy.enabled, model: policy.model === TEAM_MODEL_TEXT_MODEL || policy.model === TEAM_MODEL_LLAMA_MODEL ? policy.model : null,
     policyDigest, canFund, unavailableReason: policy.reason,
     actors: canFund ? nativeActors : [], employees: visibleEmployees,
-    grants: [...byId.values()].filter((row) => { const binding = fundingBinding(row); return canFund || (binding.recipient.userId === member.userId && binding.recipient.accountId === member.accountId) || (binding.issuer.userId === member.userId && binding.issuer.accountId === member.accountId); })
+    grants: visibleFunding.filter((row) => { const binding = fundingBinding(row); return canFund || (binding.recipient.userId === member.userId && binding.recipient.accountId === member.accountId) || (binding.issuer.userId === member.userId && binding.issuer.accountId === member.accountId); })
       .map((row) => fundingDto(row, member, proof.get(`funding:${row.id}`), operatorManager, policy.enabled, row.policy_key === policy.key)),
-    turns: turnRows.results.map((row) => turnDto(row, byId.get(row.grant_id)!, proof.get(`turn:${row.id}`), policy.enabled, byId.get(row.grant_id)!.policy_key === policy.key)) };
+    turns: turnRows.results.filter((row) => visibleGrantIds.has(row.grant_id)).map((row) => turnDto(row, byId.get(row.grant_id)!, proof.get(`turn:${row.id}`), policy.enabled, byId.get(row.grant_id)!.policy_key === policy.key)) };
 }

@@ -15,6 +15,7 @@ export const TOOL_INPUT_MARKER = "SHIBA_AI_COWORKER_CODING_TASK_JSON";
 export const RESULT_MARKER = "SHIBA_AI_COWORKER_CODING_RESULT_JSON";
 
 const codingTaskInputSchema = z.object({
+  routineRun: z.object({ automationId: z.string().min(1), test: z.boolean() }).optional(),
   draftTaskId: draftTaskReferenceSchema.shape.draftTaskId.optional(),
   draftTaskVersion: draftTaskReferenceSchema.shape.draftTaskVersion.optional(),
   onboardingSourceSnapshot: onboardingSourceSnapshotSchema.optional(),
@@ -136,7 +137,7 @@ const codingTaskInputSchema = z.object({
   dispatchEnvelopeHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   dispatchIssuedAt: z.number().int().nonnegative().optional(),
   dispatchExpiresAt: z.number().int().positive().optional(),
-  dispatchSig: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  dispatchSig: z.string().regex(/^(?:v1:[a-f0-9]{16}:)?[a-f0-9]{64}$/).optional(),
 });
 
 const codingTaskInputWithRouteSchema = codingTaskInputSchema.superRefine((input, ctx) => {
@@ -189,6 +190,7 @@ const changedFileSchema = z.object({
 });
 
 const codingTaskResultSchema = z.object({
+  routineOutcome: z.object({ noUpdate: z.boolean(), failureReason: z.string().max(500).optional() }).optional(),
   status: z.enum(["completed", "error"]),
   /** Runtime uncertainty survives the structured child boundary without parsing prose. */
   errorCode: z.enum(["outcome_unknown", "container_lost"]).optional(),

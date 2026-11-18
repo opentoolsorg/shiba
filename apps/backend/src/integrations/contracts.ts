@@ -16,6 +16,8 @@ export interface IntegrationCatalogQuery {
   limit: number;
   query?: string;
   readiness?: IntegrationProviderSetupState;
+  /** Curated shelf: only these service IDs, in this order. */
+  services?: readonly string[];
   userId: string;
 }
 

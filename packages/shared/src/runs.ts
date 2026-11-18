@@ -38,6 +38,19 @@ export type RunStatus =
   | "unknown";
 
 export interface DelegatedRun extends OnboardingRunFields {
+  routineRun?: { automationId: string; test: boolean };
+  routineOutcome?: { noUpdate: boolean; failureReason?: string };
+  sandboxMeter?: import("./usage-budget.js").SandboxMeter;
+  /**
+   * Set while the usage budget holds this run: it stays queued until the
+   * named `budget_override` approval resolves. `"run"` means the per-run
+   * limit; `"daily"`/`"monthly"` mean the period limit was reached.
+   */
+  budgetHold?: {
+    approvalId: string;
+    blockedPeriods: ("daily" | "monthly" | "run")[];
+    at: number;
+  };
   outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   runId: string;
   sandboxId: string;
@@ -249,6 +262,7 @@ export function mergeRunUsage(base: RunUsage | undefined, delta: RunUsage | unde
 }
 
 export type RunPatch = {
+  routineOutcome?: { noUpdate: boolean; failureReason?: string };
   summary?: string;
   /** Public metadata for captured requested outputs. */
   deliverables?: RunDeliverable[];

@@ -2,25 +2,19 @@
  * Email approval bridge (megaplan task 7). Task 6's send/delete tools
  * never execute the action they name — they freeze the requested
  * operation into an {@link EmailApprovalRequest} and enqueue it here as
- * a pending approval on the shared "default" orchestrator, so the same
+ * a pending approval on the workspace orchestrator, so the same
  * Slack-card / dashboard resolve path releases it verbatim on approve.
  *
  * The frozen payload is authoritative: the executor routes and sends
  * against `record.payload` alone — a queued draft is immutable by then
  * anyway, so the send path never re-reads it.
  */
-import { getAgentByName } from "agents/routing";
+import { orchestratorFor, orchestratorNameFor, type DoScope } from "./platform/do-resolver.js";
 import type { Env } from "./env.js";
 import { mailboxStub, registeredMailbox } from "./mailbox-do.js";
 import { ADDRESS_RE, randomHex } from "./mailbox-store.js";
 import type { PendingApproval } from "./pending-approvals.js";
 import { InputError } from "./security.js";
-
-// The shared orchestrator instance name — slack-routes.ts exports it as
-// ORCHESTRATOR_NAME, but importing it here would close a type-level
-// cycle (env.CodingOrchestrator → orchestrator → this → slack-routes →
-// env.CodingOrchestrator) that blows past TS's instantiation depth.
-const ORCHESTRATOR_NAME = "default";
 
 /** Operations the email executor knows how to release. */
 export type EmailApprovalKind = "email_send" | "email_delete";
@@ -70,18 +64,17 @@ export function emailApprovalBridgeReady(env: Env): boolean {
 }
 
 /**
- * Queue the frozen request as a pending approval on the shared
- * orchestrator — the same `/api/runs` route the automations use, so the
- * dashboard's Approvals tab lists it like any other approval through
- * `GET /api/approvals`. `threadKey` stays `"default"`: the resolve
- * surface probes the shared DO by that name, so the pointer must name
- * the instance that holds the record.
+ * Queue the frozen request on the owning workspace orchestrator. The
+ * pointer names that same instance so approval resolution reaches its record.
+ * With scoped addressing disabled both remain `"default"`.
  */
 export async function queueEmailApproval(
   env: Env,
   request: EmailApprovalRequest,
+  scope: DoScope = {},
 ): Promise<EmailApprovalResult> {
-  const stub = await getAgentByName(env.CodingOrchestrator, ORCHESTRATOR_NAME);
+  // Dashboard mailbox sends have no workspace identity; MCP callers supply their verified org.
+  const stub = await orchestratorFor(env, scope);
   const queued = await stub.fetch(
     new Request("https://internal/api/runs", {
       method: "POST",
@@ -90,7 +83,7 @@ export async function queueEmailApproval(
         kind: request.kind,
         mailbox: request.mailbox,
         payload: request.payload,
-        threadKey: ORCHESTRATOR_NAME,
+        threadKey: orchestratorNameFor(env, scope),
       }),
     }),
   );

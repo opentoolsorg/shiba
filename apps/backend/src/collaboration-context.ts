@@ -1,8 +1,7 @@
 import { isSlackCoworkerExecutionCurrent } from "./slack-coworker-store.js";
 import type { Env } from "./env.js";
 import {
-  CollaborationStoreError, type CollaborationScope, type CollaborationMessageRow, ensureCollaborationSchema,
-  getActiveCollaborationMembership, getCollaborationHandoff, getCollaborationMembership, humanActorId,
+  CollaborationStoreError, type CollaborationScope, type CollaborationMessageRow, getActiveCollaborationMembership, getCollaborationHandoff, getCollaborationMembership, humanActorId,
   isCollaborationHandoffDispatchable, isCollaborationSlackRoomAudienceAuthorized,
   listCollaborationMessages,
 } from "./collaboration-store.js";
@@ -18,18 +17,6 @@ interface ContextSnapshot {
 }
 interface SnapshotRow { snapshot_json: string; approval_id: string | null; approved_task_sha256: string | null }
 interface ValidationBudget { remaining: number; trail: Set<string> }
-const initialized = new WeakSet<D1Database>();
-
-async function schema(env: Env): Promise<void> {
-  await ensureCollaborationSchema(env);
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await env.AGENT_AUDIT.prepare(`CREATE TABLE IF NOT EXISTS collaboration_context_snapshots (
-    tenant_id TEXT NOT NULL, workspace_id TEXT NOT NULL, room_id TEXT NOT NULL,
-    handoff_id TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL, approval_id TEXT, approved_task_sha256 TEXT,
-    FOREIGN KEY(room_id) REFERENCES collaboration_rooms(room_id) ON DELETE CASCADE
-  )`).run();
-  initialized.add(env.AGENT_AUDIT);
-}
 
 async function hash(value: unknown): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
@@ -85,7 +72,6 @@ function selection(messageIds: unknown, memoryRefs: unknown): { messageIds: stri
 }
 
 async function row(env: Env, handoffId: string): Promise<SnapshotRow | null> {
-  await schema(env);
   return env.AGENT_AUDIT.prepare("SELECT snapshot_json,approval_id,approved_task_sha256 FROM collaboration_context_snapshots WHERE handoff_id=?")
     .bind(handoffId).first<SnapshotRow>();
 }
@@ -320,7 +306,6 @@ async function currentAtDepth(env: Env, handoffId: string, task: string | undefi
   try {
     if (budget.remaining-- <= 0 || budget.trail.size >= 4 || budget.trail.has(handoffId)) return false;
     budget.trail = new Set(parentTrail).add(handoffId);
-    await schema(env);
     const handoff = await env.AGENT_AUDIT.prepare(`SELECT tenant_id,workspace_id,room_id,sender_user_id,recipient_actor_id,recipient_user_id,
       status,approval_id,profile_version FROM collaboration_handoffs WHERE handoff_id=?
       AND (SELECT COUNT(*) FROM collaboration_handoffs duplicate WHERE duplicate.handoff_id=collaboration_handoffs.handoff_id)=1`).bind(handoffId).first<{

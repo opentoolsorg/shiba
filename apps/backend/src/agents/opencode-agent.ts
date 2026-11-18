@@ -15,6 +15,7 @@ import {
   type ToolSet,
 } from "ai";
 import type { Env } from "../env.js";
+import { recordRunOutcome } from "../observability.js";
 import { publishFilesAsPullRequest } from "../github.js";
 import {
   addPullToProject,
@@ -71,6 +72,7 @@ import { ExecutionRecoveryStore, type ExecutionRecoveryStorage } from "../execut
 import { createRunJournalPublisher } from "../run-journal-publisher.js";
 import type { PreparedRuntimeExecution } from "../runtime-recovery.js";
 import { prepareRunOutputArchive } from "../run-output-archive-admission.js";
+import { isQuietRoutine } from "../routine-outcome.js";
 
 export async function pinSandboxEgress(
   env: Env,
@@ -195,8 +197,9 @@ export function createSandboxOps(
  * intra-deployment DO stub; the bearer-token front door is for the
  * operator daemon only, so these calls carry no credential.
  */
-function workerLocalDispatchClient(env: Env): LocalDispatchClient {
-  const stub = () => localDispatchStub(env);
+function workerLocalDispatchClient(env: Env, ownerId?: string): LocalDispatchClient {
+  // Legacy operator jobs have no authenticated owner and retain the default owner mailbox.
+  const stub = () => localDispatchStub(env, ownerId);
   return {
     async dispatch(envelope, targetMachineId, dashboardOwnerId) {
       const res = await stub().fetch(new Request("https://local-dispatch/dispatch", {
@@ -388,7 +391,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
                 throw new Error(LOCAL_DISPATCH_MESSAGE);
               }
               adapter = createRuntimeAdapter("local", harness, {
-                client: workerLocalDispatchClient(this.env),
+                client: workerLocalDispatchClient(this.env, input.personalExecution?.ownerAccountId ?? input.initiatorUserId),
               });
             } else {
               adapter = createRuntimeAdapter(runtimeName, harness);
@@ -544,7 +547,12 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
           let pullUrl: string | undefined;
           let screenshotUrl: string | undefined;
           let browserE2eManifestUrl: string | undefined;
-          if (result.status === "completed" && input.publishPullRequest && input.deferPullRequestPublish === true) {
+          const publishPullRequest = input.publishPullRequest && (!input.routineRun ||
+            result.changedFiles.length > 0 || result.files.length > 0 || result.diff.trim() !== "");
+          if (result.status === "completed" && input.routineRun && publishPullRequest && result.routineOutcome?.noUpdate) {
+            result = { ...result, routineOutcome: { ...result.routineOutcome, noUpdate: false } };
+          }
+          if (result.status === "completed" && publishPullRequest && input.deferPullRequestPublish === true) {
             if (!input.accessAgent || !input.dispatchApprovalId) throw new Error("Publication proposals require the approved run owner and identity.");
             const publicationProposal = await stagePrPublishApproval(this.env, {
               ownerId: input.accessAgent,
@@ -559,7 +567,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             result = { ...result, publicationProposal };
             checkCancelled();
           }
-          if (result.status === "completed" && input.publishPullRequest && input.deferPullRequestPublish !== true) {
+          if (result.status === "completed" && publishPullRequest && input.deferPullRequestPublish !== true) {
             const published = await this.publishResult(input, result, signal);
             pullUrl = published.pullUrl;
             screenshotUrl = published.screenshotUrl;
@@ -571,8 +579,10 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             noteSignal("pr.opened", pullUrl);
           }
           const safeResult = this.uiResult(result);
-          await slackProgress?.finish(safeResult.status === "completed" ? "completed" : "error", safeResult.summary);
-          if (roomPublisher) {
+          const quiet = isQuietRoutine({ routineRun: input.routineRun, routineOutcome: safeResult.routineOutcome, status: safeResult.status === "completed" ? "completed" : "error" });
+          if (!quiet) await slackProgress?.finish(safeResult.status === "completed" ? "completed" : "error",
+            safeResult.routineOutcome?.failureReason ? `Routine run failed: ${safeResult.routineOutcome.failureReason}` : safeResult.summary);
+          if (roomPublisher && !quiet) {
             await roomPublisher.publish({ kind: "status", status: result.status, message: safeResult.summary });
             await roomPublisher.flush().catch(() => write("Live stream delivery is unavailable."));
           }
@@ -611,10 +621,16 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             else await recoveryStore.failed(input);
           }
           write(finalText);
+          (this.ctx as DurableObjectState | undefined)?.waitUntil?.(
+            recordRunOutcome(this.env, safeResult.status === "completed" ? "completed" : "failed"),
+          );
           writer.write({ type: "text-end", id });
           if (safeResult.status === "error") writer.write({ type: "error", errorText: safeResult.summary });
           writer.write({ type: "finish", finishReason: safeResult.status === "error" ? "error" : "stop" });
         } catch (error) {
+          (this.ctx as DurableObjectState | undefined)?.waitUntil?.(
+            recordRunOutcome(this.env, signal?.aborted ? "cancelled" : "failed"),
+          );
           if (executionInput && recoveryStore) await recoveryStore.failed(executionInput).catch(() => undefined);
           const summary = deadlineSignal?.aborted
             ? "Run execution deadline expired."
@@ -657,6 +673,10 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
 
   private uiResult(result: CodingTaskResult): CodingTaskResult {
     return {
+      ...(result.routineOutcome ? { routineOutcome: {
+        noUpdate: result.routineOutcome.noUpdate,
+        ...(result.routineOutcome.failureReason ? { failureReason: this.safeText(result.routineOutcome.failureReason, 500) } : {}),
+      } } : {}),
       status: result.status,
       ...(result.errorCode ? { errorCode: result.errorCode } : {}),
       exitCode: result.exitCode,

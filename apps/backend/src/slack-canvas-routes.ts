@@ -71,7 +71,7 @@ export async function handleSlackCanvas(request: Request, env: Env, deps: SlackC
     const internal = new URL("https://internal/internal/slack-canvas");
     internal.searchParams.set("origin", origin);
     internal.searchParams.set("approval", approvalId);
-    const signed = await signSlackCanvasRequest(new Request(internal), env.INTERNAL_SIGNING_KEY ?? "", origin);
+    const signed = await signSlackCanvasRequest(new Request(internal), env.INTERNAL_SIGNING_KEY ?? "", origin, Date.now(), env);
     const response = await stub.fetch(signed);
     if (!response.ok) return json({ error: "Slack canvas not found." }, response.status === 503 ? 503 : 404);
     snapshot = await response.json();

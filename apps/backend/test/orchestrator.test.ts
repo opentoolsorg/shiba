@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodingOrchestrator, delegateInputSchema } from "../src/agents/orchestrator.js";
 import type { OrchestratorState } from "../src/agents/orchestrator.js";
-import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { HARNESS_IDS, LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER, runInputHash } from "@shiba/shared";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { createCustomAgent, updateCustomAgent } from "../src/custom-agents-store.js";
@@ -443,12 +443,13 @@ describe("employee tool policy in normal chat turns", () => {
       role: "user",
       metadata: { shibaTask: { customAgentId: employee.id, orgId: "self-hosted" } },
     }] });
-    const tools = { run_code: {}, employee_tool_catalog: {}, employee_tool_call: {}, delegate_coding_task: {} };
+    const tools = { run_code: {}, employee_tool_catalog: {}, employee_tool_call: {}, tool_search: {}, tool_describe: {}, tool_call: {}, delegate_coding_task: {} };
     const turn = () => instance.beforeTurn({ tools, system: "base system" } as never);
 
     const legacy = await turn();
     expect(legacy.activeTools).toContain("run_code");
     expect(legacy.activeTools).not.toContain("employee_tool_catalog");
+    expect(legacy.activeTools).not.toContain("tool_search");
 
     const configured = await updateCustomAgent(instance.env, "self-hosted", employee.id, {
       ...employee.config, toolScopes: ["mcp:shiba:run_status"],
@@ -460,8 +461,9 @@ describe("employee tool policy in normal chat turns", () => {
     });
     const configuredTurn = await turn();
     expect(configuredTurn.activeTools).not.toContain("run_code");
-    expect(configuredTurn.activeTools).toContain("employee_tool_catalog");
-    expect(configuredTurn.activeTools).toContain("employee_tool_call");
+    expect(configuredTurn.activeTools).toEqual(expect.arrayContaining(["tool_search", "tool_describe", "tool_call"]));
+    expect(configuredTurn.activeTools).not.toContain("employee_tool_catalog");
+    expect(configuredTurn.activeTools).not.toContain("employee_tool_call");
 
     const cleared = await updateCustomAgent(instance.env, "self-hosted", employee.id, {
       ...configured.config, toolScopes: [],
@@ -474,6 +476,8 @@ describe("employee tool policy in normal chat turns", () => {
     expect(revokedTurn.activeTools).not.toContain("run_code");
     expect(revokedTurn.activeTools).not.toContain("employee_tool_catalog");
     expect(revokedTurn.activeTools).not.toContain("employee_tool_call");
+    expect(revokedTurn.activeTools).not.toContain("tool_search");
+    expect(revokedTurn.activeTools).not.toContain("tool_call");
   });
 });
 
@@ -1157,7 +1161,7 @@ describe("orchestrator run routes", () => {
     const instance = agent();
     instance.setState({ runs: [{ ...retained(), queuedBy: "owner", subagentBudgetRemaining: 2,
       approval: { approvalId: "parent-plan", decidedBy: "human", decidedAt: Date.now(), inputHash: "parent-input" } }] });
-    const response = await instance.onRequest(new Request(`https://internal${path}`, {
+    const response = await sendWorkerRequest(instance, new Request(`https://internal${path}`, {
       method: "POST", headers: { "X-Agent-Principal": "intruder" },
       body: JSON.stringify({ parentRunId: "r1", task: "inspect", sandboxMode: "fresh" }),
     }));
@@ -1192,7 +1196,7 @@ describe("orchestrator run routes", () => {
     Object.assign(instance, { dispatchApprovedRun: dispatch });
     instance.setState({ runs: [{ ...retained(), queuedBy: "owner", subagentBudgetRemaining: 2,
       approval: { approvalId: "parent-plan", decidedBy: "human", decidedAt: Date.now(), inputHash: "parent-input" } }] });
-    const response = await instance.onRequest(new Request("https://internal/api/runs/r1/subagents", {
+    const response = await sendWorkerRequest(instance, new Request("https://internal/api/runs/r1/subagents", {
       method: "POST", headers: { "X-Agent-Principal": "owner" },
       body: JSON.stringify({ task: "inspect", sandboxMode: "fresh", queuedBy: "forged" }),
     }));
@@ -1581,7 +1585,7 @@ describe("isolated team execution ownership", () => {
     const input = { task: "Draft a report from the selected room facts.", repoUrl: "https://github.com/o/r", publishPullRequest: false,
       orgId: `team:${workspace.workspaceId}`, customAgentId: profile.id, customAgentVersion: 1,
       collaborationHandoffId: handoffId, threadKey: executor, commandId: handoffId };
-    const queue = (change: Record<string, unknown> = {}) => instance.onRequest(new Request("https://internal/api/runs", {
+    const queue = (change: Record<string, unknown> = {}) => sendWorkerRequest(instance, new Request("https://internal/api/runs", {
       method: "POST", headers: { "Content-Type": "application/json", [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }, body: JSON.stringify({ ...input, ...change }),
     }));
     const link = (approvalId: string) => linkCollaborationHandoffRun(instance.env, scope, handoffId, approvalId, `agent-tool:${approvalId}`);
@@ -2089,7 +2093,7 @@ describe("run reliability", () => {
 });
 
 describe("complete skill prompt approval boundary", () => {
-  const queue = (instance: CodingOrchestrator, task: string, count: number) => instance.onRequest(new Request("https://internal/api/runs", {
+  const queue = (instance: CodingOrchestrator, task: string, count: number) => sendWorkerRequest(instance, new Request("https://internal/api/runs", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Shiba-Intake": "dashboard" },
     body: JSON.stringify({

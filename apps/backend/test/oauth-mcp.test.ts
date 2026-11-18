@@ -55,7 +55,14 @@ class FakeKV {
 function makeEnv() {
   const kv = new FakeKV();
   const { database: d1, sqlite } = externalMcpD1();
+  const counts = new Map<string, number>();
   const env = {
+    MCP_RATE_LIMIT: { limit: async () => ({ success: true }) },
+    OAUTH_RATE_LIMIT: { limit: async ({ key }: { key: string }) => {
+      const count = (counts.get(key) ?? 0) + 1;
+      counts.set(key, count);
+      return { success: count <= 10 };
+    } },
     AGENT_TOKENS: kv as unknown as KVNamespace,
     AGENT_AUDIT: d1,
   } as unknown as Env;
@@ -374,11 +381,43 @@ describe("authorize + exchange", () => {
 describe("rate limiting + audit", () => {
   it("rate-limits grant issuance and audits the register call", async () => {
     const { env, sqlite } = makeEnv();
-    for (let i = 0; i < 20; i++) await register(env);
+    for (let i = 0; i < 10; i++) expect((await register(env)).response!.status).toBe(201);
     const over = await register(env);
     expect(over.response!.status).toBe(429);
     const auditRows = sqlite.prepare("SELECT tool FROM audit_log WHERE tool = 'oauth.register'").all() as { tool: string }[];
     expect(auditRows.length).toBeGreaterThan(0);
+  });
+});
+
+describe("authorize issuance rate limiting", () => {
+  it("uses a dedicated budget independent of MCP traffic and registration", async () => {
+    const { env } = makeEnv();
+    env.MCP_RATE_LIMIT = { limit: vi.fn(async () => ({ success: false })) } as RateLimit;
+    let clientId = "";
+    for (let i = 0; i < 10; i++) {
+      const { response, body } = await register(env);
+      expect(response!.status).toBe(201);
+      clientId = body.client_id as string;
+    }
+    expect((await register(env)).response!.status).toBe(429);
+    for (let i = 0; i < 10; i++) {
+      expect((await authorizePost(env, clientId, "v".repeat(64)))!.status).toBe(302);
+    }
+    expect((await authorizePost(env, clientId, "v".repeat(64)))!.status).toBe(429);
+    expect(env.MCP_RATE_LIMIT.limit).not.toHaveBeenCalled();
+  });
+});
+
+describe("rate limiter availability", () => {
+  it("denies issuance if the binding is absent or fails", async () => {
+    const { env } = makeEnv();
+    const { body } = await register(env);
+    delete env.OAUTH_RATE_LIMIT;
+    expect((await register(env)).response!.status).toBe(429);
+    expect((await authorizePost(env, body.client_id as string, "v".repeat(64)))!.status).toBe(429);
+    env.OAUTH_RATE_LIMIT = { limit: async () => { throw new Error("unavailable"); } } as RateLimit;
+    expect((await register(env)).response!.status).toBe(429);
+    expect((await authorizePost(env, body.client_id as string, "v".repeat(64)))!.status).toBe(429);
   });
 });
 

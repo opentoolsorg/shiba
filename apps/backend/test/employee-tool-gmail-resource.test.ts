@@ -34,7 +34,7 @@ import { createEmployeeRunTools } from "../src/employee-run-tools.js";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
 import { createWebSession, buildSessionAgentName } from "../src/web-sessions.js";
 import { handleEmployeeDraftRequest, type EmployeeDraft, type EmployeeDraftStore, type EmployeeReadReceipt } from "../src/employee-drafts.js";
-import { ensureGmailSchema, encryptGmailToken, GMAIL_SCOPE } from "../src/gmail.js";
+import { assertGmailStorage, encryptGmailToken, GMAIL_SCOPE } from "../src/gmail.js";
 import { handleEmployeeTools } from "../src/employee-tool-routes.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { preparedGoal } from "./fixtures/onboarding-goal.js";
@@ -105,7 +105,7 @@ function gmailProviderMock() {
 }
 
 async function seedSelectedMessage(env: Env): Promise<void> {
-  await ensureGmailSchema(env);
+  await assertGmailStorage(env);
   const refreshCipher = await encryptGmailToken("mock-refresh-token", TOKEN_KEY, OWNER, CONNECTION_ID);
   await env.AGENT_AUDIT.prepare(`INSERT INTO gmail_connections
     (id, owner, email, refresh_cipher, created_at, active) VALUES (?, ?, ?, ?, ?, 1)`)
@@ -221,10 +221,10 @@ describe("employee-run Gmail selected-resource policy", () => {
       messages: [{ role: "user", parts: [{ type: "text", text: goal?.task ?? "Review the message" }], metadata: { ...(goal ? { shibaDraftTaskId: goal.reference.draftTaskId, shibaDraftTaskVersion: goal.reference.draftTaskVersion } : {}), shibaMode: "work", shibaWorkTarget: "app-tools", shibaTask: { customAgentId: "forged-composer-profile", orgId: "forged-composer-org" } } }],
     }) as CodingOrchestrator;
     const tools = instance.getTools();
-    expect(Object.keys(tools).sort()).toEqual(["employee_context_read", "employee_retain_draft", "employee_tool_call", "employee_tool_catalog", "get_skill_instructions", "list_skills"]);
+    expect(Object.keys(tools).sort()).toEqual(["employee_context_read", "employee_retain_draft", "employee_tool_call", "employee_tool_catalog", "get_skill_instructions", "list_skills", "tool_call", "tool_describe", "tool_search"]);
     expect(sessionState.delegated).not.toHaveBeenCalled();
     const turn = () => instance.beforeTurn({ tools: { ...tools, delegate_coding_task: {}, run_code: {}, broad_builtin: {} }, system: "Work" } as never);
-    expect((await turn()).activeTools?.sort()).toEqual([...(withGoal ? ["employee_context_read"] : []), "employee_retain_draft", "employee_tool_call", "employee_tool_catalog", "get_skill_instructions", "list_skills"]);
+    expect((await turn()).activeTools?.sort()).toEqual([...(withGoal ? ["employee_context_read"] : []), "employee_retain_draft", "get_skill_instructions", "list_skills", "tool_call", "tool_describe", "tool_search"]);
     if (goal) expect((await turn()).instructions).toContain("SELECTED ONBOARDING SOURCES");
     const workMessages = instance.messages;
     Object.assign(instance, { messages: [{ role: "user", metadata: { shibaMode: "chat", shibaWorkTarget: "app-tools" } }] });

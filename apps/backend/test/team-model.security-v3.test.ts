@@ -8,6 +8,8 @@ import { createCollaborationRoom, addCollaborationMember, createCollaborationMes
 import { createCollaborationMemory } from "../src/collaboration-memory.js";
 import { createCustomAgent } from "../src/custom-agents-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { setEmployeeAccess } from "../src/governance/employee-access.js";
+import { enforceEmployeeRouteAccess } from "../src/governance/employee-route-auth.js";
 
 const user = vi.hoisted(() => ({ email: "operator@example.test", native: true, accounts: {} as Record<string, string>, afterNative: undefined as (() => void) | undefined }));
 vi.mock("@shiba/auth/better-auth", async (original) => ({ ...await original<typeof import("@shiba/auth/better-auth")>(), resolveBetterAuthSessionAccount: async () => {
@@ -23,11 +25,10 @@ type TurnReceipt = { id: string; version: number; inputHash: string; status: str
 function aiResponse(content: string) { return { id: `fixture_${crypto.randomUUID()}`, model: TEAM_MODEL_TEXT_MODEL, usage: { prompt_tokens: 32, completion_tokens: 8, total_tokens: 40 }, choices: [{ message: { content } }] }; }
 async function fixture(enabled = true) {
   const db = customAgentD1();
-  db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT,kind TEXT)');
   for (const email of [OPERATOR, MEMBER, MANAGER, "other@example.test"]) {
     const id = crypto.randomUUID(); user.accounts[email] = id;
-    db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(id, email);
-    db.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?,?)").run(id, email, email === OPERATOR ? "bootstrap" : "invited");
+    db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(id, email);
+    db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) SELECT ?,?,kind,CASE WHEN kind='invited' THEN 'fixture-invite' END,CASE WHEN kind='invited' THEN 'fixture-workspace' END FROM (SELECT ? AS kind)").run(id, email, email === OPERATOR ? "bootstrap" : "invited");
   }
   const calls: Array<{ model: string; input: Record<string, unknown>; signal: AbortSignal }> = [];
   let held: Promise<unknown> | undefined, release: ((result: unknown) => void) | undefined;
@@ -94,6 +95,31 @@ function seedHistory(f: Awaited<ReturnType<typeof fixture>>, grant: string, tota
   }
 }
 describe("independent cumulative funding security v3", () => {
+  it("keeps visible employee funding and turns when another employee becomes hidden", async () => {
+    const f = await fixture();
+    const second = await createCustomAgent(f.env, `team:${f.workspace.workspaceId}`, "second-writer", { name: "Second writer", instructions: "Write text", harness: "opencode" });
+    await addCollaborationMember(f.env, { tenantId: "self-hosted", workspaceId: f.workspace.workspaceId, userId: OPERATOR }, f.roomId, { userId: OPERATOR, actorId: `agent:${second.id}`, displayName: second.config.name, kind: "agent", profileVersion: second.version, createdAt: 5 });
+    const hiddenGrant = await f.fund(), hiddenTurn = await f.turn(hiddenGrant);
+    const shownGrant = await f.fund({ employeeId: second.id, employeeVersion: second.version }), shownTurn = await f.turn(shownGrant);
+    const state = async () => {
+      const request = f.request(`/state?roomId=${f.roomId}`);
+      expect(await enforceEmployeeRouteAccess(request, f.env)).toBeNull();
+      const result = await f.call(`/state?roomId=${f.roomId}`);
+      expect(result.response.status).toBe(200);
+      return result.body as { employees: Array<{ id: string }>; grants: Array<{ id: string }>; turns: Array<{ id: string }> };
+    };
+    expect((await state()).grants.map((row) => row.id).sort()).toEqual([hiddenGrant.id, shownGrant.id].sort());
+    await setEmployeeAccess(f.env, f.workspace.workspaceId, f.employee.id, OPERATOR, { principalKind: "user", principalId: MEMBER, level: "none" });
+    const filtered = await state();
+    expect(filtered.employees.map((row) => row.id)).not.toContain(f.employee.id);
+    expect(filtered.grants.map((row) => row.id)).toEqual([shownGrant.id]);
+    expect(filtered.turns.map((row) => row.id)).toEqual([shownTurn.id]);
+    expect(JSON.stringify(filtered)).not.toContain(hiddenTurn.id);
+    await setEmployeeAccess(f.env, f.workspace.workspaceId, second.id, OPERATOR, { principalKind: "user", principalId: MEMBER, level: "none" });
+    expect(await state()).toMatchObject({ employees: [], grants: [], turns: [] });
+    user.email = "other@example.test";
+    expect((await f.call(`/state?roomId=${f.roomId}`)).response.status).toBe(403);
+  });
   it.each(["confirmed", "unknown"])("serializes two distinct grants at the permanent actor ceiling including %s history", async (state) => {
     const f = await fixture();
     const prior = await f.fund(), a = await f.fund(), b = await f.fund();

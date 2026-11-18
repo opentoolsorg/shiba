@@ -32,14 +32,15 @@
  * The five lines below mirror the shipped pin, recorded for provenance;
  * keep them in step with `wrangler.jsonc` or delete them, but do not read
  * them as defaults:
- *   orchestrator → codex                    (OpenAI-class planning)
- *   explorer     → codex                    (gpt-6-sol)
- *   fixer        → claude-code              (sonnet-5-5)
- *   reviewer     → opencode                 (opencode-go/gpt-6.1-sol — Sol on
- *                                            the opencodex lane; the pin wins
- *                                            over the PR review automation's
- *                                            per-run REVIEW_RUN_MODEL)
- *   designer     → claude-code              (opus-5-5)
+ *   orchestrator → codex-subscription       (openai-subscription/gpt-6.2-sol —
+ *                                            the operator's ChatGPT plan)
+ *   explorer     → opencode                 (google/gemini-3.5-flash-lite —
+ *                                            the free-tier model)
+ *   fixer        → opencode                 (google/gemini-3.5-flash-lite)
+ *   reviewer     → opencode                 (google/gemini-3.5-flash-lite; the
+ *                                            pin wins over the PR review
+ *                                            automation's per-run REVIEW_RUN_MODEL)
+ *   designer     → opencode                 (google/gemini-3.5-flash-lite)
  */
 import { AGENT_ROLES, isJsonObject, type AgentRole } from "@shiba/shared";
 import type { DashboardRolePin } from "../model-connections.js";

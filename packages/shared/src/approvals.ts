@@ -43,11 +43,13 @@ export interface JsonObject {
 /**
  * What an approval gates. `"run"` covers sandboxed delegation runs;
  * `"email_send"`/`"email_delete"` cover the frozen mailbox payloads the
- * orchestrator executes on approve instead of dispatching a run. Records
+ * orchestrator executes on approve instead of dispatching a run.
+ * `"budget_override"` releases a run the usage budget holds — approving
+ * dispatches that held run past the budget gate. Records
  * written before email approvals existed carry no `kind` — readers treat
  * absent as `"run"`.
  */
-export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge" | "pr_publish";
+export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge" | "pr_publish" | "budget_override";
 
 /** Stable provenance pointer for reviewed skill text frozen into an approval. */
 export interface SkillExecutionPin {
@@ -84,6 +86,7 @@ export function isJsonObject(value: unknown): value is Record<string, JsonValue>
 }
 
 export interface PendingApproval extends OnboardingRunFields {
+  routineRun?: { automationId: string; test: boolean };
   /** Explicit bounded sanitized-output retention reviewed with this exact run. */
   outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   threadKey: string;
@@ -171,6 +174,12 @@ export interface PendingApproval extends OnboardingRunFields {
   kind?: ApprovalKind;
   /** Frozen email send/delete input for email-kind approvals. */
   payload?: JsonValue;
+  /**
+   * `"budget_override"` only: the held run this approval releases. The
+   * run waits in the registry; approving dispatches it past the budget
+   * gate instead of minting a new run.
+   */
+  budgetHoldRunId?: string;
   status: "pending" | "approved" | "rejected";
   createdAt: number;
   decidedBy?: string;
@@ -198,6 +207,7 @@ export interface ApprovalExecution {
 }
 
 export interface CreateApprovalInput extends OnboardingRunFields {
+  routineRun?: { automationId: string; test: boolean };
   outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   threadKey: string;
   approvalId: string;
@@ -241,6 +251,8 @@ export interface CreateApprovalInput extends OnboardingRunFields {
   role?: AgentRole;
   kind?: ApprovalKind;
   payload?: JsonValue;
+  /** `"budget_override"` only: the held run released by this approval. */
+  budgetHoldRunId?: string;
   queuedBy?: string;
   createdAt: number;
 }
@@ -264,6 +276,7 @@ export function createPendingApproval(
       repoUrl: input.repoUrl,
       ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget } : {}),
       ...(input.outputArchive !== undefined ? { outputArchive: { ...input.outputArchive } } : {}),
+      ...(input.routineRun ? { routineRun: { ...input.routineRun } } : {}),
       task: input.task,
       ...(input.baseBranch !== undefined ? { baseBranch: input.baseBranch } : {}),
       ...(input.publishPullRequest !== undefined ? { publishPullRequest: input.publishPullRequest } : {}),
@@ -298,6 +311,7 @@ export function createPendingApproval(
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
       ...(input.payload !== undefined ? { payload: input.payload } : {}),
+      ...(input.budgetHoldRunId !== undefined ? { budgetHoldRunId: input.budgetHoldRunId } : {}),
       ...(input.queuedBy !== undefined ? { queuedBy: input.queuedBy } : {}),
       status: "pending",
       createdAt: input.createdAt,
@@ -417,6 +431,7 @@ export interface ApprovalEvidence {
 
 /** The fields the human approves — the input-hash surface. */
 export interface RunInputFields extends OnboardingRunFields {
+  routineRun?: { automationId: string; test: boolean };
   outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   repoUrl: string;
   /** Included in the approval hash; absent on legacy repository runs. */
@@ -559,6 +574,7 @@ export function runInputHash(input: RunInputFields): string {
     repoUrl: input.repoUrl,
     ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget as unknown as JsonValue } : {}),
     ...(input.outputArchive !== undefined ? { outputArchive: input.outputArchive as unknown as JsonValue } : {}),
+    ...(input.routineRun ? { routineRun: input.routineRun as unknown as JsonValue } : {}),
     task: input.task,
     baseBranch: input.baseBranch,
     publishPullRequest: input.publishPullRequest,
