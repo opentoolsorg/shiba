@@ -443,12 +443,13 @@ describe("employee tool policy in normal chat turns", () => {
       role: "user",
       metadata: { shibaTask: { customAgentId: employee.id, orgId: "self-hosted" } },
     }] });
-    const tools = { run_code: {}, employee_tool_catalog: {}, employee_tool_call: {}, delegate_coding_task: {} };
+    const tools = { run_code: {}, employee_tool_catalog: {}, employee_tool_call: {}, tool_search: {}, tool_describe: {}, tool_call: {}, delegate_coding_task: {} };
     const turn = () => instance.beforeTurn({ tools, system: "base system" } as never);
 
     const legacy = await turn();
     expect(legacy.activeTools).toContain("run_code");
     expect(legacy.activeTools).not.toContain("employee_tool_catalog");
+    expect(legacy.activeTools).not.toContain("tool_search");
 
     const configured = await updateCustomAgent(instance.env, "self-hosted", employee.id, {
       ...employee.config, toolScopes: ["mcp:shiba:run_status"],
@@ -460,8 +461,9 @@ describe("employee tool policy in normal chat turns", () => {
     });
     const configuredTurn = await turn();
     expect(configuredTurn.activeTools).not.toContain("run_code");
-    expect(configuredTurn.activeTools).toContain("employee_tool_catalog");
-    expect(configuredTurn.activeTools).toContain("employee_tool_call");
+    expect(configuredTurn.activeTools).toEqual(expect.arrayContaining(["tool_search", "tool_describe", "tool_call"]));
+    expect(configuredTurn.activeTools).not.toContain("employee_tool_catalog");
+    expect(configuredTurn.activeTools).not.toContain("employee_tool_call");
 
     const cleared = await updateCustomAgent(instance.env, "self-hosted", employee.id, {
       ...configured.config, toolScopes: [],
@@ -474,6 +476,8 @@ describe("employee tool policy in normal chat turns", () => {
     expect(revokedTurn.activeTools).not.toContain("run_code");
     expect(revokedTurn.activeTools).not.toContain("employee_tool_catalog");
     expect(revokedTurn.activeTools).not.toContain("employee_tool_call");
+    expect(revokedTurn.activeTools).not.toContain("tool_search");
+    expect(revokedTurn.activeTools).not.toContain("tool_call");
   });
 });
 
