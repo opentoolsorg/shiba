@@ -14,7 +14,7 @@
  * Telegram redelivers on any non-2xx, so an authenticated update is acked
  * at once and the work runs behind `ctx.waitUntil`, deduped on `update_id`.
  */
-import { buildChatThreadName, buildDecisionData, parseDecisionData } from "@shiba/shared";
+import { buildDecisionData, parseDecisionData } from "@shiba/shared";
 import {
   CARD_TASK_LIMIT,
   chatApprovalText,
@@ -27,14 +27,20 @@ import {
   telegramApi,
   type ResolveOrchestrator,
 } from "./chat-lane.js";
+import {
+  createTelegramAdapter,
+  TELEGRAM_SECRET_HEADER,
+  telegramTransport,
+  type TelegramCall,
+} from "./channels/telegram/index.js";
+import type { ChannelAdapter, InboundAction, InboundMessage } from "./ports/channel/index.js";
 import type { Env } from "./env.js";
 import { tryAnswerUiBlockFallback } from "./ui-block-fallback.js";
 import { redactSecrets } from "./security.js";
 import { isApprover, parseApproverAllowlist, type ExecutionContextLike } from "./slack-approval.js";
-import { timingSafeEqual } from "./slack.js";
 
 export const TELEGRAM_WEBHOOK_PATH = "/api/telegram/webhook";
-export const TELEGRAM_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token";
+export { TELEGRAM_SECRET_HEADER };
 export const TELEGRAM_USAGE = "Usage: /shiba <github-repo-url> <task>";
 
 const COMMAND = /^\/shiba(?:@\w+)?(?=\s|$)/i;
@@ -47,33 +53,11 @@ export function clearSeenTelegramUpdates(): void {
   seenUpdates.clear();
 }
 
-interface TelegramUser {
-  id?: number;
-  username?: string;
-  first_name?: string;
-}
-
-interface TelegramMessage {
-  message_id?: number;
-  chat?: { id?: number };
-  from?: TelegramUser;
-  text?: string;
-}
-
-interface TelegramCallbackQuery {
-  id?: string;
-  from?: TelegramUser;
-  data?: string;
-  message?: TelegramMessage;
-}
-
 export interface TelegramUpdate {
   update_id?: number;
-  message?: TelegramMessage;
-  callback_query?: TelegramCallbackQuery;
+  message?: unknown;
+  callback_query?: unknown;
 }
-
-type TelegramCall = (method: string, body: Record<string, unknown>) => Promise<unknown>;
 
 export interface TelegramDeps {
   /** Bot API call; defaults to api.telegram.org with TELEGRAM_BOT_TOKEN. */
@@ -84,23 +68,20 @@ export interface TelegramDeps {
   dedupe?: (updateId: string) => Promise<boolean>;
 }
 
-function displayName(user: TelegramUser | undefined): string {
-  if (user?.username) return `@${user.username}`;
-  return user?.first_name || String(user?.id ?? "unknown");
-}
+const NUMERIC_ID = /^-?\d+$/;
 
-async function handleMessage(message: TelegramMessage, env: Env, call: TelegramCall, deps: TelegramDeps): Promise<void> {
-  const chatId = message.chat?.id;
-  const messageId = message.message_id;
-  const text = message.text?.trim() ?? "";
-  if (typeof chatId !== "number" || typeof messageId !== "number") return;
-  const reply = (body: Record<string, unknown>) =>
-    call("sendMessage", {
-      chat_id: chatId,
-      reply_parameters: { message_id: messageId, allow_sending_without_reply: true },
-      ...body,
+async function handleMessage(message: InboundMessage, env: Env, adapter: ChannelAdapter, deps: TelegramDeps): Promise<void> {
+  const chatId = message.placeId;
+  const text = message.text.trim();
+  if (!NUMERIC_ID.test(chatId) || !NUMERIC_ID.test(message.messageId)) return;
+  const reply = (body: { text: string; reply_markup?: unknown }) =>
+    adapter.post({
+      placeId: chatId,
+      replyToMessageId: message.messageId,
+      text: body.text,
+      ...(body.reply_markup ? { native: { reply_markup: body.reply_markup } } : {}),
     });
-  if (await tryAnswerUiBlockFallback(env, buildChatThreadName("telegram", String(chatId)), String(message.from?.id ?? ""), text.replace(COMMAND, "").trim())) {
+  if (await tryAnswerUiBlockFallback(env, message.conversationKey, message.authorId, text.replace(COMMAND, "").trim())) {
     await reply({ text: "Answer recorded." });
     return;
   }
@@ -111,7 +92,7 @@ async function handleMessage(message: TelegramMessage, env: Env, call: TelegramC
   if (!COMMAND.test(text)) return;
   const parsed = parseChatTaskRequest({
     text: text.replace(COMMAND, ""),
-    conversationId: String(chatId),
+    conversationId: chatId,
     repoMap: env.TELEGRAM_CHAT_REPOS,
     mapName: "TELEGRAM_CHAT_REPOS",
     usage: TELEGRAM_USAGE,
@@ -122,10 +103,10 @@ async function handleMessage(message: TelegramMessage, env: Env, call: TelegramC
   }
   const queued = await queueChatRun(env, {
     platform: "telegram",
-    threadKey: buildChatThreadName("telegram", String(chatId)),
+    threadKey: message.conversationKey,
     repoUrl: parsed.repoUrl,
     task: parsed.task,
-    userId: String(message.from?.id ?? ""),
+    userId: message.authorId,
     harness: env.TELEGRAM_AGENT_HARNESS ?? env.AGENT_HARNESS,
   }, deps.resolveOrchestrator);
   if ("error" in queued) {
@@ -144,30 +125,36 @@ async function handleMessage(message: TelegramMessage, env: Env, call: TelegramC
   // Telegram's message cap is 4096; a task over the card limit posts in full
   // right after the card so Approve never signs off on hidden text.
   for (const chunk of chatTaskChunks(parsed.task, CARD_TASK_LIMIT, 3900)) {
-    await call("sendMessage", { chat_id: chatId, text: chunk });
+    await adapter.post({ placeId: chatId, text: chunk });
   }
 }
 
-async function handleCallback(query: TelegramCallbackQuery, env: Env, call: TelegramCall, deps: TelegramDeps): Promise<void> {
-  const queryId = query.id ?? "";
+async function handleCallback(
+  query: InboundAction,
+  env: Env,
+  call: TelegramCall,
+  adapter: ChannelAdapter,
+  deps: TelegramDeps,
+): Promise<void> {
+  const queryId = query.actionId;
   if (!queryId) return;
   const answer = (text: string, alert = false) =>
     call("answerCallbackQuery", { callback_query_id: queryId, text, show_alert: alert });
-  const decision = parseDecisionData(query.data ?? "");
-  const chatId = query.message?.chat?.id;
-  if (!decision || typeof chatId !== "number") {
+  const decision = parseDecisionData(query.value);
+  const chatId = query.placeId;
+  if (!decision || !NUMERIC_ID.test(chatId)) {
     await answer("This button is not a Shiba approval.", true);
     return;
   }
   // The secret token authenticates Telegram, not the human. Empty list = nobody.
-  const userId = String(query.from?.id ?? "");
+  const userId = query.actorId;
   if (!isApprover(userId, parseApproverAllowlist(env.TELEGRAM_APPROVERS))) {
     await answer("You are not on the approver list.", true);
     return;
   }
   const result = await decideChatApproval(env, {
     platform: "telegram",
-    threadKey: buildChatThreadName("telegram", String(chatId)),
+    threadKey: query.conversationKey,
     approvalId: decision.approvalId,
     approved: decision.approved,
     decidedBy: `telegram:${userId}`,
@@ -178,16 +165,15 @@ async function handleCallback(query: TelegramCallbackQuery, env: Env, call: Tele
   }
   const { approved, requestedApproved } = result;
   await answer(approved ? "Approved — run starting." : "Rejected — no run started.");
-  const messageId = query.message?.message_id;
-  if (typeof messageId !== "number") return;
+  const messageId = query.messageId;
+  if (messageId === undefined || !NUMERIC_ID.test(messageId)) return;
   const who =
     approved === requestedApproved
-      ? displayName(query.from)
+      ? query.actorName ?? query.actorId
       : "an earlier decision";
-  await call("editMessageText", {
-    chat_id: chatId,
-    message_id: messageId,
-    text: `${query.message?.text ?? "Approval"}\n\n${decisionLine(approved, who)}`,
+  await adapter.edit({
+    ref: { placeId: chatId, messageId },
+    text: `${query.messageText ?? "Approval"}\n\n${decisionLine(approved, who)}`,
   }).catch((error: unknown) => {
     console.error("Telegram approval card update failed", redactSecrets(String(error)));
   });
@@ -207,20 +193,15 @@ export async function handleTelegramWebhook(
   if (url.pathname !== TELEGRAM_WEBHOOK_PATH || request.method !== "POST") {
     return null;
   }
+  const rawBody = await request.text();
+  const verified = await telegramTransport.verify(rawBody, request.headers, env);
+  if (!verified.ok) {
+    return Response.json({ error: verified.error }, { status: verified.status });
+  }
   const token = env.TELEGRAM_BOT_TOKEN?.trim() ?? "";
-  const secret = env.TELEGRAM_WEBHOOK_SECRET?.trim() ?? "";
-  if (!token || !secret) {
-    return Response.json(
-      { error: "Telegram is not configured: set TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET." },
-      { status: 503 },
-    );
-  }
-  if (!timingSafeEqual(request.headers.get(TELEGRAM_SECRET_HEADER) ?? "", secret)) {
-    return Response.json({ error: "Invalid Telegram secret token." }, { status: 401 });
-  }
   let update: unknown;
   try {
-    update = await request.json();
+    update = JSON.parse(rawBody);
   } catch {
     return Response.json({ error: "Telegram update is not valid JSON." }, { status: 400 });
   }
@@ -243,11 +224,14 @@ export async function handleTelegramWebhook(
     }
   }
   seenUpdates.add(key);
-  const call = deps.call ?? ((method: string, payload: Record<string, unknown>) => telegramApi(token, method, payload));
-  const work = (body.callback_query
-    ? handleCallback(body.callback_query, env, call, deps)
-    : body.message
-      ? handleMessage(body.message, env, call, deps)
+  const call: TelegramCall = deps.call ??
+    ((method, payload) => telegramApi(token, method, payload));
+  const adapter = createTelegramAdapter({ token, call });
+  const inbound = telegramTransport.parse(rawBody);
+  const work = (inbound?.kind === "action"
+    ? handleCallback(inbound, env, call, adapter, deps)
+    : inbound?.kind === "message"
+      ? handleMessage(inbound, env, adapter, deps)
       : Promise.resolve()
   ).catch((error: unknown) => {
     console.error("Telegram update failed", redactSecrets(String(error)));

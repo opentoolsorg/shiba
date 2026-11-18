@@ -14,6 +14,7 @@
  */
 import { buildChatThreadName, buildDecisionData, parseDecisionData, parseEmployeeDecisionData } from "@shiba/shared";
 import { seenDelivery } from "./automations-stub.js";
+import { DISCORD_INTERACTION, discordTransport } from "./channels/discord/index.js";
 import {
   CARD_TASK_LIMIT,
   chatApprovalText,
@@ -37,53 +38,13 @@ import { tryAnswerUiBlockFallback } from "./ui-block-fallback.js";
 import { redactSecrets } from "./security.js";
 import { isApprover, parseApproverAllowlist, type ExecutionContextLike } from "./slack-approval.js";
 
+export { DISCORD_REPLAY_WINDOW_SECONDS, verifyDiscordRequest } from "./channels/discord/index.js";
+
 export const DISCORD_INTERACTIONS_PATH = "/api/discord/interactions";
 export const DISCORD_COMMAND = "shiba";
 export const DISCORD_USAGE = "Usage: /shiba task:<task> repo:<github-repo-url>";
-/** Same bound as the Slack replay window. */
-export const DISCORD_REPLAY_WINDOW_SECONDS = 300;
-
-const PING = 1;
-const APPLICATION_COMMAND = 2;
-const MESSAGE_COMPONENT = 3;
+const { PING, APPLICATION_COMMAND, MESSAGE_COMPONENT } = DISCORD_INTERACTION;
 const EPHEMERAL = 64;
-
-function hexBytes(hex: string) {
-  if (!/^(?:[0-9a-f]{2})+$/i.test(hex)) return null;
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) {
-    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return out;
-}
-
-/** True only for a well-formed, fresh, valid Ed25519 signature over `timestamp + body`. */
-export async function verifyDiscordRequest(
-  body: string,
-  headers: Headers,
-  publicKey: string,
-  now: number = Date.now(),
-): Promise<boolean> {
-  const key = hexBytes(publicKey.trim());
-  const signature = hexBytes(headers.get("x-signature-ed25519") ?? "");
-  const timestamp = headers.get("x-signature-timestamp") ?? "";
-  if (!key || key.length !== 32 || !signature || signature.length !== 64 || !/^\d+$/.test(timestamp)) {
-    return false;
-  }
-  if (Math.abs(now / 1000 - Number(timestamp)) > DISCORD_REPLAY_WINDOW_SECONDS) {
-    return false;
-  }
-  try {
-    const cryptoKey = await crypto.subtle.importKey("raw", key, { name: "Ed25519" }, false, ["verify"]);
-    return await crypto.subtle.verify({ name: "Ed25519" }, cryptoKey, signature, new TextEncoder().encode(timestamp + body));
-  } catch {
-    return false;
-  }
-}
-
-interface DiscordUser {
-  id?: string;
-}
 
 interface DiscordInteraction {
   id?: string;
@@ -91,10 +52,7 @@ interface DiscordInteraction {
   application_id?: string;
   token?: string;
   channel_id?: string;
-  member?: { user?: DiscordUser };
-  user?: DiscordUser;
-  data?: { name?: string; custom_id?: string; options?: Array<{ name?: string; value?: unknown }> };
-  message?: { content?: string };
+  data?: { name?: string };
 }
 
 export interface DiscordDeps {
@@ -132,14 +90,11 @@ export async function handleDiscordInteractions(
   if (url.pathname !== DISCORD_INTERACTIONS_PATH || request.method !== "POST") {
     return null;
   }
-  const publicKey = env.DISCORD_PUBLIC_KEY?.trim() ?? "";
-  if (!publicKey) {
-    return Response.json({ error: "Discord is not configured: set DISCORD_PUBLIC_KEY." }, { status: 503 });
-  }
   // The raw body is the exact signed payload — parse the JSON after verifying.
   const rawBody = await request.text();
-  if (!(await verifyDiscordRequest(rawBody, request.headers, publicKey))) {
-    return Response.json({ error: "Invalid Discord signature." }, { status: 401 });
+  const verified = await discordTransport.verify(rawBody, request.headers, env);
+  if (!verified.ok) {
+    return Response.json({ error: verified.error }, { status: verified.status });
   }
   let interaction: DiscordInteraction;
   try {
@@ -150,6 +105,7 @@ export async function handleDiscordInteractions(
   if (interaction.type === PING) {
     return Response.json({ type: 1 });
   }
+  const inbound = discordTransport.parse(rawBody);
   // Discord retries interactions inside the signature window; dedupe on the
   // server-assigned interaction id so a replayed signed payload cannot queue
   // a second run. Dedupe failures fail open (a duplicate is recoverable, a
@@ -163,7 +119,7 @@ export async function handleDiscordInteractions(
   }
   const applicationId = interaction.application_id ?? "";
   const token = interaction.token ?? "";
-  const userId = interaction.member?.user?.id ?? interaction.user?.id ?? "";
+  const userId = inbound?.kind === "action" ? inbound.actorId : inbound?.authorId ?? "";
   let threadKey: string;
   try {
     threadKey = buildChatThreadName("discord", interaction.channel_id ?? "");
@@ -193,10 +149,8 @@ export async function handleDiscordInteractions(
     if (interaction.data?.name !== DISCORD_COMMAND) {
       return ephemeral("Unknown command.");
     }
-    const option = (name: string) => {
-      const value = interaction.data?.options?.find((o) => o.name === name)?.value;
-      return typeof value === "string" ? value : "";
-    };
+    const options = inbound?.kind === "message" ? inbound.command?.options ?? {} : {};
+    const option = (name: string) => options[name] ?? "";
     const channelId = threadKey.slice("discord:".length);
     if (await tryAnswerUiBlockFallback(env, threadKey, userId, option("task"))) return ephemeral("Answer recorded.");
     const parsed = parseChatTaskRequest({
@@ -285,7 +239,7 @@ export async function handleDiscordInteractions(
   }
 
   if (interaction.type === MESSAGE_COMPONENT) {
-    const employeeDecision = parseEmployeeDecisionData(interaction.data?.custom_id ?? "");
+    const employeeDecision = parseEmployeeDecisionData(inbound?.kind === "action" ? inbound.value : "");
     if (employeeDecision) {
       if (!isApprover(userId, parseApproverAllowlist(env.DISCORD_APPROVERS))) {
         return ephemeral("You are not on the approver list.");
@@ -303,14 +257,14 @@ export async function handleDiscordInteractions(
           return;
         }
         await send("PATCH", `${webhook}/messages/@original`, {
-          content: `${interaction.message?.content ?? "Employee approval"}\n\n${decisionLine(employeeDecision.approved, `<@${userId}>`)}`,
+          content: `${(inbound?.kind === "action" ? inbound.messageText : undefined) ?? "Employee approval"}\n\n${decisionLine(employeeDecision.approved, `<@${userId}>`)}`,
           components: [],
           allowed_mentions: NO_MENTIONS,
         });
       });
       return Response.json({ type: 6 });
     }
-    const decision = parseDecisionData(interaction.data?.custom_id ?? "");
+    const decision = parseDecisionData(inbound?.kind === "action" ? inbound.value : "");
     if (!decision) {
       return ephemeral("This button is not a Shiba approval.");
     }
@@ -332,7 +286,7 @@ export async function handleDiscordInteractions(
       }
       // Empty components retire the buttons so the card can't be pressed again.
       await send("PATCH", `${webhook}/messages/@original`, {
-        content: `${interaction.message?.content ?? "Approval"}\n\n${decisionLine(result.approved, result.approved === decision.approved ? `<@${userId}>` : "an earlier decision")}`,
+        content: `${(inbound?.kind === "action" ? inbound.messageText : undefined) ?? "Approval"}\n\n${decisionLine(result.approved, result.approved === decision.approved ? `<@${userId}>` : "an earlier decision")}`,
         components: [],
         allowed_mentions: NO_MENTIONS,
       });

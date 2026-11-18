@@ -19,7 +19,7 @@ export function useRoutines(enabled: boolean, refreshToken = 0) {
         const response = await fetch("/api/automations");
         if (!response.ok) throw new Error(`Routines request failed (${response.status}).`);
         const body = await response.json() as { automations?: RoutineRecord[] };
-        if (current && generation === requestGeneration) { setRoutines((body.automations ?? []).filter((item) => item.triggers.some((trigger) => trigger.kind === "schedule"))); setError(""); }
+        if (current && generation === requestGeneration) { setRoutines((body.automations ?? []).filter((item) => item.triggers.some((trigger) => trigger.kind === "schedule" || trigger.kind === "webhook"))); setError(""); }
       } catch (cause) { if (current && generation === requestGeneration) setError(cause instanceof Error ? cause.message : "Could not load routines."); }
     };
     void load();
@@ -35,9 +35,68 @@ function routineOutcome(outcome: string | undefined, triggered: boolean): string
   return labels[outcome] ?? "Unknown";
 }
 
+interface RoutineHistoryRun {
+  id: string;
+  status: string;
+  outcome: "normal" | "quiet" | "failed";
+  failure_reason: string | null;
+  answer_summary: string | null;
+  created_at: number;
+}
+
+function RoutineHistory({ record }: { record: RoutineRecord }) {
+  const [runs, setRuns] = useState<RoutineHistoryRun[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let current = true;
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/automations/${encodeURIComponent(record.id)}`);
+        if (!response.ok) throw new Error(`Could not load recent runs (${response.status}).`);
+        const body = await response.json() as { runs?: RoutineHistoryRun[] };
+        if (current) { setRuns(body.runs ?? []); setError(""); }
+      } catch (cause) {
+        if (current) setError(cause instanceof Error ? cause.message : "Could not load recent runs.");
+      }
+    };
+    void load();
+    return () => { current = false; };
+  }, [record]);
+  return <div className="w-full min-w-0">
+    {error ? <p role="alert" className="text-xs text-[var(--destructive-fg)]">{error}</p> : null}
+    {runs.length ? <ul aria-label={`Recent runs for ${routineInfo(record).name}`} className="divide-y divide-[var(--border-1)] border-t border-[var(--border-1)]">
+      {runs.map((run) => {
+        const timestamp = <time dateTime={new Date(run.created_at).toISOString()} className="text-xs font-normal tabular-nums text-[var(--muted-foreground-2)]">{new Date(run.created_at).toLocaleString()}</time>;
+        return <li key={run.id} className="py-2">
+          {run.outcome === "quiet" ? <details>
+            <summary className="min-h-11 cursor-pointer content-center break-words rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--fg)]">No update <span className="ml-2">{timestamp}</span></summary>
+            <p className="mt-1 whitespace-pre-wrap break-words text-[var(--muted-foreground-2)]">{run.answer_summary || "No answer recorded."}</p>
+          </details> : <>
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1"><span className={run.outcome === "failed" || run.status === "failed" ? "font-medium text-[var(--destructive-fg)]" : ""}>{run.outcome === "failed" || run.status === "failed" ? "Failed" : run.status === "terminal" ? "Completed" : run.status === "awaiting_approval" ? "Waiting for approval" : run.status === "dispatched" ? "Dispatched" : routineOutcome(run.status, true)}</span>{timestamp}</p>
+            {run.failure_reason ? <p className="mt-1 whitespace-pre-wrap break-words">{run.failure_reason}</p> : null}
+            {run.answer_summary ? <p className="mt-1 whitespace-pre-wrap break-words text-[var(--muted-foreground-2)]">{run.answer_summary}</p> : null}
+          </>}
+        </li>;
+      })}
+    </ul> : null}
+  </div>;
+}
+
 export function RoutinesList({ routines, error, onChanged }: { routines: RoutineRecord[]; error?: string; onChanged(): void }) {
   const [busy, setBusy] = useState("");
   const [mutationError, setMutationError] = useState("");
+  const [revealed, setRevealed] = useState<{ id: string; secret: string } | null>(null);
+  const changeSecret = async (id: string, method: "POST" | "DELETE") => {
+    setBusy(id); setMutationError(""); setRevealed(null);
+    try {
+      const response = await fetch(`/api/automations/${encodeURIComponent(id)}/hook-secret`, { method });
+      const body = await response.json() as { hookSecret?: string; error?: string };
+      if (!response.ok) throw new Error(body.error || "Could not change webhook secret.");
+      if (body.hookSecret) setRevealed({ id, secret: body.hookSecret });
+      onChanged();
+    } catch (cause) { setMutationError(cause instanceof Error ? cause.message : "Could not change webhook secret."); }
+    finally { setBusy(""); }
+  };
   const toggle = async (routine: RoutineRecord) => {
     setBusy(routine.id); setMutationError("");
     try {
@@ -54,11 +113,18 @@ export function RoutinesList({ routines, error, onChanged }: { routines: Routine
       const routine = routineInfo(record);
       return <article key={record.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-1)] py-3 text-sm">
         <div className="min-w-0"><h3 className="break-words font-medium">{routine.name}</h3>
-          <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">Repeats {routineCadence(routine.schedule, routine.timezone).replace(/^Every /, "every ")}</p>
+          <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">{routine.schedule ? `Repeats ${routineCadence(routine.schedule, routine.timezone).replace(/^Every /, "every ")}` : "Webhook routine"}</p>
           <p className="mt-1 text-xs">{record.enabled ? `Next run: ${routine.nextRunAt ? new Date(routine.nextRunAt).toLocaleString(undefined, { timeZone: routine.timezone }) : "Unavailable"}` : "Paused"}</p>
           <p className="mt-1 text-xs">Last run: {routineOutcome(record.occurrences?.at(-1)?.outcome, Boolean(record.lastTriggeredAt))}</p>
+          {record.triggers.some((trigger) => trigger.kind === "webhook") ? <div className="mt-2 flex flex-wrap items-center gap-2">
+            <code className="break-all">{`${window.location.origin}/api/hooks/${encodeURIComponent(record.id)}`}</code>
+            <button type="button" className={control} disabled={busy === record.id} onClick={() => void changeSecret(record.id, "POST")}>Rotate secret</button>
+            <button type="button" className={control} disabled={busy === record.id} onClick={() => void changeSecret(record.id, "DELETE")}>Revoke secret</button>
+            {revealed?.id === record.id ? <div><p>Save this secret now. It will not be shown again.</p><code className="break-all">{revealed.secret}</code><button type="button" className={control} onClick={() => void navigator.clipboard.writeText(revealed.secret).catch(() => setMutationError("Could not copy secret."))}>Copy secret</button><button type="button" className={control} onClick={() => setRevealed(null)}>Hide secret</button></div> : null}
+          </div> : null}
         </div>
         <button type="button" role="switch" aria-checked={record.enabled} aria-label={`Enable ${routine.name}`} disabled={busy === record.id} className={control} onClick={() => void toggle(record)}>{record.enabled ? "On" : "Off"}</button>
+        <RoutineHistory record={record} />
       </article>;
     })}
   </section>;
