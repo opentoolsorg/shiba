@@ -42,7 +42,7 @@ describe("employee extension skill runtime", () => {
     expect(Object.keys(tools)).not.toContain("run_code");
     expect(Object.keys(tools)).not.toContain("delegate_coding_task");
     const turn = await instance.beforeTurn({ tools, system: "base" } as never);
-    expect(turn.activeTools).toEqual(["list_skills", "get_skill_instructions"]);
+    expect(turn.activeTools).toEqual(["ask_ui", "list_skills", "get_skill_instructions"]);
     expect(turn.instructions).toContain("Style: Short drafts");
     expect(turn.instructions).not.toContain("Write short paragraphs.");
     expect(turn.instructions).not.toContain("Private: Secret");

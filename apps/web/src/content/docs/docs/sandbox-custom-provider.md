@@ -60,7 +60,7 @@ Set `SHIBA_SANDBOX_PROVIDER=my-hypervisor`. If you cannot enforce Worker-side eg
 ## Conformance tests
 
 ```typescript
-import { describeSandboxProviderContract } from "@shiba/sandbox";
+import { describeSandboxProviderContract } from "@shiba/sandbox/contract";
 
 describeSandboxProviderContract("my-hypervisor", () => createMyProvider());
 ```

@@ -38,6 +38,17 @@ export type RunStatus =
   | "unknown";
 
 export interface DelegatedRun extends OnboardingRunFields {
+  sandboxMeter?: import("./usage-budget.js").SandboxMeter;
+  /**
+   * Set while the usage budget holds this run: it stays queued until the
+   * named `budget_override` approval resolves. `"run"` means the per-run
+   * limit; `"daily"`/`"monthly"` mean the period limit was reached.
+   */
+  budgetHold?: {
+    approvalId: string;
+    blockedPeriods: ("daily" | "monthly" | "run")[];
+    at: number;
+  };
   outputArchive?: import("./run-output-archive.js").RunOutputArchivePolicy;
   runId: string;
   sandboxId: string;

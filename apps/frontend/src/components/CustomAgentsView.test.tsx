@@ -11,6 +11,26 @@ import { CustomAgentsView, type CustomAgentWire, useCustomAgentOptions } from ".
 import { createAgentThread } from "../agent-threads";
 
 describe("CustomAgentsView", () => {
+  it.each(["view", "chat", "manage", "error"])("gates profile settings with the access endpoint's %s level", async (level) => {
+    const agent: CustomAgentWire = { id: "finance", slug: "finance", version: 1, config: { name: "Finance", instructions: "Finance tasks", harness: "opencode" } };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/access")) return level === "error" ? Response.json({ error: "Unavailable" }, { status: 503 }) : Response.json({ level, grants: [] });
+      if (url.endsWith("/groups")) return Response.json({ groups: [] });
+      if (url.endsWith("/primary-bot")) return Response.json({ actorId: null });
+      if (url.startsWith("/api/workspaces/")) return Response.json({ workspace: { members: [] } });
+      return Response.json({ agents: [agent] });
+    }));
+    render(<CustomAgentsView workspaceId={`ws_${"a".repeat(24)}`} onStartThread={vi.fn()} />);
+    const edit = await screen.findByRole("button", { name: "Edit bot" }) as HTMLButtonElement;
+    await waitFor(() => expect(edit.disabled).toBe(level !== "manage"));
+    expect((screen.getByRole("button", { name: "Archive bot Finance" }) as HTMLButtonElement).disabled).toBe(level !== "manage");
+    expect((screen.getByRole("button", { name: "Delete bot" }) as HTMLButtonElement).disabled).toBe(level !== "manage");
+    fireEvent.click(screen.getByRole("button", { name: "View profile Finance" }));
+    expect((screen.getByRole("button", { name: "Edit profile" }) as HTMLButtonElement).disabled).toBe(level !== "manage");
+    fireEvent.click(edit);
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(level === "manage" ? "Finance" : "");
+  });
   it("searches persisted employee defaults and opens a profile without mutating it", async () => {
     const agents: CustomAgentWire[] = [
       { id: "reviewer-1", slug: "reviewer", version: 3, config: { name: "Release reviewer", instructions: "Inspect changes before publication.", harness: "codex", codingModel: "gpt-review", defaultRepoUrl: "https://github.com/example/release" } },
@@ -486,6 +506,7 @@ describe("account-scoped employee directory", () => {
     let currentActor = "a";
     const fetcher = vi.fn(async (path: RequestInfo | URL, init?: RequestInit) => {
       if (String(path).endsWith("/primary-bot")) return Response.json({ actorId: null, source: "default" });
+      if (String(path).endsWith("/access")) return Response.json({ level: "manage", grants: [] });
       if (String(path).startsWith("/api/custom-agents")) {
         if (init?.method) return pending.promise;
         return Response.json({ agents: [currentActor === "a" ? old : fresh] });
@@ -495,6 +516,7 @@ describe("account-scoped employee directory", () => {
     vi.stubGlobal("fetch", fetcher);
     const view = render(<CustomAgentsView actorId="a@example.test" workspaceId={scopeWorkspace} />);
     await screen.findByText("Old employee");
+    await waitFor(() => expect((screen.getByRole("button", { name: "Edit bot" }) as HTMLButtonElement).disabled).toBe(false));
     if (operation === "create") {
       fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Old saved employee" } });
       fireEvent.change(screen.getByRole("textbox", { name: /instructions|description/i }), { target: { value: "Old private draft" } });

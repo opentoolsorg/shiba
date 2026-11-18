@@ -219,7 +219,9 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     const providers = this.parse(providersSchema, await this.request("/api/providers", "admin"));
     const connected = new Map((await this.listConnections({ userId: query.userId, ...(query.workspaceId !== undefined ? { workspaceId: query.workspaceId } : {}) })).map((row) => [row.providerKey, row]));
     const search = query.query?.trim().toLowerCase() ?? "";
-    const matches = providers.filter((row) => `${row.service} ${row.displayName} ${row.description ?? ""}`.toLowerCase().includes(search));
+    const byService = new Map(providers.map((row) => [row.service, row]));
+    const scoped = query.services ? query.services.flatMap((service) => byService.get(service) ?? []) : providers;
+    const matches = scoped.filter((row) => `${row.service} ${row.displayName} ${row.description ?? ""}`.toLowerCase().includes(search));
     const oauth = (row: (typeof providers)[number]) => row.authTypes.includes("oauth2");
     const offset = query.cursor && /^\d+$/.test(query.cursor) ? Number(query.cursor) : 0;
     const limit = Math.max(1, Math.min(50, Math.floor(query.limit) || 8));

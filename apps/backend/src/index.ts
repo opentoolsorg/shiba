@@ -5,18 +5,17 @@
  */
 import { timeAuth, withRequestTiming, withTimingDatabase } from "./platform/request-timing.js";
 import { getAgentByName, routeAgentRequest } from "agents/routing";
-import { OpenCodeAgent } from "./agents/opencode-agent.js";
-import { CodingOrchestrator } from "./agents/orchestrator.js";
-import { ExplorerAgent } from "./agents/specialists/explorer-agent.js";
-import { ReviewerAgent } from "./agents/specialists/reviewer-agent.js";
 import { handleArtifactDownload } from "./artifact-download.js";
 import { AUDIT_RETENTION_MS, pruneAuditLog } from "./audit.js";
 import { Automations } from "./automations-do.js";
 import { automationsStub, seenDelivery } from "./automations-stub.js";
 import { ensureLiveCodingModel } from "./coding-model.js";
 import type { Env } from "./env.js";
+import { reportError } from "./observability.js";
+import { handleObservability } from "./observability-routes.js";
 import { Mailbox } from "./mailbox-do.js";
-import { MCP_PRINCIPAL_HEADER } from "./mcp-gateway.js";
+import { MCP_PRINCIPAL_HEADER } from "./mcp-principal.js";
+import { isDashboardViewPath, isMarketingSection } from "./app-host-routing.js";
 import { Memory } from "./memory-do.js";
 import { Sandbox, SandboxOutbound, proxyToSandbox } from "./sandbox.js";
 import { ContainerProxy } from "./sandbox/npm-shim.js";
@@ -36,19 +35,19 @@ import { handleSubscriptionAuth } from "./auth-routes.js";
 import { handleUserOpenAiSubscription } from "./subscription-auth-routes.js";
 import { handleAudit } from "./audit-routes.js";
 import { handleGovernance } from "./governance-routes.js";
+import { handleEmployeeAccess } from "./governance/employee-access-routes.js";
+import { enforceEmployeeRouteAccess } from "./governance/employee-route-auth.js";
 import { handleShare } from "./share-routes.js";
 import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
 import { handleGitHubWebhook } from "./github-webhook-routes.js";
 import { handleIntegrationsRoutes } from "./integrations-routes.js";
-import { handleIntegrationProviderRoutes } from "./integrations-provider-routes.js";
 import { handleLinearWebhook } from "./linear/routes.js";
 import { handleGmail } from "./gmail-routes.js";
 import { handleSentryWebhook } from "./sentry-webhook-routes.js";
 import { handleInbox } from "./inbox-routes.js";
 import { handleLocalAdapter, isLocalRuntimePath } from "./local-routes.js";
 import { LocalDispatch } from "./local-dispatch.js";
-import { handleMcp } from "./mcp-routes.js";
 import { handleMemory } from "./memory-routes.js";
 import { handleFiles } from "./files/files-routes.js";
 import { handleNotes } from "./notes/notes-routes.js";
@@ -56,15 +55,12 @@ import { handleKnowledge } from "./knowledge/knowledge-routes.js";
 import { handleKnowledgeOutputs } from "./knowledge/knowledge-outputs-routes.js";
 import { handleKnowledgeProjects } from "./knowledge/knowledge-projects-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
-import { handleAcpProviders } from "./acp-provider-routes.js";
 import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
 import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import { handleApiKeys } from "./api-keys-routes.js";
 import { handleOutboundWebhooks } from "./webhooks/routes.js";
-import { registerWebhookQueueConsumers } from "./webhooks/consumer.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
 import { handleEmployeeTools } from "./employee-tool-routes.js";
-import { handleSkillLibrary } from "./skill-library-routes.js";
 import { handleSkills } from "./skills-routes.js";
 import { handleSpaces } from "./spaces-routes.js";
 import { Spaces } from "./spaces-do.js";
@@ -88,7 +84,6 @@ import { handleWebSessions } from "./sessions-routes.js";
 import { handleSlackCanvas } from "./slack-canvas-routes.js";
 import { redactSecrets } from "./security.js";
 import { handleBetterAuth, isBetterAuthConfigured } from "./better-auth.js";
-import "./email/delivery.js";
 import { handleEmailDeliveryRoutes } from "./email/routes.js";
 import { getUserId, isAccessConfigured, isAuthenticated, isAuthorizedRequest, resolveUserId, SIGNATURE_AUTHENTICATED } from "./request-auth.js";
 import { handleSlackInteract } from "./slack-approval.js";
@@ -111,7 +106,6 @@ import { ConversationRoom } from "./conversation-room-do.js";
 import { WorkspaceEvents } from "./platform/workspace-events-do.js";
 import { SlackImportWorkflow, AutomationRunWorkflow } from "./platform/workflows.js";
 import { dispatchQueueBatch } from "./platform/queues.js";
-import "./knowledge/knowledge-ingest-queue.js";
 import {
   isAuthorizedSessionAgent,
   parseSessionAgentName,
@@ -123,20 +117,20 @@ import {
 // `await import()` at their call sites: evaluating them at Worker startup
 // pushed deploys past the startup CPU limit.
 
+export { CodingOrchestrator } from "./agents/orchestrator.js";
+export { OpenCodeAgent } from "./agents/opencode-agent.js";
+export { ExplorerAgent } from "./agents/specialists/explorer-agent.js";
+export { ReviewerAgent } from "./agents/specialists/reviewer-agent.js";
 export {
-  ExplorerAgent,
-  ReviewerAgent,
   Automations,
   ChatGptAuth,
   ConversationRoom,
   ComputerSession,
   UserProviderOAuth,
-  CodingOrchestrator,
   LocalDispatch,
   Mailbox,
   Memory,
   ModelConfig,
-  OpenCodeAgent,
   Sandbox,
   SandboxOutbound,
   ContainerProxy,
@@ -152,86 +146,53 @@ export { isBetterAuthConfigured } from "./better-auth.js";
 export { getUserId, isAuthenticated, isAuthorizedRequest, resolveUserId, SIGNATURE_AUTHENTICATED } from "./request-auth.js";
 export { handleWebSessions } from "./sessions-routes.js";
 
-registerWebhookQueueConsumers();
+export { getDashboardViews } from "./app-host-routing.js";
 
 let claudeSubscriptionDeprecationWarned = false;
 
-// The landing site lives on tryshiba.dev; the app host only serves the dashboard.
-const MARKETING_SECTIONS = new Set([
-  "docs",
-  "blog",
-  "why-shiba",
-  "privacy",
-  "terms",
-  "waitlist",
-  "welcome",
-]);
-// Root paths of the dashboard's sidebar views (AppNavRail ids); "" is the Work home.
-export const DASHBOARD_VIEWS = new Set([
-  "slack-canvas",
-  "signin",
-  "login",
-  // Keep in sync with AppNavRail APP_NAV_ITEMS ids.
-  "",
-  "work",
-  "dashboard",
-  "tasks",
-  "threads",
-  "activity",
-  "analytics",
-  "diff",
-  "approvals",
-  "swarm",
-  "collaboration",
-  "team",
-  "agents",
-  "inbox",
-  "memory",
-  "files",
-  "notes",
-  "projects",
-  "outputs",
-  "automations",
-  "providers",
-  "employee-tools",
-  "integrations",
-  "skills",
-  "spaces",
-  "custom-agents",
-  "remote",
-  "settings",
-]);
-
 export default {
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
-    await dispatchQueueBatch(batch, env, ctx);
+    try { await dispatchQueueBatch(batch, env, ctx); }
+    catch (error) {
+      ctx.waitUntil(reportError(env, "queue", error));
+      throw error;
+    }
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
+      if (env.AGENT_AUDIT) {
+        try {
+          const learning = await import("./ports/learning/review.js");
+          const { d1LearningPort } = await import("./ports/learning/d1-adapter.js");
+          await learning.sweepIdleLearningThreads(env, d1LearningPort(env.AGENT_AUDIT));
+        } catch (error) { console.error("Learning idle review failed", redactSecrets(String(error))); }
+      }
       try { await (await import("./founder-stripe-runtime.js")).tickFounderStripeReads(env); }
-      catch (error) { console.error("Founder Stripe read scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder Stripe read scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-meta-runtime.js")).tickFounderMetaReads(env); }
-      catch (error) { console.error("Founder Meta read scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder Meta read scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-hubspot-runtime.js")).tickFounderHubSpotReads(env); }
-      catch (error) { console.error("Founder HubSpot read scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder HubSpot read scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-reconciliation-schedule-runtime.js")).tickFounderReconciliationSchedules(env); }
-      catch (error) { console.error("Founder standing comparison scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder standing comparison scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-auto-read-runtime.js")).tickFounderAutomaticReads(env); }
-      catch (error) { console.error("Founder automatic read scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder automatic read scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-automatic-slack-tick.js")).tickFounderAutomaticSlack(env); }
-      catch (error) { console.error("Founder automatic Slack scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder automatic Slack scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-automatic-slack-stripe-tick.js")).tickFounderStripeAutomaticSlack(env); }
-      catch (error) { console.error("Founder Stripe Slack scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder Stripe Slack scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./founder-reconciliation-slack-tick.js")).tickFounderReconciliationSlack(env); }
-      catch (error) { console.error("Founder combined-report Slack scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Founder combined-report Slack scheduling failed", redactSecrets(String(error))); }
       try { await (await import("./slack-coworker-private-status.js")).tickSlackCoworkerPrivateStatus(env); }
-      catch (error) { console.error("Private Slack status scheduling failed", redactSecrets(String(error))); }
+      catch (error) { ctx.waitUntil(reportError(env, "scheduled", error)); console.error("Private Slack status scheduling failed", redactSecrets(String(error))); }
     })());
     ctx.waitUntil(import("./founder-review-schedules.js").then((m) => m.tickFounderReviewSchedules(env)).catch((error: unknown) => {
       console.error("Founder review scheduling failed", redactSecrets(String(error)));
+      ctx.waitUntil(reportError(env, "scheduled", error));
     }));
     ctx.waitUntil(import("./founder-connector-jobs.js").then((m) => m.tickFounderConnectorJobs(env)).catch((error: unknown) => {
       console.error("Founder connector scheduling failed", redactSecrets(String(error)));
+      ctx.waitUntil(reportError(env, "scheduled", error));
     }));
     ctx.waitUntil(
       automationsStub(env)
@@ -239,10 +200,12 @@ export default {
         .then((response) => {
           if (!response.ok) {
             console.error(`automation tick failed: ${response.status}`);
+            ctx.waitUntil(reportError(env, "scheduled", null));
           }
         })
         .catch((error: unknown) => {
           console.error(redactSecrets(error instanceof Error ? error.message : String(error)));
+          ctx.waitUntil(reportError(env, "scheduled", error));
         }),
     );
     // Stale-draft sweep: the approvals-poll and restart paths only run it
@@ -257,10 +220,12 @@ export default {
         .then((response) => {
           if (!response.ok) {
             console.error(`stale draft sweep failed: ${response.status}`);
+            ctx.waitUntil(reportError(env, "scheduled", null));
           }
         })
         .catch((error: unknown) => {
           console.error(redactSecrets(error instanceof Error ? error.message : String(error)));
+          ctx.waitUntil(reportError(env, "scheduled", error));
         }),
     );
     // Retention: audit_log keeps 90 days — pruned here on the same cron
@@ -276,6 +241,7 @@ export default {
             if (invocationDeleted > 0) console.log(`capability invocation prune deleted ${invocationDeleted} row(s) older than 90 days`);
           })
           .catch((error: unknown) => {
+            ctx.waitUntil(reportError(env, "scheduled", error));
             console.warn(
               `audit prune failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
             );
@@ -285,7 +251,11 @@ export default {
   },
   // Email Routing delivery — registered-mailbox gate + store, see email-handler.ts.
   async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
-    await (await import("./email-handler.js")).handleInboundEmail(message, env, ctx);
+    try { await (await import("./email-handler.js")).handleInboundEmail(message, env, ctx); }
+    catch (error) {
+      ctx.waitUntil(reportError(env, "email", error));
+      throw error;
+    }
   },
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     return withRequestTiming(request, async () => {
@@ -331,11 +301,11 @@ export default {
       }
       if (request.method === "GET" || request.method === "HEAD") {
         const section = url.pathname.split("/")[1] ?? "";
-        if (MARKETING_SECTIONS.has(section)) {
+        if (isMarketingSection(section)) {
           return Response.redirect(`https://tryshiba.dev${url.pathname}${url.search}`, 301);
         }
         // The shell is static and shows sign-in itself; single segment so /agents/<do>/… still routes.
-        if (DASHBOARD_VIEWS.has(section) && /^\/[^/]*\/?$/.test(url.pathname)) {
+        if (isDashboardViewPath(section, url.pathname)) {
           return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
         }
         // WS02: password reset surfaces share the dashboard shell.
@@ -377,6 +347,12 @@ export default {
       }
       const memberPolicyResponse = await enforceTeamMemberApiPolicy(request, env);
       if (memberPolicyResponse) return memberPolicyResponse;
+      const employeeAccessResponse = await enforceEmployeeRouteAccess(request, env);
+      if (employeeAccessResponse) return employeeAccessResponse;
+      const employeeAccessSettingsResponse = await handleEmployeeAccess(request, env);
+      if (employeeAccessSettingsResponse) return employeeAccessSettingsResponse;
+      const observabilityResponse = await handleObservability(request, env, ctx);
+      if (observabilityResponse) return observabilityResponse;
       const outputArchiveResponse = await handleRunOutputArchives(request, env);
       if (outputArchiveResponse) return outputArchiveResponse;
       const slackInstallationResponse = await handleSlackInstallations(request, env);
@@ -391,6 +367,8 @@ export default {
       if (personalExecutionResponse) return personalExecutionResponse;
       const teamModelResponse = await (await import("./team-model-routes.js")).handleTeamModelSessions(request, env);
       if (teamModelResponse) return teamModelResponse;
+      const learningResponse = await (await import("./learning-routes.js")).handleLearning(request, env);
+      if (learningResponse) return learningResponse;
       const workResponse = await handleTeamWork(request, env);
       if (workResponse) return workResponse;
       const primaryBotResponse = await handlePrimaryBot(request, env);
@@ -401,6 +379,8 @@ export default {
       if (paletteResponse) return paletteResponse;
       const askUserResponse = await (await import("./ask-user-routes.js")).handleAskUser(request, env);
       if (askUserResponse) return askUserResponse;
+      const uiBlockResponse = await (await import("./ui-block-routes.js")).handleUiBlocks(request, env);
+      if (uiBlockResponse) return uiBlockResponse;
       const workspaceResponse = await handleTeamWorkspaces(request, env);
       if (workspaceResponse) return workspaceResponse;
       const governanceResponse = await handleGovernance(request, env);
@@ -431,7 +411,9 @@ export default {
       if (teamOnboardingTask) return teamOnboardingTask;
       const onboardingResponse = await handleOnboardingProgress(request, env);
       if (onboardingResponse) return onboardingResponse;
-      const acpProviderResponse = await handleAcpProviders(request, env);
+      const acpProviderResponse = url.pathname === "/api/providers" || url.pathname.startsWith("/api/providers/")
+        ? await (await import("./acp-provider-routes.js")).handleAcpProviders(request, env)
+        : null;
       if (acpProviderResponse) return acpProviderResponse;
       const capabilityCatalogResponse = await handleCapabilityCatalog(request, env);
       if (capabilityCatalogResponse) return capabilityCatalogResponse;
@@ -445,7 +427,7 @@ export default {
       if (employeeToolsResponse) return employeeToolsResponse;
       const reasonNetworkResponse = await handleReasonNetwork(request, env);
       if (reasonNetworkResponse) return reasonNetworkResponse;
-      const skillLibraryResponse = await handleSkillLibrary(request, env);
+      const skillLibraryResponse = await (await import("./skill-library-routes.js")).handleSkillLibrary(request, env);
       if (skillLibraryResponse) return skillLibraryResponse;
       const skillsResponse = await handleSkills(request, env);
       if (skillsResponse) return skillsResponse;
@@ -487,7 +469,7 @@ export default {
       if (subscriptionAuthResponse) {
         return subscriptionAuthResponse;
       }
-      const mcpResponse = await handleMcp(
+      const mcpResponse = await (await import("./mcp-routes.js")).handleMcp(
         request,
         env,
         ctx ?? ({ waitUntil: () => {} } as unknown as ExecutionContext),
@@ -668,7 +650,9 @@ export default {
         const response = await handleOperatorEnrollmentReviews(request, env);
         if (response) return response;
       }
-      const integrationProviderResponse = await handleIntegrationProviderRoutes(request, env);
+      const integrationProviderResponse = url.pathname === "/api/integrations/provider" || url.pathname.startsWith("/api/integrations/provider/")
+        ? await (await import("./integrations-provider-routes.js")).handleIntegrationProviderRoutes(request, env)
+        : null;
       if (integrationProviderResponse) {
         return integrationProviderResponse;
       }
@@ -760,6 +744,9 @@ export default {
       return env.ASSETS.fetch(request);
     } catch (error) {
       // The client gets a generic 500; the redacted detail stays in the log.
+      const delivery = reportError(env, "worker", error);
+      if (ctx) ctx.waitUntil(delivery);
+      else await delivery;
       console.error(redactSecrets(error instanceof Error ? error.message : String(error)));
       return Response.json({ error: "Internal error." }, { status: 500 });
     }

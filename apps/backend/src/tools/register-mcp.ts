@@ -3,10 +3,12 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { Env } from "../env.js";
 import type { ToolRegistry } from "../mcp-gateway.js";
 import { registerAskUserTool } from "./ws08-ask-user.js";
+import { registerAskUiTool } from "./ask-ui.js";
 import { registerKnowledgeSearchTool } from "./ws07-knowledge-search.js";
 import { browserClick, browserOpen, browserRead, browserScreenshot, browserToolError, browserType } from "./browser.js";
 import { videoCapability, videoInputSchema } from "./video-gen.js";
 import { generateImage } from "./image-gen.js";
+import { imageInputSchema } from "./image-models.js";
 import { runWebSearch, webSearchConfigured } from "./web-search.js";
 import { DEFAULT_WEB_SEARCH_BUDGET, incrementToolUsage } from "./tool-usage-store.js";
 
@@ -23,6 +25,7 @@ function runIdFromArgs(args: Record<string, unknown>, ctxRunId?: string): string
 export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): void {
   registerKnowledgeSearchTool(registry, env);
   registerAskUserTool(registry, env);
+  registerAskUiTool(registry, env);
 
   registry.registerTool(
     "web_search",
@@ -176,17 +179,16 @@ export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): vo
     "api:write",
     async (args, ctx) => {
       const runId = runIdFromArgs(args, ctx.principal.principal);
-      const prompt = String(args.prompt ?? "");
-      const aspect = args.aspect === "landscape" || args.aspect === "portrait" ? args.aspect : "square";
-      const result = await generateImage(env, { prompt, aspect, runId });
+      const parsed = imageInputSchema.safeParse(args);
+      if (!parsed.success) return jsonResult({ ok: false, error: "Choose a prompt and supported image shape." });
+      const result = await generateImage(env, { ...parsed.data, runId });
       return jsonResult(result as unknown as Record<string, unknown>);
     },
     {
-      description: "Generate a PNG with Workers AI FLUX and store it in Outputs.",
+      description: "Generate an image with a chosen style and shape. Returns a private storage key when no signed-in owner is available.",
       inputSchema: {
         ...browserRunSchema,
-        prompt: z.string().min(1).max(2000),
-        aspect: z.enum(["square", "landscape", "portrait"]).optional(),
+        ...imageInputSchema.shape,
       },
       annotations: { readOnlyHint: false },
     },

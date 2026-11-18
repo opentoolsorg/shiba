@@ -20,6 +20,7 @@ import type { ApprovalKind } from "./pending-approvals.js";
 import { redactSecrets } from "./security.js";
 import { verifySlackRequest } from "./slack.js";
 import { buildSlackThreadName, parseSlackCommandScope, parseSlackThreadName, slackApprovalOrchestratorName } from "./slack-thread.js";
+import { answerSlackUiBlock, type SlackUiPayload } from "./slack-ui-blocks.js";
 
 export const SLACK_INTERACT_PATH = "/api/slack/interact";
 
@@ -343,6 +344,7 @@ export function buildEmployeeToolApprovalBlocks(input: {
 }
 
 interface BlockActionPayload {
+  uiPayload?: SlackUiPayload;
   userId: string;
   actionId: string;
   pointer?: ApprovalPointer;
@@ -376,12 +378,13 @@ function parseBlockActionsPayload(payloadParam: string | null): BlockActionPaylo
   const responseUrl = typeof record.response_url === "string" ? (record.response_url as string) : "";
   const message = record.message as { blocks?: unknown; thread_ts?: string; ts?: string } | undefined;
   const blocks = Array.isArray(message?.blocks) ? (message.blocks as unknown[]) : [];
-  if (userId === "" || actionId === "" || value === "" || responseUrl === "") {
+  if (userId === "" || actionId === "" || (!actionId.startsWith("ui_block:") && value === "") || responseUrl === "") {
     throw new Error("Interaction payload is missing user, action, value, or response_url.");
   }
   if (!isSlackResponseUrl(responseUrl)) {
     throw new Error("Invalid Slack response URL.");
   }
+  if (actionId.startsWith("ui_block:")) return { userId, actionId, responseUrl, blocks, uiPayload: record as SlackUiPayload };
   const employeeAction = actionId === EMPLOYEE_APPROVE_ACTION_ID || actionId === EMPLOYEE_REJECT_ACTION_ID;
   if (employeeAction) {
     const team = record.team as { id?: string } | undefined;
@@ -594,6 +597,23 @@ export async function handleSlackInteract(
       await refusal;
     }
     return Response.json({ response_type: "ephemeral", text: "Unauthorized. You cannot approve this run." });
+  }
+
+  if (interaction.uiPayload) {
+    const work = (async () => {
+      try {
+        const text = await answerSlackUiBlock(env, interaction.uiPayload!);
+        if (text === null) return;
+        const body = { replace_original: true, text, blocks: [{ type: "section", text: { type: "plain_text", text } }] };
+        if (deps.replaceCard) await deps.replaceCard(interaction.responseUrl, body);
+        else await fetch(interaction.responseUrl, { method: "POST", redirect: "error", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      } catch (error) {
+        await respondEphemeral(interaction.responseUrl, error instanceof Error ? error.message : "Question answer could not be recorded.", deps.respond);
+      }
+    })();
+    if (ctx) ctx.waitUntil(work);
+    else await work;
+    return new Response("", { status: 200 });
   }
 
   if (![APPROVE_ACTION_ID, REJECT_ACTION_ID, EMPLOYEE_APPROVE_ACTION_ID, EMPLOYEE_REJECT_ACTION_ID].includes(interaction.actionId)) {

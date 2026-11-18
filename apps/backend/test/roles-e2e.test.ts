@@ -57,8 +57,29 @@ const SHIPPED_MAP = (SHIPPED_RAW === undefined ? {} : JSON.parse(SHIPPED_RAW)) a
   { harness: string; model: string }
 >;
 
+/**
+ * The shipped orchestrator pin rides codex-subscription: run preflight
+ * (T47 admission) refuses the queue unless the lane's auth flow reads
+ * `succeeded`. Seed a succeeded record for any codex-sub account — the
+ * same state Sign in with ChatGPT leaves in AGENT_TOKENS.
+ */
+const authedAgentTokens = {
+  get: async (key: string) =>
+    key.startsWith("auth_flow_codex-sub:")
+      ? JSON.stringify({ phase: "succeeded", ownerSessionId: "test-owner" })
+      : null,
+  put: async () => undefined,
+  delete: async () => undefined,
+  list: async () => ({ keys: [] }),
+} as unknown as KVNamespace;
+
 function env(overrides: Partial<Env> = {}): Env {
-  return { ...productionEnvStubs(), ROLE_MODEL_MAP: JSON.stringify(SHIPPED_MAP), ...overrides } as Env;
+  return {
+    ...productionEnvStubs(),
+    AGENT_TOKENS: authedAgentTokens,
+    ROLE_MODEL_MAP: JSON.stringify(SHIPPED_MAP),
+    ...overrides,
+  } as Env;
 }
 
 function agent(overrides: Partial<Env> = {}) {
@@ -170,10 +191,13 @@ describe("shipped role pin reaches the approval record (PLAN.md §19)", () => {
     expect(record.route).toBeDefined();
     expect(record.route?.harness).toBe(expectedHarness);
     expect(record.route?.modelId).toBe(expectedModel);
-    // The implicit default carries no connection; the shipped fixer pin must
-    // not have leaked into the frozen route.
+    // The implicit default carries no connection; the shipped pins must not
+    // have leaked into the frozen route. The work-role pins now name the same
+    // model as the deployment default by design, so the leak check targets
+    // the one distinctive pin — the orchestrator's codex-subscription lane.
     expect(record.route?.connectionId).toBeNull();
-    expect(record.route?.modelId).not.toBe(SHIPPED_MAP.fixer!.model);
+    expect(record.route?.harness).not.toBe(SHIPPED_MAP.orchestrator?.harness);
+    expect(record.route?.modelId).not.toBe(SHIPPED_MAP.orchestrator?.model);
   });
 
   it("rejects a role-carrying request when the pin is broken, before any approval", async () => {

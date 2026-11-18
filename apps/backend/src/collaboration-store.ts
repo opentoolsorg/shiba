@@ -10,6 +10,7 @@ import { rowExists } from "./d1-write-check.js";
 import type { Env } from "./env.js";
 import { parseSlackCanvasOwners } from "./slack-canvas.js";
 import { collaborationExecutorIdentity } from "./collaboration-executor.js";
+import { filterEmployeesByAccess } from "./governance/employee-access.js";
 
 type SlackCollaborationEnv = Pick<Env, "AGENT_AUDIT" | "SLACK_CANVAS_OWNERS">;
 
@@ -615,7 +616,7 @@ export async function listCollaborationMemberships(
       scope.userId,
     )
     .all<Record<string, unknown>>();
-  return (rows.results ?? []).map(rowMembership);
+  return filterEmployeesByAccess(env, scope, (rows.results ?? []).map(rowMembership), "view", (row) => row.actorKind === "agent" ? row.actorId : null);
 }
 
 export async function listCollaborationMessages(

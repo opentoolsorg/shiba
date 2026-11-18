@@ -7,6 +7,7 @@ import { AUTO_REPLY_SLOT, ackListenAllAgents, ackThreadOwner, claimReply } from 
 import { attachHandoffReturn } from "./collaboration-handoff-return.js";
 import { handleCollaborationMentions, parseCollaborationMentions } from "./collaboration-mentions.js";
 import { classifyRoute, loadRankedBots, primaryActorId, ROUTER_MARGIN, type RankedBot } from "./collaboration-router-rank.js";
+import { filterEmployeesByAccess } from "./governance/employee-access.js";
 import { openTaskThread, postTaskReply } from "./collaboration-task-threads.js";
 import { postRoomEvent } from "./collaboration-thread-post.js";
 import { ensureCoordinationSchema } from "./coordination-schema.js";
@@ -225,7 +226,7 @@ export async function getWorkspacePrimaryBot(env: Env, scope: CollaborationScope
   const saved = await env.AGENT_AUDIT.prepare(
     "SELECT actor_id FROM workspace_primary_bot WHERE tenant_id=? AND workspace_id=?",
   ).bind(scope.tenantId, scope.workspaceId).first<{ actor_id: string }>();
-  if (saved?.actor_id) return { actorId: saved.actor_id, source: "saved" };
+  if (saved?.actor_id && (await filterEmployeesByAccess(env, scope, [saved], "view", (row) => row.actor_id)).length) return { actorId: saved.actor_id, source: "saved" };
   return { actorId: await primaryActorId(env, scope), source: "default" };
 }
 

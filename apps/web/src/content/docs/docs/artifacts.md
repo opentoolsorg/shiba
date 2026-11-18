@@ -5,6 +5,8 @@ description: Ask for useful files, inspect captured output, and turn review feed
 
 An artifact is a file an AI employee produces for you, such as a launch brief, research note, checklist, or CSV. Use an **Artifact workspace** when the output does not belong in a GitHub repository.
 
+For generated images, video modes, and the Outputs gallery, see [Images, videos, and Outputs](/docs/media-generation/).
+
 ## Choose the output before starting
 
 Give the employee an audience, source material, and a clear definition of done. For example:
