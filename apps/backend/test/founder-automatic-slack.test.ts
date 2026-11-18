@@ -48,7 +48,6 @@ import {
 import { sealSlackSecret } from "../src/slack-installations-crypto.js";
 import { handleFounderAutomaticSlack } from "../src/founder-automatic-slack-routes.js";
 import {
-  ensureAutomaticSlackSchema,
   renderAutomaticSlackReport,
   renderAutomaticSlackCompactReport,
   renderAutomaticSlackSource,
@@ -58,7 +57,6 @@ import {
   tickFounderAutomaticSlack,
   type AutomaticSlackTickDeps,
 } from "../src/founder-automatic-slack-tick.js";
-import { AUTOMATIC_SLACK_SCHEMA } from "../src/founder-automatic-slack-schema.js";
 const actor = vi.hoisted(() => ({
   email: "owner@example.test",
   accounts: {} as Record<string, string>,
@@ -112,17 +110,14 @@ async function fixture() {
       }) as D1PreparedStatement;
     return wrap(originalPrepare(sql));
   };
-  db.sqlite.exec(
-    'CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER);CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT)',
-  );
   actor.email = OWNER;
   actor.native = true;
   actor.accounts = {};
   for (const email of [OWNER, ADMIN]) {
     actor.accounts[email] = crypto.randomUUID();
-    db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(actor.accounts[email]!, email);
+    db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(actor.accounts[email]!, email);
     db.sqlite
-      .prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?)")
+      .prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')")
       .run(actor.accounts[email]!, email);
   }
   const manifest = await readGatewayManifest(),
@@ -576,7 +571,7 @@ async function slackFixture(options: { weekly?: boolean } = {}) {
         .join(",")})`,
     )
     .run(...(Object.values(install) as never[]));
-  await ensureAutomaticSlackSchema(f.env);
+
   const callSlack = async (suffix = "", body?: unknown, headers: Record<string, string> = {}) => {
     const response = (await handleFounderAutomaticSlack(
       new Request(`https://shiba.test/api/founder-skills/${LIBRARY}/automatic-slack${suffix}`, {
@@ -792,9 +787,9 @@ describe("explicit standing Slack disclosure with actual automatic-read source g
           .prepare("DELETE FROM shiba_auth_account_policy WHERE account_id=?")
           .run(f.owner.accountId);
         const replacement = crypto.randomUUID();
-        f.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(replacement, OWNER);
+        f.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(replacement, OWNER);
         f.sqlite
-          .prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?)")
+          .prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')")
           .run(replacement, OWNER);
         actor.accounts[OWNER] = replacement;
       }
@@ -1221,7 +1216,7 @@ describe("explicit standing Slack disclosure with actual automatic-read source g
     ).toBe(400);
     expect(f.post).not.toHaveBeenCalled();
   });
-  it("keeps runtime and migration schema aligned on an existing canonical database", async () => {
+  it("keeps migrated automatic Slack tables intact on an existing database", async () => {
     const f = await slackFixture();
     const sql = readFileSync(
       new URL("../migrations/0023_founder_automatic_slack.sql", import.meta.url),
@@ -1229,7 +1224,6 @@ describe("explicit standing Slack disclosure with actual automatic-read source g
     );
     f.sqlite.exec(sql);
     f.sqlite.exec(sql);
-    for (const statement of AUTOMATIC_SLACK_SCHEMA) expect(sql).toContain(statement);
     expect(
       f.sqlite.prepare("SELECT COUNT(*)AS n FROM founder_automatic_slack_deliveries").get(),
     ).toEqual({ n: 0 });

@@ -22,7 +22,7 @@ export interface OrgModelKeyStatus {
 }
 
 export async function setOrgModelKey(
-  env: AuditEnv & { MODEL_CREDENTIAL_KEY?: string },
+  env: AuditEnv & { MODEL_CREDENTIAL_KEY?: string; VAULT_KEYRING?: string; VAULT_WRITE_V2?: string },
   orgId: string,
   provider: SupportedModelProvider,
   apiKey: string,
@@ -62,7 +62,7 @@ export async function listOrgModelKeyStatuses(
 }
 
 export async function getDecryptedOrgModelKey(
-  env: AuditEnv & { MODEL_CREDENTIAL_KEY?: string },
+  env: AuditEnv & { MODEL_CREDENTIAL_KEY?: string; VAULT_KEYRING?: string; VAULT_WRITE_V2?: string },
   orgId: string,
   provider: SupportedModelProvider,
 ): Promise<string | null> {

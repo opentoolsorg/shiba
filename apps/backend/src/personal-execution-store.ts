@@ -3,16 +3,10 @@ import { resolveBetterAuthSessionAccount } from "@shiba/auth/better-auth";
 import type { Env } from "./env.js";
 import { getTeamWorkspaceMembership } from "./team-workspaces-store.js";
 import { redactSecrets } from "./security.js";
+import { localDispatchFor } from "./platform/do-resolver.js";
 
 export type PersonalExecutionEnv = Env & { SHIBA_PERSONAL_LOCAL_EXECUTION?: string };
 export interface PersonalExecutionStopOwner { ownerAccountId: string; workspaceId: string; origin: string }
-const SCHEMA = `CREATE TABLE IF NOT EXISTS personal_execution_grants (
-  grant_id TEXT PRIMARY KEY, owner_account_id TEXT NOT NULL, actor_id TEXT NOT NULL,
-  workspace_id TEXT NOT NULL, version INTEGER NOT NULL,
-  status TEXT NOT NULL CHECK(status IN ('active','revoked')),
-  snapshot_json TEXT NOT NULL, scope_json TEXT NOT NULL, expires_at INTEGER NOT NULL,
-  created_at INTEGER NOT NULL, revoked_at INTEGER)`;
-
 export function personalExecutionEnabled(env: PersonalExecutionEnv): boolean {
   const pairingKey = env.PAIRING_SECRET?.trim() || env.LOCAL_ADAPTER_TOKEN?.trim() || "";
   return env.SHIBA_PERSONAL_LOCAL_EXECUTION === "1" && env.SHIBA_LOCAL_RUNTIME === "1" && pairingKey.length >= 32 &&
@@ -93,7 +87,6 @@ export function personalComputerMatches(computer: ConnectedComputer, scope: Pers
 
 async function ensure(env: PersonalExecutionEnv): Promise<D1Database> {
   if (!personalExecutionEnabled(env) || !env.AGENT_AUDIT) throw new Error("personal_execution_storage_unavailable");
-  await env.AGENT_AUDIT.prepare(SCHEMA).run();
   return env.AGENT_AUDIT;
 }
 
@@ -139,7 +132,7 @@ export async function revokePersonalExecutionGrant(env: PersonalExecutionEnv, sc
 
 export async function personalComputerRows(env: PersonalExecutionEnv, scope: PersonalPairingScope): Promise<ConnectedComputer[]> {
   if (!env.LocalDispatch || !await isPersonalOwnerCurrent(env, scope)) return [];
-  const stub = env.LocalDispatch.get(env.LocalDispatch.idFromName("local-dispatch"));
+  const stub = localDispatchFor(env, { ownerId: scope.ownerAccountId });
   const response = await stub.fetch(new Request("https://local-dispatch/personal-computers", { method: "POST", body: JSON.stringify({ scope }) }));
   if (!response.ok) return [];
   const body = await response.json() as { computers?: ConnectedComputer[] };

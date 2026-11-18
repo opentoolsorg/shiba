@@ -10,7 +10,7 @@ import { mintSubagentRun } from "../src/den/spawn.js";
 import { createRun } from "../src/runs.js";
 import { runInputHash } from "@shiba/shared";
 
-const ENV = { INTERNAL_SIGNING_KEY: "test-specialist-key" };
+const ENV = { INTERNAL_SIGNING_KEY: "test-specialist-signing-key-at-least-32" };
 const PARENT_IDENTITY = { className: "CodingOrchestrator", name: "dashboard:owner" };
 const PARENT = [PARENT_IDENTITY];
 const INPUT = { goal: "Find the handler", context: "Explicit only", files: [{ path: "src/handler.ts", content: "export function handler() { return 1; }" }] };
@@ -18,6 +18,13 @@ const INPUT = { goal: "Find the handler", context: "Explicit only", files: [{ pa
 afterEach(() => vi.useRealTimers());
 
 describe("bounded specialist dispatch", () => {
+  it("signs with the legacy model key only while grace is enabled", async () => {
+    const env = { MODEL_CREDENTIAL_KEY: "ab".repeat(32), SHIBA_LEGACY_SIGNING_FALLBACK: "1" };
+    const dispatch = await sealSpecialistDispatch(env, "explorer", PARENT_IDENTITY.name, "child-1", INPUT, 1_000);
+    expect(dispatch.signature).toMatch(/^[a-f0-9]{64}$/);
+    await expect(verifySpecialistDispatch(env, dispatch, "explorer", PARENT, 1_001)).resolves.toMatchObject({ input: INPUT });
+    await expect(sealSpecialistDispatch({ ...env, SHIBA_LEGACY_SIGNING_FALLBACK: "0" }, "explorer", PARENT_IDENTITY.name, "child-1", INPUT, 1_000)).rejects.toThrow("INTERNAL_SIGNING_KEY not set");
+  });
   it("binds the full explicit input, owner, role, and deadline", async () => {
     const sealed = await sealSpecialistDispatch(ENV, "explorer", PARENT_IDENTITY.name, "child-1", INPUT, 1_000);
     await expect(verifySpecialistDispatch(ENV, sealed, "explorer", PARENT, 1_001)).resolves.toMatchObject({ input: INPUT });
@@ -27,6 +34,21 @@ describe("bounded specialist dispatch", () => {
     await expect(verifySpecialistDispatch(ENV, sealed, "explorer", [], 1_001)).rejects.toThrow(/parent/);
     await expect(verifySpecialistDispatch(ENV, sealed, "explorer", [...PARENT, { className: "ExplorerAgent", name: "child" }], 1_001)).rejects.toThrow(/parent/);
     await expect(verifySpecialistDispatch(ENV, sealed, "explorer", PARENT, 61_000)).rejects.toThrow(/deadline/);
+  });
+
+  it("gates raw legacy seals and emits versioned key ids", async () => {
+    const sealed = await sealSpecialistDispatch(ENV, "explorer", PARENT_IDENTITY.name, "child-1", INPUT, 1_000);
+    expect(sealed.signature).toMatch(/^v1:[a-f0-9]{16}:[a-f0-9]{64}$/);
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey("raw", encoder.encode(ENV.INTERNAL_SIGNING_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(JSON.stringify([
+      "shiba-readonly-specialist-v1", sealed.version, sealed.role, sealed.parentName,
+      sealed.childTaskId, sealed.issuedAt, sealed.expiresAt, sealed.input,
+    ])));
+    const legacy = { ...sealed, signature: Array.from(new Uint8Array(mac), byte => byte.toString(16).padStart(2, "0")).join("") };
+    await expect(verifySpecialistDispatch(ENV, legacy, "explorer", PARENT, 1_001)).resolves.toMatchObject({ input: INPUT });
+    await expect(verifySpecialistDispatch({ ...ENV, SHIBA_LEGACY_SIGNING_FALLBACK: "0" }, legacy, "explorer", PARENT, 1_001)).rejects.toThrow(/signature/);
+    await expect(sealSpecialistDispatch({ MODEL_CREDENTIAL_KEY: "legacy-only", SHIBA_LEGACY_SIGNING_FALLBACK: "0" }, "explorer", PARENT_IDENTITY.name, "child-1", INPUT, 1_000)).rejects.toThrow("INTERNAL_SIGNING_KEY not set");
   });
 
   it("refuses credentials, approval fields, traversal, duplicate paths, and oversized context in requests", () => {

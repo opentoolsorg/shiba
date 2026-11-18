@@ -1,14 +1,11 @@
 #!/usr/bin/env node
-/** PR 188 only: update code/assets and reattach its proven existing Sandbox.
- * No Alchemy, resource provisioning, container/image mutation, or secret writes.
- * The comparison before upload is a drift guard, not an atomic Cloudflare CAS.
+/** Legacy PR 188 incident-evidence helpers; uploads are retired.
+ * --preflight delegates to the guarded full-stack plan, never apply.
  */
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, lstat, writeFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { readFile, readdir, lstat } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 
 export const TARGET = Object.freeze({
   accountId: "73cf43cd7ec224111282832dc96b90e2", worker: "shiba-ai-coworker-pr-188", pr: 188,
@@ -40,7 +37,6 @@ export const EXPECTED_BINDINGS = Object.freeze({
   BROWSER: { type: "browser" }, LOADER: { type: "worker_loader" }, SEND_EMAIL: { type: "send_email" },
 });
 const LINK = [{ class_name: "Sandbox" }];
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fail = (message) => { throw new Error(message); };
 export const stable = (value) => JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item)
   ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
@@ -175,8 +171,9 @@ export async function inspectAssets(directory) {
   return sha(stable(manifest.sort(([a], [b]) => a.localeCompare(b))));
 }
 
-export async function verifyHttpBuild(directory, fetcher = fetch) {
-  const origin = `https://${TARGET.hostname}`;
+export const verifyHttpBuild = (directory, fetcher = fetch) => verifyHttpBuildAt(directory, `https://${TARGET.hostname}`, fetcher);
+export async function verifyHttpBuildAt(directory, origin, fetcher = fetch) {
+  if (!/^https:\/\/shiba-ai-coworker-pr-[1-9]\d*\.[a-z0-9-]+\.workers\.dev$/.test(origin)) fail("Only a preview workers.dev origin may be probed");
   const get = (path) => fetcher(`${origin}${path}`, { redirect: "error", headers: { "Cache-Control": "no-cache" }, signal: AbortSignal.timeout(30_000) });
   // Probe an unmatched protected path. Reading retained runs can wake work if
   // authentication is misconfigured, which is precisely what this checks.
@@ -208,99 +205,12 @@ export async function verifyHttpBuild(directory, fetcher = fetch) {
   return { anonymousApiStatus: 401, dashboardHtmlVerified: true, staticEntrypointsVerified: entries.length };
 }
 
-async function api(path, token) {
-  const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, { headers: { Authorization: `Bearer ${token}` } });
-  const body = await response.json().catch(() => null);
-  if (!response.ok || !body?.success) fail(`Cloudflare read failed (${response.status}) for ${path}; no credential or resource creation fallback.`);
-  return body;
-}
-async function snapshot(token) {
-  const base = `/accounts/${TARGET.accountId}/workers/scripts/${TARGET.worker}`;
-  const servicePath = `/accounts/${TARGET.accountId}/workers/services/${TARGET.worker}`;
-  const [settings, deployments, apps, historical, schedules, domains, service] = await Promise.all([api(`${base}/settings`, token), api(`${base}/deployments`, token),
-    api(`/accounts/${TARGET.accountId}/containers/applications`, token), api(`${base}/versions/${TARGET.historicalVersion}`, token),
-    api(`${base}/schedules`, token), api(`/accounts/${TARGET.accountId}/workers/domains?service=${TARGET.worker}`, token),
-    api(servicePath, token)]);
-  const environment = service.result.default_environment?.environment;
-  if (environment !== "production") fail("Unreviewed Worker service environment.");
-  const routeResponse = await api(`${servicePath}/environments/production/routes?show_zonename=true`, token);
-  if (!Array.isArray(routeResponse.result)) fail("Authoritative Worker route enumeration is unproven.");
-  if (!Array.isArray(domains.result)) fail("Custom domain enumeration is unproven.");
-  const deployment = deployments.result.deployments?.[0];
-  const versionId = deployment?.versions?.[0]?.version_id;
-  if (!versionId || !/^[a-f0-9-]{36}$/.test(versionId)) fail("Active preview version is unavailable.");
-  const version = await api(`${base}/versions/${versionId}`, token);
-  const namespaces = [];
-  for (let page = 1; page <= 10; page++) {
-    const result = await api(`/accounts/${TARGET.accountId}/workers/durable_objects/namespaces?page=${page}&per_page=100`, token);
-    namespaces.push(...result.result);
-    if (result.result.length < 100 || result.result_info?.total_count <= namespaces.length) break;
-    if (page === 10) fail("Namespace ownership lookup exceeded its bound.");
-  }
-  const appRows = Array.isArray(apps.result) ? apps.result : apps.result.applications;
-  return { accountId: TARGET.accountId, worker: TARGET.worker, settings: settings.result, deployment,
-    version: version.result, historical: historical.result, namespaces, app: appRows?.find((row) => row.id === TARGET.appId),
-    schedules: schedules.result.schedules, routing: { proven: true, domains: domains.result, routes: routeResponse.result, service: TARGET.worker, environment } };
-}
-function command(cmd, args, options = {}) {
-  const result = spawnSync(cmd, args, { cwd: root, encoding: "utf8", ...options });
-  if (result.status !== 0) fail(`${cmd} failed (${result.status ?? "spawn error"}); inspect the job and reconcile remote outcome before retrying.`);
-  return result.stdout?.trim() ?? "";
-}
-
 export async function main(args = process.argv.slice(2)) {
-  const apply = args.includes("--apply"), preflight = args.includes("--preflight");
-  const head = args.find((arg) => arg.startsWith("--head="))?.slice(7);
-  if (args.some((arg) => arg !== "--apply" && arg !== "--preflight" && !arg.startsWith("--head=")) || apply === preflight || !/^[a-f0-9]{40}$/.test(head ?? "")) fail("Use exactly --preflight or --apply and --head=<40-char SHA>.");
-  if (process.env.CLOUDFLARE_ACCOUNT_ID !== TARGET.accountId || !process.env.CLOUDFLARE_API_TOKEN) fail("The existing CI credential/account must match the fixed preview account.");
-  if (apply && process.env.CI !== "true") fail("Apply is limited to the reviewed noninteractive preview workflow.");
-  if (command("git", ["rev-parse", "HEAD"]) !== head) fail("Checkout changed from the reviewed PR head.");
-  const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-  if (pkg.devDependencies?.wrangler !== TARGET.wrangler) fail("Pinned Wrangler version changed.");
-  const token = process.env.CLOUDFLARE_API_TOKEN;
-  const before = await snapshot(token), checked = validateSnapshot(before);
-  console.log(JSON.stringify({ ...checked.plan, expectedVersion: checked.versionId, expectedDeployment: checked.deploymentId,
-    compareGuard: "Fresh exact snapshot checks and workflow concurrency; no atomic API CAS guarantee", authentication: "OPEN_DASHBOARD remains 0; no new login/provider secrets" }));
-  if (preflight) return;
-  const version = command("pnpm", ["exec", "wrangler", "--version"]);
-  if (!version.split(/\s+/).includes(TARGET.wrangler)) fail("Installed Wrangler does not match the reviewed version.");
-  const assetsDigest = await inspectAssets(join(root, "app-public"));
-  const temp = await mkdtemp(join(tmpdir(), "shiba-preview-existing-"));
-  let uploadAttempted = false;
-  try {
-    const config = generatedConfig(checked, root); assertConfig(config, root, checked);
-    const configPath = join(temp, "wrangler.json");
-    await writeFile(configPath, JSON.stringify(config), { mode: 0o600 });
-    command("pnpm", wranglerArgs(configPath, head, true), { stdio: "inherit" });
-    const fresh = validateSnapshot(await snapshot(token));
-    if (fresh.fingerprint !== checked.fingerprint || command("git", ["rev-parse", "HEAD"]) !== head ||
-        await inspectAssets(join(root, "app-public")) !== assetsDigest) fail("Preview state, checkout, or assets drifted before upload.");
-    uploadAttempted = true;
-    command("pnpm", wranglerArgs(configPath, head, false), { stdio: "inherit" });
-    const after = await snapshot(token);
-    const newId = after.deployment?.versions?.[0]?.version_id;
-    const verified = validateSnapshot(after, newId);
-    if (newId === checked.versionId || after.version.annotations?.["workers/tag"] !== head ||
-        !equal(verified.bindings, checked.bindings) || !equal(verified.app, checked.app) ||
-        !equal(verified.runtimeMetadata, checked.runtimeMetadata) || verified.repair)
-      fail("Post-deploy code/resource/attachment verification failed; do not retry blindly.");
-    const schedules = await api(`/accounts/${TARGET.accountId}/workers/scripts/${TARGET.worker}/schedules`, token);
-    if ((schedules.result.schedules ?? schedules.result).length !== 0) fail("Preview cron removal could not be verified.");
-    const http = await verifyHttpBuild(join(root, "app-public"));
-    console.log(JSON.stringify({ outcome: "verified", head, versionId: newId, assetsDigest, ...http, url: `https://${TARGET.hostname}/app/`,
-      observedResourceIdsUnchanged: true, containerAppChanged: false, sandboxExecutionVerified: false }));
-  } catch (error) {
-    if (uploadAttempted) {
-      try {
-        const after = await snapshot(token);
-        console.error(JSON.stringify({ outcome: after.version?.annotations?.["workers/tag"] === head ? "expected-head-active-command-or-verification-failed" : after.version?.id === checked.versionId ? "previous-version-active-other-state-unverified" : "changed-or-unknown",
-          activeVersion: after.version?.id, retry: "Inspect current state before any retry." }));
-      } catch { console.error("Deployment outcome is uncertain; inspect remote state before retrying."); }
-    }
-    throw error;
-  } finally { await rm(temp, { recursive: true, force: true }); }
+  if (!args.includes("--preflight")) fail("Code-only updater retired; use scripts/deploy.mjs with an explicit stage after reviewing its full-stack plan.");
+  const { main: deploy } = await import("./deploy.mjs");
+  return deploy(["--stage=pr-188", "--plan"]);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => {
-  console.error(error instanceof Error ? error.message : "Preview update failed."); process.exitCode = 1;
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => { console.error(error.message); process.exitCode = 1; });
+}

@@ -1,5 +1,4 @@
 import type { AuditEnv } from "./audit.js";
-import { initAudit } from "./audit.js";
 import { teamSkillWriteGuard, type SkillMutationOptions } from "./team-skill-grant.js";
 
 export interface SkillInstallRow {
@@ -9,25 +8,6 @@ export interface SkillInstallRow {
   skillId: string;
   installedBy: string;
   installedAt: number;
-}
-
-const TABLE = `CREATE TABLE IF NOT EXISTS skill_installs (
-  org_id TEXT NOT NULL,
-  library_slug TEXT NOT NULL,
-  library_version TEXT NOT NULL,
-  skill_id TEXT NOT NULL,
-  installed_by TEXT NOT NULL,
-  installed_at INTEGER NOT NULL,
-  PRIMARY KEY (org_id, installed_by, library_slug)
-)`;
-
-const initialized = new WeakSet<D1Database>();
-
-async function ensureTables(env: AuditEnv): Promise<void> {
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await initAudit(env);
-  await env.AGENT_AUDIT.prepare(TABLE).run();
-  initialized.add(env.AGENT_AUDIT);
 }
 
 function rowFromRecord(row: Record<string, unknown>): SkillInstallRow | null {
@@ -50,7 +30,6 @@ function rowFromRecord(row: Record<string, unknown>): SkillInstallRow | null {
 }
 
 export async function getSkillInstall(env: AuditEnv, orgId: string, ownerId: string, slug: string): Promise<SkillInstallRow | null> {
-  await ensureTables(env);
   const row = await env.AGENT_AUDIT.prepare(
     "SELECT org_id, library_slug, library_version, skill_id, installed_by, installed_at FROM skill_installs WHERE org_id = ? AND installed_by = ? AND library_slug = ?",
   ).bind(orgId, ownerId, slug).first();
@@ -58,7 +37,6 @@ export async function getSkillInstall(env: AuditEnv, orgId: string, ownerId: str
 }
 
 export async function listSkillInstalls(env: AuditEnv, orgId: string, ownerId: string): Promise<SkillInstallRow[]> {
-  await ensureTables(env);
   const rows = await env.AGENT_AUDIT.prepare(
     "SELECT org_id, library_slug, library_version, skill_id, installed_by, installed_at FROM skill_installs WHERE org_id = ? AND installed_by = ? ORDER BY installed_at DESC",
   ).bind(orgId, ownerId).all();
@@ -74,7 +52,6 @@ export async function recordSkillInstall(
   previousSkillId?: string,
   options: SkillMutationOptions = {},
 ): Promise<boolean> {
-  await ensureTables(env);
   const guard = teamSkillWriteGuard(row.orgId, row.installedBy, options.teamGrant);
   const result = previousSkillId === undefined
     ? await env.AGENT_AUDIT.prepare(
@@ -90,7 +67,6 @@ export async function recordSkillInstall(
 }
 
 export async function deleteSkillInstall(env: AuditEnv, orgId: string, ownerId: string, slug: string, options: SkillMutationOptions = {}): Promise<boolean> {
-  await ensureTables(env);
   const guard = teamSkillWriteGuard(orgId, ownerId, options.teamGrant);
   const result = await env.AGENT_AUDIT.prepare(
     `DELETE FROM skill_installs WHERE org_id = ? AND installed_by = ? AND library_slug = ?${guard.sql}`,

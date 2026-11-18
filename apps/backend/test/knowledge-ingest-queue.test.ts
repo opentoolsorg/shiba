@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { dispatchQueueBatch } from "../src/platform/queues.js";
@@ -9,8 +8,7 @@ import { ensureQueueConsumersRegistered } from "../src/platform/queue-consumers.
 describe("knowledge ingest queue", () => {
   it.each(["workspace", "personal"] as const)("consumes %s ingestion and scopes its completion event", async (scope) => {
     await ensureQueueConsumersRegistered();
-    const { database, sqlite } = customAgentD1();
-    sqlite.exec(readFileSync(new URL("../migrations/0050_files_notes.sql", import.meta.url), "utf8"));
+    const { database } = customAgentD1();
     const objects = new Map<string, Uint8Array>();
     const events: Record<string, unknown>[] = [];
     const env = {

@@ -16,7 +16,7 @@ import type { Env } from "../src/env.js";
 import { parseAgentResultText, parseAgentToolInput, type CodingTaskResult } from "../src/opencode-input.js";
 import { LOCAL_INTAKE_HEADER, LOCAL_INTAKE_DASHBOARD } from "@shiba/shared";
 import { LocalRuntimeAdapter, SandboxRuntimeAdapter, type SandboxOps } from "../src/runtime.js";
-import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), acquire: vi.fn(), adapter: vi.fn(), destroy: vi.fn() }));
 vi.mock("@cloudflare/ai-chat", () => ({ AIChatAgent: class {} }));
@@ -165,7 +165,7 @@ async function approvedRun(context: ReturnType<typeof fixture>, local = false) {
     ...(local ? { runtime: "local", expectedDeliverables: ["out/brief.md"] } : {}),
   });
   if (local) request.headers.set(LOCAL_INTAKE_HEADER, LOCAL_INTAKE_DASHBOARD);
-  const queued = await context.instance.onRequest(request);
+  const queued = await sendWorkerRequest(context.instance, request);
   expect(queued.status, await queued.clone().text()).toBe(200);
   const { approvalId } = await queued.json() as { approvalId: string };
   expect(context.instance.state.pendingApprovals?.find((approval) => approval.approvalId === approvalId)?.status).toBe("pending");
