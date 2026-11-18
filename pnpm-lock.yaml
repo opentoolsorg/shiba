@@ -14,6 +14,7 @@ overrides:
   '@modelcontextprotocol/sdk': 1.32.2
   hono: ^4.13.16
   '@hono/node-server@1': ^1.19.18
+  '@modelcontextprotocol/sdk>@hono/node-server': ^2.1.6
   lodash: ^4.18.0
   valibot: ^1.4.2
   miniflare>undici: 7.30.2
@@ -2071,6 +2072,12 @@ packages:
   '@hono/node-server@1.19.19':
     resolution: {integrity: sha512-Fy9R7PACOzHU9LDpfnuzVyuVYevKQRcEG2mZhmfc+DRdmayEd3RVfa2XOt2IgGcPNgA77Yk63KBszepcMFK5Ng==}
     engines: {node: '>=18.14.1'}
+    peerDependencies:
+      hono: ^4.13.16
+
+  '@hono/node-server@2.1.9':
+    resolution: {integrity: sha512-Sk4NQd3GFY0WZWCzndwFMPwJhtD0y9qjsQ+pjID0/03nK9pxyBCUoUHCho8QYBLBVhi0ssL8UkNPHqbgSOFPIQ==}
+    engines: {node: '>=20'}
     peerDependencies:
       hono: ^4.13.16
 
@@ -9821,6 +9828,10 @@ snapshots:
     dependencies:
       hono: 4.13.19
 
+  '@hono/node-server@2.1.9(hono@4.13.19)':
+    dependencies:
+      hono: 4.13.19
+
   '@humanfs/core@0.19.2':
     dependencies:
       '@humanfs/types': 0.15.0
@@ -10105,7 +10116,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.32.2(@cfworker/json-schema@4.1.1)(zod@4.6.7)':
     dependencies:
-      '@hono/node-server': 1.19.19(hono@4.13.19)
+      '@hono/node-server': 2.1.9(hono@4.13.19)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
