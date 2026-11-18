@@ -1,8 +1,8 @@
 /**
  * Hosted-shell journey against a loopback stand-in for app.tryshiba.dev.
  * The page uses the same accessible names as the dashboard composer, approval
- * card, diff, and pull request. The shell's bridge pairs the session probe,
- * opens the diff window, and hands the pull URL to the OS.
+ * card, diff, and pull request. The shell's bridge pairs the session probe and
+ * hands an external pull link to the OS; the dashboard stays the only diff UI.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -31,7 +31,7 @@ const JOURNEY = `<!doctype html><html><head><meta charset="utf-8"><title>Shiba</
   <section id="diff" hidden>
     <h2>Pull requests</h2>
     <pre data-testid="diff"></pre>
-    <button type="button" id="pr">Open pull request</button>
+    <a id="pr" href="${PR_URL}" target="_blank" rel="noopener noreferrer">Open pull request</a>
   </section>
 </main>
 <script>
@@ -51,11 +51,7 @@ const JOURNEY = `<!doctype html><html><head><meta charset="utf-8"><title>Shiba</
     const diff = document.getElementById("diff");
     diff.hidden = false;
     document.querySelector("[data-testid=diff]").textContent = ${JSON.stringify(PATCH)};
-    if (bridge) await bridge.showDiff(${JSON.stringify(PATCH)});
     if (location.search.indexOf("tab=diff") === -1) history.replaceState(null, "", "/app/?tab=diff");
-  });
-  document.getElementById("pr").addEventListener("click", () => {
-    if (bridge) void bridge.openPullRequest(${JSON.stringify(PR_URL)});
   });
 </script>
 </body></html>`;
@@ -104,7 +100,7 @@ function launch(): Promise<ElectronApplication> {
   });
 }
 
-test("sign in, pair probe, approve, show the diff, and open a pull request", async () => {
+test("sign in, pair probe, approve, show the diff in the dashboard, and open a pull request", async () => {
   const app = await launch();
   try {
     const win = await app.firstWindow();
@@ -115,14 +111,11 @@ test("sign in, pair probe, approve, show the diff, and open a pull request", asy
 
     await win.getByLabel("Task description").fill("Add a greeting");
     await win.getByRole("button", { name: "Send task" }).click();
-    // Listen before approving: the diff window can open before the diff tab settles.
-    const diffWindowOpened = app.waitForEvent("window");
     await win.getByRole("button", { name: "Approve" }).click();
+    // The dashboard's own diff tab is the only diff UI the shell ships.
     await expect.poll(async () => win.getByTestId("diff").textContent()).toBe(PATCH);
     await expect.poll(() => win.url()).toContain("tab=diff");
-
-    const diffWindow = await diffWindowOpened;
-    await expect.poll(async () => diffWindow.locator("#patch").textContent()).toBe(PATCH);
+    expect(app.windows().length).toBe(1);
 
     await app.evaluate(({ shell }) => {
       const g = globalThis as { __opened?: string[] };
@@ -131,7 +124,7 @@ test("sign in, pair probe, approve, show the diff, and open a pull request", asy
         g.__opened?.push(url);
       };
     });
-    await win.getByRole("button", { name: "Open pull request" }).click();
+    await win.getByRole("link", { name: "Open pull request" }).click();
     await expect
       .poll(() => app.evaluate(() => (globalThis as { __opened?: string[] }).__opened ?? []))
       .toContain(PR_URL);

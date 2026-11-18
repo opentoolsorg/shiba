@@ -1,16 +1,51 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-// Origin comes from BrowserWindow additionalArguments, never from the page (D4).
-const origin = process.argv
-  .find((a) => a.startsWith("--shiba-origin="))
-  ?.slice("--shiba-origin=".length);
-const version =
-  process.argv.find((a) => a.startsWith("--shiba-version="))?.slice("--shiba-version=".length) ??
-  "";
+// Origin and versions come from BrowserWindow additionalArguments, never from
+// the page (D4). A sandboxed preload cannot require a shared module, so the
+// channel names below are literals that test/bridge-contract.test.ts pins to
+// apps/desktop/src/bridge-contract.ts.
+const HANDSHAKE_PREFIX = "--shiba-bridge=";
+const BRIDGE_VERSION = 1;
+const DESKTOP_CAPABILITIES = ["status", "pair", "unpair", "onStatus", "claudeLogin"];
 
-if (origin && location.origin === origin) {
+type Handshake = {
+  origin: string;
+  bridgeVersion: number;
+  appVersion: string;
+  platform: string;
+};
+
+function readHandshake(): Handshake | null {
+  const raw = process.argv.find((arg) => arg.startsWith(HANDSHAKE_PREFIX));
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw.slice(HANDSHAKE_PREFIX.length));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const value = parsed as Partial<Handshake>;
+  if (typeof value.origin !== "string" || value.origin.length === 0) return null;
+  if (value.bridgeVersion !== BRIDGE_VERSION) return null;
+  if (typeof value.appVersion !== "string" || value.appVersion.length > 64) return null;
+  if (typeof value.platform !== "string" || value.platform.length > 32) return null;
+  return {
+    origin: value.origin,
+    bridgeVersion: value.bridgeVersion,
+    appVersion: value.appVersion,
+    platform: value.platform,
+  };
+}
+
+const handshake = readHandshake();
+
+if (handshake && location.origin === handshake.origin) {
   contextBridge.exposeInMainWorld("shibaDesktop", {
-    version,
+    bridgeVersion: handshake.bridgeVersion,
+    appVersion: handshake.appVersion,
+    platform: handshake.platform,
+    capabilities: DESKTOP_CAPABILITIES,
     status: () => ipcRenderer.invoke("desktop:status"),
     pair: (pairingToken: string) => ipcRenderer.invoke("desktop:pair", pairingToken),
     unpair: () => ipcRenderer.invoke("desktop:unpair"),
@@ -21,14 +56,7 @@ if (origin && location.origin === origin) {
         ipcRenderer.removeListener("desktop:status-changed", handler);
       };
     },
-    receiveCodexCallback: (authorizationUrl: string) =>
-      ipcRenderer.invoke("desktop:codex-callback", authorizationUrl),
-    cancelCodexCallback: (authorizationUrl: string) =>
-      ipcRenderer.invoke("desktop:codex-callback-cancel", authorizationUrl),
     startClaudeLogin: () => ipcRenderer.invoke("desktop:claude-login"),
-    openView: (view: string) => ipcRenderer.invoke("desktop:open-view", view),
-    openPullRequest: (url: string) => ipcRenderer.invoke("desktop:open-pr", url),
-    showDiff: (patch: string) => ipcRenderer.invoke("desktop:show-diff", patch),
   });
 } else if (location.protocol === "file:" && location.pathname.endsWith("/setup.html")) {
   // Setup page only; main re-checks the sender frame in the handler.

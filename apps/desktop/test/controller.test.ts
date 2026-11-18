@@ -5,7 +5,13 @@ import type { ChildLike, ControllerDeps, LocalConfig } from "../src/controller.j
 const ORIGIN = "https://shiba.example.com";
 
 function setup(opts: { code?: number | "throw"; local?: LocalConfig | null } = {}) {
-  const children: Array<{ child: ChildLike; hooks: Parameters<ControllerDeps["fork"]>[1]; args: string[]; killed: boolean }> = [];
+  const children: Array<{
+    child: ChildLike;
+    hooks: Parameters<ControllerDeps["fork"]>[1];
+    args: string[];
+    pairingToken?: string;
+    killed: boolean;
+  }> = [];
   const statuses: string[] = [];
   const timers: Array<() => void> = [];
   const state = { code: opts.code ?? 200, local: opts.local === undefined ? { workerUrl: ORIGIN, machineId: "m1" } : opts.local };
@@ -16,8 +22,8 @@ function setup(opts: { code?: number | "throw"; local?: LocalConfig | null } = {
       return { status: state.code };
     },
     readLocalConfig: () => state.local,
-    fork: (args, hooks) => {
-      const entry = { args, hooks, killed: false, child: undefined as unknown as ChildLike };
+    fork: (args, hooks, pairingToken) => {
+      const entry = { args, hooks, pairingToken, killed: false, child: undefined as unknown as ChildLike };
       entry.child = {
         on: () => undefined,
         once: (_e, l) => { (entry as { exitListener?: (c: number | null) => void }).exitListener = l; },
@@ -84,7 +90,7 @@ describe("probe state machine", () => {
     t.deps.probeFetch = () => new Promise((resolve) => { resolveProbe = resolve; });
     const pending = t.ctl.probe();
     await t.ctl.stop();
-    t.ctl.forkForPairing(["--connect", ORIGIN, "--pair", "nonce.signature"]);
+    t.ctl.forkForPairing(["--connect", ORIGIN, "--pair"], "nonce.signature");
     resolveProbe({ status: 404 });
     await pending;
     expect(t.children).toHaveLength(1);
@@ -190,10 +196,18 @@ describe("daemon messages and exits", () => {
     expect(t.children[1]?.args).toEqual([]);
   });
 
+  it("hands the pairing token to the fork outside argv", async () => {
+    const t = setup({ local: null });
+    await t.ctl.probe();
+    t.ctl.forkForPairing(["--connect", ORIGIN, "--pair"], "nonce.signature");
+    expect(t.children[0]?.args).toEqual(["--connect", ORIGIN, "--pair"]);
+    expect(t.children[0]?.pairingToken).toBe("nonce.signature");
+  });
+
   it("pairing fork exiting before polling re-probes instead of restarting", async () => {
     const t = setup({ local: null });
     await t.ctl.probe();
-    t.ctl.forkForPairing(["--connect", ORIGIN, "--pair", "a.b"]);
+    t.ctl.forkForPairing(["--connect", ORIGIN, "--pair"], "a.b");
     t.children[0]!.hooks.onExit(1);
     await vi.waitFor(() => expect(t.ctl.status().state).toBe("unpaired"));
     expect(t.children).toHaveLength(1);

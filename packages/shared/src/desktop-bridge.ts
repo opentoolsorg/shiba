@@ -27,39 +27,43 @@ export type DesktopViewName = "tasks" | "diff" | "approvals" | "providers" | "re
 
 export type DesktopFailure = { ok: false; error: string };
 
-export type DesktopCodexCallbackResult = { ok: true; callbackUrl: string } | DesktopFailure;
-
 export type DesktopClaudeLoginResult = { ok: true } | DesktopFailure;
 
-export interface DesktopDiffSummary {
-  ok: true;
-  files: string[];
-  hunks: number;
-  additions: number;
-  deletions: number;
+/**
+ * Methods this shell implements. The dashboard reads this list instead of
+ * probing for truthiness, so a capability the shell does not ship (native
+ * ChatGPT sign-in, for one) never renders a control that cannot work.
+ */
+export const DESKTOP_CAPABILITIES = [
+  "status",
+  "pair",
+  "unpair",
+  "onStatus",
+  "claudeLogin",
+] as const;
+
+export type DesktopCapability = (typeof DESKTOP_CAPABILITIES)[number];
+
+/** Handshake every desktop page receives; `origin` is the only origin it may run on. */
+export interface DesktopBridgeHandshake {
+  bridgeVersion: number;
+  appVersion: string;
+  platform: string;
+  capabilities: readonly DesktopCapability[];
 }
 
-export type DesktopDiffResult = DesktopDiffSummary | DesktopFailure;
-
-export type DesktopPullRequestResult = { ok: true; url: string } | DesktopFailure;
-
-export interface ShibaDesktopBridge {
-  readonly version: string;
+export interface ShibaDesktopBridge extends DesktopBridgeHandshake {
   status(): Promise<DesktopStatus>;
   pair(pairingToken: string): Promise<PairResult>;
   unpair(): Promise<PairResult>;
   onStatus(listener: (status: DesktopStatus) => void): () => void;
-  /** Loopback receiver for a ChatGPT PKCE authorize URL. The code is returned to the dashboard, which posts it to the existing verify route. */
-  receiveCodexCallback(authorizationUrl: string): Promise<DesktopCodexCallbackResult>;
-  cancelCodexCallback(authorizationUrl: string): Promise<void>;
   /** Spawns `claude auth login` on this machine. Stdout is discarded; credentials stay in the user's Claude home. */
   startClaudeLogin(): Promise<DesktopClaudeLoginResult>;
-  /** Loads a dashboard view (`/app/` or `/app/?tab=`). */
-  openView(view: DesktopViewName): Promise<void>;
-  /** Hands a github.com pull URL to the system browser. */
-  openPullRequest(url: string): Promise<DesktopPullRequestResult>;
-  /** Parses a unified diff and opens the desktop diff window. The dashboard diff tab remains the run's viewer. */
-  showDiff(patch: string): Promise<DesktopDiffResult>;
+}
+
+/** The bundled setup page's bridge; it can only change the deployment URL. */
+export interface ShibaSetupBridge {
+  setUrl(url: string): Promise<PairResult>;
 }
 
 // Daemon → main over process.parentPort (hand-mirrored in the dep-free daemon).

@@ -60,8 +60,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Shiba</tit
   <section id="diff-section" hidden>
     <h2>Pull requests</h2>
     <pre data-testid="diff"></pre>
-    <button type="button" id="show">Show diff</button>
-    <button type="button" id="pr">Open pull request</button>
+    <a id="pr" href="${PR_URL}" target="_blank" rel="noopener noreferrer">Open pull request</a>
   </section>
 </main>
 <script>
@@ -83,10 +82,6 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Shiba</tit
   document.getElementById("allow").addEventListener("click", () => {
     document.getElementById("approval").hidden = true;
     void fetch("/api/e2e/decide", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision: "allow" }) });
-  });
-  document.getElementById("show").addEventListener("click", async () => {
-    const patch = document.querySelector("[data-testid=diff]").textContent;
-    if (bridge) await bridge.showDiff(patch);
   });
   document.getElementById("pr").addEventListener("click", async () => {
     const response = await fetch("/github/repos/acme/widgets/pulls", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
@@ -280,6 +275,23 @@ test("pair, stream a harness approval, render the diff, and open a pull request"
     },
   });
   try {
+    // Capture the run-finished notification and its click handler before the
+    // run settles; this box has no notification service, so main's documented
+    // test hook stands in for the OS surface.
+    await app.evaluate(() => {
+      const g = globalThis as {
+        __notification?: { title: string; body: string } | null;
+        __notificationClick?: (() => void) | null;
+        __shibaTestNotify?: (n: { title: string; body: string }, onClick: () => void) => void;
+      };
+      g.__notification = null;
+      g.__notificationClick = null;
+      g.__shibaTestNotify = (n, onClick) => {
+        g.__notification = { title: n.title, body: n.body };
+        g.__notificationClick = onClick;
+      };
+    });
+
     const win = await app.firstWindow();
     win.setDefaultTimeout(10_000);
     await win.waitForURL(`${stubUrl}/app/**`, { timeout: 20_000 });
@@ -305,13 +317,6 @@ test("pair, stream a harness approval, render the diff, and open a pull request"
       .poll(async () => win.getByTestId("diff").textContent(), { timeout: 20_000 })
       .toContain("greeting.txt");
 
-    const diffWindow = app.waitForEvent("window");
-    await win.getByRole("button", { name: "Show diff" }).click();
-    const patch = await diffWindow;
-    await expect
-      .poll(async () => patch.locator("#patch").textContent(), { timeout: 10_000 })
-      .toContain("greeting.txt");
-
     await app.evaluate(({ shell }) => {
       const g = globalThis as { __opened?: string[] };
       g.__opened = [];
@@ -319,12 +324,30 @@ test("pair, stream a harness approval, render the diff, and open a pull request"
         g.__opened?.push(url);
       };
     });
-    await win.getByRole("button", { name: "Open pull request" }).click();
+    await win.getByRole("link", { name: "Open pull request" }).click();
     await expect
       .poll(() => app.evaluate(() => (globalThis as { __opened?: string[] }).__opened ?? []), {
         timeout: 10_000,
       })
       .toContain(PR_URL);
+
+    // The finished-run notification carries no secret and its click loads the
+    // activity tab through the validated app path.
+    await expect
+      .poll(() => app.evaluate(() => (globalThis as { __notification?: unknown }).__notification ?? null), {
+        timeout: 30_000,
+      })
+      .not.toBeNull();
+    const notification = await app.evaluate(
+      () => (globalThis as { __notification?: { title: string; body: string } }).__notification,
+    );
+    expect(notification?.title).toMatch(/^Local run/);
+    expect(notification?.body).not.toMatch(/[A-Za-z0-9_-]{40,}\.[A-Za-z0-9_-]{20,}/);
+    // The click handler is main's own: it may only load a validated app route.
+    await app.evaluate(() => {
+      (globalThis as { __notificationClick?: (() => void) | null }).__notificationClick?.();
+    });
+    await win.waitForURL(`${stubUrl}/app/?tab=activity`, { timeout: 10_000 });
   } finally {
     await app.close();
   }

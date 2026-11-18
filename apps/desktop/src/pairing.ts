@@ -2,27 +2,34 @@
 // once. Every handler re-checks the sender frame (D4) and main builds the
 // daemon argv itself from the configured origin (D3) — the renderer only
 // supplies the single-use pairing token, never a URL (D7: the token reaches
-// only the daemon argv, never IPC replies, logs or notifications).
+// only the daemon's environment, never argv, IPC replies, logs or
+// notifications).
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import type { DesktopStatus, PairResult } from "@shiba/shared";
+import {
+  boundedText,
+  DESKTOP_CHANNELS,
+  MAX_DEPLOYMENT_URL_CHARS,
+  MAX_PAIRING_TOKEN_CHARS,
+  SETUP_CHANNELS,
+} from "./bridge-contract.js";
 import type { ChildLike } from "./controller.js";
+import type { IpcBounds } from "./ipc-guard.js";
+import { IPC_BUSY_ERROR } from "./ipc-guard.js";
 import { originOf } from "./navigation.js";
 
 export type { DesktopStatus, PairResult };
 
-export const DESKTOP_STATUS_CHANNEL = "desktop:status";
-export const DESKTOP_PAIR_CHANNEL = "desktop:pair";
-export const DESKTOP_UNPAIR_CHANNEL = "desktop:unpair";
-export const DESKTOP_SET_URL_CHANNEL = "desktop:set-url";
-export const DESKTOP_STATUS_CHANGED_CHANNEL = "desktop:status-changed";
-
 export interface DesktopSupervisor {
   status(): DesktopStatus;
   stop(): Promise<void> | void;
-  /** Forks the daemon script with the given argv. Pairing forks never restart. */
-  forkDaemon(args: string[]): ChildLike;
+  /**
+   * Forks the daemon script with the given argv. The pairing token travels in
+   * the child's environment, never in argv. Pairing forks never restart.
+   */
+  forkDaemon(args: string[], pairingToken: string): ChildLike;
   /** Re-reads config.json and restarts the daemon if it is still paired. */
   probe?(): unknown;
 }
@@ -51,12 +58,12 @@ export interface DesktopIpcDeps {
   pairTimeoutMs?: number;
   /** Main-process log sink; never receives tokens or request bodies. */
   log?(line: string): void;
+  /** Surface-wide concurrency ceiling shared with the rest of the bridge. */
+  bounds: IpcBounds;
 }
 
-// Two base64url segments joined by ".", capped at the server schema's 1024
-// (local-fleet-schema.ts); real tokens are ~124 chars.
+// Two base64url segments joined by "."; real tokens are ~124 chars.
 const PAIRING_TOKEN = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
-const PAIRING_TOKEN_MAX = 1024;
 
 function lastStderrLine(tail: string): string {
   const line = tail.trim().split("\n").filter(Boolean).pop() ?? "";
@@ -108,7 +115,7 @@ export function emitStatusChanged(
   webContents: Pick<WebContents, "send"> | undefined | null,
   status: DesktopStatus,
 ): void {
-  webContents?.send(DESKTOP_STATUS_CHANGED_CHANNEL, status);
+  webContents?.send(DESKTOP_CHANNELS.statusChanged, status);
 }
 
 export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<PairResult> } {
@@ -150,23 +157,19 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
     }
   }
 
-  deps.ipcMain.handle(DESKTOP_STATUS_CHANNEL, (event): DesktopStatus => {
+  deps.ipcMain.handle(DESKTOP_CHANNELS.status, (event): DesktopStatus => {
     if (!trusted(event)) throw new Error("Untrusted sender.");
     return deps.supervisor.status();
   });
 
-  deps.ipcMain.handle(DESKTOP_PAIR_CHANNEL, async (event, token: unknown): Promise<PairResult> => {
+  deps.ipcMain.handle(DESKTOP_CHANNELS.pair, async (event, token: unknown): Promise<PairResult> => {
     const origin = deps.getConfiguredOrigin();
     if (!trusted(event)) return { ok: false, error: "Untrusted sender." };
-    if (
-      typeof token !== "string" ||
-      token.length === 0 ||
-      token.length > PAIRING_TOKEN_MAX ||
-      !PAIRING_TOKEN.test(token)
-    ) {
+    const pairingToken = boundedText(token, MAX_PAIRING_TOKEN_CHARS);
+    if (!pairingToken || !PAIRING_TOKEN.test(pairingToken)) {
       return { ok: false, error: "Invalid pairing token." };
     }
-    return singleFlight(connectionChange, async () => {
+    return deps.bounds.run(() => singleFlight(connectionChange, async () => {
       const local = deps.readLocalConfig();
       const savedOrigin = local?.workerUrl ? originOf(local.workerUrl) : undefined;
       const status = deps.supervisor.status();
@@ -182,7 +185,7 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
       // Read before stop(): stopping resets the live status and drops machineId.
       const staleId = staleMachineId(origin, status);
       await deps.supervisor.stop();
-      const child = deps.supervisor.forkDaemon(["--connect", origin, "--pair", token]);
+      const child = deps.supervisor.forkDaemon(["--connect", origin, "--pair"], pairingToken);
       const result = await waitForPair(child, deps.pairTimeoutMs ?? PAIR_TIMEOUT_MS);
       // Only after the new pairing lands: a failed re-pair must not leave the old token revoked.
       if (result.ok) {
@@ -191,7 +194,7 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
         void deps.supervisor.probe?.();
       }
       return result;
-    });
+    }), () => ({ ok: false, error: IPC_BUSY_ERROR }));
   });
 
   async function unpair(): Promise<PairResult> {
@@ -232,17 +235,18 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
     });
   }
 
-  deps.ipcMain.handle(DESKTOP_UNPAIR_CHANNEL, async (event): Promise<PairResult> => {
+  deps.ipcMain.handle(DESKTOP_CHANNELS.unpair, async (event): Promise<PairResult> => {
     if (!trusted(event)) return { ok: false, error: "Untrusted sender." };
-    return unpair();
+    return deps.bounds.run(unpair, () => ({ ok: false, error: IPC_BUSY_ERROR }));
   });
 
   // Accepted only from the bundled setup.html frame, never from a remote origin.
-  deps.ipcMain.handle(DESKTOP_SET_URL_CHANNEL, async (event, url: unknown): Promise<PairResult> => {
+  deps.ipcMain.handle(SETUP_CHANNELS.setUrl, async (event, url: unknown): Promise<PairResult> => {
     if (!deps.isSetupSender(event.senderFrame?.url)) {
       return { ok: false, error: "desktop:set-url is only accepted from the setup frame." };
     }
-    const origin = typeof url === "string" ? deps.parseDeploymentUrl(url) : null;
+    const candidate = boundedText(url, MAX_DEPLOYMENT_URL_CHARS);
+    const origin = candidate ? deps.parseDeploymentUrl(candidate) : null;
     if (!origin) return { ok: false, error: "URL must be https:// (http://localhost only in dev)." };
     if (inFlight.has(connectionChange)) return { ok: false, error: "Pairing already in progress." };
     return (await deps.onSetUrl?.(origin)) ?? { ok: true };

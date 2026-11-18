@@ -77,42 +77,80 @@ test("cold-start deep link opens its requested dashboard view", async () => {
   }
 });
 
-test("native sign-in bridge receives a matching loopback callback", async () => {
-  const portProbe = createServer();
-  await new Promise<void>((resolve) => portProbe.listen(0, "127.0.0.1", resolve));
-  const port = (portProbe.address() as AddressInfo).port;
-  await new Promise<void>((resolve) => portProbe.close(() => resolve()));
-  const callbackUrl = `http://127.0.0.1:${port}/auth/callback?code=fixture-code&state=fixture-state`;
-  const authorizationUrl = new URL("https://auth.openai.com/oauth/authorize");
-  authorizationUrl.search = new URLSearchParams({
-    redirect_uri: `http://127.0.0.1:${port}/auth/callback`,
-    state: "fixture-state",
-    code_challenge: "fixture-challenge",
-    code_challenge_method: "S256",
-  }).toString();
+test("configured origin gets the handshake bridge; a foreign origin gets none", async () => {
   const app = await launch({ SHIBA_DESKTOP_URL: stubUrl });
   try {
     const win = await app.firstWindow();
     await win.waitForURL(`${stubUrl}/app/**`);
-    await app.evaluate(({ shell }) => {
-      shell.openExternal = async () => undefined;
+
+    const handshake = await win.evaluate(() => {
+      const bridge = (window as unknown as { shibaDesktop?: Record<string, unknown> }).shibaDesktop;
+      return bridge
+        ? {
+            bridgeVersion: bridge.bridgeVersion,
+            appVersion: bridge.appVersion,
+            platform: bridge.platform,
+            capabilities: bridge.capabilities,
+            methods: ["status", "pair", "unpair", "onStatus", "startClaudeLogin"].filter(
+              (name) => typeof bridge[name] === "function",
+            ),
+            retired: ["receiveCodexCallback", "showDiff", "openView", "openPullRequest"].filter(
+              (name) => name in bridge,
+            ),
+          }
+        : null;
     });
-    const received = win.evaluate((url) => {
-      const bridge = (window as unknown as {
-        shibaDesktop: { receiveCodexCallback(url: string): Promise<unknown> };
-      }).shibaDesktop;
-      return bridge.receiveCodexCallback(url);
-    }, authorizationUrl.toString());
-    await expect.poll(async () => {
-      const response = await fetch(callbackUrl).catch(() => null);
-      return response?.status;
-    }).toBe(200);
-    expect(await received).toEqual({ ok: true, callbackUrl });
+    expect(handshake?.bridgeVersion).toBe(1);
+    expect(typeof handshake?.appVersion).toBe("string");
+    expect(handshake?.platform).toBe(process.platform);
+    expect(handshake?.capabilities).toEqual([
+      "status",
+      "pair",
+      "unpair",
+      "onStatus",
+      "claudeLogin",
+    ]);
+    // Every advertised capability maps to a real method, and nothing else exists.
+    expect(handshake?.methods).toEqual(["status", "pair", "unpair", "onStatus", "startClaudeLogin"]);
+    expect(handshake?.retired).toEqual([]);
+
+    // The preload compares the document origin with the handshake origin, so a
+    // window on any other origin must stay bridge-free even with the same preload.
+    const foreign = createServer((_req, res) => {
+      res.setHeader("content-type", "text/html");
+      res.end("<!doctype html><title>foreign</title><body>foreign</body>");
+    });
+    await new Promise<void>((resolve) => foreign.listen(0, "127.0.0.1", resolve));
+    const foreignUrl = `http://127.0.0.1:${(foreign.address() as AddressInfo).port}`;
+    try {
+      const foreignBridge = await app.evaluate(
+        async ({ BrowserWindow }, { url, preloadPath }) => {
+          const window = new BrowserWindow({
+            show: false,
+            webPreferences: {
+              preload: preloadPath,
+              sandbox: true,
+              contextIsolation: true,
+              nodeIntegration: false,
+            },
+          });
+          await window.loadURL(`${url}/app/`);
+          const visible = await window.webContents.executeJavaScript(
+            "typeof window.shibaDesktop",
+          );
+          window.destroy();
+          return visible;
+        },
+        { url: foreignUrl, preloadPath: path.resolve(import.meta.dirname, "../dist/preload.js") },
+      );
+      expect(foreignBridge).toBe("undefined");
+    } finally {
+      await new Promise((resolve) => foreign.close(resolve));
+    }
   } finally {
     await app.close();
   }
 });
-
 test("saved deployment survives restart and recovers after an unavailable origin", async () => {
   const userData = mkdtempSync(path.join(tmpdir(), "shiba-restart-"));
   let app = await launch({ SHIBA_DESKTOP_URL: "" }, [], userData);

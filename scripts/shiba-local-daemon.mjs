@@ -18,6 +18,8 @@
  *
  * Or pair once with a dashboard-minted token (saves ~/.shiba-local/config.json):
  *   node scripts/shiba-local-daemon.mjs --connect <workerUrl> --pair <token>
+ *   (or `--pair` with SHIBA_PAIRING_TOKEN set, which is how the desktop app
+ *   hands the token over without putting it in argv)
  *
  * Loop: POST /api/local/claim → execute → POST /api/local/result.
  * Claims hold the machine's slot: while a run is executing here the daemon
@@ -75,12 +77,14 @@ const HELP_TEXT = `shiba-local-daemon — poll a Shiba deployment for local runs
 
 Usage:
   shiba-local-daemon [--once] [--poll <ms>]
-  shiba-local-daemon --connect <workerUrl> --pair <token>
+  shiba-local-daemon --connect <workerUrl> --pair [<token>]
   shiba-local-daemon --inspect-personal-auth <claude-code|codex>
   shiba-local-daemon --personal-harness <claude-code|codex> --personal-billing native-subscription --personal-account <fingerprint>
 
 Environment:
   SHIBA_WORKER_URL          Worker origin (https://…), unless saved by --pair
+  SHIBA_PAIRING_TOKEN       Single-use pairing token; how the desktop app hands it
+                            over, so it never appears in the process arguments
   LOCAL_ADAPTER_TOKEN       Deployment daemon bearer (legacy) or use --pair
   SHIBA_LOCAL_RUN_ROOT      State directory (default ~/.shiba-local)
   SHIBA_REASON_NETWORK_COMPANION=1
@@ -114,7 +118,13 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--once") args.once = true;
     else if (argv[i] === "--connect" && argv[i + 1]) args.connect = argv[++i];
-    else if (argv[i] === "--pair" && argv[i + 1]) args.pair = argv[++i];
+    else if (argv[i] === "--pair") {
+      // The desktop shell passes the token in the environment: argv is readable
+      // by other local processes, a child's environment is not.
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith("--")) args.pair = argv[++i];
+      else args.pair = process.env.SHIBA_PAIRING_TOKEN ?? "";
+    }
     else if (argv[i] === "--inspect-personal-auth" && argv[i + 1]) args.inspectPersonal = argv[++i];
     else if (argv[i] === "--personal-harness" && argv[i + 1]) args.personalHarness = argv[++i];
     else if (argv[i] === "--personal-billing" && argv[i + 1]) args.personalBilling = argv[++i];
@@ -128,6 +138,8 @@ function parseArgs(argv) {
       fail(`Unknown argument ${argv[i]}`, EXIT_USAGE);
     }
   }
+  if (args.connect && !args.pair)
+    fail("--pair needs a token: pass <token> or set SHIBA_PAIRING_TOKEN.", EXIT_USAGE);
   if (Boolean(args.connect) !== Boolean(args.pair))
     fail("--connect and --pair must be given together.", EXIT_USAGE);
   if (args.inspectPersonal && (! ["claude-code", "codex"].includes(args.inspectPersonal) || args.connect || args.personalHarness || args.personalBilling || args.personalAccount)) fail("Inspect one supported personal harness separately.", EXIT_USAGE);
