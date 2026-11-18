@@ -1,4 +1,11 @@
 import { connectedDefaultForUser } from "../acp-providers.js";
+import { isTerminalStatus, usageBudgetPolicySchema, type UsageBudgetPolicy } from "@shiba/shared";
+import { meterSandboxRun } from "../sandbox-metering.js";
+import { resolveInstanceType } from "../instance-type.js";
+import { canStart as usageBudgetCanStart, evaluateUsageBudget, runOverLimit, type BudgetMeter } from "../usage-budget.js";
+import { defaultUsageBudgetPolicy } from "../usage.js";
+import { audit } from "../audit.js";
+import { sha256Hex } from "../agent-tokens.js";
 import { personalExecutionSnapshotSchema, personalExecutionClaimSchema, personalExecutionContextDigest, APPROVAL_TTL_MS as PERSONAL_APPROVAL_TTL_MS, type PersonalExecutionSnapshot } from "@shiba/shared";
 import { revalidatePersonalExecutionSnapshot } from "../personal-execution-store.js";
 import { personalClaimPrincipal } from "../personal-execution-claim.js";
@@ -250,6 +257,7 @@ import {
   slackCanvasUrl,
 } from "../slack-approval.js";
 import {
+  shortRepoName,
   slackRunCancelled,
   slackRunCompleted,
   slackRunFailed,
@@ -277,6 +285,7 @@ import { resolveRoleModel } from "./roles.js";
 export const SESSION_DELETED_CLOSE_CODE = 4410;
 
 export interface OrchestratorState {
+  usageBudgetPolicy?: UsageBudgetPolicy;
   /** Server-only isolated host. Parent inference and unrelated work are forbidden. */
   personalExecutionOnly?: true;
   runs: DelegatedRun[];
@@ -775,6 +784,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    */
   override setState(next: OrchestratorState): void {
     if (this.statePersistenceFailed) throw new Error("Durable state persistence failed. This instance must reset.");
+    const runs = (Array.isArray(next.runs) ? next.runs : this.state?.runs ?? []).map((run) => {
+      const previous = this.state?.runs?.find((item) => item.runId === run.runId);
+      if (previous?.sandboxMeter) return { ...run, sandboxMeter: previous.sandboxMeter };
+      if (!previous || isTerminalStatus(previous.status) || !isTerminalStatus(run.status)) return run;
+      return { ...run, sandboxMeter: meterSandboxRun(run, run.updatedAt, resolveInstanceType(this.env.INSTANCE_TYPE), true) };
+    });
+    next = { ...next, runs };
     this.applySpine(next);
     try {
       super.setState(next);
@@ -1219,6 +1235,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         dispatched: true,
         at: Date.now(),
       };
+      if (approval.kind === "budget_override") {
+        // The override mints no run of its own — it re-drives the held run
+        // it names, when that run still waits on the budget gate.
+        const held = approval.budgetHoldRunId !== undefined ? this.store.get(approval.budgetHoldRunId) : null;
+        if (held !== null && isActiveStatus(held.status) && held.budgetHold !== undefined && this.canScheduleRun()) {
+          this.dispatchApprovedRun(held, approval, approval.approvalId);
+        }
+        this.recordCommandReceipt({ ...receiptDone, runId: held?.runId ?? runId });
+        continue;
+      }
       if (this.store.get(runId) !== null) {
         // The dispatch ran — the run record exists and the interrupt
         // pass above already stamped any active status unknown. Just
@@ -3939,6 +3965,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       { threadKey, approvalId, approved, decidedBy },
       now,
     );
+    const deniedBudgetHoldRunId = result.result === "approved"
+      ? undefined
+      : this.approvals.find(
+          (approval) => approval.approvalId === approvalId && approval.threadKey === threadKey && approval.kind === "budget_override",
+        )?.budgetHoldRunId;
     // Failed admission leaves the persisted approval pending and retryable.
     if (result.result === "approved") {
       const record = this.approvals.find(
@@ -3946,9 +3977,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       );
       // Email-kind approvals skip every run gate — no sandbox capacity,
       // no repo URL, no publish flag. They execute a mailbox payload.
+      // A budget override mints no run either: it releases the held run it names.
       const isSideEffect =
         record !== undefined &&
-        (record.kind === "email_send" || record.kind === "email_delete" || record.kind === "pr_merge" || record.kind === "pr_publish");
+        (record.kind === "email_send" || record.kind === "email_delete" || record.kind === "pr_merge" || record.kind === "pr_publish" || record.kind === "budget_override");
       if (!isSideEffect) {
         if (!this.canScheduleRun()) {
           return Response.json(
@@ -4002,7 +4034,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const isSideEffectRecord =
       record !== undefined &&
       (record.kind === "email_send" || record.kind === "email_delete" || record.kind === "pr_merge" || record.kind === "pr_publish");
-    const run = record && !isSideEffectRecord ? this.mintApprovedRun(record) : undefined;
+    // A budget_override mints no run — it releases the held run it names.
+    const run =
+      record && !isSideEffectRecord
+        ? record.kind === "budget_override"
+          ? (record.budgetHoldRunId !== undefined ? (this.store.get(record.budgetHoldRunId) ?? undefined) : undefined)
+          : this.mintApprovedRun(record)
+        : undefined;
     // One state write reserves capacity, records the decision, and
     // commits the command receipt — a redelivery after this point
     // answers from the receipt, never re-dispatches (T41).
@@ -4012,7 +4050,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       pendingApprovals: approvals.map((approval) =>
         approval.approvalId === approvalId && approval.threadKey === threadKey ? withoutSealedEnv(approval) : approval,
       ),
-      runs: run ? [...this.store.list(), run] : this.store.list(),
+      runs: run && this.store.get(run.runId) === null ? [...this.store.list(), run] : this.store.list(),
       commandReceipts: this.withCommandReceipt({
         commandId,
         kind: "approval.resolve",
@@ -4042,6 +4080,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       this.dispatchApprovedMerge(record);
     }
     if (record?.kind === "pr_publish") this.dispatchApprovedPublication(record);
+    // A denied or expired budget override releases nothing — its held run
+    // is stopped by the budget it could not pass.
+    if (result.result !== "approved") {
+      const held = deniedBudgetHoldRunId !== undefined ? this.store.get(deniedBudgetHoldRunId) : null;
+      if (held && isActiveStatus(held.status)) await this.stopRunForBudget(held);
+    }
     // Rejecting frees the queued draft back to `draft`, and expired
     // email approvals leave their queued drafts the same way — without
     // the compensating release the row strands `queued` behind an
@@ -5095,6 +5139,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           return;
         }
       }
+      // Cost controls: an enforced budget stops or holds the run here —
+      // only an approved budget_override for this run passes the gate.
+      if (await this.gateRunOnUsageBudget(run, record)) return;
       this.stampCheckpoint(run.runId, "dispatching");
       const generation = this.store.get(run.runId)?.generation;
       try {
@@ -5108,6 +5155,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         if (invoked && invoked.resumeAttemptedAt === undefined) {
           this.store.replace(run.runId, { ...invoked, resumeAttemptedAt: Date.now() });
         }
+        const toolCallId =
+          record?.kind === "budget_override"
+            ? (run.approval?.approvalId ??
+              (run.runId.startsWith("agent-tool:") ? run.runId.slice("agent-tool:".length) : approvalId))
+            : approvalId;
         await delegate.execute({
           repoUrl: run.repoUrl,
           task: run.task,
@@ -5132,7 +5184,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(run.expectedDeliverables !== undefined ? { expectedDeliverables: run.expectedDeliverables } : {}),
           ...(record?.role !== undefined ? { role: record.role } : {}),
           },
-          { toolCallId: approvalId },
+          { toolCallId },
         );
       } catch (error) {
         // delegate.execute can throw before its inner `finish` seam ran;
@@ -5303,6 +5355,197 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       await this.guardCleanup(() => this.releaseSandboxForRun(item));
     }
     return this.store.get(runId);
+  }
+
+  /** The saved spending limits, or the deployment default when none were set. */
+  private usageBudgetPolicy(): UsageBudgetPolicy {
+    return this.state?.usageBudgetPolicy ?? defaultUsageBudgetPolicy(this.env);
+  }
+
+  private usageBudgetMeter(): BudgetMeter {
+    const instanceType = resolveInstanceType(this.env.INSTANCE_TYPE);
+    return (run, now) => {
+      const executing = isActiveStatus(run.status) && run.runtime !== "local" && run.checkpoint === "executing" &&
+        !run.signals?.some((signal) => signal.kind === "sandbox.ready");
+      const metered = executing
+        ? { ...run, signals: [{ kind: "sandbox.ready" as const, at: run.updatedAt }, ...(run.signals ?? [])] }
+        : run;
+      return meterSandboxRun(metered, now, instanceType);
+    };
+  }
+
+  private budgetOverrideFor(runId: string, status: PendingApproval["status"]): PendingApproval | undefined {
+    return this.approvals.find(
+      (approval) =>
+        approval.kind === "budget_override" && approval.budgetHoldRunId === runId && approval.status === status,
+    );
+  }
+
+  /**
+   * Queue a `budget_override` approval releasing this held run; reuses an
+   * existing pending one so a re-held run never mints a second card.
+   * Returns null when the approval queue is full — the caller enforces
+   * the stop path instead, since it cannot ask.
+   */
+  private mintBudgetOverrideApproval(
+    run: DelegatedRun,
+    now: number,
+  ): PendingApproval | null {
+    const pending = this.budgetOverrideFor(run.runId, "pending");
+    if (pending) return pending;
+    const origin = this.approvals.find((approval) => approval.approvalId === run.approval?.approvalId);
+    const approvalId = `budget-override:${run.runId}:${now}`;
+    try {
+      const approvals = createPendingApproval(this.approvals, {
+        threadKey: origin?.threadKey ?? this.name,
+        approvalId,
+        repoUrl: run.repoUrl,
+        ...(run.executionTarget !== undefined ? { executionTarget: run.executionTarget } : {}),
+        task: run.task,
+        ...(run.baseBranch !== undefined ? { baseBranch: run.baseBranch } : {}),
+        ...(run.publishPullRequest !== undefined ? { publishPullRequest: run.publishPullRequest } : {}),
+        ...(run.route !== undefined ? { route: run.route } : {}),
+        ...(run.authAccount !== undefined ? { authAccount: run.authAccount } : {}),
+        ...(run.runtime !== undefined ? { runtime: run.runtime } : {}),
+        ...(run.targetMachineId !== undefined ? { targetMachineId: run.targetMachineId } : {}),
+        ...(run.testCommand !== undefined ? { testCommand: run.testCommand } : {}),
+        ...(run.orgId !== undefined ? { orgId: run.orgId } : {}),
+        ...(run.queuedBy !== undefined ? { queuedBy: run.queuedBy } : {}),
+        kind: "budget_override",
+        budgetHoldRunId: run.runId,
+        createdAt: now,
+      });
+      this.setState({ ...this.state, pendingApprovals: approvals });
+      return approvals.find((approval) => approval.approvalId === approvalId) ?? null;
+    } catch (error) {
+      console.error("Budget override approval could not be queued", redactSecrets(String(error)));
+      return null;
+    }
+  }
+
+  /** Stop a run the budget refuses: abort the executor, release its sandbox, post why. */
+  private async stopRunForBudget(run: DelegatedRun): Promise<void> {
+    this.runControllers.get(run.runId)?.abort();
+    const updated = this.store.transition(run.runId, "cancelled", {
+      error: runErrorWire("budget_exceeded").userMessage,
+      errorCode: "budget_exceeded",
+    });
+    if (updated === null || updated.status !== "cancelled") return;
+    // A stopped run is terminal — a leftover hold flag would mislead the gate.
+    if (updated.budgetHold !== undefined) {
+      const { budgetHold: _cleared, ...cleared } = updated;
+      this.store.replace(run.runId, cleared);
+    }
+    this.stampCheckpoint(run.runId, "terminal");
+    if (run.reviewOf) this.failReviewRound(updated, "budget_exceeded");
+    logStructured("info", {
+      event: "run.budget_stopped",
+      runId: run.runId,
+      threadId: run.reviewOf ?? run.parentRunId ?? run.runId,
+      status: "cancelled",
+      errorCode: "budget_exceeded",
+    });
+    this.postToThread(
+      slackRunFailed({ repoUrl: run.repoUrl, userMessage: runErrorWire("budget_exceeded").userMessage }),
+      { runId: run.runId },
+    );
+    await this.guardCleanup(() => this.releaseSandboxForRun(updated));
+  }
+
+  /**
+   * Pause a run the budget holds: halt execution, keep the run queued
+   * behind a `budget_override` approval. Approving it re-dispatches the
+   * run past the gate; rejecting or expiry stops it. When no card can be
+   * queued the budget still bites — the run is stopped instead.
+   */
+  private async holdRunForBudget(
+    run: DelegatedRun,
+    blockedPeriods: ("daily" | "monthly" | "run")[],
+    now: number,
+  ): Promise<void> {
+    const override = this.mintBudgetOverrideApproval(run, now);
+    if (override === null) {
+      await this.stopRunForBudget(run);
+      return;
+    }
+    this.runControllers.get(run.runId)?.abort();
+    const latest = this.store.get(run.runId) ?? run;
+    this.store.replace(run.runId, {
+      ...latest,
+      generation: latest.generation + 1,
+      status: "pending",
+      checkpoint: "dispatching",
+      budgetHold: { approvalId: override.approvalId, blockedPeriods, at: now },
+    });
+    // Only a run that actually started holds a sandbox worth releasing.
+    if (latest.runtime === "local" || latest.signals?.some((signal) => signal.kind === "sandbox.ready")) {
+      await this.guardCleanup(() => this.releaseSandboxForRun(latest));
+    }
+    this.postToThread(
+      `paused the ${run.repoUrl ? shortRepoName(run.repoUrl) : "workspace"} run — it would go over the spending limit. approve the budget override to let it run.`,
+      { runId: run.runId },
+    );
+  }
+
+  /**
+   * The budget gate on the dispatch path. Returns true when the run must
+   * not start: stopped outright, or held behind a `budget_override`
+   * approval. An approved override for exactly this run passes it.
+   */
+  private async gateRunOnUsageBudget(run: DelegatedRun, record: PendingApproval | undefined): Promise<boolean> {
+    const policy = this.usageBudgetPolicy();
+    const now = Date.now();
+    const meter = this.usageBudgetMeter();
+    const latest = this.store.get(run.runId) ?? run;
+    const gate = usageBudgetCanStart(policy, this.store.list(), now, meter);
+    const blockedPeriods: ("daily" | "monthly" | "run")[] = [...gate.blockedPeriods];
+    if (runOverLimit(policy, latest, now, meter)) blockedPeriods.push("run");
+    const overrideApproved =
+      (record?.kind === "budget_override" && record.status === "approved") ||
+      this.budgetOverrideFor(run.runId, "approved") !== undefined;
+    if (blockedPeriods.length === 0 || overrideApproved) {
+      // The window reset, limits were raised, or a human released the hold.
+      if (latest.budgetHold !== undefined) {
+        const { budgetHold: _released, ...released } = latest;
+        this.store.replace(run.runId, released);
+      }
+      return false;
+    }
+    if (policy.onExceed === "stop") {
+      await this.stopRunForBudget(latest);
+    } else {
+      await this.holdRunForBudget(latest, blockedPeriods, now);
+    }
+    return true;
+  }
+
+  /**
+   * Periodic enforcement: a running run that crosses the per-run cap, or
+   * any active run once a period limit is reached, is stopped or held the
+   * same way a blocked start is. Runs on the reclaim sweep so a quiet
+   * dashboard poll or the reclaim alarm both keep budgets honest.
+   */
+  private async enforceUsageBudget(now = Date.now()): Promise<void> {
+    const policy = this.usageBudgetPolicy();
+    const meter = this.usageBudgetMeter();
+    for (const approval of this.approvals) {
+      if (approval.kind !== "budget_override" || approval.status !== "pending" || !isApprovalExpired(approval, now)) continue;
+      const held = approval.budgetHoldRunId !== undefined ? this.store.get(approval.budgetHoldRunId) : null;
+      if (held && isActiveStatus(held.status)) await this.stopRunForBudget(held);
+    }
+    const budget = evaluateUsageBudget(policy, this.store.list(), now, meter);
+    for (const run of this.store.list()) {
+      if (!isActiveStatus(run.status) || run.budgetHold !== undefined) continue;
+      if (this.budgetOverrideFor(run.runId, "approved") !== undefined) continue;
+      const blockedPeriods: ("daily" | "monthly" | "run")[] = [...budget.blockedPeriods];
+      if (runOverLimit(policy, run, now, meter)) blockedPeriods.push("run");
+      if (blockedPeriods.length === 0) continue;
+      if (policy.onExceed === "stop") {
+        await this.stopRunForBudget(run);
+      } else {
+        await this.holdRunForBudget(run, blockedPeriods, now);
+      }
+    }
   }
 
   private cancelRunRecord(runId: string): DelegatedRun | null {
@@ -5795,6 +6038,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
       await this.releaseEach(reclaimedRuns);
     }
+    await this.enforceUsageBudget();
     const cleanup = this.retryLeakedContainers();
     if (backgroundLeaks) {
       this.holdOpen(cleanup.catch((error) => console.error("Leaked container cleanup failed", redactSecrets(String(error)))));
@@ -6048,10 +6292,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * aged out. Decided records are dropped from the listing — a
    * resolved pointer must never be re-listed.
    */
-  private listApprovals(agentPrincipal: string | null): Response {
+  private async listApprovals(agentPrincipal: string | null): Promise<Response> {
     const now = Date.now();
     this.evictExpiredWebSessions(now);
     const expiredSends = this.expiredEmailSends(now);
+    for (const approval of this.approvals) {
+      if (approval.kind !== "budget_override" || approval.status !== "pending" || !isApprovalExpired(approval, now)) continue;
+      const held = approval.budgetHoldRunId !== undefined ? this.store.get(approval.budgetHoldRunId) : null;
+      if (held && isActiveStatus(held.status)) await this.stopRunForBudget(held);
+    }
     const pruned = pruneApprovals(this.approvals, now);
     if (pruned.length !== this.approvals.length) {
       this.writeApprovals(pruned);
@@ -6832,6 +7081,19 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // Cron backstop for the poll-driven stale-draft sweep — in a quiet
     // system no approvals fetch or DO restart ever calls it, so a human
     // who stops polling would leave `sending`-locked drafts held forever.
+    if (url.pathname === "/api/usage/budget") {
+      if (agentPrincipal) return Response.json({ error: "Dashboard access required." }, { status: 403 });
+      if (request.method === "GET") return Response.json({ policy: this.state?.usageBudgetPolicy ?? defaultUsageBudgetPolicy(this.env) });
+      if (request.method !== "PUT") return Response.json({ error: "Method not allowed." }, { status: 405 });
+      const parsed = usageBudgetPolicySchema.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return Response.json({ error: "Invalid budget policy." }, { status: 400 });
+      this.setState({ ...this.state, usageBudgetPolicy: parsed.data });
+      if (this.env.AGENT_AUDIT) await audit(this.env, { principal: parsed.data.updatedBy, tool: "usage.budget.update",
+        argsHash: await sha256Hex(JSON.stringify({ owner: this.name, policy: parsed.data })), outcome: "ok" });
+      // A tightened limit enforces immediately, not at the next sweep.
+      await this.enforceUsageBudget();
+      return Response.json({ policy: parsed.data });
+    }
     if (request.method === "POST" && url.pathname === "/internal/sweep-drafts") {
       this.sweepStaleDrafts(true);
       return Response.json({ ok: true });

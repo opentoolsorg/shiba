@@ -11,10 +11,13 @@
  * Numbers are only ever what harnesses reported; a group field stays absent
  * until some run in it reported that field.
  */
-import type { DelegatedRun, RunUsage } from "@shiba/shared";
+import type { DelegatedRun, RunUsage, UsageBudgetPolicy } from "@shiba/shared";
 import { mergeRunUsage } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { providerOf } from "./harness/types.js";
+import { meterSandboxRun } from "./sandbox-metering.js";
+import { resolveInstanceType } from "./instance-type.js";
+import { computePeriodFraction, evaluateUsageBudget } from "./usage-budget.js";
 
 /** `USAGE_BUDGET_USD` — the deployment's optional daily USD budget. */
 export const USAGE_BUDGET_ENV = "USAGE_BUDGET_USD";
@@ -36,6 +39,10 @@ export interface UsageGroupReport {
 }
 
 export interface UsageDayReport {
+  computeCostUsd?: number;
+  computeCpuSeconds?: number;
+  computeRamGbSeconds?: number;
+  computeDiskGbSeconds?: number;
   /** UTC calendar day, `YYYY-MM-DD`. */
   date: string;
   /** Runs that day that reported usage. */
@@ -47,6 +54,7 @@ export interface UsageDayReport {
 }
 
 export interface UsageReport {
+  budget: ReturnType<typeof evaluateUsageBudget>;
   generatedAt: number;
   /** Buckets are UTC calendar days — the wire says so. */
   timezone: "UTC";
@@ -61,6 +69,11 @@ export function parseUsageBudget(env: Pick<Env, "USAGE_BUDGET_USD">): number | n
   if (!raw) return null;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+export function defaultUsageBudgetPolicy(env: Pick<Env, "USAGE_BUDGET_USD">): UsageBudgetPolicy {
+  return { dailyLimitUsd: parseUsageBudget(env), monthlyLimitUsd: null, perRunLimitUsd: null,
+    onExceed: "ask", updatedAt: 0, updatedBy: "deployment" };
 }
 
 /** `?days=` — bounded so a bogus query can't grow the report unboundedly. */
@@ -145,14 +158,35 @@ export { DEFAULT_WEB_SEARCH_BUDGET, incrementToolUsage } from "./tools/tool-usag
 
 export function buildUsageReport(
   runs: DelegatedRun[],
-  env: Pick<Env, "USAGE_BUDGET_USD">,
-  opts?: { days?: number; now?: number },
+  env: Pick<Env, "USAGE_BUDGET_USD" | "INSTANCE_TYPE">,
+  opts?: { days?: number; now?: number; policy?: UsageBudgetPolicy },
 ): UsageReport {
   const days = opts?.days ?? USAGE_DAYS_DEFAULT;
+  const now = opts?.now ?? Date.now();
+  const policy = opts?.policy ?? defaultUsageBudgetPolicy(env);
+  const meter = (run: DelegatedRun) => meterSandboxRun(run, now, resolveInstanceType(env.INSTANCE_TYPE));
+  const reports = aggregateUsageByDay(runs, { days, now });
+  const cutoff = now - now % DAY_MS - (days - 1) * DAY_MS;
+  for (const run of runs) {
+    const measured = meter(run);
+    if (measured.status !== "estimated") continue;
+    for (let start = cutoff; start <= now; start += DAY_MS) {
+      const fraction = computePeriodFraction(measured, start, start + DAY_MS);
+      if (fraction === 0) continue;
+      const date = new Date(start).toISOString().slice(0, 10);
+      let report = reports.find((day) => day.date === date);
+      if (!report) { report = { date, runs: 0, groups: [] }; reports.push(report); }
+      report.computeCostUsd = (report.computeCostUsd ?? 0) + measured.costUsd * fraction;
+      report.computeCpuSeconds = (report.computeCpuSeconds ?? 0) + measured.cpuSeconds * fraction;
+      report.computeRamGbSeconds = (report.computeRamGbSeconds ?? 0) + measured.ramGbSeconds * fraction;
+      report.computeDiskGbSeconds = (report.computeDiskGbSeconds ?? 0) + measured.diskGbSeconds * fraction;
+    }
+  }
   return {
-    generatedAt: opts?.now ?? Date.now(),
+    generatedAt: now,
     timezone: "UTC",
-    budgetUsd: parseUsageBudget(env),
-    days: aggregateUsageByDay(runs, { days, now: opts?.now }),
+    budgetUsd: policy.dailyLimitUsd,
+    budget: evaluateUsageBudget(policy, runs, now, meter),
+    days: reports.sort((a, b) => b.date.localeCompare(a.date)),
   };
 }
