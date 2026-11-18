@@ -20,11 +20,11 @@
   },
   "devDependencies": {
     "@types/node": "^24.13.6",
-    "electron": "44.7.0",
+    "electron": "44.11.4",
     "electron-builder": "26.15.7",
     "eslint": "^9.39.5",
     "playwright-core": "1.64.0",
     "typescript": "5.9.3",
-    "vitest": "5.0.1"
+    "vitest": "5.0.5"
   }
 }
