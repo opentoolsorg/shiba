@@ -92,7 +92,7 @@ async function nativeApprovalDecisionCurrent(env: Env, row: EmployeeApprovalReco
   if (slack && row.decidedBy.startsWith("slack:")) return isApprover(row.decidedBy.slice(6), parseApproverAllowlist(env.SLACK_APPROVERS));
   const chat = row.executionContextId && parseChatThreadName(row.executionContextId);
   if (chat && row.decidedBy.startsWith(`${chat.platform}:`)) {
-    return isApprover(row.decidedBy.slice(chat.platform.length + 1), parseApproverAllowlist(chat.platform === "telegram" ? env.TELEGRAM_APPROVERS : env.DISCORD_APPROVERS));
+    return isApprover(row.decidedBy.slice(chat.platform.length + 1), parseApproverAllowlist(chat.platform === "telegram" ? env.TELEGRAM_APPROVERS : chat.platform === "teams" ? env.TEAMS_APPROVERS : env.DISCORD_APPROVERS));
   }
   return isApprover(row.decidedBy, parseApproverAllowlist(env.DASHBOARD_APPROVERS));
 }

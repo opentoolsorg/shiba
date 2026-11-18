@@ -25,6 +25,8 @@ export interface ChannelContractFixture {
   definition: ChannelDefinition;
   /** Env with every required secret and the outbound token set. */
   env: Env;
+  /** The platform authenticates the delivery, not the body bytes. */
+  bodyUnsigned?: boolean;
   /** Headers that authenticate `rawBody` for this platform. */
   sign(rawBody: string): Promise<Headers>;
   message: {
@@ -85,8 +87,8 @@ export function runChannelContractSuite(name: string, makeFixture: () => Channel
       const tampered = body.replace("hello", "jello");
       expect(tampered).not.toBe(body);
       const verdict = await transport.verify(tampered, await f.sign(body), f.env);
-      // Telegram authenticates the webhook by shared secret, not by body signature.
-      if (f.definition.id === "telegram") expect(verdict.ok).toBe(true);
+      // Telegram (shared secret) and Teams (JWT bound to serviceUrl) do not sign the body.
+      if (f.bodyUnsigned) expect(verdict.ok).toBe(true);
       else expect(verdict).toMatchObject({ ok: false, status: 401 });
     });
 

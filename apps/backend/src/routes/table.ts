@@ -130,6 +130,7 @@ export const ROUTES: readonly RouteEntry[] = [
   route("sandboxRouteResponse", "model", "*", "^/api/sandboxes/", "session", handlers.sandboxRouteResponse),
   route("telegramResponse", "model", "*", "^/api/telegram/webhook$", "signature", handlers.telegramResponse, "Telegram shared header secret."),
   route("discordResponse", "model", "*", "^/api/discord/interactions$", "signature", handlers.discordResponse),
+  route("teamsResponse", "model", "*", "^/api/teams/messages$", "signature", handlers.teamsResponse, "Bot Framework JWT verified inside handler."),
   route("managedSlackResponse", "model", "*", "^/api/slack/(?:events|command|interact)$", "signature", handlers.managedSlackResponse),
   route("slackEventsResponse", "model", "*", "^/api/slack/events$", "signature", handlers.slackEventsResponse),
   route("slackResponse", "model", "*", "^/api/slack/command$", "signature", handlers.slackResponse),
