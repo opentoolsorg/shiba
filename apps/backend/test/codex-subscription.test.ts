@@ -216,6 +216,10 @@ describe("SIWC plan runtime (ACCESS_TOKEN only in sandbox)", () => {
     expect(files[0]?.path).toContain(".codex-plan-driver.cjs");
     expect(files[0]?.contents).toContain("app-server");
     expect(files[0]?.contents).toContain("openai_chatgpt_plan");
+    // app-server contract (docs/harness.md): thread.start returns
+    // { thread: { id } } and turn.start takes a list of typed inputs.
+    expect(files[0]?.contents).toContain("started?.thread?.id");
+    expect(files[0]?.contents).toContain('input: [{ type: "text", text: cfg.task }]');
   });
 });
 

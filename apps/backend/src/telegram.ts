@@ -35,6 +35,7 @@ import {
 } from "./channels/telegram/index.js";
 import type { ChannelAdapter, InboundAction, InboundMessage } from "./ports/channel/index.js";
 import type { Env } from "./env.js";
+import { tryAnswerUiBlockFallback } from "./ui-block-fallback.js";
 import { redactSecrets } from "./security.js";
 import { isApprover, parseApproverAllowlist, type ExecutionContextLike } from "./slack-approval.js";
 
@@ -80,6 +81,10 @@ async function handleMessage(message: InboundMessage, env: Env, adapter: Channel
       text: body.text,
       ...(body.reply_markup ? { native: { reply_markup: body.reply_markup } } : {}),
     });
+  if (await tryAnswerUiBlockFallback(env, buildChatThreadName("telegram", String(chatId)), String(message.from?.id ?? ""), text.replace(COMMAND, "").trim())) {
+    await reply({ text: "Answer recorded." });
+    return;
+  }
   if (HELP.test(text)) {
     await reply({ text: `${TELEGRAM_USAGE}\nNothing runs until someone on the approver list presses Approve.` });
     return;

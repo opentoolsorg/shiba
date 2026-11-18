@@ -99,11 +99,13 @@ describe("authenticated collaboration rooms", () => {
       messages: Array<{ senderKind: string; body: string }>;
     }>(await f.send(`/rooms/${roomId}`));
     expect(reloaded.members).toHaveLength(3);
-    expect(reloaded.messages.map((message) => message.body)).toEqual(["I will own the rollout."]);
-    expect(reloaded.messages.map((message) => message.senderKind)).toEqual(["human"]);
+    const humanMessages = reloaded.messages.filter((message) => message.senderKind === "human");
+    expect(humanMessages.map((message) => message.body)).toEqual(["I will own the rollout."]);
+    expect(humanMessages.map((message) => message.senderKind)).toEqual(["human"]);
+    expect(reloaded.messages.find((message) => message.senderKind === "agent")?.body).toBe("Who should take this?\nI'll handle it");
     expect(
       f.sqlite.prepare("SELECT COUNT(*) AS count FROM collaboration_messages").get()?.count,
-    ).toBe(1);
+    ).toBe(2);
   });
 
   it("denies unauthenticated users, nonmembers, and cross-tenant room reads", async () => {
