@@ -376,7 +376,7 @@ export function AgentDetailsPanel({
               </div>
               <div className="flex items-center justify-between gap-3 py-2">
                 <dt className="text-[var(--muted-foreground-2)]">Cloud sandbox</dt>
-                <dd className="min-w-0 truncate text-right font-mono">{cloudSandbox ?? "Not configured"}</dd>
+                <dd className="min-w-0 truncate text-right font-mono">{cloudSandbox ?? "Deployment default"}</dd>
               </div>
               <div className="flex items-center justify-between gap-3 py-2">
                 <dt className="text-[var(--muted-foreground-2)]">Paired computers</dt>
@@ -429,7 +429,7 @@ export function AgentDetailsPanel({
             <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
               {cloudSandbox
                 ? "A cloud run starts in this sandbox only after you approve the task."
-                : "No cloud sandbox is configured for this bot, so a cloud run needs one selected first. Every run starts only after you approve the task."}
+                : "Without an override this bot runs in the deployment's sandbox: the workspace's provider, or the deployment's own fallback. Nothing starts until you approve the task."}
             </p>
           </div>
         ) : null}

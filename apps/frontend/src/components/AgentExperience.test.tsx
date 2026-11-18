@@ -193,11 +193,13 @@ describe("agent conversation", () => {
     expect(screen.getByText("No required outputs yet.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
-    // An unconfigured bot states the truth: no cloud provider is chosen yet.
-    expect(screen.getByText("opencode")).toBeTruthy();
-    expect(screen.getByText("Not configured")).toBeTruthy();
-    expect(screen.getByText(/No cloud sandbox is configured for this bot/)).toBeTruthy();
-    expect(screen.getByText("None paired")).toBeTruthy();
+    // An unset override is not a missing choice: the deployment resolves one.
+    const panel = within(screen.getByRole("tabpanel", { name: "Computer" }));
+    expect(panel.getByText("opencode")).toBeTruthy();
+    expect(panel.getByText("Deployment default")).toBeTruthy();
+    expect(panel.getByText(/runs in the deployment's sandbox/)).toBeTruthy();
+    expect(panel.queryByText(/needs one selected|Not configured/)).toBeNull();
+    expect(panel.getByText("None paired")).toBeTruthy();
   });
 });
 
@@ -354,7 +356,11 @@ describe("bot profile tabs", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
     expect(screen.getByText(/Local execution cannot run gemini on a paired computer/)).toBeTruthy();
     expect(screen.queryByText(/No paired computer can start this bot right now/)).toBeNull();
-    expect(screen.getByText("Not configured")).toBeTruthy();
-    expect(screen.getByText(/No cloud sandbox is configured for this bot/)).toBeTruthy();
+    // No override means the deployment's default, never a required choice and
+    // never a claim that a sandbox was checked or is available.
+    const panel = within(screen.getByRole("tabpanel", { name: "Computer" }));
+    expect(panel.getByText("Deployment default")).toBeTruthy();
+    expect(panel.getByText(/runs in the deployment's sandbox/)).toBeTruthy();
+    expect(panel.queryByText(/needs one selected|available|verified/i)).toBeNull();
   });
 });
