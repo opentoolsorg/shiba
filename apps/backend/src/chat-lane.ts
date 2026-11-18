@@ -9,6 +9,7 @@ import { parseChatThreadName } from "@shiba/shared";
 import type { ChatPlatform, ChatTaskRequest, ExecutionTarget } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
 import type { Env } from "./env.js";
+import { createChannelAdapter } from "./ports/channel/registry.js";
 import { extractGitHubRepoUrl, parseChannelRepoMap } from "./slack-context.js";
 
 export const TELEGRAM_API = "https://api.telegram.org";
@@ -295,17 +296,9 @@ export async function discordApi(label: string, path: string, init: DiscordReque
  */
 export function postToChatThread(env: Env, threadName: string, text: string): Promise<void> | null {
   const ids = parseChatThreadName(threadName);
-  if (!ids) return null;
-  if (ids.platform === "telegram") {
-    const token = env.TELEGRAM_BOT_TOKEN?.trim();
-    if (!token) return null;
-    return telegramApi(token, "sendMessage", { chat_id: ids.conversationId, text: text.slice(0, 4000) }).then(() => undefined);
-  }
-  const token = env.DISCORD_BOT_TOKEN?.trim();
-  if (!token) return null;
-  return discordApi("post-back", `/channels/${ids.conversationId}/messages`, {
-    method: "POST",
-    botToken: token,
-    body: { content: text.slice(0, 2000), allowed_mentions: NO_MENTIONS },
-  });
+  if (!ids || ids.platform === "web") return null;
+  const adapter = createChannelAdapter(env, ids.platform);
+  if (!adapter) return null;
+  const limit = ids.platform === "telegram" ? 4000 : 2000;
+  return adapter.post({ placeId: ids.conversationId, text: text.slice(0, limit) }).then(() => undefined);
 }

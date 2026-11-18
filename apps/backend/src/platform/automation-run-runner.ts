@@ -22,12 +22,13 @@ export interface AutomationRunWorkflowInput {
     publishPullRequest: boolean;
     threadKey: string;
     commandId?: string;
-  }) => Promise<{ approvalId: string; runId?: string }>;
+  }) => Promise<{ approvalId: string; runId?: string; deduped?: boolean }>;
 }
 
 export interface AutomationRunWorkflowResult {
   workflowRunId: string;
   approvalId?: string;
+  deduped?: boolean;
   runId?: string;
   status: "awaiting_approval" | "dispatched" | "failed";
 }
@@ -70,7 +71,7 @@ export async function startAutomationRunWorkflow(
         approvalId: queued.approvalId,
       });
     }
-    return { workflowRunId: workflowRun.id, approvalId: queued.approvalId, runId: queued.runId, status: "dispatched" };
+    return { workflowRunId: workflowRun.id, approvalId: queued.approvalId, runId: queued.runId, deduped: queued.deduped, status: "dispatched" };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await patchAutomationWorkflowRun(env, workflowRun.id, { status: "failed", error: message });
