@@ -2,48 +2,6 @@ import type { CustomAgentConfig, CustomAgentRecord } from "@shiba/shared";
 import { sanitizeCustomAgentSlug } from "@shiba/shared";
 import { randomHex } from "./mailbox-store.js";
 import type { AuditEnv } from "./audit.js";
-import { initAudit } from "./audit.js";
-
-const AGENT_TABLE_STATEMENTS: readonly string[] = [
-  `CREATE TABLE IF NOT EXISTS org_custom_agents (
-     id TEXT PRIMARY KEY,
-     org_id TEXT NOT NULL,
-     slug TEXT NOT NULL,
-     version INTEGER NOT NULL,
-     config_json TEXT NOT NULL,
-     created_at INTEGER NOT NULL,
-     updated_at INTEGER NOT NULL,
-     deleted_at INTEGER,
-     archived_at INTEGER
-   )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS org_custom_agents_org_slug ON org_custom_agents(org_id, slug)`,
-  `CREATE TABLE IF NOT EXISTS org_custom_agent_versions (
-     agent_id TEXT NOT NULL,
-     org_id TEXT NOT NULL,
-     version INTEGER NOT NULL,
-     config_json TEXT NOT NULL,
-     saved_at INTEGER NOT NULL,
-     PRIMARY KEY (agent_id, version)
-   )`,
-];
-
-const initialized = new WeakSet<D1Database>();
-
-async function ensureTables(env: AuditEnv): Promise<void> {
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await initAudit(env);
-  for (const statement of AGENT_TABLE_STATEMENTS) {
-    await env.AGENT_AUDIT.prepare(statement).run();
-  }
-  // Existing installations initialized this table before archive existed.
-  // D1 serializes the additive ALTER; only an already-present column is benign.
-  try {
-    await env.AGENT_AUDIT.prepare(`ALTER TABLE org_custom_agents ADD COLUMN archived_at INTEGER`).run();
-  } catch (error) {
-    if (!/duplicate column/i.test(error instanceof Error ? error.message : String(error))) throw error;
-  }
-  initialized.add(env.AGENT_AUDIT);
-}
 
 function rowToRecord(row: Record<string, unknown>): CustomAgentRecord | null {
   try {
@@ -69,7 +27,6 @@ export async function listCustomAgents(
   orgId: string,
   options?: { archived?: boolean },
 ): Promise<CustomAgentRecord[]> {
-  await ensureTables(env);
   const result = await env.AGENT_AUDIT.prepare(
     `SELECT * FROM org_custom_agents WHERE org_id = ? AND deleted_at IS NULL AND archived_at IS ${options?.archived ? "NOT " : ""}NULL ORDER BY updated_at DESC`,
   )
@@ -84,9 +41,8 @@ export async function getCustomAgentById(
   env: AuditEnv,
   orgId: string,
   id: string,
-  options?: { includeArchived?: boolean; readOnly?: boolean },
+  options?: { includeArchived?: boolean },
 ): Promise<CustomAgentRecord | null> {
-  if (!options?.readOnly) await ensureTables(env);
   const row = await env.AGENT_AUDIT.prepare(
     `SELECT * FROM org_custom_agents WHERE org_id = ? AND id = ? AND deleted_at IS NULL${options?.includeArchived ? "" : " AND archived_at IS NULL"}`,
   )
@@ -104,7 +60,6 @@ export async function getCustomAgentVersion(
 ): Promise<CustomAgentRecord | null> {
   const current = await getCustomAgentById(env, orgId, id);
   if (!current || !Number.isSafeInteger(version) || version < 1) return null;
-  await ensureTables(env);
   const row = await env.AGENT_AUDIT.prepare(
     `SELECT config_json,saved_at FROM org_custom_agent_versions WHERE org_id=? AND agent_id=? AND version=?`,
   ).bind(orgId, id, version).first<Record<string, unknown>>();
@@ -128,7 +83,6 @@ export async function getCustomAgentBySlug(
 ): Promise<CustomAgentRecord | null> {
   const clean = sanitizeCustomAgentSlug(slug);
   if (!clean) return null;
-  await ensureTables(env);
   const row = await env.AGENT_AUDIT.prepare(
     `SELECT * FROM org_custom_agents WHERE org_id = ? AND slug = ? AND deleted_at IS NULL AND archived_at IS NULL`,
   )
@@ -145,7 +99,6 @@ export async function createCustomAgent(
 ): Promise<CustomAgentRecord> {
   const cleanSlug = sanitizeCustomAgentSlug(slug);
   if (!cleanSlug) throw new Error("Invalid slug.");
-  await ensureTables(env);
   const existing = await getCustomAgentBySlug(env, orgId, cleanSlug);
   if (existing) throw new Error("An agent with this slug already exists.");
   const now = Date.now();

@@ -19,7 +19,7 @@ export function initiatorUserIdFromOrchestratorName(agentName: string | undefine
   if (agentName === ORCHESTRATOR_NAME) return undefined;
   const web = parseSessionAgentName(agentName);
   if (web) return web.userId;
-  if (agentName.startsWith("slack:") || agentName.startsWith("captain:")) return undefined;
+  if (agentName.startsWith("slack:") || agentName.startsWith("captain:") || agentName.startsWith("ws:")) return undefined;
   return agentName;
 }
 

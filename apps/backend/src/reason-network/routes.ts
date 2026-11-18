@@ -25,7 +25,7 @@ export async function handleReasonNetwork(request:Request,env:Env):Promise<Respo
       const enabled=env.REASON_NETWORK_ENABLED==="1";
       let companionConfigured=false;
       if(enabled&&env.SHIBA_LOCAL_RUNTIME==="1"&&env.LocalDispatch&&env.PAIRING_SECRET){
-        const response=await localDispatchStub(env).fetch(new Request("https://local-dispatch/computers"));
+        const response=await localDispatchStub(env, ownerId).fetch(new Request("https://local-dispatch/computers"));
         const fleet=await response.json() as {computers?:Array<{pairedAt?:number;status?:string;reasonNetworkCompanion?:boolean}>};
         companionConfigured=!!fleet.computers?.some((computer)=>computer.pairedAt!==undefined&&computer.status!=="offline"&&computer.reasonNetworkCompanion===true);
       }
@@ -37,7 +37,7 @@ export async function handleReasonNetwork(request:Request,env:Env):Promise<Respo
       const companionMachineId=typeof body.companionMachineId==="string"?body.companionMachineId.trim():undefined;
       if(companionMachineId){
         if(env.REASON_NETWORK_ENABLED!=="1"||env.SHIBA_LOCAL_RUNTIME!=="1"||!env.LocalDispatch)return json({error:"Reason Network paired companion dispatch is disabled."},409);
-        const computersResponse=await localDispatchStub(env).fetch(new Request("https://local-dispatch/computers"));
+        const computersResponse=await localDispatchStub(env, ownerId).fetch(new Request("https://local-dispatch/computers"));
         const computers=await computersResponse.json() as {computers?:Array<{machineId?:string;pairedAt?:number;status?:string;reasonNetworkCompanion?:boolean}>};
         if(!computers.computers?.some((computer)=>computer.machineId===companionMachineId&&computer.pairedAt!==undefined&&computer.status!=="offline"&&computer.reasonNetworkCompanion===true))return json({error:"Select a paired, online daemon with its Reason Network companion explicitly enabled."},409);
       }

@@ -1,3 +1,4 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 /**
  * better-auth lane coverage: config/path predicates, the composed gate
  * (Access ↔ better-auth ↔ fail-closed), and a real end-to-end sign-up /
@@ -61,7 +62,7 @@ function toBind(value: unknown): null | number | bigint | string | Uint8Array {
  * our schema/hook code uses `prepare().run()` and `.first()`.
  */
 function fakeD1(): D1Database {
-  const db = new DatabaseSync(":memory:");
+  const db = new DatabaseSync(":memory:"); applyAllMigrations(db);
   const prepared = (sql: string, params: unknown[]) => ({
     bind: (...args: unknown[]) => prepared(sql, args),
     run: async () => {
@@ -553,6 +554,8 @@ describe("end-to-end session flow", () => {
     vi.useFakeTimers();
     try {
       const hanging = {
+        exec: () => new Promise(() => {}),
+        batch: () => new Promise(() => {}),
         prepare: () => ({
           bind() {
             return this;

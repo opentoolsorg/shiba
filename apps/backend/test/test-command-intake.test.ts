@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER } from "@shiba/shared";
 import type { Env } from "../src/env.js";
 import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orchestrator.js";
-import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { parseAgentToolInput } from "../src/opencode-input.js";
 import type { PendingApproval } from "../src/pending-approvals.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
@@ -136,7 +136,7 @@ describe("local targetMachineId intake", () => {
   it("threads the pinned machine and the local runtime through approval into the dispatched envelope", async () => {
     const instance = Object.assign(agent({ SHIBA_LOCAL_RUNTIME: "1" } as Partial<Env>), { name: "dashboard-session" });
     mocks.execute.mockResolvedValue("ok");
-    const queued = await instance.onRequest(
+    const queued = await sendWorkerRequest(instance,
       new Request("https://internal/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json", [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD },

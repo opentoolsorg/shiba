@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orchestrator.js";
-import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { createRun } from "../src/runs.js";
 import { AGENT_PRINCIPAL_HEADER, runInputHash } from "@shiba/shared";
 import { frozenTaskInputFromApproval } from "../src/task-attempts.js";
@@ -275,28 +275,28 @@ describe("orchestrator durable task-attempt routes", () => {
 
   it("scopes internal agent principals to the tasks they queued", async () => {
     const instance = host();
-    const queued = await instance.onRequest(new Request("https://internal/api/runs", {
+    const queued = await sendWorkerRequest(instance, new Request("https://internal/api/runs", {
       method: "POST",
       headers: { "content-type": "application/json", [AGENT_PRINCIPAL_HEADER]: "agent-one" },
       body: JSON.stringify({ repoUrl: "https://github.com/o/r", task: "Agent task", queuedBy: "forged" }),
     }));
     const { approvalId } = await queued.json() as { approvalId: string };
     const taskId = `task_${approvalId}`;
-    const own = await instance.onRequest(new Request("https://internal/api/tasks", {
+    const own = await sendWorkerRequest(instance, new Request("https://internal/api/tasks", {
       headers: { [AGENT_PRINCIPAL_HEADER]: "agent-one" },
     }));
     expect(await own.json()).toMatchObject({ tasks: [{ taskId }] });
-    const agentCancel = await instance.onRequest(new Request(`https://internal/api/tasks/${taskId}/cancel`, {
+    const agentCancel = await sendWorkerRequest(instance, new Request(`https://internal/api/tasks/${taskId}/cancel`, {
       method: "POST",
       headers: { "content-type": "application/json", [AGENT_PRINCIPAL_HEADER]: "agent-one" },
       body: JSON.stringify({ attempt: 1 }),
     }));
     expect(agentCancel.status).toBe(403);
-    const foreign = await instance.onRequest(new Request("https://internal/api/tasks", {
+    const foreign = await sendWorkerRequest(instance, new Request("https://internal/api/tasks", {
       headers: { [AGENT_PRINCIPAL_HEADER]: "agent-two" },
     }));
     expect(await foreign.json()).toEqual({ tasks: [] });
-    const cancel = await instance.onRequest(new Request(`https://internal/api/tasks/${taskId}/cancel`, {
+    const cancel = await sendWorkerRequest(instance, new Request(`https://internal/api/tasks/${taskId}/cancel`, {
       method: "POST",
       headers: { "content-type": "application/json", [AGENT_PRINCIPAL_HEADER]: "agent-two" },
       body: JSON.stringify({ attempt: 1 }),

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import type { Env } from "../src/env.js";
 
 const auth=vi.hoisted(()=>({authorized:true,userId:"companion-owner"}));
@@ -27,7 +28,7 @@ beforeEach(()=>{auth.authorized=true;auth.userId="companion-owner";});
 
 describe("Reason Network paired companion queue v1",()=>{
   it("migrates legacy grants as unbound and allows new grants to bind the paired machine", async () => {
-    const { database, sqlite } = customAgentD1();
+    const { database, sqlite } = customAgentD1({ bare: true });
     sqlite.exec(`CREATE TABLE reason_network_grants (
       grant_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, conversation_id TEXT NOT NULL, session_id TEXT NOT NULL,
       status TEXT NOT NULL CHECK(status IN ('active','revoked')), created_at INTEGER NOT NULL, revoked_at INTEGER
@@ -35,6 +36,7 @@ describe("Reason Network paired companion queue v1",()=>{
     sqlite.prepare(`INSERT INTO reason_network_grants VALUES (?,?,?,?,?,?,?)`).run(
       "old-grant", "owner-a", "old-conversation", "old-session", "active", 1, null,
     );
+    applyAllMigrations(sqlite);
     const approvalEnv = { AGENT_AUDIT: database };
     const created = await createReasonNetworkGrant(approvalEnv, {
       grantId: "new-grant", ownerId: "owner-a", conversationId: "new-conversation", sessionId: "new-session", companionMachineId: MACHINE,
@@ -49,7 +51,7 @@ describe("Reason Network paired companion queue v1",()=>{
   });
 
   it("upgrades an existing digest-only ledger without losing its operation history", async () => {
-    const { database, sqlite } = customAgentD1();
+    const { database, sqlite } = customAgentD1({ bare: true });
     sqlite.exec(`CREATE TABLE reason_network_operations (
       owner_id TEXT NOT NULL, grant_id TEXT NOT NULL, conversation_id TEXT NOT NULL, session_id TEXT NOT NULL,
       idempotency_key TEXT NOT NULL, payload_digest TEXT NOT NULL, destination TEXT NOT NULL,
@@ -60,6 +62,7 @@ describe("Reason Network paired companion queue v1",()=>{
     sqlite.prepare(`INSERT INTO reason_network_operations VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
       "owner-a", "grant-a", "conversation-a", "session-a", "old-key", "digest-a", "peer-a", "approved", null, 10,
     );
+    applyAllMigrations(sqlite);
     const store = new D1ReasonNetworkOperationStore({ AGENT_AUDIT: database });
     const old = await store.get(
       { ownerId: "owner-a", grantId: "grant-a", conversationId: "conversation-a", sessionId: "session-a" },
@@ -72,7 +75,7 @@ describe("Reason Network paired companion queue v1",()=>{
   });
 
   it("cancels legacy approved and queued rows and revoked grants without violating the old state check",async()=>{
-    const {database,sqlite}=customAgentD1();
+    const {database,sqlite}=customAgentD1({ bare: true });
     sqlite.exec(`CREATE TABLE reason_network_grants (
       grant_id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,conversation_id TEXT NOT NULL,session_id TEXT NOT NULL,
       status TEXT NOT NULL CHECK(status IN ('active','revoked')),created_at INTEGER NOT NULL,revoked_at INTEGER
@@ -89,6 +92,7 @@ describe("Reason Network paired companion queue v1",()=>{
     const insert=sqlite.prepare("INSERT INTO reason_network_operations VALUES(?,?,?,?,?,?,?,?,?,?)");
     for(const [key,state] of [["approved-cancel","approved"],["queued-cancel","approved"],["grant-revoke","approved"],["old-unknown","unknown"]] as const)
       insert.run(scope.ownerId,scope.grantId,scope.conversationId,scope.sessionId,key,`digest-${key}`,"peer",state,null,1);
+    applyAllMigrations(sqlite);
     const store=new D1ReasonNetworkOperationStore({AGENT_AUDIT:database});
     const approved=await store.get(scope,"approved-cancel");
     const queued=await store.get(scope,"queued-cancel");
@@ -116,8 +120,8 @@ describe("Reason Network paired companion queue v1",()=>{
     expect(persisted.cancelled_at).toEqual(expect.any(Number));
   });
 
-  it("adds a cancellation marker to the intermediate constrained dispatch schema without rebuilding it",async()=>{
-    const {database,sqlite}=customAgentD1();
+  it("migrates the intermediate constrained dispatch schema with cancellation history",async()=>{
+    const {database,sqlite}=customAgentD1({ bare: true });
     sqlite.exec(`CREATE TABLE reason_network_grants (
       grant_id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,conversation_id TEXT NOT NULL,session_id TEXT NOT NULL,
       companion_machine_id TEXT,status TEXT NOT NULL CHECK(status IN ('active','revoked')),created_at INTEGER NOT NULL,revoked_at INTEGER
@@ -139,6 +143,7 @@ describe("Reason Network paired companion queue v1",()=>{
     for(const [key,state] of [["approved-cancel","approved"],["queued-cancel","approved"],["grant-revoke","approved"],["mid-unknown","unknown"]] as const)
       insert.run(scope.ownerId,scope.grantId,scope.conversationId,scope.sessionId,key,`digest-${key}`,"peer",`op-${key}`,null,key==="mid-unknown"?MACHINE:null,null,0,key==="mid-unknown"?0:null,null,state,null,1);
 
+    applyAllMigrations(sqlite);
     const store=new D1ReasonNetworkOperationStore({AGENT_AUDIT:database});
     const approved=await store.get(scope,"approved-cancel");
     const queued=await store.get(scope,"queued-cancel");
@@ -159,8 +164,8 @@ describe("Reason Network paired companion queue v1",()=>{
     expect(raw.state).toBe("approved");
     expect(raw.dispatch_state).toBeNull();
     expect(raw.cancelled_at).toEqual(expect.any(Number));
-    // The historical CHECK remains intact; only the new nullable marker was added.
-    expect((sqlite.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='reason_network_operations'").get() as {sql:string}).sql).toContain("dispatch_state IN ('queued','claimed')");
+    // The current schema removes the intermediate dispatch constraint.
+    expect((sqlite.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='reason_network_operations'").get() as {sql:string}).sql).not.toContain("dispatch_state IN ('queued','claimed','cancelled')");
   });
 
   it("moves exact approved payload Worker→queue→paired daemon claim→MCP result→owner status",async()=>{

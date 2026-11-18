@@ -74,7 +74,7 @@ describe("side-question ownership", () => {
     expect((await send())?.status).toBe(200);
     expect(read).toHaveBeenCalledWith(`https://internal/internal/web-sessions/${threadId}`);
     expect(infer).toHaveBeenCalledOnce();
-    expect(getCustomAgentById).toHaveBeenCalledWith(env, "self-hosted", "scout", { readOnly: true });
+    expect(getCustomAgentById).toHaveBeenCalledWith(env, "self-hosted", "scout", {});
     const request = infer.mock.calls[0]![0] as unknown as Request;
     expect(new URL(request.url).pathname).toBe("/internal/side-question");
     expect(await request.json()).toEqual({ ...input, instructions: "You are Scout." });
@@ -97,12 +97,12 @@ describe("side-question ownership", () => {
     expect((await send({ ...input, earlier: Array(21).fill({ question: "q", answer: "a" }) }))?.status).toBe(400);
     expect(getAgentByName).not.toHaveBeenCalled();
   });
-  it("reads the profile without lazy schema initialization or any D1 writes", async () => {
+  it("reads the profile without any D1 writes", async () => {
     const actual = await vi.importActual<typeof import("../src/custom-agents-store.js")>("../src/custom-agents-store.js");
     const run = vi.fn(() => { throw new Error("Unexpected write"); });
     const first = vi.fn(async () => ({ id: "scout", org_id: "self-hosted", slug: "scout", version: 1, config_json: JSON.stringify({ instructions: "Scout" }), created_at: 1, updated_at: 1 }));
     const prepare = vi.fn(() => ({ bind: () => ({ first, run }), run }));
-    const profile = await actual.getCustomAgentById({ AGENT_AUDIT: { prepare } } as unknown as Env, "self-hosted", "scout", { readOnly: true });
+    const profile = await actual.getCustomAgentById({ AGENT_AUDIT: { prepare } } as unknown as Env, "self-hosted", "scout", {});
     expect(profile?.config.instructions).toBe("Scout");
     expect(prepare).toHaveBeenCalledOnce();
     expect(prepare).toHaveBeenCalledWith(expect.stringMatching(/^SELECT /));

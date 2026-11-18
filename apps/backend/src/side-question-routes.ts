@@ -32,7 +32,7 @@ export async function handleSideQuestion(request: Request, env: Env): Promise<Re
     Object.hasOwn(session.metadata ?? {}, "teamWorkspaceId") || Object.hasOwn(session.metadata ?? {}, "teamMembershipVersion")) {
     return Response.json({ error: "Employee thread not found." }, { status: 404 });
   }
-  const employee = await getCustomAgentById(env, DASHBOARD_ORG_ID, employeeId, { readOnly: true });
+  const employee = await getCustomAgentById(env, DASHBOARD_ORG_ID, employeeId, {});
   if (!employee) return Response.json({ error: "Employee not found." }, { status: 404 });
   const thread = await getAgentByName(env.CodingOrchestrator, buildSessionAgentName(userId, parsed.data.threadId));
   return thread.fetch(new Request("https://internal/internal/side-question", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...parsed.data, instructions: employee.config.instructions ?? "" }) }));
