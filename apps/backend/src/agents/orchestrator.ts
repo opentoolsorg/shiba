@@ -105,6 +105,9 @@ import { ORCHESTRATOR_PRINCIPAL, ORCHESTRATOR_SCOPES } from "../codemode-princip
 import { createLazyRunCodeTool, warmRunCodeTool } from "../run-code-lazy.js";
 import { isAppToolsOnlyTurn, isChatOnlyTurn, toolsForConversationMode } from "../conversation-mode.js";
 import { createChatAgentMediaTools } from "../tools/chat-agent-tools.js";
+import { createAskUiAgentTools } from "../tools/ask-ui.js";
+import { renderUiBlockToSlack } from "../slack-ui-blocks.js";
+import { uiBlockRunId } from "../ui-block-scope.js";
 import { closeBrowserSession } from "../tools/browser-sessions.js";
 import { createEmployeeRunTools, employeeCanRetainDraft, employeeRunToolPolicyMode, resolveAppToolsEmployeeContext, resolveEmployeeRunToolContext } from "../employee-run-tools.js";
 import { onboardingRunFields, onboardingSourceInstructions, type OnboardingRunFields } from "@shiba/shared";
@@ -213,6 +216,9 @@ import { handleSteeringRequest } from "../steering.js";
 import { localDispatchStub } from "../local-dispatch.js";
 import { isCollaborationApprovalDispatchable } from "../collaboration-context.js";
 import { memoryScopeForConversation } from "../memory-scope.js";
+import { learningThreadFor } from "../ports/learning/index.js";
+import { d1LearningPort } from "../ports/learning/d1-adapter.js";
+import { learningTurnText, runLearningReview } from "../ports/learning/review.js";
 import { notifyCollaborationHandoffChange } from "../collaboration-room-access.js";
 import {
   appendTaskAttempt,
@@ -1398,6 +1404,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (isAppToolsOnlyTurn(this.messages)) {
       return {
+        ...this.askUiTools(),
         ...createEmployeeRunTools(this.env, () => null, () => this.name ?? null,
           () => "self-hosted", () => null, this.employeeDraftStore(),
           () => resolveAppToolsEmployeeContext(this.env, this.name ?? ""),
@@ -1433,6 +1440,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     });
     const tools: ToolSet = {
       ...super.getTools(),
+      ...this.askUiTools(),
       ...specialistTools,
       delegate_task: createDelegateTaskTool(specialistTools, this.specialistTurn.budget,
         (input) => this.queueSlackRun({ ...input, publishPullRequest: false, role: "fixer", threadKey: this.name }, MAX_APPROVED_TASK_CHARS, undefined,
@@ -1468,6 +1476,32 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       });
     }
     return tools;
+  }
+
+  private askUiTools() {
+    return createAskUiAgentTools(this.env, async () => {
+      const ownerId = chatLaneActorId(this.env, this.name) ?? (isDashboardAgentName(this.name) ? initiatorUserIdFromOrchestratorName(this.name) : undefined);
+      if (!ownerId || !this.name) return null;
+      if (isAppToolsOnlyTurn(this.messages)) {
+        const employee = await resolveAppToolsEmployeeContext(this.env, this.name);
+        if (!employee || employee.actorId !== ownerId) return null;
+      }
+      const taskId = this.messages?.filter((message) => message.role === "user").at(-1)?.id;
+      if (!taskId) return null;
+      return { ownerId, runId: uiBlockRunId(this.name, taskId) };
+    }, {
+      onCreated: (question) => {
+        if (!question.block) return;
+        const rendered = parseSlackThreadName(this.name) ? renderUiBlockToSlack(question.block, { runId: question.runId }) : null;
+        const text = rendered?.text ?? question.fallbackText;
+        for (let offset = 0; offset < text.length; offset += 3000) {
+          this.postToThread(text.slice(offset, offset + 3000), {
+            causationId: `ui-block:${question.runId}:${question.blockId}:${offset}`,
+            ...(rendered && offset === 0 ? { blocks: rendered.blocks } : {}),
+          });
+        }
+      },
+    });
   }
 
   /**
@@ -1525,6 +1559,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const selectedSkills = context ? await this.employeeSelectedSkills(context.employeeId) : { instructions: "" };
       return {
         activeTools: Object.keys(ctx.tools).filter((name) => {
+          if (name === "ask_ui") return Boolean(context);
           if (name === "list_skills" || name === "get_skill_instructions") return Boolean(context);
           if (name === "employee_tool_catalog" || name === "employee_tool_call") return allowed;
           if (name === "employee_context_read") return Boolean(context && goal);
@@ -2238,6 +2273,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         if (status === "completed" || status === "error") {
           this.dispatchSessionDistill(updated);
         }
+        if (status === "completed") this.dispatchLearning(updated, "turn");
         if (
           updated.reviewOf &&
           status !== "completed" &&
@@ -5243,6 +5279,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           if (status === "completed" || status === "error") {
             this.dispatchSessionDistill(updated);
           }
+          if (status === "completed") this.dispatchLearning(updated, "turn");
         }
       }
     };
@@ -5353,7 +5390,42 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   /** Cancel a retained run and destroy its sandbox. Returns null when unknown. */
   async archiveRun(runId: string): Promise<DelegatedRun | null> {
-    return this.store.archiveRun(runId);
+    const archived = await this.store.archiveRun(runId);
+    if (archived) this.dispatchLearning(archived, "closed");
+    return archived;
+  }
+
+  private learningRootRunId(run: DelegatedRun): string {
+    let current = run;
+    for (let hops = 0; hops < 20 && current.forkedFrom; hops += 1) {
+      const parent = this.store.get(current.forkedFrom.runId);
+      if (!parent) return current.forkedFrom.runId;
+      current = parent;
+    }
+    return current.runId;
+  }
+
+  /**
+   * Background learning review: a completed run is one turn on its thread;
+   * archiving closes the thread. Best-effort under waitUntil.
+   */
+  private dispatchLearning(run: DelegatedRun, event: "turn" | "closed"): void {
+    const db = this.env.AGENT_AUDIT;
+    if (!db) return;
+    const ref = learningThreadFor(this.name, run, this.learningRootRunId(run));
+    if (!ref) return;
+    this.holdOpen((async () => {
+      try {
+        const port = d1LearningPort(db);
+        const now = Date.now();
+        const state = event === "turn"
+          ? await port.recordTurn(ref, { runId: run.runId, text: learningTurnText(run.task, run.summary), completedAt: now })
+          : await port.closeThread(ref.threadKey, now);
+        if (state) await runLearningReview(this.env, port, ref.threadKey, event, { now, state, routeModelId: run.route?.modelId });
+      } catch (error) {
+        console.warn(`learning_review_failed ${JSON.stringify({ runId: run.runId, error: redactSecrets(String(error)) })}`);
+      }
+    })());
   }
 
   async cancelRun(runId: string): Promise<DelegatedRun | null> {
