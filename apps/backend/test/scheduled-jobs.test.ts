@@ -15,7 +15,7 @@ vi.mock("../src/observability.js", () => ({ reportError: vi.fn().mockResolvedVal
 vi.mock("../src/platform/queues.js", () => ({ dispatchQueueBatch: vi.fn().mockResolvedValue(undefined) }));
 
 const names = [
-  "founder.stripe", "founder.meta", "founder.hubspot", "founder.reconcile", "founder.reads",
+  "learning.sweep", "founder.stripe", "founder.meta", "founder.hubspot", "founder.reconcile", "founder.reads",
   "founder.slack", "founder.stripe-slack", "founder.reconcile-slack", "slack.private-status",
   "founder.reviews", "founder.connectors", "automations.tick", "drafts.sweep", "audit.prune",
 ] as const;

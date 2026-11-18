@@ -20,6 +20,7 @@ import { Sandbox, SandboxOutbound } from "./sandbox.js";
 import { ContainerProxy } from "./sandbox/npm-shim.js";
 import { withVerifiedAccessIdentity } from "./access-jwt.js";
 import { enforceTeamMemberApiPolicy } from "./team-member-auth.js";
+import { enforceEmployeeRouteAccess } from "./governance/employee-route-auth.js";
 import { LocalDispatch } from "./local-dispatch.js";
 import { Spaces } from "./spaces-do.js";
 import { ComputerSession } from "./computer-session.js";
@@ -165,6 +166,8 @@ export default {
       // Table adapters, including `await handleGmail(request, env)`, run only after this gate.
       const memberPolicyResponse = await enforceTeamMemberApiPolicy(request, env);
       if (memberPolicyResponse) return memberPolicyResponse;
+      const employeeAccessResponse = await enforceEmployeeRouteAccess(request, env);
+      if (employeeAccessResponse) return employeeAccessResponse;
       const authenticatedResponse = await dispatchRoutes("authenticated", context);
       if (authenticatedResponse) return authenticatedResponse;
       ensureLiveCodingModel(env);

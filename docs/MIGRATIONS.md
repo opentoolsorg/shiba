@@ -22,6 +22,8 @@ check open PRs before reserving the next number.
 identities. The architecture migrations follow as `0063_runtime_d1_schema.sql`,
 `0064_thread_queue.sql`, and `0065_scheduled_job_slots.sql`, in that order.
 
+Main also shipped `0061_learning_review.sql` (a second 0061) and then `0068`/`0069`, skipping 0066 and 0067. Those names stay as shipped; the guard accepts that duplicate and gap and nothing else.
+
 `0063_runtime_d1_schema.sql` captures the former request-time schema, with
 `IF NOT EXISTS` so databases already initialized by older Workers retain data.
 Missing additive columns are installed by migrations rather than repaired on reads.

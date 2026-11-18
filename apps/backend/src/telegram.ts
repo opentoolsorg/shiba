@@ -28,6 +28,7 @@ import {
   type ResolveOrchestrator,
 } from "./chat-lane.js";
 import type { Env } from "./env.js";
+import { tryAnswerUiBlockFallback } from "./ui-block-fallback.js";
 import { redactSecrets } from "./security.js";
 import { isApprover, parseApproverAllowlist, type ExecutionContextLike } from "./slack-approval.js";
 import { timingSafeEqual } from "./slack.js";
@@ -99,6 +100,10 @@ async function handleMessage(message: TelegramMessage, env: Env, call: TelegramC
       reply_parameters: { message_id: messageId, allow_sending_without_reply: true },
       ...body,
     });
+  if (await tryAnswerUiBlockFallback(env, buildChatThreadName("telegram", String(chatId)), String(message.from?.id ?? ""), text.replace(COMMAND, "").trim())) {
+    await reply({ text: "Answer recorded." });
+    return;
+  }
   if (HELP.test(text)) {
     await reply({ text: `${TELEGRAM_USAGE}\nNothing runs until someone on the approver list presses Approve.` });
     return;

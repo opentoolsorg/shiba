@@ -1,0 +1,415 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Slack UI renderer > renders confirm_task 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "emoji": false,
+        "text": "Delete files?",
+        "type": "plain_text",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "ui_block:button:yes",
+          "confirm": {
+            "confirm": {
+              "emoji": false,
+              "text": "Confirm",
+              "type": "plain_text",
+            },
+            "deny": {
+              "emoji": false,
+              "text": "Cancel",
+              "type": "plain_text",
+            },
+            "style": "danger",
+            "text": {
+              "emoji": false,
+              "text": "This choice is destructive. Are you sure?",
+              "type": "plain_text",
+            },
+            "title": {
+              "emoji": false,
+              "text": "Confirm destructive choice",
+              "type": "plain_text",
+            },
+          },
+          "style": "danger",
+          "text": {
+            "emoji": false,
+            "text": "Delete",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "value": "{"runId":"slack:T1:C1:123.000001","blockId":"confirm_task","optionId":"yes","confirmed":true}",
+        },
+        {
+          "action_id": "ui_block:button:no",
+          "text": {
+            "emoji": false,
+            "text": "Cancel",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "value": "{"runId":"slack:T1:C1:123.000001","blockId":"confirm_task","optionId":"no"}",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Delete files?
+Yes: Delete (destructive); No: Cancel
+Reply yes/no. Include the word confirm to proceed.",
+}
+`;
+
+exports[`Slack UI renderer > renders form 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "emoji": false,
+        "text": "Your details",
+        "type": "plain_text",
+      },
+      "type": "section",
+    },
+    {
+      "text": {
+        "emoji": false,
+        "text": "Your details
+Name: (required)
+Reply with field label: value, one field per line. Submit. Include the word confirm on its own line for destructive selections.",
+        "type": "plain_text",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "emoji": false,
+          "text": "Fill in this form in the dashboard; Slack modals are not supported here.",
+          "type": "plain_text",
+        },
+      ],
+      "type": "context",
+    },
+  ],
+  "text": "Your details
+Name: (required)
+Reply with field label: value, one field per line. Submit. Include the word confirm on its own line for destructive selections.",
+}
+`;
+
+exports[`Slack UI renderer > renders many 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "emoji": false,
+        "text": "Choose several",
+        "type": "plain_text",
+      },
+      "type": "section",
+    },
+    {
+      "block_id": "ui_block:many:0",
+      "elements": [
+        {
+          "action_id": "ui_block:selection",
+          "options": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "First",
+                "type": "plain_text",
+              },
+              "value": "first",
+            },
+            {
+              "text": {
+                "emoji": false,
+                "text": "Second (destructive)",
+                "type": "plain_text",
+              },
+              "value": "second",
+            },
+          ],
+          "type": "checkboxes",
+        },
+      ],
+      "type": "actions",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "ui_block:button:submit",
+          "confirm": {
+            "confirm": {
+              "emoji": false,
+              "text": "Confirm",
+              "type": "plain_text",
+            },
+            "deny": {
+              "emoji": false,
+              "text": "Cancel",
+              "type": "plain_text",
+            },
+            "style": "danger",
+            "text": {
+              "emoji": false,
+              "text": "This choice is destructive. Are you sure?",
+              "type": "plain_text",
+            },
+            "title": {
+              "emoji": false,
+              "text": "Confirm destructive choice",
+              "type": "plain_text",
+            },
+          },
+          "style": "danger",
+          "text": {
+            "emoji": false,
+            "text": "Submit choices",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "value": "{"runId":"slack:T1:C1:123.000001","blockId":"many","optionId":"submit","confirmed":true}",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Choose several
+1. First
+2. Second (destructive)
+Reply with the number(s) or option labels, separated by commas. Include the word confirm for destructive selections.",
+}
+`;
+
+exports[`Slack UI renderer > renders reply 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "emoji": false,
+        "text": "Next step?",
+        "type": "plain_text",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "ui_block:button:continue",
+          "text": {
+            "emoji": false,
+            "text": "Continue",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "value": "{"runId":"slack:T1:C1:123.000001","blockId":"reply","optionId":"continue"}",
+        },
+        {
+          "action_id": "ui_block:button:delete",
+          "confirm": {
+            "confirm": {
+              "emoji": false,
+              "text": "Confirm",
+              "type": "plain_text",
+            },
+            "deny": {
+              "emoji": false,
+              "text": "Cancel",
+              "type": "plain_text",
+            },
+            "style": "danger",
+            "text": {
+              "emoji": false,
+              "text": "This choice is destructive. Are you sure?",
+              "type": "plain_text",
+            },
+            "title": {
+              "emoji": false,
+              "text": "Confirm destructive choice",
+              "type": "plain_text",
+            },
+          },
+          "style": "danger",
+          "text": {
+            "emoji": false,
+            "text": "Delete",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "value": "{"runId":"slack:T1:C1:123.000001","blockId":"reply","optionId":"delete","confirmed":true}",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Next step?
+1. Continue
+2. Delete (destructive)
+Reply with the number(s) or option labels, separated by commas. Include the word confirm for destructive selections.",
+}
+`;
+
+exports[`Slack UI renderer > renders select 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "emoji": false,
+        "text": "Choose one of six",
+        "type": "plain_text",
+      },
+      "type": "section",
+    },
+    {
+      "block_id": "ui_block:["slack:T1:C1:123.000001","select",true]",
+      "elements": [
+        {
+          "action_id": "ui_block:select",
+          "confirm": {
+            "confirm": {
+              "emoji": false,
+              "text": "Confirm",
+              "type": "plain_text",
+            },
+            "deny": {
+              "emoji": false,
+              "text": "Cancel",
+              "type": "plain_text",
+            },
+            "style": "danger",
+            "text": {
+              "emoji": false,
+              "text": "This choice is destructive. Are you sure?",
+              "type": "plain_text",
+            },
+            "title": {
+              "emoji": false,
+              "text": "Confirm destructive choice",
+              "type": "plain_text",
+            },
+          },
+          "options": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "Option 0",
+                "type": "plain_text",
+              },
+              "value": "option_0",
+            },
+            {
+              "text": {
+                "emoji": false,
+                "text": "Option 1",
+                "type": "plain_text",
+              },
+              "value": "option_1",
+            },
+            {
+              "text": {
+                "emoji": false,
+                "text": "Option 2",
+                "type": "plain_text",
+              },
+              "value": "option_2",
+            },
+            {
+              "text": {
+                "emoji": false,
+                "text": "Option 3",
+                "type": "plain_text",
+              },
+              "value": "option_3",
+            },
+            {
+              "text": {
+                "emoji": false,
+                "text": "Option 4",
+                "type": "plain_text",
+              },
+              "value": "option_4",
+            },
+            {
+              "text": {
+                "emoji": false,
+                "text": "Option 5",
+                "type": "plain_text",
+              },
+              "value": "option_5",
+            },
+          ],
+          "placeholder": {
+            "emoji": false,
+            "text": "Choose an option",
+            "type": "plain_text",
+          },
+          "type": "static_select",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Choose one of six
+1. Option 0
+2. Option 1
+3. Option 2
+4. Option 3
+5. Option 4
+6. Option 5 (destructive)
+Reply with the number(s) or option labels, separated by commas. Include the word confirm for destructive selections.",
+}
+`;
+
+exports[`Slack UI renderer > renders single 1`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "emoji": false,
+        "text": "Choose one",
+        "type": "plain_text",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "action_id": "ui_block:button:first",
+          "text": {
+            "emoji": false,
+            "text": "First",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "value": "{"runId":"slack:T1:C1:123.000001","blockId":"single","optionId":"first"}",
+        },
+        {
+          "action_id": "ui_block:button:second",
+          "text": {
+            "emoji": false,
+            "text": "Second",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "value": "{"runId":"slack:T1:C1:123.000001","blockId":"single","optionId":"second"}",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Choose one
+1. First
+2. Second
+Reply with the number(s) or option labels, separated by commas. Include the word confirm for destructive selections.",
+}
+`;

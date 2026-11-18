@@ -176,6 +176,18 @@ export const handlers = {
     const { request, env } = context;
     return handlePersonalExecution(request, env);
   },
+  async employeeAccessResponse(context: RequestContext): Promise<Response | null> {
+    const { request, env } = context;
+    return (await import("../governance/employee-access-routes.js")).handleEmployeeAccess(request, env);
+  },
+  async learningResponse(context: RequestContext): Promise<Response | null> {
+    const { request, env } = context;
+    return (await import("../learning-routes.js")).handleLearning(request, env);
+  },
+  async uiBlockResponse(context: RequestContext): Promise<Response | null> {
+    const { request, env } = context;
+    return (await import("../ui-block-routes.js")).handleUiBlocks(request, env);
+  },
   async teamModelResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
     return (await import("../team-model-routes.js")).handleTeamModelSessions(request, env);
