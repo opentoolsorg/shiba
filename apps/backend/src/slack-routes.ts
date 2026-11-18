@@ -6,7 +6,7 @@
  * Signature verification itself lives in src/slack.ts (Agent 7); this
  * module only wires the command to the orchestrator.
  */
-import { getAgentByName } from "agents/routing";
+import { orchestratorFor } from "./platform/do-resolver.js";
 import { seenDelivery } from "./automations-stub.js";
 import type { Env } from "./env.js";
 import { parseGitHubRepoUrl, redactSecrets } from "./security.js";
@@ -113,7 +113,7 @@ async function respondToCommand(
 }
 
 /**
- * Queue the run on the shared orchestrator and shape the reply Slack shows:
+ * Queue the run on the command's orchestrator and shape the reply Slack shows:
  * the approval card on success, an ephemeral error otherwise. Never throws.
  */
 async function queueSlackRun(
@@ -128,7 +128,10 @@ async function queueSlackRun(
   let queued: Response;
   try {
     const stub: OrchestratorStub =
-      deps.orchestratorStub ?? (await getAgentByName(env.CodingOrchestrator, ORCHESTRATOR_NAME));
+      deps.orchestratorStub ?? (await orchestratorFor(env, {
+        workspaceId: params.get("team_id") ?? undefined,
+        threadKey: approvalThreadKey,
+      }));
     let request = new Request("https://internal/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -144,7 +147,7 @@ async function queueSlackRun(
         })),
       });
     if ((env.INTERNAL_SIGNING_KEY?.length ?? 0) >= 32 && slackCanvasOwner(env, approvalThreadKey)) {
-      request = await signSlackCanvasIntake(request, env.INTERNAL_SIGNING_KEY ?? "", approvalThreadKey);
+      request = await signSlackCanvasIntake(request, env.INTERNAL_SIGNING_KEY ?? "", approvalThreadKey, Date.now(), env);
     }
     queued = await stub.fetch(request);
   } catch {

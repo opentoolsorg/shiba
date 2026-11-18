@@ -1,11 +1,11 @@
-import { getAgentByName } from "agents/routing";
+import { orchestratorFor } from "./platform/do-resolver.js";
+import { listAdminWorkspaces } from "./governance/admin-console.js";
 import { AUDIT_RETENTION_MS, pruneAuditLog } from "./audit.js";
 import { automationsStub } from "./automations-stub.js";
 import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import type { Env } from "./env.js";
 import { reportError } from "./observability.js";
 import { redactSecrets } from "./security.js";
-import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 
 const jobRunners = {
   "learning.sweep": async (env: Env) => {
@@ -32,9 +32,20 @@ const jobRunners = {
     if (!response.ok) throw new Error(`automation tick failed: ${response.status}`);
   },
   "drafts.sweep": async (env: Env) => {
-    const stub = await getAgentByName(env.CodingOrchestrator, ORCHESTRATOR_NAME);
-    const response = await stub.fetch(new Request("https://internal/internal/sweep-drafts", { method: "POST" }));
-    if (!response.ok) throw new Error(`stale draft sweep failed: ${response.status}`);
+    const sweep = async (workspaceId?: string) => {
+      const stub = await orchestratorFor(env, { workspaceId });
+      const response = await stub.fetch(new Request("https://internal/internal/sweep-drafts", { method: "POST" }));
+      if (!response.ok) throw new Error(`stale draft sweep failed: ${response.status}`);
+    };
+    if (env.SHIBA_SCOPED_DO !== "1") return sweep();
+    const workspaces = env.AGENT_AUDIT ? await listAdminWorkspaces(env, -1) : [];
+    const workspaceIds = [...new Set(["self-hosted", ...workspaces.map(({ workspaceId }) => `team:${workspaceId}`)])];
+    const results = await Promise.allSettled(workspaceIds.map((workspaceId) => sweep(workspaceId)));
+    await Promise.allSettled(results.map(async (result, index) => {
+      if (result.status !== "rejected") return;
+      console.error(`drafts.sweep workspace ${redactSecrets(workspaceIds[index] ?? "unknown")} failed`, redactSecrets(String(result.reason)));
+      await reportError(env, "scheduled", result.reason);
+    }));
   },
   "audit.prune": async (env: Env, scheduledAt: number) => {
     if (env.AGENT_AUDIT === undefined) return;

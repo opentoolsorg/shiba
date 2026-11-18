@@ -1,6 +1,9 @@
 import { signInternal, verifyInternal } from "./security/signing.js";
 import type { Env } from "./env.js";
+import { orchestratorNameFor } from "./platform/do-resolver.js";
 import type { RunRoomIdentity } from "./run-room-events.js";
+
+type ScopeEnv = Pick<Env, "SHIBA_SCOPED_DO">;
 
 const SLACK_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const APPROVAL_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -74,12 +77,12 @@ export function parseSlackCanvasOwners(raw: string | undefined): SlackCanvasOwne
   }
 }
 
-export function parseSlackCanvasOrigin(origin: string): SlackCanvasOrigin | null {
+export function parseSlackCanvasOrigin(origin: string, env: ScopeEnv = {}): SlackCanvasOrigin | null {
   const thread = /^slack:([A-Za-z0-9_-]{1,128}):([A-Za-z0-9_-]{1,128}):(\d{1,20}\.\d{1,20})$/.exec(origin);
   if (thread?.[1] && thread[2]) return { origin, teamId: thread[1], channelId: thread[2], orchestratorName: origin };
   const command = /^slack-command:([A-Za-z0-9_-]{1,128}):([A-Za-z0-9_-]{1,128})$/.exec(origin);
   return command?.[1] && command[2]
-    ? { origin, teamId: command[1], channelId: command[2], orchestratorName: "default" }
+    ? { origin, teamId: command[1], channelId: command[2], orchestratorName: orchestratorNameFor(env, { workspaceId: command[1], threadKey: origin }) }
     : null;
 }
 
@@ -106,11 +109,11 @@ export function buildSlackCanvasUrl(env: CanvasEnv, pointer: { threadKey: string
 
 /** Derive a private per-run room from the configured owner and canonical origin. */
 export async function resolveSlackCanvasBinding(
-  env: Pick<Env, "SLACK_CANVAS_OWNERS">,
+  env: Pick<Env, "SLACK_CANVAS_OWNERS" | "SHIBA_SCOPED_DO">,
   origin: string,
   approvalId: string,
 ): Promise<SlackCanvasBinding | null> {
-  const scope = parseSlackCanvasOrigin(origin);
+  const scope = parseSlackCanvasOrigin(origin, env);
   const policy = slackCanvasOwner(env, origin);
   if (!scope || !policy || !APPROVAL_ID.test(approvalId)) return null;
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(
@@ -145,13 +148,13 @@ async function intakeBody(request: Request): Promise<string | null> {
   }
 }
 
-async function intakePayload(request: Request, origin: string, timestamp: string, body: string): Promise<string> {
+async function intakePayload(request: Request, origin: string, timestamp: string, body: string, env: ScopeEnv): Promise<string> {
   const url = new URL(request.url);
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body)));
   const bodyHash = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
   return JSON.stringify([
     "shiba:slack-canvas-request:v1", request.method, `${url.pathname}${url.search}`,
-    origin, parseSlackCanvasOrigin(origin)?.orchestratorName, timestamp, bodyHash,
+    origin, parseSlackCanvasOrigin(origin, env)?.orchestratorName, timestamp, bodyHash,
   ]);
 }
 
@@ -161,12 +164,12 @@ function allowedCanvasRequest(request: Request): boolean {
     (request.method === "GET" && path === "/internal/slack-canvas");
 }
 
-export async function signSlackCanvasRequest(request: Request, secret: string, origin: string, now = Date.now()): Promise<Request> {
+export async function signSlackCanvasRequest(request: Request, secret: string, origin: string, now = Date.now(), env: ScopeEnv = {}): Promise<Request> {
   if (secret.length < 32 || !parseSlackCanvasOrigin(origin) || !allowedCanvasRequest(request)) throw new Error("Invalid Slack canvas request.");
   const body = await intakeBody(request);
   if (body === null) throw new Error("Slack canvas intake exceeds the request limit.");
   const timestamp = String(Math.floor(now / 1000));
-  const signature = await signInternal({ INTERNAL_SIGNING_KEY: secret }, "shiba/slack-canvas/v1", await intakePayload(request, origin, timestamp, body));
+  const signature = await signInternal({ INTERNAL_SIGNING_KEY: secret }, "shiba/slack-canvas/v1", await intakePayload(request, origin, timestamp, body, env));
   const headers = new Headers(request.headers);
   headers.set(INTAKE_ORIGIN, origin);
   headers.set(INTAKE_TIMESTAMP, timestamp);
@@ -175,28 +178,28 @@ export async function signSlackCanvasRequest(request: Request, secret: string, o
 }
 
 /** A valid proof authenticates intake provenance. It never approves execution. */
-export async function verifySlackCanvasRequest(request: Request, secret: string | undefined, intendedDO: string, now = Date.now(), legacyFallback?: string): Promise<string | null> {
+export async function verifySlackCanvasRequest(request: Request, secret: string | undefined, intendedDO: string, now = Date.now(), legacyFallback?: string, env: ScopeEnv = {}): Promise<string | null> {
   const origin = request.headers.get(INTAKE_ORIGIN) ?? "";
   const timestamp = request.headers.get(INTAKE_TIMESTAMP) ?? "";
   const signature = request.headers.get(INTAKE_SIGNATURE) ?? "";
-  const scope = parseSlackCanvasOrigin(origin);
+  const scope = parseSlackCanvasOrigin(origin, env);
   if (!secret || secret.length < 32 || !scope || scope.orchestratorName !== intendedDO || !allowedCanvasRequest(request) ||
     !/^\d{1,12}$/.test(timestamp) || Math.abs(now / 1000 - Number(timestamp)) > 300) return null;
   try {
     const body = await intakeBody(request);
     if (body === null) return null;
-    return await verifyInternal({ INTERNAL_SIGNING_KEY: secret, SHIBA_LEGACY_SIGNING_FALLBACK: legacyFallback }, "shiba/slack-canvas/v1", await intakePayload(request, origin, timestamp, body), signature, secret) ? origin : null;
+    return await verifyInternal({ INTERNAL_SIGNING_KEY: secret, SHIBA_LEGACY_SIGNING_FALLBACK: legacyFallback }, "shiba/slack-canvas/v1", await intakePayload(request, origin, timestamp, body, env), signature, secret) ? origin : null;
   } catch {
     return null;
   }
 }
 
-export async function signSlackCanvasIntake(request: Request, secret: string, origin: string, now = Date.now()): Promise<Request> {
+export async function signSlackCanvasIntake(request: Request, secret: string, origin: string, now = Date.now(), env: ScopeEnv = {}): Promise<Request> {
   if (request.method !== "POST" || new URL(request.url).pathname !== "/api/runs") throw new Error("Invalid Slack canvas intake.");
-  return signSlackCanvasRequest(request, secret, origin, now);
+  return signSlackCanvasRequest(request, secret, origin, now, env);
 }
 
-export async function verifySlackCanvasIntake(request: Request, secret: string | undefined, intendedDO: string, now = Date.now(), legacyFallback?: string): Promise<string | null> {
+export async function verifySlackCanvasIntake(request: Request, secret: string | undefined, intendedDO: string, now = Date.now(), legacyFallback?: string, env: ScopeEnv = {}): Promise<string | null> {
   if (request.method !== "POST" || new URL(request.url).pathname !== "/api/runs") return null;
-  return verifySlackCanvasRequest(request, secret, intendedDO, now, legacyFallback);
+  return verifySlackCanvasRequest(request, secret, intendedDO, now, legacyFallback, env);
 }
