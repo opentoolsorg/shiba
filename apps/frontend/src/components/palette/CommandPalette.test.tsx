@@ -149,4 +149,22 @@ describe("CommandPalette", () => {
     expect(stored).not.toContain("Opened");
     expect(onOpenBot).toHaveBeenCalled();
   });
+  it("lists matching files and notes and opens Files on select", async () => {
+    const onOpenKnowledge = vi.fn();
+    render(
+      <CommandPalette
+        open workspaceId={workspaceId} roomThreadOpen={false} needsYouCount={0} settings={settings}
+        onClose={() => {}} onNewTask={() => {}} onNewChannel={() => {}} onOpenBot={() => {}}
+        onOpenChat={() => {}} onOpenTask={() => {}} onOpenKnowledge={onOpenKnowledge} onOpenSettings={() => {}} onOpenNeedsYou={() => {}}
+        onToggleTheme={() => {}} onOpenShortcuts={() => {}} onInsertAgentMention={() => {}}
+        onSearchAll={() => {}} onMessageAbout={() => {}}
+      />,
+    );
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "falcon" } });
+    await vi.waitFor(() => expect(searches.length).toBe(1));
+    searches[0]?.resolve({ chats: [], tasks: [], knowledge: [{ chunkId: "c1", sourceKind: "file", sourceId: "file_1", sourceName: "launch-plan.md", scope: "workspace", snippet: "Falcon launch checklist" }] });
+    expect(await screen.findByRole("heading", { name: "Files & notes" })).toBeTruthy();
+    fireEvent.click(screen.getByText("launch-plan.md"));
+    expect(onOpenKnowledge).toHaveBeenCalledWith(expect.objectContaining({ sourceId: "file_1" }));
+  });
 });

@@ -51,7 +51,9 @@ import {
   readyConnectionOptions,
   useAgentsDirectory,
   useModelConfig,
+  type SetupStatus,
 } from "./live-status";
+import { chatLookupOptions, selectedChatLookups, type ChatLookupId } from "./chat-lookups";
 import { DashboardView } from "./components/DashboardView";
 import { WorkView, type WorkViewMode } from "./components/WorkView";
 import type { OrganizationEmployee } from "./components/WorkOrganizationView";
@@ -955,6 +957,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     identityKey: orchestratorName ?? "",
   });
   const [launchBlocked, setLaunchBlocked] = useState(false);
+  const [toolSetup, setToolSetup] = useState<SetupStatus["toolSetup"] | null>(null);
+  const [chatLookupIds, setChatLookupIds] = useState<ChatLookupId[]>([]);
+  const chatLookups = useMemo(() => chatLookupOptions(toolSetup ?? null, chatLookupIds), [toolSetup, chatLookupIds]);
   useEffect(() => {
     if (!privateDataEnabled) {
       setLaunchBlocked(false);
@@ -971,6 +976,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     ])
       .then(([setup, providers]) => {
         if (cancelled) return;
+        setToolSetup((setup as SetupStatus | null)?.toolSetup ?? null);
         const gateway = Boolean(
           setup && typeof setup === "object" && (setup as { gateway?: { token?: boolean } }).gateway?.token,
         );
@@ -1676,6 +1682,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               metadata: {
                 shibaMode: "chat",
                 shibaRoomViewerId: realtimeViewerId,
+                ...(selectedChatLookups(chatLookups).length ? { shibaChatTools: selectedChatLookups(chatLookups) } : {}),
               },
             });
             finishRealtimeStream(streamId, "complete");
@@ -2047,6 +2054,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       connectionId,
       chat,
       realtimeViewerId,
+      chatLookups,
       startRealtimeStream,
       finishRealtimeStream,
       agent,
@@ -3710,6 +3718,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         busy={isSubmitting || clearing}
                         streaming={chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"}
                         failed={Boolean(chat.error)}
+                        lookups={chatLookups}
+                        onToggleLookup={(id) => setChatLookupIds((current) => current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id])}
                       />
                     </div>
                   ) : (
@@ -4085,6 +4095,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               window.history.pushState(null, "", `/work?${next.toString()}`);
               openView("work");
             }}
+            onOpenKnowledge={() => openView("files")}
             onOpenSettings={(section) => { setSettingsSection(section); openView("settings"); }}
             onOpenNeedsYou={() => openView("work")}
             onToggleTheme={toggleTheme}
