@@ -14,7 +14,7 @@ export interface ModelRouteStatus {
 }
 
 export interface ToolSetupRow {
-  id: "web_search" | "generate_image" | "browser";
+  id: "web_search" | "generate_image" | "browser" | "knowledge_search";
   label: string;
   ready: boolean;
   /** Env var or binding name to set; names only, never values. */
@@ -64,5 +64,6 @@ export function readToolSetup(env: Env): ToolSetupRow[] {
     { id: "web_search", label: "Web search", ready: webSearchConfigured(env), env: "WEB_SEARCH_API_KEY" },
     { id: "generate_image", label: "Image generation", ready: imageMissing.length === 0, env: imageMissing.join("; ") || "AI; FILES or ARTIFACTS" },
     { id: "browser", label: "Browser", ready: Boolean(env.BROWSER), env: "BROWSER" },
+    { id: "knowledge_search", label: "Knowledge search", ready: Boolean(env.AGENT_AUDIT && env.AI && env.MEMORY_VECTORS), env: "AGENT_AUDIT; AI; MEMORY_VECTORS" },
   ];
 }

@@ -4,7 +4,7 @@ import type { Env } from "../env.js";
 import type { ToolRegistry } from "../mcp-gateway.js";
 import { registerAskUserTool } from "./ws08-ask-user.js";
 import { registerAskUiTool } from "./ask-ui.js";
-import { registerKnowledgeSearchTool } from "./ws07-knowledge-search.js";
+import { registerKnowledgeSearchTool } from "../knowledge/knowledge-tool.js";
 import { browserClick, browserOpen, browserRead, browserScreenshot, browserToolError, browserType } from "./browser.js";
 import { videoCapability, videoInputSchema } from "./video-gen.js";
 import { generateImage } from "./image-gen.js";

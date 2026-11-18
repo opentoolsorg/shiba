@@ -5,6 +5,7 @@ import { humanActorId } from "./collaboration-store.js";
 import { getTeamWorkspaceMembership, normalizeTeamWorkspaceEmail } from "./team-workspaces-store.js";
 import { searchPaletteBots } from "./palette-store.js";
 import { searchWorkspace, type WorkspaceSearchHit, type WorkspaceSearchKind } from "./workspace-search-store.js";
+import { hybridKnowledgeSearch } from "./knowledge/knowledge-search.js";
 
 const json = (body: unknown, status = 200, extra?: Record<string, string>) =>
   Response.json(body, { headers: { "content-type": "application/json; charset=utf-8", ...extra }, status });
@@ -16,18 +17,19 @@ const KINDS: Record<string, readonly WorkspaceSearchKind[]> = {
   runs: ["run"],
 };
 
-function parseTypes(raw: string | null): { kinds: WorkspaceSearchKind[]; bots: boolean } | { error: string } {
-  if (raw === null || raw.trim() === "") return { kinds: ["task", "room", "message", "run"], bots: true };
+function parseTypes(raw: string | null): { kinds: WorkspaceSearchKind[]; bots: boolean; knowledge: boolean } | { error: string } {
+  if (raw === null || raw.trim() === "") return { kinds: ["task", "room", "message", "run"], bots: true, knowledge: true };
   const kinds = new Set<WorkspaceSearchKind>();
   let bots = false;
+  let knowledge = false;
   for (const name of raw.split(",").map((part) => part.trim()).filter(Boolean)) {
     if (name === "bots") { bots = true; continue; }
-    if (name === "knowledge") continue;
+    if (name === "knowledge") { knowledge = true; continue; }
     const mapped = KINDS[name];
     if (!mapped) return { error: "Invalid types." };
     for (const kind of mapped) kinds.add(kind);
   }
-  return { kinds: [...kinds], bots };
+  return { kinds: [...kinds], bots, knowledge };
 }
 
 function chatHit(hit: WorkspaceSearchHit) {
@@ -36,7 +38,7 @@ function chatHit(hit: WorkspaceSearchHit) {
   return { roomId, threadRootId: hit.threadRootId, messageId, title: hit.title, snippet: hit.snippet, updatedAt: hit.updatedAt };
 }
 
-/** GET /api/search?q=&types=bots,chats,tasks — membership-scoped workspace search. */
+/** GET /api/search?q=&types=bots,chats,tasks,knowledge — membership-scoped workspace search. */
 export async function handleSearch(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== "/api/search") return null;
@@ -69,9 +71,11 @@ export async function handleSearch(request: Request, env: Env): Promise<Response
   const started = Date.now();
   try {
     const orgId = `team:${workspaceId}`;
-    const [hits, bots] = await Promise.all([
+    const [hits, bots, knowledgeHits] = await Promise.all([
       parsed.kinds.length ? searchWorkspace(env, workspaceId, q, userId, limit, parsed.kinds) : Promise.resolve([]),
       parsed.bots ? searchPaletteBots(env, workspaceId, orgId, userId, q, limit) : Promise.resolve([]),
+      // Knowledge is additive: an indexing outage must not hide task and chat results.
+      parsed.knowledge ? hybridKnowledgeSearch(env, userId, workspaceId, q, Math.min(limit, 8)).catch(() => []) : Promise.resolve([]),
     ]);
     const tookMs = Date.now() - started;
     const tasks = hits.filter((hit) => hit.kind === "task").map((hit) => ({
@@ -80,8 +84,12 @@ export async function handleSearch(request: Request, env: Env): Promise<Response
     const chats = hits.filter((hit) => hit.kind === "room" || hit.kind === "message").map(chatHit);
     const rooms = chats.map((hit) => ({ roomId: hit.roomId, title: hit.title, snippet: hit.snippet, updatedAt: hit.updatedAt }));
     const runs = hits.filter((hit) => hit.kind === "run").map((hit) => ({ runId: hit.id, title: hit.title, snippet: hit.snippet, updatedAt: hit.updatedAt }));
+    const knowledge = knowledgeHits.map((hit) => ({
+      chunkId: hit.chunkId, sourceKind: hit.sourceKind, sourceId: hit.sourceId, sourceName: hit.sourceName ?? "",
+      scope: hit.scope, snippet: hit.text.slice(0, 280), score: hit.score,
+    }));
     return json(
-      { workspaceId, actorId: humanActorId(userId), query: q, tasks, rooms, runs, knowledge: [], bots, chats, tookMs },
+      { workspaceId, actorId: humanActorId(userId), query: q, tasks, rooms, runs, knowledge, bots, chats, tookMs },
       200,
       { "Server-Timing": `search;dur=${tookMs}` },
     );
