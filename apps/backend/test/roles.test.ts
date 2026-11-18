@@ -134,8 +134,13 @@ describe("resolveRoleModel", () => {
   });
 
   it("rejects a pin naming a gated harness the deployment has not enabled", () => {
+    // The gate also opens when credential storage or a token is configured;
+    // force both off so "not enabled" is actually under test.
     expect(() =>
-      resolveRoleModel(env({ ROLE_MODEL__REVIEWER: "claude-subscription" }), "reviewer"),
+      resolveRoleModel(
+        env({ ROLE_MODEL__REVIEWER: "claude-subscription", MODEL_CREDENTIAL_KEY: "" }),
+        "reviewer",
+      ),
     ).toThrow();
     expect(
       resolveRoleModel(
@@ -376,25 +381,15 @@ describe("shipped ROLE_MODEL_MAP (PLAN.md §19)", () => {
   it("pins the intended routing", () => {
     const shipped = env({ ROLE_MODEL_MAP: raw });
     expect(resolveRoleModel(shipped, "orchestrator")).toEqual({
-      harness: "codex",
-      model: "openai/gpt-6-sol",
+      harness: "codex-subscription",
+      model: "openai-subscription/gpt-6.2-sol",
     });
-    expect(resolveRoleModel(shipped, "explorer")).toEqual({
-      harness: "codex",
-      model: "openai/gpt-6-sol",
-    });
-    expect(resolveRoleModel(shipped, "fixer")).toEqual({
-      harness: "claude-code",
-      model: "anthropic/claude-sonnet-5-5",
-    });
-    expect(resolveRoleModel(shipped, "reviewer")).toEqual({
-      harness: "opencode",
-      model: "opencode-go/gpt-6.1-sol",
-    });
-    expect(resolveRoleModel(shipped, "designer")).toEqual({
-      harness: "claude-code",
-      model: "anthropic/claude-opus-5-5",
-    });
+    for (const role of ["explorer", "fixer", "reviewer", "designer"] as const) {
+      expect(resolveRoleModel(shipped, role)).toEqual({
+        harness: "opencode",
+        model: "google/gemini-3.5-flash-lite",
+      });
+    }
   });
 
   it("reports the shipped pin as source role-map, not the deployment default", () => {
