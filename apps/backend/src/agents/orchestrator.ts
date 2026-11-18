@@ -1391,7 +1391,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ...specialistTools,
       delegate_task: createDelegateTaskTool(specialistTools, this.specialistTurn.budget,
         (input) => this.queueSlackRun({ ...input, publishPullRequest: false, role: "fixer", threadKey: this.name }, MAX_APPROVED_TASK_CHARS, undefined,
-          this.state.slackCanvasThreadOrigin === this.name ? this.name : undefined),
+          this.state?.slackCanvasThreadOrigin === this.name ? this.name : undefined),
         () => this.setState({ ...this.state, specialistBudget: { turnId, remaining: this.specialistTurn?.budget.remaining ?? 0 } })),
       delegate_coding_task: delegate,
       ...(codeOwner ? createExtensionSkillAgentTools(this.env, this.employeeToolOrgId(), codeOwner) : {}),
