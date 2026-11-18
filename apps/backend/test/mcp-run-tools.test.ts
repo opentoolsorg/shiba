@@ -35,7 +35,7 @@ vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 const sandboxDestroy = vi.hoisted(() => vi.fn(async () => {}));
 
 import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orchestrator.js";
-import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import type { TokenRecord } from "../src/agent-tokens.js";
 import type { Env } from "../src/env.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
@@ -89,7 +89,7 @@ function setup() {
   route.names.length = 0;
   route.fetch = (request) => orchestrator.onRequest(request);
   const d1 = new FakeD1();
-  const env = { AGENT_AUDIT: d1, CodingOrchestrator: {} } as unknown as Env;
+  const env = { INTERNAL_SIGNING_KEY: orchestrator.env.INTERNAL_SIGNING_KEY, AGENT_AUDIT: d1, CodingOrchestrator: {} } as unknown as Env;
   const registry = createToolRegistry(env);
   registerRunTools(registry, env);
   // Audit row params: [id, ts, principal, tool, args_hash, outcome, detail].
@@ -242,7 +242,7 @@ describe("registerRunTools", () => {
     expect(theirs.decided).toEqual([]);
 
     // An agent principal can never decide approvals or clear the registry.
-    const agentPost = await orchestrator.onRequest(
+    const agentPost = await sendWorkerRequest(orchestrator,
       new Request("https://internal/api/approvals", {
         method: "POST",
         headers: { "X-Agent-Principal": "other-agent" },
@@ -250,11 +250,11 @@ describe("registerRunTools", () => {
       }),
     );
     expect(agentPost.status).toBe(403);
-    const agentClear = await orchestrator.onRequest(
+    const agentClear = await sendWorkerRequest(orchestrator,
       new Request("https://internal/api/runs", { method: "DELETE", headers: { "X-Agent-Principal": "other-agent" } }),
     );
     expect(agentClear.status).toBe(403);
-    const foreignCancel = await orchestrator.onRequest(
+    const foreignCancel = await sendWorkerRequest(orchestrator,
       new Request(`https://internal/api/runs/${encodeURIComponent(runId)}`, {
         method: "DELETE",
         headers: { "X-Agent-Principal": "other-agent" },

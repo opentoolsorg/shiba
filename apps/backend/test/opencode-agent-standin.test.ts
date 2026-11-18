@@ -93,13 +93,13 @@ describe("verify stand-in agent safety", () => {
     const input = {
       ...INPUT,
       publishPullRequest: false,
-      ...(await sealChildDispatch({ MODEL_CREDENTIAL_KEY: dispatchKey }, {
+      ...(await sealChildDispatch({ INTERNAL_SIGNING_KEY: dispatchKey , MODEL_CREDENTIAL_KEY: dispatchKey }, {
         approvalId: "agent-tool:test",
         sandboxId: INPUT.sandboxId,
         inputHash: "a".repeat(64),
       }, { ...INPUT, publishPullRequest: false })),
     };
-    const { result } = await run(agent(input, { GITHUB_TOKEN: "t", MODEL_CREDENTIAL_KEY: dispatchKey }));
+    const { result } = await run(agent(input, { GITHUB_TOKEN: "t", INTERNAL_SIGNING_KEY: dispatchKey , MODEL_CREDENTIAL_KEY: dispatchKey }));
     expect(result.summary).toBe("real");
     expect(mocks.run).toHaveBeenCalledTimes(1);
   });

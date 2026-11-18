@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Env } from "../../env.js";
-import { timingSafeEqualString } from "../../security.js";
+import { signInternal, verifyInternal } from "../../security/signing.js";
 
 export const SPECIALIST_TIMEOUT_MS = 60_000;
 export const MAX_SPECIALIST_INPUT_CHARS = 128_000;
@@ -58,24 +58,17 @@ const dispatchSchema = z.strictObject({
   issuedAt: z.number().int().nonnegative(),
   expiresAt: z.number().int().positive(),
   input: z.unknown(),
-  signature: z.string().regex(/^[a-f0-9]{64}$/),
+  signature: z.string().regex(/^(?:v1:[a-f0-9]{16}:)?[a-f0-9]{64}$/),
 });
 export type SpecialistDispatch = z.infer<typeof dispatchSchema>;
-type DispatchEnv = Pick<Env, "INTERNAL_SIGNING_KEY" | "MODEL_CREDENTIAL_KEY">;
+type DispatchEnv = Pick<Env, "INTERNAL_SIGNING_KEY" | "MODEL_CREDENTIAL_KEY" | "SHIBA_LEGACY_SIGNING_FALLBACK">;
 
-function dispatchKey(env: DispatchEnv): string {
-  const key = env.INTERNAL_SIGNING_KEY?.trim() || env.MODEL_CREDENTIAL_KEY?.trim();
-  if (!key) throw new Error("Specialist dispatch signing is not configured.");
-  return key;
-}
-
-async function dispatchSignature(env: DispatchEnv, dispatch: Omit<SpecialistDispatch, "signature">): Promise<string> {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(dispatchKey(env)), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const result = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(JSON.stringify([
+const PURPOSE = "shiba/specialist-dispatch/v1";
+function dispatchPayload(dispatch: Omit<SpecialistDispatch, "signature">): string {
+  return JSON.stringify([
     "shiba-readonly-specialist-v1", dispatch.version, dispatch.role, dispatch.parentName,
     dispatch.childTaskId, dispatch.issuedAt, dispatch.expiresAt, dispatch.input,
-  ])));
-  return Array.from(new Uint8Array(result), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  ]);
 }
 
 export async function sealSpecialistDispatch(
@@ -88,7 +81,7 @@ export async function sealSpecialistDispatch(
 ): Promise<SpecialistDispatch> {
   const request = role === "explorer" ? exploreInputSchema.parse(input) : reviewInputSchema.parse(input);
   const unsigned = { version: 1 as const, role, parentName, childTaskId, issuedAt: now, expiresAt: now + SPECIALIST_TIMEOUT_MS, input: request };
-  return dispatchSchema.parse({ ...unsigned, signature: await dispatchSignature(env, unsigned) });
+  return dispatchSchema.parse({ ...unsigned, signature: await signInternal(env, PURPOSE, dispatchPayload(unsigned), env.MODEL_CREDENTIAL_KEY?.trim()) });
 }
 
 export async function verifySpecialistDispatch(
@@ -106,7 +99,7 @@ export async function verifySpecialistDispatch(
     throw new Error("Specialist execution deadline exceeded.");
   }
   const { signature, ...unsigned } = dispatch;
-  if (!timingSafeEqualString(signature, await dispatchSignature(env, unsigned))) {
+  if (!await verifyInternal(env, PURPOSE, dispatchPayload(unsigned), signature, env.INTERNAL_SIGNING_KEY?.trim() || env.MODEL_CREDENTIAL_KEY?.trim())) {
     throw new Error("Specialist dispatch signature is invalid.");
   }
   if (role === "explorer") exploreInputSchema.parse(dispatch.input);

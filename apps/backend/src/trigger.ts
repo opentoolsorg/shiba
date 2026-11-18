@@ -4,15 +4,13 @@
  * as a pending orchestrator approval.
  *
  * Auth is a shared bearer token (`TRIGGER_TOKEN`) compared in constant time;
- * queued runs land on the shared "default" orchestrator so the approval card
- * resolves on the dashboard's /api/approvals surface like any Slack-queued
- * run.
+ * queued runs land on the deployment workspace orchestrator so approvals
+ * resolve on the dashboard's /api/approvals surface.
  */
-import { getAgentByName } from "agents/routing";
+import { orchestratorFor } from "./platform/do-resolver.js";
 import type { Env } from "./env.js";
 import { parseGitHubRepoUrl } from "./security.js";
 import { timingSafeEqual } from "./slack.js";
-import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 
 export const TRIGGER_PATH = "/api/trigger";
 
@@ -125,7 +123,8 @@ export async function handleTrigger(
       { status: 400 },
     );
   }
-  const stub = deps.orchestratorStub ?? (await getAgentByName(env.CodingOrchestrator, ORCHESTRATOR_NAME));
+  // The deployment-wide trigger bearer carries no workspace identity.
+  const stub = deps.orchestratorStub ?? (await orchestratorFor(env, {}));
   let queued: Response;
   try {
     queued = await stub.fetch(

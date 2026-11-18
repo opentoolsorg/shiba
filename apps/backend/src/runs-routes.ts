@@ -6,6 +6,7 @@ import type { PersonalExecutionSnapshot } from "@shiba/shared";
  */
 import { readRoutines, routineForRecord } from "./routine-metadata.js";
 import { getAgentByName } from "agents/routing";
+import { orchestratorNameFor } from "./platform/do-resolver.js";
 import { AGENT_PRINCIPAL_HEADER, LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER, deliverableByteLimit, isSafeDeliverablePath, type ExecutionTarget } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { isBetterAuthConfigured } from "./better-auth.js";
@@ -119,8 +120,9 @@ async function withSharedRuns(
   own: Response,
   runId: string | null,
   limitParam: string | null,
+  agentName = ORCHESTRATOR_NAME,
 ): Promise<Response> {
-  const shared = await getAgentByName(env.CodingOrchestrator, ORCHESTRATOR_NAME);
+  const shared = await getAgentByName(env.CodingOrchestrator, agentName);
   if (runId !== null) {
     if (own.status !== 404) return own;
     const fallback = await shared.fetch(`https://internal/api/runs/${encodeURIComponent(runId)}`);
@@ -527,18 +529,20 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   if (url.pathname === "/api/tasks" && request.method === "GET" && response.ok) {
     type TaskDto = ReturnType<typeof import("./task-attempts.js").taskHistoryDto>;
     const body = await response.json() as { tasks: TaskDto[] };
-    const routines = await readRoutines(env);
+    const routines = await readRoutines(env, orgAuth.orgId);
     const tasks = body.tasks ?? [];
     // Use the same shared-read authority as the run registry. Session reads
     // stay scoped to their selected conversation.
     if (targetAgentName === resolved.userId && targetAgentName !== ORCHESTRATOR_NAME &&
         isApprover(resolved.userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS))) {
-      const shared = await getAgentByName(env.CodingOrchestrator, ORCHESTRATOR_NAME);
+      for (const name of new Set([orchestratorNameFor(env, { workspaceId: orgAuth.orgId }), ORCHESTRATOR_NAME])) {
+      const shared = await getAgentByName(env.CodingOrchestrator, name);
       const sharedResponse = await shared.fetch("https://internal/api/tasks");
       if (sharedResponse.ok) {
         const sharedBody = await sharedResponse.json() as { tasks: TaskDto[] };
         const seen = new Set(tasks.map((task) => task.taskId));
         tasks.push(...sharedBody.tasks.filter((task) => !seen.has(task.taskId) && routineForRecord(task, routines)));
+      }
       }
     }
     return Response.json({ tasks: tasks.sort((a, b) => b.updatedAt - a.updatedAt).map((task) => {
@@ -561,7 +565,8 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
     } catch {
       return response;
     }
-    return withSharedRuns(env, response, runId, url.searchParams.get("limit"));
+    const scoped = await withSharedRuns(env, response, runId, url.searchParams.get("limit"), orchestratorNameFor(env, { workspaceId: orgAuth.orgId }));
+    return env.SHIBA_SCOPED_DO === "1" ? withSharedRuns(env, scoped, runId, url.searchParams.get("limit")) : scoped;
   }
   return response;
 }

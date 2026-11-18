@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { betterAuthFor, ensureBetterAuthSchema, type BetterAuthEnrollmentAdapter } from "../src/better-auth.js";
+import { betterAuthFor, type BetterAuthEnrollmentAdapter } from "../src/better-auth.js";
+import { applyAuthMigrations } from "./fixtures/auth-migrations.js";
 
 const BASE = "http://localhost:8787";
 const adapter: BetterAuthEnrollmentAdapter = {
@@ -12,6 +13,7 @@ const adapter: BetterAuthEnrollmentAdapter = {
 };
 async function fixture() {
   const sqlite = new DatabaseSync(":memory:");
+  applyAuthMigrations(sqlite);
   const value = (v: unknown): never => (v instanceof Date ? v.getTime() : typeof v === "boolean" ? Number(v) : v ?? null) as never;
   const prepared = (sql: string, params: unknown[] = []) => ({
     bind: (...args: unknown[]) => prepared(sql, args),
@@ -22,7 +24,6 @@ async function fixture() {
   const db = { prepare: (sql: string) => prepared(sql), exec: (sql: string) => sqlite.exec(sql),
     batch: async (statements: ReturnType<typeof prepared>[]) => Promise.all(statements.map((s) => s.all())) } as unknown as D1Database;
   const env = { AGENT_AUDIT: db, BETTER_AUTH_SECRET: "v".repeat(32), BETTER_AUTH_URL: BASE };
-  await ensureBetterAuthSchema({ AGENT_AUDIT: db });
   return { env };
 }
 

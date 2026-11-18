@@ -8,7 +8,7 @@ import {
   verifyInternalRequest,
 } from "../src/edge-identity.js";
 
-const KEYED = { INTERNAL_SIGNING_KEY: "test-signing-secret-0123456789" };
+const KEYED = { INTERNAL_SIGNING_KEY: "test-signing-secret-0123456789abcd" };
 const UNKEYED = {} as { INTERNAL_SIGNING_KEY?: string };
 
 function vouchedRequest(init?: { principal?: string | null; intake?: string | null }): Request {
@@ -35,7 +35,7 @@ describe("edge identity signing", () => {
   it("signs and verifies a vouched request end to end", async () => {
     const req = vouchedRequest({ principal: "agent-1", intake: "dashboard" });
     await signInternalRequest(req, KEYED);
-    expect(req.headers.get(INTERNAL_SIGNATURE_HEADER)).toMatch(/^[0-9a-f]{64}$/);
+    expect(req.headers.get(INTERNAL_SIGNATURE_HEADER)).toMatch(/^v1:[0-9a-f]{16}:[0-9a-f]{64}$/);
     const result = await verifyInternalRequest(req, KEYED);
     expect(result).toEqual({ ok: true, signed: true });
   });
@@ -75,7 +75,7 @@ describe("edge identity signing", () => {
 
   it("rejects a signature from a different key", async () => {
     const req = vouchedRequest({ principal: "agent-1" });
-    await signInternalRequest(req, { INTERNAL_SIGNING_KEY: "other-key" });
+    await signInternalRequest(req, { INTERNAL_SIGNING_KEY: "other-key".repeat(4) });
     const result = await verifyInternalRequest(req, KEYED);
     expect(result).toEqual({ ok: false, reason: "bad_signature" });
   });
@@ -95,4 +95,27 @@ describe("edge identity signing", () => {
     const result = await verifyInternalRequest(req, KEYED);
     expect(result).toEqual({ ok: false, reason: "malformed_signature" });
   });
+  it.each([true, false])("rejects missing signing configuration in strict mode (vouched=%s)", async (vouched) => {
+    const env = { SHIBA_LEGACY_SIGNING_FALLBACK: "0" };
+    const req = vouchedRequest(vouched ? { principal: "agent-1" } : undefined);
+    await expect(signInternalRequest(req, env)).rejects.toThrow("INTERNAL_SIGNING_KEY not set");
+    expect(await verifyInternalRequest(req, env)).toEqual({ ok: false, reason: "INTERNAL_SIGNING_KEY not set" });
+  });
+
+  it("accepts the old raw-key signature only during legacy grace", async () => {
+    const req = vouchedRequest({ principal: "agent-1", intake: "dashboard" });
+    const timestamp = Date.now().toString();
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey("raw", encoder.encode(KEYED.INTERNAL_SIGNING_KEY),
+      { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const payload = ["POST", "/api/runs?session=web:u:1", "agent-1", "dashboard", timestamp].join("\n");
+    const bytes = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(payload)));
+    req.headers.set(INTERNAL_TIMESTAMP_HEADER, timestamp);
+    req.headers.set(INTERNAL_SIGNATURE_HEADER, Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join(""));
+    expect(await verifyInternalRequest(req, { ...KEYED, SHIBA_LEGACY_SIGNING_FALLBACK: "1" }))
+      .toEqual({ ok: true, signed: true });
+    expect(await verifyInternalRequest(req, { ...KEYED, SHIBA_LEGACY_SIGNING_FALLBACK: "0" }))
+      .toEqual({ ok: false, reason: "bad_signature" });
+  });
+
 });

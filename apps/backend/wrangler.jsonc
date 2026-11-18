@@ -2,6 +2,8 @@
   "$schema": "https://developers.cloudflare.com/workers/wrangler/configuration-schema.json",
   "name": "shiba-ai-coworker",
   "main": "src/index.ts",
+  // Optional secret VAULT_KEYRING: {"current":"k2","keys":{"k2":"<hex64>"}}.
+  // VAULT_WRITE_V2=1 opts into keyed ciphertext; default off preserves legacy writes.
   "placement": { "mode": "smart" },
   "compatibility_date": "2026-06-01",
   "compatibility_flags": ["nodejs_compat", "legacy_module_registry"],
@@ -46,6 +48,7 @@
     "INTEGRATIONS_PROVIDER": "openconnector",
   // When "1", integration routes surface openconnector_not_bound instead of opaque 503 text.
     "OPEN_CONNECTOR_ENABLED": "0",
+    "VAULT_WRITE_V2": "0",
     "SHIBA_PERSONAL_LOCAL_EXECUTION": "0",
     "SHIBA_TEAM_MODEL_SESSIONS": "0",
     // Optional features remain unavailable without separately reviewed bindings and setup.
@@ -227,6 +230,7 @@
   // (cf-connecting-ip), evaluated before the token check in handleMcp.
   "ratelimits": [
     { "name": "MCP_RATE_LIMIT", "namespace_id": "1001", "simple": { "limit": 100, "period": 60 } },
+    { "name": "OAUTH_RATE_LIMIT", "namespace_id": "1004", "simple": { "limit": 10, "period": 60 } },
     { "name": "AUTH_RATE_LIMIT", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },
     { "name": "UPLOAD_RATE_LIMIT", "namespace_id": "1003", "simple": { "limit": 20, "period": 60 } },
   ],
@@ -235,11 +239,13 @@
       { "binding": "INGEST_QUEUE", "queue": "shiba-ingest" },
       { "binding": "WEBHOOK_QUEUE", "queue": "shiba-webhooks" },
       { "binding": "EMAIL_QUEUE", "queue": "shiba-email" },
+      { "binding": "JOBS_QUEUE", "queue": "shiba-jobs" },
     ],
     "consumers": [
       { "queue": "shiba-ingest", "dead_letter_queue": "shiba-ingest-dlq", "max_batch_size": 10, "max_retries": 5 },
       { "queue": "shiba-webhooks", "dead_letter_queue": "shiba-webhooks-dlq", "max_batch_size": 10, "max_retries": 5 },
       { "queue": "shiba-email", "dead_letter_queue": "shiba-email-dlq", "max_batch_size": 5, "max_retries": 5 },
+      { "queue": "shiba-jobs", "dead_letter_queue": "shiba-jobs-dlq", "max_batch_size": 10, "max_retries": 3 },
     ],
   },
   "workflows": [
