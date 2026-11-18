@@ -98,8 +98,9 @@ describe("readToolSetup", () => {
       ["web_search", false, "WEB_SEARCH_API_KEY"],
       ["generate_image", false, "AI; FILES or ARTIFACTS"],
       ["browser", false, "BROWSER"],
+      ["knowledge_search", false, "AGENT_AUDIT; AI; MEMORY_VECTORS"],
     ]);
-    const ready = readToolSetup(makeEnv({ WEB_SEARCH_API_KEY: "k", AI: {}, ARTIFACTS: {}, BROWSER: {} }));
+    const ready = readToolSetup(makeEnv({ WEB_SEARCH_API_KEY: "k", AI: {}, ARTIFACTS: {}, BROWSER: {}, AGENT_AUDIT: {}, MEMORY_VECTORS: {} }));
     expect(ready.every((row) => row.ready)).toBe(true);
     expect(JSON.stringify(ready)).not.toContain('"k"');
   });
