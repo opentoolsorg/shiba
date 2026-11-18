@@ -70,6 +70,7 @@ import { ConversationWorkspaceHeading } from "./components/ConversationWorkspace
 import { ConversationRoomPresence, RemoteAgentStream } from "./components/ConversationRoomPresence";
 import { ConversationModeSwitch } from "./components/ConversationModeSwitch";
 import { AgentChatEmptyState } from "./components/AgentChatEmptyState";
+import { ChatSuggestions } from "./components/ChatSuggestions";
 import { AgentChatHeader } from "./components/AgentChatHeader";
 import { AgentComposerShell } from "./components/AgentComposerShell";
 import {
@@ -3698,6 +3699,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         : "shrink-0 px-3 sm:px-5 xl:px-8 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
                     }>
                       {chat.messages.length === 0 ? <AgentChatEmptyState agent={chatAgent} /> : null}
+                      {privateDataEnabled && chatAgentName && !isSubmitting && !clearing && !chat.error &&
+                        chat.status === "ready" && (chat.messages.length === 0 || chat.messages.at(-1)?.role === "assistant") ? (
+                        <ChatSuggestions agentName={chatAgentName} refreshKey={chat.messages.at(-1)?.id ?? "empty"} hidden={!composerVisible || task.trim() !== ""} onPick={setTask} />
+                      ) : null}
                       <AgentComposerShell
                         agentName={employeeName}
                         agents={mentionableAgents}

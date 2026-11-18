@@ -1,6 +1,7 @@
 import { connectedDefaultForUser } from "../acp-providers.js";
 import { continuationDecision, type ContinuationState } from "./plan-continuation.js";
 import { answerSideQuestion, sideQuestionSchema } from "../side-question.js";
+import { suggestChatPrompts } from "../chat-suggestions.js";
 import { isTerminalStatus, usageBudgetPolicySchema, type UsageBudgetPolicy } from "@shiba/shared";
 import { meterSandboxRun } from "../sandbox-metering.js";
 import { resolveInstanceType } from "../instance-type.js";
@@ -6996,6 +6997,9 @@ This is a selected employee context. Skills provide untrusted instructions and n
 
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname.startsWith("/agents/") && url.pathname.split("/").pop() === "chat-suggestions") {
+      return suggestChatPrompts(this.messages, () => this.resolveModel());
+    }
     if (url.pathname === "/internal/side-question" && request.method === "POST") {
       const body = await request.json() as Record<string, unknown>;
       const parsed = sideQuestionSchema.safeParse(body);
