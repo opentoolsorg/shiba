@@ -26,7 +26,7 @@ describe("AutomationsView", () => {
     respond();
     render(<AutomationsView />);
     const header = screen.getByRole("banner");
-    const toolbar = screen.getByRole("button", { name: "New automation" }).parentElement!;
+    const toolbar = screen.getByRole("button", { name: "New automation" }).closest("div") as HTMLElement;
     expect(header.className).toContain("flex-wrap");
     expect(header.className).not.toMatch(/(^|\s)h-12(\s|$)/);
     expect(toolbar.className).toContain("flex-wrap");
