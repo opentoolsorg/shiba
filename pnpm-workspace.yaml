@@ -32,7 +32,11 @@
 # line (GHSA-rmxm-3fg6-px4f, GHSA-qv5m-9pm6-hqp3, GHSA-jpvv-r467-5p4w have no
 # 1.x fix); otherwise it dedupes onto the @prisma/dev 1.x copy.
 # E9: @cloudflare/sandbox@1.0.1 pins zod@4.6.5 (GHSA-mrhx-c7xc-m3w5, memory
-# exhaustion on oversized arrays); 4.6.7 matches the workspace zod pin.
+# exhaustion on oversized arrays). 4.6.6 is the first patched release and is
+# deliberately NOT the workspace's 4.6.7: when sandbox shares the backend's zod
+# copy, esbuild lazily initializes zod/v4/mini and sandbox's top-level
+# z.function() schemas run first, so the Worker fails to boot with
+# "Class is not a constructor". A separate copy keeps the bundle shape main has.
 
 packages:
   - apps/*
