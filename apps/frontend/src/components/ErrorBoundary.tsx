@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react";
+import { reportDashboardRenderError } from "../observability";
 
 interface ErrorBoundaryState {
   error: Error | null;
@@ -16,6 +17,7 @@ export class ErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: { componentStack: string }): void {
     console.error("Dashboard render error:", error, info.componentStack);
+    reportDashboardRenderError();
   }
 
   private retry = (): void => {
