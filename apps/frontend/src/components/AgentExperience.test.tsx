@@ -36,6 +36,22 @@ describe("agent sidebar", () => {
   });
 });
 
+describe("agent sidebar entry point", () => {
+  it("opens the bot's own page and panel when a host supplies the bot entry point", () => {
+    const onOpenAgent = vi.fn();
+    render(<AgentSidebar agents={[agent]} threads={threads} selectedId="bound" onOpenThread={vi.fn()} onNewThread={vi.fn()} onManage={vi.fn()} onOpenAgent={onOpenAgent} />);
+    fireEvent.click(screen.getAllByRole("button", { name: /Research bot/ })[0]!);
+    expect(onOpenAgent).toHaveBeenCalledWith(agent);
+  });
+
+  it("falls back to the bot's newest thread when no bot entry point is supplied", () => {
+    const onOpenThread = vi.fn();
+    render(<AgentSidebar agents={[agent]} threads={threads} selectedId="bound" onOpenThread={onOpenThread} onNewThread={vi.fn()} onManage={vi.fn()} />);
+    fireEvent.click(screen.getAllByRole("button", { name: /Research bot/ })[0]!);
+    expect(onOpenThread).toHaveBeenCalledWith("bound");
+  });
+});
+
 describe("agent conversation", () => {
   it("starts a shared conversation only after a click, without transferring private participants or history", () => {
     const share = vi.fn();
@@ -362,5 +378,179 @@ describe("bot profile tabs", () => {
     expect(panel.getByText("Deployment default")).toBeTruthy();
     expect(panel.getByText(/runs in the deployment's sandbox/)).toBeTruthy();
     expect(panel.queryByText(/needs one selected|available|verified/i)).toBeNull();
+  });
+});
+
+describe("bot panel workflows", () => {
+  const withFiles: CustomAgentWire = {
+    ...agent,
+    config: { ...agent.config, libraryFileIds: ["file_aaaaaaaaaaaa", "file_bbbbbbbbbbbb", "file_cccccccccccc"] },
+  };
+
+  /** Routes the panel's own reads: the tool policy and each linked file. */
+  function stubPanelFetch(files: Record<string, unknown>) {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/employee-tools/")) return Response.json({ ok: true, employeeVersion: 1, toolScopes: [], grants: [] });
+      const match = /^\/api\/files\/([^/]+)$/.exec(url);
+      if (match) {
+        const file = files[match[1]!];
+        return file ? Response.json({ file }) : Response.json({ error: "File not found." }, { status: 404 });
+      }
+      return Response.json({ files: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  const linkedFile = (id: string, name: string, mime = "text/markdown", scope = "workspace") => ({
+    id, workspaceId: "ws_1", scope, folderId: null, name, mime, size: 480, sha256: "a".repeat(64),
+    projectId: null, version: 1, createdBy: "me", createdAt: 1, updatedAt: 2, ingestion: { state: "done" },
+  });
+
+  it("lists a bot's linked documents, previews a supported one and marks an unreadable link", async () => {
+    stubPanelFetch({
+      file_aaaaaaaaaaaa: linkedFile("file_aaaaaaaaaaaa", "brief.md"),
+      file_bbbbbbbbbbbb: linkedFile("file_bbbbbbbbbbbb", "data.parquet", "application/octet-stream"),
+    });
+    render(<AgentDetailsPanel agent={withFiles} onClose={vi.fn()} onEdit={vi.fn()} editing onConfigSave={vi.fn(async () => {})} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    expect(await screen.findByText("brief.md")).toBeTruthy();
+    expect(screen.getByText("data.parquet")).toBeTruthy();
+    // The third link is not readable by this viewer: it says so instead of disappearing.
+    expect(await screen.findByText("Removed, or not available to you.")).toBeTruthy();
+    expect(screen.getByText("Workspace file · 480 B · text/markdown")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview brief.md" }));
+    expect(await screen.findByRole("link", { name: "Download brief.md" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Preview data.parquet" }));
+    expect(screen.getByText("No in-panel preview for .parquet files. Download it to open it.")).toBeTruthy();
+  });
+
+  it("unlinks one document through a versioned config edit without touching the others", async () => {
+    stubPanelFetch({ file_aaaaaaaaaaaa: linkedFile("file_aaaaaaaaaaaa", "brief.md") });
+    const save = vi.fn(async () => {});
+    render(<AgentDetailsPanel agent={withFiles} onClose={vi.fn()} onEdit={vi.fn()} editing onConfigSave={save} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove brief.md" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ libraryFileIds: ["file_bbbbbbbbbbbb", "file_cccccccccccc"] }));
+  });
+
+  it("saves instructions for this bot and reports a refused save", async () => {
+    const save = vi.fn(async () => { throw new Error("This bot changed since it was opened. Reload the latest version before saving."); });
+    render(<AgentDetailsPanel agent={withFiles} onClose={vi.fn()} onEdit={vi.fn()} editing onConfigSave={save} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Instructions/ }));
+    fireEvent.change(screen.getByLabelText(/What this bot should do/), { target: { value: "  Cite every source.  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save instructions" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ instructions: "Cite every source." }));
+    expect((await screen.findByRole("alert")).textContent).toContain("changed since it was opened");
+  });
+
+  it("keeps an unsaved instruction draft when the directory refreshes mid-edit", () => {
+    const save = vi.fn(async () => {});
+    const { rerender } = render(<AgentDetailsPanel agent={withFiles} onClose={vi.fn()} onEdit={vi.fn()} editing onConfigSave={save} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Instructions/ }));
+    fireEvent.change(screen.getByLabelText(/What this bot should do/), { target: { value: "Draft only." } });
+    // The same bot arrives again with a refreshed config object, as a poll would.
+    rerender(<AgentDetailsPanel agent={{ ...withFiles, config: { ...withFiles.config } }} onClose={vi.fn()} onEdit={vi.fn()} editing onConfigSave={save} />);
+    expect((screen.getByLabelText(/What this bot should do/) as HTMLTextAreaElement).value).toBe("Draft only.");
+    fireEvent.click(screen.getByRole("button", { name: "Save instructions" }));
+    return waitFor(() => expect(save).toHaveBeenCalledWith({ instructions: "Draft only." }));
+  });
+
+  it("follows a stored instruction change when there is no local draft", () => {
+    const { rerender } = render(<AgentDetailsPanel agent={withFiles} onClose={vi.fn()} onEdit={vi.fn()} editing onConfigSave={vi.fn(async () => {})} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Instructions/ }));
+    rerender(<AgentDetailsPanel agent={{ ...withFiles, config: { ...withFiles.config, instructions: "Changed elsewhere." } }} onClose={vi.fn()} onEdit={vi.fn()} editing onConfigSave={vi.fn(async () => {})} />);
+    expect((screen.getByLabelText(/What this bot should do/) as HTMLTextAreaElement).value).toBe("Changed elsewhere.");
+  });
+
+  it("disables every edit control when the panel has no save path", () => {
+    render(<AgentDetailsPanel agent={withFiles} onClose={vi.fn()} onEdit={vi.fn()} editing={false} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    expect(screen.queryByRole("button", { name: "Attach a file" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Remove / })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Details" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Instructions/ }));
+    expect((screen.getByLabelText(/What this bot should do/) as HTMLTextAreaElement).readOnly).toBe(true);
+  });
+
+  it("shows this bot's approved runs on the Computer tab and opens one", () => {
+    const onOpenRun = vi.fn();
+    render(<AgentDetailsPanel
+      agent={withFiles}
+      onClose={vi.fn()}
+      onEdit={vi.fn()}
+      onOpenRun={onOpenRun}
+      pendingApprovals={1}
+      runs={[
+        { runId: "run_1", status: "completed", task: "Write the brief", createdAt: 1, updatedAt: 2 },
+        { runId: "run_2", status: "pending", task: "Second task", createdAt: 3, updatedAt: 4 },
+      ]}
+    />);
+    fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
+    const runs = within(screen.getByRole("region", { name: "Approved runs" }));
+    expect(runs.getByText("completed")).toBeTruthy();
+    expect(runs.getByText("Write the brief")).toBeTruthy();
+    fireEvent.click(runs.getAllByRole("button", { name: "Open this run" })[0]!);
+    expect(onOpenRun).toHaveBeenCalledWith("run_1");
+    expect(screen.getByText("1 task waiting for approval.")).toBeTruthy();
+  });
+
+  it("says a persistent bot computer does not exist instead of offering a fake power control", () => {
+    render(<AgentDetailsPanel agent={withFiles} onClose={vi.fn()} onEdit={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
+    expect(screen.getByText(/A persistent bot computer/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /wake|start|power|take over/i })).toBeNull();
+  });
+
+  it("reports real tool state and never offers a toggle the worker would refuse", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/employee-tools/")) {
+        return Response.json({
+          ok: true, employeeVersion: 4,
+          toolScopes: ["mcp:shiba:gmail_read"],
+          grants: [
+            { subjectType: "actor", subjectId: "me", capabilityId: "mcp:shiba:gmail_read", resourceId: "inbox-1", lifecycle: "active" },
+            { subjectType: "actor", subjectId: "me", capabilityId: "mcp:shiba:run_status", resourceId: "run-1", lifecycle: "active" },
+          ],
+        });
+      }
+      return Response.json({ files: [] });
+    }));
+    render(<AgentDetailsPanel agent={withFiles} onClose={vi.fn()} onEdit={vi.fn()} editing onConfigSave={vi.fn(async () => {})} onManageTools={vi.fn()} webSearchReady />);
+    fireEvent.click(screen.getByRole("button", { name: /^Tools/ }));
+    expect(await screen.findByText("On")).toBeTruthy();
+    expect(screen.getAllByText("Off").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Not granted").length).toBeGreaterThan(0);
+    expect(within(screen.getByRole("list", { name: "Bot tools" })).queryByRole("switch")).toBeNull();
+    expect(screen.getByRole("button", { name: /Employee tool policy/ })).toBeTruthy();
+  });
+
+  it("drops the previous bot's library, instructions and runs when the panel moves to another bot", async () => {
+    stubPanelFetch({ file_aaaaaaaaaaaa: linkedFile("file_aaaaaaaaaaaa", "brief.md") });
+    const other: CustomAgentWire = {
+      id: "engineering-1",
+      slug: "engineering-bot",
+      version: 7,
+      config: { name: "Engineering bot", instructions: "Review diffs.", harness: "codex", expectedDeliverables: ["out/fix.md"] },
+    };
+    const { rerender } = render(<AgentDetailsPanel key={agent.id} agent={withFiles} onClose={vi.fn()} onEdit={vi.fn()} editing onConfigSave={vi.fn(async () => {})} runs={[{ runId: "run_1", status: "completed", task: "Research task", createdAt: 1, updatedAt: 2 }]} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    expect(await screen.findByText("brief.md")).toBeTruthy();
+    rerender(<AgentDetailsPanel key={other.id} agent={other} onClose={vi.fn()} onEdit={vi.fn()} editing onConfigSave={vi.fn(async () => {})} runs={[]} />);
+    expect(screen.queryByText("brief.md")).toBeNull();
+    expect(screen.getByText("Engineering bot")).toBeTruthy();
+    expect(screen.queryByText("Research task")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    expect(screen.getByText("out/fix.md")).toBeTruthy();
+    expect(screen.queryByText("brief.md")).toBeNull();
+  });
+
+  it("shows a loading state instead of another bot's details while the directory resolves", () => {
+    render(<AgentDetailsPanel agent={undefined} directoryLoading onClose={vi.fn()} onEdit={vi.fn()} />);
+    expect(screen.getByRole("status").textContent).toBe("Loading this bot…");
+    expect(screen.queryByRole("button", { name: "Edit description" })).toBeNull();
   });
 });

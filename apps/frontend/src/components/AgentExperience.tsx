@@ -1,6 +1,9 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, MessageSquare, PanelLeft, PanelRight, Plus, Users, X } from "lucide-react";
 import type { AgentAvatarChoice, AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
+import { botLibraryFileIds, type BotConfigEdit } from "../bot-library";
+import { defaultAgentToolRows, botToolRows, type BotToolPolicy } from "../bot-tools";
+import type { AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
 import type { CustomAgentWire } from "./CustomAgentsView";
 import type { WebThread } from "../agent-threads";
 import { threadAgentId } from "../agent-threads";
@@ -8,10 +11,13 @@ import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTempl
 import { AgentAvatar as BaseAvatar } from "./AgentAvatar";
 import { ShibaMark } from "./ShibaMark";
 import { ViewHeader, viewButtonClass } from "./ui/ViewChrome";
-import { MAX_BOT_DELIVERABLES } from "../bot-library";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
+import { BotNotice, BotTabList, QUIET_BUTTON, type BotNoticeTone, type BotPanelTab } from "./bot/BotPanel";
+import { BotDetailsTab, type BotModelEdit } from "./bot/BotDetailsTab";
+import { BotLibraryTab, type BotRunOutput } from "./bot/BotLibraryTab";
+import { BotComputerTab, type BotRunRow } from "./bot/BotComputerTab";
 
-const quietButton = "inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2 text-[var(--muted-foreground-2)] hover:bg-[var(--secondary)] hover:text-[var(--fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
+const quietButton = QUIET_BUTTON;
 export const ONBOARDING_DISMISSED_KEY = "shiba.employee-onboarding.dismissed";
 
 export function employeeExamples(agent?: CustomAgentWire): readonly string[] {
@@ -36,9 +42,11 @@ export function AgentAvatar({ name, slug, role, agentId, mascotPreset, look, ava
   return <BaseAvatar id={agentId ?? slug} name={name} mascotPreset={mascotPreset} look={look} avatar={avatar} role={role ?? employeeRole(slug)} size={size} decorative />;
 }
 
-export function AgentSidebar({ agents, threads, selectedId, onOpenThread, onNewThread, onManage }: {
+export function AgentSidebar({ agents, threads, selectedId, onOpenThread, onNewThread, onManage, onOpenAgent }: {
   agents: CustomAgentWire[]; threads: WebThread[]; selectedId?: string | null;
   onOpenThread: (id: string) => void; onNewThread: (agent?: CustomAgentWire) => void; onManage: () => void;
+  /** Opens this bot's page with its panel; falls back to its newest thread. */
+  onOpenAgent?: (agent?: CustomAgentWire) => void;
 }) {
   const [open, setOpen] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ shiba: true });
@@ -52,9 +60,10 @@ export function AgentSidebar({ agents, threads, selectedId, onOpenThread, onNewT
     <div id={`${id}-agents`} hidden={!open}>{rows.map((row) => {
       const isExpanded = expanded[row.id] ?? false;
       const children = threads.filter((thread) => row.agent ? threadAgentId(thread) === row.id : !threadAgentId(thread) || !agents.some((agent) => agent.id === threadAgentId(thread)));
+      const hasSelectedThread = children.some((thread) => thread.id === selectedId);
       return <div key={row.id}>
         <div className="flex items-center">
-          <button type="button" className={`${quietButton} min-w-0 flex-1 justify-start gap-2 text-left text-[13px]`} onClick={() => { const latest = [...children].sort((a, b) => b.updatedAt - a.updatedAt)[0]; if (latest) onOpenThread(latest.id); else onNewThread(row.agent); }}><AgentAvatar agentId={row.agent?.id} name={row.name} mascotPreset={row.agent?.config.mascotPreset} avatar={row.agent?.config.avatar} look={row.agent?.config.look} slug={row.agent?.slug} role={employeeRole(row.agent?.slug, row.agent?.config.roleTemplateId)} size={28} /><span className="truncate">{row.name}</span></button>
+          <button type="button" aria-current={hasSelectedThread ? "true" : undefined} className={`${quietButton} min-w-0 flex-1 justify-start gap-2 text-left text-[13px]`} onClick={() => { if (onOpenAgent) { onOpenAgent(row.agent); return; } const latest = [...children].sort((a, b) => b.updatedAt - a.updatedAt)[0]; if (latest) onOpenThread(latest.id); else onNewThread(row.agent); }}><AgentAvatar agentId={row.agent?.id} name={row.name} mascotPreset={row.agent?.config.mascotPreset} avatar={row.agent?.config.avatar} look={row.agent?.config.look} slug={row.agent?.slug} role={employeeRole(row.agent?.slug, row.agent?.config.roleTemplateId)} size={28} /><span className="truncate">{row.name}</span></button>
           <button type="button" className={quietButton} aria-label={`New thread with ${row.name}`} onClick={() => onNewThread(row.agent)}><Plus aria-hidden="true" className="size-4" /></button>
           <button type="button" className={quietButton} aria-label={`${isExpanded ? "Collapse" : "Expand"} ${row.name} threads`} aria-expanded={isExpanded} aria-controls={`${id}-${row.id}`} onClick={() => setExpanded((current) => ({ ...current, [row.id]: !isExpanded }))}>{isExpanded ? <ChevronDown aria-hidden="true" className="size-3.5" /> : <ChevronRight aria-hidden="true" className="size-3.5" />}</button>
         </div>
@@ -128,6 +137,8 @@ export function AgentConversationEmpty({ name, slug, role, agentId, mascotPreset
 }
 
 /** Every computer paired with the workspace, with the reason it can or cannot run now. */
+
+/** Every computer paired with the workspace, with the reason it can or cannot run now. */
 export interface BotPairedComputer {
   machineId: string;
   hostname?: string;
@@ -146,92 +157,161 @@ export interface BotRuntimeInfo {
   error: string | null;
 }
 
-const PAIRED_STATE_LABEL: Record<BotPairedComputer["state"], string> = {
-  ready: "Ready",
-  busy: "In use",
-  offline: "Offline",
-  incompatible: "Can't run this harness",
-};
+export interface AgentDetailsPanelProps {
+  agent?: CustomAgentWire;
+  /** True while the directory is still resolving the selected bot: the panel must not fall back to another bot's data. */
+  directoryLoading?: boolean;
+  onClose: () => void;
+  onEdit: () => void;
+  ownerName?: string;
+  workspaceName?: string;
+  runtime?: BotRuntimeInfo;
+  initialTab?: BotPanelTab;
+  /** False for a shared room or a profile this viewer may not change. */
+  editing?: boolean;
+  modelEdit?: BotModelEdit | null;
+  /** Persists a versioned config edit; rejects with a message the panel shows. */
+  onConfigSave?: (edit: BotConfigEdit) => Promise<void>;
+  /** Saves the bot's required output paths. */
+  onLibrarySave?: (deliverables: string[]) => Promise<void>;
+  /** Runs this bot started, newest first. */
+  runs?: readonly BotRunRow[];
+  /** Queued tasks for this bot waiting on a person. */
+  pendingApprovals?: number;
+  /** Captured files from those runs. */
+  runOutputs?: readonly BotRunOutput[];
+  onOpenRun?: (runId: string) => void;
+  onOpenApprovals?: () => void;
+  onManageTools?: () => void;
+  webSearchReady?: boolean | null;
+}
 
+interface ToolPolicyState {
+  policy: BotToolPolicy | null;
+  loading: boolean;
+  error: string | null;
+}
+
+function useBotToolPolicy(agentId: string | undefined): ToolPolicyState {
+  const [state, setState] = useState<ToolPolicyState>({ policy: null, loading: Boolean(agentId), error: null });
+  useEffect(() => {
+    if (!agentId) { setState({ policy: null, loading: false, error: null }); return; }
+    let active = true;
+    setState({ policy: null, loading: true, error: null });
+    void fetch(`/api/employee-tools/${encodeURIComponent(agentId)}/policy`, { credentials: "same-origin", cache: "no-store" })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => ({}))) as Partial<BotToolPolicy> & { error?: string };
+        if (!active) return;
+        if (!response.ok || !Array.isArray(body.toolScopes) || !Array.isArray(body.grants)) {
+          setState({ policy: null, loading: false, error: body.error ?? `Tool grants are unavailable (${response.status}).` });
+          return;
+        }
+        setState({ policy: { employeeVersion: Number(body.employeeVersion ?? 0), toolScopes: body.toolScopes, grants: body.grants }, loading: false, error: null });
+      })
+      .catch((error: unknown) => {
+        if (active) setState({ policy: null, loading: false, error: error instanceof Error ? error.message : "Tool grants are unavailable." });
+      });
+    return () => { active = false; };
+  }, [agentId]);
+  return state;
+}
+
+/**
+ * The bot panel: one hero, three pill tabs. Every field it can change is a
+ * versioned config edit for the bot it is showing, and every list it shows comes
+ * from a request scoped to that bot — so switching bots can never leave the
+ * previous bot's files, runs or controls on screen.
+ */
 export function AgentDetailsPanel({
   agent,
+  directoryLoading = false,
   onClose,
   onEdit,
   ownerName,
   runtime,
-  onLibrarySave,
   workspaceName,
   initialTab = "details",
-}: {
-  agent?: CustomAgentWire;
-  onClose: () => void;
-  onEdit: () => void;
-  ownerName?: string;
-  runtime?: BotRuntimeInfo;
-  /** Persists the bot's deliverables; resolves once the new version is stored. */
-  onLibrarySave?: (deliverables: string[]) => Promise<void>;
-  workspaceName?: string;
-  initialTab?: "details" | "library" | "computer";
-}) {
+  editing = true,
+  modelEdit = null,
+  onConfigSave,
+  onLibrarySave,
+  runs = [],
+  pendingApprovals = 0,
+  runOutputs = [],
+  onOpenRun,
+  onOpenApprovals,
+  onManageTools,
+  webSearchReady = null,
+}: AgentDetailsPanelProps) {
   const panelRef = useRef<HTMLElement>(null);
-  const [activeTab, setActiveTab] = useState<"details" | "library" | "computer">(initialTab);
-  const [deliverables, setDeliverables] = useState<string[]>([]);
-  const [draftDeliverable, setDraftDeliverable] = useState("");
-  const [libraryBusy, setLibraryBusy] = useState(false);
-  const [libraryNotice, setLibraryNotice] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
-  const savedDeliverables = (agent?.config.expectedDeliverables ?? []).join("\n");
+  const [activeTab, setActiveTab] = useState<BotPanelTab>(initialTab);
+  const [instructions, setInstructions] = useState(agent?.config.instructions ?? "");
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveNotice, setSaveNotice] = useState<{ tone: BotNoticeTone; text: string } | null>(null);
+  const [libraryNotice, setLibraryNotice] = useState<{ tone: BotNoticeTone; text: string } | null>(null);
+  const [deliverables, setDeliverables] = useState<string[]>(() => [...(agent?.config.expectedDeliverables ?? [])]);
+  const [openInstructionsSignal, setOpenInstructionsSignal] = useState(0);
+  const savedInstructions = agent?.config.instructions ?? "";
+  const linkedFileIds = useMemo(() => botLibraryFileIds(agent?.config), [agent?.config]);
+  const toolPolicy = useBotToolPolicy(agent?.id);
+
+  // A different bot is a different editor; nothing carries across the switch.
+  const syncedBotId = useRef(agent?.id);
+  const syncedInstructions = useRef(savedInstructions);
   useEffect(() => {
-    setDeliverables(agent?.config.expectedDeliverables ? [...agent.config.expectedDeliverables] : []);
-    setDraftDeliverable("");
-    setLibraryNotice(null);
-  }, [agent?.id, savedDeliverables]);
+    const switchedBot = syncedBotId.current !== agent?.id;
+    syncedBotId.current = agent?.id;
+    if (switchedBot) {
+      setSaveNotice(null);
+      setLibraryNotice(null);
+      setOpenInstructionsSignal(0);
+    }
+    // A directory refresh must never discard what this person is typing, and it
+    // must not overwrite a draft this panel has not saved yet. Only an unchanged
+    // draft follows the stored value.
+    if (switchedBot || instructions.trim() === syncedInstructions.current.trim()) {
+      setInstructions(savedInstructions);
+    }
+    syncedInstructions.current = savedInstructions;
+  }, [agent?.id, savedInstructions, instructions]);
+  useEffect(() => {
+    setDeliverables([...(agent?.config.expectedDeliverables ?? [])]);
+  }, [agent?.config.expectedDeliverables]);
   useEffect(() => {
     if (window.innerWidth < 1280) panelRef.current?.scrollIntoView?.({ block: "nearest", behavior: "instant" });
   }, []);
+
+  const canEdit = Boolean(agent && editing && onConfigSave);
   const name = agent?.config.name ?? "Shiba";
   const role = employeeRole(agent?.slug, agent?.config.roleTemplateId);
-  const paired = runtime?.paired ?? [];
-  const cloudSandbox = runtime?.sandboxProvider ?? agent?.config.sandboxProvider;
   const template = EMPLOYEE_TEMPLATES.find((item) => item.id === role);
-  const persistLibrary = async (next: string[], ok: string) => {
-    if (!agent || !onLibrarySave) return;
-    const previous = deliverables;
-    setDeliverables(next);
-    setLibraryBusy(true);
-    setLibraryNotice(null);
+  const toolRows = useMemo(() => {
+    if (!agent) return defaultAgentToolRows({ webSearchReady });
+    const rows = botToolRows({ policy: toolPolicy.policy, policyError: toolPolicy.error, webSearchReady });
+    return rows;
+  }, [agent, toolPolicy.policy, toolPolicy.error, webSearchReady]);
+
+  const saveEdit = async (edit: BotConfigEdit, ok: string) => {
+    if (!onConfigSave) return;
+    setSaveBusy(true);
+    setSaveNotice(null);
     try {
-      await onLibrarySave(next);
-      setLibraryNotice({ tone: "ok", text: ok });
-      setDraftDeliverable("");
+      await onConfigSave(edit);
+      setSaveNotice({ tone: "ok", text: ok });
     } catch (error) {
-      setDeliverables(previous);
-      setLibraryNotice({ tone: "err", text: error instanceof Error ? error.message : "Could not save the library." });
+      setSaveNotice({ tone: "err", text: error instanceof Error ? error.message : "Could not save this bot." });
     } finally {
-      setLibraryBusy(false);
+      setSaveBusy(false);
     }
   };
-  const addDeliverable = () => {
-    const path = draftDeliverable.trim();
-    if (!path) return;
-    if (deliverables.includes(path)) {
-      setLibraryNotice({ tone: "err", text: "That path is already in this bot's library." });
-      return;
-    }
-    if (deliverables.length >= MAX_BOT_DELIVERABLES) {
-      setLibraryNotice({ tone: "err", text: `A bot can hold at most ${MAX_BOT_DELIVERABLES} deliverable paths.` });
-      return;
-    }
-    void persistLibrary([...deliverables, path], `${path} is now required by this bot's approvals.`);
-  };
-  const removeDeliverable = (path: string) => {
-    void persistLibrary(deliverables.filter((item) => item !== path), `${path} is no longer required.`);
-  };
-  const rows = [
-    { label: "Model", preview: agent?.config.codingModel || "Workspace default", value: agent?.config.codingModel || "Uses the workspace model default." },
-    { label: "Instructions", preview: agent?.config.instructions ? agent.config.instructions.slice(0, 70) : "Workspace instructions", value: agent?.config.instructions || "Use the workspace instructions." },
-    { label: "Tools", preview: agent?.config.toolScopes?.length ? `${agent.config.toolScopes.length} scopes` : "Harness defaults", value: agent?.config.toolScopes?.length ? agent.config.toolScopes.join(", ") : "Tools are provided by the selected harness and workspace. No fixed tool count is available." },
-    { label: "Advanced", preview: "Human approval", value: `Harness: ${agent?.config.harness ?? "Workspace default"}\nSandbox: ${agent?.config.sandboxProvider ?? "Workspace default"}\nApproval policy: Explicit human approval` },
+
+  const advanced = [
+    { label: "Harness", value: agent?.config.harness ?? "Workspace default" },
+    { label: "Sandbox", value: agent?.config.sandboxProvider ?? "Workspace default" },
+    { label: "Approval policy", value: "Explicit human approval" },
+    { label: "Version", value: agent ? `v${agent.version}` : "Shiba" },
   ];
+
   return (
     <aside
       ref={panelRef}
@@ -239,203 +319,101 @@ export function AgentDetailsPanel({
       aria-label="Agent details"
       className="flex w-full min-w-0 shrink-0 flex-col border-t border-[var(--border-1)] bg-[var(--chrome)] p-5 text-[var(--fg)] xl:w-[370px] xl:overflow-y-auto xl:border-l xl:border-t-0"
     >
-      <button type="button" className={`${quietButton} self-end`} aria-label="Close agent details" onClick={onClose}>
+      <button type="button" className={`${QUIET_BUTTON} self-end`} aria-label="Close agent details" onClick={onClose}>
         <X aria-hidden="true" className="size-4" />
       </button>
-      <div className="flex flex-col items-center gap-3 py-5 text-center">
-        <AgentAvatar agentId={agent?.id} name={name} mascotPreset={agent?.config.mascotPreset} look={agent?.config.look} avatar={agent?.config.avatar} slug={agent?.slug} role={role} large />
-        <h2 className="text-lg font-medium tracking-tight">{name}</h2>
-        <p className="text-xs font-medium text-[var(--muted-foreground-2)]">
-          {workspaceName ? `${workspaceName} · ` : ""}
-          {ownerName ? `${ownerName} · ` : ""}
-          {agent ? employeeRoleLabel(role) : "Shiba"} · Runs on {agent?.config.harness ?? "workspace default"}
-        </p>
-        <p className="line-clamp-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--muted-foreground-2)]">
-          {agent?.config.instructions || template?.description || "Add a description"}
-        </p>
-      </div>
 
-      <div role="tablist" aria-label="Agent details tabs" className="flex w-full border-b border-[var(--border-1)]">
-        {(["details", "library", "computer"] as const).map((tab) => {
-          const label = tab === "details" ? "Details" : tab === "library" ? "Library" : "Computer";
-          const isSelected = activeTab === tab;
-          return (
-            <button
-              key={tab}
-              type="button"
-              role="tab"
-              id={`agent-tab-${tab}`}
-              aria-selected={isSelected}
-              aria-controls={`agent-panel-${tab}`}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 pb-2 text-[13px] font-medium transition-colors border-b-2 -mb-px ${
-                isSelected
-                  ? "border-[var(--primary)] text-[var(--fg)] font-semibold"
-                  : "border-transparent text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
-              }`}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {activeTab === "details" ? (
-          <div role="tabpanel" id="agent-panel-details" aria-labelledby="agent-tab-details" className="pt-4 flex flex-col gap-4">
-            <section aria-label="Agent information">
-              <div className="mb-2 flex items-baseline justify-between gap-2">
-                <h3 className="text-xs font-medium text-[var(--muted-foreground-2)]">Configuration</h3>
-                {agent ? <p className="font-mono text-[10px] text-[var(--muted-foreground-2)]">v{agent.version}</p> : null}
-              </div>
-              <div className="divide-y divide-[var(--border-1)] text-sm">
-                {rows.map((row) => (
-                  <details key={row.label} className="group">
-                    <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-lg py-3 focus-visible:outline-2 focus-visible:outline-[var(--ring)] [&::-webkit-details-marker]:hidden">
-                      <span>{row.label}</span>
-                      <span className="ml-auto max-w-40 truncate text-xs text-[var(--muted-foreground-2)]">{row.preview}</span>
-                      <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)] group-open:rotate-90" />
-                    </summary>
-                    <p className="whitespace-pre-wrap break-words pb-4 text-xs leading-relaxed text-[var(--muted-foreground-2)]">{row.value}</p>
-                  </details>
-                ))}
-              </div>
-            </section>
-          </div>
-        ) : null}
-
-        {activeTab === "library" ? (
-          <div role="tabpanel" id="agent-panel-library" aria-labelledby="agent-tab-library" className="pt-4 flex flex-col gap-2">
-            <h3 className="text-xs font-medium text-[var(--muted-foreground-2)]">Library</h3>
-            <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
-              Required outputs. Each one is frozen into an approval when work is queued, so a change here reaches the next approval, never one already waiting.
+      <div className="flex flex-col items-center gap-3 pb-5 pt-1 text-center">
+        <AgentAvatar agentId={agent?.id} name={name} mascotPreset={agent?.config.mascotPreset} avatar={agent?.config.avatar} look={agent?.config.look} slug={agent?.slug} role={role} large />
+        <div className="flex flex-col items-center gap-1">
+          <h2 className="text-lg font-medium tracking-tight">{name}</h2>
+          <p className="text-xs font-medium text-[var(--muted-foreground-2)]">
+            {workspaceName ? `${workspaceName} · ` : ""}
+            {ownerName ? `${ownerName} · ` : ""}
+            {agent ? employeeRoleLabel(role) : "Shiba"} · Runs on {agent?.config.harness ?? "workspace default"}
+          </p>
+          {agent ? null : <p className="font-mono text-[10px] uppercase tracking-wide text-[var(--muted-foreground-2)]">Pinned</p>}
+        </div>
+        {directoryLoading ? (
+          <p role="status" className="text-[11px] text-[var(--muted-foreground-2)]">Loading this bot…</p>
+        ) : (
+          <div className="w-full">
+            <p className="line-clamp-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--muted-foreground-2)]">
+              {agent ? (instructions || template?.description || "Add a description") : (template?.description || DEFAULT_AGENT_DESCRIPTION)}
             </p>
-            {deliverables.length > 0 ? (
-              <ul className="flex flex-col gap-1.5" aria-label="Agent deliverables">
-                {deliverables.map((item) => (
-                  <li key={item} className="flex items-center gap-2 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-mono text-[var(--fg)]">
-                    <span className="min-w-0 flex-1 truncate">{item}</span>
-                    {onLibrarySave ? (
-                      <button
-                        type="button"
-                        aria-label={`Remove ${item}`}
-                        title={`Remove ${item}`}
-                        disabled={libraryBusy}
-                        onClick={() => removeDeliverable(item)}
-                        className={`${quietButton} min-h-7 min-w-7 disabled:opacity-50`}
-                      >
-                        <X aria-hidden="true" className="size-3.5" />
-                      </button>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="py-4 text-center text-xs text-[var(--muted-foreground-2)]">
-                {agent ? "No required outputs yet." : "Choose a bot to give it a library."}
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={() => { setActiveTab("details"); setOpenInstructionsSignal((value) => value + 1); }}
+                className="mt-1 inline-flex min-h-9 items-center gap-1 rounded-md px-2 text-[11px] text-[var(--primary)] underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+              >
+                Edit description
+              </button>
+            ) : null}
+            {agent ? null : (
+              <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+                Shiba is the workspace's default agent. It follows the workspace instructions and model defaults, and its
+                threads stay in this workspace.
               </p>
             )}
-            {onLibrarySave && agent ? (
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] text-[var(--muted-foreground-2)]" htmlFor="bot-library-add">Add a required output</label>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    id="bot-library-add"
-                    value={draftDeliverable}
-                    disabled={libraryBusy}
-                    onChange={(event) => setDraftDeliverable(event.target.value)}
-                    onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addDeliverable(); } }}
-                    placeholder="report.md"
-                    className="min-h-9 min-w-0 flex-1 border border-[var(--border-1)] bg-[var(--card)] px-2 font-mono text-xs text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
-                  />
-                  <button type="button" disabled={libraryBusy || !draftDeliverable.trim()} onClick={addDeliverable} className={`${viewButtonClass} min-h-9 disabled:opacity-50`}>
-                    Add
-                  </button>
-                </div>
-                <p className="text-[11px] text-[var(--muted-foreground-2)]">{deliverables.length}/{MAX_BOT_DELIVERABLES} outputs</p>
-              </div>
-            ) : null}
-            {libraryNotice ? (
-              <p role={libraryNotice.tone === "err" ? "alert" : "status"} className={`text-[11px] ${libraryNotice.tone === "err" ? "text-[var(--destructive)]" : "text-[var(--muted-foreground-2)]"}`}>
-                {libraryBusy ? "Saving…" : libraryNotice.text}
-              </p>
-            ) : null}
           </div>
-        ) : null}
-
-        {activeTab === "computer" ? (
-          <div role="tabpanel" id="agent-panel-computer" aria-labelledby="agent-tab-computer" className="pt-4 flex flex-col gap-2">
-            <h3 className="text-xs font-medium text-[var(--muted-foreground-2)]">Computer</h3>
-            <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
-              Where this bot's work runs. Nothing starts until a person approves the frozen task.
-            </p>
-            <dl className="divide-y divide-[var(--border-1)] rounded-md border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs text-[var(--fg)]">
-              <div className="flex items-center justify-between gap-3 py-2">
-                <dt className="text-[var(--muted-foreground-2)]">Harness</dt>
-                <dd className="min-w-0 truncate font-mono">{runtime?.harness || agent?.config.harness || "Workspace default"}</dd>
-              </div>
-              <div className="flex items-center justify-between gap-3 py-2">
-                <dt className="text-[var(--muted-foreground-2)]">Cloud sandbox</dt>
-                <dd className="min-w-0 truncate text-right font-mono">{cloudSandbox ?? "Deployment default"}</dd>
-              </div>
-              <div className="flex items-center justify-between gap-3 py-2">
-                <dt className="text-[var(--muted-foreground-2)]">Paired computers</dt>
-                <dd className="min-w-0 truncate text-right">
-                  {runtime?.loading
-                    ? "Checking…"
-                    : runtime?.error
-                      ? "Unknown"
-                      : paired.length > 0
-                      ? `${paired.filter((computer) => computer.state === "ready").length} of ${paired.length} ready`
-                      : "None paired"}
-                </dd>
-              </div>
-              {agent?.config.connectionId ? (
-                <div className="flex items-center justify-between gap-3 py-2">
-                  <dt className="text-[var(--muted-foreground-2)]">Connection</dt>
-                  <dd className="min-w-0 truncate font-mono">{agent.config.connectionId}</dd>
-                </div>
-              ) : null}
-            </dl>
-            {paired.length > 0 ? (
-              <ul aria-label="Paired computer states" className="flex flex-col gap-1.5 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-[11px]">
-                {paired.map((computer) => (
-                  <li key={computer.machineId} className="flex items-center justify-between gap-3">
-                    <span className="min-w-0 truncate text-[var(--fg)]">{computer.hostname || computer.machineId}</span>
-                    <span className={computer.state === "ready" ? "shrink-0 text-[var(--fg)]" : "shrink-0 text-[var(--muted-foreground-2)]"}>
-                      {PAIRED_STATE_LABEL[computer.state]}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {runtime?.error ? (
-              <p role="alert" className="text-[11px] text-[var(--destructive)]">
-                Paired computers could not be checked: {runtime.error}
-              </p>
-            ) : null}
-            {runtime && !runtime.loading && !runtime.error && paired.length > 0 && !runtime.localAvailable ? (
-              <p className="text-[11px] text-[var(--muted-foreground-2)]">
-                {paired.every((computer) => computer.state === "incompatible")
-                  ? `Local execution cannot run ${runtime.harness || "this harness"} on a paired computer. Change the harness, or start the bot in the cloud sandbox.`
-                  : `No paired computer can start this bot right now. Free one up in Settings → Computers, or start it in the cloud sandbox.`}
-              </p>
-            ) : null}
-            {runtime && !runtime.loading && !runtime.error && paired.length === 0 ? (
-              <p className="text-[11px] text-[var(--muted-foreground-2)]">
-                No computer is paired with this workspace. Pair one in Settings → Computers, or start the bot in the cloud sandbox.
-              </p>
-            ) : null}
-            <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
-              {cloudSandbox
-                ? "A cloud run starts in this sandbox only after you approve the task."
-                : "Without an override this bot runs in the deployment's sandbox: the workspace's provider, or the deployment's own fallback. Nothing starts until you approve the task."}
-            </p>
-          </div>
-        ) : null}
+        )}
       </div>
 
-      <button type="button" className={`${viewButtonClass} mt-4 w-full`} onClick={onEdit}>Manage agents</button>
+      <BotTabList active={activeTab} onChange={setActiveTab} />
+
+      <div className="flex-1 overflow-y-auto pt-2">
+        {activeTab === "details" ? (
+          <BotDetailsTab
+            editing={canEdit}
+            modelEdit={modelEdit}
+            instructions={instructions}
+            instructionsSaved={savedInstructions}
+            onInstructionsChange={setInstructions}
+            onInstructionsSave={() => void saveEdit({ instructions: instructions.trim() }, "Instructions saved for this bot.")}
+            notice={saveNotice}
+            saveBusy={saveBusy}
+            toolsRows={toolRows}
+            toolsLoading={agent ? toolPolicy.loading : false}
+            toolsError={agent ? toolPolicy.error : null}
+            onManageTools={onManageTools}
+            advanced={advanced}
+            openInstructionsSignal={openInstructionsSignal}
+          />
+        ) : activeTab === "library" ? (
+          <BotLibraryTab
+            canEdit={canEdit}
+            linkedFileIds={linkedFileIds}
+            onLinkFiles={onConfigSave ? async (ids) => { await onConfigSave({ libraryFileIds: [...ids] }); } : undefined}
+            deliverables={deliverables}
+            onDeliverablesSave={agent && onLibrarySave ? async (paths) => {
+              await onLibrarySave([...paths]);
+              setDeliverables([...paths]);
+            } : undefined}
+            runs={runOutputs}
+            onOpenRun={onOpenRun}
+            onLibraryNotice={setLibraryNotice}
+          />
+        ) : (
+          <BotComputerTab
+            runtime={runtime}
+            configuredHarness={agent?.config.harness}
+            configuredSandbox={agent?.config.sandboxProvider}
+            connectionId={agent?.config.connectionId}
+            runs={runs}
+            pendingApprovals={pendingApprovals}
+            onOpenRun={onOpenRun}
+            onOpenApprovals={onOpenApprovals}
+          />
+        )}
+        {activeTab !== "details" ? <div className="pt-2"><BotNotice notice={libraryNotice ?? saveNotice} /></div> : null}
+      </div>
+
+      {agent ? (
+        <button type="button" className={`${viewButtonClass} mt-4 w-full`} onClick={onEdit}>Manage agents</button>
+      ) : null}
     </aside>
   );
 }
+
+const DEFAULT_AGENT_DESCRIPTION = "The workspace's default agent. Plan work, queue an approval, and review the result.";

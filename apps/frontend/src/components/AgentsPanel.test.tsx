@@ -146,6 +146,46 @@ describe("AgentsPanel", () => {
     expect(onNewThread).toHaveBeenCalledWith("agent-1");
   });
 
+  it("opens each bot's own page and panel when a host supplies the bot entry point", () => {
+    const onOpenAgent = vi.fn();
+    const onSelectAgent = vi.fn();
+    render(
+      <AgentsPanel
+        scope="personal"
+        onScopeChange={vi.fn()}
+        active=""
+        onSelect={vi.fn()}
+        onSelectAgent={onSelectAgent}
+        onOpenAgent={onOpenAgent}
+        onNewThread={vi.fn()}
+        agents={mockAgents}
+        threads={mockThreads}
+      />,
+    );
+    fireEvent.click(screen.getByText("Research Partner"));
+    fireEvent.click(screen.getByText("Engineering Lead"));
+    expect(onOpenAgent.mock.calls).toEqual([["agent-1"], ["agent-2"]]);
+    // The roster hand-off must not also fire, or one click would do two things.
+    expect(onSelectAgent).not.toHaveBeenCalled();
+  });
+
+  it("keeps the workspace hand-off when no bot entry point is supplied", () => {
+    const onSelectAgent = vi.fn();
+    render(
+      <AgentsPanel
+        scope="personal"
+        onScopeChange={vi.fn()}
+        active=""
+        onSelect={vi.fn()}
+        onSelectAgent={onSelectAgent}
+        agents={mockAgents}
+        threads={mockThreads}
+      />,
+    );
+    fireEvent.click(screen.getByText("Research Partner"));
+    expect(onSelectAgent).toHaveBeenCalledWith("agent-1");
+  });
+
   it("expands agent threads and selects a thread", () => {
     const onSelectThread = vi.fn();
     const onSelect = vi.fn();

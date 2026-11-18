@@ -9,6 +9,8 @@ import {
   CUSTOM_AGENT_MASCOT_PRESETS,
   CUSTOM_AGENT_SANDBOX_PROVIDERS,
   CUSTOM_AGENT_ROLE_TEMPLATE_IDS,
+  MAX_BOT_LIBRARY_FILES,
+  BOT_LIBRARY_FILE_ID,
   expectedDeliverablesSchema,
   type CustomAgentConfig,
 } from "@shiba/shared";
@@ -40,6 +42,11 @@ export const CustomAgentConfigSchema = Schema.Struct({
   instructions: Bounded(32_000),
   expectedDeliverables: Schema.optional(Schema.Array(Bounded(240)).check(
     Schema.makeFilter((paths) => expectedDeliverablesSchema.safeParse(paths).success || "Invalid expected deliverable paths."),
+  )),
+  libraryFileIds: Schema.optional(Schema.Array(Bounded(64)).check(
+    Schema.isMaxLength(MAX_BOT_LIBRARY_FILES),
+    Schema.makeFilter((ids: ReadonlyArray<string>) => new Set(ids).size === ids.length || "Library file ids must be unique."),
+    Schema.makeFilter((ids: ReadonlyArray<string>) => ids.every((id) => BOT_LIBRARY_FILE_ID.test(id)) || "Library links must be knowledge file ids."),
   )),
   harness: Bounded(64),
   codingModel: Schema.optional(Bounded(200)),

@@ -40,7 +40,7 @@ import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { AgentDetailsPanel, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
-import { saveBotDeliverables } from "./bot-library";
+import { saveBotConfig, saveBotDeliverables, type BotConfigEdit } from "./bot-library";
 import { useProjectContexts } from "./project-contexts";
 import { buildExecutionTargetFields, hasComposerInput, parseArtifactDeliverables, type DashboardExecutionTargetFields } from "./execution-target-input";
 import { appToolsWorkIssue, sendAppToolsWork } from "./app-tools-work";
@@ -2878,6 +2878,20 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setNotice(error instanceof Error ? error.message : "Could not start a thread. Try again from the sidebar.");
     }
   };
+  // One bot, one page: select it, open its panel, and land on its newest thread
+  // when it has one. A click never creates a thread, and a shared room keeps its
+  // own surface instead of borrowing this private panel.
+  const openBotPanel = useCallback((agentId?: string) => {
+    if (teamWorkspaceId) { openView("custom-agents"); return; }
+    const profile = agentId ? customAgentRecordsRef.current.find((item) => item.id === agentId) : undefined;
+    setCustomAgentId(profile?.id ?? "");
+    setAgentDetailsOpen(true);
+    setMainView("threads");
+    const latest = visibleWebSessions
+      .filter((session) => (profile ? threadAgentId(session) === profile.id : !threadAgentId(session)))
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    if (latest) void handleSelectSession(latest.id);
+  }, [handleSelectSession, openView, teamWorkspaceId, visibleWebSessions]);
   const setupEmployee = async (template: EmployeeTemplate) => {
     const setupScope = activeSurfaceScopeRef.current;
     const profile = await createEmployeeAgent(template, teamWorkspaceId || undefined);
@@ -2904,7 +2918,39 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     if (!employee) throw new Error("This bot is no longer in this workspace. Reload to see the current directory.");
     applyCustomAgentRecord(await saveBotDeliverables(employee, deliverables, teamWorkspaceId || undefined));
   }, [applyCustomAgentRecord, teamWorkspaceId]);
+  // One bot-panel edit path: the record is read at call time so a second save
+  // sends the version the first one returned, and a panel that has moved on to
+  // another bot cannot write through stale props.
+  const saveBotConfigEdit = useCallback(async (employeeId: string, edit: BotConfigEdit) => {
+    const employee = customAgentRecordsRef.current.find((profile) => profile.id === employeeId);
+    if (!employee) throw new Error("This bot is no longer in this workspace. Reload to see the current directory.");
+    applyCustomAgentRecord(await saveBotConfig(employee, edit, teamWorkspaceId || undefined));
+  }, [applyCustomAgentRecord, teamWorkspaceId]);
   const activeEmployee = customAgentRecords.find((profile) => profile.id === customAgentId);
+  // Runs this bot started and the files they captured. Shiba's list is the runs
+  // queued without a profile; no bot ever sees another bot's runs.
+  const botRuns = useMemo(() => {
+    const mine = retainedRuns.filter((run) => (customAgentId ? run.customAgentId === customAgentId : !run.customAgentId));
+    return [...mine].sort((a, b) => b.createdAt - a.createdAt);
+  }, [retainedRuns, customAgentId]);
+  const botRunRows = useMemo(() => botRuns.slice(0, 8).map((run) => ({
+    runId: run.runId, status: run.status, task: run.task, createdAt: run.createdAt, updatedAt: run.updatedAt,
+  })), [botRuns]);
+  const botRunOutputs = useMemo(() => botRuns.flatMap((run) => (run.deliverables ?? []).map((file, index) => ({
+    runId: run.runId, runStatus: run.status, runCreatedAt: run.createdAt, path: file.path, index,
+    ...(file.bytes !== undefined ? { bytes: file.bytes } : {}),
+    ...(file.mediaType !== undefined ? { mediaType: file.mediaType } : {}),
+  }))), [botRuns]);
+  const botPendingApprovals = useMemo(
+    () => visibleStoredApprovals.filter((approval) => (customAgentId ? approval.customAgentId === customAgentId : !approval.customAgentId)).length,
+    [visibleStoredApprovals, customAgentId],
+  );
+  const botModelEdit = useMemo(() => (activeEmployee ? {
+    value: activeEmployee.config.codingModel ?? "",
+    options: codingModelSuggestions.map((model) => ({ id: model, label: model })),
+    busy: false,
+    onChange: (value: string) => { void saveBotConfigEdit(activeEmployee.id, { codingModel: value || null }).catch((error: unknown) => setNotice(error instanceof Error ? error.message : "Could not save the model.")); },
+  } : null), [activeEmployee, codingModelSuggestions, saveBotConfigEdit]);
   const employeeName = activeEmployee?.config.name ?? "Shiba";
   const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, look: activeEmployee?.config.look, avatar: activeEmployee?.config.avatar, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
   const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, mascotPreset: record.config.mascotPreset, look: record.config.look, avatar: record.config.avatar, role: employeeRole(record.slug, record.config.roleTemplateId) }));
@@ -3028,6 +3074,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         loading={customAgentsLoading}
         error={customAgentsError}
         onSelectAgent={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
+        onOpenAgent={openBotPanel}
         onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
         onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
         onNewAgent={() => openView("custom-agents")}
@@ -3102,6 +3149,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         customAgentRecords={customAgentRecords}
         agentThreads={visibleWebSessions}
         onNewAgentThread={startSidebarAgentThread}
+        onOpenAgent={openBotPanel}
         connectionLabel={teamWorkspaceId ? "Shared workspace" : connectionState}
         connectionTone={
           identityError || agent.connectionError
@@ -3161,6 +3209,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               customAgentRecords={customAgentRecords}
               agentThreads={visibleWebSessions}
               onNewAgentThread={(profile) => { startSidebarAgentThread(profile); setMobileNavOpen(false); }}
+              onOpenAgent={(agentId) => { openBotPanel(agentId); setMobileNavOpen(false); }}
               onOpenSearch={() => {
                 setMobileNavOpen(false);
                 setCommandMenuOpen(true);
@@ -4032,7 +4081,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 <AgentDetailsPanel
                   key={customAgentId || "shiba"}
                   agent={activeEmployee}
+                  directoryLoading={customAgentsLoading && Boolean(customAgentId)}
                   workspaceName={teamWorkspace?.name}
+                  ownerName={orchestratorName ?? undefined}
+                  editing={!teamWorkspaceId && !restrictedTeamMember}
+                  modelEdit={botModelEdit}
                   runtime={{
                     harness: activeEmployee?.config.harness ?? harness,
                     sandboxProvider: activeEmployee?.config.sandboxProvider,
@@ -4041,6 +4094,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     loading: localComputersLoading,
                     error: localComputersError,
                   }}
+                  runs={botRunRows}
+                  pendingApprovals={botPendingApprovals}
+                  runOutputs={botRunOutputs}
+                  onOpenRun={(runId) => { setSelectedRunId(runId); setMainView("analytics"); }}
+                  onOpenApprovals={() => setMainView("approvals")}
+                  onManageTools={activeEmployee ? () => { setInitialEmployeeId(activeEmployee.id); openView("employee-tools"); } : undefined}
+                  onConfigSave={activeEmployee ? (edit) => saveBotConfigEdit(activeEmployee.id, edit) : undefined}
                   onLibrarySave={activeEmployee ? (deliverables) => saveBotLibrary(activeEmployee.id, deliverables) : undefined}
                   onClose={() => setAgentDetailsOpen(false)}
                   onEdit={() => {

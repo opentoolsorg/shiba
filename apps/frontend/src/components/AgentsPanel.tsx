@@ -40,6 +40,8 @@ export interface AgentsPanelProps {
   onNewThread?: (agentId?: string) => void;
   onSelectThread?: (id: string) => void;
   onSelectAgent?: (id: string) => void;
+  /** Opens this bot's page with its own panel, instead of leaving for the roster. */
+  onOpenAgent?: (id?: string) => void;
   onNewAgent?: () => void;
   /** Opens the agent catalog from the empty state; falls back to onNewAgent. */
   onOpenCatalog?: () => void;
@@ -75,6 +77,7 @@ export function AgentsPanel({
   onNewThread,
   onSelectThread,
   onSelectAgent,
+  onOpenAgent,
   onNewAgent,
   ownerName,
   workspaceName,
@@ -243,6 +246,11 @@ export function AgentsPanel({
                     type="button"
                     aria-current={active === row.id ? "page" : undefined}
                     onClick={() => {
+                      if (onOpenAgent) {
+                        onOpenAgent(row.agent?.id);
+                        onSelect(row.id);
+                        return;
+                      }
                       if (row.agent) {
                         onSelectAgent?.(row.id);
                         onSelect(row.id);
