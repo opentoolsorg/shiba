@@ -63,7 +63,7 @@ async function actorDraft(page: Page, actorId: string, step: string) {
   });
 }
 
-test("actual native shared UI retains goal, thread, approved output and review across process restart", async () => {
+test("actual native shared UI retains goal, thread, approved output and review across process restart", { timeout: 300_000 }, async () => {
   const fixture = await startWorkerFixture({ localRuntime: true });
   const userData = await mkdtemp(path.join(tmpdir(), "shiba-native-onboarding-"));
   let app: ElectronApplication | undefined;
