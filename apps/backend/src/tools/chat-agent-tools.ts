@@ -4,6 +4,7 @@ import type { Env } from "../env.js";
 import { browserClick, browserOpen, browserRead, browserScreenshot, browserType } from "./browser.js";
 import { generateVideo, videoCapability, videoInputSchema } from "./video-gen.js";
 import { generateImage } from "./image-gen.js";
+import { imageInputSchema } from "./image-models.js";
 import { runWebSearch, webSearchConfigured } from "./web-search.js";
 import { DEFAULT_WEB_SEARCH_BUDGET, incrementToolUsage } from "./tool-usage-store.js";
 import { selectorRequiresSubmitApproval } from "./browser-url.js";
@@ -75,12 +76,9 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
       }),
     } : {}),
     generate_image: tool({
-      description: "Generate an image from a prompt using Workers AI FLUX.",
-      inputSchema: z.object({
-        prompt: z.string().min(1).max(2000),
-        aspect: z.enum(["square", "landscape", "portrait"]).optional(),
-      }),
-      execute: async ({ prompt, aspect }) => generateImage(env, { prompt, aspect, runId }),
+      description: "Generate an image from a prompt with a chosen style and shape.",
+      inputSchema: imageInputSchema,
+      execute: async (input) => generateImage(env, { ...input, runId, userId, workspaceId: orgId.replace(/^team:/, "") }),
     }),
     browser_close: tool({
       description: "Close the browser session for this chat run.",
