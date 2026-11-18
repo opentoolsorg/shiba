@@ -248,7 +248,7 @@ with the exact upstream service ID (for example `github`) as the resource.
 The policy intersects workspace, actor, role and employee grants on every call.
 MCP bearer tokens also need `integrations:read` or `integrations:execute`,
 respectively. MCP calls must include `employeeId`; employee chat discovers the
-same actions through `employee_tool_catalog` and calls `employee_tool_call`.
+same actions through `tool_search` / `tool_describe` and calls one with `tool_call`, which sends it through `integrations.execute` (only for apps granted for both search and execute).
 
 For discovery, pass `toolkitSlug`, optional `query`, and optional `limit` (1–50).
 For execution, pass `toolkitSlug`, the discovered `toolSlug`, and `arguments`.
