@@ -9,7 +9,7 @@ import { browserClick, browserOpen, browserRead, browserScreenshot, browserToolE
 import { videoCapability, videoInputSchema } from "./video-gen.js";
 import { generateImage } from "./image-gen.js";
 import { imageInputSchema } from "./image-models.js";
-import { runWebSearch, webSearchConfigured } from "./web-search.js";
+import { WEB_SEARCH_DESCRIPTION, runWebSearch, webSearchConfigured, webSearchInputSchema, webSearchInputShape, webSearchQueries } from "./web-search.js";
 import { DEFAULT_WEB_SEARCH_BUDGET, incrementToolUsage } from "./tool-usage-store.js";
 
 function jsonResult(payload: Record<string, unknown>): CallToolResult {
@@ -33,11 +33,14 @@ export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): vo
     async (args, ctx) => {
       const orgId = ctx.principal.orgId ?? "self-hosted";
       const runId = runIdFromArgs(args, ctx.principal.principal);
+      const input = webSearchInputSchema.safeParse(args);
+      if (!input.success) return jsonResult({ ok: false, error: input.error.issues[0]?.message ?? "Invalid web search input." });
       const budget = await incrementToolUsage(env, {
         orgId,
         runId,
         toolName: "web_search",
         budgetLimit: DEFAULT_WEB_SEARCH_BUDGET,
+        calls: webSearchQueries(input.data).length,
       });
       if (!budget.allowed) {
         return jsonResult({ ok: false, error: "Web search budget exceeded for this run." });
@@ -45,13 +48,12 @@ export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): vo
       if (!webSearchConfigured(env)) {
         return jsonResult({ ok: false, unavailable: true, reason: "web search not configured" });
       }
-      const query = String(args.query ?? "");
-      const result = await runWebSearch(env, query);
+      const result = await runWebSearch(env, input.data);
       return jsonResult(result as unknown as Record<string, unknown>);
     },
     {
-      description: "Search the public web and return titled URLs with snippets.",
-      inputSchema: { query: z.string().min(1).max(500) },
+      description: WEB_SEARCH_DESCRIPTION,
+      inputSchema: { ...webSearchInputShape, runId: z.string().min(1).max(200).optional() },
       annotations: { readOnlyHint: true },
     },
   );

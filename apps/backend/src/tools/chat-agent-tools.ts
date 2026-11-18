@@ -5,7 +5,7 @@ import { browserClick, browserOpen, browserRead, browserScreenshot, browserType 
 import { generateVideo, videoCapability, videoInputSchema } from "./video-gen.js";
 import { generateImage } from "./image-gen.js";
 import { imageInputSchema } from "./image-models.js";
-import { runWebSearch, webSearchConfigured } from "./web-search.js";
+import { WEB_SEARCH_DESCRIPTION, runWebSearch, webSearchConfigured, webSearchInputSchema, webSearchQueries } from "./web-search.js";
 import { DEFAULT_WEB_SEARCH_BUDGET, incrementToolUsage } from "./tool-usage-store.js";
 import { selectorRequiresSubmitApproval } from "./browser-url.js";
 import { closeBrowserSession } from "./browser-sessions.js";
@@ -25,15 +25,17 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
 
   return {
     web_search: tool({
-      description: "Search the public web. Returns title, URL, and snippet for each result.",
-      inputSchema: z.object({ query: z.string().min(1).max(500) }),
-      execute: async ({ query }) => {
+      description: WEB_SEARCH_DESCRIPTION,
+      inputSchema: webSearchInputSchema,
+      execute: async (input) => {
         if (!webSearchConfigured(env)) {
           return { ok: false, unavailable: true, message: "Web search is not configured on this deployment." };
         }
-        const budget = await incrementToolUsage(env, { orgId, runId, toolName: "web_search", budgetLimit: DEFAULT_WEB_SEARCH_BUDGET });
+        const budget = await incrementToolUsage(env, {
+          orgId, runId, toolName: "web_search", budgetLimit: DEFAULT_WEB_SEARCH_BUDGET, calls: webSearchQueries(input).length,
+        });
         if (!budget.allowed) return { ok: false, error: "Web search budget exceeded for this conversation." };
-        return runWebSearch(env, query);
+        return runWebSearch(env, input);
       },
     }),
     browser_open: tool({
