@@ -30,13 +30,19 @@ it("starts the packaged daemon using only its declared desktop resources", () =>
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-function startDaemon(root: string, args: string[] = [], workerUrl = "http://127.0.0.1:9") {
+function startDaemon(
+  root: string,
+  args: string[] = [],
+  workerUrl = "http://127.0.0.1:9",
+  extraEnv: Record<string, string> = {},
+) {
   const child = spawn(process.execPath, [DAEMON, "--poll", "500", ...args], {
     env: {
       ...process.env,
       SHIBA_LOCAL_RUN_ROOT: root,
       SHIBA_WORKER_URL: workerUrl,
       LOCAL_ADAPTER_TOKEN: "test-token",
+      ...extraEnv,
     },
     stdio: ["ignore", "ignore", "pipe"],
   });
@@ -213,6 +219,50 @@ describe("shiba-local-daemon operator errors", () => {
       server.close();
     }
   }, 15_000);
+
+  it("takes the pairing token from the environment and keeps it out of argv", async () => {
+    const root = mkdtempSync(join(tmpdir(), "shiba-daemon-envpair-"));
+    const token = "nonce-env-pair.signature-env-pair";
+    const server = createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        if (req.url === "/api/local/pair") {
+          res.end(JSON.stringify({ adapterToken: "adapter-test-token", machineId: "machine-env-pair" }));
+          return;
+        }
+        if (req.url === "/api/local/claim") {
+          res.end(JSON.stringify({ envelope: null }));
+          return;
+        }
+        res.end("{}");
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const url = `http://127.0.0.1:${port}`;
+      const args = ["--connect", url, "--pair"];
+      const d = startDaemon(root, args, url, { SHIBA_PAIRING_TOKEN: token });
+      await waitFor(() => existsSync(join(root, "config.json")), "pairing to save its config");
+      const saved = JSON.parse(readFileSync(join(root, "config.json"), "utf8")) as {
+        machineId?: string;
+      };
+      expect(saved.machineId).toBe("machine-env-pair");
+      expect(args).not.toContain(token);
+      d.child.kill("SIGTERM");
+      expect(await d.exited).toBe(143);
+      expect(d.stderr()).not.toContain(token);
+    } finally {
+      server.close();
+    }
+  }, 20_000);
+
+  it("exits 64 when --pair has neither an argument nor an environment token", async () => {
+    const root = mkdtempSync(join(tmpdir(), "shiba-daemon-pairless-"));
+    const d = startDaemon(root, ["--connect", "http://127.0.0.1:9", "--pair"]);
+    expect(await d.exited).toBe(64);
+    expect(d.stderr()).toMatch(/SHIBA_PAIRING_TOKEN/);
+  }, 20_000);
 
   it("exits 77 on an invalid pairing token (401 JSON)", async () => {
     const root = mkdtempSync(join(tmpdir(), "shiba-daemon-pair-"));
