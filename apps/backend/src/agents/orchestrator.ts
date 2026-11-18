@@ -1240,13 +1240,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   private currentContinuation(): ContinuationState | undefined {
     const user = (this.messages ?? []).filter((message) => message.role === "user").at(-1);
     if (!user) return undefined;
-    const saved = this.state.planContinuation;
+    const saved = this.state?.planContinuation;
     return saved && (saved.requestId === user.id || saved.messageIds.includes(user.id))
       ? saved : { requestId: user.id, messageIds: [], count: 0, plan: [] };
   }
 
   private queuePlanContinuation(result: ChatResponseResult): void {
-    if (this.sessionDeleted || this.state.personalExecutionOnly || isChatOnlyTurn(this.messages)) return;
+    if (this.sessionDeleted || this.state?.personalExecutionOnly || isChatOnlyTurn(this.messages)) return;
     const saved = this.currentContinuation();
     if (!saved || saved.lastResponseId === result.message.id) return;
     const user = (this.messages ?? []).filter((message) => message.role === "user").at(-1);
