@@ -1,3 +1,13 @@
+# Optional outbound observability. Kept in the Worker, never the browser bundle.
+# SHIBA_ERROR_REPORTING=none
+# SENTRY_DSN=
+# SHIBA_ANALYTICS=none
+# POSTHOG_HOST=
+# POSTHOG_API_KEY=
+# SHIBA_OPEN_TELEMETRY=0
+# OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=
+# OTEL_EXPORTER_OTLP_HEADERS=
+
 # Copy to .dev.vars for local development. Never commit real credentials.
 # Non-secret defaults are in wrangler.jsonc. Run:
 #   node scripts/check-dev-vars-example.mjs

@@ -3,6 +3,7 @@
  * No bot token → no in-thread card and no run. No repo → ask, no run.
  */
 import type { Env } from "./env.js";
+import { tryAnswerUiBlockFallback } from "./ui-block-fallback.js";
 import { redactSecrets } from "./security.js";
 import { postSlackMessage, postSlackMessageWithReceipt, updateSlackMessage, deleteSlackMessage, addSlackReaction, SLACK_POST_TIMEOUT_MS } from "./slack.js";
 import { buildSlackCanvasUrl, signSlackCanvasIntake, slackCanvasOwner } from "./slack-canvas.js";
@@ -153,6 +154,16 @@ export function isSlackAcknowledgmentOnly(text: string): boolean {
     .replace(/[\p{P}\s]+/gu, " ").trim();
   return /^(?:(?:thanks|thank you|ty|ok|okay|got it|cool|great|perfect|sounds good|👍|🙏)(?:\s+|$))+$/u.test(normalized);
 }
+
+function stripMentionMarkersKeepLines(text: string): string {
+  return text
+    .replace(/<@[A-Z0-9]+>/gi, " ")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
 
 function requireSlackOk(response: Response, json: Record<string, unknown>): void {
   // Slack answers HTTP 200 with {ok:false, error} — check both.
@@ -330,6 +341,11 @@ export async function handleSlackEvent(
       }
     }
   };
+
+  if (await tryAnswerUiBlockFallback(env, buildSlackThreadName(teamId, channelId, threadTs), userId, stripMentionMarkersKeepLines(mentionText))) {
+    await postMessage({ channel: channelId, threadTs, text: "Answer recorded." });
+    return;
+  }
 
   if (event.thread_ts) {
     const threadKey = buildSlackThreadName(teamId, channelId, threadTs);
