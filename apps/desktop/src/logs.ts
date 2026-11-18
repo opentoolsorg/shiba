@@ -11,7 +11,7 @@ export const MAX_LOG_BYTES = 5 * 1024 * 1024;
 export const MAX_LOG_FIELD_CHARS = 2000;
 
 /** Keys a structured record may carry. */
-export const LOG_FIELDS = ["event", "state", "code", "action", "url", "detail"] as const;
+export const LOG_FIELDS = ["event", "state", "code", "action", "url", "detail", "bytes"] as const;
 
 export type LogField = (typeof LOG_FIELDS)[number];
 export type LogValue = string | number | null | undefined;

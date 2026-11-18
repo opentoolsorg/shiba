@@ -1,12 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-// Origin, versions, and surface come from BrowserWindow additionalArguments,
-// never from the page (D4). A sandboxed preload cannot require a shared module,
-// so the literals below are the contract test/bridge-contract.test.ts pins to
-// apps/desktop/src/bridge-contract.ts.
+// Origin and metadata come from BrowserWindow additionalArguments, never from
+// the page (D4). A sandboxed preload cannot require a shared module, so it does
+// not re-implement the contract: main validates the handshake, and this gate
+// only decides whether to expose anything, enforcing the surface tag.
+
 const HANDSHAKE_PREFIX = "--shiba-bridge=";
 const BRIDGE_VERSION = 1;
-const DESKTOP_CAPABILITIES = ["status", "pair", "unpair", "onStatus", "claudeLogin"];
+const DESKTOP_CAPABILITIES = ["status", "unpair", "onStatus", "claudeLogin"];
 const SETUP_PAGE = /\/setup\.html$/;
 
 type Surface = "dashboard" | "setup";
@@ -19,6 +20,7 @@ type Handshake = {
   surface: Surface;
 };
 
+/** Origin string with no credentials and a web protocol; anything else is refused. */
 function absoluteOrigin(value: unknown): string | null {
   if (typeof value !== "string" || value.length === 0 || value.length > 2048) return null;
   try {
@@ -31,9 +33,9 @@ function absoluteOrigin(value: unknown): string | null {
   }
 }
 
+/** Exactly one handshake argument, parsed and typed; the tag is checked below. */
 function readHandshake(): Handshake | null {
   const matches = process.argv.filter((arg) => arg.startsWith(HANDSHAKE_PREFIX));
-  // Exactly one handshake, or none: duplicates mean main sent something odd.
   if (matches.length !== 1) return null;
   let parsed: unknown;
   try {
@@ -46,10 +48,8 @@ function readHandshake(): Handshake | null {
   const origin = absoluteOrigin(value.origin);
   if (!origin) return null;
   if (value.bridgeVersion !== BRIDGE_VERSION) return null;
-  if (typeof value.appVersion !== "string" || value.appVersion.length === 0 || value.appVersion.length > 64)
-    return null;
-  if (typeof value.platform !== "string" || value.platform.length === 0 || value.platform.length > 32)
-    return null;
+  if (typeof value.appVersion !== "string" || value.appVersion.length > 64) return null;
+  if (typeof value.platform !== "string" || value.platform.length > 32) return null;
   if (value.surface !== "dashboard" && value.surface !== "setup") return null;
   return {
     origin,
@@ -61,9 +61,21 @@ function readHandshake(): Handshake | null {
 }
 
 const handshake = readHandshake();
-const isSetupPage = location.protocol === "file:" && SETUP_PAGE.test(location.pathname);
+// The bundled setup page is the one explicit exception: a file: document whose
+// name is setup.html. It gets only the address bridge, and only that page.
+const isBundledSetupPage = location.protocol === "file:" && SETUP_PAGE.test(location.pathname);
 
-if (handshake && !isSetupPage && location.origin === handshake.origin) {
+if (isBundledSetupPage) {
+  contextBridge.exposeInMainWorld("shibaSetup", {
+    surface: "setup",
+    setUrl: (url: string) => ipcRenderer.invoke("desktop:set-url", url),
+  });
+} else if (
+  handshake &&
+  // A `setup`-tagged handshake never exposes the dashboard bridge.
+  handshake.surface === "dashboard" &&
+  location.origin === handshake.origin
+) {
   contextBridge.exposeInMainWorld("shibaDesktop", {
     bridgeVersion: handshake.bridgeVersion,
     appVersion: handshake.appVersion,
@@ -71,7 +83,8 @@ if (handshake && !isSetupPage && location.origin === handshake.origin) {
     surface: handshake.surface,
     capabilities: DESKTOP_CAPABILITIES,
     status: () => ipcRenderer.invoke("desktop:status"),
-    // No token crosses the bridge: main mints it and hands it to the daemon.
+    // Compatibility: native pairing is deferred, so main refuses and the page
+    // shows the browser direction. No token crosses this bridge.
     pair: () => ipcRenderer.invoke("desktop:pair"),
     unpair: () => ipcRenderer.invoke("desktop:unpair"),
     onStatus: (listener: (status: unknown) => void) => {
@@ -82,16 +95,10 @@ if (handshake && !isSetupPage && location.origin === handshake.origin) {
       };
     },
     startClaudeLogin: () => ipcRenderer.invoke("desktop:claude-login"),
-    // Compatibility: an older dashboard still calls this to receive a PKCE
-    // callback. Nothing listens; main answers with a fixed refusal so the page
-    // shows the browser instruction instead of a broken promise.
+    // Compatibility: an older dashboard still asks for a PKCE callback. Nothing
+    // listens; main answers with a fixed refusal so the page shows the browser
+    // instruction instead of a broken promise.
     receiveCodexCallback: (_authorizationUrl: string) =>
       ipcRenderer.invoke("desktop:codex-callback"),
-  });
-} else if (isSetupPage) {
-  // Setup page only; main re-checks the sender window, frame, and page path.
-  contextBridge.exposeInMainWorld("shibaSetup", {
-    surface: "setup",
-    setUrl: (url: string) => ipcRenderer.invoke("desktop:set-url", url),
   });
 }

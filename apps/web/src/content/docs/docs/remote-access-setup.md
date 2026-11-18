@@ -24,14 +24,18 @@ Alchemy deploys create a second Access application (`MachineBypass`) that covers
 2. Copy the connect command. It looks like this:
 
    ```sh
-   node scripts/shiba-local-daemon.mjs --connect https://shiba.example.com --pair <token>
+   SHIBA_PAIRING_TOKEN='<token>' node scripts/shiba-local-daemon.mjs --connect https://shiba.example.com --pair
    ```
 
 3. Run it from a checkout of this repository on the machine you want to pair.
 
+The token travels in the environment, never in the command line: `--pair` takes no argument, and a token pasted after it is refused rather than used, because process arguments are visible to every user on the machine.
+
 The pairing token works once and expires after 15 minutes; the modal shows a countdown. The daemon sends the token to `POST /api/local/pair`. The Worker checks the token's HMAC signature and expiry, then burns its nonce, so the same token can't be used twice. On success the Worker returns a new adapter token and a machine id, and the daemon starts polling.
 
 If the token was expired, already used, or mistyped, the daemon exits with a message telling you to mint a new one. Mint a new token and run the command again.
+
+Pairing runs from the browser because that is where the token is minted, for your signed-in session. Shiba Desktop does not pair itself: its **Connect this computer** control answers `pairing_deferred` and points back to this command, so a shell without the browser session cannot mint authority of its own. A deployed shell older than this change may still offer the button and fail the same way; update the shell, or pair from the browser and restart it.
 
 ## Files on the machine
 

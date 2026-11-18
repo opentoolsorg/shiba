@@ -1,7 +1,6 @@
 import type { DaemonStatusMessage, DesktopStatus } from "@shiba/shared";
 import { createRestartPolicy, QUIT_WAIT_MS } from "./supervisor.js";
 import type { ExitContext } from "./supervisor.js";
-import { repoSlug } from "./approvals-poller.js";
 import { originOf } from "./navigation.js";
 
 // Electron-free daemon/probe state machine (DESKTOP-PLAN §3.4); main.ts injects fork/fetch/timers.
@@ -19,11 +18,11 @@ export interface ChildLike {
 
 /** Fixed-shape event the supervisor reports; the log sink decides the fields. */
 export interface ControllerEvent {
-  event: "daemon-exit" | "daemon-kill" | "daemon-output";
+  event: "daemon-exit" | "daemon-kill";
   state?: string;
   code?: number;
-  /** Daemon stdout/stderr for the log sink; never returned to the renderer. */
-  detail?: string;
+  /** Output bytes seen during the run: a diagnostic count, never the text. */
+  bytes?: number;
 }
 
 export interface LocalConfig {
@@ -32,6 +31,8 @@ export interface LocalConfig {
 }
 
 export interface ControllerDeps {
+  /** Sink for daemon output; the controller only counts it, never stores or logs it. */
+
   getOrigin(): string;
   /** session.defaultSession.fetch with credentials:"include", redirect:"manual". */
   probeFetch(url: string): Promise<{ status: number }>;
@@ -39,7 +40,6 @@ export interface ControllerDeps {
   fork(
     args: string[],
     hooks: { onLog(chunk: string): void; onMessage(msg: unknown): void; onExit(code: number | null): void },
-    pairingToken?: string,
   ): ChildLike;
   onStatus(status: DesktopStatus): void;
   onSettled(msg: Extract<DaemonStatusMessage, { state: "settled" }>): void;
@@ -73,6 +73,7 @@ export function createController(deps: ControllerDeps) {
   // §3.4: "offline" needs 2 consecutive heartbeat {ok:false}; any other
   // status message proves the daemon is alive and resets the count.
   let heartbeatMisses = 0;
+  let outputBytes = 0;
 
   function set(next: DesktopStatus): void {
     status = next;
@@ -88,7 +89,8 @@ export function createController(deps: ControllerDeps) {
       lastIdle = { state: "idle", machineId: m.machineId, harnesses: m.harnesses };
       set(lastIdle);
     } else if (m.state === "claimed") {
-      set({ ...lastIdle, state: "busy", activeRunId: m.runId, detail: repoSlug(m.repoUrl ?? "") });
+      // The repo slug stays out of status: the page names the run from its own data.
+      set({ ...lastIdle, state: "busy", activeRunId: m.runId });
     } else if (m.state === "settled") {
       set(lastIdle);
       deps.onSettled(m);
@@ -108,32 +110,32 @@ export function createController(deps: ControllerDeps) {
     ctx = null;
     if (stopping) return;
     const action = policy(code, exitCtx, now());
-    deps.event({ event: "daemon-exit", state: action.kind, code: code ?? -1 });
+    deps.event({ event: "daemon-exit", state: action.kind, code: code ?? -1, bytes: outputBytes });
     switch (action.kind) {
       case "revoked": set({ state: "revoked", machineId: lastIdle.machineId }); return;
       case "conflict": set({ state: "conflict" }); return;
-      case "crashed": set({ state: "crashed", detail: `exit ${code}` }); return;
-      case "stopped": set({ state: "offline", detail: "daemon stopped" }); return;
-      case "failed-pairing": return void probe();
+      case "crashed": set({ state: "crashed", reason: "exit", exitCode: code ?? undefined }); return;
+      case "stopped": set({ state: "offline", reason: "daemon-stopped" }); return;
       case "restart":
-        set({ ...lastIdle, state: "offline", detail: `restarting in ${Math.round(action.delayMs / 1000)}s` });
+        set({ ...lastIdle, state: "offline", reason: "retrying", retryInMs: action.delayMs });
         restartTimer = setT(() => start([]), action.delayMs);
     }
   }
 
-  function start(args: string[], pairingToken?: string): ChildLike {
+  function start(args: string[]): ChildLike {
     // A probe during restart backoff must not leave the timer to fork a duplicate.
     clearT(restartTimer);
     restartTimer = undefined;
     stopping = false;
-    const exitCtx: ExitContext = { pairing: args.includes("--pair"), sawPolling: false, startedAt: now() };
+    const exitCtx: ExitContext = { sawPolling: false, startedAt: now() };
     ctx = exitCtx;
+    outputBytes = 0;
     set({ ...lastIdle, state: "starting" });
     const spawned: ChildLike = deps.fork(args, {
-      onLog: (chunk) => deps.event({ event: "daemon-output", detail: chunk }),
+      onLog: (chunk) => { outputBytes += chunk.length; },
       onMessage: (msg) => { if (child === spawned) translate(msg); },
       onExit: (code) => handleExit(code, spawned, exitCtx),
-    }, pairingToken);
+    });
     child = spawned;
     return spawned;
   }
@@ -173,7 +175,7 @@ export function createController(deps: ControllerDeps) {
   /** User "Retry" from conflict/crashed: clear the crash window and latch, then re-probe. */
   function retryDaemon(): Promise<DesktopStatus> {
     policy = createRestartPolicy();
-    set({ ...lastIdle, state: "offline", detail: "retrying" });
+    set({ ...lastIdle, state: "offline", reason: "retrying" });
     return probe();
   }
 
@@ -241,8 +243,6 @@ export function createController(deps: ControllerDeps) {
     probe,
     stop,
     retry: retryDaemon,
-    /** Pairing forks run once; after the first "polling" they are the live daemon. */
-    forkForPairing: (args: string[], pairingToken: string) => start(args, pairingToken),
     setStatus: set,
     dispose: () => {
       disposed = true;

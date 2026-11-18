@@ -116,10 +116,10 @@ export function RemoteAccessView(): JSX.Element {
   const [pairingBusy, setPairingBusy] = useState(false);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
   const { bridge, status: desktopStatus, refresh: refreshDesktop } = useDesktopStatus();
-  const showConnectThisComputer = shouldShowConnect(bridge !== undefined, desktopStatus);
-  // Inside the desktop shell the token is minted in the main process, so no
-  // command that carries one is ever rendered or copied here.
-  const showConnectCommand = bridge === undefined;
+  const showConnectThisComputer = shouldShowConnect(bridge, desktopStatus);
+  // A shell that cannot pair natively falls back to the browser command here,
+  // so the shell never shows a control that only leads to `pairing_deferred`.
+  const showConnectCommand = bridge === undefined || !showConnectThisComputer;
   const mounted = useRef(true);
   const [loads] = useState(createLatest);
 

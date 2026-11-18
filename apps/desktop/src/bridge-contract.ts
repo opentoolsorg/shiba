@@ -11,6 +11,10 @@ export const BRIDGE_VERSION = 1;
 /** Channels the dashboard surface can invoke, plus the one main pushes on. */
 export const DESKTOP_CHANNELS = {
   status: "desktop:status",
+  /**
+   * Compatibility only. Native pairing is deferred — the shell mints nothing —
+   * so this answers with a fixed refusal that sends the user to the browser.
+   */
   pair: "desktop:pair",
   unpair: "desktop:unpair",
   statusChanged: "desktop:status-changed",
@@ -34,17 +38,10 @@ export const ALLOWED_CHANNELS: readonly string[] = [
 
 export const DESKTOP_CAPABILITIES = [
   "status",
-  "pair",
   "unpair",
   "onStatus",
   "claudeLogin",
 ] as const;
-
-/**
- * A minted pairing token: two base64url segments joined by ".". Main validates
- * it before handing it to the daemon, so a malformed reply never becomes env.
- */
-export const PAIRING_TOKEN_PATTERN = /^[A-Za-z0-9_-]{8,1024}\.[A-Za-z0-9_-]{8,1024}$/;
 
 /** A deployment URL is an origin; anything longer is not one. */
 export const MAX_DEPLOYMENT_URL_CHARS = 2048;

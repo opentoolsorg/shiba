@@ -107,13 +107,9 @@ test("configured origin gets the handshake bridge; a foreign origin gets none", 
     expect(handshake?.surface).toBe("dashboard");
     // Pairing takes no payload: main mints the token, the page never holds one.
     expect(handshake?.pairArity).toBe(0);
-    expect(handshake?.capabilities).toEqual([
-      "status",
-      "pair",
-      "unpair",
-      "onStatus",
-      "claudeLogin",
-    ]);
+    // Native pairing is deferred, so it is not advertised; the method stays for
+    // an older page and answers with the browser direction.
+    expect(handshake?.capabilities).toEqual(["status", "unpair", "onStatus", "claudeLogin"]);
     // Every advertised capability maps to a real method, and nothing else exists.
     expect(handshake?.methods).toEqual(["status", "pair", "unpair", "onStatus", "startClaudeLogin"]);
     expect(handshake?.retired).toEqual([]);

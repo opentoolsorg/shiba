@@ -4,7 +4,14 @@ import { delimiter, join } from "node:path";
 
 const MARKER = "\0__SHIBA_ENV__\0";
 const CAPTURE_TIMEOUT_MS = 10_000;
-const DROPPED = new Set(["SHIBA_WORKER_URL", "LOCAL_ADAPTER_TOKEN", "NODE_OPTIONS"]);
+const DROPPED = new Set([
+  "SHIBA_WORKER_URL",
+  "LOCAL_ADAPTER_TOKEN",
+  // A pairing value the shell inherited from the ambient environment must never
+  // reach a forked daemon: the shell does not pair, so any such value is stale.
+  "SHIBA_PAIRING_TOKEN",
+  "NODE_OPTIONS",
+]);
 
 export type Env = Record<string, string>;
 

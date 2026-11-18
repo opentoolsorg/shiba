@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { backoffMs, createRestartPolicy, resolveDaemonPath, shouldConfirmQuit } from "../src/supervisor";
 
-const ctx = (startedAt = 0, over = {}) => ({ pairing: false, sawPolling: true, startedAt, ...over });
+const ctx = (startedAt = 0, over = {}) => ({ sawPolling: true, startedAt, ...over });
 
 describe("restart policy", () => {
   it("78 -> revoked, 75 -> conflict, 130/143 -> stopped; never restart", () => {
@@ -38,19 +38,6 @@ describe("restart policy", () => {
     expect(p(1, ctx(0), 10 * 60_000 + 5000)).toEqual({ kind: "restart", delayMs: 1000 });
   });
 
-  it("pairing fork exiting before polling is a failed pairing", () => {
-    const p = createRestartPolicy();
-    expect(p(1, ctx(0, { pairing: true, sawPolling: false }), 1)).toEqual({ kind: "failed-pairing" });
-    expect(p(1, ctx(0, { pairing: true, sawPolling: true }), 2).kind).toBe("restart");
-  });
-
-  it("pair watchdog SIGTERM (143) before polling is a failed pairing, not stopped", () => {
-    const p = createRestartPolicy();
-    expect(p(143, ctx(0, { pairing: true, sawPolling: false }), 1)).toEqual({ kind: "failed-pairing" });
-  });
-});
-
-describe("helpers", () => {
   it("confirms quit only while busy", () => {
     expect(shouldConfirmQuit("busy")).toBe(true);
     expect(shouldConfirmQuit("idle")).toBe(false);

@@ -9,13 +9,10 @@ export type ExitAction =
   | { kind: "revoked" }
   | { kind: "conflict" }
   | { kind: "stopped" }
-  | { kind: "failed-pairing" }
   | { kind: "crashed" }
   | { kind: "restart"; delayMs: number };
 
 export interface ExitContext {
-  // Fork was started with --connect/--pair.
-  pairing: boolean;
   // Daemon reported its first "polling" message before exiting.
   sawPolling: boolean;
   // When this fork started (ms epoch).
@@ -33,8 +30,6 @@ export function createRestartPolicy() {
     if (code === 78) return { kind: "revoked" };
     if (code === 75) return { kind: "conflict" };
     if (code === 70) return { kind: "crashed" };
-    // Before 130/143: the pair watchdog SIGTERMs a stalled pairing fork.
-    if (ctx.pairing && !ctx.sawPolling) return { kind: "failed-pairing" };
     if (code === 130 || code === 143) return { kind: "stopped" };
     // A fork that stayed up 10 min was healthy: forget earlier failures.
     if (now - ctx.startedAt >= WINDOW_MS) exits = [];
@@ -64,8 +59,6 @@ export interface ForkOptions {
   daemonPath: string;
   args: string[];
   env: Record<string, string>;
-  /** Single-use pairing token; lives in the child's environment, never in argv. */
-  pairingToken?: string;
   onLog(chunk: string): void;
   onMessage(msg: unknown): void;
   onExit(code: number | null): void;
@@ -75,7 +68,7 @@ export interface ForkOptions {
 export function forkDaemon(o: ForkOptions): UtilityProcess {
   const { utilityProcess } = require("electron") as typeof import("electron");
   const child = utilityProcess.fork(o.daemonPath, o.args, {
-    env: o.pairingToken ? { ...o.env, SHIBA_PAIRING_TOKEN: o.pairingToken } : o.env,
+    env: o.env,
     stdio: "pipe",
     serviceName: "shiba-local-daemon",
   });

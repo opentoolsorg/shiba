@@ -7,10 +7,27 @@ describe("formatDesktopConnectionLabel", () => {
     expect(formatDesktopConnectionLabel({ state: "idle", machineId: "m1" })).toBe("This computer · idle");
   });
 
-  it("includes run detail when busy", () => {
-    expect(
-      formatDesktopConnectionLabel({ state: "busy", machineId: "m1", detail: "acme/widgets" }),
-    ).toBe("This computer · running · acme/widgets");
+  it("keeps the busy row free of repository names", () => {
+    expect(formatDesktopConnectionLabel({ state: "busy", machineId: "m1", activeRunId: "r1" })).toBe(
+      "This computer · running",
+    );
+  });
+
+  it("builds offline copy from typed reasons", () => {
+    expect(formatDesktopConnectionLabel({ state: "offline", reason: "retrying", retryInMs: 8000 })).toBe(
+      "This computer · offline · retrying in 8s",
+    );
+    expect(formatDesktopConnectionLabel({ state: "offline", reason: "daemon-stopped" })).toBe(
+      "This computer · offline · daemon stopped",
+    );
+    expect(formatDesktopConnectionLabel({ state: "offline" })).toBe("This computer · offline");
+  });
+
+  it("shows a crash as an exit code, never daemon text", () => {
+    expect(formatDesktopConnectionLabel({ state: "crashed", reason: "exit", exitCode: 78 })).toBe(
+      "Daemon crashed · exit 78",
+    );
+    expect(formatDesktopConnectionLabel({ state: "crashed" })).toBe("Daemon crashed · check logs");
   });
 
   it("names the other origin when paired elsewhere", () => {

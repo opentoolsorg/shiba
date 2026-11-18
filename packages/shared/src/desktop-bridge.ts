@@ -11,13 +11,21 @@ export type DesktopDaemonState =
   | "conflict"
   | "crashed";
 
+/** Why the daemon is in the state it reports; the page owns the copy. */
+export type DesktopStatusReason = "daemon-stopped" | "retrying" | "exit";
+
 export interface DesktopStatus {
   state: DesktopDaemonState;
   machineId?: string; // not a secret; marks "This computer" in the fleet list
   activeRunId?: string;
   harnesses?: string[];
   pairedTo?: string; // only for paired-elsewhere: the other origin
-  detail?: string; // human-readable; never contains a token
+  /** Typed reason only: no repository names, daemon text, or URLs. */
+  reason?: DesktopStatusReason;
+  /** Milliseconds until the automatic retry, when reason is "retrying". */
+  retryInMs?: number;
+  /** Daemon exit code, when reason is "exit". */
+  exitCode?: number;
 }
 
 /**
@@ -25,6 +33,7 @@ export interface DesktopStatus {
  * or token can ride back into the renderer's copy.
  */
 export type PairFailureCode =
+  | "pairing_deferred"
   | "untrusted_sender"
   | "pairing_busy"
   | "pairing_timeout"
@@ -38,9 +47,16 @@ export type PairFailureCode =
   | "revoke_failed"
   | "revoke_unreachable";
 
-export type PairResult = { ok: true } | { ok: false; code: PairFailureCode };
+/**
+ * `error` exists only so an older dashboard that renders `result.error` still
+ * shows a fixed sentence instead of a blank toast. It is always one of the
+ * constants below, never dynamic text.
+ */
+export type PairResult = { ok: true } | { ok: false; code: PairFailureCode; error?: string };
 
 export const PAIR_FAILURE_MESSAGES: Record<PairFailureCode, string> = {
+  pairing_deferred:
+    "Connecting this computer runs from the browser: open Shiba there and use Add computer.",
   untrusted_sender: "Shiba Desktop refused a request that did not come from its own window.",
   pairing_busy: "A connection change is already running.",
   pairing_timeout: "Pairing timed out. Check the connection and try again.",
@@ -55,6 +71,7 @@ export const PAIR_FAILURE_MESSAGES: Record<PairFailureCode, string> = {
   revoke_unreachable: "Could not reach your Shiba to disconnect this computer.",
 };
 
+/** The page's copy for a failure code; the shell ships its own copy of this table. */
 export function pairFailureMessage(code: PairFailureCode): string {
   return PAIR_FAILURE_MESSAGES[code];
 }
@@ -73,7 +90,6 @@ export type DesktopClaudeLoginResult = { ok: true } | DesktopFailure;
  */
 export const DESKTOP_CAPABILITIES = [
   "status",
-  "pair",
   "unpair",
   "onStatus",
   "claudeLogin",
@@ -95,7 +111,11 @@ export interface DesktopBridgeHandshake {
 
 export interface ShibaDesktopBridge extends DesktopBridgeHandshake {
   status(): Promise<DesktopStatus>;
-  /** Mints the single-use token in the main process and pairs: no token reaches the page. */
+  /**
+   * Compatibility only. Native pairing is deferred: the shell has no mint
+   * authority separate from the browser session, so this resolves with
+   * `pairing_deferred` and the page sends the user to the browser flow.
+   */
   pair(): Promise<PairResult>;
   unpair(): Promise<PairResult>;
   onStatus(listener: (status: DesktopStatus) => void): () => void;

@@ -1,7 +1,9 @@
 /**
- * Desktop journey through the session harness: pair the real daemon, claim a
- * task, stream a Claude tool approval, approve it, render the diff, and open
- * a pull request against a mocked GitHub.
+ * Desktop journey through the session harness: run the real daemon from a
+ * pre-seeded config, claim a task, stream a Claude tool approval, approve it,
+ * render the diff, and open a pull request against a mocked GitHub. Native
+ * pairing is deferred, so the page's pairing request must come back as
+ * `pairing_deferred` with the browser direction and leave the run untouched.
  */
 
 import { execFileSync } from "node:child_process";
@@ -47,7 +49,8 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Shiba</tit
 <main>
   <h1>Shiba</h1>
   <p id="daemon"></p>
-  <button type="button" id="pair">Pair this computer</button>
+  <button type="button" id="pair">Connect this computer</button>
+  <p id="pair-result"></p>
   <form id="task">
     <textarea aria-label="Task description"></textarea>
     <button type="submit">Send task</button>
@@ -71,8 +74,11 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Shiba</tit
     bridge.status().then(paint);
     bridge.onStatus(paint);
   }
-  document.getElementById("pair").addEventListener("click", () => {
-    if (bridge) void bridge.pair("e2e.token");
+  document.getElementById("pair").addEventListener("click", async () => {
+    if (!bridge) return;
+    // An older page passed a token here; the current one takes no argument.
+    const result = await bridge.pair("e2e.token");
+    document.getElementById("pair-result").textContent = result.ok ? "ok" : result.code;
   });
   document.getElementById("task").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -84,9 +90,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Shiba</tit
     void fetch("/api/e2e/decide", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision: "allow" }) });
   });
   document.getElementById("pr").addEventListener("click", async () => {
-    const response = await fetch("/github/repos/acme/widgets/pulls", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-    const body = await response.json();
-    if (bridge) void bridge.openPullRequest(body.html_url);
+    await fetch("/github/repos/acme/widgets/pulls", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   });
   setInterval(async () => {
     const board = await fetch("/api/e2e/board").then((response) => response.json()).catch(() => null);
@@ -190,13 +194,8 @@ beforeAll(async () => {
       const body = req.method === "POST" ? await readBody(req) : "";
       const parsed = body ? (JSON.parse(body) as Record<string, unknown>) : {};
       if (url.pathname === "/api/computers") return json(res, { computers: [] });
-      // Pairing mints the token in the shell, not in the page.
-      if (url.pathname === "/api/computers/pairing-token")
-        return json(res, { token: "fixture-nonce-value.fixture-signature-value", expiresAt: Date.now() + 60_000 });
       if (url.pathname === "/api/approvals") return json(res, { approvals: [] });
       if (url.pathname === "/api/computers/revoke") return json(res, { ok: true });
-      if (url.pathname === "/api/local/pair")
-        return json(res, { adapterToken: "e2e-adapter", machineId: "machine-e2e" });
       if (url.pathname === "/api/local/heartbeat") return json(res, { ok: true });
       if (url.pathname === "/api/local/claim") {
         if (task === null || claimed) return json(res, { envelope: null });
@@ -264,10 +263,16 @@ afterAll(async () => {
   for (const dir of roots) rmSync(dir, { recursive: true, force: true });
 });
 
-test("pair, stream a harness approval, render the diff, and open a pull request", async () => {
+test("run, stream a harness approval, render the diff, and open a pull request", async () => {
   const userData = mkdtempSync(path.join(tmpdir(), "shiba-harness-electron-"));
   const runRoot = mkdtempSync(path.join(tmpdir(), "shiba-harness-root-"));
   userDataDirs.push(userData, runRoot);
+  // Native pairing is deferred, so a paired machine is the fixture: the daemon
+  // starts from config.json exactly as the browser CLI would have written it.
+  writeFileSync(
+    path.join(runRoot, "config.json"),
+    JSON.stringify({ workerUrl: stubUrl, adapterToken: "e2e-adapter", machineId: "machine-e2e" }),
+  );
   const app: ElectronApplication = await electron.launch({
     chromiumSandbox: true,
     args: ["test/electron-bootstrap.cjs"],
@@ -284,11 +289,15 @@ test("pair, stream a harness approval, render the diff, and open a pull request"
     await win.waitForURL(`${stubUrl}/app/**`, { timeout: 20_000 });
     await expect
       .poll(async () => win.locator("#daemon").textContent(), { timeout: 20_000 })
-      .toBe("unpaired");
-    await win.getByRole("button", { name: "Pair this computer" }).click();
-    await expect
-      .poll(async () => win.locator("#daemon").textContent(), { timeout: 20_000 })
       .toBe("idle");
+
+    // The page's pairing request is refused with a code the page owns the copy
+    // for, and the running daemon is untouched.
+    await win.getByRole("button", { name: "Connect this computer" }).click();
+    await expect
+      .poll(async () => win.locator("#pair-result").textContent(), { timeout: 10_000 })
+      .toBe("pairing_deferred");
+    await expect.poll(async () => win.locator("#daemon").textContent()).toBe("idle");
 
     await win.getByLabel("Task description").fill("Add a greeting");
     await win.getByRole("button", { name: "Send task" }).click();
