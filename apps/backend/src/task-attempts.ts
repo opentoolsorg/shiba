@@ -205,6 +205,7 @@ export function taskVisibleToPrincipal(task: DurableTask, principal: string | nu
 /** Freeze the same post-default input hash that the run approval gate checks. */
 export function frozenTaskInputFromApproval(approval: PendingApproval): FrozenTaskInput {
   const input: RunInputFields = {
+    ...(approval.routineRun ? { routineRun: { ...approval.routineRun } } : {}),
     ...onboardingRunFields(approval),
     repoUrl: approval.repoUrl,
     ...(approval.executionTarget !== undefined ? { executionTarget: approval.executionTarget } : {}),

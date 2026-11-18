@@ -3,6 +3,9 @@
  * Workspace instances share trigger accounting within their own scope.
  */
 import { APPROVAL_TTL_MS } from "./pending-approvals.js";
+import { LOCAL_INTAKE_HEADER } from "@shiba/shared";
+import { signInternalRequest } from "./edge-identity.js";
+import { listAutomationWorkflowRuns } from "./platform/automation-workflow-store.js";
 import { MAX_APPROVED_TASK_CHARS } from "./task-limits.js";
 import { generateInboundSecret, verifyInboundSignature } from "./webhooks/inbound-signing.js";
 import { openInboundSecret, sealInboundSecret } from "./webhooks/secrets.js";
@@ -116,6 +119,7 @@ const DEDUPE_GC_DELETE_LIMIT = 128;
 async function queueOnOrchestrator(
   stub: OrchestratorStub,
   input: {
+    routineRun?: QueueAutomationRunInput["routineRun"];
     repoUrl: string;
     executionTarget?: QueueAutomationRunInput["executionTarget"];
     task: string;
@@ -128,15 +132,19 @@ async function queueOnOrchestrator(
     expectedCustomAgentVersion?: number;
     orgId?: string;
   },
+  env?: Env,
 ): Promise<{ approvalId: string; deduped?: boolean }> {
-  const queued = await stub.fetch(
-    new Request("https://internal/api/runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-      signal: AbortSignal.timeout(30_000),
-    }),
-  );
+  const request = new Request("https://internal/api/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (input.routineRun && env) {
+    request.headers.set(LOCAL_INTAKE_HEADER, `routine:${encodeURIComponent(input.routineRun.automationId)}:${input.routineRun.test ? "test" : "scheduled"}`);
+    await signInternalRequest(request, env);
+  }
+  const queued = await stub.fetch(request);
   if (!queued.ok) throw new QueueFailure(
     `Queue failed (${queued.status}).`,
     queued.status === 408 || queued.status === 429 || queued.status >= 500,
@@ -274,7 +282,7 @@ export class Automations {
       queueRun: (input) => queueOnOrchestrator(orchestrator, {
         ...input,
         ...(this.env.SHIBA_SCOPED_DO === "1" ? { orgId: this.scope.workspaceId } : {}),
-      }),
+      }, this.env),
       env: this.env,
       resolveCustomAgentPin: async (pin) => {
         if (!this.env.AGENT_AUDIT) return null;
@@ -900,6 +908,15 @@ export class Automations {
     }
     // Update (enabled/prompt only) and delete, used by the /api/v1 automations facade.
     const itemId = /^\/api\/automations\/([^/]+)\/?$/.exec(url.pathname)?.[1];
+    if (itemId && request.method === "GET") {
+      let id: string;
+      try { id = decodeURIComponent(itemId); }
+      catch { return Response.json({ error: "Automation not found." }, { status: 404 }); }
+      const automation = (await this.load()).get(id);
+      if (!automation) return Response.json({ error: "Automation not found." }, { status: 404 });
+      const runs = this.env.AGENT_AUDIT ? await listAutomationWorkflowRuns(this.env, id) : [];
+      return Response.json({ automation: publicAutomation(automation), runs });
+    }
     if (itemId && (request.method === "PATCH" || request.method === "DELETE")) {
       let id: string;
       try {

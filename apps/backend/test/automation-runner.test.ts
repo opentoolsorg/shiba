@@ -88,6 +88,12 @@ function deps(overrides: Partial<FireAutomationDeps> = {}): FireAutomationDeps &
 }
 
 describe("automation fire path", () => {
+  it("marks manual run-now fires as tests", async () => {
+    const automation = createAutomation({ id: "test-now", prompt: "Check", repoUrl: REPO, triggers: [{ kind: "manual" }] }).automation;
+    const d = deps();
+    expect((await fireAutomation(automation, { kind: "manual" }, d)).fired).toBe(true);
+    expect(d.queueRun.mock.calls[0]![0].routineRun).toEqual({ automationId: "test-now", test: true });
+  });
   it("queues an approval-gated run for a due schedule and does not auto-approve", async () => {
     const d = deps();
     const result = await fireAutomation(
@@ -99,6 +105,7 @@ describe("automation fire path", () => {
     expect(result.approvalId).toBe("appr_1");
     expect(d.queueRun).toHaveBeenCalledOnce();
     expect(d.queueRun.mock.calls[0]![0]).toMatchObject({
+      routineRun: { automationId: "nightly", test: false },
       repoUrl: REPO,
       task: "Audit deps",
       threadKey: automationThreadKey("nightly"),

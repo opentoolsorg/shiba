@@ -62,7 +62,7 @@ export async function startAutomationRunWorkflow(
     await patchAutomationWorkflowRun(env, workflowRun.id, {
       status: "dispatched",
       approval_id: queued.approvalId,
-      run_id: queued.runId ?? null,
+      run_id: queued.runId ?? `agent-tool:${queued.approvalId}`,
     });
     if (input.automation.terminalWebhook) {
       await emitWebhookEvent(env, "self-hosted", "automation.finished", {
