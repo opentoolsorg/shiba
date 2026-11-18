@@ -9,6 +9,7 @@ import { updateWorkSearch, type WorkSearchState } from "./work-search";
  * Approval-gated coding tasks delegated to isolated Cloudflare Sandbox containers running OpenCode.
  */
 import { readRoomLink, useRoomLinkRoute } from "./room-links";
+import { readThreadLink, resolveLinkedThread, withThreadLink } from "./thread-links";
 import { normalizeRepositoryInput, REPOSITORY_INPUT_ERROR } from "./repository-input";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useConversationRoomRealtime, type ConversationRoomMessage } from "./conversation-room-realtime";
@@ -517,7 +518,13 @@ export function App(): React.JSX.Element {
   if (mainView === "inbox" && !inboxMounted) setInboxMounted(true);
   const [setupDone, setSetupDone] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [selectedSessionId, setSelectedSessionId] = useState<string>("default");
+  // A thread link is the strongest entry intent, so it seeds selection before
+  // the sessions list arrives; the list later confirms this viewer may open it.
+  const [selectedSessionId, setSelectedSessionId] = useState<string>(() => {
+    if (typeof window === "undefined") return "default";
+    const linked = readThreadLink(window.location.search);
+    return linked && linked !== "invalid" ? linked.threadId : "default";
+  });
 const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const [taskHistoryError, setTaskHistoryError] = useState<string | null>(null);
   const [taskHistoryLoading, setTaskHistoryLoading] = useState(false);
@@ -546,6 +553,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const [sessionApiAvailable, setSessionApiAvailable] = useState(false);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [webSessions, setWebSessions] = useState<WebThread[]>([]);
+  // History navigation restores a thread from its link without a resume round trip.
+  const webSessionsRef = useRef<WebThread[]>([]);
+  webSessionsRef.current = webSessions;
+  const selectedSessionIdRef = useRef<string>(selectedSessionId);
+  selectedSessionIdRef.current = selectedSessionId;
   const [sessionRegistryOwner, setSessionRegistryOwner] = useState<string | null>(null);
 
   // Uploads belong to one session; drop results that arrive after switching threads.
@@ -705,23 +717,33 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [router]);
   const urlSynced = useRef(false);
   useEffect(() => {
-    const path = pathForView(mainView);
     const first = !urlSynced.current;
+    const base = pathForView(mainView);
     if (mainView === "settings") {
       const params = new URLSearchParams(first ? window.location.search : "");
       params.set("section", settingsSection);
-      const target = `${path}?${params.toString()}${first ? window.location.hash : ""}`;
+      const target = `${base}?${params.toString()}${first ? window.location.hash : ""}`;
       if (window.location.pathname + window.location.search + window.location.hash === target) { urlSynced.current = true; return; }
-      if (first || window.location.pathname === path) router.history.replace(target);
+      if (first || window.location.pathname === base) router.history.replace(target);
       else router.history.push(target);
       urlSynced.current = true;
       return;
     }
+    // A shared room carries its own link and never borrows a private thread id.
+    if (mainView === "threads" && readRoomLink(window.location.search) === null) {
+      const query = withThreadLink(window.location.search, selectedSessionId);
+      const path = query ? `${base}?${query}` : base;
+      urlSynced.current = true;
+      if (window.location.pathname + window.location.search === path) return;
+      if (first) router.history.replace(path + window.location.hash);
+      else router.history.push(path);
+      return;
+    }
     urlSynced.current = true;
-    if (window.location.pathname === path) return;
-    if (first) router.history.replace(path + window.location.search + window.location.hash);
-    else router.history.push(path);
-  }, [mainView, settingsSection, router]);
+    if (window.location.pathname === base) return;
+    if (first) router.history.replace(base + window.location.search + window.location.hash);
+    else router.history.push(base);
+  }, [mainView, settingsSection, selectedSessionId, router]);
 
   useEffect(() => {
     const onPop = () => {
@@ -729,6 +751,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setWorkViewMode(workViewFromUrl());
       setMainView(view ?? DEFAULT_VIEW);
       if (view === "settings") setSettingsSection(normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
+      const linked = readThreadLink(window.location.search);
+      const linkedId = linked && linked !== "invalid" ? linked.threadId : null;
+      if (linkedId && linkedId !== selectedSessionIdRef.current &&
+        (linkedId === "default" || webSessionsRef.current.some((session) => session.id === linkedId))) {
+        setSelectedSessionId(linkedId);
+        writeRememberedSessionId(linkedId);
+      }
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -1333,9 +1362,17 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           setSessionApiAvailable(true);
           const nextSessions = Array.isArray(body.sessions) ? body.sessions : [];
           setWebSessions(nextSessions);
-          const restoredSessionId = resolveRememberedSessionId(readRememberedSessionId(), nextSessions);
+          // A link outranks the remembered thread, and only a listed thread opens.
+          const linked = readThreadLink(window.location.search);
+          const linkedId = linked && linked !== "invalid" ? linked.threadId : null;
+          const restoredSessionId = linkedId
+            ? resolveLinkedThread(linkedId, nextSessions)
+            : resolveRememberedSessionId(readRememberedSessionId(), nextSessions);
           setSelectedSessionId(restoredSessionId);
           writeRememberedSessionId(restoredSessionId);
+          if (linkedId && restoredSessionId !== linkedId) {
+            setNotice("That thread isn't available to you. It may belong to another workspace or have been deleted.");
+          }
           // The mount-time fetch can run pre-auth (e.g. AuthScreen up); once a
           // later attempt succeeds, drop the failure it toasted.
           setNotice((n) => (n?.startsWith("Sessions request failed") ? null : n));
@@ -2453,6 +2490,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
   // Named web sessions are selectable chat contexts; retained delegated runs remain inspectable.
   const sessions = useMemo<SessionItem[]>(() => {
+    const botNames = new Map(customAgentRecords.map((record) => [record.id, record.config.name]));
+    const botOf = (session: WebThread) => {
+      const id = threadAgentId(session);
+      return id ? { id, name: botNames.get(id) ?? "Unavailable bot" } : undefined;
+    };
     const items: SessionItem[] = webSessions.map((session) => ({
       id: session.id,
       title:
@@ -2469,6 +2511,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         session.id === selectedSessionId &&
         (chat.isStreaming || chat.status === "streaming"),
       webSession: true,
+      agent: botOf(session),
     }));
     if (!items.some((session) => session.id === "default")) {
       items.unshift({
@@ -2525,6 +2568,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     toolRuns,
     seenAt,
     webSessions,
+    customAgentRecords,
     selectedSessionId,
     launchBlocked,
   ]);
@@ -2829,6 +2873,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         threadStates={{ [selectedSessionId]: chat.isStreaming || chat.status === "streaming" || chat.status === "submitted" ? "working" : pendingApprovals.length > 0 ? "waiting" : "idle" }}
         ownerName={orchestratorName ?? undefined}
         workspaceName={teamWorkspace?.name}
+        loading={customAgentsLoading}
+        error={customAgentsError}
         onSelectAgent={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
         onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
         onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
@@ -2842,6 +2888,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         active={selectedRunId ?? selectedSessionId}
         onSelect={(id) => { void handleSelectSession(id); openView("threads"); }}
         showWorkspaceGroups={false}
+        loading={privateData && threadsLoading}
         sessions={privateData ? sessions : []}
         onNewChat={() => { void handleNewTask(); }}
         onSearchClick={() => setCommandMenuOpen(true)}
@@ -3322,6 +3369,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 <AgentChatHeader
                   sideQuestion={sessionCustomAgentId && selectedSessionId !== "default" && !teamWorkspaceId ? { employeeId: sessionCustomAgentId, threadId: selectedSessionId } : undefined}
                   agent={chatAgent}
+                  thread={selectedSessionId !== "default" && activeWebSession ? {
+                    name: activeWebSession.name,
+                    state: chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"
+                      ? "working"
+                      : pendingApprovals.length + visibleStoredApprovals.length > 0 ? "waiting" : "idle",
+                  } : undefined}
                   participants={[{ id: "you", name: "You" }, { id: chatAgent.id, name: chatAgent.name }]}
                   panelOpen={agentDetailsOpen}
                   onTogglePanel={() => setAgentDetailsOpen((open) => !open)}
@@ -3394,8 +3447,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                            strokeWidth={1.8}
+                            d="M9 4H5a1 1 0 00-1 1v14a1 1 0 001 1h4M15 4h4a1 1 0 011 1v14a1 1 0 01-1 1h-4M12 4v16"
                           />
                         </svg>
                       </button>

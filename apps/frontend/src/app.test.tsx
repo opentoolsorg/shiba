@@ -1182,3 +1182,76 @@ describe("first-run setup reminders", () => {
     expect(screen.queryByRole("dialog", { name: "Your first task is waiting" })).toBeNull();
   });
 });
+
+describe("bot thread links", () => {
+  const research = { id: "cag-research", orgId: "self-hosted", slug: "research", version: 1, config: { name: "Research bot", instructions: "Write briefs.", harness: "opencode" } };
+  const engineering = { id: "cag-engineering", orgId: "self-hosted", slug: "engineering", version: 1, config: { name: "Engineering bot", instructions: "Review code.", harness: "opencode" } };
+  const RESEARCH_THREAD = "11111111-1111-4111-8111-111111111111";
+  const ENGINEERING_THREAD = "22222222-2222-4222-8222-222222222222";
+  const threads = [
+    { id: RESEARCH_THREAD, name: "Competitor brief", agentName: `web:test-operator:${RESEARCH_THREAD}`, createdAt: 3, updatedAt: 3, metadata: { customAgentId: research.id } },
+    { id: ENGINEERING_THREAD, name: "Flaky test triage", agentName: `web:test-operator:${ENGINEERING_THREAD}`, createdAt: 2, updatedAt: 2, metadata: { customAgentId: engineering.id } },
+  ];
+  function stubThreads(sessions = threads) {
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
+      if (path === "/api/custom-agents" && options?.method !== "POST") return Response.json({ agents: [research, engineering] });
+      if (path === "/api/sessions" && options?.method === "POST") return Response.json({ status: 201, session: { id: "44444444-4444-4444-8444-444444444444", name: "Research bot", agentName: "web:test-operator:44444444-4444-4444-8444-444444444444", createdAt: 4, updatedAt: 4, metadata: { customAgentId: research.id } } });
+      if (path === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions, defaultSessionId: "default" });
+      if (/^\/api\/sessions\/[^/]+\/resume$/.test(path)) return Response.json({ session: sessions.find((item) => path.includes(item.id)) ?? null, resumed: true });
+      if (path === "/api/agents") return Response.json({ agents: [] });
+      if (path === "/api/approvals") return Response.json({ approvals: [], decided: [] });
+      if (path.startsWith("/api/runs")) return Response.json({ runs: [] });
+      return originalFetch(url, options);
+    }));
+  }
+
+  it("reopens a linked thread with its bot identity and history, keeping the link", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [{ id: "m1", role: "assistant", parts: [{ type: "text", text: "Annual report history" }] }] as never[];
+    stubThreads();
+    render(<App />);
+    await screen.findByText("Annual report history");
+    expect(screen.getAllByText("Research bot").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Competitor brief").length).toBeGreaterThan(0);
+    expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD);
+  });
+
+  it("switches bots through the thread list and rewrites the link with the thread's own bot", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    stubThreads();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Flaky test triage/ }));
+    await waitFor(() => expect(screen.getAllByText("Flaky test triage").length).toBeGreaterThan(1));
+    const crumbs = screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent ?? "").join(" ");
+    expect(crumbs).toContain("Engineering bot");
+    expect(crumbs).not.toContain("Research bot");
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
+  });
+
+  it("falls back to the default session when the link names a thread this viewer cannot list", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/?session=33333333-3333-4333-8333-333333333333");
+    mocks.chat.messages = [];
+    stubThreads();
+    render(<App />);
+    expect(await screen.findByText(/That thread isn't available to you/)).toBeTruthy();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+  });
+
+  it("records a freshly created bot thread in the address bar", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    mocks.chat.messages = [];
+    stubThreads();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Chat" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "New chat" }))[0]!);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe("44444444-4444-4444-8444-444444444444"));
+  });
+});
