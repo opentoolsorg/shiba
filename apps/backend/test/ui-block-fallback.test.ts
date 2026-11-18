@@ -28,7 +28,7 @@ describe("inbound fallback answers", () => {
       expect(queueRun).not.toHaveBeenCalled();
     } finally { sqlite.close(); }
   });
-  it.each(["slack:T1:C1:123.000001", "telegram:12345", "discord:4815162342"])("validates authorization, parsing, and current task for %s", async (threadId) => {
+  it.each(["slack:T1:C1:123.000001", "telegram:12345", "discord:123456789012345678"])("validates authorization, parsing, and current task for %s", async (threadId) => {
     const { database, sqlite } = customAgentD1();
     try {
       sqlite.exec(readFileSync(new URL("../migrations/0068_ui_block_questions.sql", import.meta.url), "utf8"));

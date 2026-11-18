@@ -42,7 +42,7 @@ describe("employee extension skill runtime", () => {
     expect(Object.keys(tools)).not.toContain("run_code");
     expect(Object.keys(tools)).not.toContain("delegate_coding_task");
     const turn = await instance.beforeTurn({ tools, system: "base" } as never);
-    expect(turn.activeTools).toEqual(["ask_ui", "list_skills", "get_skill_instructions"]);
+    expect(turn.activeTools).toEqual(["update_plan", "ask_ui", "list_skills", "get_skill_instructions"]);
     expect(turn.instructions).toContain("Style: Short drafts");
     expect(turn.instructions).not.toContain("Write short paragraphs.");
     expect(turn.instructions).not.toContain("Private: Secret");
@@ -70,10 +70,14 @@ describe("employee extension skill runtime", () => {
     expect(managed.instructions).toContain("never grant tools or approve actions");
   });
 
-  it("keeps Chat tool-free and never guesses a Slack reader identity", async () => {
+  it("keeps Chat to media tools only and never guesses a Slack reader identity", async () => {
     const env = { AGENT_AUDIT: customAgentD1().database } as unknown as Env;
     const chat = host(env, owner, { shibaMode: "chat", shibaWorkTarget: "app-tools" });
-    expect(chat.getTools()).toEqual({});
+    const chatTools = chat.getTools();
+    expect(chatTools.web_search).toBeDefined();
+    expect(chatTools.run_code).toBeUndefined();
+    expect(chatTools.delegate_coding_task).toBeUndefined();
+    expect(chatTools.list_skills).toBeUndefined();
     expect((await chat.beforeTurn({ tools: { list_skills: {} }, system: "base" } as never)).activeTools).toEqual([]);
     const slack = host(env, "slack:T1:C1:123.000001", {});
     expect(slack.getTools().list_skills).toBeUndefined();
