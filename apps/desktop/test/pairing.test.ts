@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { isSetupSender, parseDeploymentUrl } from "../src/navigation.js";
+import { createIpcBounds } from "../src/ipc-guard.js";
 import { registerDesktopIpc } from "../src/pairing.js";
 import type { ChildLike } from "../src/controller.js";
 import type { DesktopIpcDeps, DesktopStatus } from "../src/pairing.js";
@@ -43,6 +44,7 @@ function makeDeps(overrides: Partial<DesktopIpcDeps> = {}) {
     runRoot: mkdtempSync(join(tmpdir(), "shiba-pair-test-")),
     confirmPairElsewhere: vi.fn(async () => true),
     readLocalConfig: () => null,
+    bounds: createIpcBounds(),
     ...overrides,
   };
   return { deps, handlers };
@@ -85,7 +87,8 @@ describe("desktop:pair", () => {
     const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
     await new Promise((r) => setTimeout(r, 0));
     expect(deps.supervisor.stop).toHaveBeenCalled();
-    expect(forkDaemon).toHaveBeenCalledWith(["--connect", ORIGIN, "--pair", "nonce.sig"]);
+    // The token rides the child environment, never argv (D7).
+    expect(forkDaemon).toHaveBeenCalledWith(["--connect", ORIGIN, "--pair"], "nonce.sig");
     child.emit("message", { type: "status", state: "polling", machineId: "m1", harnesses: [] });
     expect(await pending).toEqual({ ok: true });
   });

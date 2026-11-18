@@ -30,6 +30,7 @@ export interface ControllerDeps {
   fork(
     args: string[],
     hooks: { onLog(chunk: string): void; onMessage(msg: unknown): void; onExit(code: number | null): void },
+    pairingToken?: string,
   ): ChildLike;
   onStatus(status: DesktopStatus): void;
   onSettled(msg: Extract<DaemonStatusMessage, { state: "settled" }>): void;
@@ -110,7 +111,7 @@ export function createController(deps: ControllerDeps) {
     }
   }
 
-  function start(args: string[]): ChildLike {
+  function start(args: string[], pairingToken?: string): ChildLike {
     // A probe during restart backoff must not leave the timer to fork a duplicate.
     clearT(restartTimer);
     restartTimer = undefined;
@@ -122,7 +123,7 @@ export function createController(deps: ControllerDeps) {
       onLog: (chunk) => deps.log(`daemon: ${chunk.replace(/\n$/, "")}`),
       onMessage: (msg) => { if (child === spawned) translate(msg); },
       onExit: (code) => handleExit(code, spawned, exitCtx),
-    });
+    }, pairingToken);
     child = spawned;
     return spawned;
   }
@@ -231,7 +232,7 @@ export function createController(deps: ControllerDeps) {
     stop,
     retry: retryDaemon,
     /** Pairing forks run once; after the first "polling" they are the live daemon. */
-    forkForPairing: (args: string[]) => start(args),
+    forkForPairing: (args: string[], pairingToken: string) => start(args, pairingToken),
     setStatus: set,
     dispose: () => {
       disposed = true;

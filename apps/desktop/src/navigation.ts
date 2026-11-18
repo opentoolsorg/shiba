@@ -1,3 +1,5 @@
+import { hasControlChars } from "./safe-text.js";
+
 export type NavigationDecision = "allow" | "external" | "deny";
 
 // host or host/path-prefix hops a hosted IdP login needs (D6).
@@ -10,6 +12,9 @@ export const DEFAULT_AUTH_HOSTS = [
 ];
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1"]);
+const MAX_URL_CHARS = 2048;
+/** Dashboard tabs a native surface may load — the same set the tray and deep links use. */
+const APP_TABS = new Set(["tasks", "diff", "approvals", "providers", "remote", "activity"]);
 
 function tryParse(input: string): URL | null {
   try {
@@ -54,6 +59,50 @@ export function decideNavigation(
   if (url.hostname.endsWith(".cloudflareaccess.com")) return "allow";
   if (authHosts.some((entry) => matchesAuthHost(url, entry))) return "allow";
   return "external";
+}
+
+/**
+ * The URL (if any) a main-frame navigation may hand to the OS browser: an
+ * uncredentialed https link that is neither the app itself nor an in-app auth
+ * host. Returns the normalized href, so the caller never passes raw input on.
+ */
+export function externalHandoffUrl(
+  target: string,
+  configuredOrigin: string,
+  authHosts: readonly string[] = DEFAULT_AUTH_HOSTS,
+): string | null {
+  if (target.length === 0 || target.length > MAX_URL_CHARS) return null;
+  const decision = decideNavigation(target, configuredOrigin, authHosts);
+  if (decision !== "external") return null;
+  const url = tryParse(target);
+  if (!url || url.protocol !== "https:") return null;
+  url.username = "";
+  url.password = "";
+  url.hash = "";
+  return url.toString();
+}
+
+/**
+ * Subframes stay on the app's own origin. The dashboard embeds same-origin,
+ * sandboxed previews; nothing else may navigate a frame inside the shell.
+ */
+export function isSubframeNavigationAllowed(
+  target: string,
+  configuredOrigin: string,
+): boolean {
+  if (!configuredOrigin) return false;
+  const url = tryParse(target);
+  if (!url || url.username || url.password) return false;
+  return url.origin === configuredOrigin;
+}
+
+/** An app-internal path the shell may load: `/app/` or `/app/?tab=<known tab>`. */
+export function isSafeAppPath(value: string): boolean {
+  if (value.length === 0 || value.length > 256) return false;
+  if (hasControlChars(value) || /\s|\\/.test(value)) return false;
+  if (value === "/app/") return true;
+  if (!value.startsWith("/app/?tab=")) return false;
+  return APP_TABS.has(value.slice("/app/?tab=".length));
 }
 
 /** IPC gate (D4): only frames on the configured origin may call privileged handlers. */

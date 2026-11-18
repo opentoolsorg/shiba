@@ -64,6 +64,8 @@ export interface ForkOptions {
   daemonPath: string;
   args: string[];
   env: Record<string, string>;
+  /** Single-use pairing token; lives in the child's environment, never in argv. */
+  pairingToken?: string;
   onLog(chunk: string): void;
   onMessage(msg: unknown): void;
   onExit(code: number | null): void;
@@ -73,7 +75,7 @@ export interface ForkOptions {
 export function forkDaemon(o: ForkOptions): UtilityProcess {
   const { utilityProcess } = require("electron") as typeof import("electron");
   const child = utilityProcess.fork(o.daemonPath, o.args, {
-    env: o.env,
+    env: o.pairingToken ? { ...o.env, SHIBA_PAIRING_TOKEN: o.pairingToken } : o.env,
     stdio: "pipe",
     serviceName: "shiba-local-daemon",
   });
