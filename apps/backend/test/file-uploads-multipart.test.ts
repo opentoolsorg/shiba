@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
@@ -60,9 +58,7 @@ function r2Fixture() {
 
 describe("multipart file uploads", () => {
   it("completes a session and stores bytes in FILES", async () => {
-    const { database, sqlite } = customAgentD1();
-    const migration = readFileSync(new URL("../migrations/0050_files_notes.sql", import.meta.url), "utf8");
-    sqlite.exec(migration);
+    const { database } = customAgentD1();
     const storage = r2Fixture();
     const env = {
       AGENT_AUDIT: database,

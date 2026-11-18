@@ -127,8 +127,9 @@ describe("operator-managed account provenance boundary (synthetic metadata, no c
     }), env);
     expect(response?.status).toBe(403);
     expect(await response?.json()).toMatchObject({ error: "integration_connection_not_owned" });
-    // Rejection occurs before even initializing the grant or approval stores.
-    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name IN ('employee_tool_grants','employee_tool_approvals')").all()).toEqual([]);
+    // Rejection creates neither grants nor approvals.
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM employee_tool_grants").get()).toEqual({ n: 0 });
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM employee_tool_approvals").get()).toEqual({ n: 0 });
     expectMetadataOnly(transport);
   });
 });

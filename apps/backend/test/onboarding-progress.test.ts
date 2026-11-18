@@ -1,14 +1,15 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import { describe, expect, it } from "vitest";
 import { deriveOnboardingStatus } from "@shiba/shared";
 import { handleOnboardingProgress, readAcceptedDeliverableEvidence, readSuccessfulRunEvidence, resolvePreparedOnboardingDraft, readOnboardingSourceRefs, type OnboardingIdentity, type OnboardingProgress, type OnboardingSourceRef } from "../src/onboarding-progress.js";
 import { createCustomAgent, updateCustomAgent } from "../src/custom-agents-store.js";
-import { BETTER_AUTH_STATEMENTS, ensureBetterAuthSchema } from "../src/better-auth.js";
+import { ensureBetterAuthSchema } from "../src/better-auth.js";
 import type { Env } from "../src/env.js";
 import { createWebSession } from "../src/web-sessions.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
-function context() {
-  const { database, sqlite } = customAgentD1();
+function context(bare = false) {
+  const { database, sqlite } = customAgentD1({ bare });
   const env = { AGENT_AUDIT: database, BETTER_AUTH_SECRET: "s".repeat(32) } as unknown as Env;
   let identity: OnboardingIdentity | null = { userId: "auth-user-a", ownerEmail: "a@example.test" };
   let now = 100;
@@ -199,7 +200,7 @@ describe("server-owned onboarding progress", () => {
   });
 
   it("does not carry forward legacy activation that was based only on a successful run", async () => {
-    const ctx = context();
+    const ctx = context(true);
     ctx.sqlite.exec(`CREATE TABLE user_onboarding_progress (
       user_id TEXT PRIMARY KEY,current_step TEXT NOT NULL,dismissed_at INTEGER,
       connection_verified_at INTEGER,first_successful_run_at INTEGER,activated_at INTEGER,
@@ -207,6 +208,7 @@ describe("server-owned onboarding progress", () => {
     )`);
     ctx.sqlite.prepare(`INSERT INTO user_onboarding_progress
       VALUES ('auth-user-a','employee',NULL,10,20,30,4,1,30)`).run();
+    applyAllMigrations(ctx.sqlite);
     const progress = await (await call(ctx)).json() as { activatedAt: number | null; acceptedArtifactAt: number | null; revision: number };
     expect(progress).toMatchObject({ activatedAt: null, acceptedArtifactAt: null, revision: 5 });
   });
@@ -269,13 +271,14 @@ describe("server-owned onboarding progress", () => {
   });
 
   it("clears legacy artifact activation with no goal binding during additive migration", async () => {
-    const ctx = context();
+    const ctx = context(true);
     ctx.sqlite.exec(`CREATE TABLE user_onboarding_progress (
       user_id TEXT PRIMARY KEY,current_step TEXT NOT NULL,dismissed_at INTEGER,
       connection_verified_at INTEGER,first_successful_run_at INTEGER,accepted_artifact_at INTEGER,activated_at INTEGER,
       revision INTEGER NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL
     )`);
     ctx.sqlite.prepare(`INSERT INTO user_onboarding_progress VALUES ('auth-user-a','employee',NULL,10,20,25,30,4,1,30)`).run();
+    applyAllMigrations(ctx.sqlite);
     expect(await (await call(ctx)).json()).toMatchObject({ acceptedArtifactAt: null, activatedAt: null, revision: 5, draftTaskId: null });
     expect(await (await call(ctx)).json()).toMatchObject({ revision: 5 });
   });
@@ -324,8 +327,6 @@ describe("server-owned onboarding progress", () => {
 
   it("resolves execution handoff only for the current auth owner and current configured employee", async () => {
     const ctx = context();
-    // The fixture includes the migration marker; seed the schema it represents.
-    for (const statement of BETTER_AUTH_STATEMENTS) ctx.sqlite.exec(statement);
     await ensureBetterAuthSchema(ctx.env);
     ctx.sqlite.prepare(`INSERT INTO "user" (id,name,email,emailVerified,createdAt,updatedAt) VALUES ('auth-user-a','A','a@example.test',1,1,1)`).run();
     const config = { name: "Research", emoji: "R", instructions: "Produce a draft", harness: "opencode" as const };

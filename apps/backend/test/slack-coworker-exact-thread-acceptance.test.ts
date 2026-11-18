@@ -20,7 +20,6 @@ describe("private coworker exact-thread acceptance", () => {
   it("denies other threads, channels and users without consuming the authorized event", async () => {
     const { database, sqlite } = customAgentD1();
     try {
-      sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT)');
       for (const migration of ["0018_slack_installations.sql", "0024_slack_coworker.sql"])
         sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
       const member = {
@@ -31,8 +30,8 @@ describe("private coworker exact-thread acceptance", () => {
         role: "owner" as const,
         joinedAt: 1,
       };
-      sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(member.accountId, member.userId);
-      sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?)").run(member.accountId, member.userId);
+      sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(member.accountId, member.userId);
+      sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')").run(member.accountId, member.userId);
       sqlite.prepare("INSERT INTO team_workspaces VALUES(?,?,?,?,?)").run("self-hosted", member.workspaceId, "Test", 1, 1);
       sqlite.prepare("INSERT INTO team_workspace_memberships(tenant_id,workspace_id,user_id,role,status,version,joined_at) VALUES('self-hosted',?,?,?,'active',1,1)").run(member.workspaceId, member.userId, member.role);
       sqlite.prepare(`INSERT INTO slack_installations(id,workspace_id,owner_id,owner_account_id,owner_member_json,app_id,team_id,bot_user_id,bot_id,installer_slack_user_id,scopes_json,generation,version,token_revision,state,digest,token_cipher,activation_expires_at,created_at)

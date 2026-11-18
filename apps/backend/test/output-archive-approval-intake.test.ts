@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orchestrator.js";
 import { runInputHash, type PendingApproval } from "@shiba/shared";
 import type { Env } from "../src/env.js";
-import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { StoredApprovalCard } from "../../frontend/src/components/WorkspacePanel.js";
 const mock = vi.hoisted(() => ({ native: true, execute: vi.fn() }));
@@ -22,8 +22,7 @@ const OWNER = "owner@example.test", INPUT = { repoUrl: "https://github.com/fixtu
 function fixture() {
   const db = customAgentD1(); databases.push(db.sqlite);
   db.sqlite.exec(readFileSync(new URL("../migrations/0022_run_output_archives.sql", import.meta.url), "utf8"));
-  db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT,emailVerified INTEGER);CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT,kind TEXT)');
-  db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run("native-owner", OWNER); db.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?,'bootstrap')").run("native-owner", OWNER);
+  db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run("native-owner", OWNER); db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind) VALUES(?,?,'bootstrap')").run("native-owner", OWNER);
   const namespace = vi.fn(() => { throw new Error("No sandbox before explicit human approval"); });
   const instance = Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
     env: { ...productionEnvStubs(), Sandbox: { get: namespace, idFromName: namespace }, AGENT_AUDIT: db.database } as unknown as Env,
@@ -31,7 +30,7 @@ function fixture() {
     setState(next: OrchestratorState) { setStateLikeProduction(this, next); },
   });
   return { ...db, instance, namespace, async queue(extra: Record<string, unknown> = {}) {
-    return instance.onRequest(new Request("https://internal/api/runs", { method: "POST", headers: { "Content-Type": "application/json", "X-Shiba-Intake": "dashboard" }, body: JSON.stringify({ ...INPUT, threadKey: OWNER, ...extra }) }));
+    return sendWorkerRequest(instance, new Request("https://internal/api/runs", { method: "POST", headers: { "Content-Type": "application/json", "X-Shiba-Intake": "dashboard" }, body: JSON.stringify({ ...INPUT, threadKey: OWNER, ...extra }) }));
   } };
 }
 describe("native output archive frozen before the actual queue approval", () => {
