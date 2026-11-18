@@ -1,4 +1,5 @@
 import { connectedDefaultForUser } from "../acp-providers.js";
+import { continuationDecision, type ContinuationState } from "./plan-continuation.js";
 import { answerSideQuestion, sideQuestionSchema } from "../side-question.js";
 import { isTerminalStatus, usageBudgetPolicySchema, type UsageBudgetPolicy } from "@shiba/shared";
 import { meterSandboxRun } from "../sandbox-metering.js";
@@ -350,6 +351,7 @@ export interface OrchestratorState {
   outbox?: OutboxEntry[];
   /** Specialist fan-out budget survives parent eviction during the same user turn. */
   specialistBudget?: { turnId: string; remaining: number };
+  planContinuation?: ContinuationState;
   publicationReviews?: PublicationReviewRecord[];
   runResultContext?: Record<string, { summary: string; exitCode: number; changedFileCount: number }>;
 }
@@ -1210,6 +1212,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   /** Deliver the persisted coordinator decision to its authenticated Slack thread. */
   override onChatResponse(result: ChatResponseResult): void {
+    this.queuePlanContinuation(result);
     if (this.sessionDeleted || !parseSlackThreadName(this.name)) return;
     const text = redactSecrets(messageText(result.message)).trim();
     if (text) this.postToThread(text, { persona: "lead", causationId: `slack-decision:${result.requestId}:${result.message.id}` });
@@ -1230,6 +1233,60 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       };
       this.postToThread(approvalCardText(card), { persona: "lead", causationId: `slack-run-approval:${approval.approvalId}`, blocks: buildApprovalBlocks(card) });
     }
+  }
+
+  private currentContinuation(): ContinuationState | undefined {
+    const user = (this.messages ?? []).filter((message) => message.role === "user").at(-1);
+    if (!user) return undefined;
+    const saved = this.state.planContinuation;
+    return saved && (saved.requestId === user.id || saved.messageIds.includes(user.id))
+      ? saved : { requestId: user.id, messageIds: [], count: 0, plan: [] };
+  }
+
+  private queuePlanContinuation(result: ChatResponseResult): void {
+    if (this.sessionDeleted || this.state.personalExecutionOnly || isChatOnlyTurn(this.messages)) return;
+    const saved = this.currentContinuation();
+    if (!saved || saved.lastResponseId === result.message.id) return;
+    const user = (this.messages ?? []).filter((message) => message.role === "user").at(-1);
+    const decision = continuationDecision({
+      text: messageText(result.message), plan: saved.plan, count: saved.count,
+      messageMetadata: user?.metadata,
+      completed: result.status === "completed",
+      pendingApproval: this.approvals.some((approval) => approval.status === "pending"),
+      limitReached: executionBudgetSnapshot(this.store.list(), this.budgetConfig()).limitReached ||
+        evaluateUsageBudget(this.usageBudgetPolicy(), this.store.list(), Date.now(), this.usageBudgetMeter()).blocked,
+    });
+    if (!decision.continue && decision.reason === "nothing_to_continue" && saved.plan.length === 0 && saved.count === 0) return;
+    const count = saved.count + (decision.continue ? 1 : 0);
+    const id = `plan-continuation:${saved.requestId}:${count}`;
+    this.emitSpine({ kind: "run.progress", runId: saved.requestId, commandId: `plan-continuation:${result.message.id}`, at: Date.now(),
+      payload: { summary: `Plan continuation ${decision.continue ? "queued" : "stopped"}: ${decision.reason}`, patch: { continuationCount: count } } });
+    this.setState({ ...this.state, planContinuation: { ...saved, count, lastResponseId: result.message.id,
+      messageIds: decision.continue ? [...saved.messageIds, `${id}:message`] : saved.messageIds } });
+    if (!decision.continue) return;
+    this.holdOpen(this.runTurn({ mode: "submit", submissionId: id, idempotencyKey: id,
+      input: { id: `${id}:message`, role: "user", metadata: user?.metadata,
+        parts: [{ type: "text", text: "Continue the same requested work and remaining plan steps. Do not start a new action or bypass any approval or usage limit. Update the plan as steps finish." }] },
+      metadata: { source: "plan-continuation", requestId: saved.requestId, reason: decision.reason, count },
+    }).catch((error) => {
+      this.emitSpine({ kind: "run.progress", runId: saved.requestId, commandId: `${id}:failed`, at: Date.now(),
+        payload: { summary: "Plan continuation stopped: queue_failed" } });
+      this.setState({ ...this.state });
+      console.error("Plan continuation queue failed", redactSecrets(String(error)));
+    }));
+  }
+
+  private planTool(): ToolSet {
+    return { update_plan: tool({
+      description: "Track the current request's plan. Replace all steps and mark finished steps done.",
+      inputSchema: z.object({ steps: z.array(z.object({ step: z.string().min(1).max(1000), status: z.enum(["pending", "in_progress", "done"]) })).max(100) }),
+      execute: async ({ steps }) => {
+        const saved = this.currentContinuation();
+        if (!saved) return { error: "No current request" };
+        this.setState({ ...this.state, planContinuation: { ...saved, plan: steps } });
+        return { steps };
+      },
+    }) };
   }
 
   protected override onSubmissionStatus(submission: ThinkSubmissionInspection): void {
@@ -1290,6 +1347,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (isAppToolsOnlyTurn(this.messages)) {
       return {
+        ...this.planTool(),
         ...this.askUiTools(),
         ...createEmployeeRunTools(this.env, () => null, () => this.name ?? null,
           () => "self-hosted", () => null, this.employeeDraftStore(),
@@ -1304,7 +1362,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     const delegate = this.approvedRunDelegate();
     const codeOwner = initiatorUserIdFromOrchestratorName(this.name);
-    const turnId = (this.messages ?? []).filter((message) => message.role === "user").at(-1)?.id ?? "initial";
+    const turnId = this.currentContinuation()?.requestId ?? "initial";
     if (!this.specialistTurn || this.specialistTurn.turnId !== turnId) {
       const remaining = this.state?.specialistBudget?.turnId === turnId
         ? this.state.specialistBudget.remaining : MAX_SPECIALIST_TASKS_PER_TURN;
@@ -1326,6 +1384,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     });
     const tools: ToolSet = {
       ...super.getTools(),
+      ...this.planTool(),
       ...this.askUiTools(),
       ...specialistTools,
       delegate_task: createDelegateTaskTool(specialistTools, this.specialistTurn.budget,
@@ -1445,6 +1504,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const selectedSkills = context ? await this.employeeSelectedSkills(context.employeeId) : { instructions: "" };
       return {
         activeTools: Object.keys(ctx.tools).filter((name) => {
+          if (name === "update_plan") return Boolean(context);
           if (name === "ask_ui") return Boolean(context);
           if (name === "list_skills" || name === "get_skill_instructions") return Boolean(context);
           if (isLazyCatalogToolName(name)) return allowed;
