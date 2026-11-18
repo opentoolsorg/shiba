@@ -41,6 +41,8 @@ Pairing runs from the browser because that is where the token is minted, for you
 
 The dashboard decides what the desktop window renders, so deploy this web change before or together with the shell that refuses native pairing. An older dashboard bundle opened in the new shell still contains its own **Add computer** button and token dialog — the shell cannot remove a control the page draws — and a new bundle in an older shell hides the button and shows the instruction. Either way the token comes from the browser session; the shell is not a second authority for it.
 
+The same rule covers the personal pairing code used for personal-subscription execution: a desktop window shows a browser instruction there too, and never mints, displays, or copies that code. Both surfaces read the same web bundle, so the rollout order above covers them together.
+
 ## Files on the machine
 
 The daemon keeps its state in `~/.shiba-local/`. Set `SHIBA_LOCAL_RUN_ROOT` to use a different directory.

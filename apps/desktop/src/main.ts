@@ -34,7 +34,6 @@ import { DEFAULT_AUTH_HOSTS, isSafeAppPath, parseDeploymentUrl } from "./navigat
 import type { DesktopSupervisor } from "./pairing.js";
 import { emitStatusChanged, registerDesktopIpc } from "./pairing.js";
 import { handleDaemonMessage } from "./run-notify.js";
-import { stripControlChars } from "./safe-text.js";
 import type { Env } from "./shell-env.js";
 import { captureShellEnv } from "./shell-env.js";
 import { registerShellIpc } from "./shell-ipc.js";
@@ -161,19 +160,17 @@ function loadDashboard(): void {
  * copies of the gate (which would hand one link to the browser twice).
  */
 function attachLoadFailure(win: BrowserWindow): void {
-  win.webContents.on("did-fail-load", (_e, code, description, validatedUrl, isMainFrame) => {
+  win.webContents.on("did-fail-load", (_e, code, _description, validatedUrl, isMainFrame) => {
     // -3 = ERR_ABORTED (superseded navigation), not a real failure.
     if (!isMainFrame || code === -3) return;
     const origin = configuredOrigin();
     if (origin && validatedUrl.startsWith(origin)) {
-      // The description is Chromium's own net-error vocabulary, not page text;
-      // it is still control-stripped and capped before it reaches the log or the
-      // setup page, and the numeric code goes on its own.
-      const reason = stripControlChars(description).slice(0, 120);
-      logEvent({ event: "load-failed", code, url: origin, detail: reason });
-      // Recovery keeps the saved URL and shows the address form with the reason,
+      // Persistent diagnostics carry no free-form input: the numeric code is the
+      // record, and the page shows fixed copy plus that code.
+      logEvent({ event: "load-failed", code, url: origin });
+      // Recovery keeps the saved URL and shows the address form with the code,
       // so a retry is one Continue away and nothing is silently forgotten.
-      loadSetup(`Could not load ${origin}: ${reason}`);
+      loadSetup(`Could not load ${origin} (error ${code}). Check the address and try again.`);
     }
   });
 }
@@ -387,7 +384,9 @@ function notify(n: { title: string; body: string }, onClick: () => void): void {
 function loadAppUrl(url: string): void {
   const origin = configuredOrigin();
   if (!origin || !url.startsWith(`${origin}/`)) {
-    logEvent({ event: "app-url-refused", url });
+    // A deep link or notification click is caller-supplied text: the event name
+    // is the record, and the refused string is never written anywhere.
+    logEvent({ event: "app-url-refused" });
     return;
   }
   openPath(url.slice(origin.length));
@@ -396,7 +395,7 @@ function loadAppUrl(url: string): void {
 /** Loads an app-internal path; a native caller can only reach a known tab. */
 function openPath(pathAndQuery: string): boolean {
   if (!isSafeAppPath(pathAndQuery)) {
-    logEvent({ event: "app-path-refused", detail: pathAndQuery });
+    logEvent({ event: "app-path-refused" });
     return false;
   }
   const origin = configuredOrigin();

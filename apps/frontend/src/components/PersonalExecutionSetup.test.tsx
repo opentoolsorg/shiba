@@ -4,7 +4,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PersonalExecutionSetup } from "./PersonalExecutionSetup";
 import { personalFixture, PERSONAL_ACTOR, PERSONAL_WORKSPACE } from "../personal-execution-fixtures";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  delete (window as unknown as { shibaDesktop?: unknown }).shibaDesktop;
+});
+
+/** Today's shell bridge; the capability list is what the preload ships. */
+const shellBridge = { bridgeVersion: 1, appVersion: "0.1.0", platform: "darwin", surface: "dashboard",
+  capabilities: ["status", "unpair", "onStatus", "claudeLogin"], status: async () => ({ state: "unpaired" }),
+  pair: async () => ({ ok: false, code: "pairing_deferred" }), unpair: async () => ({ ok: true }),
+  onStatus: () => () => {}, startClaudeLogin: async () => ({ ok: true }) };
+/** An older preload: same globals, no capability list. */
+const legacyShellBridge = { ...shellBridge, appVersion: "0.0.9", capabilities: undefined };
 function fixture() {
   const state = personalFixture(); let grants = [state.grant];
   const calls: Array<{ path: string; init?: RequestInit }> = [];
@@ -129,5 +142,20 @@ describe("explicit personal setup", () => {
     await act(async () => { delayed[0]!(Response.json({ computers: [state.computer] })); delayed[1]!(Response.json({ grants: [state.grant] })); });
     expect(screen.queryByText(/machine-personal/)).toBeNull();
     expect(screen.getByLabelText("Personal account grant for this room task")).toHaveProperty("value", ""); expect(second).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["current bridge", shellBridge],
+    ["legacy bridge without capabilities", legacyShellBridge],
+  ])("never mints or shows a personal pairing code in a shell (%s)", async (_name, bridge) => {
+    (window as unknown as { shibaDesktop?: unknown }).shibaDesktop = bridge;
+    const f = fixture(); render(<PersonalExecutionSetup {...props()} />); await openSetup();
+    expect(screen.queryByRole("button", { name: "Generate my personal pairing code" })).toBeNull();
+    expect(screen.queryByLabelText("Native CLI to pair")).toBeNull();
+    expect(screen.queryByLabelText("Locally inspected account fingerprint")).toBeNull();
+    expect(screen.getByText(/Open this Shiba in your browser to generate a personal pairing code/)).toBeTruthy();
+    // The setup still loads its own data, and nothing asks for a pairing token.
+    expect(f.calls.some((call) => call.path.endsWith("/pairing-token"))).toBe(false);
+    expect(f.calls.every((call) => call.init?.method === "GET")).toBe(true);
   });
 });

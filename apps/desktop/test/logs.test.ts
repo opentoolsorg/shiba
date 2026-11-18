@@ -30,12 +30,14 @@ it("redacts credential shapes and keeps run ids readable", () => {
 it("writes one JSON line with allowlisted keys only", () => {
   const dir = mkdtempSync(join(tmpdir(), "shiba-logs-"));
   const log = createLogger(dir, "main.log", 100_000);
-  log.event({ event: "navigation", action: "deny", url: "https://example.org/", detail: undefined });
-  log.event({ event: "pair", state: "paired", token: "abc.def" } as never);
+  log.event({ event: "navigation", action: "deny", url: "https://example.org/", bytes: 12 });
+  // Unknown keys, free-form text included, never survive: there is no such field.
+  log.event({ event: "pair", state: "paired", token: "abc.def", detail: "repo acme/widgets" } as never);
   const lines = readFileSync(join(dir, "main.log"), "utf8").trim().split("\n");
   const first = JSON.parse(lines[0]!.replace(/^\S+ /, "")) as Record<string, unknown>;
-  expect(first).toEqual({ event: "navigation", action: "deny", url: "https://example.org/" });
+  expect(first).toEqual({ event: "navigation", action: "deny", url: "https://example.org/", bytes: 12 });
   expect(lines[1]).not.toContain("abc.def");
+  expect(lines[1]).not.toContain("acme/widgets");
 });
 
 it("formatLogEvent drops keys outside the allowlist", () => {

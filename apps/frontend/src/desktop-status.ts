@@ -41,6 +41,15 @@ export function shouldShowConnect(
   return !HIDE_CONNECT_STATES.includes(status?.state ?? "");
 }
 
+/**
+ * True in any Electron window: today's bridge or an older one, since both carry
+ * `window.shibaDesktop`. The preload decides once per page load, so this is a
+ * render-time read, not state.
+ */
+export function isDesktopShell(): boolean {
+  return typeof window !== "undefined" && window.shibaDesktop !== undefined;
+}
+
 // Local runs target this machine only when the desktop shell reports its id.
 export function targetMachineFields(status: DesktopStatus | null): { targetMachineId?: string } {
   return status?.machineId ? { targetMachineId: status.machineId } : {};

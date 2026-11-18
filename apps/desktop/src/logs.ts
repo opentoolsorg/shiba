@@ -10,8 +10,12 @@ import { stripControlChars } from "./safe-text.js";
 export const MAX_LOG_BYTES = 5 * 1024 * 1024;
 export const MAX_LOG_FIELD_CHARS = 2000;
 
-/** Keys a structured record may carry. */
-export const LOG_FIELDS = ["event", "state", "code", "action", "url", "detail", "bytes"] as const;
+/**
+ * Keys a structured record may carry. Every one is a code, a number, or a
+ * validated origin; there is deliberately no free-form key, so no page, deep
+ * link, or daemon line can be persisted through the log.
+ */
+export const LOG_FIELDS = ["event", "state", "code", "action", "url", "bytes"] as const;
 
 export type LogField = (typeof LOG_FIELDS)[number];
 export type LogValue = string | number | null | undefined;
