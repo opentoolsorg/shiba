@@ -81,7 +81,7 @@ async function handleMessage(message: InboundMessage, env: Env, adapter: Channel
       text: body.text,
       ...(body.reply_markup ? { native: { reply_markup: body.reply_markup } } : {}),
     });
-  if (await tryAnswerUiBlockFallback(env, buildChatThreadName("telegram", String(chatId)), String(message.from?.id ?? ""), text.replace(COMMAND, "").trim())) {
+  if (await tryAnswerUiBlockFallback(env, message.conversationKey, message.authorId, text.replace(COMMAND, "").trim())) {
     await reply({ text: "Answer recorded." });
     return;
   }
