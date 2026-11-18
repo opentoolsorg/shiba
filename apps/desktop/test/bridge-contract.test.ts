@@ -18,11 +18,13 @@ const handshake = {
   bridgeVersion: 1,
   appVersion: "0.1.0",
   platform: "darwin",
+  surface: "dashboard" as const,
 };
 
 describe("handshake", () => {
-  it("round-trips the five fields the dashboard needs", () => {
+  it("round-trips every field the page needs", () => {
     expect(parseHandshake(["electron", encodeHandshake(handshake)])).toEqual(handshake);
+    expect(parseHandshake([encodeHandshake({ ...handshake, surface: "setup" })])?.surface).toBe("setup");
   });
 
   it("rejects anything malformed rather than exposing a partial bridge", () => {
@@ -34,8 +36,12 @@ describe("handshake", () => {
       [encodeHandshake({ ...handshake, origin: "" })],
       [encodeHandshake({ ...handshake, origin: "file:///etc/passwd" })],
       [encodeHandshake({ ...handshake, origin: "https://user:pw@app.tryshiba.dev" })],
+      [encodeHandshake({ ...handshake, appVersion: "" })],
       [encodeHandshake({ ...handshake, appVersion: "x".repeat(65) })],
+      [encodeHandshake({ ...handshake, platform: "" })],
       [encodeHandshake({ ...handshake, platform: "x".repeat(33) })],
+      // A handshake without a known surface exposes nothing.
+      [encodeHandshake({ ...handshake, surface: "devtools" } as never)],
       [encodeHandshake(handshake), encodeHandshake(handshake)],
     ];
     for (const argv of cases) expect(parseHandshake(argv)).toBeNull();
@@ -80,6 +86,7 @@ describe("preload contract", () => {
         DESKTOP_CHANNELS.pair,
         DESKTOP_CHANNELS.unpair,
         DESKTOP_CHANNELS.claudeLogin,
+        DESKTOP_CHANNELS.retiredCodexCallback,
         SETUP_CHANNELS.setUrl,
       ]),
     );
@@ -105,5 +112,9 @@ describe("preload contract", () => {
     );
     expect(preload).toContain(`HANDSHAKE_PREFIX = "${HANDSHAKE_ARG}"`);
     expect(preload).toContain("bridgeVersion !== BRIDGE_VERSION");
+    // The preload publishes its surface and rejects anything it cannot classify.
+    expect(preload).toContain("surface: handshake.surface");
+    expect(preload).toContain('surface: "setup"');
+    expect(preload).toContain("matches.length !== 1");
   });
 });

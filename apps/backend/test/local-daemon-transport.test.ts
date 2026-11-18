@@ -33,7 +33,9 @@ it.each([302, 307, 308])("diagnoses Access without forwarding a pairing token th
   });
   try {
     const origin = await listen(source);
-    await expect(run(root, ["--connect", origin, "--pair", "one-time.secret"])).rejects.toMatchObject({
+    await expect(
+      run(root, ["--connect", origin, "--pair"], { SHIBA_PAIRING_TOKEN: "one-time.secret" }),
+    ).rejects.toMatchObject({
       code: 76,
       stderr: expect.stringContaining("Cloudflare Access bypass"),
     });
@@ -114,7 +116,9 @@ it.each(["http://remote.example", "https://user:secret@example.com", "https://ex
   "rejects an unsafe Worker URL %s before pairing", async (url) => {
     const root = await mkdtemp(path.join(os.tmpdir(), "shiba-transport-"));
     try {
-      await expect(run(root, ["--connect", url, "--pair", "one-time.secret"])).rejects.toMatchObject({
+      await expect(
+        run(root, ["--connect", url, "--pair"], { SHIBA_PAIRING_TOKEN: "one-time.secret" }),
+      ).rejects.toMatchObject({
         stderr: expect.stringContaining("Worker URL must be an HTTPS origin"),
       });
     } finally {

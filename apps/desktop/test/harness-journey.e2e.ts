@@ -190,6 +190,9 @@ beforeAll(async () => {
       const body = req.method === "POST" ? await readBody(req) : "";
       const parsed = body ? (JSON.parse(body) as Record<string, unknown>) : {};
       if (url.pathname === "/api/computers") return json(res, { computers: [] });
+      // Pairing mints the token in the shell, not in the page.
+      if (url.pathname === "/api/computers/pairing-token")
+        return json(res, { token: "fixture-nonce-value.fixture-signature-value", expiresAt: Date.now() + 60_000 });
       if (url.pathname === "/api/approvals") return json(res, { approvals: [] });
       if (url.pathname === "/api/computers/revoke") return json(res, { ok: true });
       if (url.pathname === "/api/local/pair")
@@ -267,31 +270,15 @@ test("pair, stream a harness approval, render the diff, and open a pull request"
   userDataDirs.push(userData, runRoot);
   const app: ElectronApplication = await electron.launch({
     chromiumSandbox: true,
-    args: ["dist/main.js", `--user-data-dir=${userData}`],
+    args: ["test/electron-bootstrap.cjs"],
     env: {
       ...(process.env as Record<string, string>),
       SHIBA_DESKTOP_URL: stubUrl,
       SHIBA_LOCAL_RUN_ROOT: runRoot,
+      SHIBA_DESKTOP_TEST_USER_DATA: userData,
     },
   });
   try {
-    // Capture the run-finished notification and its click handler before the
-    // run settles; this box has no notification service, so main's documented
-    // test hook stands in for the OS surface.
-    await app.evaluate(() => {
-      const g = globalThis as {
-        __notification?: { title: string; body: string } | null;
-        __notificationClick?: (() => void) | null;
-        __shibaTestNotify?: (n: { title: string; body: string }, onClick: () => void) => void;
-      };
-      g.__notification = null;
-      g.__notificationClick = null;
-      g.__shibaTestNotify = (n, onClick) => {
-        g.__notification = { title: n.title, body: n.body };
-        g.__notificationClick = onClick;
-      };
-    });
-
     const win = await app.firstWindow();
     win.setDefaultTimeout(10_000);
     await win.waitForURL(`${stubUrl}/app/**`, { timeout: 20_000 });
@@ -331,22 +318,35 @@ test("pair, stream a harness approval, render the diff, and open a pull request"
       })
       .toContain(PR_URL);
 
-    // The finished-run notification carries no secret and its click loads the
-    // activity tab through the validated app path.
+    // The test bootstrap answers notifications, so the finished-run one arrives
+    // with main's own click handler attached: no secret in the body, and the
+    // click may only load a validated app route.
     await expect
-      .poll(() => app.evaluate(() => (globalThis as { __notification?: unknown }).__notification ?? null), {
-        timeout: 30_000,
-      })
+      .poll(
+        () =>
+          app.evaluate(() => {
+            const shown = (globalThis as { __notifications?: { title: string; body: string }[] })
+              .__notifications;
+            const last = shown?.[shown.length - 1];
+            return last ? { title: last.title, body: last.body } : null;
+          }),
+        { timeout: 30_000 },
+      )
       .not.toBeNull();
-    const notification = await app.evaluate(
-      () => (globalThis as { __notification?: { title: string; body: string } }).__notification,
-    );
+    const notification = await app.evaluate(() => {
+      const shown = (globalThis as { __notifications?: { title: string; body: string }[] })
+        .__notifications;
+      const last = shown?.[shown.length - 1];
+      return last ? { title: last.title, body: last.body } : null;
+    });
     expect(notification?.title).toMatch(/^Local run/);
     expect(notification?.body).not.toMatch(/[A-Za-z0-9_-]{40,}\.[A-Za-z0-9_-]{20,}/);
-    // The click handler is main's own: it may only load a validated app route.
-    await app.evaluate(() => {
-      (globalThis as { __notificationClick?: (() => void) | null }).__notificationClick?.();
-    });
+    await expect
+      .poll(
+        () => app.evaluate(() => (globalThis as { __notificationClicks?: number }).__notificationClicks ?? 0),
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThan(0);
     await win.waitForURL(`${stubUrl}/app/?tab=activity`, { timeout: 10_000 });
   } finally {
     await app.close();

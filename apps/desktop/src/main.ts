@@ -19,26 +19,28 @@ import {
 } from "electron";
 import type { ApprovalsPoller } from "./approvals-poller.js";
 import { createApprovalsPoller } from "./approvals-poller.js";
-import { BRIDGE_VERSION, encodeHandshake, parseHandshake } from "./bridge-contract.js";
+import {
+  BRIDGE_VERSION,
+  encodeHandshake,
+  PAIRING_TOKEN_PATTERN,
+  parseHandshake,
+} from "./bridge-contract.js";
 import { startClaudeLogin } from "./claude-login.js";
 import type { Controller } from "./controller.js";
 import { createController } from "./controller.js";
 import { dashboardCspReportOnly } from "./csp.js";
 import { parseDeepLink } from "./deep-link.js";
 import { createIpcBounds } from "./ipc-guard.js";
+import { createDashboardTrust, createSetupTrust } from "./ipc-trust.js";
 import { dashboardPath, resolveConfiguredOrigin } from "./launch.js";
 import type { Logger } from "./logs.js";
 import { createLogger } from "./logs.js";
-import {
-  DEFAULT_AUTH_HOSTS,
-  isSafeAppPath,
-  isSetupSender,
-  isTrustedSender,
-  parseDeploymentUrl,
-} from "./navigation.js";
+import { DEFAULT_AUTH_HOSTS, isSafeAppPath, parseDeploymentUrl } from "./navigation.js";
 import type { DesktopSupervisor } from "./pairing.js";
 import { emitStatusChanged, registerDesktopIpc } from "./pairing.js";
+import type { MintedToken } from "./pairing.js";
 import { handleDaemonMessage } from "./run-notify.js";
+import { createLineBuffer } from "./safe-text.js";
 import type { Env } from "./shell-env.js";
 import { captureShellEnv } from "./shell-env.js";
 import { registerShellIpc } from "./shell-ipc.js";
@@ -93,6 +95,13 @@ const log = (line: string) => mainLog?.line(line);
 const logEvent = (fields: Parameters<NonNullable<Logger["event"]>>[0]) => mainLog?.event(fields);
 /** One bridge-wide concurrency ceiling; pairing and shell handlers share it. */
 const bounds = createIpcBounds();
+/**
+ * Daemon output arrives in arbitrary chunks; complete lines go to the log so a
+ * redaction can never be defeated by a chunk boundary.
+ */
+const daemonLines = createLineBuffer((line) =>
+  daemonLog?.event({ event: "daemon-output", detail: line }),
+);
 
 const configPath = () => path.join(app.getPath("userData"), "config.json");
 
@@ -190,6 +199,7 @@ function bridgeArguments(): string[] {
     bridgeVersion: BRIDGE_VERSION,
     appVersion: app.getVersion(),
     platform: process.platform,
+    surface: "dashboard",
   });
   return parseHandshake([encoded]) ? [encoded] : [];
 }
@@ -376,18 +386,8 @@ const sessionFetch = (url: string, init?: RequestInit) =>
     ...init,
   });
 
-type NotifyHook = (n: { title: string; body: string }, onClick: () => void) => void;
-
 function notify(n: { title: string; body: string }, onClick: () => void): void {
-  if (config.notifications === false) return;
-  // Test-only injection: the Playwright smoke drives main's real click handler
-  // without a desktop notification service. A packaged app never consults it.
-  const hook = (globalThis as { __shibaTestNotify?: NotifyHook }).__shibaTestNotify;
-  if (!app.isPackaged && hook) {
-    hook(n, onClick);
-    return;
-  }
-  if (!Notification.isSupported()) return;
+  if (config.notifications === false || !Notification.isSupported()) return;
   const notification = new Notification({ title: n.title, body: n.body });
   notification.on("click", onClick);
   notification.show();
@@ -457,10 +457,12 @@ async function disconnectLocal(): Promise<void> {
   try {
     const result = await desktopActions?.unpair();
     if (result && !result.ok) {
+      logEvent({ event: "unpair", state: result.code });
+      // Fixed copy: the code is logged, the page owns the per-code wording.
       await dialog.showMessageBox({
         type: "info",
         message: "Could not disconnect this computer.",
-        detail: result.error,
+        detail: "Check the connection and retry from the dashboard.",
         buttons: ["OK"],
       });
     }
@@ -555,11 +557,52 @@ const supervisorFacade: DesktopSupervisor = {
   },
 };
 
+/** The shell's own window contents; anything else is a foreign webContents. */
+const ownedContents = () => mainWindow?.webContents ?? null;
+
+/**
+ * Mints the single-use pairing token in main with the session's own cookies, so
+ * the renderer never sees one. Everything that can fail maps to a fixed code.
+ */
+async function mintPairingToken(): Promise<MintedToken> {
+  const origin = configuredOrigin();
+  if (!origin) return { ok: false, code: "mint_failed" };
+  let response: Response;
+  try {
+    response = await sessionFetch(`${origin}/api/computers/pairing-token`, { method: "POST" });
+  } catch {
+    logEvent({ event: "pairing-mint", state: "unreachable" });
+    return { ok: false, code: "mint_failed" };
+  }
+  if (response.status === 404 || response.status === 503) {
+    logEvent({ event: "pairing-mint", state: "not-configured", code: response.status });
+    return { ok: false, code: "not_configured" };
+  }
+  if (!response.ok) {
+    logEvent({ event: "pairing-mint", state: "failed", code: response.status });
+    return { ok: false, code: "mint_failed" };
+  }
+  const body = (await response.json().catch(() => null)) as { token?: unknown } | null;
+  const token = typeof body?.token === "string" ? body.token : "";
+  if (!PAIRING_TOKEN_PATTERN.test(token)) {
+    logEvent({ event: "pairing-mint", state: "malformed" });
+    return { ok: false, code: "mint_failed" };
+  }
+  return { ok: true, token };
+}
+
 function registerIpc(): void {
+  const isTrustedEvent = createDashboardTrust({ configuredOrigin, ownedContents });
+  const isSetupEvent = createSetupTrust({
+    setupFileUrl: SETUP_URL,
+    ownedContents,
+  });
   desktopActions = registerDesktopIpc({
     ipcMain,
-    isTrustedSender,
-    isSetupSender: (frameUrl) => isSetupSender(frameUrl, SETUP_URL),
+    isTrustedEvent,
+    isSetupEvent,
+    mintPairingToken,
+    onPairStderr: (tail) => daemonLog?.event({ event: "pairing-stderr", detail: tail }),
     parseDeploymentUrl: (input) => parseDeploymentUrl(input, app.isPackaged),
     onSetUrl: (origin) => {
       saveConfig({ deploymentUrl: origin });
@@ -592,8 +635,7 @@ function registerIpc(): void {
   });
   registerShellIpc({
     ipcMain,
-    isTrustedSender,
-    getConfiguredOrigin: configuredOrigin,
+    isTrustedEvent,
     bounds,
     startClaudeLogin: () => startClaudeLogin({ env: shellEnv }),
   });
@@ -630,7 +672,10 @@ function initController(): void {
         loadURL: loadAppUrl,
         notify,
       }),
-    log: (line) => (line.startsWith("daemon: ") ? daemonLog?.line(line.slice(8)) : log(line)),
+    event: (fields) =>
+      fields.event === "daemon-output"
+        ? daemonLines.push(fields.detail ?? "")
+        : daemonLog?.event({ event: fields.event, state: fields.state, code: fields.code }),
   });
 }
 

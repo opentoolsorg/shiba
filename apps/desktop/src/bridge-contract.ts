@@ -15,6 +15,12 @@ export const DESKTOP_CHANNELS = {
   unpair: "desktop:unpair",
   statusChanged: "desktop:status-changed",
   claudeLogin: "desktop:claude-login",
+  /**
+   * Compatibility only. An older dashboard calls this to hand over a PKCE
+   * authorize URL; the shell has no receiver and no listener, so it answers
+   * with a fixed refusal that sends the user back to the browser flow.
+   */
+  retiredCodexCallback: "desktop:codex-callback",
 } as const;
 
 export const SETUP_CHANNELS = {
@@ -34,16 +40,23 @@ export const DESKTOP_CAPABILITIES = [
   "claudeLogin",
 ] as const;
 
-/** Pairing tokens are two base64url segments; the server schema caps them at 1024. */
-export const MAX_PAIRING_TOKEN_CHARS = 1024;
+/**
+ * A minted pairing token: two base64url segments joined by ".". Main validates
+ * it before handing it to the daemon, so a malformed reply never becomes env.
+ */
+export const PAIRING_TOKEN_PATTERN = /^[A-Za-z0-9_-]{8,1024}\.[A-Za-z0-9_-]{8,1024}$/;
+
 /** A deployment URL is an origin; anything longer is not one. */
 export const MAX_DEPLOYMENT_URL_CHARS = 2048;
+
+export type BridgeSurface = "dashboard" | "setup";
 
 export interface BridgeHandshake {
   origin: string;
   bridgeVersion: number;
   appVersion: string;
   platform: string;
+  surface: BridgeSurface;
 }
 
 export const HANDSHAKE_ARG = "--shiba-bridge=";
@@ -70,8 +83,9 @@ export function parseHandshake(argv: readonly string[]): BridgeHandshake | null 
   if (value.bridgeVersion !== BRIDGE_VERSION) return null;
   const appVersion = boundedText(value.appVersion, 64);
   const platform = boundedText(value.platform, 32);
-  if (!appVersion || !platform) return null;
-  return { origin, bridgeVersion: BRIDGE_VERSION, appVersion, platform };
+  const surface = value.surface === "dashboard" || value.surface === "setup" ? value.surface : null;
+  if (!appVersion || !platform || !surface) return null;
+  return { origin, bridgeVersion: BRIDGE_VERSION, appVersion, platform, surface };
 }
 
 /** A non-empty string capped at `max`; null otherwise. */

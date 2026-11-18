@@ -22,6 +22,8 @@ export interface Logger {
 }
 
 const BEARER = /\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi;
+// `Authorization: Basic <base64>` carries a credential in one token.
+const BASIC = /\b(basic\s+)[A-Za-z0-9+/=]{8,}/gi;
 const KEYED =
   /("?[A-Za-z0-9_-]*(?:token|secret|password|authorization|credential|cookie)"?\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;&"']+)/gi;
 // Pairing tokens are two long base64url segments joined by a dot. Nothing else
@@ -31,7 +33,11 @@ const PAIRING_BLOB = /[A-Za-z0-9_-]{40,}\.[A-Za-z0-9_-]{20,}/g;
 /** Redacts credential-shaped substrings and caps length; logs never keep a secret. */
 export function sanitizeLogLine(text: string): string {
   const redacted = stripControlChars(
-    text.replace(BEARER, "$1[redacted]").replace(KEYED, "$1[redacted]").replace(PAIRING_BLOB, "[redacted]"),
+    text
+      .replace(BEARER, "$1[redacted]")
+      .replace(BASIC, "$1[redacted]")
+      .replace(KEYED, "$1[redacted]")
+      .replace(PAIRING_BLOB, "[redacted]"),
   );
   return redacted.length > MAX_LOG_FIELD_CHARS
     ? `${redacted.slice(0, MAX_LOG_FIELD_CHARS)}…`

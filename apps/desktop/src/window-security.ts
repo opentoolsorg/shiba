@@ -5,6 +5,7 @@
  */
 
 import {
+  authHostUrl,
   decideNavigation,
   externalHandoffUrl,
   isSubframeNavigationAllowed,
@@ -14,6 +15,11 @@ import {
 export interface NavigationEvent {
   preventDefault(): void;
   url: string;
+}
+
+export interface RedirectEvent extends NavigationEvent {
+  /** Electron's deprecated positional flag, still delivered after the details object. */
+  isMainFrame?: boolean;
 }
 
 export interface FrameNavigationEvent extends NavigationEvent {
@@ -27,7 +33,10 @@ export interface WindowOpenDetails {
 /** The slice of Electron's WebContents the guard needs; a stub satisfies it in tests. */
 export interface GuardedContents {
   on(event: "will-navigate", listener: (event: NavigationEvent) => void): unknown;
-  on(event: "will-redirect", listener: (event: NavigationEvent) => void): unknown;
+  on(
+    event: "will-redirect",
+    listener: (event: RedirectEvent, url: string, isInPlace: boolean, isMainFrame: boolean) => void,
+  ): unknown;
   on(event: "will-frame-navigate", listener: (event: FrameNavigationEvent) => void): unknown;
   on(event: "will-attach-webview", listener: (event: { preventDefault(): void }) => void): unknown;
   setWindowOpenHandler(handler: (details: WindowOpenDetails) => { action: "deny" }): unknown;
@@ -80,21 +89,38 @@ export function guardWebContents(
     }
   };
 
+  const denySubframe = (event: NavigationEvent) => {
+    if (isSubframeNavigationAllowed(event.url, deps.configuredOrigin())) return;
+    event.preventDefault();
+    deps.onDecision?.("deny");
+  };
+
   contents.on("will-navigate", gate);
-  contents.on("will-redirect", gate);
+  // A redirect can land in a child frame, so it gets the frame policy, never the
+  // main-frame one: no OS-browser handoff for a subframe, ever.
+  contents.on("will-redirect", (event, url, _isInPlace, isMainFrame) => {
+    const mainFrame = event.isMainFrame ?? isMainFrame;
+    if (mainFrame) {
+      gate(event);
+      return;
+    }
+    denySubframe(event);
+  });
 
   // will-navigate covers the main frame; this one also sees every subframe.
   contents.on("will-frame-navigate", (event) => {
     if (event.isMainFrame) return;
-    if (isSubframeNavigationAllowed(event.url, deps.configuredOrigin())) return;
-    event.preventDefault();
-    deps.onDecision?.("deny");
+    denySubframe(event);
   });
 
   contents.on("will-attach-webview", (event) => event.preventDefault());
 
+  // A popup never loads in this process. A link or an IdP authorization page is
+  // handed to the OS browser, where the sign-in can finish and redirect back.
   contents.setWindowOpenHandler(({ url }) => {
-    const handoff = externalHandoffUrl(url, deps.configuredOrigin(), deps.authHosts());
+    const handoff =
+      externalHandoffUrl(url, deps.configuredOrigin(), deps.authHosts()) ??
+      authHostUrl(url, deps.authHosts());
     if (handoff) deps.openExternal(handoff);
     else deps.onDecision?.("deny");
     return { action: "deny" };

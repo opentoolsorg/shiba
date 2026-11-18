@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
-import { isSetupSender, parseDeploymentUrl } from "../src/navigation.js";
+import { isSetupSender, isTrustedSender, parseDeploymentUrl } from "../src/navigation.js";
 import { createIpcBounds } from "../src/ipc-guard.js";
 import { registerDesktopIpc } from "../src/pairing.js";
 import type { ChildLike } from "../src/controller.js";
@@ -23,6 +23,8 @@ function fakeChild(): FakeChild {
   return ee;
 }
 
+const TOKEN = "nonce.sig";
+
 function makeDeps(overrides: Partial<DesktopIpcDeps> = {}) {
   const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
   const deps: DesktopIpcDeps = {
@@ -31,13 +33,22 @@ function makeDeps(overrides: Partial<DesktopIpcDeps> = {}) {
         handlers.set(channel, fn as never);
       },
     },
-    isTrustedSender: (frame, origin) => frame === `${origin}/app/`,
+    isTrustedEvent: (event) =>
+      isTrustedSender(
+        (event as { senderFrame?: { url?: string } }).senderFrame?.url,
+        ORIGIN,
+      ),
+    mintPairingToken: vi.fn(async () => ({ ok: true as const, token: TOKEN })),
     supervisor: {
       status: () => ({ state: "unpaired" }) as DesktopStatus,
       stop: vi.fn(),
       forkDaemon: vi.fn(() => fakeChild()),
     },
-    isSetupSender: (frame) => isSetupSender(frame, SETUP_URL),
+    isSetupEvent: (event) =>
+      isSetupSender(
+        (event as { senderFrame?: { url?: string } }).senderFrame?.url,
+        SETUP_URL,
+      ),
     parseDeploymentUrl: (input) => parseDeploymentUrl(input, false),
     getConfiguredOrigin: () => ORIGIN,
     sessionFetch: vi.fn(async () => new Response("{}", { status: 200 })),
@@ -62,20 +73,38 @@ describe("desktop:pair", () => {
     const { deps, handlers } = makeDeps();
     registerDesktopIpc(deps);
     const res = await invoke(handlers, "desktop:pair", "https://evil.example/x", "aa.bb");
-    expect(res).toEqual({ ok: false, error: "Untrusted sender." });
+    expect(res).toEqual({ ok: false, code: "untrusted_sender" });
     expect(deps.supervisor.forkDaemon).not.toHaveBeenCalled();
   });
 
-  it.each(["", "not-a-token", "a.b.c", `${"x".repeat(1025)}.y`])(
-    "rejects a malformed token %j",
-    async (token) => {
-      const { deps, handlers } = makeDeps();
-      registerDesktopIpc(deps);
-      const res = await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, token);
-      expect(res).toEqual({ ok: false, error: "Invalid pairing token." });
-      expect(deps.supervisor.forkDaemon).not.toHaveBeenCalled();
-    },
-  );
+  it("mints the token in main and never reads one from the renderer", async () => {
+    const { deps, handlers } = makeDeps();
+    registerDesktopIpc(deps);
+    const child = fakeChild();
+    const forkDaemon = vi.fn(() => child);
+    (deps.supervisor as { forkDaemon: unknown }).forkDaemon = forkDaemon;
+    // A token-shaped argument from the page is ignored: only the minted one is used.
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "renderer.supplied");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(deps.mintPairingToken).toHaveBeenCalled();
+    expect(forkDaemon).toHaveBeenCalledWith(["--connect", ORIGIN, "--pair"], TOKEN);
+    child.emit("message", { type: "status", state: "polling", machineId: "m1", harnesses: [] });
+    expect(await pending).toEqual({ ok: true });
+  });
+
+  it("pairs nothing when the mint fails, and names the reason as a code", async () => {
+    const forkDaemon = vi.fn(() => fakeChild());
+    const { deps, handlers } = makeDeps({
+      mintPairingToken: vi.fn(async () => ({ ok: false as const, code: "not_configured" as const })),
+      supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon },
+    });
+    registerDesktopIpc(deps);
+    expect(await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`)).toEqual({
+      ok: false,
+      code: "not_configured",
+    });
+    expect(forkDaemon).not.toHaveBeenCalled();
+  });
 
   it("stops the daemon, forks with --connect <origin> --pair <token>, resolves on first polling", async () => {
     const child = fakeChild();
@@ -84,7 +113,7 @@ describe("desktop:pair", () => {
       supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon },
     });
     registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
     await new Promise((r) => setTimeout(r, 0));
     expect(deps.supervisor.stop).toHaveBeenCalled();
     // The token rides the child environment, never argv (D7).
@@ -93,20 +122,33 @@ describe("desktop:pair", () => {
     expect(await pending).toEqual({ ok: true });
   });
 
-  it("resolves {ok:false} with the last stderr line when the pair fork exits first", async () => {
+  it("maps a pair fork's early exit to a code and keeps its stderr out of the reply", async () => {
+    const child = fakeChild();
+    const onPairStderr = vi.fn();
+    const { deps, handlers } = makeDeps({
+      onPairStderr,
+      supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon: () => child },
+    });
+    registerDesktopIpc(deps);
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
+    await new Promise((r) => setTimeout(r, 0));
+    child.stderr!.emit("data", "shiba-local: pairing token expired, reused, or invalid — mint a new one\n");
+    child.emit("exit", 1);
+    expect(await pending).toEqual({ ok: false, code: "pairing_rejected" });
+    // The daemon's own words reach the log sink, never the renderer.
+    expect(onPairStderr).toHaveBeenCalledWith(expect.stringContaining("pairing token expired"));
+  });
+
+  it("reports a daemon without the local runtime as not configured", async () => {
     const child = fakeChild();
     const { deps, handlers } = makeDeps({
       supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon: () => child },
     });
     registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
     await new Promise((r) => setTimeout(r, 0));
-    child.stderr!.emit("data", "shiba-local: pairing token expired, reused, or invalid — mint a new one\n");
-    child.emit("exit", 1);
-    expect(await pending).toEqual({
-      ok: false,
-      error: "pairing token expired, reused, or invalid — mint a new one",
-    });
+    child.emit("exit", 79);
+    expect(await pending).toEqual({ ok: false, code: "not_configured" });
   });
 
   it("rejects a concurrent submit without killing the in-progress pair fork", async () => {
@@ -116,11 +158,11 @@ describe("desktop:pair", () => {
       supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon },
     });
     registerDesktopIpc(deps);
-    const first = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    const first = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
     await new Promise((r) => setTimeout(r, 0));
-    expect(await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig")).toEqual({
+    expect(await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`)).toEqual({
       ok: false,
-      error: "Pairing already in progress.",
+      code: "pairing_busy",
     });
     expect(deps.supervisor.stop).toHaveBeenCalledTimes(1);
     expect(forkDaemon).toHaveBeenCalledTimes(1);
@@ -128,7 +170,7 @@ describe("desktop:pair", () => {
     child.emit("message", { type: "status", state: "polling", machineId: "m1", harnesses: [] });
     expect(await first).toEqual({ ok: true });
     // The guard releases once the first pairing settles.
-    const again = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    const again = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
     await new Promise((r) => setTimeout(r, 0));
     expect(forkDaemon).toHaveBeenCalledTimes(2);
     child.emit("message", { type: "status", state: "polling", machineId: "m1", harnesses: [] });
@@ -146,9 +188,9 @@ describe("desktop:pair", () => {
       confirmPairElsewhere,
     });
     registerDesktopIpc(deps);
-    const res = await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    const res = await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
     expect(confirmPairElsewhere).toHaveBeenCalledWith("https://other.example.com");
-    expect(res).toEqual({ ok: false, error: "Pairing cancelled." });
+    expect(res).toEqual({ ok: false, code: "pairing_cancelled" });
     expect(deps.supervisor.forkDaemon).not.toHaveBeenCalled();
   });
 
@@ -165,9 +207,9 @@ describe("desktop:pair", () => {
       confirmPairElsewhere,
     });
     registerDesktopIpc(deps);
-    const res = await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    const res = await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
     expect(confirmPairElsewhere).toHaveBeenCalledWith(OTHER);
-    expect(res).toEqual({ ok: false, error: "Pairing cancelled." });
+    expect(res).toEqual({ ok: false, code: "pairing_cancelled" });
     expect(deps.supervisor.forkDaemon).not.toHaveBeenCalled();
   });
 
@@ -197,7 +239,7 @@ describe("desktop:pair", () => {
       },
     });
     registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
     await new Promise((r) => setTimeout(r, 0));
     expect(order).toEqual(["stop", "fork"]);
     child.emit("message", polling);
@@ -217,7 +259,7 @@ describe("desktop:pair", () => {
       },
     });
     registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
     await new Promise((r) => setTimeout(r, 0));
     child.emit("message", polling);
     expect(await pending).toEqual({ ok: true });
@@ -231,7 +273,7 @@ describe("desktop:pair", () => {
       supervisor: { status: () => ({ state: "idle", machineId: "old-id" }), stop: vi.fn(), forkDaemon: () => child },
     });
     registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
     await new Promise((r) => setTimeout(r, 0));
     child.emit("exit", 1);
     expect((await pending) as { ok: boolean }).toMatchObject({ ok: false });
@@ -245,7 +287,7 @@ describe("desktop:pair", () => {
       supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon: () => child },
     });
     registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
     await new Promise((r) => setTimeout(r, 0));
     child.emit("message", polling);
     await pending;
@@ -265,7 +307,7 @@ describe("desktop:pair", () => {
       supervisor: { status: () => ({ state: "idle", machineId: "old-id" }), stop: vi.fn(), forkDaemon: () => child },
     });
     registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
     await new Promise((r) => setTimeout(r, 0));
     child.emit("message", polling);
     expect(await pending).toEqual({ ok: true });
@@ -281,7 +323,7 @@ describe("desktop:pair", () => {
       log,
     });
     registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
     await new Promise((r) => setTimeout(r, 0));
     child.emit("message", polling);
     expect(await pending).toEqual({ ok: true });
@@ -312,7 +354,7 @@ describe("desktop:pair", () => {
         supervisor: { ...(overrides.supervisor ?? { status: () => ({ state: "unpaired" }), stop: vi.fn() }), forkDaemon: () => child },
       });
       registerDesktopIpc(deps);
-      const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+      const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
       await new Promise((r) => setTimeout(r, 0));
       child.emit("message", polling);
       await pending;
@@ -327,8 +369,8 @@ describe("desktop:pair", () => {
       supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon: () => child },
     });
     registerDesktopIpc(deps);
-    const res = await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
-    expect(res).toEqual({ ok: false, error: "pairing timed out" });
+    const res = await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
+    expect(res).toEqual({ ok: false, code: "pairing_timeout" });
     expect(child.kill).toHaveBeenCalled();
   });
 });
@@ -341,7 +383,8 @@ describe("desktop:unpair", () => {
     writeFileSync(join(deps.runRoot, "config.json"), "{}");
     registerDesktopIpc(deps);
     expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toEqual({
-      ok: false, error: "Switch to the paired Shiba URL before disconnecting this computer.",
+      ok: false,
+      code: "revoke_unreachable",
     });
     expect(deps.sessionFetch).not.toHaveBeenCalled();
     expect(deps.supervisor.stop).not.toHaveBeenCalled();
@@ -357,7 +400,8 @@ describe("desktop:unpair", () => {
     writeFileSync(join(deps.runRoot, "config.json"), "{}");
     registerDesktopIpc(deps);
     expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toEqual({
-      ok: false, error: "Could not revoke this computer. Check the connection and retry.",
+      ok: false,
+      code: "revoke_unreachable",
     });
     expect(probe).toHaveBeenCalledOnce();
     expect(existsSync(join(deps.runRoot, "config.json"))).toBe(true);
@@ -371,7 +415,7 @@ describe("desktop:unpair", () => {
       supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon: () => child },
     });
     const native = registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(await native.unpair()).toMatchObject({ ok: false });
     expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toMatchObject({ ok: false });
@@ -418,7 +462,7 @@ describe("desktop:unpair", () => {
     writeFileSync(join(deps.runRoot, "config.json"), "{}");
     registerDesktopIpc(deps);
     const res = await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`);
-    expect(res).toEqual({ ok: false, error: "Revoke failed with 500." });
+    expect(res).toEqual({ ok: false, code: "revoke_failed" });
     expect(deps.supervisor.probe).toHaveBeenCalledTimes(1);
     expect(existsSync(join(deps.runRoot, "config.json"))).toBe(true);
   });
@@ -451,7 +495,7 @@ describe("desktop:unpair", () => {
     const first = invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`);
     expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toEqual({
       ok: false,
-      error: "Pairing already in progress.",
+      code: "pairing_busy",
     });
     releaseStop();
     expect(await first).toEqual({ ok: true });
@@ -500,9 +544,12 @@ describe("desktop:set-url", () => {
   });
 
   it("returns the PairResult from onSetUrl", async () => {
-    const { deps, handlers } = makeDeps({ onSetUrl: () => ({ ok: false, error: "nope" }) });
+    const { deps, handlers } = makeDeps({ onSetUrl: () => ({ ok: false, code: "url_invalid" }) });
     registerDesktopIpc(deps);
-    expect(await invoke(handlers, "desktop:set-url", SETUP_URL, "https://a.example.com")).toEqual({ ok: false, error: "nope" });
+    expect(await invoke(handlers, "desktop:set-url", SETUP_URL, "https://a.example.com")).toEqual({
+      ok: false,
+      code: "url_invalid",
+    });
   });
 });
 

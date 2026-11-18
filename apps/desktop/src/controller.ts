@@ -17,6 +17,15 @@ export interface ChildLike {
   pid?: number;
 }
 
+/** Fixed-shape event the supervisor reports; the log sink decides the fields. */
+export interface ControllerEvent {
+  event: "daemon-exit" | "daemon-kill" | "daemon-output";
+  state?: string;
+  code?: number;
+  /** Daemon stdout/stderr for the log sink; never returned to the renderer. */
+  detail?: string;
+}
+
 export interface LocalConfig {
   workerUrl?: string;
   machineId?: string;
@@ -34,7 +43,8 @@ export interface ControllerDeps {
   ): ChildLike;
   onStatus(status: DesktopStatus): void;
   onSettled(msg: Extract<DaemonStatusMessage, { state: "settled" }>): void;
-  log(line: string): void;
+  /** Structured state changes; never free daemon text. */
+  event(fields: ControllerEvent): void;
   /** SIGKILL escalation for a daemon that ignored kill(); defaults to process.kill. */
   killPid?(pid: number): void;
   now?(): number;
@@ -98,7 +108,7 @@ export function createController(deps: ControllerDeps) {
     ctx = null;
     if (stopping) return;
     const action = policy(code, exitCtx, now());
-    deps.log(`daemon exited code=${code} action=${action.kind}`);
+    deps.event({ event: "daemon-exit", state: action.kind, code: code ?? -1 });
     switch (action.kind) {
       case "revoked": set({ state: "revoked", machineId: lastIdle.machineId }); return;
       case "conflict": set({ state: "conflict" }); return;
@@ -120,7 +130,7 @@ export function createController(deps: ControllerDeps) {
     ctx = exitCtx;
     set({ ...lastIdle, state: "starting" });
     const spawned: ChildLike = deps.fork(args, {
-      onLog: (chunk) => deps.log(`daemon: ${chunk.replace(/\n$/, "")}`),
+      onLog: (chunk) => deps.event({ event: "daemon-output", detail: chunk }),
       onMessage: (msg) => { if (child === spawned) translate(msg); },
       onExit: (code) => handleExit(code, spawned, exitCtx),
     }, pairingToken);
@@ -149,7 +159,7 @@ export function createController(deps: ControllerDeps) {
     current.kill();
     // utilityProcess.kill() takes no signal; a daemon ignoring SIGTERM would outlive the app.
     if (!(await waitExit(QUIT_WAIT_MS)) && current.pid !== undefined) {
-      deps.log(`daemon pid=${current.pid} ignored SIGTERM; sending SIGKILL`);
+      deps.event({ event: "daemon-kill", state: "sigkill" });
       try {
         killPid(current.pid);
       } catch {

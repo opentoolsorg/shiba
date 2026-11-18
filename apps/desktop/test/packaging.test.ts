@@ -79,13 +79,15 @@ describe("daemon resources", () => {
     const resources = [...config.matchAll(/^ {2}- from: (.+)$/gm)].map((m) => m[1]?.trim() ?? "");
     expect(resources).toContain("../../scripts/shiba-local-daemon.mjs");
     for (const from of resources) {
+      // Sources are tracked; the packaged artifact is built later, so nothing
+      // here may depend on dist/ existing when unit tests run.
       expect(existsSync(path.resolve(desktop, from))).toBe(true);
     }
   });
 
   it("points main at the compiled entry the asar holds", () => {
+    // Not asserted on disk: the desktop gate runs unit tests before building.
     expect(packageJson.main).toBe("dist/main.js");
-    expect(existsSync(path.join(desktop, packageJson.main))).toBe(true);
   });
 
   it("does not publish automatically and keeps the release human-gated", () => {

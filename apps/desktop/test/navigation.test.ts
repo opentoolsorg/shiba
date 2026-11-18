@@ -114,8 +114,11 @@ describe("isSetupSender", () => {
 
 describe("externalHandoffUrl", () => {
   it("returns a normalized https link for the OS browser", () => {
-    expect(externalHandoffUrl("https://example.org/docs?x=1#top", ORIGIN)).toBe("https://example.org/docs?x=1");
-    expect(externalHandoffUrl("https://example.org/#frag", ORIGIN)).toBe("https://example.org/");
+    // A fragment can be part of a sign-in response; the OS browser keeps it.
+    expect(externalHandoffUrl("https://example.org/docs?x=1#top", ORIGIN)).toBe(
+      "https://example.org/docs?x=1#top",
+    );
+    expect(externalHandoffUrl("https://user:pw@example.org/#frag", ORIGIN)).toBeNull();
   });
 
   it("never hands over the app origin, an auth hop, or a non-https url", () => {
