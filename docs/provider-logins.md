@@ -164,3 +164,18 @@ Copilot **API access token**, rather than a GitHub personal access token;
 short-lived tokens must be replaced when they expire. TODO: add Copilot
 OAuth device sign-in and refresh in a follow-up. There is no browser sign-in
 button for this card yet.
+
+## Kimi Code and Meta Muse plan keys
+
+Two more personal lanes cover assistants people already pay for. Both run
+through OpenCode ACP with a placeholder key in the sandbox; the Worker attaches
+the saved key at egress, so neither needs `AI_GATEWAY_TOKEN`.
+
+| Card | Paste | Host the key reaches | Default model |
+|---|---|---|---|
+| Kimi Code | An API key from the [Kimi Code Console](https://www.kimi.com/code/console). Usage draws on your Kimi membership quota. | `api.kimi.ai` (`/coding/v1`, OpenAI-compatible) | `kimi-code/k3.1-pro` |
+| Meta Muse | A Meta Model API key from the Model API dashboard. | `api.meta.ai` (`/v1`, OpenAI-compatible) | `meta/muse-spark-1.3` |
+
+Kimi keys issued for the China region use `api.kimi.com`, which this lane does
+not reach. Devin has no model endpoint that a sandbox harness can call, so it
+has no card here.

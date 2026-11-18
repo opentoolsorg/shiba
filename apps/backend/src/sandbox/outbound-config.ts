@@ -46,6 +46,8 @@ export const DEFAULT_OUTBOUND_BY_HOST: Record<string, OutboundHostRule> = {
   "openrouter.ai": { kind: "builtin", host: "openrouter.ai" },
   "api.groq.com": { kind: "builtin", host: "api.groq.com" },
   "api.githubcopilot.com": { kind: "builtin", host: "api.githubcopilot.com" },
+  "api.kimi.ai": { kind: "builtin", host: "api.kimi.ai" },
+  "api.meta.ai": { kind: "builtin", host: "api.meta.ai" },
   "api.x.ai": { kind: "builtin", host: "api.x.ai" },
   "opencode.ai": { kind: "builtin", host: "opencode.ai" },
   "api.deepseek.com": { kind: "builtin", host: "api.deepseek.com" },

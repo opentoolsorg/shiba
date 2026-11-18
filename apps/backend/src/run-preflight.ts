@@ -87,6 +87,7 @@ export async function assertModelRunPreflight(
   const personalKinds: Record<string, UserSecretKind> = {
     openai: "openai-api", anthropic: "anthropic-api", google: "google", xai: "xai",
     openrouter: "openrouter", groq: "groq", "github-copilot": "copilot", opencode: "opencode",
+    "kimi-code": "kimi", meta: "meta",
   };
   const keyKind = personalKinds[params.codingModel.split("/")[0]!];
   const personalKey = params.initiatorUserId && keyKind

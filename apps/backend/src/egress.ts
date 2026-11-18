@@ -188,7 +188,7 @@ async function forwardProvider(
   }
   const slug = GATEWAY_PROVIDERS[host];
   if (!slug) {
-    if (["api.deepseek.com", "openrouter.ai", "api.groq.com", "api.githubcopilot.com"].includes(host)) {
+    if (["api.deepseek.com", "openrouter.ai", "api.groq.com", "api.githubcopilot.com", "api.kimi.ai", "api.meta.ai"].includes(host)) {
       return new Response("No saved key for this provider. Paste one on the Providers page.", { status: 503 });
     }
     return new Response("Invalid provider destination.", { status: 403 });
@@ -302,6 +302,14 @@ export function forwardGroq(request: Request, env: EgressEnv, ctx?: OutboundHand
 }
 export function forwardCopilot(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
   return forwardProvider(request, env, "api.githubcopilot.com", ctx);
+}
+/** Kimi Code plan key (Kimi Code Console); usage draws on the member's plan quota. */
+export function forwardKimi(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "api.kimi.ai", ctx);
+}
+/** Meta Model API key for the Muse models. */
+export function forwardMeta(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "api.meta.ai", ctx);
 }
 
 /**
