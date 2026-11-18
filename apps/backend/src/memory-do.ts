@@ -38,7 +38,7 @@ import {
   type SqlRow,
 } from "./memory-store.js";
 import { InputError } from "./security.js";
-import { MAX_MEMORY_UPLOAD_BYTES, memoryContentHash, readMemoryUpload, validateMemoryText } from "./owner-memory-ingestion.js";
+import { contextImportUpload, MAX_MEMORY_UPLOAD_BYTES, memoryContentHash, readMemoryUpload, validateMemoryText } from "./owner-memory-ingestion.js";
 import {
   OwnerMemoryStore,
   OwnerMemoryConflictError,
@@ -1243,6 +1243,13 @@ export class Memory {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, { status: 405 });
       const upload = await readMemoryUpload(request);
       return this.retainOwnerUpload(upload, { title: upload.filename, content: upload.content, kind: "document" });
+    }
+    if (seg.length === 2 && seg[1] === "import") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, { status: 405 });
+      const imported = await contextImportUpload(await this.jsonBody(request));
+      const response = await this.retainOwnerUpload(imported.upload, { title: imported.title, content: imported.upload.content, kind: "conversation", retentionDays: null });
+      if (!response.ok) return response;
+      return json({ ...(await response.json() as object), redacted: imported.redacted }, { status: 201 });
     }
     if (seg.length === 1) {
       if (request.method === "GET") return json({ sources: this.ownerStore.list(), cleanupPending: this.ownerStore.pendingCleanup(), uploadsPending: this.ownerStore.pendingUploads() });
