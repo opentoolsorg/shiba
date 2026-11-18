@@ -21,7 +21,7 @@ beforeAll(async () => {
     script: "export default { fetch() { return new Response('ok'); } }",
     compatibilityDate: "2026-09-01", d1Databases: ["AGENT_AUDIT"] }));
   db = await mf.getD1Database("AGENT_AUDIT", "queue");
-  const sql = readFileSync(new URL("../migrations/0062_thread_queue.sql", import.meta.url), "utf8");
+  const sql = readFileSync(new URL("../migrations/0064_thread_queue.sql", import.meta.url), "utf8");
   await db.batch(unstable_splitSqlQuery(sql).map((s: string) => db.prepare(s)));
 }, 30_000);
 afterAll(async () => { await mf?.dispose(); });

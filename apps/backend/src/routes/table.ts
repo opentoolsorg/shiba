@@ -38,6 +38,7 @@ export const ROUTES: readonly RouteEntry[] = [
   route("shell-head", "ingress", "HEAD", "^(?:/(?:docs|blog|why-shiba|privacy|terms|waitlist|welcome)(?:/|$)|/(?:slack-canvas|signin|login||work|dashboard|tasks|threads|activity|analytics|diff|approvals|swarm|collaboration|team|agents|inbox|memory|files|notes|projects|outputs|automations|providers|employee-tools|integrations|skills|spaces|custom-agents|remote|settings)/?$|/auth/(?:forgot|reset)/?$|/spaces/[^/]+/?$|/share/[cf]/[^/]+/?$)", "public", handlers.shell, "Read-only marketing redirect or dashboard shell; no private API data."),
   route("share-read", "ingress", "GET", "^(?:/share/[cf]/[^/]+|/api/share/file/[^/]+)$", "public", handlers.publicShareResponse, "Token capability read; unknown/expired tokens fail closed."),
   route("share-early-management", "ingress", "*", "^/api/share$", "session", handlers.publicShareResponse, "Management retains its own session verification."),
+  route("observabilityResponse", "authenticated", "*", "^/api/observability$", "session", handlers.observabilityResponse),
   route("outputArchiveResponse", "authenticated", "*", "^/api/run-output-archives(?:/|$)", "session", handlers.outputArchiveResponse),
   route("slackInstallationResponse", "authenticated", "*", "^/api/slack/installations(?:/|$)", "session", handlers.slackInstallationResponse),
   route("slackCoworkerResponse", "authenticated", "*", "^/api/slack/coworker(?:/|$)", "session", handlers.slackCoworkerResponse),

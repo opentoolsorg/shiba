@@ -23,6 +23,8 @@ const SEEDS: FeaturedSeed[] = [
   { id: "gmail", name: "Gmail", category: "Email", description: "Read and draft email.", authKind: "oauth", openConnectorProviderId: "gmail", scopesSummary: "Mailbox read access and drafts; sends need approval." },
   { id: "google-calendar", name: "Google Calendar", category: "Calendar", description: "Read events and availability.", authKind: "oauth", openConnectorProviderId: "googlecalendar", scopesSummary: "Calendar events and free/busy." },
   { id: "slack", name: "Slack", category: "Chat", description: "Read channels and post messages.", authKind: "oauth", openConnectorProviderId: "slack", scopesSummary: "Channel history and message posting." },
+  { id: "google-drive", name: "Google Drive", category: "Files", description: "Find, read and organize shared files.", authKind: "oauth", openConnectorProviderId: "googledrive", scopesSummary: "Files and folders the account can open; changes need approval." },
+  { id: "outlook", name: "Outlook", category: "Email", description: "Read and draft Outlook email.", authKind: "oauth", openConnectorProviderId: "outlook", scopesSummary: "Mailbox read access and drafts; sends need approval." },
   { id: "github", name: "GitHub", category: "Code", description: "Read repositories, issues and pull requests.", authKind: "oauth", openConnectorProviderId: "github", scopesSummary: "Repository, issue and pull request access." },
 ];
 
@@ -76,9 +78,10 @@ function baseItem(entry: FeaturedIntegration): FeaturedCatalogItem {
 }
 
 /** Featured apps for an unconfigured provider: every row is flagged as needing setup. */
-export function featuredSetupItems(query?: string): FeaturedCatalogItem[] {
+export function featuredSetupItems(query?: string, serviceIds?: readonly string[]): FeaturedCatalogItem[] {
   const needle = query?.trim().toLowerCase();
   return FEATURED_INTEGRATIONS
+    .filter((entry) => !serviceIds || serviceIds.includes(entry.openConnectorProviderId))
     .filter((entry) => !needle || `${entry.name} ${entry.id} ${entry.category}`.toLowerCase().includes(needle))
     .map((entry) => ({ ...baseItem(entry), reason: "setup_required" as const }));
 }
@@ -96,8 +99,8 @@ export function mergeFeaturedWithLive(live: readonly IntegrationProviderCatalogI
 }
 
 /** Body of a catalog read when OpenConnector is not bound. */
-export function setupRequiredCatalog(query?: string) {
-  const items = featuredSetupItems(query);
+export function setupRequiredCatalog(query?: string, serviceIds?: readonly string[]) {
+  const items = featuredSetupItems(query, serviceIds);
   return {
     ok: true as const,
     provider: "openconnector" as const,

@@ -85,6 +85,9 @@ import type { RequestContext } from "./context.js";
 
 // Thin adapters preserve the original checks, return-null behavior and lazy module boundaries.
 export const handlers = {
+  async observabilityResponse(context: RequestContext): Promise<Response | null> {
+    return (await import("../observability-routes.js")).handleObservability(context.request, context.env, context.execution);
+  },
   async permit(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
     if (new URL(request.url).pathname === "/internal/founder-automatic-read/permit") {

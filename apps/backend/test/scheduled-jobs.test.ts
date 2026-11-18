@@ -3,12 +3,16 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import worker from "../src/index.js";
+import { reportError } from "../src/observability.js";
+import { dispatchQueueBatch } from "../src/platform/queues.js";
 import { scheduledJobRegistry, scheduledJobs } from "../src/scheduled-jobs.js";
 
 vi.mock("@cloudflare/sandbox", () => ({ Sandbox: class {}, ContainerProxy: class {}, proxyToSandbox: vi.fn(), getSandbox: vi.fn() }));
 vi.mock("agents/routing", () => ({ getAgentByName: vi.fn(), routeAgentRequest: vi.fn() }));
 vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 vi.mock("../src/agents/orchestrator.js", () => ({ CodingOrchestrator: class {} }));
+vi.mock("../src/observability.js", () => ({ reportError: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("../src/platform/queues.js", () => ({ dispatchQueueBatch: vi.fn().mockResolvedValue(undefined) }));
 
 const names = [
   "founder.stripe", "founder.meta", "founder.hubspot", "founder.reconcile", "founder.reads",
@@ -39,6 +43,8 @@ function database() {
 }
 
 beforeEach(() => {
+  vi.mocked(reportError).mockClear();
+  vi.mocked(dispatchQueueBatch).mockClear();
   for (const name of names) vi.spyOn(scheduledJobs, name).mockImplementation(async () => undefined);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -61,6 +67,7 @@ describe("scheduled jobs", () => {
     expect(sendBatch).toHaveBeenCalledExactlyOnceWith(queuedNames.map((job) => ({ body: { job, slot } })));
     for (const name of queuedNames) expect(scheduledJobs[name]).not.toHaveBeenCalled();
     expect(scheduledJobs["automations.tick"]).not.toHaveBeenCalled();
+    expect(reportError).not.toHaveBeenCalled();
   });
 
   it("enqueues every registered job without running handlers inline", async () => {
@@ -83,6 +90,7 @@ describe("scheduled jobs", () => {
     await Promise.all(pending);
     for (const name of names) expect(scheduledJobs[name]).toHaveBeenCalledExactlyOnceWith(env, scheduledAt);
     expect(console.error).toHaveBeenCalledTimes(1);
+    expect(reportError).toHaveBeenCalledExactlyOnceWith(env, "scheduled", expect.objectContaining({ message: "failed" }));
   });
 
   it("starts later inline jobs without waiting for a hanging founder tick", async () => {
@@ -109,6 +117,7 @@ describe("scheduled jobs", () => {
     const { pending, context } = ctx();
     await worker.scheduled(controller, env, context);
     await expect(Promise.all(pending)).rejects.toThrow("queue down");
+    expect(reportError).toHaveBeenCalledExactlyOnceWith(env, "scheduled", expect.objectContaining({ message: "queue down" }));
     for (const name of queuedNames) expect(scheduledJobs[name]).not.toHaveBeenCalled();
     for (const name of names) expect(scheduledJobs[name]).not.toHaveBeenCalled();
   });
@@ -121,6 +130,33 @@ describe("scheduled jobs", () => {
     for (const name of names.filter((name) => name !== "founder.meta")) expect(scheduledJobs[name]).not.toHaveBeenCalled();
     expect(item.ack).toHaveBeenCalledOnce();
     expect(item.retry).not.toHaveBeenCalled();
+    expect(dispatchQueueBatch).not.toHaveBeenCalled();
+  });
+
+  it("ignores an empty scheduled batch without reporting errors", async () => {
+    await worker.queue(batch([]), {} as Env, ctx().context);
+    for (const name of names) expect(scheduledJobs[name]).not.toHaveBeenCalled();
+    expect(dispatchQueueBatch).not.toHaveBeenCalled();
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it("routes non-scheduled batches through the queue dispatcher", async () => {
+    const env = {} as Env;
+    const { context } = ctx();
+    const incoming = batch([], "knowledge-ingest");
+    await worker.queue(incoming, env, context);
+    expect(dispatchQueueBatch).toHaveBeenCalledExactlyOnceWith(incoming, env, context);
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it("reports non-scheduled queue failures while preserving redelivery", async () => {
+    const env = {} as Env;
+    const failure = new Error("dispatcher failed");
+    vi.mocked(dispatchQueueBatch).mockRejectedValueOnce(failure);
+    const { pending, context } = ctx();
+    await expect(worker.queue(batch([], "knowledge-ingest"), env, context)).rejects.toBe(failure);
+    await Promise.all(pending);
+    expect(reportError).toHaveBeenCalledExactlyOnceWith(env, "queue", failure);
   });
 
   it.each([{ job: "future.job", slot }, { job: "constructor", slot }, { job: "founder.meta", slot: -1 }, { job: "founder.meta" }, null])("acks unknown or malformed messages %j", async (body) => {
@@ -141,6 +177,7 @@ describe("scheduled jobs", () => {
     expect(failed.ack).not.toHaveBeenCalled();
     expect(success.ack).toHaveBeenCalledOnce();
     expect(success.retry).not.toHaveBeenCalled();
+    expect(reportError).toHaveBeenCalledExactlyOnceWith({}, "scheduled", expect.objectContaining({ message: "provider down" }));
   });
 
   it("starts independent handlers concurrently", async () => {

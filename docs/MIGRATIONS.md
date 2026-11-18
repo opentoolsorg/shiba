@@ -18,7 +18,11 @@ been applied. They remain the sole duplicate-prefix exception. Historical gaps
 before 0060 remain unchanged too. From 0061 onward numbers must be contiguous;
 check open PRs before reserving the next number.
 
-`0061_runtime_d1_schema.sql` captures the former request-time schema, with
+`0061_note_chat.sql` and `0062_media_generations.sql` retain their main-branch
+identities. The architecture migrations follow as `0063_runtime_d1_schema.sql`,
+`0064_thread_queue.sql`, and `0065_scheduled_job_slots.sql`, in that order.
+
+`0063_runtime_d1_schema.sql` captures the former request-time schema, with
 `IF NOT EXISTS` so databases already initialized by older Workers retain data.
 Missing additive columns are installed by migrations rather than repaired on reads.
 

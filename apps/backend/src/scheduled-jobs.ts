@@ -3,6 +3,7 @@ import { AUDIT_RETENTION_MS, pruneAuditLog } from "./audit.js";
 import { automationsStub } from "./automations-stub.js";
 import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import type { Env } from "./env.js";
+import { reportError } from "./observability.js";
 import { redactSecrets } from "./security.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 
@@ -64,6 +65,7 @@ export async function runScheduledJobs(scheduledAt: number, env: Env): Promise<v
     .map(async ({ job, slot }) => {
       try { await scheduledJobs[job](env, scheduledAt); }
       catch (error) {
+        await reportError(env, "scheduled", error);
         if (job === "audit.prune") console.warn(`audit prune failed: ${redactSecrets(String(error))}`);
         else console.error(`job ${job} failed`, redactSecrets(String(error)));
       }
@@ -120,6 +122,7 @@ export async function consumeScheduledJobs(batch: MessageBatch<unknown>, env: En
       await finishJobSlot(env, body.job, slot);
       message.ack();
     } catch (error) {
+      await reportError(env, "scheduled", error);
       await releaseJobSlot(env, body.job, slot).catch(() => undefined);
       console.error(`job ${body.job} failed`, redactSecrets(String(error)));
       message.retry({ delaySeconds: 60 });

@@ -378,6 +378,15 @@ Rollback: pause the jobs consumer and let active invocations finish; drain or ex
 
 ## 9. Known architectural gaps
 
+Optional operator observability lives in `apps/backend/src/observability.ts`:
+Sentry envelopes, anonymous PostHog lifecycle events and OTLP/HTTP JSON delta
+counters. All are default-off and explicitly configured through Worker env vars.
+The authenticated dashboard relay accepts only enumerated events, never raw
+errors or request context. No collector credentials enter browser bundles or
+sandboxes. See [configuration](apps/web/src/content/docs/docs/configuration.md#optional-monitoring)
+for the privacy contract, opt-ins and delivery limits. The inbound Sentry
+automation webhook remains separate.
+
 Not bugs — deliberate or inherited, recorded so they are not rediscovered:
 
 - **`/mcp` OAuth is shipped but young.** `oauth-mcp.ts` serves RFC 8414 +

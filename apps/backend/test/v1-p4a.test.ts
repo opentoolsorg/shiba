@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DelegatedRun, SpineEvent } from "@shiba/shared";
 import type { Env } from "../src/env.js";
-import { handleBilling } from "../src/v1/billing.js";
+import { handleBilling, threadUsage } from "../src/v1/billing.js";
+import { defaultUsageBudgetPolicy } from "../src/usage.js";
+import { meterSandboxRun } from "../src/sandbox-metering.js";
 import type { V1Context } from "../src/v1/context.js";
 import { handleEvents } from "../src/v1/events.js";
 
@@ -33,6 +35,7 @@ function fixture(path: string, opts: { method?: string; env?: Partial<Env>; head
         earliestSeq: opts.earliestSeq ?? events[0]?.seq ?? 0, latestSeq: events.at(-1)?.seq ?? 0, totalEvents: events.length });
     }
     if (url.pathname === "/api/runs") return Response.json({ runs: [run, other, bare] });
+    if (url.pathname === "/api/usage/budget") return Response.json({ policy: defaultUsageBudgetPolicy(opts.env ?? {}) });
     if (url.pathname === "/api/runs/r1") return Response.json({ run });
     return Response.json({ error: "Run not found." }, { status: 404 });
   });
@@ -76,13 +79,30 @@ describe("v1 billing and usage", () => {
     expect(body).toEqual({ ok: true, usage: { orgId: "self-hosted", totalCostMicros: 750_000, inputTokens: 101, outputTokens: 20, events: 2 } });
   });
 
-  it("reports USD credits against the advisory daily budget", async () => {
+  it("reports USD credits against the daily policy", async () => {
     const withBudget = await (await handleBilling(fixture("/billing/summary", { env: { USAGE_BUDGET_USD: "2" } }).ctx))!.json() as { billing: Record<string, unknown> };
     expect(withBudget.billing).toMatchObject({ customerId: "self-hosted", available: true, usedCredits: 0.75,
       dailyIncludedCredits: 2, remainingDailyIncludedCredits: 1.25, creditsNeededToStartRun: 0 });
     expect(typeof withBudget.billing.nextResetAt).toBe("string");
     const none = await (await handleBilling(fixture("/billing/summary").ctx))!.json() as { billing: Record<string, unknown> };
     expect(none.billing).toMatchObject({ available: true, dailyIncludedCredits: null, remainingDailyIncludedCredits: null, nextResetAt: null });
+  });
+
+  it("returns provisioned compute estimates, frozen history, and the per-run allowance", () => {
+    const active: DelegatedRun = { ...run, status: "running", runtime: "sandbox", signals: [{ kind: "sandbox.ready", at: now - 1000 }] };
+    const policy = { ...defaultUsageBudgetPolicy({}), perRunLimitUsd: 3 };
+    const usage = threadUsage(active, policy, now, "standard-2");
+    expect(usage).toMatchObject({ vmCostStatus: "estimated", vmCostSource: "instance-type-rates", vmCpuSeconds: 1,
+      vmRamGbSeconds: 6, vmDiskGbSeconds: 12, spendLimitMicros: 3_000_000, vmCostUpdatedAt: now });
+    expect(usage.vmCostMicros).toBe(36);
+    expect(usage.totalCostMicros).toBe(250_036);
+    const frozen = meterSandboxRun(active, now, "standard-2");
+    expect(threadUsage({ ...active, sandboxMeter: frozen, status: "completed", updatedAt: now + 5000 }, policy, now + 10000).vmCostMicros).toBe(36);
+  });
+
+  it("marks new work unavailable at an exhausted daily allowance", async () => {
+    const response = await handleBilling(fixture("/billing/summary", { env: { USAGE_BUDGET_USD: "0" } }).ctx);
+    expect(await response!.json()).toMatchObject({ billing: { available: false, remainingDailyIncludedCredits: 0 } });
   });
 });
 
