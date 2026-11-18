@@ -298,6 +298,28 @@ describe("requested deliverable private persistence", () => {
 });
 
 describe("OpenCodeAgent response boundary", () => {
+  it.each([true, false])("completes unchanged quiet routines without publication (deferred: %s)", async (deferPullRequestPublish) => {
+    mocks.run.mockResolvedValue({ ...RESULT, changedFiles: [], files: [], diff: "", routineOutcome: { noUpdate: true } });
+    const instance = agent(await sealed({ publishPullRequest: true, deferPullRequestPublish,
+      accessAgent: "run-owner", routineRun: { automationId: "nightly", test: false } }), "token");
+    const put = vi.fn();
+    Object.assign(instance.env, { ATTACHMENTS: { put } });
+    const { result } = await responseFor(instance);
+    expect(result).toMatchObject({ status: "completed", routineOutcome: { noUpdate: true } });
+    expect(result.publicationProposal).toBeUndefined();
+    expect(put).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it("makes routine changes awaiting publication non-quiet", async () => {
+    mocks.run.mockResolvedValue({ ...RESULT, routineOutcome: { noUpdate: true } });
+    const instance = agent(await sealed({ publishPullRequest: true, deferPullRequestPublish: true,
+      accessAgent: "run-owner", routineRun: { automationId: "nightly", test: false } }));
+    Object.assign(instance.env, { ATTACHMENTS: { put: vi.fn(async () => ({ key: "stored" })) } });
+    const { result } = await responseFor(instance);
+    expect(result).toMatchObject({ status: "completed", routineOutcome: { noUpdate: false }, publicationProposal: { kind: "pr_publish" } });
+  });
+
   it("stages an action-bound PR proposal with private file bodies and waits for separate human approval", async () => {
     const instance = agent(await sealed({
       publishPullRequest: true,

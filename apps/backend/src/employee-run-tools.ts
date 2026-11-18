@@ -26,11 +26,27 @@ import type { OnboardingRunFields, SkillExecutionPin } from "@shiba/shared";
 import { callEmployeeExternalMcp, employeeExternalMcpCatalog, isEmployeeExternalMcpScope } from "./employee-external-mcp.js";
 import { EMPLOYEE_MCP_READ_META } from "./external-mcp.js";
 import { areSkillPinsActive } from "./skills-store.js";
+import { projectRegisteredTools } from "./capability-catalog.js";
+import type { IntegrationAction } from "./integrations/contracts.js";
+import { ToolCatalog, TOOL_DESCRIBE_LIMIT, type ToolCatalogEntry, type ToolCatalogSource } from "./tool-catalog.js";
 
 const ACTION_NAMES = Object.keys(EMPLOYEE_TOOL_ACTIONS) as Array<keyof typeof EMPLOYEE_TOOL_ACTIONS>;
 /** True only for Worker-side app actions with reviewed policy and dispatch support. */
 export function isSupportedEmployeeToolScope(scope: string): boolean {
   return ACTION_NAMES.some((name) => capabilityId(name) === scope);
+}
+const LAZY_CATALOG_TOOLS = ["tool_search", "tool_describe", "tool_call"] as const;
+const LEGACY_CATALOG_TOOLS = ["employee_tool_catalog", "employee_tool_call"] as const;
+/** The model-facing lazy catalog: search, describe, call. */
+export function isLazyCatalogToolName(name: string): boolean {
+  return (LAZY_CATALOG_TOOLS as readonly string[]).includes(name);
+}
+/** Kept for direct callers; the model sees the lazy catalog instead. */
+export function isLegacyCatalogToolName(name: string): boolean {
+  return (LEGACY_CATALOG_TOOLS as readonly string[]).includes(name);
+}
+export function isEmployeeAppToolName(name: string): boolean {
+  return isLazyCatalogToolName(name) || isLegacyCatalogToolName(name);
 }
 const inputSchema = z.object({
   tool: z.string().max(64).refine((name) => ACTION_NAMES.some((action) => action === name) || isEmployeeExternalMcpScope(`mcp:shiba:${name}`)),
@@ -177,6 +193,44 @@ export function createEmployeeRunTools(
     const actorId = resolveActorId();
     return employeeId && actorId ? resolveEmployeeRunToolContext(env, employeeId, resolveOrgId(), actorId) : null;
   };
+  const callTool = async (toolName: string, args: Record<string, unknown>, options: { toolCallId: string; abortSignal?: AbortSignal }) => {
+    options?.abortSignal?.throwIfAborted();
+    const executionContextId = resolveExecutionContextId();
+    const context = executionContextId ? await currentContext() : null;
+    if (!context?.allowed.includes(capabilityId(toolName)) || !executionContextId) {
+      throw new Error("Employee tool is unavailable under the current policy.");
+    }
+    // Freeze and validate the latest human goal before any provider call.
+    const trustedBinding = await binding(context, executionContextId);
+    if (isEmployeeExternalMcpScope(capabilityId(toolName))) {
+      const result = await callEmployeeExternalMcp(env, trustedBinding, toolName, args, options.toolCallId, options.abortSignal);
+      if (draftStore && !result.isError && result._meta?.[EMPLOYEE_MCP_READ_META]) {
+        const receipt = await recordEmployeeExternalRead(env, draftStore, trustedBinding, options.toolCallId, result, options.abortSignal);
+        return { ok: true, result, sourceReadId: receipt.id };
+      }
+      return { ok: !result.isError, result };
+    }
+    const beforeDispatch = async () => {
+      options?.abortSignal?.throwIfAborted();
+      if (trustedBinding.skillPins?.length) {
+        const current = await currentContext();
+        if (!current || JSON.stringify(await binding(current, executionContextId)) !== JSON.stringify(trustedBinding)) {
+          throw new Error("Selected skill or employee context changed before dispatch.");
+        }
+      }
+      options?.abortSignal?.throwIfAborted();
+    };
+    const response = await dispatchEmployeeToolForPrincipal(env, context.employeeId, context.principal, toolName, args, executionContextId, beforeDispatch, options?.abortSignal);
+    const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+    if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : `Employee tool call failed (${response.status}).`);
+    if (draftStore && toolName === "gmail_read") {
+      const result = body.result as { isError?: boolean } | undefined;
+      if (!result || result.isError) throw new Error("Source read did not succeed.");
+      const receipt = await recordEmployeeRead(env, draftStore, trustedBinding, options.toolCallId, args.messageIds as string[], result, options.abortSignal);
+      return { ...body, sourceReadId: receipt.id };
+    }
+    return body;
+  };
   return {
     ...(draftStore ? {
       employee_context_read: tool({
@@ -221,44 +275,156 @@ export function createEmployeeRunTools(
     employee_tool_call: tool({
       description: "Call one supported Shiba app tool listed by employee_tool_catalog. The Worker rechecks employee version, grants, resource and exact-payload approval for every call.",
       inputSchema,
-      execute: async ({ tool: toolName, args }, options) => {
-        options?.abortSignal?.throwIfAborted();
-        const executionContextId = resolveExecutionContextId();
-        const context = executionContextId ? await currentContext() : null;
-        if (!context?.allowed.includes(capabilityId(toolName)) || !executionContextId) {
-          throw new Error("Employee tool is unavailable under the current policy.");
-        }
-        // Freeze and validate the latest human goal before any provider call.
-        const trustedBinding = await binding(context, executionContextId);
-        if (isEmployeeExternalMcpScope(capabilityId(toolName))) {
-          const result = await callEmployeeExternalMcp(env, trustedBinding, toolName, args, options.toolCallId, options.abortSignal);
-          if (draftStore && !result.isError && result._meta?.[EMPLOYEE_MCP_READ_META]) {
-            const receipt = await recordEmployeeExternalRead(env, draftStore, trustedBinding, options.toolCallId, result, options.abortSignal);
-            return { ok: true, result, sourceReadId: receipt.id };
-          }
-          return { ok: !result.isError, result };
-        }
-        const beforeDispatch = async () => {
-          options?.abortSignal?.throwIfAborted();
-          if (trustedBinding.skillPins?.length) {
-            const current = await currentContext();
-            if (!current || JSON.stringify(await binding(current, executionContextId)) !== JSON.stringify(trustedBinding)) {
-              throw new Error("Selected skill or employee context changed before dispatch.");
-            }
-          }
-          options?.abortSignal?.throwIfAborted();
-        };
-        const response = await dispatchEmployeeToolForPrincipal(env, context.employeeId, context.principal, toolName, args, executionContextId, beforeDispatch, options?.abortSignal);
-        const body = await response.json().catch(() => ({})) as Record<string, unknown>;
-        if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : `Employee tool call failed (${response.status}).`);
-        if (draftStore && toolName === "gmail_read") {
-          const result = body.result as { isError?: boolean } | undefined;
-          if (!result || result.isError) throw new Error("Source read did not succeed.");
-          const receipt = await recordEmployeeRead(env, draftStore, trustedBinding, options.toolCallId, args.messageIds as string[], result, options.abortSignal);
-          return { ...body, sourceReadId: receipt.id };
-        }
-        return body;
+      execute: async ({ tool: toolName, args }, options) => callTool(toolName, args, options),
+    }),
+    ...createLazyCatalogTools(env, currentContext, callTool),
+  };
+}
+
+
+type EmployeeToolCaller = (toolName: string, args: Record<string, unknown>, options: { toolCallId: string; abortSignal?: AbortSignal }) => Promise<unknown>;
+type CallOptions = { toolCallId: string; abortSignal?: AbortSignal };
+
+const INTEGRATION_TRANSPORT = new Set<string>(["integrations.search_actions", "integrations.execute"]);
+const OPENCONNECTOR_SEARCH_TOOLKITS = 4;
+const OPENCONNECTOR_ACTION_NAME = /^[a-z0-9_-]{1,100}\.[A-Za-z0-9_.-]{1,200}$/;
+
+function integrationActionsFrom(body: unknown): IntegrationAction[] {
+  const result = (body as { result?: { structuredContent?: { actions?: unknown } } } | null)?.result;
+  const actions = result?.structuredContent?.actions;
+  return Array.isArray(actions) ? actions.filter((action): action is IntegrationAction =>
+    typeof action?.id === "string" && typeof action?.service === "string") : [];
+}
+
+/**
+ * Builds the employee's lazy catalog from the current policy context. Each
+ * source lists only what the context already allows; `tool_call` dispatches
+ * through the same checked path as employee_tool_call.
+ */
+export function employeeToolCatalogSources(
+  env: Env,
+  context: EmployeeRunToolContext,
+  callTool: EmployeeToolCaller,
+  options: CallOptions,
+): ToolCatalogSource[] {
+  const builtinNames = ACTION_NAMES.filter((name) => !INTEGRATION_TRANSPORT.has(name) && context.allowed.includes(capabilityId(name)));
+  let builtinEntries: Promise<ToolCatalogEntry[]> | undefined;
+  const builtin = () => builtinEntries ??= (async () => {
+    const registry = createToolRegistry(env);
+    registerAllMcpTools(registry, env);
+    const projected = await projectRegisteredTools(registry.tools(), context.principal, new Set(builtinNames.map(capabilityId)));
+    return builtinNames.map((name): ToolCatalogEntry => {
+      const entry = projected.find((item) => item.name === name);
+      const action = EMPLOYEE_TOOL_ACTIONS[name];
+      return {
+        name, source: "builtin", summary: entry?.description ?? name,
+        effect: action.risk === "external_write" ? "approval_required" : "read",
+        resourceArgument: action.resourceArgument, resources: context.resources[capabilityId(name)] ?? [],
+        ...(entry?.inputSchema ? { inputSchema: entry.inputSchema as Record<string, unknown> } : {}),
+      };
+    });
+  })();
+  const external = (context.externalActions ?? []).map((action): ToolCatalogEntry => ({
+    name: action.tool, source: "mcp", summary: action.description, effect: action.effect,
+    resourceArgument: action.resourceArgument, resources: action.resources, inputSchema: action.inputSchema,
+  }));
+  const searchToolkits = context.resources[capabilityId("integrations.search_actions")] ?? [];
+  const executeToolkits = new Set(context.resources[capabilityId("integrations.execute")] ?? []);
+  const canSearchApps = context.allowed.includes(capabilityId("integrations.search_actions"));
+  const appEntry = (action: IntegrationAction): ToolCatalogEntry => ({
+    name: action.id, source: "openconnector", summary: action.description ?? action.name,
+    // A provider "read" label is advisory; integrations.execute always takes the exact-payload approval path.
+    effect: "approval_required",
+    keywords: `${action.service} ${action.name}`,
+    ...(action.inputSchema ? { inputSchema: action.inputSchema } : {}),
+  });
+  const searchApp = async (toolkitSlug: string, query: string, limit: number) => {
+    const body = await callTool("integrations.search_actions", { toolkitSlug, ...(query ? { query: query.slice(0, 200) } : {}), limit }, options);
+    return integrationActionsFrom(body).filter((action) => action.service === toolkitSlug && executeToolkits.has(toolkitSlug));
+  };
+  const toolkitOf = (name: string) => OPENCONNECTOR_ACTION_NAME.test(name) ? name.slice(0, name.indexOf(".")) : undefined;
+  return [
+    {
+      id: "builtin",
+      owns: (name) => builtinNames.some((builtinName) => builtinName === name),
+      search: () => builtin(),
+      describe: async (names) => (await builtin()).filter((entry) => names.includes(entry.name)),
+    },
+    {
+      id: "mcp",
+      owns: (name) => external.some((entry) => entry.name === name),
+      search: async () => external,
+      describe: async (names) => external.filter((entry) => names.includes(entry.name)),
+    },
+    {
+      id: "openconnector",
+      owns: (name) => !builtinNames.some((builtinName) => builtinName === name) && executeToolkits.has(toolkitOf(name) ?? ""),
+      search: async (terms, limit) => {
+        if (!canSearchApps) return [];
+        const toolkits = searchToolkits.filter((slug) => executeToolkits.has(slug));
+        const named = toolkits.filter((slug) => terms.some((term) => slug.toLowerCase() === term || slug.toLowerCase().includes(term)));
+        const query = terms.filter((term) => !named.some((slug) => slug.toLowerCase() === term)).join(" ");
+        const targets = (named.length ? named : toolkits).slice(0, OPENCONNECTOR_SEARCH_TOOLKITS);
+        const found = await Promise.all(targets.map((slug) => searchApp(slug, query, limit).catch(() => [])));
+        return found.flat().map(appEntry);
+      },
+      describe: async (names) => {
+        if (!canSearchApps) return [];
+        const entries = await Promise.all(names.map(async (name) => {
+          const toolkitSlug = toolkitOf(name);
+          if (!toolkitSlug || !searchToolkits.includes(toolkitSlug)) return [];
+          const actions = await searchApp(toolkitSlug, name, 50).catch(() => []);
+          return actions.filter((action) => action.id === name).map(appEntry);
+        }));
+        return entries.flat();
+      },
+    },
+  ];
+}
+
+const lazyCallInput = z.object({
+  name: z.string().min(1).max(300),
+  args: z.record(z.string(), z.unknown()),
+}).strict();
+
+function createLazyCatalogTools(
+  env: Env,
+  currentContext: () => Promise<EmployeeRunToolContext | null>,
+  callTool: EmployeeToolCaller,
+) {
+  const catalogFor = async (options: CallOptions) => {
+    options.abortSignal?.throwIfAborted();
+    const context = await currentContext();
+    return context ? { context, catalog: new ToolCatalog(employeeToolCatalogSources(env, context, callTool, options)) } : null;
+  };
+  return {
+    tool_search: tool({
+      description: "Search the employee's connected tools (Shiba, connected apps, reviewed MCP servers) by keyword. Returns up to 10 short matches; the best ones include inputSchema. A match is not permission: tool_call rechecks policy and approval.",
+      inputSchema: z.object({ queries: z.array(z.string().min(1).max(100)).min(1).max(5) }).strict(),
+      execute: async ({ queries }, options) => {
+        const current = await catalogFor(options);
+        return current ? await current.catalog.search(queries) : { matches: [], total: 0, truncated: false };
       },
     }),
-  };
+    tool_describe: tool({
+      description: "Load full input schemas for up to 5 tool names returned by tool_search.",
+      inputSchema: z.object({ names: z.array(z.string().min(1).max(300)).min(1).max(TOOL_DESCRIBE_LIMIT) }).strict(),
+      execute: async ({ names }, options) => {
+        const current = await catalogFor(options);
+        return current ? await current.catalog.describe(names) : { tools: [], unavailable: names };
+      },
+    }),
+    tool_call: tool({
+      description: "Call one tool by its tool_search name with args matching its schema. Writes return approval_required until a human approves the exact payload.",
+      inputSchema: lazyCallInput,
+      execute: async ({ name, args }, options) => {
+        const current = await catalogFor(options);
+        const source = current?.catalog.sourceFor(name);
+        if (!source) throw new Error("Employee tool is unavailable under the current policy.");
+        if (source.id !== "openconnector") return callTool(name, args, options);
+        const toolkitSlug = name.slice(0, name.indexOf("."));
+        return callTool("integrations.execute", { toolkitSlug, toolSlug: name, arguments: args }, options);
+      },
+    }),
+  } satisfies ToolSet;
 }

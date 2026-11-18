@@ -178,10 +178,12 @@ describe("handleRuns voucher hygiene", () => {
     expect(proxied?.headers.get(LOCAL_INTAKE_HEADER)).toBe("dashboard");
   });
 
-  it("stamps the dashboard intake voucher over any inbound copy", async () => {
+  it.each(["forged", "routine:forged:scheduled"])("stamps the dashboard intake voucher over inbound %s", async (intake) => {
     forwarded.requests.length = 0;
     const request = new Request("https://shiba.test/api/runs", {
-      headers: { [LOCAL_INTAKE_HEADER]: "forged" },
+      method: "POST",
+      headers: { "content-type": "application/json", [LOCAL_INTAKE_HEADER]: intake },
+      body: JSON.stringify({ repoUrl: "https://github.com/o/r", task: "Check updates" }),
     });
     const response = await handleRuns(request, env);
     expect(response?.status).toBe(200);

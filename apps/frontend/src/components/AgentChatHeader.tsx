@@ -3,6 +3,7 @@ import { ChevronRight, MoreHorizontal, PanelRight, Users } from "lucide-react";
 import type { AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
 import type { EmployeeRole } from "../employee-templates";
 import { AgentAvatar } from "./AgentAvatar";
+import { SideQuestion } from "./SideQuestion";
 
 export type AgentChatParticipant = { id: string; name: string };
 export type AgentChatMenuAction = { label: string; onSelect: () => void; destructive?: boolean };
@@ -20,6 +21,7 @@ export function AgentChatHeader({
   actions = [],
   workspaceLabel = "Workspace",
   onOpenAgents,
+  sideQuestion,
 }: {
   agent: { id: string; name: string; role?: EmployeeRole; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook };
   participants: readonly AgentChatParticipant[];
@@ -28,6 +30,7 @@ export function AgentChatHeader({
   actions?: readonly AgentChatMenuAction[];
   workspaceLabel?: string;
   onOpenAgents?: () => void;
+  sideQuestion?: { employeeId: string; threadId: string };
 }): JSX.Element {
   const [open, setOpen] = useState<OpenMenu>(null);
   const rootRef = useRef<HTMLElement>(null);
@@ -73,6 +76,7 @@ export function AgentChatHeader({
         </ol>
       </nav>
       <div className="flex shrink-0 items-center gap-1">
+        {sideQuestion ? <SideQuestion key={`${sideQuestion.employeeId}:${sideQuestion.threadId}`} {...sideQuestion} /> : null}
         {actions.length ? (
           <div className="relative">
             <button type="button" className={iconButton} aria-label="Conversation actions" aria-haspopup="menu" aria-expanded={open === "actions"} aria-controls={`${id}-actions`} onClick={() => toggle("actions")}>
