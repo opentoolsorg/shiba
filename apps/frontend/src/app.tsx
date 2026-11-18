@@ -9,7 +9,7 @@ import { updateWorkSearch, type WorkSearchState } from "./work-search";
  * Approval-gated coding tasks delegated to isolated Cloudflare Sandbox containers running OpenCode.
  */
 import { readRoomLink, useRoomLinkRoute } from "./room-links";
-import { readThreadLink, resolveLinkedThread, withThreadLink } from "./thread-links";
+import { DEFAULT_THREAD_ID, readThreadLink, resolveLinkedThread, withThreadLink } from "./thread-links";
 import { normalizeRepositoryInput, REPOSITORY_INPUT_ERROR } from "./repository-input";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useConversationRoomRealtime, type ConversationRoomMessage } from "./conversation-room-realtime";
@@ -818,18 +818,31 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       if (view === "settings") setSettingsSection(normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
       if (readRoomLink(window.location.search) !== null) return;
       const linked = readThreadLink(window.location.search);
-      if (linked === "invalid") return;
+      // A dead link — deleted, or never ours to open — restores the default
+      // session and says why, instead of stranding Back/Forward on a thread
+      // this viewer cannot see. Replacing the entry keeps Forward intact.
+      const unavailable = linked === "invalid" || (linked !== null && linked.threadId !== DEFAULT_THREAD_ID &&
+        !webSessionsRef.current.some((session) => session.id === linked.threadId));
+      if (unavailable) {
+        setSelectedSessionId(DEFAULT_THREAD_ID);
+        writeRememberedSessionId(DEFAULT_THREAD_ID);
+        setSelectedRunId(null);
+        setNotice("That thread isn't available to you. It may belong to another workspace or have been deleted.");
+        const query = withThreadLink(window.location.search, null);
+        const path = `${pathForView("threads")}${query ? `?${query}` : ""}`;
+        if (window.location.pathname + window.location.search !== path) router.history.replace(path + window.location.hash);
+        return;
+      }
       // A selector-less /threads/ is the default session, not "keep whatever is open".
       const target = linked?.threadId ?? (view === "threads" ? "default" : null);
       if (!target || target === selectedSessionIdRef.current) return;
-      if (target !== "default" && !webSessionsRef.current.some((session) => session.id === target)) return;
       setSelectedSessionId(target);
       writeRememberedSessionId(target);
       setSelectedRunId(null);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, []);
+  }, [router]);
   useEffect(() => {
     // The personal task queue must never execute in a team workspace.
     if (teamWorkspaceId && mainView === "tasks") setMainView("work");

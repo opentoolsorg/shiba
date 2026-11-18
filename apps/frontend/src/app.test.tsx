@@ -1307,6 +1307,45 @@ describe("bot thread links", () => {
     expect(window.history.length).toBe(before);
   });
 
+  it("rewrites a dead thread reached with Back in place, leaving Forward intact", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    mocks.chat.messages = [];
+    // The research thread is gone from this viewer's registry: deleted, or
+    // another workspace's. The engineering thread is live.
+    stubThreads(threads.filter((thread) => thread.id !== RESEARCH_THREAD));
+    window.history.replaceState(null, "", "/threads/?session=" + ENGINEERING_THREAD);
+    window.history.pushState(null, "", "/threads/?session=" + RESEARCH_THREAD);
+    window.history.pushState(null, "", "/threads/?session=" + ENGINEERING_THREAD);
+    render(<App />);
+    await waitFor(() => expect(screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).toContain("Engineering bot"));
+
+    const pushed = vi.spyOn(window.history, "pushState");
+    await act(async () => { window.history.back(); });
+    await screen.findByText(/That thread isn't available to you/);
+    expect(new URLSearchParams(window.location.search).has("session")).toBe(false);
+    expect(screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).not.toContain("Engineering bot");
+    // Rewriting the dead entry in place is what preserves the Forward entry: a
+    // push would spend it. (happy-dom drops the Forward stack on any replace, so
+    // this asserts the write the browser honours rather than a forward() walk.)
+    expect(pushed).not.toHaveBeenCalled();
+    pushed.mockRestore();
+  });
+
+  it("recovers an unreadable thread selector reached with Back", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    mocks.chat.messages = [];
+    stubThreads();
+    window.history.replaceState(null, "", "/threads/");
+    render(<App />);
+    await act(async () => {});
+    await act(async () => {
+      window.history.pushState(null, "", "/threads/?session=not-a-thread");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await screen.findByText(/That thread isn't available to you/);
+    expect(new URLSearchParams(window.location.search).has("session")).toBe(false);
+  });
+
   it("leaves a shared room link intact and never attaches a private thread to it", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     const workspaceId = `ws_${"a".repeat(24)}`;
