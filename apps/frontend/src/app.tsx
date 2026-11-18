@@ -40,6 +40,7 @@ import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { AgentDetailsPanel, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
+import { saveBotDeliverables } from "./bot-library";
 import { useProjectContexts } from "./project-contexts";
 import { buildExecutionTargetFields, hasComposerInput, parseArtifactDeliverables, type DashboardExecutionTargetFields } from "./execution-target-input";
 import { appToolsWorkIssue, sendAppToolsWork } from "./app-tools-work";
@@ -2892,6 +2893,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       refreshCustomAgents();
     }
   };
+  const saveBotLibrary = useCallback(async (employee: CustomAgentWire, deliverables: string[]) => {
+    await saveBotDeliverables(employee, deliverables, teamWorkspaceId || undefined);
+    await refreshCustomAgents();
+  }, [teamWorkspaceId, refreshCustomAgents]);
   const activeEmployee = customAgentRecords.find((profile) => profile.id === customAgentId);
   const employeeName = activeEmployee?.config.name ?? "Shiba";
   const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, look: activeEmployee?.config.look, avatar: activeEmployee?.config.avatar, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
@@ -4016,7 +4021,27 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   )}
                 </div>
               </main>
-              {agentDetailsOpen ? <AgentDetailsPanel key={customAgentId || "shiba"} agent={activeEmployee} onClose={() => setAgentDetailsOpen(false)} onEdit={() => openView("custom-agents")} /> : null}
+              {agentDetailsOpen ? (
+                <AgentDetailsPanel
+                  key={customAgentId || "shiba"}
+                  agent={activeEmployee}
+                  workspaceName={teamWorkspace?.name}
+                  runtime={{
+                    harness: activeEmployee?.config.harness ?? harness,
+                    sandboxProvider: activeEmployee?.config.sandboxProvider,
+                    localAvailable: localRunAvailable,
+                    computers: localComputers,
+                    loading: localComputersLoading,
+                    error: localComputersError,
+                  }}
+                  onLibrarySave={activeEmployee ? (deliverables) => saveBotLibrary(activeEmployee, deliverables) : undefined}
+                  onClose={() => setAgentDetailsOpen(false)}
+                  onEdit={() => {
+                    if (customAgentId) setInitialEmployeeId(customAgentId);
+                    openView("custom-agents");
+                  }}
+                />
+              ) : null}
             </div>
           ) : mainView === "activity" ? (
             // Remount on session switch so the previous session's spine never

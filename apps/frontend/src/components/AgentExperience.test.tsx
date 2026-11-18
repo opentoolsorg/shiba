@@ -172,7 +172,8 @@ describe("agent conversation", () => {
 
     // Check switching to Computer tab
     fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
-    expect(screen.getByText(/Sandbox: docker-local/)).toBeTruthy();
+    expect(screen.getByText("Cloud sandbox")).toBeTruthy();
+    expect(screen.getByText("docker-local")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Close agent details" }));
     expect(onClose).toHaveBeenCalledOnce();
@@ -189,10 +190,13 @@ describe("agent conversation", () => {
     };
     render(<AgentDetailsPanel agent={emptyAgent} onClose={vi.fn()} onEdit={vi.fn()} />);
     fireEvent.click(screen.getByRole("tab", { name: "Library" }));
-    expect(screen.getByText("No files yet")).toBeTruthy();
+    expect(screen.getByText("No required outputs yet.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
-    expect(screen.getByText("No computer")).toBeTruthy();
+    // An unconfigured bot still states where its approved work would run.
+    expect(screen.getByText("opencode")).toBeTruthy();
+    expect(screen.getByText("Workspace default")).toBeTruthy();
+    expect(screen.getByText("None paired")).toBeTruthy();
   });
 });
 
@@ -250,5 +254,74 @@ describe("employee onboarding", () => {
     fireEvent.click(screen.getByRole("button", { name: /Sales/ }));
     expect((await screen.findByRole("alert")).textContent).toContain("Backend unavailable");
     await waitFor(() => expect((screen.getByRole("button", { name: /Sales/ }) as HTMLButtonElement).disabled).toBe(false));
+  });
+});
+
+describe("bot profile tabs", () => {
+  const libraryAgent: CustomAgentWire = {
+    ...agent,
+    version: 3,
+    config: { ...agent.config, expectedDeliverables: ["brief.md", "sources.json"] },
+  };
+
+  it("attaches a required output and saves it through the bot's profile", async () => {
+    const save = vi.fn(async () => {});
+    render(<AgentDetailsPanel agent={{ ...agent, config: { ...agent.config, expectedDeliverables: undefined } }} onClose={vi.fn()} onEdit={vi.fn()} onLibrarySave={save} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    expect(screen.getByText("No required outputs yet.")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Add a required output"), { target: { value: "brief.md" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(["brief.md"]));
+    expect(await screen.findByRole("button", { name: "Remove brief.md" })).toBeTruthy();
+  });
+
+  it("removes a required output without touching the other entries", async () => {
+    const save = vi.fn(async () => {});
+    render(<AgentDetailsPanel agent={libraryAgent} onClose={vi.fn()} onEdit={vi.fn()} onLibrarySave={save} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove brief.md" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(["sources.json"]));
+    expect(screen.queryByRole("button", { name: "Remove brief.md" })).toBeNull();
+    expect(screen.getByText("sources.json")).toBeTruthy();
+  });
+
+  it("rolls the library back and explains a refused save", async () => {
+    const save = vi.fn(async () => { throw new Error("This bot changed since it was opened."); });
+    render(<AgentDetailsPanel agent={libraryAgent} onClose={vi.fn()} onEdit={vi.fn()} onLibrarySave={save} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove brief.md" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("changed since it was opened");
+    expect(screen.getByRole("button", { name: "Remove brief.md" })).toBeTruthy();
+  });
+
+  it("keeps the library read-only when no save path is supplied", () => {
+    render(<AgentDetailsPanel agent={libraryAgent} onClose={vi.fn()} onEdit={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    expect(screen.getByText("brief.md")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Remove brief.md" })).toBeNull();
+    expect(screen.queryByLabelText("Add a required output")).toBeNull();
+  });
+
+  it("shows the saved version and the real computer state", () => {
+    const { container } = render(<AgentDetailsPanel agent={libraryAgent} onClose={vi.fn()} onEdit={vi.fn()} />);
+    expect(within(container).getByText("v3")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
+    expect(screen.getByText("opencode")).toBeTruthy();
+    expect(screen.getByText("None paired")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("reports paired computers truthfully, including a failed registry", () => {
+    const runtime = { harness: "codex", sandboxProvider: "e2b", localAvailable: false, computers: [{ status: "online" }, { status: "offline" }], loading: false, error: null as string | null };
+    const { rerender } = render(<AgentDetailsPanel agent={libraryAgent} onClose={vi.fn()} onEdit={vi.fn()} runtime={runtime} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
+    expect(screen.getByText("1/2 online")).toBeTruthy();
+    expect(screen.getByText("e2b")).toBeTruthy();
+    expect(screen.getByText(/No paired computer can run codex/)).toBeTruthy();
+    rerender(<AgentDetailsPanel agent={libraryAgent} onClose={vi.fn()} onEdit={vi.fn()} runtime={{ ...runtime, error: "Local execution is not enabled on this deployment." }} />);
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("Local execution is not enabled");
+    expect(alert.textContent).toContain("Cloud sandbox runs stay available after approval");
   });
 });

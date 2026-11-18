@@ -8,6 +8,7 @@ import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTempl
 import { AgentAvatar as BaseAvatar } from "./AgentAvatar";
 import { ShibaMark } from "./ShibaMark";
 import { ViewHeader, viewButtonClass } from "./ui/ViewChrome";
+import { MAX_BOT_DELIVERABLES } from "../bot-library";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
 
 const quietButton = "inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2 text-[var(--muted-foreground-2)] hover:bg-[var(--secondary)] hover:text-[var(--fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
@@ -126,29 +127,88 @@ export function AgentConversationEmpty({ name, slug, role, agentId, mascotPreset
   return <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center"><AgentAvatar agentId={agentId} name={name} mascotPreset={mascotPreset} look={look} slug={slug} role={role} large /><h2 className="text-base font-medium text-[var(--fg)]">{name}</h2><p className="max-w-md text-sm leading-relaxed text-[var(--muted-foreground-2)]">This is the beginning of your conversation. Messages are stored in your Shiba workspace.</p><p className="max-w-md text-xs leading-relaxed text-[var(--muted-foreground-2)]">Planning can start now. Every sandbox execution requires human approval. Publishing completed changes requires a separate approval.</p>{examples.length ? <div className="mt-4 flex max-w-xl flex-wrap justify-center gap-2">{examples.map((prompt) => <button type="button" key={prompt} disabled={prefillDisabled} title={prefillDisabled ? "Clear your draft to use an example" : undefined} className={`${viewButtonClass} text-left font-normal disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => onPrefill(prompt)}>{prompt}</button>)}</div> : null}</div>;
 }
 
+export interface BotRuntimeInfo {
+  harness: string;
+  /** Cloud sandbox provider configured for this bot, if any. */
+  sandboxProvider?: string;
+  /** Whether this workspace can run the bot on a paired computer right now. */
+  localAvailable: boolean;
+  computers: readonly { hostname?: string; status: string }[];
+  loading: boolean;
+  error: string | null;
+}
+
 export function AgentDetailsPanel({
   agent,
   onClose,
   onEdit,
   ownerName,
-  computerInfo,
+  runtime,
+  onLibrarySave,
+  workspaceName,
   initialTab = "details",
 }: {
   agent?: CustomAgentWire;
   onClose: () => void;
   onEdit: () => void;
   ownerName?: string;
-  computerInfo?: string;
+  runtime?: BotRuntimeInfo;
+  /** Persists the bot's deliverables; resolves once the new version is stored. */
+  onLibrarySave?: (deliverables: string[]) => Promise<void>;
+  workspaceName?: string;
   initialTab?: "details" | "library" | "computer";
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const [activeTab, setActiveTab] = useState<"details" | "library" | "computer">(initialTab);
+  const [deliverables, setDeliverables] = useState<string[]>([]);
+  const [draftDeliverable, setDraftDeliverable] = useState("");
+  const [libraryBusy, setLibraryBusy] = useState(false);
+  const [libraryNotice, setLibraryNotice] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+  const savedDeliverables = (agent?.config.expectedDeliverables ?? []).join("\n");
+  useEffect(() => {
+    setDeliverables(agent?.config.expectedDeliverables ? [...agent.config.expectedDeliverables] : []);
+    setDraftDeliverable("");
+    setLibraryNotice(null);
+  }, [agent?.id, savedDeliverables]);
   useEffect(() => {
     if (window.innerWidth < 1280) panelRef.current?.scrollIntoView?.({ block: "nearest", behavior: "instant" });
   }, []);
   const name = agent?.config.name ?? "Shiba";
   const role = employeeRole(agent?.slug, agent?.config.roleTemplateId);
   const template = EMPLOYEE_TEMPLATES.find((item) => item.id === role);
+  const persistLibrary = async (next: string[], ok: string) => {
+    if (!agent || !onLibrarySave) return;
+    const previous = deliverables;
+    setDeliverables(next);
+    setLibraryBusy(true);
+    setLibraryNotice(null);
+    try {
+      await onLibrarySave(next);
+      setLibraryNotice({ tone: "ok", text: ok });
+      setDraftDeliverable("");
+    } catch (error) {
+      setDeliverables(previous);
+      setLibraryNotice({ tone: "err", text: error instanceof Error ? error.message : "Could not save the library." });
+    } finally {
+      setLibraryBusy(false);
+    }
+  };
+  const addDeliverable = () => {
+    const path = draftDeliverable.trim();
+    if (!path) return;
+    if (deliverables.includes(path)) {
+      setLibraryNotice({ tone: "err", text: "That path is already in this bot's library." });
+      return;
+    }
+    if (deliverables.length >= MAX_BOT_DELIVERABLES) {
+      setLibraryNotice({ tone: "err", text: `A bot can hold at most ${MAX_BOT_DELIVERABLES} deliverable paths.` });
+      return;
+    }
+    void persistLibrary([...deliverables, path], `${path} is now required by this bot's approvals.`);
+  };
+  const removeDeliverable = (path: string) => {
+    void persistLibrary(deliverables.filter((item) => item !== path), `${path} is no longer required.`);
+  };
   const rows = [
     { label: "Model", preview: agent?.config.codingModel || "Workspace default", value: agent?.config.codingModel || "Uses the workspace model default." },
     { label: "Instructions", preview: agent?.config.instructions ? agent.config.instructions.slice(0, 70) : "Workspace instructions", value: agent?.config.instructions || "Use the workspace instructions." },
@@ -169,6 +229,7 @@ export function AgentDetailsPanel({
         <AgentAvatar agentId={agent?.id} name={name} mascotPreset={agent?.config.mascotPreset} look={agent?.config.look} avatar={agent?.config.avatar} slug={agent?.slug} role={role} large />
         <h2 className="text-lg font-medium tracking-tight">{name}</h2>
         <p className="text-xs font-medium text-[var(--muted-foreground-2)]">
+          {workspaceName ? `${workspaceName} · ` : ""}
           {ownerName ? `${ownerName} · ` : ""}
           {agent ? employeeRoleLabel(role) : "Shiba"} · Runs on {agent?.config.harness ?? "workspace default"}
         </p>
@@ -206,7 +267,10 @@ export function AgentDetailsPanel({
         {activeTab === "details" ? (
           <div role="tabpanel" id="agent-panel-details" aria-labelledby="agent-tab-details" className="pt-4 flex flex-col gap-4">
             <section aria-label="Agent information">
-              <h3 className="mb-2 text-xs font-medium text-[var(--muted-foreground-2)]">Configuration</h3>
+              <div className="mb-2 flex items-baseline justify-between gap-2">
+                <h3 className="text-xs font-medium text-[var(--muted-foreground-2)]">Configuration</h3>
+                {agent ? <p className="font-mono text-[10px] text-[var(--muted-foreground-2)]">v{agent.version}</p> : null}
+              </div>
               <div className="divide-y divide-[var(--border-1)] text-sm">
                 {rows.map((row) => (
                   <details key={row.label} className="group">
@@ -226,32 +290,109 @@ export function AgentDetailsPanel({
         {activeTab === "library" ? (
           <div role="tabpanel" id="agent-panel-library" aria-labelledby="agent-tab-library" className="pt-4 flex flex-col gap-2">
             <h3 className="text-xs font-medium text-[var(--muted-foreground-2)]">Library</h3>
-            {agent?.config.expectedDeliverables && agent.config.expectedDeliverables.length > 0 ? (
+            <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+              Required outputs. Each one is frozen into an approval when work is queued, so a change here reaches the next approval, never one already waiting.
+            </p>
+            {deliverables.length > 0 ? (
               <ul className="flex flex-col gap-1.5" aria-label="Agent deliverables">
-                {agent.config.expectedDeliverables.map((item) => (
+                {deliverables.map((item) => (
                   <li key={item} className="flex items-center gap-2 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-mono text-[var(--fg)]">
-                    <span className="truncate">{item}</span>
+                    <span className="min-w-0 flex-1 truncate">{item}</span>
+                    {onLibrarySave ? (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${item}`}
+                        title={`Remove ${item}`}
+                        disabled={libraryBusy}
+                        onClick={() => removeDeliverable(item)}
+                        className={`${quietButton} min-h-7 min-w-7 disabled:opacity-50`}
+                      >
+                        <X aria-hidden="true" className="size-3.5" />
+                      </button>
+                    ) : null}
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="py-6 text-center text-xs text-[var(--muted-foreground-2)]">No files yet</p>
+              <p className="py-4 text-center text-xs text-[var(--muted-foreground-2)]">
+                {agent ? "No required outputs yet." : "Choose a bot to give it a library."}
+              </p>
             )}
+            {onLibrarySave && agent ? (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] text-[var(--muted-foreground-2)]" htmlFor="bot-library-add">Add a required output</label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    id="bot-library-add"
+                    value={draftDeliverable}
+                    disabled={libraryBusy}
+                    onChange={(event) => setDraftDeliverable(event.target.value)}
+                    onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addDeliverable(); } }}
+                    placeholder="report.md"
+                    className="min-h-9 min-w-0 flex-1 border border-[var(--border-1)] bg-[var(--card)] px-2 font-mono text-xs text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+                  />
+                  <button type="button" disabled={libraryBusy || !draftDeliverable.trim()} onClick={addDeliverable} className={`${viewButtonClass} min-h-9 disabled:opacity-50`}>
+                    Add
+                  </button>
+                </div>
+                <p className="text-[11px] text-[var(--muted-foreground-2)]">{deliverables.length}/{MAX_BOT_DELIVERABLES} outputs</p>
+              </div>
+            ) : null}
+            {libraryNotice ? (
+              <p role={libraryNotice.tone === "err" ? "alert" : "status"} className={`text-[11px] ${libraryNotice.tone === "err" ? "text-[var(--destructive)]" : "text-[var(--muted-foreground-2)]"}`}>
+                {libraryBusy ? "Saving…" : libraryNotice.text}
+              </p>
+            ) : null}
           </div>
         ) : null}
 
         {activeTab === "computer" ? (
           <div role="tabpanel" id="agent-panel-computer" aria-labelledby="agent-tab-computer" className="pt-4 flex flex-col gap-2">
             <h3 className="text-xs font-medium text-[var(--muted-foreground-2)]">Computer</h3>
-            {computerInfo || agent?.config.sandboxProvider ? (
-              <div className="rounded-md border border-[var(--border-1)] bg-[var(--card)] p-3 text-xs text-[var(--fg)]">
-                <div className="font-medium">{computerInfo ?? `Sandbox: ${agent?.config.sandboxProvider ?? "default"}`}</div>
-                <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">Harness: {agent?.config.harness ?? "opencode"}</div>
-                {agent?.config.connectionId ? <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">Connection: {agent.config.connectionId}</div> : null}
+            <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+              Where this bot's work runs. Nothing starts until a person approves the frozen task.
+            </p>
+            <dl className="divide-y divide-[var(--border-1)] rounded-md border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs text-[var(--fg)]">
+              <div className="flex items-center justify-between gap-3 py-2">
+                <dt className="text-[var(--muted-foreground-2)]">Harness</dt>
+                <dd className="min-w-0 truncate font-mono">{runtime?.harness || agent?.config.harness || "Workspace default"}</dd>
               </div>
-            ) : (
-              <p className="py-6 text-center text-xs text-[var(--muted-foreground-2)]">No computer</p>
-            )}
+              <div className="flex items-center justify-between gap-3 py-2">
+                <dt className="text-[var(--muted-foreground-2)]">Cloud sandbox</dt>
+                <dd className="min-w-0 truncate font-mono">{runtime?.sandboxProvider ?? agent?.config.sandboxProvider ?? "Workspace default"}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-3 py-2">
+                <dt className="text-[var(--muted-foreground-2)]">Paired computers</dt>
+                <dd className="min-w-0 truncate text-right">
+                  {runtime?.loading
+                    ? "Checking…"
+                    : runtime && runtime.computers.length > 0
+                      ? `${runtime.computers.filter((computer) => computer.status === "online").length}/${runtime.computers.length} online`
+                      : "None paired"}
+                </dd>
+              </div>
+              {agent?.config.connectionId ? (
+                <div className="flex items-center justify-between gap-3 py-2">
+                  <dt className="text-[var(--muted-foreground-2)]">Connection</dt>
+                  <dd className="min-w-0 truncate font-mono">{agent.config.connectionId}</dd>
+                </div>
+              ) : null}
+            </dl>
+            {runtime?.error ? (
+              <p role="alert" className="text-[11px] text-[var(--destructive)]">
+                Paired computers unavailable: {runtime.error}. Cloud sandbox runs stay available after approval.
+              </p>
+            ) : null}
+            {runtime && !runtime.loading && !runtime.error && runtime.computers.length > 0 && !runtime.localAvailable ? (
+              <p className="text-[11px] text-[var(--muted-foreground-2)]">
+                No paired computer can run {runtime.harness || "this harness"} right now. Cloud sandbox runs stay available after approval.
+              </p>
+            ) : null}
+            {runtime && !runtime.loading && !runtime.error && runtime.computers.length === 0 ? (
+              <p className="text-[11px] text-[var(--muted-foreground-2)]">
+                No paired computer is linked to this workspace. Cloud sandbox runs stay available after approval.
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>
