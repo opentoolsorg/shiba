@@ -3,6 +3,7 @@
  * No bot token → no in-thread card and no run. No repo → ask, no run.
  */
 import type { Env } from "./env.js";
+import { tryAnswerUiBlockFallback } from "./ui-block-fallback.js";
 import { redactSecrets } from "./security.js";
 import { postSlackMessage, SLACK_POST_TIMEOUT_MS } from "./slack.js";
 import { buildSlackCanvasUrl, signSlackCanvasIntake, slackCanvasOwner } from "./slack-canvas.js";
@@ -139,6 +140,15 @@ function asThreadReply(event: unknown): AppMentionEvent | null {
 
 function stripMentionMarkers(text: string): string {
   return text.replace(/<@[A-Z0-9]+>/gi, " ").replace(/\s+/g, " ").trim();
+}
+
+function stripMentionMarkersKeepLines(text: string): string {
+  return text
+    .replace(/<@[A-Z0-9]+>/gi, " ")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
 }
 
 function requireSlackOk(response: Response, json: Record<string, unknown>): void {
@@ -297,6 +307,11 @@ export async function handleSlackEvent(
     (token ? (input: Parameters<NonNullable<SlackMentionDeps["postMessage"]>>[0]) => defaultPostMessage(token, input) : undefined);
   // No bot token: cannot ask or post a card, so start no run.
   if (!postMessage) return;
+
+  if (await tryAnswerUiBlockFallback(env, buildSlackThreadName(teamId, channelId, threadTs), userId, stripMentionMarkersKeepLines(mentionText))) {
+    await postMessage({ channel: channelId, threadTs, text: "Answer recorded." });
+    return;
+  }
 
   if (event.thread_ts) {
     const threadKey = buildSlackThreadName(teamId, channelId, threadTs);

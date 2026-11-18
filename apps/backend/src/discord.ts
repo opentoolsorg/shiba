@@ -34,6 +34,7 @@ import {
   resolveChatEmployeeOrgId,
 } from "./chat-employee.js";
 import type { Env } from "./env.js";
+import { tryAnswerUiBlockFallback } from "./ui-block-fallback.js";
 import { redactSecrets } from "./security.js";
 import { isApprover, parseApproverAllowlist, type ExecutionContextLike } from "./slack-approval.js";
 
@@ -151,6 +152,7 @@ export async function handleDiscordInteractions(
     const options = inbound?.kind === "message" ? inbound.command?.options ?? {} : {};
     const option = (name: string) => options[name] ?? "";
     const channelId = threadKey.slice("discord:".length);
+    if (await tryAnswerUiBlockFallback(env, threadKey, userId, option("task"))) return ephemeral("Answer recorded.");
     const parsed = parseChatTaskRequest({
       text: `${option("repo")} ${option("task")}`,
       conversationId: channelId,

@@ -1,4 +1,4 @@
-import { cp, mkdir, rm } from 'node:fs/promises';
+import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 // Assemble the Worker's ASSETS directory (public/) from package-local build
@@ -40,3 +40,10 @@ await cp(appSrc, appDest, {
   filter: (src) => !/^\/(_redirects|blog)(\/|$)/.test(src.slice(appSrc.length)),
 });
 console.log('Copied apps/frontend/dist/client -> app-public (Worker assets)');
+
+const deployDir = new URL('.wrangler/deploy/', root);
+await mkdir(deployDir, { recursive: true });
+await writeFile(new URL('config.json', deployDir), `${JSON.stringify({
+  configPath: '../../apps/backend/wrangler.jsonc',
+})}\n`);
+console.log('Configured root Wrangler discovery -> apps/backend/wrangler.jsonc');
