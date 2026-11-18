@@ -18,6 +18,7 @@ import { createRun, type DelegatedRun } from "../src/runs.js";
 import type { ApprovedRoute } from "../src/model-connections.js";
 
 export interface SeedInput {
+  routineRun?: { automationId: string; test: boolean };
   repoUrl: string;
   task: string;
   baseBranch?: string;
@@ -68,6 +69,7 @@ export function approvePointerOnly<S extends SeedableState>(
   const now = Date.now();
   const created = createPendingApproval([], {
     threadKey: "default",
+    ...(input.routineRun ? { routineRun: { ...input.routineRun } } : {}),
     approvalId: callId,
     repoUrl: input.repoUrl,
     task: input.task,
@@ -103,6 +105,7 @@ export function approveDirect<S extends SeedableState>(
     (approval) => approval.approvalId === callId,
   )!;
   const frozen: RunInputFields = {
+    ...(record.routineRun ? { routineRun: { ...record.routineRun } } : {}),
     repoUrl: record.repoUrl,
     task: record.task,
     baseBranch: record.baseBranch ?? "main",

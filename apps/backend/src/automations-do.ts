@@ -1,9 +1,14 @@
 /**
  * Durable Object that owns automation records and the fire path.
- * One instance (`default`) holds the full set so scheduled ticks and
- * webhooks share lastTriggeredAt / daily budget / lastSkip.
+ * Workspace instances share trigger accounting within their own scope.
  */
 import { APPROVAL_TTL_MS } from "./pending-approvals.js";
+import { LOCAL_INTAKE_HEADER } from "@shiba/shared";
+import { signInternalRequest } from "./edge-identity.js";
+import { listAutomationWorkflowRuns } from "./platform/automation-workflow-store.js";
+import { MAX_APPROVED_TASK_CHARS } from "./task-limits.js";
+import { generateInboundSecret, verifyInboundSignature } from "./webhooks/inbound-signing.js";
+import { openInboundSecret, sealInboundSecret } from "./webhooks/secrets.js";
 import { computeNextRunAt } from "./automation-schedules.js";
 import { getAgentByName } from "agents/routing";
 import {
@@ -14,6 +19,7 @@ import {
 import { reviewerTask } from "./review/prompt.js";
 import {
   fireMatchingAutomations,
+  buildAutomationTask,
   githubWebhookToEvent,
   linearEventToAutomation,
   slackEventToAutomation,
@@ -38,7 +44,9 @@ import {
 } from "./automations.js";
 import type { Env } from "./env.js";
 import { InputError } from "./security.js";
-import { ORCHESTRATOR_NAME } from "./slack-routes.js";
+import { orchestratorFor } from "./platform/do-resolver.js";
+import { AutomationsScope } from "./platform/automations-scope.js";
+import { readPrOwner } from "./pr-owner-index.js";
 import { sha256Hex } from "./agent-tokens.js";
 import { getCustomAgentById } from "./custom-agents-store.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
@@ -111,6 +119,7 @@ const DEDUPE_GC_DELETE_LIMIT = 128;
 async function queueOnOrchestrator(
   stub: OrchestratorStub,
   input: {
+    routineRun?: QueueAutomationRunInput["routineRun"];
     repoUrl: string;
     executionTarget?: QueueAutomationRunInput["executionTarget"];
     task: string;
@@ -123,24 +132,28 @@ async function queueOnOrchestrator(
     expectedCustomAgentVersion?: number;
     orgId?: string;
   },
-): Promise<{ approvalId: string }> {
-  const queued = await stub.fetch(
-    new Request("https://internal/api/runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-      signal: AbortSignal.timeout(30_000),
-    }),
-  );
+  env?: Env,
+): Promise<{ approvalId: string; deduped?: boolean }> {
+  const request = new Request("https://internal/api/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (input.routineRun && env) {
+    request.headers.set(LOCAL_INTAKE_HEADER, `routine:${encodeURIComponent(input.routineRun.automationId)}:${input.routineRun.test ? "test" : "scheduled"}`);
+    await signInternalRequest(request, env);
+  }
+  const queued = await stub.fetch(request);
   if (!queued.ok) throw new QueueFailure(
     `Queue failed (${queued.status}).`,
     queued.status === 408 || queued.status === 429 || queued.status >= 500,
   );
-  const body = (await queued.json().catch(() => ({}))) as { approvalId?: string };
+  const body = (await queued.json().catch(() => ({}))) as { approvalId?: string; deduped?: boolean };
   if (typeof body.approvalId !== "string" || !body.approvalId) {
     throw new QueueFailure("Orchestrator did not return an approval id.", true);
   }
-  return { approvalId: body.approvalId };
+  return { approvalId: body.approvalId, deduped: body.deduped === true };
 }
 
 async function resolveOnOrchestrator(
@@ -163,10 +176,11 @@ async function resolveOnOrchestrator(
 }
 
 export class Automations {
+  private readonly scope: AutomationsScope;
   constructor(
     private readonly ctx: DurableObjectState,
     private readonly env: Env,
-  ) {}
+  ) { this.scope = new AutomationsScope(ctx, env); }
 
   private storeFrom(items: Automation[]): AutomationStore {
     const store = new AutomationStore();
@@ -265,7 +279,10 @@ export class Automations {
       nowMs,
       globalEnabled: automationsEnabled(this.env.AUTOMATIONS_ENABLED),
       canPublishPullRequest: isGitHubPublishConfigured(this.env),
-      queueRun: (input) => queueOnOrchestrator(orchestrator, input),
+      queueRun: (input) => queueOnOrchestrator(orchestrator, {
+        ...input,
+        ...(this.env.SHIBA_SCOPED_DO === "1" ? { orgId: this.scope.workspaceId } : {}),
+      }, this.env),
       env: this.env,
       resolveCustomAgentPin: async (pin) => {
         if (!this.env.AGENT_AUDIT) return null;
@@ -291,6 +308,7 @@ export class Automations {
       this.fireDeps(orchestrator, nowMs),
     );
     await this.mergeFireState(target, automations);
+    if (event.kind === "hook" && results.some((result) => result.reason.startsWith("Queue failed:"))) throw new Error("Webhook queue failed.");
     return {
       fired: results.filter((r) => r.fired).length,
       skipped: results.filter((r) => !r.fired).length,
@@ -472,7 +490,7 @@ export class Automations {
   }
 
   private async orchestrator(): Promise<OrchestratorStub> {
-    return getAgentByName(this.env.CodingOrchestrator, ORCHESTRATOR_NAME);
+    return orchestratorFor(this.env, { workspaceId: this.scope.workspaceId });
   }
 
   private async orchestratorForAgent(agentName: string): Promise<OrchestratorStub> {
@@ -480,6 +498,7 @@ export class Automations {
   }
 
   private async lookupPrOwner(repoFullName: string, pullNumber: number): Promise<PrOwnerRecord | null> {
+    if (this.env.SHIBA_SCOPED_DO === "1") return readPrOwner(this.env, repoFullName, pullNumber);
     if (!repoFullName || !Number.isInteger(pullNumber) || pullNumber < 1) return null;
     const record = await this.ctx.storage.get<PrOwnerRecord>(prOwnerStorageKey(repoFullName, pullNumber));
     if (!record || typeof record.agentName !== "string" || record.agentName === "") return null;
@@ -567,6 +586,10 @@ export class Automations {
   }
 
   async fetch(request: Request): Promise<Response> {
+    return this.scope.fetch(request, (scopedRequest) => this.fetchLocal(scopedRequest));
+  }
+
+  private async fetchLocal(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "POST" && url.pathname === "/internal/tick") {
       const result = await this.tick(await this.orchestrator());
@@ -593,6 +616,7 @@ export class Automations {
         },
         orchestratorDefault,
       );
+      if (this.scope.workspaceId !== DASHBOARD_ORG_ID) return Response.json(result);
       const repoFullName = typeof mapped.repo === "string" ? mapped.repo : "";
       const pullNumber = typeof mapped.pullNumber === "number" ? mapped.pullNumber : 0;
       const headSha = typeof mapped.headSha === "string" ? mapped.headSha : "";
@@ -790,6 +814,7 @@ export class Automations {
       const sessionId = typeof record.sessionId === "string" ? record.sessionId : undefined;
       const mapped = linearEventToAutomation({ action, ...(teamKey ? { teamKey } : {}), ...(sessionId ? { sessionId } : {}) });
       const result = await this.fireEvent({ kind: "linear", ...mapped }, await this.orchestrator());
+      if (this.scope.workspaceId !== DASHBOARD_ORG_ID) return Response.json(result);
       const task = typeof record.task === "string" ? record.task : "";
       const repoUrl =
         (typeof record.repoUrl === "string" ? record.repoUrl : "") ||
@@ -840,7 +865,7 @@ export class Automations {
         const input = body as CreateAutomationInput;
         if (input.customAgentId?.trim()) {
           if (!this.env.AGENT_AUDIT) return Response.json({ error: "Bot storage is not configured." }, { status: 503 });
-          const agent = await getCustomAgentById(this.env, DASHBOARD_ORG_ID, input.customAgentId.trim());
+          const agent = await getCustomAgentById(this.env, this.scope.workspaceId, input.customAgentId.trim());
           if (!agent) return Response.json({ error: "Bot not found or unavailable." }, { status: 404 });
           if (agent.config.toolScopes?.length) return Response.json({ error: "Bot toolScopes are not supported." }, { status: 400 });
           input.customAgentId = agent.id;
@@ -857,6 +882,12 @@ export class Automations {
           }
         }
         const created = createAutomation(input);
+        let hookSecret: string | undefined;
+        if (created.automation.triggers.some((trigger) => trigger.kind === "webhook")) {
+          hookSecret = generateInboundSecret();
+          try { created.automation.hookSecret = await sealInboundSecret(this.env, created.automation.id, hookSecret); }
+          catch { return Response.json({ error: "MODEL_CREDENTIAL_KEY is not configured for inbound webhooks." }, { status: 503 }); }
+        }
         const inserted = await this.ctx.storage.transaction(async (transaction) => {
           const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
           if (state.items.some((item) => item.id === created.automation.id)) return false;
@@ -867,7 +898,7 @@ export class Automations {
           return Response.json({ error: "Automation id already exists." }, { status: 409 });
         }
         return Response.json(
-          { automation: publicAutomation(created.automation), webhookSecret: created.webhookSecret },
+          { automation: publicAutomation(created.automation), webhookSecret: created.webhookSecret, hookSecret },
           { status: 201 },
         );
       } catch (error) {
@@ -877,6 +908,15 @@ export class Automations {
     }
     // Update (enabled/prompt only) and delete, used by the /api/v1 automations facade.
     const itemId = /^\/api\/automations\/([^/]+)\/?$/.exec(url.pathname)?.[1];
+    if (itemId && request.method === "GET") {
+      let id: string;
+      try { id = decodeURIComponent(itemId); }
+      catch { return Response.json({ error: "Automation not found." }, { status: 404 }); }
+      const automation = (await this.load()).get(id);
+      if (!automation) return Response.json({ error: "Automation not found." }, { status: 404 });
+      const runs = this.env.AGENT_AUDIT ? await listAutomationWorkflowRuns(this.env, id) : [];
+      return Response.json({ automation: publicAutomation(automation), runs });
+    }
     if (itemId && (request.method === "PATCH" || request.method === "DELETE")) {
       let id: string;
       try {
@@ -945,7 +985,7 @@ export class Automations {
       let customAgentPin = patch.customAgentId === null ? undefined : automation.customAgentPin;
       if (customAgentId && patch.reviewCustomAgent === true) {
         if (!this.env.AGENT_AUDIT) return Response.json({ error: "Bot storage is not configured." }, { status: 503 });
-        const agent = await getCustomAgentById(this.env, DASHBOARD_ORG_ID, customAgentId);
+        const agent = await getCustomAgentById(this.env, this.scope.workspaceId, customAgentId);
         if (!agent) return Response.json({ error: "Bot not found or unavailable." }, { status: 404 });
         if (agent.config.toolScopes?.length) return Response.json({ error: "Bot toolScopes are not supported." }, { status: 400 });
         customAgentPin = { id: agent.id, orgId: agent.orgId, version: agent.version, configSha256: await sha256Hex(JSON.stringify(agent.config)) };
@@ -1015,6 +1055,65 @@ export class Automations {
       const result = await this.fireEvent({ kind: "manual" }, await this.orchestrator(), Date.now(), automation.id);
       return Response.json({ ok: true, id: automation.id, ...result });
     }
+    const secretId = /^\/api\/automations\/([^/]+)\/hook-secret\/?$/.exec(url.pathname)?.[1];
+    if (secretId && (request.method === "POST" || request.method === "DELETE")) {
+      let id: string;
+      try { id = decodeURIComponent(secretId); } catch { return Response.json({ error: "Invalid route." }, { status: 400 }); }
+      const secret = request.method === "POST" ? generateInboundSecret() : undefined;
+      let sealed: Automation["hookSecret"];
+      if (secret) {
+        try { sealed = await sealInboundSecret(this.env, id, secret); }
+        catch { return Response.json({ error: "MODEL_CREDENTIAL_KEY is not configured for inbound webhooks." }, { status: 503 }); }
+      }
+      return this.ctx.storage.transaction(async (transaction) => {
+        const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
+        const automation = state.items.find((item) => item.id === id);
+        if (!automation?.triggers.some((trigger) => trigger.kind === "webhook")) return Response.json({ error: "Webhook routine not found." }, { status: 404 });
+        if (sealed) automation.hookSecret = sealed;
+        else delete automation.hookSecret;
+        await transaction.put("state", state);
+        return Response.json({ ok: true, hookSecret: secret });
+      });
+    }
+    const hookId = /^\/api\/hooks\/([^/]+)\/?$/.exec(url.pathname)?.[1];
+    if (hookId && request.method === "POST") {
+      let id = hookId;
+      try { id = decodeURIComponent(id); } catch { /* Invalid ids use the same denial. */ }
+      const automation = (await this.load()).get(id);
+      const body = await webhookBody(request);
+      if (body === null) return Response.json({ error: "Webhook payload exceeds 32000 bytes." }, { status: 413 });
+      let secret = `whsec_${btoa("0".repeat(32))}`;
+      if (automation?.hookSecret) {
+        try { secret = await openInboundSecret(this.env, id, automation.hookSecret); }
+        catch { return Response.json({ error: "Inbound webhook secret storage unavailable." }, { status: 503 }); }
+      }
+      const now = Date.now();
+      const deliveryId = await verifyInboundSignature(request.headers, body, secret, now);
+      if (!deliveryId || !automation?.hookSecret || !automation.triggers.some((trigger) => trigger.kind === "webhook")) return Response.json({ error: "Invalid webhook signature." }, { status: 401 });
+      if (buildAutomationTask(automation, { kind: "hook", deliveryId, body }).length > MAX_APPROVED_TASK_CHARS) {
+        return Response.json({ error: `Webhook payload, routine prompt and selected skill instructions exceed the ${MAX_APPROVED_TASK_CHARS}-character task limit.` }, { status: 413 });
+      }
+      const db = this.env.AGENT_AUDIT;
+      if (!db) return Response.json({ error: "Inbound webhook receipt storage unavailable." }, { status: 503 });
+      const cutoff = now - 7 * 24 * 60 * 60 * 1000;
+      try {
+        const receipt = await db.prepare("INSERT INTO inbound_webhook_receipts (route_id, delivery_id, received_at, state) VALUES (?, ?, ?, 'pending') ON CONFLICT(route_id, delivery_id) DO UPDATE SET received_at = excluded.received_at, state = 'pending' WHERE inbound_webhook_receipts.received_at <= ? OR (inbound_webhook_receipts.state = 'pending' AND inbound_webhook_receipts.received_at <= ?)").bind(id, deliveryId, now, cutoff, now - 60000).run();
+        if (!receipt.meta.changes) {
+          const existing = await db.prepare("SELECT state FROM inbound_webhook_receipts WHERE route_id = ? AND delivery_id = ?").bind(id, deliveryId).first<{ state: string }>();
+          if (existing?.state === "done") return Response.json({ ok: true, duplicate: true });
+          return Response.json({ error: "Webhook delivery is processing. Retry delivery." }, { status: 409, headers: { "Retry-After": "60" } });
+        }
+        try {
+          const result = await this.fireEvent({ kind: "hook", deliveryId, body }, await this.orchestrator(), now, id);
+          await db.prepare("UPDATE inbound_webhook_receipts SET state = 'done' WHERE route_id = ? AND delivery_id = ? AND received_at = ? AND state = 'pending'").bind(id, deliveryId, now).run();
+          await db.prepare("DELETE FROM inbound_webhook_receipts WHERE received_at < ?").bind(cutoff).run().catch(() => undefined);
+          return Response.json({ ok: true, ...result });
+        } catch {
+          await db.prepare("DELETE FROM inbound_webhook_receipts WHERE route_id = ? AND delivery_id = ? AND received_at = ?").bind(id, deliveryId, now).run();
+          return Response.json({ error: "Webhook queue unavailable. Retry delivery." }, { status: 503 });
+        }
+      } catch { return Response.json({ error: "Inbound webhook receipt storage unavailable." }, { status: 503 }); }
+    }
     const webhookId = parseAutomationWebhookPath(url.pathname);
     if (webhookId && request.method === "POST") {
       const store = await this.load();
@@ -1078,14 +1177,17 @@ export class Automations {
 
 function mergeAutomationFireState(base: Automation, fired: Automation, latest: Automation): Automation {
   const updated: Automation = { ...latest };
-  const runCountDelta = Math.max(0, fired.runCount - base.runCount);
+  const newHookCommands = (fired.chargedHookCommands ?? []).filter((id) => !base.chargedHookCommands?.includes(id));
+  const repeatedHookCharges = newHookCommands.filter((id) => latest.chargedHookCommands?.includes(id)).length;
+  if (newHookCommands.length > 0) updated.chargedHookCommands = [...new Set([...(latest.chargedHookCommands ?? []), ...newHookCommands])].slice(-50);
+  const runCountDelta = Math.max(0, fired.runCount - base.runCount - repeatedHookCharges);
   if (runCountDelta > 0) updated.runCount = latest.runCount + runCountDelta;
 
   const firedDay = fired.runDayStartedAt;
   const baseDay = base.runDayStartedAt;
-  const firedTodayDelta = firedDay === baseDay
+  const firedTodayDelta = Math.max(0, (firedDay === baseDay
     ? Math.max(0, (fired.runsToday ?? 0) - (base.runsToday ?? 0))
-    : fired.runsToday ?? 0;
+    : fired.runsToday ?? 0) - repeatedHookCharges);
   if (firedTodayDelta > 0 && firedDay !== undefined) {
     if (latest.runDayStartedAt === firedDay) {
       updated.runsToday = (latest.runsToday ?? 0) + firedTodayDelta;
@@ -1125,8 +1227,8 @@ function mergeAutomationFireState(base: Automation, fired: Automation, latest: A
   return updated;
 }
 
-function publicAutomation(automation: Automation): Omit<Automation, "webhookSecret"> & { hasWebhookSecret: boolean; nextRunAt: number | null } {
-  const { webhookSecret, ...rest } = automation;
+function publicAutomation(automation: Automation): Omit<Automation, "webhookSecret" | "hookSecret" | "chargedHookCommands"> & { hasWebhookSecret: boolean; hasHookSecret: boolean; nextRunAt: number | null } {
+  const { webhookSecret, hookSecret, chargedHookCommands: _chargedHookCommands, ...rest } = automation;
   const schedule = automation.triggers.find((trigger) => trigger.kind === "schedule");
-  return { ...rest, hasWebhookSecret: Boolean(webhookSecret), nextRunAt: automation.enabled && schedule ? computeNextRunAt(schedule) : null };
+  return { ...rest, hasWebhookSecret: Boolean(webhookSecret), hasHookSecret: Boolean(hookSecret), nextRunAt: automation.enabled && schedule ? computeNextRunAt(schedule) : null };
 }

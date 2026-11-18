@@ -10,7 +10,7 @@ import type { SpineEvent, OutboxEntry } from "@shiba/shared";
 import { createRun, transitionRun } from "../src/runs.js";
 import { evidenceFor } from "./seeding.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
-import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 
 const mocks = vi.hoisted(() => ({
   destroy: vi.fn(),
@@ -131,7 +131,7 @@ describe("GET /api/spine", () => {
 
   it("an agent principal sees only events on its own runs", async () => {
     const instance = agent("slack:T1:C1:111.222");
-    const mine = await instance.onRequest(queueBody("mine", "agent-alpha"));
+    const mine = await sendWorkerRequest(instance, queueBody("mine", "agent-alpha"));
     const { approvalId: mineApproval } = (await mine.json()) as { approvalId: string };
     const theirs = await instance.onRequest(queueBody("theirs"));
     const { approvalId: theirsApproval } = (await theirs.json()) as { approvalId: string };
@@ -145,7 +145,7 @@ describe("GET /api/spine", () => {
       usage: { costUsd: run.runId === mineRun ? 1 : 5 },
     }));
 
-    const response = await instance.onRequest(spineGet("agent-alpha"));
+    const response = await sendWorkerRequest(instance, spineGet("agent-alpha"));
     const body = (await response.json()) as {
       events: SpineEvent[];
       outbox: OutboxEntry[];
@@ -164,7 +164,7 @@ describe("GET /api/spine", () => {
 
   it("filters outbox rows to the principal's runs — not vacuously", async () => {
     const instance = agent("slack:T1:C1:111.222");
-    const mine = await instance.onRequest(queueBody("mine", "agent-alpha"));
+    const mine = await sendWorkerRequest(instance, queueBody("mine", "agent-alpha"));
     const { approvalId: mineApproval } = (await mine.json()) as { approvalId: string };
     const theirs = await instance.onRequest(queueBody("theirs"));
     const { approvalId: theirsApproval } = (await theirs.json()) as { approvalId: string };
@@ -193,7 +193,7 @@ describe("GET /api/spine", () => {
 
     // Agent view: only its own run's effects — the previous assertion was
     // vacuous while the outbox stayed empty.
-    const scoped = (await (await instance.onRequest(spineGet("agent-alpha"))).json()) as {
+    const scoped = (await (await sendWorkerRequest(instance, spineGet("agent-alpha"))).json()) as {
       outbox: OutboxEntry[];
     };
     expect(scoped.outbox.length).toBeGreaterThan(0);

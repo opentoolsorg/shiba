@@ -10,6 +10,7 @@ import { rowExists } from "./d1-write-check.js";
 import type { Env } from "./env.js";
 import { parseSlackCanvasOwners } from "./slack-canvas.js";
 import { collaborationExecutorIdentity } from "./collaboration-executor.js";
+import { filterEmployeesByAccess } from "./governance/employee-access.js";
 
 type SlackCollaborationEnv = Pick<Env, "AGENT_AUDIT" | "SLACK_CANVAS_OWNERS">;
 
@@ -247,48 +248,6 @@ export class CollaborationStoreError extends Error {
     super(message);
     this.name = "CollaborationStoreError";
   }
-}
-
-const initialized = new WeakSet<D1Database>();
-
-export async function ensureCollaborationSchema(env: Pick<Env, "AGENT_AUDIT">): Promise<void> {
-  if (!env.AGENT_AUDIT)
-    throw new CollaborationStoreError("Collaboration storage is unavailable.", 503);
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  const ready = await env.AGENT_AUDIT.prepare(
-    "SELECT 1 FROM pragma_table_info('collaboration_messages') WHERE name='thread_root_id'",
-  ).first();
-  if (!ready) {
-    const node = typeof process !== "undefined" && Boolean(process.versions?.node);
-    if (!node) {
-      throw new CollaborationStoreError("Collaboration storage is not migrated.", 503);
-    }
-    const { readFileSync } = await import("node:fs");
-    const sql = readFileSync(new URL("../migrations/0046_collab_v2.sql", import.meta.url), "utf8");
-    for (const statement of sql.split(/;\s*\n/).map((part) => part.replace(/--[^\n]*/g, "").trim()).filter(Boolean)) {
-      try {
-        await env.AGENT_AUDIT.prepare(statement).run();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!/duplicate column|already exists/i.test(message)) throw error;
-      }
-    }
-  }
-  const executorColumn = await env.AGENT_AUDIT.prepare(
-    "SELECT 1 FROM pragma_table_info('collaboration_handoffs') WHERE name='executor_agent_name'",
-  ).first();
-  if (!executorColumn) {
-    await env.AGENT_AUDIT.prepare(
-      "ALTER TABLE collaboration_handoffs ADD COLUMN executor_agent_name TEXT",
-    ).run();
-  }
-  await env.AGENT_AUDIT.prepare(
-    "CREATE UNIQUE INDEX IF NOT EXISTS collaboration_messages_source_run ON collaboration_messages(tenant_id,workspace_id,source_run_id) WHERE source_run_id IS NOT NULL",
-  ).run();
-  await env.AGENT_AUDIT.prepare(
-    "CREATE UNIQUE INDEX IF NOT EXISTS collaboration_messages_slack_event ON collaboration_messages(tenant_id,workspace_id,source_slack_team_id,source_slack_event_id) WHERE source_slack_event_id IS NOT NULL",
-  ).run();
-  initialized.add(env.AGENT_AUDIT);
 }
 
 function rowRoom(row: Record<string, unknown>): CollaborationRoomRow {
@@ -615,7 +574,7 @@ export async function listCollaborationMemberships(
       scope.userId,
     )
     .all<Record<string, unknown>>();
-  return (rows.results ?? []).map(rowMembership);
+  return filterEmployeesByAccess(env, scope, (rows.results ?? []).map(rowMembership), "view", (row) => row.actorKind === "agent" ? row.actorId : null);
 }
 
 export async function listCollaborationMessages(
@@ -1675,4 +1634,8 @@ export async function cancelCollaborationHandoff(
     )
     .run();
   return Number(result.meta?.changes ?? 0) > 0;
+}
+
+export async function ensureCollaborationSchema(env: Pick<Env, "AGENT_AUDIT">): Promise<void> {
+  if (!env.AGENT_AUDIT) throw new CollaborationStoreError("Collaboration storage is unavailable.", 503);
 }

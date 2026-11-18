@@ -6,6 +6,7 @@ import { randomHex } from "./mailbox-store.js";
 import { publishWorkspaceEvent } from "./platform/workspace-events-do.js";
 import { buildRunProof } from "./run-proof.js";
 import type { DelegatedRun } from "@shiba/shared";
+import { isQuietRoutine } from "./routine-outcome.js";
 
 export type MilestoneKind = "ack" | "status" | "milestone" | "result" | "blocked";
 
@@ -136,9 +137,9 @@ export async function syncRunMilestones(
         kind: run.status === "completed" ? "result" : "blocked",
         text: run.summary?.trim() || (run.status === "completed" ? "Result ready" : "Stopped"),
         payload: { pullUrl: proof.pullUrl, screenshotUrl: proof.screenshotUrl, previewUrl: proof.previewUrl },
-        userId: room?.userId,
-        roomId: room?.roomId,
-        threadRootId: room?.threadRootId,
+        userId: isQuietRoutine(run) ? undefined : room?.userId,
+        roomId: isQuietRoutine(run) ? undefined : room?.roomId,
+        threadRootId: isQuietRoutine(run) ? undefined : room?.threadRootId,
       });
     }
   } catch {

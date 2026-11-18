@@ -1,3 +1,4 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 /** Deterministic integration: real auth, grants, Slack identity store, room/run/approval and local mailbox.
  * Think transport, child RPC and local CLI are fixtures; no installed Slack or provider is contacted. */
 import { DatabaseSync } from "node:sqlite";
@@ -128,7 +129,7 @@ const cookie = (response: Response) =>
     .join("; ");
 
 async function fixture() {
-  const sqlite = new DatabaseSync(":memory:");
+  const sqlite = new DatabaseSync(":memory:"); applyAllMigrations(sqlite);
   applyEmailOutboxSchema(sqlite);
   databases.push(sqlite);
   const value = (input: unknown): never =>

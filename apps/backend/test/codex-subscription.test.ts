@@ -216,6 +216,10 @@ describe("SIWC plan runtime (ACCESS_TOKEN only in sandbox)", () => {
     expect(files[0]?.path).toContain(".codex-plan-driver.cjs");
     expect(files[0]?.contents).toContain("app-server");
     expect(files[0]?.contents).toContain("openai_chatgpt_plan");
+    // app-server contract (docs/harness.md): thread.start returns
+    // { thread: { id } } and turn.start takes a list of typed inputs.
+    expect(files[0]?.contents).toContain("started?.thread?.id");
+    expect(files[0]?.contents).toContain('input: [{ type: "text", text: cfg.task }]');
   });
 });
 
@@ -487,7 +491,12 @@ describe("personal subscription kill switches", () => {
     ["antigravity-subscription", "SHIBA_ANTIGRAVITY_SUBSCRIPTION"],
     ["cursor-subscription", "SHIBA_CURSOR_SUBSCRIPTION"],
   ])("enables %s with storage and refuses an explicit kill switch", (harness, flag) => {
-    const ready = { MODEL_CREDENTIAL_KEY: "ab".repeat(32), UserProviderOAuth: {} };
+    const ready = {
+      MODEL_CREDENTIAL_KEY: "ab".repeat(32),
+      UserProviderOAuth: {},
+      // Claude is opt-in; storage alone only makes its per-user OAuth path available.
+      ...(harness === "claude-subscription" ? { SHIBA_CLAUDE_SUBSCRIPTION: "1" } : {}),
+    };
     expect(resolveHarness(harness!, ready).name).toBe(harness);
     expect(() => resolveHarness(harness!, { ...ready, [flag!]: "0" })).toThrow(/Unknown agent harness/);
   });

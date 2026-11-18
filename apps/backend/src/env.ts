@@ -9,6 +9,17 @@ import type { Sandbox } from "./sandbox.js";
 import type { ConversationRoom } from "./conversation-room-do.js";
 
 export interface Env {
+  /** Opt in to workspace or owner scoped Durable Object names during migration. */
+  SHIBA_SCOPED_DO?: string;
+  /** Optional outbound observability. No adapter is enabled by credentials alone. */
+  SHIBA_ERROR_REPORTING?: string;
+  SENTRY_DSN?: string;
+  SHIBA_ANALYTICS?: string;
+  POSTHOG_HOST?: string;
+  POSTHOG_API_KEY?: string;
+  SHIBA_OPEN_TELEMETRY?: string;
+  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT?: string;
+  OTEL_EXPORTER_OTLP_HEADERS?: string;
   /** Cloudflare-provided immutable version metadata, never supplied by a caller. */
   CF_VERSION_METADATA?: { id: string; tag: string; timestamp: string };
   AI: Ai;
@@ -124,6 +135,8 @@ export interface Env {
    * would be a quota-exhaustion vector. Keyed on `cf-connecting-ip`.
    */
   MCP_RATE_LIMIT?: RateLimit;
+  /** Optional dedicated OAuth issuance limit; absent bindings deny issuance. */
+  OAUTH_RATE_LIMIT?: RateLimit;
   /** Comma-separated exact HTTPS destination hostnames trusted for outbound MCP. Empty means disabled. */
   MCP_TRUSTED_HOSTS?: string;
   /** Optional vendor-registered client IDs for curated remote MCP OAuth. */
@@ -413,16 +426,10 @@ export interface Env {
   GITHUB_PROJECT_NUMBER?: string;
   /** Optional. Server-side credential for AI Gateway. Never sent to containers. */
   AI_GATEWAY_TOKEN?: string;
-  /**
-   * Optional. HMAC key for edge identity signing (edge-identity.ts): the
-   * Worker signs requests that carry vouched headers (X-Agent-Principal,
-   * X-Shiba-Intake) into DO stubs, and DO consumers verify the signature
-   * before trusting those headers. Unset keeps the pre-signing header-trust
-   * behavior (with a once-per-lifetime warning) so local dev keeps working.
-   * One secret shared by every DO type — set the same value on all stages
-   * that should sign/verify each other.
-   */
+  /** Worker-only root for purpose-derived internal signatures. */
   INTERNAL_SIGNING_KEY?: string;
+  /** One-release grace: defaults to "1"; set "0" to reject legacy signatures. */
+  SHIBA_LEGACY_SIGNING_FALLBACK?: string;
   /**
    * Personal Claude subscription kill switch: exactly "0" disables the lane.
    * Unset allows per-user storage. Legacy operator routes still require "1".
@@ -459,6 +466,10 @@ export interface Env {
    * connect via Settings → Providers (unless the subscription kill switch is 0).
    */
   MODEL_CREDENTIAL_KEY?: string;
+  /** Optional JSON {current: kid, keys: {kid: hex64}}; keep legacy master keys unchanged. */
+  VAULT_KEYRING?: string;
+  /** Exactly "1" enables keyed vault writes; unset preserves rollback-compatible ciphertext. */
+  VAULT_WRITE_V2?: string;
   /**
    * Local dev only: shared secret between `scripts/oauth-loopback.mjs` and
    * `/api/dev/oauth-loopback` POST (minted into `.dev.vars` by `pnpm dev`).
@@ -604,6 +615,7 @@ export interface Env {
   INGEST_QUEUE?: Queue;
   WEBHOOK_QUEUE?: Queue;
   EMAIL_QUEUE?: Queue;
+  JOBS_QUEUE?: Queue;
   SLACK_IMPORT_WORKFLOW?: Workflow;
   AUTOMATION_RUN_WORKFLOW?: Workflow;
   /** General file storage (WS07); distinct from run-scoped ARTIFACTS. */

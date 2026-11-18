@@ -6,6 +6,8 @@ import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { jsonObjectBody } from "./route-utils.js";
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
+import { DASHBOARD_ORG_ID, resolveOrgForApiRequest } from "./org-request-auth.js";
+import { orchestratorNameFor } from "./platform/do-resolver.js";
 import { claimRepoWork, freshBranchName, peekRepoClaim } from "./repo-work-claims.js";
 import { appendRunMilestone } from "./run-milestones.js";
 import {
@@ -40,10 +42,20 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
   if (!(await isAuthorizedRequest(request, env))) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
   }
+  let workspaceId = DASHBOARD_ORG_ID;
+  if (env.SHIBA_SCOPED_DO === "1") {
+    const scope = await resolveOrgForApiRequest(request, env);
+    if (scope instanceof Response) return scope;
+    if (scope.principal) return Response.json({ error: "Human session required." }, { status: 403 });
+    workspaceId = scope.orgId;
+  }
+  const teamScope = workspaceId !== DASHBOARD_ORG_ID;
+  const sharedName = orchestratorNameFor(env, { workspaceId });
   const userId = (await resolveUserId(request, env)) ?? ORCHESTRATOR_NAME;
-  const userStub = await getAgentByName(env.CodingOrchestrator, userId);
+  const userStub = await getAgentByName(env.CodingOrchestrator, teamScope ? sharedName : userId);
   let sessionAgentNames: string[] = [];
   try {
+    if (!teamScope) {
     const listRes = await userStub.fetch("https://internal/internal/web-sessions");
     if (listRes.ok) {
       const body = (await listRes.json().catch(() => ({}))) as { sessions?: WebSessionRecord[] };
@@ -57,10 +69,11 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
         .filter((s) => s.userId === userId && isValidSessionId(s.id))
         .map((s) => buildSessionAgentName(userId, s.id));
     }
+    }
   } catch {
     // Non-fatal if listing fails
   }
-  const names = [...new Set([userId, ...sessionAgentNames, ORCHESTRATOR_NAME])];
+  const names = teamScope ? [sharedName] : [...new Set([userId, ...sessionAgentNames, ORCHESTRATOR_NAME, sharedName])];
   const stubs = await Promise.all(
     names.map((name) => getAgentByName(env.CodingOrchestrator, name)),
   );
@@ -88,7 +101,7 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
     const decided = [...decidedSeen.values()]
       .sort((a, b) => (b.decidedAt ?? b.createdAt) - (a.decidedAt ?? a.createdAt))
       .slice(0, DECIDED_APPROVALS_LIMIT);
-    const routines = await readRoutines(env);
+    const routines = await readRoutines(env, workspaceId);
     const decorate = (approval: PendingApproval) => {
       const routine = routineForRecord(approval, routines);
       return { ...approval, ...(routine ? { routine } : {}) };
@@ -110,7 +123,7 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
     }
     const decidedBy = (await resolveUserId(request, env)) ?? "default";
     let decisionStubs = stubs;
-    if (decidedBy !== ORCHESTRATOR_NAME && body.threadKey === decidedBy) {
+    if (!teamScope && decidedBy !== ORCHESTRATOR_NAME && body.threadKey === decidedBy) {
       // Personal run intake stamps this exact authenticated owner key.
       // Resolve only its user DO: a matching label on a shared approval
       // must not acquire the owner's personal authorization.

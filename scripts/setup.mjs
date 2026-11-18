@@ -28,7 +28,7 @@ const save = () => {
   writeFileSync(ENV_FILE, Object.entries(env).filter(([, v]) => v !== "").map(([k, v]) => `${k}=${v}`).join("\n") + "\n", { mode: 0o600 });
 };
 const ask = async (name, hint, fallback = env[name] ?? "") => {
-  const shown = fallback && /TOKEN|SECRET|KEY/.test(name) ? "<kept>" : fallback;
+  const shown = fallback && /TOKEN|SECRET|KEY|DSN|HEADERS/.test(name) ? "<kept>" : fallback;
   const answer = (await rl.question(`${name} — ${hint}${shown ? ` [${shown}]` : ""}: `)).trim();
   env[name] = answer || fallback;
 };
@@ -80,6 +80,20 @@ for (const [name, hint] of [
   await ask(name, hint);
 }
 
+console.log("\n== Optional monitoring (blank keeps it off) ==");
+for (const [name, hint, fallback] of [
+  ["SHIBA_ERROR_REPORTING", "none or sentry", "none"],
+  ["SENTRY_DSN", "outbound Sentry DSN (optional)", ""],
+  ["SHIBA_ANALYTICS", "none or posthog", "none"],
+  ["POSTHOG_HOST", "HTTPS PostHog collector origin (optional)", ""],
+  ["POSTHOG_API_KEY", "PostHog project key (optional)", ""],
+  ["SHIBA_OPEN_TELEMETRY", "1 to export lifecycle metrics; 0 keeps them off", "0"],
+  ["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "full HTTPS OTLP metrics endpoint (optional)", ""],
+  ["OTEL_EXPORTER_OTLP_HEADERS", "URL-encoded key=value headers, comma-separated (optional)", ""],
+]) {
+  await ask(name, hint, env[name] ?? fallback);
+}
+
 console.log("\n== Subscription credentials (your paid CLIs — blank = lane stays dark) ==");
 for (const [name, hint] of [
   ["CLAUDE_SUBSCRIPTION_TOKEN", "`claude setup-token` output"],
@@ -116,8 +130,7 @@ ok(".env written (mode 600, gitignored) — alchemy.run.ts binds every secret pr
 rl.close();
 
 // 4. Build + deploy. Alchemy replaces all secrets on each deploy, so .env is the source of truth.
-if (run("pnpm", ["build"]).status !== 0) process.exit(1);
-if (run("npx", ["alchemy", "deploy"]).status !== 0) {
+if (run("node", ["scripts/deploy.mjs", "--stage=prod"]).status !== 0) {
   console.log("Deploy failed — fix the error above and re-run `pnpm run bootstrap`.");
   process.exit(1);
 }

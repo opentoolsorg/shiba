@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { appendRunMilestone } from "../src/run-milestones.js";
+import { appendRunMilestone, syncRunMilestones } from "../src/run-milestones.js";
 import { publishWorkspaceEvent } from "../src/platform/workspace-events-do.js";
+import { postRoomEvent } from "../src/collaboration-thread-post.js";
+import type { DelegatedRun } from "@shiba/shared";
 
 vi.mock("../src/collaboration-thread-post.js", () => ({ postRoomEvent: vi.fn(async () => undefined) }));
 
@@ -70,5 +72,18 @@ describe("run milestone audiences", () => {
       workspaceId: "ws_1", runId: "run_1", kind: "milestone", text: "Ready",
     });
     expect(frames).toEqual([]);
+  });
+
+  it("stores a quiet result milestone without thread or unread events", async () => {
+    const { env, frames } = fixture();
+    const prepare = vi.spyOn(env.AGENT_AUDIT, "prepare");
+    vi.mocked(postRoomEvent).mockClear();
+    await syncRunMilestones(env as never, "ws_1", {
+      runId: "run_quiet", status: "completed", summary: "Retained answer",
+      routineRun: { automationId: "nightly", test: false }, routineOutcome: { noUpdate: true },
+    } as DelegatedRun, { roomId: `room_${"ab".repeat(12)}`, userId: "owner@example.test" });
+    expect(prepare).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO run_milestones"));
+    expect(frames).toEqual([]);
+    expect(postRoomEvent).not.toHaveBeenCalled();
   });
 });

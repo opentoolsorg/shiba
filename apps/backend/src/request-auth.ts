@@ -73,7 +73,7 @@ export const SIGNATURE_AUTHENTICATED = [
 ];
 
 export function isAutomationWebhookPath(pathname: string): boolean {
-  return parseAutomationWebhookPath(pathname) !== null;
+  return parseAutomationWebhookPath(pathname) !== null || /^\/api\/hooks\/[^/]+\/?$/.test(pathname);
 }
 
 export function isMcpPath(pathname: string): boolean {

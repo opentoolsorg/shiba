@@ -3,8 +3,8 @@
  * (the binding/source-of-truth contract). Edit wrangler first, then align
  * this file; CI runs `node scripts/check-alchemy-drift.mjs`.
  *
- * Primary deploy: `pnpm deploy:alchemy`. Rollback: `npx wrangler deploy
- * --config apps/backend/wrangler.jsonc` (see docs/DEPLOY.md).
+ * Primary deploy: `pnpm deploy:alchemy`. Rollback: `node scripts/deploy.mjs
+ * --stage=prod --wrangler` (see docs/DEPLOY.md).
  *
  * wrangler.jsonc -> props mapping:
  *   name                          -> Worker "shiba-ai-coworker" (live stages; see below)
@@ -12,6 +12,7 @@
  *   compatibility_date/_flags     -> compatibility.{date,flags}
  *   assets.{directory,not_found_handling} -> assets.{directory,notFoundHandling}
  *   preview_urls: false           -> workersDev.previewsEnabled: false
+ *   previews: {}                  -> Wrangler CLI opt-in; Alchemy previews use stage stacks
  *   vars                          -> env string entries
  *   ai.binding                    -> env AI: Cloudflare.Workers.AI()
  *   worker_loaders[].binding      -> env LOADER: Cloudflare.WorkerLoader(...)
@@ -62,11 +63,12 @@ import type { ModelConfig } from "./apps/backend/src/model-config-do.js";
 
 // alchemy loads .env into its own config store, not process.env — which
 // secrets()/configVars() read. Real env vars still win.
-if (existsSync(".env")) process.loadEnvFile(".env");
+if (existsSync(".env") && !/^pr-/.test(process.env.ALCHEMY_STAGE ?? "")) process.loadEnvFile(".env");
 
 const secrets = (names: readonly string[]) => {
   const entries: Record<string, ReturnType<typeof Redacted.make>> = {};
   for (const name of names) {
+    if (/^pr-/.test(process.env.ALCHEMY_STAGE ?? "") && !["BETTER_AUTH_SECRET", "BETTER_AUTH_OWNER_EMAIL", "INTERNAL_SIGNING_KEY", "ARTIFACT_SIGNING_KEY"].includes(name)) continue;
     const value = process.env[name];
     if (value) entries[name] = Redacted.make(value);
   }
@@ -76,6 +78,7 @@ const secrets = (names: readonly string[]) => {
 // Deploy-time config that is NOT a secret (feature flags, model picks) —
 // bound as plain vars like wrangler's vars[] block, only when exported.
 const configVars = (names: readonly string[]) => {
+  if (/^pr-/.test(process.env.ALCHEMY_STAGE ?? "")) return {};
   const entries: Record<string, string> = {};
   for (const name of names) {
     const value = process.env[name];
@@ -86,6 +89,7 @@ const configVars = (names: readonly string[]) => {
 
 const LIVE_STAGE = /^live$/;
 const stage = process.env.ALCHEMY_STAGE;
+const isPreview = /^pr-[1-9]\d*$/.test(stage ?? "");
 const isLiveStage = stage === undefined || LIVE_STAGE.test(stage);
 const workerName = isLiveStage ? "shiba-ai-coworker" : `shiba-ai-coworker-${stage}`;
 const containerName = isLiveStage ? "shiba-ai-coworker-sandbox" : `shiba-ai-coworker-sandbox-${stage}`;
@@ -122,6 +126,7 @@ export const ACCESS_BYPASS_PATHS = [
   "/mcp/*",
   "/api/local/*",
   "/api/automations/*/trigger",
+  "/api/hooks/*",
   "/api/waitlist",
   "/api/trigger",
   // Downloads authenticate the exact archive with a short-lived signed capability.
@@ -150,6 +155,9 @@ const AgentTokens = Cloudflare.KV.Namespace("AGENT_TOKENS", {
   title: `shiba-agent-tokens${resSuffix}`,
 });
 
+const JobsQueue = Cloudflare.Queues.Queue("JOBS_QUEUE", { name: `shiba-jobs${resSuffix}` });
+const JobsDlq = Cloudflare.Queues.Queue("JOBS_DLQ", { name: `shiba-jobs-dlq${resSuffix}` });
+
 export const Worker = Cloudflare.Worker("Worker", {
   name: workerName,
   main: new URL("./apps/backend/src/index.ts", import.meta.url).href,
@@ -172,13 +180,19 @@ export const Worker = Cloudflare.Worker("Worker", {
   // auto-manages DNS + edge TLS on the tryshiba.dev zone. Live stages only —
   // a preview stage claiming the zone route would steal prod traffic.
   ...(isLiveStage ? { domain: { name: "app.tryshiba.dev" } } : {}),
-  crons: ["*/5 * * * *"],
+  crons: isPreview ? [] : ["*/5 * * * *"],
   env: {
     GATEWAY_ID: "default",
     INTEGRATIONS_PROVIDER: "openconnector",
     OPEN_CONNECTOR_ENABLED: "0",
+    VAULT_WRITE_V2: "0",
     SHIBA_PERSONAL_LOCAL_EXECUTION: "0",
     SHIBA_TEAM_MODEL_SESSIONS: "0",
+    SHIBA_ERROR_REPORTING: "none",
+    SHIBA_ANALYTICS: "none",
+    SHIBA_OPEN_TELEMETRY: "0",
+    POSTHOG_HOST: "",
+    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "",
     SHIBA_SHARED_COMPUTER: "0",
     SHIBA_SHARED_COMPUTER_IMAGE: "",
     FOUNDER_AUTOMATIC_READS_ENABLED: "false",
@@ -208,8 +222,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     CODING_MODEL: "google/gemini-3.5-flash-lite",
     RUNTIME: "sandbox",
     SHIBA_CLAUDE_SUBSCRIPTION: "0",
-    // Dark by default; configVars() below overrides from the deploy env.
-    SHIBA_CODEX_SUBSCRIPTION: "0",
+    // Enabled: the ChatGPT-plan lane carries the orchestrator pin below.
+    // configVars() below can still override from the deploy env.
+    SHIBA_CODEX_SUBSCRIPTION: "1",
     SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH: "0",
     SHIBA_CODEX_DEVICE_AUTH: "0",
     SHIBA_CURSOR_SUBSCRIPTION: "0",
@@ -220,7 +235,8 @@ export const Worker = Cloudflare.Worker("Worker", {
     // Preview stages use their validated workers.dev host, never the live origin.
     WORKER_HOSTNAME: isLiveStage ? "app.tryshiba.dev" : workerHost,
     BETTER_AUTH_URL: isLiveStage ? "https://app.tryshiba.dev" : workerOrigin,
-    ...(openDashboard ? { OPEN_DASHBOARD: "1" } : {}),
+    ...(openDashboard && !isPreview ? { OPEN_DASHBOARD: "1" } : {}),
+    ...(isPreview ? { SHIBA_PREVIEW_COMMIT: process.env.EXPECTED_HEAD ?? "" } : {}),
 
     AI: Cloudflare.Workers.AI(),
     CF_VERSION_METADATA: Cloudflare.Workers.VersionMetadata(),
@@ -292,18 +308,23 @@ export const Worker = Cloudflare.Worker("Worker", {
     }),
     AGENT_AUDIT: Cloudflare.D1.Database("AGENT_AUDIT", {
       name: `shiba-audit${resSuffix}`,
+      ...(isPreview ? { migrations: "./apps/backend/migrations" } : {}),
     }),
     MEMORY_VECTORS: Cloudflare.Vectorize.Index("MEMORY_VECTORS", {
       name: `shiba-memory${resSuffix}`,
       dimensions: 768,
       metric: "cosine",
     }),
-    SEND_EMAIL: Cloudflare.Email.SendEmail("SEND_EMAIL"),
+    ...(!isPreview ? { SEND_EMAIL: Cloudflare.Email.SendEmail("SEND_EMAIL") } : {}),
 
     // Pre-auth limit on /mcp — wrangler [[ratelimits]] MCP_RATE_LIMIT.
     MCP_RATE_LIMIT: Cloudflare.RateLimit("MCP_RATE_LIMIT", {
       namespaceId: "1001",
       simple: { limit: 100, period: 60 },
+    }),
+    OAUTH_RATE_LIMIT: Cloudflare.RateLimit("OAUTH_RATE_LIMIT", {
+      namespaceId: "1004",
+      simple: { limit: 10, period: 60 },
     }),
     AUTH_RATE_LIMIT: Cloudflare.RateLimit("AUTH_RATE_LIMIT", {
       namespaceId: "1002",
@@ -317,6 +338,7 @@ export const Worker = Cloudflare.Worker("Worker", {
   INGEST_QUEUE: Cloudflare.Queues.Queue("INGEST_QUEUE", { name: `shiba-ingest${resSuffix}` }),
   WEBHOOK_QUEUE: Cloudflare.Queues.Queue("WEBHOOK_QUEUE", { name: `shiba-webhooks${resSuffix}` }),
   EMAIL_QUEUE: Cloudflare.Queues.Queue("EMAIL_QUEUE", { name: `shiba-email${resSuffix}` }),
+  JOBS_QUEUE: JobsQueue,
 
   SLACK_IMPORT_WORKFLOW: Cloudflare.Workflow("SlackImportWorkflow", {
     className: "SlackImportWorkflow",
@@ -338,10 +360,13 @@ export const Worker = Cloudflare.Worker("Worker", {
         ? { image: process.env.SANDBOX_IMAGE }
         : { context: "./apps/backend", dockerfile: "./apps/backend/Dockerfile" }),
       instanceType: "standard-1",
-      maxInstances: 10,
+      maxInstances: isPreview ? 1 : 10,
     }),
 
     ...secrets([
+      "SENTRY_DSN",
+      "POSTHOG_API_KEY",
+      "OTEL_EXPORTER_OTLP_HEADERS",
       "GITHUB_TOKEN",
       "GITHUB_APP_ID",
       "GITHUB_APP_PRIVATE_KEY",
@@ -353,6 +378,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "LINEAR_OAUTH_ACCESS_TOKEN",
       "LINEAR_DEFAULT_REPO_URL",
       "SLACK_SIGNING_SECRET",
+      "WEB_SEARCH_API_KEY",
       "SLACK_INSTALLATION_KEYRING",
       "FOUNDER_STRIPE_CREDENTIAL_KEY",
       "FOUNDER_META_CREDENTIAL_KEY",
@@ -396,6 +422,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "OPEN_CONNECTOR_READ_RUNTIME_TOKEN",
       "OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS",
       "MODEL_CREDENTIAL_KEY",
+      "VAULT_KEYRING",
       // Optional OAuth client IDs registered by the operator for curated MCP vendors.
       // Unset IDs keep that vendor's OAuth connect path unavailable.
       "MCP_OAUTH_CLIENT_STRIPE",
@@ -427,14 +454,22 @@ export const Worker = Cloudflare.Worker("Worker", {
     MCP_TRUSTED_HOSTS: "",
     // T56 (PLAN.md §20): the shipped role pin, as a LITERAL env member — the
     // drift guard compares declared vars by value (scripts/check-alchemy-drift.mjs),
-    // so a configVars() spread would read as an absent var. Model ids verified
-    // against primary sources 2026-10-06; orchestrator moved to gpt-6-sol ahead
-    // of gpt-5.6-sol's 2026-10-14 Codex retirement (PLAN.md §20.2). The
-    // reviewer pin keeps #99's Sol review lane (opencode-go/gpt-6.1-sol).
+    // so a configVars() spread would read as an absent var.
+    //   orchestrator → codex-subscription + openai-subscription/gpt-6.2-sol
+    //                  (the operator's ChatGPT plan; auth rides
+    //                  CODEX_SUBSCRIPTION_AUTH_JSON or per-user Sign in with ChatGPT)
+    //   work roles   → opencode + google/gemini-3.5-flash-lite (the free-tier
+    //                  model — same id CODING_MODEL ships as the default)
     ROLE_MODEL_MAP:
-      "{\"orchestrator\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"explorer\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"fixer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-sonnet-5-5\"},\"reviewer\":{\"harness\":\"opencode\",\"model\":\"opencode-go/gpt-6.1-sol\"},\"designer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-opus-5-5\"}}",
+      "{\"orchestrator\":{\"harness\":\"codex-subscription\",\"model\":\"openai-subscription/gpt-6.2-sol\"},\"explorer\":{\"harness\":\"opencode\",\"model\":\"google/gemini-3.5-flash-lite\"},\"fixer\":{\"harness\":\"opencode\",\"model\":\"google/gemini-3.5-flash-lite\"},\"reviewer\":{\"harness\":\"opencode\",\"model\":\"google/gemini-3.5-flash-lite\"},\"designer\":{\"harness\":\"opencode\",\"model\":\"google/gemini-3.5-flash-lite\"}}",
     ...configVars([
+      "SHIBA_ERROR_REPORTING",
+      "SHIBA_ANALYTICS",
+      "SHIBA_OPEN_TELEMETRY",
+      "POSTHOG_HOST",
+      "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
       "AUTOMATIONS_ENABLED",
+      "VAULT_WRITE_V2",
       "AGENT_HARNESS",
       "CLAUDE_CODE_MODEL",
       // T48: dark by default — may violate Anthropic terms when enabled.
@@ -557,14 +592,22 @@ export default Alchemy.Stack(
       );
     }
     const worker = yield* Worker;
+    const jobs = yield* JobsQueue;
+    const jobsDlq = yield* JobsDlq;
+    yield* Cloudflare.Queues.Consumer("JobsConsumer", {
+      queueId: jobs.queueId,
+      scriptName: worker.workerName,
+      deadLetterQueue: jobsDlq.queueName,
+      settings: { batchSize: 10, maxRetries: 3 },
+    });
     // The sibling is deployed separately from unmodified upstream source.
-    if (process.env.OPEN_CONNECTOR_WORKER) {
+    if (!isPreview && process.env.OPEN_CONNECTOR_WORKER) {
       yield* worker.bind`OPEN_CONNECTOR`({
         bindings: [{ type: "service", name: "OPEN_CONNECTOR", service: process.env.OPEN_CONNECTOR_WORKER }],
       });
     }
     // Optional reviewed read-gateway service; this binding creates no sibling or credential.
-    if (process.env.OPEN_CONNECTOR_READ_WORKER) {
+    if (!isPreview && process.env.OPEN_CONNECTOR_READ_WORKER) {
       yield* worker.bind`OPEN_CONNECTOR_READ_GATEWAY`({
         bindings: [{ type: "service", name: "OPEN_CONNECTOR_READ_GATEWAY", service: process.env.OPEN_CONNECTOR_READ_WORKER }],
       });

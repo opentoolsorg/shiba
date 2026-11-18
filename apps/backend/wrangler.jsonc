@@ -2,6 +2,8 @@
   "$schema": "https://developers.cloudflare.com/workers/wrangler/configuration-schema.json",
   "name": "shiba-ai-coworker",
   "main": "src/index.ts",
+  // Optional secret VAULT_KEYRING: {"current":"k2","keys":{"k2":"<hex64>"}}.
+  // VAULT_WRITE_V2=1 opts into keyed ciphertext; default off preserves legacy writes.
   "placement": { "mode": "smart" },
   "compatibility_date": "2026-06-01",
   "compatibility_flags": ["nodejs_compat", "legacy_module_registry"],
@@ -14,6 +16,7 @@
   // Version preview URLs are reachable without a Cloudflare Access policy;
   // the header-only Worker gate is not authentication on its own.
   "preview_urls": false,
+  "previews": {},
   // workers.dev subdomain stays disabled — app.tryshiba.dev is the only
   // public host. (With `routes` present wrangler defaults this to false;
   // stated explicitly so the alchemy workersDev parity is unmissable.)
@@ -31,6 +34,12 @@
     { "pattern": "app.tryshiba.dev", "custom_domain": true },
   ],
   "vars": {
+    // Outbound telemetry requires explicit opt-in and operator-supplied destinations.
+    "SHIBA_ERROR_REPORTING": "none",
+    "SHIBA_ANALYTICS": "none",
+    "SHIBA_OPEN_TELEMETRY": "0",
+    "POSTHOG_HOST": "",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "",
     // No upstream MCP host is enabled by default. Operators must list exact public
     // hostnames here and pre-provision referenced MCP_CREDENTIAL_* secrets.
     // Optional MCP_OAUTH_CLIENT_* IDs are Wrangler secrets listed in
@@ -39,6 +48,7 @@
     "INTEGRATIONS_PROVIDER": "openconnector",
   // When "1", integration routes surface openconnector_not_bound instead of opaque 503 text.
     "OPEN_CONNECTOR_ENABLED": "0",
+    "VAULT_WRITE_V2": "0",
     "SHIBA_PERSONAL_LOCAL_EXECUTION": "0",
     "SHIBA_TEAM_MODEL_SESSIONS": "0",
     // Optional features remain unavailable without separately reviewed bindings and setup.
@@ -76,7 +86,7 @@
     "SHIBA_CLAUDE_SUBSCRIPTION": "0",
     // Dark until the operator flips one to "1" here — wrangler deploy resets
     // dashboard-set vars, so the toggle lives in this file.
-    "SHIBA_CODEX_SUBSCRIPTION": "0",
+    "SHIBA_CODEX_SUBSCRIPTION": "1",
     "SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH": "0",
     "SHIBA_CODEX_DEVICE_AUTH": "0",
     "SHIBA_CURSOR_SUBSCRIPTION": "0",
@@ -95,14 +105,17 @@
     // approval card, never inside a container.
     //
     // Model ids verified against primary sources 2026-10-06 (PLAN.md §19.0):
-    //   gpt-6-sol          OpenAI GPT-6 Sol; needs Codex CLI >= 0.156.1 (pinned 0.157.1)
-    //   claude-sonnet-5-5  Anthropic, released 2026-09-28
-    //   claude-opus-5-5    Claude 5.5 family flagship
-    //   opencode-go/gpt-6.1-sol  reviewer: #99's Sol review lane (opencode-go gateway)
+    //   openai-subscription/gpt-6.2-sol  orchestrator: ChatGPT-plan Sol lane
+    //                                    through codex-subscription (SHIBA_CODEX_
+    //                                    SUBSCRIPTION=1 above; auth rides
+    //                                    CODEX_SUBSCRIPTION_AUTH_JSON or the
+    //                                    per-user Sign in with ChatGPT credential)
+    //   google/gemini-3.5-flash-lite     work roles: the free-tier model — same
+    //                                    default CODING_MODEL already ships
     //
     // gpt-5.6-sol retires from Codex 2026-10-14; it is in RETIRED_MODELS
     // (agents/roles.ts) so a stale override throws at intake (PLAN.md §20.2).
-    "ROLE_MODEL_MAP": "{\"orchestrator\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"explorer\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"fixer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-sonnet-5-5\"},\"reviewer\":{\"harness\":\"opencode\",\"model\":\"opencode-go/gpt-6.1-sol\"},\"designer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-opus-5-5\"}}",
+    "ROLE_MODEL_MAP": "{\"orchestrator\":{\"harness\":\"codex-subscription\",\"model\":\"openai-subscription/gpt-6.2-sol\"},\"explorer\":{\"harness\":\"opencode\",\"model\":\"google/gemini-3.5-flash-lite\"},\"fixer\":{\"harness\":\"opencode\",\"model\":\"google/gemini-3.5-flash-lite\"},\"reviewer\":{\"harness\":\"opencode\",\"model\":\"google/gemini-3.5-flash-lite\"},\"designer\":{\"harness\":\"opencode\",\"model\":\"google/gemini-3.5-flash-lite\"}}",
     // T48: Claude subscription harness stays registered by default; its
     // Wrangler secret is still required before runs can authenticate.
     //   SHIBA_CLAUDE_SUBSCRIPTION=1  registers the claude-subscription harness
@@ -217,6 +230,7 @@
   // (cf-connecting-ip), evaluated before the token check in handleMcp.
   "ratelimits": [
     { "name": "MCP_RATE_LIMIT", "namespace_id": "1001", "simple": { "limit": 100, "period": 60 } },
+    { "name": "OAUTH_RATE_LIMIT", "namespace_id": "1004", "simple": { "limit": 10, "period": 60 } },
     { "name": "AUTH_RATE_LIMIT", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },
     { "name": "UPLOAD_RATE_LIMIT", "namespace_id": "1003", "simple": { "limit": 20, "period": 60 } },
   ],
@@ -225,11 +239,13 @@
       { "binding": "INGEST_QUEUE", "queue": "shiba-ingest" },
       { "binding": "WEBHOOK_QUEUE", "queue": "shiba-webhooks" },
       { "binding": "EMAIL_QUEUE", "queue": "shiba-email" },
+      { "binding": "JOBS_QUEUE", "queue": "shiba-jobs" },
     ],
     "consumers": [
       { "queue": "shiba-ingest", "dead_letter_queue": "shiba-ingest-dlq", "max_batch_size": 10, "max_retries": 5 },
       { "queue": "shiba-webhooks", "dead_letter_queue": "shiba-webhooks-dlq", "max_batch_size": 10, "max_retries": 5 },
       { "queue": "shiba-email", "dead_letter_queue": "shiba-email-dlq", "max_batch_size": 5, "max_retries": 5 },
+      { "queue": "shiba-jobs", "dead_letter_queue": "shiba-jobs-dlq", "max_batch_size": 10, "max_retries": 3 },
     ],
   },
   "workflows": [
