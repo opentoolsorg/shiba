@@ -8,6 +8,9 @@ import { imageInputSchema } from "./image-models.js";
 import { WEB_SEARCH_DESCRIPTION, runWebSearch, webSearchConfigured, webSearchInputSchema, webSearchQueries } from "./web-search.js";
 import { DEFAULT_WEB_SEARCH_BUDGET, incrementToolUsage } from "./tool-usage-store.js";
 import { selectorRequiresSubmitApproval } from "./browser-url.js";
+import { knowledgeSearchToolArgsSchema } from "@shiba/shared";
+import { KNOWLEDGE_SEARCH_DESCRIPTION, knowledgeSearchConfigured } from "../knowledge/knowledge-tool.js";
+import { hybridKnowledgeSearch } from "../knowledge/knowledge-search.js";
 import { closeBrowserSession } from "./browser-sessions.js";
 
 export interface ChatAgentToolsContext {
@@ -38,6 +41,18 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
         return runWebSearch(env, input);
       },
     }),
+    ...(userId ? {
+      knowledge_search: tool({
+        description: KNOWLEDGE_SEARCH_DESCRIPTION,
+        inputSchema: knowledgeSearchToolArgsSchema,
+        execute: async ({ query, limit }) => {
+          if (!knowledgeSearchConfigured(env)) {
+            return { ok: false, unavailable: true, message: "Knowledge search is not provisioned on this deployment." };
+          }
+          return { ok: true, query, hits: await hybridKnowledgeSearch(env, userId, orgId.replace(/^team:/, ""), query, limit ?? 8) };
+        },
+      }),
+    } : {}),
     browser_open: tool({
       description: "Open a URL in a browser session tied to this chat run.",
       inputSchema: z.object({ url: z.string().url() }),
