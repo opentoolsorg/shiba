@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type JSX } from "react";
 import { Database, } from "lucide-react";
 import { EmptyState } from "./ui/ContextPanel";
+import { AssistantContextImport } from "./AssistantContextImport";
 
 type SourceKind = "note" | "document" | "conversation" | "reference" | "other";
 export interface MemorySource {
@@ -90,6 +91,7 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
   const [cleanupPending, setCleanupPending] = useState<Array<{ id: string; filename: string }>>([]);
   const [uploadsPending, setUploadsPending] = useState<Array<{ id: string; filename: string }>>([]);
   const uploadSection = useRef<HTMLFormElement>(null);
+  const importSection = useRef<HTMLFormElement>(null);
   const noteSection = useRef<HTMLFormElement>(null);
   const recallSection = useRef<HTMLFormElement>(null);
   const projectSection = useRef<HTMLElement>(null);
@@ -405,13 +407,14 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
         </div>
       </header>
 
-      <nav aria-label="Knowledge tools" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      <nav aria-label="Knowledge tools" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {[
           { label: "Search memory", detail: "Recall from private sources", section: recallSection },
           { label: "Saved sources", detail: "Inspect, edit and remove", section: sourcesSection },
           { label: "Project context", detail: "Group sources and defaults", section: projectSection },
           { label: "Add a note", detail: "Save reference text", section: noteSection },
           { label: "Upload a file", detail: "TXT or Markdown", section: uploadSection },
+          { label: "Import context", detail: "From ChatGPT, Claude or Gemini", section: importSection },
         ].map((tool) => (
           <button key={tool.label} type="button" onClick={() => goToSection(tool.section.current)}
             className="min-h-16 min-w-0 border border-[var(--line)] bg-[var(--card)] p-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--navy)]">
@@ -434,6 +437,12 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
           {notice}
         </div>
       ) : null}
+
+      <AssistantContextImport ref={importSection} disabled={busy} onImported={async (source, redacted) => {
+        await load();
+        setError(null);
+        setNotice(`Saved “${source.title}” as a private, versioned source.${redacted ? ` ${redacted} key-shaped value${redacted === 1 ? " was" : "s were"} redacted.` : ""}`);
+      }} />
 
       <form ref={uploadSection} tabIndex={-1} aria-label="Upload source file" onSubmit={(event) => void upload(event)} className="flex flex-col gap-2.5 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs">
         <h3 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100">Upload source file</h3>
