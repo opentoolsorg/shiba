@@ -36,3 +36,11 @@ export function generateWebhookSecret(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return `whsec_${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
+
+export async function sealInboundSecret(env: Pick<Env, "MODEL_CREDENTIAL_KEY">, routeId: string, secret: string): Promise<{ keyId: string; cipher: string }> {
+  return { keyId: "inbound-v1", cipher: await encryptAuthJson(secret, requireKey(env), "automations", routeId, "inbound-webhook-secret") };
+}
+
+export async function openInboundSecret(env: Pick<Env, "MODEL_CREDENTIAL_KEY">, routeId: string, stored: { keyId: string; cipher: string }): Promise<string> {
+  return decryptAuthJson(stored.cipher, requireKey(env), "automations", routeId, "inbound-webhook-secret");
+}

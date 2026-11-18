@@ -221,10 +221,22 @@ describe("employee-run Gmail selected-resource policy", () => {
       messages: [{ role: "user", parts: [{ type: "text", text: goal?.task ?? "Review the message" }], metadata: { ...(goal ? { shibaDraftTaskId: goal.reference.draftTaskId, shibaDraftTaskVersion: goal.reference.draftTaskVersion } : {}), shibaMode: "work", shibaWorkTarget: "app-tools", shibaTask: { customAgentId: "forged-composer-profile", orgId: "forged-composer-org" } } }],
     }) as CodingOrchestrator;
     const tools = instance.getTools();
+<<<<<<< HEAD
     expect(Object.keys(tools).sort()).toEqual(["employee_context_read", "employee_retain_draft", "employee_tool_call", "employee_tool_catalog", "get_skill_instructions", "list_skills", "update_plan"]);
+||||||| 4a9ca738
+    expect(Object.keys(tools).sort()).toEqual(["employee_context_read", "employee_retain_draft", "employee_tool_call", "employee_tool_catalog", "get_skill_instructions", "list_skills"]);
+=======
+    expect(Object.keys(tools).sort()).toEqual(["employee_context_read", "employee_retain_draft", "employee_tool_call", "employee_tool_catalog", "get_skill_instructions", "list_skills", "tool_call", "tool_describe", "tool_search"]);
+>>>>>>> upstream/main
     expect(sessionState.delegated).not.toHaveBeenCalled();
     const turn = () => instance.beforeTurn({ tools: { ...tools, delegate_coding_task: {}, run_code: {}, broad_builtin: {} }, system: "Work" } as never);
+<<<<<<< HEAD
     expect((await turn()).activeTools?.sort()).toEqual([...(withGoal ? ["employee_context_read"] : []), "employee_retain_draft", "employee_tool_call", "employee_tool_catalog", "get_skill_instructions", "list_skills", "update_plan"]);
+||||||| 4a9ca738
+    expect((await turn()).activeTools?.sort()).toEqual([...(withGoal ? ["employee_context_read"] : []), "employee_retain_draft", "employee_tool_call", "employee_tool_catalog", "get_skill_instructions", "list_skills"]);
+=======
+    expect((await turn()).activeTools?.sort()).toEqual([...(withGoal ? ["employee_context_read"] : []), "employee_retain_draft", "get_skill_instructions", "list_skills", "tool_call", "tool_describe", "tool_search"]);
+>>>>>>> upstream/main
     if (goal) expect((await turn()).instructions).toContain("SELECTED ONBOARDING SOURCES");
     const workMessages = instance.messages;
     Object.assign(instance, { messages: [{ role: "user", metadata: { shibaMode: "chat", shibaWorkTarget: "app-tools" } }] });
