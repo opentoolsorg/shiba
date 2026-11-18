@@ -13,6 +13,7 @@ import { postRoomEvent } from "./collaboration-thread-post.js";
 import { createWorkspaceNotification, getWorkspaceNotificationPrefs } from "./notifications/notifications-store.js";
 import type { Env } from "./env.js";
 import { randomHex } from "./mailbox-store.js";
+import { filterEmployeesByAccess } from "./governance/employee-access.js";
 
 export interface ParsedMentions {
   users: string[];
@@ -96,7 +97,7 @@ export async function handleCollaborationMentions(
   if (parsed.agents.length === 0) return { handoffs: [] };
   const handoffs: CollaborationHandoffRow[] = [];
   let taskId: string | undefined;
-  for (const profileId of parsed.agents) {
+  for (const profileId of await filterEmployeesByAccess(env, scope, parsed.agents, "chat", (id) => id)) {
     const actorId = `agent:${profileId}`;
     const recipient = await getActiveCollaborationMembership(env, scope, input.roomId, actorId);
     if (!recipient) continue;
