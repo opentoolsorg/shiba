@@ -28,6 +28,9 @@
 # GHSA-2m5v-pch6-74hx, GHSA-qrxm-fqhp-jwvm and the moderate/low undici 7 advisories), sharp 0.35.5
 # (GHSA-wq5f-xc86-pv6w). All of these run only in local dev and deploy
 # tooling, never in the Worker, dashboard or docs bundles.
+# @modelcontextprotocol/sdk>@hono/node-server ^2.1.6 keeps the SDK on the 2.x
+# line (GHSA-rmxm-3fg6-px4f, GHSA-qv5m-9pm6-hqp3, GHSA-jpvv-r467-5p4w have no
+# 1.x fix); otherwise it dedupes onto the @prisma/dev 1.x copy.
 # E9: @cloudflare/sandbox@1.0.1 pins zod@4.6.5 (GHSA-mrhx-c7xc-m3w5, memory
 # exhaustion on oversized arrays); 4.6.7 matches the workspace zod pin.
 
