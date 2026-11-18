@@ -715,53 +715,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     setWorkInspectionRequest(state);
     setMainView("work");
   }, [router]);
-  const urlSynced = useRef(false);
-  useEffect(() => {
-    const first = !urlSynced.current;
-    const base = pathForView(mainView);
-    if (mainView === "settings") {
-      const params = new URLSearchParams(first ? window.location.search : "");
-      params.set("section", settingsSection);
-      const target = `${base}?${params.toString()}${first ? window.location.hash : ""}`;
-      if (window.location.pathname + window.location.search + window.location.hash === target) { urlSynced.current = true; return; }
-      if (first || window.location.pathname === base) router.history.replace(target);
-      else router.history.push(target);
-      urlSynced.current = true;
-      return;
-    }
-    // A shared room carries its own link and never borrows a private thread id.
-    if (mainView === "threads" && readRoomLink(window.location.search) === null) {
-      const query = withThreadLink(window.location.search, selectedSessionId);
-      const path = query ? `${base}?${query}` : base;
-      urlSynced.current = true;
-      if (window.location.pathname + window.location.search === path) return;
-      if (first) router.history.replace(path + window.location.hash);
-      else router.history.push(path);
-      return;
-    }
-    urlSynced.current = true;
-    if (window.location.pathname === base) return;
-    if (first) router.history.replace(base + window.location.search + window.location.hash);
-    else router.history.push(base);
-  }, [mainView, settingsSection, selectedSessionId, router]);
-
-  useEffect(() => {
-    const onPop = () => {
-      const view = viewFromUrl();
-      setWorkViewMode(workViewFromUrl());
-      setMainView(view ?? DEFAULT_VIEW);
-      if (view === "settings") setSettingsSection(normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
-      const linked = readThreadLink(window.location.search);
-      const linkedId = linked && linked !== "invalid" ? linked.threadId : null;
-      if (linkedId && linkedId !== selectedSessionIdRef.current &&
-        (linkedId === "default" || webSessionsRef.current.some((session) => session.id === linkedId))) {
-        setSelectedSessionId(linkedId);
-        writeRememberedSessionId(linkedId);
-      }
-    };
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
 
   const submitFailed = useRef(false);
   const submitInFlight = useRef(false);
@@ -797,6 +750,71 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [roomRoute.clearIntent]);
   const workspaceAuthorityReady = roomRoute.ready && (!teamIdentityAvailable || teamDirectory.verified);
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
+  const urlSynced = useRef(false);
+  const syncedView = useRef<MainView | null>(null);
+  // Only a navigation the person asked for adds a history step. Restoring a
+  // remembered thread, falling back from a dead link and pruning a deleted one
+  // replace the entry, so the first Back press goes somewhere real.
+  const threadUrlMode = useRef<"push" | "replace">("replace");
+  const pushThreadUrl = useCallback(() => { threadUrlMode.current = "push"; }, []);
+
+  useEffect(() => {
+    const first = !urlSynced.current;
+    const viewChanged = syncedView.current !== mainView;
+    syncedView.current = mainView;
+    const base = pathForView(mainView);
+    if (mainView === "settings") {
+      const params = new URLSearchParams(first ? window.location.search : "");
+      params.set("section", settingsSection);
+      const target = `${base}?${params.toString()}${first ? window.location.hash : ""}`;
+      if (window.location.pathname + window.location.search + window.location.hash === target) { urlSynced.current = true; return; }
+      if (first || window.location.pathname === base) router.history.replace(target);
+      else router.history.push(target);
+      urlSynced.current = true;
+      return;
+    }
+    if (mainView === "threads") {
+      // A shared room — and a team workspace, where every thread is a room —
+      // carries its own link; a private session id never goes in that address.
+      const shared = Boolean(teamWorkspaceId) || readRoomLink(window.location.search) !== null;
+      // Query state belongs to the view that set it, so a view change starts clean.
+      const kept = first || !viewChanged ? window.location.search : "";
+      const query = withThreadLink(kept, shared ? null : selectedSessionId);
+      const path = query ? `${base}?${query}` : base;
+      const push = (viewChanged && !first) || threadUrlMode.current === "push";
+      threadUrlMode.current = "replace";
+      urlSynced.current = true;
+      if (window.location.pathname + window.location.search === path) return;
+      if (push) router.history.push(path);
+      else router.history.replace(path + window.location.hash);
+      return;
+    }
+    urlSynced.current = true;
+    if (window.location.pathname === base) return;
+    if (first) router.history.replace(base + window.location.search + window.location.hash);
+    else router.history.push(base);
+  }, [mainView, settingsSection, selectedSessionId, teamWorkspaceId, router]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const view = viewFromUrl();
+      setWorkViewMode(workViewFromUrl());
+      setMainView(view ?? DEFAULT_VIEW);
+      if (view === "settings") setSettingsSection(normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
+      if (readRoomLink(window.location.search) !== null) return;
+      const linked = readThreadLink(window.location.search);
+      if (linked === "invalid") return;
+      // A selector-less /threads/ is the default session, not "keep whatever is open".
+      const target = linked?.threadId ?? (view === "threads" ? "default" : null);
+      if (!target || target === selectedSessionIdRef.current) return;
+      if (target !== "default" && !webSessionsRef.current.some((session) => session.id === target)) return;
+      setSelectedSessionId(target);
+      writeRememberedSessionId(target);
+      setSelectedRunId(null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   useEffect(() => {
     // The personal task queue must never execute in a team workspace.
     if (teamWorkspaceId && mainView === "tasks") setMainView("work");
@@ -1479,6 +1497,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     const chatIds = new Set(pendingApprovals.map((approval) => approval.approvalId));
     return storedApprovals.filter((approval) => !chatIds.has(approval.approvalId));
   }, [storedApprovals, pendingApprovals]);
+
+  // A queued run carries the conversation that owns it. The thread header speaks
+  // for one thread, so another thread's approval must not mark it as needing you.
+  const threadStoredApprovals = useMemo(
+    () => visibleStoredApprovals.filter((approval) => approval.threadKey === chatAgentName),
+    [visibleStoredApprovals, chatAgentName],
+  );
 
   const decidedRef = useRef<Set<string>>(new Set());
   const decidedStoredRef = useRef<Set<string>>(new Set());
@@ -2626,6 +2651,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         }
       }
       if (activeSurfaceScopeRef.current !== selectionScope) return;
+      pushThreadUrl();
       setSelectedSessionId(id);
       writeRememberedSessionId(id);
       setCustomAgentId(threadAgentId(session));
@@ -2633,7 +2659,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setSelectedRunId(null);
       setMainView("threads");
     },
-    [visibleWebSessions, privateDataEnabled],
+    [visibleWebSessions, privateDataEnabled, pushThreadUrl],
   );
 
   sessionsNavRef.current = sessions;
@@ -2672,6 +2698,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         session: { id: string; name: string; agentName: string; updatedAt: number };
       };
       if (activeSurfaceScopeRef.current !== creationScope) return null;
+      pushThreadUrl();
       setWebSessions((current) => [
         body.session,
         ...current.filter((session) => session.id !== body.session.id),
@@ -2693,7 +2720,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     } finally {
       threadCreationPending.current = false;
     }
-  }, [sessionApiAvailable, teamWorkspaceId, privateDataEnabled]);
+  }, [sessionApiAvailable, teamWorkspaceId, privateDataEnabled, pushThreadUrl]);
 
   const handleStartAgentThread = useCallback(async (profile: CustomAgentWire) => {
     if (teamWorkspaceId) {
@@ -2710,6 +2737,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setSessionRegistryOwner(orchestratorName);
       setWebSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
       setSessionApiAvailable(true);
+      pushThreadUrl();
       setSelectedSessionId(session.id);
       writeRememberedSessionId(session.id);
       setSelectedRunId(null);
@@ -2726,7 +2754,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     } finally {
       threadCreationPending.current = false;
     }
-  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, teamWorkspaceId, privateDataEnabled]);
+  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, teamWorkspaceId, privateDataEnabled, pushThreadUrl]);
 
   const startSidebarAgentThread = async (profile?: CustomAgentWire) => {
     const creationScope = activeSurfaceScopeRef.current;
@@ -3373,7 +3401,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     name: activeWebSession.name,
                     state: chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"
                       ? "working"
-                      : pendingApprovals.length + visibleStoredApprovals.length > 0 ? "waiting" : "idle",
+                      : pendingApprovals.length + threadStoredApprovals.length > 0 ? "waiting" : "idle",
                   } : undefined}
                   participants={[{ id: "you", name: "You" }, { id: chatAgent.id, name: chatAgent.name }]}
                   panelOpen={agentDetailsOpen}
