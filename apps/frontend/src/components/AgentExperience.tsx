@@ -127,16 +127,31 @@ export function AgentConversationEmpty({ name, slug, role, agentId, mascotPreset
   return <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center"><AgentAvatar agentId={agentId} name={name} mascotPreset={mascotPreset} look={look} slug={slug} role={role} large /><h2 className="text-base font-medium text-[var(--fg)]">{name}</h2><p className="max-w-md text-sm leading-relaxed text-[var(--muted-foreground-2)]">This is the beginning of your conversation. Messages are stored in your Shiba workspace.</p><p className="max-w-md text-xs leading-relaxed text-[var(--muted-foreground-2)]">Planning can start now. Every sandbox execution requires human approval. Publishing completed changes requires a separate approval.</p>{examples.length ? <div className="mt-4 flex max-w-xl flex-wrap justify-center gap-2">{examples.map((prompt) => <button type="button" key={prompt} disabled={prefillDisabled} title={prefillDisabled ? "Clear your draft to use an example" : undefined} className={`${viewButtonClass} text-left font-normal disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => onPrefill(prompt)}>{prompt}</button>)}</div> : null}</div>;
 }
 
+/** Every computer paired with the workspace, with the reason it can or cannot run now. */
+export interface BotPairedComputer {
+  machineId: string;
+  hostname?: string;
+  state: "ready" | "busy" | "offline" | "incompatible";
+}
+
 export interface BotRuntimeInfo {
   harness: string;
   /** Cloud sandbox provider configured for this bot, if any. */
   sandboxProvider?: string;
   /** Whether this workspace can run the bot on a paired computer right now. */
   localAvailable: boolean;
-  computers: readonly { hostname?: string; status: string }[];
+  /** Paired computers, including ones that are busy, offline or unable to run this harness. */
+  paired: readonly BotPairedComputer[];
   loading: boolean;
   error: string | null;
 }
+
+const PAIRED_STATE_LABEL: Record<BotPairedComputer["state"], string> = {
+  ready: "Ready",
+  busy: "In use",
+  offline: "Offline",
+  incompatible: "Can't run this harness",
+};
 
 export function AgentDetailsPanel({
   agent,
@@ -175,6 +190,8 @@ export function AgentDetailsPanel({
   }, []);
   const name = agent?.config.name ?? "Shiba";
   const role = employeeRole(agent?.slug, agent?.config.roleTemplateId);
+  const paired = runtime?.paired ?? [];
+  const cloudSandbox = runtime?.sandboxProvider ?? agent?.config.sandboxProvider;
   const template = EMPLOYEE_TEMPLATES.find((item) => item.id === role);
   const persistLibrary = async (next: string[], ok: string) => {
     if (!agent || !onLibrarySave) return;
@@ -359,15 +376,17 @@ export function AgentDetailsPanel({
               </div>
               <div className="flex items-center justify-between gap-3 py-2">
                 <dt className="text-[var(--muted-foreground-2)]">Cloud sandbox</dt>
-                <dd className="min-w-0 truncate font-mono">{runtime?.sandboxProvider ?? agent?.config.sandboxProvider ?? "Workspace default"}</dd>
+                <dd className="min-w-0 truncate text-right font-mono">{cloudSandbox ?? "Not configured"}</dd>
               </div>
               <div className="flex items-center justify-between gap-3 py-2">
                 <dt className="text-[var(--muted-foreground-2)]">Paired computers</dt>
                 <dd className="min-w-0 truncate text-right">
                   {runtime?.loading
                     ? "Checking…"
-                    : runtime && runtime.computers.length > 0
-                      ? `${runtime.computers.filter((computer) => computer.status === "online").length}/${runtime.computers.length} online`
+                    : runtime?.error
+                      ? "Unknown"
+                      : paired.length > 0
+                      ? `${paired.filter((computer) => computer.state === "ready").length} of ${paired.length} ready`
                       : "None paired"}
                 </dd>
               </div>
@@ -378,21 +397,40 @@ export function AgentDetailsPanel({
                 </div>
               ) : null}
             </dl>
+            {paired.length > 0 ? (
+              <ul aria-label="Paired computer states" className="flex flex-col gap-1.5 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-[11px]">
+                {paired.map((computer) => (
+                  <li key={computer.machineId} className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 truncate text-[var(--fg)]">{computer.hostname || computer.machineId}</span>
+                    <span className={computer.state === "ready" ? "shrink-0 text-[var(--fg)]" : "shrink-0 text-[var(--muted-foreground-2)]"}>
+                      {PAIRED_STATE_LABEL[computer.state]}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {runtime?.error ? (
               <p role="alert" className="text-[11px] text-[var(--destructive)]">
-                Paired computers unavailable: {runtime.error}. Cloud sandbox runs stay available after approval.
+                Paired computers could not be checked: {runtime.error}
               </p>
             ) : null}
-            {runtime && !runtime.loading && !runtime.error && runtime.computers.length > 0 && !runtime.localAvailable ? (
+            {runtime && !runtime.loading && !runtime.error && paired.length > 0 && !runtime.localAvailable ? (
               <p className="text-[11px] text-[var(--muted-foreground-2)]">
-                No paired computer can run {runtime.harness || "this harness"} right now. Cloud sandbox runs stay available after approval.
+                {paired.every((computer) => computer.state === "incompatible")
+                  ? `Local execution cannot run ${runtime.harness || "this harness"} on a paired computer. Change the harness, or start the bot in the cloud sandbox.`
+                  : `No paired computer can start this bot right now. Free one up in Settings → Computers, or start it in the cloud sandbox.`}
               </p>
             ) : null}
-            {runtime && !runtime.loading && !runtime.error && runtime.computers.length === 0 ? (
+            {runtime && !runtime.loading && !runtime.error && paired.length === 0 ? (
               <p className="text-[11px] text-[var(--muted-foreground-2)]">
-                No paired computer is linked to this workspace. Cloud sandbox runs stay available after approval.
+                No computer is paired with this workspace. Pair one in Settings → Computers, or start the bot in the cloud sandbox.
               </p>
             ) : null}
+            <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+              {cloudSandbox
+                ? "A cloud run starts in this sandbox only after you approve the task."
+                : "No cloud sandbox is configured for this bot, so a cloud run needs one selected first. Every run starts only after you approve the task."}
+            </p>
           </div>
         ) : null}
       </div>

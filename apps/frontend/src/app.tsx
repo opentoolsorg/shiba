@@ -1011,6 +1011,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const {
     agents: customAgentRecords,
     refresh: refreshCustomAgents,
+    applyAgent: applyCustomAgentRecord,
     loading: customAgentsLoading,
     error: customAgentsError,
   } = useCustomAgentOptions(signedIn && workspaceAuthorityReady && !teamDirectory.error, teamWorkspaceId || undefined, orchestratorName ?? undefined);
@@ -1055,6 +1056,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     localRunAvailable,
     targetMachineId: selectedLocalMachineId,
     computers: localComputers,
+    paired: pairedLocalComputers,
     loading: localComputersLoading,
     error: localComputersError,
     selectMachine: selectLocalMachine,
@@ -2893,10 +2895,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       refreshCustomAgents();
     }
   };
-  const saveBotLibrary = useCallback(async (employee: CustomAgentWire, deliverables: string[]) => {
-    await saveBotDeliverables(employee, deliverables, teamWorkspaceId || undefined);
-    await refreshCustomAgents();
-  }, [teamWorkspaceId, refreshCustomAgents]);
+  // Read the record at call time, not at render time: two edits in quick
+  // succession must send the version the first save returned.
+  const customAgentRecordsRef = useRef(customAgentRecords);
+  customAgentRecordsRef.current = customAgentRecords;
+  const saveBotLibrary = useCallback(async (employeeId: string, deliverables: string[]) => {
+    const employee = customAgentRecordsRef.current.find((profile) => profile.id === employeeId);
+    if (!employee) throw new Error("This bot is no longer in this workspace. Reload to see the current directory.");
+    applyCustomAgentRecord(await saveBotDeliverables(employee, deliverables, teamWorkspaceId || undefined));
+  }, [applyCustomAgentRecord, teamWorkspaceId]);
   const activeEmployee = customAgentRecords.find((profile) => profile.id === customAgentId);
   const employeeName = activeEmployee?.config.name ?? "Shiba";
   const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, look: activeEmployee?.config.look, avatar: activeEmployee?.config.avatar, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
@@ -4030,11 +4037,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     harness: activeEmployee?.config.harness ?? harness,
                     sandboxProvider: activeEmployee?.config.sandboxProvider,
                     localAvailable: localRunAvailable,
-                    computers: localComputers,
+                    paired: pairedLocalComputers,
                     loading: localComputersLoading,
                     error: localComputersError,
                   }}
-                  onLibrarySave={activeEmployee ? (deliverables) => saveBotLibrary(activeEmployee, deliverables) : undefined}
+                  onLibrarySave={activeEmployee ? (deliverables) => saveBotLibrary(activeEmployee.id, deliverables) : undefined}
                   onClose={() => setAgentDetailsOpen(false)}
                   onEdit={() => {
                     if (customAgentId) setInitialEmployeeId(customAgentId);

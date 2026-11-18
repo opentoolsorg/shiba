@@ -193,9 +193,10 @@ describe("agent conversation", () => {
     expect(screen.getByText("No required outputs yet.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
-    // An unconfigured bot still states where its approved work would run.
+    // An unconfigured bot states the truth: no cloud provider is chosen yet.
     expect(screen.getByText("opencode")).toBeTruthy();
-    expect(screen.getByText("Workspace default")).toBeTruthy();
+    expect(screen.getByText("Not configured")).toBeTruthy();
+    expect(screen.getByText(/No cloud sandbox is configured for this bot/)).toBeTruthy();
     expect(screen.getByText("None paired")).toBeTruthy();
   });
 });
@@ -312,16 +313,48 @@ describe("bot profile tabs", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("reports paired computers truthfully, including a failed registry", () => {
-    const runtime = { harness: "codex", sandboxProvider: "e2b", localAvailable: false, computers: [{ status: "online" }, { status: "offline" }], loading: false, error: null as string | null };
+  it("reports each paired computer's real state, including a failed registry", () => {
+    const runtime = {
+      harness: "codex", sandboxProvider: "e2b", localAvailable: false,
+      paired: [
+        { machineId: "m1", hostname: "studio", state: "busy" as const },
+        { machineId: "m2", hostname: "mini", state: "offline" as const },
+        { machineId: "m3", hostname: "air", state: "incompatible" as const },
+      ],
+      loading: false, error: null as string | null,
+    };
     const { rerender } = render(<AgentDetailsPanel agent={libraryAgent} onClose={vi.fn()} onEdit={vi.fn()} runtime={runtime} />);
     fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
-    expect(screen.getByText("1/2 online")).toBeTruthy();
+    expect(screen.getByText("0 of 3 ready")).toBeTruthy();
+    expect(screen.getByText("studio")).toBeTruthy();
+    expect(screen.getByText("In use")).toBeTruthy();
+    expect(screen.getByText("mini")).toBeTruthy();
+    expect(screen.getByText("Offline")).toBeTruthy();
+    expect(screen.getByText("air")).toBeTruthy();
+    expect(screen.getByText("Can't run this harness")).toBeTruthy();
     expect(screen.getByText("e2b")).toBeTruthy();
-    expect(screen.getByText(/No paired computer can run codex/)).toBeTruthy();
+    expect(screen.getByText(/No paired computer can start this bot right now/)).toBeTruthy();
     rerender(<AgentDetailsPanel agent={libraryAgent} onClose={vi.fn()} onEdit={vi.fn()} runtime={{ ...runtime, error: "Local execution is not enabled on this deployment." }} />);
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toContain("Local execution is not enabled");
-    expect(alert.textContent).toContain("Cloud sandbox runs stay available after approval");
+    // An unreadable registry is unknown, never "none paired".
+    expect(screen.getByText("Unknown")).toBeTruthy();
+    expect(screen.queryByText("None paired")).toBeNull();
+    expect(screen.queryByText(/stay available/)).toBeNull();
+    expect(screen.getByText(/starts in this sandbox only after you approve/)).toBeTruthy();
+  });
+
+  it("separates an unsupported harness from a paired computer that is merely unavailable", () => {
+    const runtime = {
+      harness: "gemini", localAvailable: false,
+      paired: [{ machineId: "m1", hostname: "studio", state: "incompatible" as const }],
+      loading: false, error: null,
+    };
+    render(<AgentDetailsPanel agent={libraryAgent} onClose={vi.fn()} onEdit={vi.fn()} runtime={runtime} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
+    expect(screen.getByText(/Local execution cannot run gemini on a paired computer/)).toBeTruthy();
+    expect(screen.queryByText(/No paired computer can start this bot right now/)).toBeNull();
+    expect(screen.getByText("Not configured")).toBeTruthy();
+    expect(screen.getByText(/No cloud sandbox is configured for this bot/)).toBeTruthy();
   });
 });

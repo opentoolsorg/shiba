@@ -1403,6 +1403,50 @@ describe("bot thread links", () => {
     expect(new URLSearchParams(window.location.search).has("session")).toBe(false);
   });
 
+  it("saves successive library edits with the version the previous save returned", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    const saves: { expectedVersion: number; expected: string[] }[] = [];
+    let version = research.version;
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
+      if (path === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: threads, defaultSessionId: "default" });
+      // The list keeps answering the version it was opened with, so only the
+      // save's own answer can move the record forward.
+      if (path === "/api/custom-agents" && options?.method !== "POST") {
+        return Response.json({ agents: [research, engineering] });
+      }
+      if (path === `/api/custom-agents/${research.id}` && options?.method === "PATCH") {
+        const body = JSON.parse(String(options.body)) as { config: { expectedDeliverables?: string[] }; expectedVersion: number };
+        saves.push({ expectedVersion: body.expectedVersion, expected: body.config.expectedDeliverables ?? [] });
+        version += 1;
+        return Response.json({ agent: { ...research, version, config: { ...research.config, expectedDeliverables: body.config.expectedDeliverables } } });
+      }
+      if (path === "/api/agents") return Response.json({ agents: [] });
+      if (path === "/api/approvals") return Response.json({ approvals: [], decided: [] });
+      if (path.startsWith("/api/runs")) return Response.json({ runs: [] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Show details panel" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Library" }));
+    fireEvent.change(screen.getByLabelText("Add a required output"), { target: { value: "brief.md" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(saves).toHaveLength(1));
+
+    // The second edit runs before any list refetch: it must still send the
+    // version the first save returned, or the server refuses it as stale.
+    await act(async () => {});
+    fireEvent.change(screen.getByLabelText("Add a required output"), { target: { value: "summary.md" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(saves).toHaveLength(2));
+    expect(saves[0]).toEqual({ expectedVersion: 1, expected: ["brief.md"] });
+    expect(saves[1]).toEqual({ expectedVersion: 2, expected: ["brief.md", "summary.md"] });
+  });
+
   it("leaves a shared room link intact and never attaches a private thread to it", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     const workspaceId = `ws_${"a".repeat(24)}`;
