@@ -905,7 +905,7 @@ describe("dashboard approval routes", () => {
       }), env, ctx);
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ result });
-      expect(probes()).toEqual(["dev@example.com /internal/web-sessions", "dev@example.com /api/approvals"]);
+      expect(probes()).toEqual(["dev@example.com /internal/web-sessions", "dev@example.com /api/approvals", "dev@example.com /api/approvals"]);
     } finally { orchestratorCalls.handlers = {}; }
   });
 
@@ -1008,11 +1008,45 @@ describe("dashboard approval routes", () => {
       expect(probes()).toEqual([
         "dev@example.com /internal/web-sessions",
         "dev@example.com /api/approvals",
+        "dev@example.com /api/approvals",
         "default /api/approvals",
       ]);
     } finally {
       orchestratorCalls.handlers = {};
     }
+  });
+
+  it.each([
+    ["run", ["self-hosted"]],
+    ["pr_publish", []],
+  ] as const)("claims the repo for a %s approval under the approval's workspace", async (kind, claimedWorkspaces) => {
+    orchestratorCalls.calls.length = 0;
+    orchestratorCalls.handlers = {
+      "dev@example.com": async (request) => {
+        const path = new URL(request.url).pathname;
+        if (path === "/internal/web-sessions") return Response.json({ sessions: [] });
+        if (request.method === "GET") return Response.json({ approvals: [{ approvalId: "run-1", threadKey: "dev@example.com", kind, orgId: "self-hosted", repoUrl: "https://github.com/o/r", baseBranch: "main" }] });
+        return Response.json({ result: "approved" });
+      },
+    };
+    const writes: unknown[][] = [];
+    const statement = (sql: string) => ({
+      bind: (...args: unknown[]) => ({
+        first: async () => null,
+        run: async () => { if (sql.startsWith("INSERT INTO repo_work_claims")) writes.push(args); return { success: true }; },
+      }),
+    });
+    try {
+      const { env } = makeEnvWithTwoMailboxes();
+      env.DASHBOARD_APPROVERS = "";
+      (env as unknown as { AGENT_AUDIT: unknown }).AGENT_AUDIT = { prepare: statement };
+      const response = await worker.fetch(new Request("http://localhost/api/approvals", {
+        method: "POST", headers: { "Content-Type": "application/json", "CF-Access-Authenticated-User-Email": "dev@example.com" },
+        body: JSON.stringify({ threadKey: "dev@example.com", approvalId: "run-1", approved: true }),
+      }), env, ctx);
+      expect(response.status).toBe(200);
+      expect(writes.map((args) => args[0])).toEqual(claimedWorkspaces);
+    } finally { orchestratorCalls.handlers = {}; }
   });
 
   it("GET /api/approvals also probes the caller's registered web sessions", async () => {
