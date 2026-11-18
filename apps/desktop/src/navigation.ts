@@ -78,7 +78,18 @@ export function externalHandoffUrl(
   if (!url || url.protocol !== "https:") return null;
   url.username = "";
   url.password = "";
-  url.hash = "";
+  return url.toString();
+}
+
+/** An https URL on an allowed sign-in host; only a popup may be handed over this way. */
+export function authHostUrl(
+  target: string,
+  authHosts: readonly string[] = DEFAULT_AUTH_HOSTS,
+): string | null {
+  if (target.length === 0 || target.length > MAX_URL_CHARS) return null;
+  const url = tryParse(target);
+  if (!url || url.protocol !== "https:" || url.username || url.password) return null;
+  if (url.origin === "" || !authHosts.some((entry) => matchesAuthHost(url, entry))) return null;
   return url.toString();
 }
 

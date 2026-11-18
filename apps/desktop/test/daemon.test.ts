@@ -178,7 +178,12 @@ describe("shiba-local-daemon operator errors", () => {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     try {
       const { port } = server.address() as AddressInfo;
-      const d = startDaemon(root, ["--connect", `http://127.0.0.1:${port}`, "--pair", "nonce.sig"], `http://127.0.0.1:${port}`);
+      const d = startDaemon(
+        root,
+        ["--connect", `http://127.0.0.1:${port}`, "--pair"],
+        `http://127.0.0.1:${port}`,
+        { SHIBA_PAIRING_TOKEN: "nonce.sig" },
+      );
       expect(await d.exited).toBe(79);
       expect(d.stderr()).toMatch(/local runtime is not enabled/i);
     } finally {
@@ -257,9 +262,9 @@ describe("shiba-local-daemon operator errors", () => {
     }
   }, 20_000);
 
-  it("exits 64 when --pair has neither an argument nor an environment token", async () => {
+  it("exits 64 when --pair has no environment token, even with an inline value", async () => {
     const root = mkdtempSync(join(tmpdir(), "shiba-daemon-pairless-"));
-    const d = startDaemon(root, ["--connect", "http://127.0.0.1:9", "--pair"]);
+    const d = startDaemon(root, ["--connect", "http://127.0.0.1:9", "--pair", "inline.token"]);
     expect(await d.exited).toBe(64);
     expect(d.stderr()).toMatch(/SHIBA_PAIRING_TOKEN/);
   }, 20_000);
@@ -276,7 +281,12 @@ describe("shiba-local-daemon operator errors", () => {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     try {
       const { port } = server.address() as AddressInfo;
-      const d = startDaemon(root, ["--connect", `http://127.0.0.1:${port}`, "--pair", "bad.token"], `http://127.0.0.1:${port}`);
+      const d = startDaemon(
+        root,
+        ["--connect", `http://127.0.0.1:${port}`, "--pair"],
+        `http://127.0.0.1:${port}`,
+        { SHIBA_PAIRING_TOKEN: "bad.token" },
+      );
       expect(await d.exited).toBe(77);
       expect(d.stderr()).toMatch(/pairing token expired/i);
     } finally {

@@ -22,3 +22,38 @@ export function stripControlChars(value: string): string {
   }
   return out;
 }
+
+/**
+ * Splits a byte stream into complete lines so a chunk boundary can never hide a
+ * token from the log redactor. An oversized line is dropped rather than written
+ * in fragments.
+ */
+export function createLineBuffer(
+  onLine: (line: string) => void,
+  maxLineChars = 8192,
+): { push(chunk: string): void; flush(): void } {
+  let pending = "";
+  let discarding = false;
+  return {
+    push(chunk) {
+      pending += chunk;
+      let newline = pending.indexOf("\n");
+      while (newline !== -1) {
+        const line = pending.slice(0, newline);
+        pending = pending.slice(newline + 1);
+        if (discarding) discarding = false;
+        else if (line.length <= maxLineChars) onLine(line);
+        newline = pending.indexOf("\n");
+      }
+      if (pending.length > maxLineChars) {
+        pending = "";
+        discarding = true;
+      }
+    },
+    flush() {
+      if (pending.length > 0 && !discarding && pending.length <= maxLineChars) onLine(pending);
+      pending = "";
+      discarding = false;
+    },
+  };
+}

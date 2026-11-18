@@ -6,6 +6,7 @@ import {
   formatDesktopHarnessSummary,
   type ComputerStatus,
   type ConnectedComputer,
+  pairFailureMessage,
   type PairingTokenResponse,
 } from "@shiba/shared";
 import { LoadErrorState } from "./LoadErrorState";
@@ -116,6 +117,9 @@ export function RemoteAccessView(): JSX.Element {
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
   const { bridge, status: desktopStatus, refresh: refreshDesktop } = useDesktopStatus();
   const showConnectThisComputer = shouldShowConnect(bridge !== undefined, desktopStatus);
+  // Inside the desktop shell the token is minted in the main process, so no
+  // command that carries one is ever rendered or copied here.
+  const showConnectCommand = bridge === undefined;
   const mounted = useRef(true);
   const [loads] = useState(createLatest);
 
@@ -176,30 +180,20 @@ export function RemoteAccessView(): JSX.Element {
     }
   };
 
+  // The token is minted inside the shell: this page never sees one.
   const connectThisComputer = async () => {
     if (!bridge) return;
     setPairingBusy(true);
     try {
-      const res = await fetch("/api/computers/pairing-token", { method: "POST" });
+      const result = await bridge.pair();
       if (!mounted.current) return;
-      if (res.status === 503) throw new Error("Pairing is not configured — set PAIRING_SECRET or LOCAL_ADAPTER_TOKEN on the Worker.");
-      if (!res.ok) {
-        if (res.status === 404) setFleet({ kind: "disabled" });
-        refreshDesktop();
-        throw new Error(`POST /api/computers/pairing-token failed with ${res.status}.`);
-      }
-      const body = (await res.json()) as PairingTokenResponse;
-      const result = await bridge.pair(body.token);
-      if (!mounted.current) return;
-      if (result.ok) {
-        toast("This computer is connected.");
-      } else {
-        toast.error(result.error);
-      }
+      if (result.ok) toast("This computer is connected.");
+      else if (result.code === "not_configured") setFleet({ kind: "disabled" });
+      else toast.error(pairFailureMessage(result.code));
       refreshDesktop();
       void load();
-    } catch (err) {
-      if (mounted.current) toast.error(err instanceof Error ? err.message : "Could not pair this computer.");
+    } catch {
+      if (mounted.current) toast.error(pairFailureMessage("mint_failed"));
     } finally {
       if (mounted.current) setPairingBusy(false);
     }
@@ -256,18 +250,16 @@ export function RemoteAccessView(): JSX.Element {
               {pairingBusy ? "Connecting…" : "Connect this computer"}
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() => void addComputer()}
-            disabled={fleet.kind !== "ready" || pairingBusy}
-            className={
-              bridge
-                ? "h-8 px-3 rounded-lg border border-[#e4e4e7] dark:border-zinc-700 bg-white dark:bg-zinc-800 text-xs font-medium text-[#0a0a0a] dark:text-zinc-100 hover:bg-[#f4f4f5] dark:hover:bg-zinc-700/50 transition-colors disabled:opacity-40"
-                : "h-8 px-3 rounded-lg text-xs font-medium bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-[#27272a] dark:hover:bg-zinc-200 transition-colors disabled:opacity-40"
-            }
-          >
-            {pairingBusy && !bridge ? "Generating…" : bridge ? "Add another computer" : "Add computer"}
-          </button>
+          {showConnectCommand ? (
+            <button
+              type="button"
+              onClick={() => void addComputer()}
+              disabled={fleet.kind !== "ready" || pairingBusy}
+              className="h-8 px-3 rounded-lg text-xs font-medium bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-[#27272a] dark:hover:bg-zinc-200 transition-colors disabled:opacity-40"
+            >
+              {pairingBusy ? "Generating…" : "Add computer"}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -351,8 +343,10 @@ export function RemoteAccessView(): JSX.Element {
                     <>
                       Set <code className="font-mono">SHIBA_LOCAL_RUNTIME=1</code> on the Worker to pair local daemons.
                     </>
-                  ) : (
+                  ) : showConnectCommand ? (
                     "Use Add computer to generate a one-time connect command."
+                  ) : (
+                    "Use Connect this computer to run the local daemon here."
                   )}
                 </p>
               </div>
@@ -429,7 +423,9 @@ export function RemoteAccessView(): JSX.Element {
         </div>
       </div>
 
-      {pairing ? <PairingModal pairing={pairing} onClose={closePairing} /> : null}
+      {pairing && showConnectCommand ? (
+        <PairingModal pairing={pairing} onClose={closePairing} />
+      ) : null}
     </div>
   );
 }

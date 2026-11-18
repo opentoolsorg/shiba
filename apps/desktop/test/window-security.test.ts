@@ -61,7 +61,7 @@ describe("window policy", () => {
   it("hands a plain external https link to the OS browser", () => {
     const g = guard();
     expect(g.emit("will-navigate", { url: "https://example.org/docs?x=1#top" })).toBe(true);
-    expect(g.opened).toEqual(["https://example.org/docs?x=1"]);
+    expect(g.opened).toEqual(["https://example.org/docs?x=1#top"]);
   });
 
   it("keeps hosted sign-in hops in the window", () => {
@@ -90,6 +90,28 @@ describe("window policy", () => {
     expect(g.open("javascript:alert(1)")).toEqual({ action: "deny" });
     expect(g.open("https://user:pw@example.org/")).toEqual({ action: "deny" });
     expect(g.opened).toEqual(["https://example.org/pr"]);
+  });
+
+  it("applies the frame policy to subframe redirects, never the main-frame one", () => {
+    const g = guard();
+    // A child frame redirected to a sign-in host is refused, not handed to the OS.
+    expect(
+      g.emit("will-redirect", { url: "https://accounts.google.com/o/oauth2/auth", isMainFrame: false }),
+    ).toBe(true);
+    expect(g.opened).toEqual([]);
+    // A same-origin child redirect continues.
+    expect(
+      g.emit("will-redirect", { url: `${ORIGIN}/artifact?id=2`, isMainFrame: false }),
+    ).toBe(false);
+    // A main-frame redirect keeps the normal policy and the OS handoff.
+    expect(g.emit("will-redirect", { url: "https://example.org/moved", isMainFrame: true })).toBe(true);
+    expect(g.opened).toEqual(["https://example.org/moved"]);
+  });
+
+  it("hands an allowed sign-in popup to the OS browser instead of dropping it", () => {
+    const g = guard();
+    expect(g.open("https://accounts.google.com/o/oauth2/auth?client_id=x")).toEqual({ action: "deny" });
+    expect(g.opened).toEqual(["https://accounts.google.com/o/oauth2/auth?client_id=x"]);
   });
 
   it("refuses webview attachment", () => {

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { createLogger, formatLogEvent, sanitizeLogLine } from "../src/logs";
+import { createLineBuffer } from "../src/safe-text";
 
 it("rotates to one .1 file at the size cap", () => {
   const dir = mkdtempSync(join(tmpdir(), "shiba-logs-"));
@@ -45,4 +46,24 @@ it("formatLogEvent drops keys outside the allowlist", () => {
 it("drops control characters from any logged value", () => {
   expect(sanitizeLogLine("bad\u0000line\u001b[31m")).toBe("badline[31m");
   expect(sanitizeLogLine("multi\nline")).toBe("multiline");
+});
+
+it("buffers stream chunks into complete lines so a split token is still redacted", () => {
+  const lines: string[] = [];
+  const buffer = createLineBuffer((line) => lines.push(sanitizeLogLine(line)));
+  const token = `${"A".repeat(48)}.${"B".repeat(32)}`;
+  const whole = `shiba-local: paired ${token}\nnext line\n`;
+  // Split inside the token, exactly where a naive per-chunk scrub would miss it.
+  buffer.push(whole.slice(0, 35));
+  buffer.push(whole.slice(35));
+  expect(lines).toEqual(["shiba-local: paired [redacted]", "next line"]);
+});
+
+it("drops an oversized incomplete line instead of writing its fragments", () => {
+  const lines: string[] = [];
+  const buffer = createLineBuffer((line) => lines.push(line), 16);
+  buffer.push("x".repeat(40));
+  buffer.push("still-no-newline");
+  buffer.push("-end\nfine\n");
+  expect(lines).toEqual(["fine"]);
 });

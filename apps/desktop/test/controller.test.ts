@@ -41,7 +41,7 @@ function setup(opts: { code?: number | "throw"; local?: LocalConfig | null } = {
     },
     onStatus: (s) => statuses.push(s.state),
     onSettled: vi.fn(),
-    log: () => undefined,
+    event: vi.fn(),
     setTimeoutFn: ((fn: () => void) => { timers.push(fn); return timers.length; }) as unknown as typeof setTimeout,
     clearTimeoutFn: (() => undefined) as unknown as typeof clearTimeout,
   };
@@ -202,6 +202,13 @@ describe("daemon messages and exits", () => {
     t.ctl.forkForPairing(["--connect", ORIGIN, "--pair"], "nonce.signature");
     expect(t.children[0]?.args).toEqual(["--connect", ORIGIN, "--pair"]);
     expect(t.children[0]?.pairingToken).toBe("nonce.signature");
+  });
+
+  it("reports an exit as a structured event, never free daemon text", async () => {
+    const t = setup();
+    await t.ctl.probe();
+    t.children[0]!.hooks.onExit(78);
+    expect(t.deps.event).toHaveBeenCalledWith({ event: "daemon-exit", state: "revoked", code: 78 });
   });
 
   it("pairing fork exiting before polling re-probes instead of restarting", async () => {

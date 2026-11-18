@@ -90,19 +90,23 @@ test("configured origin gets the handshake bridge; a foreign origin gets none", 
             bridgeVersion: bridge.bridgeVersion,
             appVersion: bridge.appVersion,
             platform: bridge.platform,
+            surface: bridge.surface,
+            pairArity: (bridge.pair as (...args: unknown[]) => unknown).length,
             capabilities: bridge.capabilities,
             methods: ["status", "pair", "unpair", "onStatus", "startClaudeLogin"].filter(
               (name) => typeof bridge[name] === "function",
             ),
-            retired: ["receiveCodexCallback", "showDiff", "openView", "openPullRequest"].filter(
-              (name) => name in bridge,
-            ),
+            retired: ["showDiff", "openView", "openPullRequest"].filter((name) => name in bridge),
+            compat: typeof bridge.receiveCodexCallback,
           }
         : null;
     });
     expect(handshake?.bridgeVersion).toBe(1);
     expect(typeof handshake?.appVersion).toBe("string");
     expect(handshake?.platform).toBe(process.platform);
+    expect(handshake?.surface).toBe("dashboard");
+    // Pairing takes no payload: main mints the token, the page never holds one.
+    expect(handshake?.pairArity).toBe(0);
     expect(handshake?.capabilities).toEqual([
       "status",
       "pair",
@@ -113,18 +117,28 @@ test("configured origin gets the handshake bridge; a foreign origin gets none", 
     // Every advertised capability maps to a real method, and nothing else exists.
     expect(handshake?.methods).toEqual(["status", "pair", "unpair", "onStatus", "startClaudeLogin"]);
     expect(handshake?.retired).toEqual([]);
+    // An older dashboard still finds the callback method: it refuses, no listener.
+    expect(handshake?.compat).toBe("function");
 
     // The preload compares the document origin with the handshake origin, so a
-    // window on any other origin must stay bridge-free even with the same preload.
+    // window on any other origin stays bridge-free even when the handshake it
+    // receives is otherwise valid for the configured origin.
     const foreign = createServer((_req, res) => {
       res.setHeader("content-type", "text/html");
       res.end("<!doctype html><title>foreign</title><body>foreign</body>");
     });
     await new Promise<void>((resolve) => foreign.listen(0, "127.0.0.1", resolve));
     const foreignUrl = `http://127.0.0.1:${(foreign.address() as AddressInfo).port}`;
+    const validHandshake = `--shiba-bridge=${JSON.stringify({
+      origin: stubUrl,
+      bridgeVersion: 1,
+      appVersion: "0.0.0-e2e",
+      platform: process.platform,
+      surface: "dashboard",
+    })}`;
     try {
       const foreignBridge = await app.evaluate(
-        async ({ BrowserWindow }, { url, preloadPath }) => {
+        async ({ BrowserWindow }, { url, preloadPath, handshake }) => {
           const window = new BrowserWindow({
             show: false,
             webPreferences: {
@@ -132,6 +146,7 @@ test("configured origin gets the handshake bridge; a foreign origin gets none", 
               sandbox: true,
               contextIsolation: true,
               nodeIntegration: false,
+              additionalArguments: [handshake],
             },
           });
           await window.loadURL(`${url}/app/`);
@@ -141,7 +156,11 @@ test("configured origin gets the handshake bridge; a foreign origin gets none", 
           window.destroy();
           return visible;
         },
-        { url: foreignUrl, preloadPath: path.resolve(import.meta.dirname, "../dist/preload.js") },
+        {
+          url: foreignUrl,
+          preloadPath: path.resolve(import.meta.dirname, "../dist/preload.js"),
+          handshake: validHandshake,
+        },
       );
       expect(foreignBridge).toBe("undefined");
     } finally {

@@ -95,8 +95,12 @@ function launch(): Promise<ElectronApplication> {
   userDataDirs.push(userData);
   return electron.launch({
     chromiumSandbox: true,
-    args: ["dist/main.js", `--user-data-dir=${userData}`],
-    env: { ...(process.env as Record<string, string>), SHIBA_DESKTOP_URL: stubUrl },
+    args: ["test/electron-bootstrap.cjs"],
+    env: {
+      ...(process.env as Record<string, string>),
+      SHIBA_DESKTOP_URL: stubUrl,
+      SHIBA_DESKTOP_TEST_USER_DATA: userData,
+    },
   });
 }
 

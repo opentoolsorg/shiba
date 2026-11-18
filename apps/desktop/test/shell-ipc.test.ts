@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ALLOWED_CHANNELS, DESKTOP_CHANNELS } from "../src/bridge-contract.js";
 import { createIpcBounds } from "../src/ipc-guard.js";
-import { registerShellIpc, type ShellIpcDeps } from "../src/shell-ipc.js";
+import { CODEX_CALLBACK_RETIRED, registerShellIpc, type ShellIpcDeps } from "../src/shell-ipc.js";
 
 const ORIGIN = "https://app.tryshiba.dev";
 
@@ -13,8 +13,8 @@ function makeDeps(overrides: Partial<ShellIpcDeps> = {}) {
         handlers.set(channel, fn as never);
       },
     },
-    isTrustedSender: (frame, origin) => frame === `${origin}/app/`,
-    getConfiguredOrigin: () => ORIGIN,
+    isTrustedEvent: (event) =>
+      (event as { senderFrame?: { url?: string } }).senderFrame?.url === `${ORIGIN}/app/`,
     bounds: createIpcBounds(2),
     startClaudeLogin: vi.fn(async () => ({ ok: true as const })),
     ...overrides,
@@ -36,7 +36,23 @@ describe("shell ipc", () => {
     for (const channel of handlers.keys()) expect(ALLOWED_CHANNELS).toContain(channel);
     expect(handlers.has("desktop:show-diff")).toBe(false);
     expect(handlers.has("desktop:open-pr")).toBe(false);
-    expect(handlers.has("desktop:codex-callback")).toBe(false);
+    // The retired callback stays registered only to refuse; nothing else remains.
+    expect(handlers.has("desktop:show-diff")).toBe(false);
+    expect(handlers.has("desktop:open-pr")).toBe(false);
+  });
+
+  it("answers an older dashboard's callback request with a fixed refusal", async () => {
+    const { deps, handlers } = makeDeps();
+    // No listener exists: the call resolves, and the copy sends the user to the browser.
+    expect(await invoke(handlers, DESKTOP_CHANNELS.retiredCodexCallback, `${ORIGIN}/app/`)).toEqual({
+      ok: false,
+      error: CODEX_CALLBACK_RETIRED,
+    });
+    expect(await invoke(handlers, DESKTOP_CHANNELS.retiredCodexCallback, "https://evil.example/")).toEqual({
+      ok: false,
+      error: "Untrusted sender.",
+    });
+    expect(deps.startClaudeLogin).not.toHaveBeenCalled();
   });
 
   it("rejects an untrusted sender without starting a login", async () => {

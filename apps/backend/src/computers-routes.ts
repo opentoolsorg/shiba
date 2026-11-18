@@ -159,7 +159,9 @@ export async function mintDaemonPairing(
     ok: true,
     token,
     expiresAt,
-    command: `node scripts/shiba-local-daemon.mjs --connect ${origin} --pair ${token}`,
+    // The token goes through the environment: argv is readable by other local
+    // processes, and the daemon refuses an inline value.
+    command: `SHIBA_PAIRING_TOKEN='${token}' node scripts/shiba-local-daemon.mjs --connect ${origin} --pair`,
   };
 }
 
