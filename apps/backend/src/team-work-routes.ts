@@ -22,6 +22,8 @@ import { getTeamWorkspace, getTeamWorkspaceMembership, normalizeTeamWorkspaceEma
 import { upsertWorkspaceSearchDoc } from "./workspace-search-store.js";
 import { publishWorkspaceEvent } from "./platform/workspace-events-do.js";
 import { latestStatusText } from "./run-milestones.js";
+import { d1LearningPort } from "./ports/learning/d1-adapter.js";
+import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 import { resolveRunStoreTarget } from "./runs-routes.js";
 
 /** Structural counterpart to the frontend DTO; never imports another app's source. */
@@ -362,6 +364,11 @@ async function milestoneRows<T extends { run_id: string }>(
   return rows.results;
 }
 
+function learningWorkspace(header: string | null): string {
+  const workspaceId = header?.trim();
+  return workspaceId && isTeamWorkspaceId(workspaceId) ? `team:${workspaceId}` : DASHBOARD_ORG_ID;
+}
+
 async function handleNeedsYou(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
   if (request.headers.has("Authorization") || !(await isAuthorizedRequest(request, env))) {
@@ -415,8 +422,21 @@ async function handleNeedsYou(request: Request, env: Env): Promise<Response> {
     const status = await latestStatusText(env, row.run_id);
     if (status) progress[row.run_id] = status;
   }
+  const learningSuggestions = env.AGENT_AUDIT
+    ? await d1LearningPort(env.AGENT_AUDIT)
+      .listSuggestions(learningWorkspace(request.headers.get("X-Shiba-Workspace")), ownerId)
+      .catch(() => [])
+    : [];
   return json({
     approvals,
+    learningSuggestions: learningSuggestions.map((row) => ({
+      id: row.id,
+      skillId: row.skillId,
+      skillName: row.name,
+      droppedShare: row.droppedShare,
+      employeeId: row.employeeId,
+      createdAt: row.createdAt,
+    })),
     questions: questions.map((row) => ({
       runId: row.run_id,
       askId: row.ask_id,
