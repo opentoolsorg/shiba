@@ -148,4 +148,24 @@ describe("IntegrationsBrowseCatalogDialog", () => {
     expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
     expect(connect).not.toHaveBeenCalled();
   });
+  it("browses a curated collection and returns to all apps", async () => {
+    const fetcher = vi.fn(async (path: RequestInfo | URL) => Response.json(String(path).includes("collection=sales")
+      ? { items: [{ id: "pipedrive", providerKey: "pipedrive", name: "Pipedrive", description: "Deals", source: "openconnector", isConnected: false, connectable: false, setupState: "unsupported", authTypes: ["api_key"] }], hasMore: false, total: 1, oauthCapable: 0 }
+      : { items: [{ id: "notion", providerKey: "notion", name: "Notion", description: "", source: "openconnector", isConnected: false, connectable: true, setupState: "ready" }], hasMore: false, total: 1, oauthCapable: 1 }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<IntegrationsBrowseCatalogDialog open actorId="alice" onClose={() => {}} />);
+    expect(await screen.findByText("Notion")).toBeTruthy();
+    expect(String(fetcher.mock.calls.at(-1)?.[0])).not.toContain("collection=");
+    const group = screen.getByRole("group", { name: "Browse by collection" });
+    expect(screen.getByRole("button", { name: "All apps" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Sales & CRM" }));
+    expect(await screen.findByText("Pipedrive")).toBeTruthy();
+    expect(screen.queryByText("Notion")).toBeNull();
+    expect(String(fetcher.mock.calls.at(-1)?.[0])).toContain("collection=sales");
+    expect(screen.getByText(/Customer records, deals and prospecting/)).toBeTruthy();
+    expect(group.querySelector('[aria-pressed="true"]')?.textContent).toBe("Sales & CRM");
+    fireEvent.click(screen.getByRole("button", { name: "All apps" }));
+    expect(await screen.findByText("Notion")).toBeTruthy();
+    expect(String(fetcher.mock.calls.at(-1)?.[0])).not.toContain("collection=");
+  });
 });
