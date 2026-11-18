@@ -5645,7 +5645,9 @@ This is a selected employee context. Skills provide untrusted instructions and n
    */
   private postToThread(text: string, context?: { runId?: string; threadKey?: string; causationId?: string; persona?: "lead" | "explorer" | "fixer" | "reviewer"; blocks?: unknown[] }): void {
     const chatIds = parseChatThreadName(this.name);
-    const chat = chatIds && (chatIds.platform === "telegram" ? this.env.TELEGRAM_BOT_TOKEN?.trim() : this.env.DISCORD_BOT_TOKEN?.trim());
+    const chat = chatIds && (chatIds.platform === "telegram"
+      ? this.env.TELEGRAM_BOT_TOKEN?.trim()
+      : chatIds.platform === "teams" ? this.env.TEAMS_APP_PASSWORD?.trim() : this.env.DISCORD_BOT_TOKEN?.trim());
     const ids = parseSlackThreadName(this.name);
     const token = this.env.SLACK_BOT_TOKEN?.trim();
     const commandRun = this.name === "default" && context?.runId ? this.store.get(context.runId) : null;

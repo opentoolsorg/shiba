@@ -4,6 +4,7 @@
  */
 import { discordChannel } from "../../channels/discord/index.js";
 import { slackChannel } from "../../channels/slack/index.js";
+import { teamsChannel } from "../../channels/teams/index.js";
 import { telegramChannel } from "../../channels/telegram/index.js";
 import type { Env } from "../../env.js";
 import type { ChannelAdapter, ChannelAdapterOptions, ChannelDefinition, ChannelId } from "./index.js";
@@ -12,6 +13,7 @@ const CHANNELS: Readonly<Record<ChannelId, ChannelDefinition>> = {
   slack: slackChannel,
   discord: discordChannel,
   telegram: telegramChannel,
+  teams: teamsChannel,
 };
 
 export function listChannels(): ChannelDefinition[] {
