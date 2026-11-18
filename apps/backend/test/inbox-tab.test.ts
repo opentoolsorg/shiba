@@ -1049,6 +1049,37 @@ describe("dashboard approval routes", () => {
     } finally { orchestratorCalls.handlers = {}; }
   });
 
+  it("keys an org-less repo claim as personal even when the caller sends a workspace header", async () => {
+    orchestratorCalls.calls.length = 0;
+    orchestratorCalls.handlers = {
+      "dev@example.com": async (request) => {
+        const path = new URL(request.url).pathname;
+        if (path === "/internal/web-sessions") return Response.json({ sessions: [] });
+        if (request.method === "GET") return Response.json({ approvals: [{ approvalId: "run-1", threadKey: "dev@example.com", kind: "run", repoUrl: "https://github.com/o/r", baseBranch: "main" }] });
+        return Response.json({ result: "approved" });
+      },
+    };
+    const writes: unknown[][] = [];
+    const statement = (sql: string) => ({
+      bind: (...args: unknown[]) => ({
+        first: async () => null,
+        run: async () => { if (sql.startsWith("INSERT INTO repo_work_claims")) writes.push(args); return { success: true }; },
+      }),
+    });
+    try {
+      const { env } = makeEnvWithTwoMailboxes();
+      env.DASHBOARD_APPROVERS = "";
+      (env as unknown as { AGENT_AUDIT: unknown }).AGENT_AUDIT = { prepare: statement };
+      const response = await worker.fetch(new Request("http://localhost/api/approvals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "CF-Access-Authenticated-User-Email": "dev@example.com", "X-Shiba-Workspace": "caller-chosen-workspace" },
+        body: JSON.stringify({ threadKey: "dev@example.com", approvalId: "run-1", approved: true }),
+      }), env, ctx);
+      expect(response.status).toBe(200);
+      expect(writes.map((args) => args[0])).toEqual(["personal"]);
+    } finally { orchestratorCalls.handlers = {}; }
+  });
+
   it("GET /api/approvals also probes the caller's registered web sessions", async () => {
     const session = createWebSession("dev@example.com", { name: "Side" });
     orchestratorCalls.calls.length = 0;

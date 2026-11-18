@@ -166,7 +166,7 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
       const listed = await userStub.fetch(new Request("https://internal/api/approvals"));
       const stored = listed.ok ? await listed.json() as { approvals?: Array<Pick<PendingApproval, "approvalId" | "kind" | "orgId" | "repoUrl" | "baseBranch" | "task">> } : { approvals: [] };
       const approval = (stored.approvals ?? []).find((item) => item.approvalId === body.approvalId);
-      const workspaceId = approval?.orgId || request.headers.get("X-Shiba-Workspace") || "personal";
+      const workspaceId = approval?.orgId || "personal";
       const repo = approval && (approval.kind ?? "run") === "run" ? approval.repoUrl?.trim() : undefined;
       const branch = approval?.baseBranch?.trim() || "main";
       const claimAction = body.claimAction;
