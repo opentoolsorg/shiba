@@ -19,7 +19,7 @@ import {
 } from "electron";
 import type { ApprovalsPoller } from "./approvals-poller.js";
 import { createApprovalsPoller } from "./approvals-poller.js";
-import { BRIDGE_VERSION, encodeHandshake } from "./bridge-contract.js";
+import { BRIDGE_VERSION, encodeHandshake, parseHandshake } from "./bridge-contract.js";
 import { startClaudeLogin } from "./claude-login.js";
 import type { Controller } from "./controller.js";
 import { createController } from "./controller.js";
@@ -179,6 +179,21 @@ function attachLoadFailure(win: BrowserWindow): void {
   });
 }
 
+/**
+ * The handshake the preload will accept, or nothing. A window created while no
+ * deployment is configured gets no bridge at all, which is what the setup page
+ * expects; anything the contract rejects fails closed the same way.
+ */
+function bridgeArguments(): string[] {
+  const encoded = encodeHandshake({
+    origin: configuredOrigin(),
+    bridgeVersion: BRIDGE_VERSION,
+    appVersion: app.getVersion(),
+    platform: process.platform,
+  });
+  return parseHandshake([encoded]) ? [encoded] : [];
+}
+
 function saveBoundsSoon(win: BrowserWindow): void {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
@@ -201,14 +216,7 @@ function createWindow(): void {
       nodeIntegration: false,
       webviewTag: false,
       // preload reads this; the page can't influence it (D4).
-      additionalArguments: [
-        encodeHandshake({
-          origin: configuredOrigin(),
-          bridgeVersion: BRIDGE_VERSION,
-          appVersion: app.getVersion(),
-          platform: process.platform,
-        }),
-      ],
+      additionalArguments: bridgeArguments(),
     },
   });
   mainWindow = win;

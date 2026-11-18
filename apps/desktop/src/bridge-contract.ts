@@ -34,16 +34,10 @@ export const DESKTOP_CAPABILITIES = [
   "claudeLogin",
 ] as const;
 
-export type DesktopCapability = (typeof DESKTOP_CAPABILITIES)[number];
-
-export const SETUP_CAPABILITIES = ["setUrl"] as const;
-
 /** Pairing tokens are two base64url segments; the server schema caps them at 1024. */
 export const MAX_PAIRING_TOKEN_CHARS = 1024;
 /** A deployment URL is an origin; anything longer is not one. */
 export const MAX_DEPLOYMENT_URL_CHARS = 2048;
-/** App paths the shell loads are `/app/` or `/app/?tab=<known>`; see isSafeAppPath. */
-export const MAX_APP_PATH_CHARS = 256;
 
 export interface BridgeHandshake {
   origin: string;
