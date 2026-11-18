@@ -59,7 +59,6 @@ import {
   parseInlineSeverityThreshold,
   parseReviewEnvelope,
   patchFindingTriage,
-  reviewRoundWriteRejected,
   runInputHash,
   type FindingSeverity,
   type ReviewLoopSettings,
@@ -127,7 +126,7 @@ import {
   finishCapabilityInvocationApproval,
   resolveCapabilityInvocationApproval,
 } from "../capability-invocations.js";
-import { carriesVouchedHeaders, verifyInternalRequest } from "../edge-identity.js";
+import { verifyInternalRequest } from "../edge-identity.js";
 import type { Env } from "../env.js";
 import { isGitHubPublishConfigured, resolveGitHubCredential } from "../github-auth.js";
 import {
@@ -163,14 +162,19 @@ import {
   isApprovalExpired,
   isJsonObject,
   type PendingApproval,
-  putCommandReceipt,
   type ResolveResult,
   recordApprovalExecution,
   resolvePendingApproval,
 } from "../pending-approvals.js";
 import { makeReceipt } from "../receipts.js";
 import { logStructured } from "../log.js";
-import { runTimedOut } from "../public-error.js";
+import { dependentRuns, serializeRun, terminalStatusFor } from "./orchestrator-projections.js";
+import { orchestratorStateSql } from "./orchestrator-state-sql.js";
+import { OrchestratorRuns } from "./orchestrator-runs.js";
+import { OrchestratorApprovals } from "./orchestrator-approvals.js";
+import { OrchestratorReviews } from "./orchestrator-reviews.js";
+import { OrchestratorSessions } from "./orchestrator-sessions.js";
+import { slackCanvasOriginPatch, slackSessionIntent } from "./orchestrator-slack.js";
 import { restartDisposition } from "../run-resume.js";
 import { recordQueuedAck, syncRunMilestones } from "../run-milestones.js";
 import { releaseRepoClaim } from "../repo-work-claims.js";
@@ -279,7 +283,6 @@ import {
   isDashboardAgentName,
   MAX_SESSIONS_PER_USER,
   parseSessionAgentName,
-  pruneExpiredWebSessions,
   sanitizeSessionMetadata,
   sanitizeSessionName,
   validateSessionRecordIntegrity,
@@ -347,17 +350,6 @@ export interface OrchestratorState {
   specialistBudget?: { turnId: string; remaining: number };
   publicationReviews?: PublicationReviewRecord[];
   runResultContext?: Record<string, { summary: string; exitCode: number; changedFileCount: number }>;
-}
-
-/** A classified error lands as its matching terminal status. */
-function terminalStatusFor(code: RunErrorCode): RunStatus {
-  // Indeterminate family: the run ended but its side effects are unverified —
-  // the record is "unknown" so the wire projection and the dashboard agree.
-  return code === "cancelled"
-    ? "cancelled"
-    : code === "outcome_unknown" || code === "container_lost"
-      ? "unknown"
-      : "error";
 }
 
 /** Exported for tests — the tool-call surface stays the single caller. */
@@ -563,6 +555,29 @@ function repoPullUrl(output: string, repoUrl: string): string | undefined {
 }
 
 export class CodingOrchestrator extends Think<Env, OrchestratorState> {
+  override sql<T = Record<string, string | number | boolean | null>>(
+    strings: TemplateStringsArray,
+    ...values: (string | number | boolean | null)[]
+  ): T[] {
+    return orchestratorStateSql(this.ctx.storage, strings, values, (bindings) => super.sql<T>(strings, ...bindings));
+  }
+
+  private get runState(): OrchestratorRuns {
+    return new OrchestratorRuns(() => this.state, (state) => this.setState(state), (command, decision) => this.spineTap(command, decision), () => this.name);
+  }
+
+  private get approvalState(): OrchestratorApprovals {
+    return new OrchestratorApprovals(() => this.state, (state) => this.setState(state));
+  }
+
+  private get reviewState(): OrchestratorReviews {
+    return new OrchestratorReviews(() => this.state, (state) => this.setState(state));
+  }
+
+  private get sessionState(): OrchestratorSessions {
+    return new OrchestratorSessions(() => this.state, (state) => this.setState(state));
+  }
+
   override maxConcurrentAgentTools = 1;
   private warmedRunCode: import("ai").Tool | null | undefined;
   private specialistTurn: { turnId: string; budget: SpecialistTurnBudget } | undefined;
@@ -818,49 +833,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   /** Only committed, signed Slack source records can produce a native status intent. */
   #slackAgentSessionIntent(): SlackAgentSessionIntent | null {
-    if (this.sessionDeleted || this.statePersistenceFailed || this.env.SLACK_AGENT_SESSIONS_ENABLED !== "true") return null;
-    const scope = parseSlackCanvasOrigin(this.name);
-    const revision = this.state?.events?.at(-1)?.seq;
-    if (!scope || scope.orchestratorName !== this.name || !parseSlackThreadName(this.name) ||
-        !Number.isSafeInteger(revision) || !revision || revision < 1) return null;
-    const approvals = this.approvals;
-    const source = (approvalId: string) => {
-      if (this.state.slackCanvasOrigins?.[approvalId] !== this.name) return null;
-      const binding = this.state.slackCanvasRunRooms?.[`agent-tool:${approvalId}`];
-      return binding?.runId === `agent-tool:${approvalId}` ? binding : null;
-    };
-    const approvedRuns = this.store.list().filter((run) => {
-      const approvalId = run.approval?.approvalId;
-      const approval = approvals.find((item) => item.approvalId === approvalId && item.threadKey === this.name);
-      return approvalId && run.runId === `agent-tool:${approvalId}` && source(approvalId) &&
-        approval?.status === "approved" && (!approval.kind || approval.kind === "run");
-    });
-    const make = (approvalId: string, status: SlackAgentSessionIntent["status"], persona: SlackAgentSessionIntent["persona"]): SlackAgentSessionIntent | null => {
-      const binding = source(approvalId);
-      return binding ? { origin: this.name, approvalId, binding: { ...binding }, revision, status, persona } : null;
-    };
-    const active = this.store.list().filter((run) => isActiveStatus(run.status)).sort((left, right) => right.updatedAt - left.updatedAt);
-    for (const run of active) {
-      const original = approvedRuns.find((item) => item.runId === run.runId || item.runId === run.reviewOf || item.runId === run.parentRunId);
-      if (original?.approval) return make(original.approval.approvalId, "processing", run.reviewOf ? "reviewer" : "fixer");
-    }
-    for (const approval of [...approvals].sort((left, right) => right.createdAt - left.createdAt)) {
-      if (approval.status !== "pending" || approval.threadKey !== this.name) continue;
-      if (!approval.kind || approval.kind === "run") {
-        const pending = make(approval.approvalId, "suspended", "lead");
-        if (pending) return pending;
-      }
-      if (approval.kind === "pr_publish" && isJsonObject(approval.payload)) {
-        const sourceRunId = approval.payload.runId;
-        const original = approvedRuns.find((run) => run.runId === sourceRunId);
-        if (original?.approval) return make(original.approval.approvalId, "suspended", "reviewer");
-      }
-    }
-    const terminal = approvedRuns.filter((run) => !isActiveStatus(run.status)).sort((left, right) => right.updatedAt - left.updatedAt)[0];
-    if (terminal?.approval) return make(terminal.approval.approvalId, "active", "lead");
-    const rejected = [...approvals].reverse().find((approval) => approval.status === "rejected" && approval.threadKey === this.name &&
-      (!approval.kind || approval.kind === "run") && source(approval.approvalId));
-    return rejected ? make(rejected.approvalId, "active", "lead") : null;
+    return slackSessionIntent(this.state, this.name, !this.statePersistenceFailed && this.env.SLACK_AGENT_SESSIONS_ENABLED === "true", this.env);
   }
 
   /** Native private methods are absent from the external RPC method surface. */
@@ -894,11 +867,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   private get store(): RunStore {
-    return new RunStore(
-      () => this.state?.runs ?? [],
-      (runs) => this.setState({ ...this.state, runs }),
-      (command, decision) => this.spineTap(command, decision),
-    );
+    return this.runState.store;
   }
 
   /** Completion and its pending read-only review share one durable commit. */
@@ -935,50 +904,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   private get approvals(): PendingApproval[] {
-    return this.state?.pendingApprovals ?? [];
-  }
-
-  private frozenRunApprovalHash(approvalId: string): string | undefined {
-    const approval = this.approvals.find((item) => item.approvalId === approvalId);
-    if (!approval || (approval.kind !== undefined && approval.kind !== "run")) return undefined;
-    return runInputHash({ ...approval, baseBranch: approval.baseBranch ?? "main", publishPullRequest: approval.publishPullRequest ?? false });
-  }
-
-  private withSlackCanvasOrigin(approvalId: string, origin: string | undefined, room?: RunRoomIdentity | null): Pick<OrchestratorState, "slackCanvasOrigins" | "slackCanvasThreadOrigin" | "slackCanvasRunRooms"> {
-    if (!origin || parseSlackCanvasOrigin(origin)?.orchestratorName !== this.name) return {};
-    return {
-      slackCanvasOrigins: Object.fromEntries([...Object.entries(this.state?.slackCanvasOrigins ?? {}).filter(([id]) => id !== approvalId), [approvalId, origin]].slice(-500)),
-      ...(origin === this.name && parseSlackThreadName(this.name) ? { slackCanvasThreadOrigin: origin } : {}),
-      ...(room ? { slackCanvasRunRooms: Object.fromEntries([...Object.entries(this.state?.slackCanvasRunRooms ?? {}).filter(([id]) => id !== room.runId), [room.runId, { ownerId: room.ownerId, sessionId: room.sessionId, runId: room.runId }]].slice(-500)) } : {}),
-    };
-  }
-
-  private taskForApproval(approval: PendingApproval): DurableTask {
-    return createDurableTask({
-      taskId: `task_${approval.approvalId}`,
-      ownerId: this.name ?? "default",
-      ...(approval.queuedBy ? { queuedBy: approval.queuedBy } : {}),
-      title: approval.task,
-      commandId: `approval:${approval.approvalId}`,
-      approvalId: approval.approvalId,
-      frozen: frozenTaskInputFromApproval(approval),
-      now: approval.createdAt,
-    });
-  }
-
-  private task(taskId: string): DurableTask | undefined {
-    return (this.state?.tasks ?? []).find((candidate) => candidate.taskId === taskId);
-  }
-
-  private storeTask(task: DurableTask): void {
-    const current = this.state?.tasks ?? [];
-    const exists = current.some((candidate) => candidate.taskId === task.taskId);
-    this.setState({
-      ...this.state,
-      tasks: exists
-        ? current.map((candidate) => candidate.taskId === task.taskId ? task : candidate)
-        : [...current, task].slice(-300),
-    });
+    return this.approvalState.list;
   }
 
   /**
@@ -988,45 +914,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    */
   private lastStaleSweepAt: number | undefined;
 
-  private writeApprovals(next: PendingApproval[]): void {
-    this.setState({ ...this.state, pendingApprovals: next });
-  }
-
-  private commandReceipt(commandId: string): CommandReceipt | undefined {
-    return this.state?.commandReceipts?.[commandId];
-  }
-
-  private withCommandReceipt(receipt: CommandReceipt): Record<string, CommandReceipt> {
-    return putCommandReceipt(this.state?.commandReceipts ?? {}, receipt);
-  }
-
-  private recordCommandReceipt(receipt: CommandReceipt): void {
-    this.setState({ ...this.state, commandReceipts: this.withCommandReceipt(receipt) });
-  }
-
   get storedWebSessions(): WebSessionRecord[] {
-    return this.state?.webSessions ?? [];
-  }
-
-  private writeWebSessions(webSessions: WebSessionRecord[]): void {
-    const current = this.state ?? { runs: [] };
-    this.setState({
-      ...current,
-      webSessions,
-    });
-  }
-
-  /**
-   * F17: evict registry records idle longer than WEB_SESSION_TTL_MS. The
-   * hard cap bounds count but not retention — without expiry an abandoned
-   * session occupies its slot forever. Pruning runs on the read surfaces
-   * so stale rows leave durable state, not just the response.
-   */
-  private evictExpiredWebSessions(now: number): void {
-    const pruned = pruneExpiredWebSessions(this.storedWebSessions, now);
-    if (pruned.length !== this.storedWebSessions.length) {
-      this.writeWebSessions(pruned);
-    }
+    return this.sessionState.list;
   }
 
   private get sessionDeleted(): boolean {
@@ -1066,11 +955,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         new WebSocketRequestResponsePair('{"type":"shiba:ping"}', '{"type":"shiba:pong"}'),
       );
     }
-    for (const round of this.state?.reviewRounds ?? []) {
-      if (round.publicationOutcome !== "posting") continue;
-      this.writeRound({ ...round, status: "failed", publicationOutcome: "unknown",
-        error: "Review publication was interrupted. Inspect GitHub before requesting another review." });
-    }
+    this.reviewState.recover();
     for (const review of this.state?.publicationReviews ?? []) {
       if (review.status === "pending" || review.status === "running") this.holdOpen(this.reviewPublication(review.runId));
     }
@@ -1144,7 +1029,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         );
       }
       if (released && approval.execution === undefined) {
-        this.writeApprovals(
+        this.approvalState.replace(
           recordApprovalExecution(this.approvals, {
             threadKey: approval.threadKey,
             approvalId: approval.approvalId,
@@ -1168,7 +1053,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // unknown instead of risking a second copy.
     for (const approval of this.approvals) {
       if (approval.kind === "pr_publish" && approval.execution?.status === "executing") {
-        this.writeApprovals(recordApprovalExecution(this.approvals, {
+        this.approvalState.replace(recordApprovalExecution(this.approvals, {
           threadKey: approval.threadKey, approvalId: approval.approvalId,
           execution: { status: "unknown", error: "Publication was interrupted. Inspect GitHub before retrying.", executedAt: Date.now() },
         }));
@@ -1180,7 +1065,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const payload = isJsonObject(approval.payload) ? approval.payload : {};
       const draftId = typeof payload.draft_id === "string" ? payload.draft_id.trim() : "";
       if (approval.kind === "email_send" && draftId === "") {
-        this.writeApprovals(
+        this.approvalState.replace(
           recordApprovalExecution(this.approvals, {
             threadKey: approval.threadKey,
             approvalId: approval.approvalId,
@@ -1227,7 +1112,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         continue;
       }
       const commandId = `approval:${approval.approvalId}`;
-      const receipt = this.commandReceipt(commandId);
+      const receipt = this.approvalState.receipt(commandId);
       if (receipt?.dispatched === true) {
         continue;
       }
@@ -1249,14 +1134,14 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         if (held !== null && isActiveStatus(held.status) && held.budgetHold !== undefined && this.canScheduleRun()) {
           this.dispatchApprovedRun(held, approval, approval.approvalId);
         }
-        this.recordCommandReceipt({ ...receiptDone, runId: held?.runId ?? runId });
+        this.approvalState.recordReceipt({ ...receiptDone, runId: held?.runId ?? runId });
         continue;
       }
       if (this.store.get(runId) !== null) {
         // The dispatch ran — the run record exists and the interrupt
         // pass above already stamped any active status unknown. Just
         // record that the command completed.
-        this.recordCommandReceipt(receiptDone);
+        this.approvalState.recordReceipt(receiptDone);
         continue;
       }
       // Capacity still applies across a restart — a deferred re-drive
@@ -1268,7 +1153,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       this.setState({
         ...this.state,
         runs: [...this.store.list(), run],
-        commandReceipts: this.withCommandReceipt(receiptDone),
+        commandReceipts: this.approvalState.withReceipt(receiptDone),
       });
       this.dispatchApprovedRun(run, approval, approval.approvalId);
     }
@@ -2836,7 +2721,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (input.collaborationHandoffId !== undefined && [input.draftTaskId, input.draftTaskVersion,
       input.onboardingSourceSnapshot, input.projectContextId].some((value) => value !== undefined))
       return Response.json({ error: "Room execution accepts only its explicitly selected shared context, never private onboarding or project context." }, { status: 403 });
-    if (trustedSlackOrigin && (input.threadKey !== trustedSlackOrigin || parseSlackCanvasOrigin(trustedSlackOrigin)?.orchestratorName !== this.name)) {
+    if (trustedSlackOrigin && (input.threadKey !== trustedSlackOrigin || parseSlackCanvasOrigin(trustedSlackOrigin, this.env)?.orchestratorName !== this.name)) {
       return Response.json({ error: "Slack origin does not match this conversation." }, { status: 403 });
     }
     const personalParsed = input.personalExecution === undefined ? null : personalExecutionSnapshotSchema.safeParse(input.personalExecution);
@@ -2989,11 +2874,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           (input.expectedCustomAgentVersion !== undefined && frozen.customAgentVersion !== input.expectedCustomAgentVersion))) {
         return Response.json({ error: "The retained room approval no longer matches this handoff. Request a new handoff." }, { status: 409 });
       }
-      return Response.json({ ok: true, approvalId, approvalInputHash: this.frozenRunApprovalHash(approvalId),
+      return Response.json({ ok: true, approvalId, approvalInputHash: this.approvalState.frozenRunHash(approvalId),
         ...(collaborationHandoffId && frozen ? { task: frozen.task } : {}), deduped: true });
     };
     if (queueCommandId !== undefined) {
-      const prior = this.commandReceipt(queueCommandId);
+      const prior = this.approvalState.receipt(queueCommandId);
       if (prior !== undefined && prior.approvalId !== undefined) {
         return replayQueue(prior.approvalId);
       }
@@ -3350,7 +3235,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // retry may have committed the same command meanwhile, so re-check at
     // the synchronous mint boundary before writing a second approval.
     if (queueCommandId !== undefined) {
-      const prior = this.commandReceipt(queueCommandId);
+      const prior = this.approvalState.receipt(queueCommandId);
       if (prior?.approvalId !== undefined) {
         return replayQueue(prior.approvalId);
       }
@@ -3373,7 +3258,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const archiveAccountId = archiveOwner && archiveProvider?.providerId === "cloudflare" &&
       await resolveArchiveOwnerAccount(this.env, archiveOwner) === nativeArchiveOwner?.accountId ? nativeArchiveOwner.accountId : null;
     if (queueCommandId !== undefined) {
-      const prior = this.commandReceipt(queueCommandId);
+      const prior = this.approvalState.receipt(queueCommandId);
       if (prior?.approvalId !== undefined) return replayQueue(prior.approvalId);
     }
     // Flood guard: pending approvals persist in DO state — an uncapped queue
@@ -3433,16 +3318,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         });
       const pendingRecord = pendingApprovals.find((item) => item.approvalId === approvalId);
       if (!pendingRecord) throw new Error("Pending approval was not stored.");
-      const taskRecord = this.taskForApproval(pendingRecord);
+      const taskRecord = this.runState.taskForApproval(pendingRecord);
       this.setState({
         ...this.state,
         pendingApprovals,
         ...(personalExecution ? { personalExecutionOnly: true as const } : {}),
-        ...this.withSlackCanvasOrigin(approvalId, trustedSlackOrigin, canvasRoom),
+        ...slackCanvasOriginPatch(this.state, this.name, approvalId, trustedSlackOrigin, canvasRoom, this.env),
         tasks: [...(this.state?.tasks ?? []), taskRecord].slice(-300),
         ...(queueCommandId !== undefined
           ? {
-              commandReceipts: this.withCommandReceipt({
+              commandReceipts: this.approvalState.withReceipt({
                 commandId: queueCommandId,
                 kind: "run.queue",
                 outcome: "queued",
@@ -3468,7 +3353,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return Response.json({
       ok: true,
       approvalId,
-      approvalInputHash: this.frozenRunApprovalHash(approvalId),
+      approvalInputHash: this.approvalState.frozenRunHash(approvalId),
       repoUrl,
       task,
       route: describeRoute(route),
@@ -3503,7 +3388,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ? `fork:${input.commandId.trim().slice(0, 200)}`
         : undefined;
     if (forkCommandId !== undefined) {
-      const prior = this.commandReceipt(forkCommandId);
+      const prior = this.approvalState.receipt(forkCommandId);
       if (prior !== undefined && prior.approvalId !== undefined) {
         return Response.json({ ok: true, approvalId: prior.approvalId, deduped: true });
       }
@@ -3625,7 +3510,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         }),
         ...(forkCommandId !== undefined
           ? {
-              commandReceipts: this.withCommandReceipt({
+              commandReceipts: this.approvalState.withReceipt({
                 commandId: forkCommandId,
                 kind: "run.fork",
                 outcome: "queued",
@@ -3787,7 +3672,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (typeof value === "string") payload[key] = value;
     }
     try {
-      this.writeApprovals(
+      this.approvalState.replace(
         createPendingApproval(this.approvals, {
           threadKey,
           approvalId,
@@ -3887,7 +3772,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         (typeof body.expectedInputHash !== "string" || !/^[a-f0-9]{64}$/.test(body.expectedInputHash)))
       return Response.json({ error: "Invalid approval input hash." }, { status: 400 });
     const expectedInputHash = body.expectedInputHash;
-    if (expectedInputHash !== undefined && this.frozenRunApprovalHash(approvalId) !== expectedInputHash)
+    if (expectedInputHash !== undefined && this.approvalState.frozenRunHash(approvalId) !== expectedInputHash)
       return Response.json({ error: "Approval input changed. Reload the exact pending action." }, { status: 409 });
     const storedApproval = this.approvals.find((record) => record.approvalId === approvalId && record.threadKey === threadKey);
     const isTeamApproval = Boolean(storedApproval?.orgId?.startsWith("team:") && storedApproval.collaborationHandoffId);
@@ -3933,7 +3818,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // of re-litigating the decision — the receipt, the pointer update,
     // and the run mint committed in one state write.
     const commandId = `approval:${approvalId}`;
-    const prior = this.commandReceipt(commandId);
+    const prior = this.approvalState.receipt(commandId);
     if (prior !== undefined && prior.threadKey === threadKey) {
       if (prior.outcome === "approved" || prior.outcome === "rejected" || prior.outcome === "expired") {
         await resolveCapabilityInvocationApproval(this.env, {
@@ -3987,17 +3872,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
     }
     // Availability and reclaim checks yielded; another resolve may have won.
-    const committed = this.commandReceipt(commandId);
+    const committed = this.approvalState.receipt(commandId);
     if (committed?.threadKey === threadKey) return Response.json({ result: committed.outcome });
     if (teamHumanDecision && !await teamDecisionCurrent())
       return Response.json({ error: "Team approval ownership or room access changed." }, { status: 403 });
     if (approved && storedApproval?.personalExecution && !await revalidatePersonalExecutionSnapshot(this.env, storedApproval.personalExecution))
       return Response.json({ error: "Personal execution consent, account or computer changed. Request a new approval." }, { status: 409 });
     // The final authority lookup also yielded; preserve a decision committed while it ran.
-    const committedAfterAuthority = this.commandReceipt(commandId);
+    const committedAfterAuthority = this.approvalState.receipt(commandId);
     if (committedAfterAuthority?.threadKey === threadKey) return Response.json({ result: committedAfterAuthority.outcome });
     const now = Date.now();
-    if (expectedInputHash !== undefined && this.frozenRunApprovalHash(approvalId) !== expectedInputHash)
+    if (expectedInputHash !== undefined && this.approvalState.frozenRunHash(approvalId) !== expectedInputHash)
       return Response.json({ error: "Approval input changed. Reload the exact pending action." }, { status: 409 });
     const result = resolvePendingApproval(
       this.approvals,
@@ -4090,7 +3975,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         approval.approvalId === approvalId && approval.threadKey === threadKey ? withoutSealedEnv(approval) : approval,
       ),
       runs: run && this.store.get(run.runId) === null ? [...this.store.list(), run] : this.store.list(),
-      commandReceipts: this.withCommandReceipt({
+      commandReceipts: this.approvalState.withReceipt({
         commandId,
         kind: "approval.resolve",
         outcome: result.result,
@@ -4305,11 +4190,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     });
     const pendingRecord = pendingApprovals.find((item) => item.approvalId === toolCallId);
     if (!pendingRecord) throw new Error("Pending approval was not stored.");
-    const taskRecord = this.taskForApproval(pendingRecord);
+    const taskRecord = this.runState.taskForApproval(pendingRecord);
     this.setState({
       ...this.state,
       pendingApprovals,
-      ...this.withSlackCanvasOrigin(toolCallId, canvasOrigin, canvasRoom),
+      ...slackCanvasOriginPatch(this.state, this.name, toolCallId, canvasOrigin, canvasRoom, this.env),
       tasks: [...(this.state?.tasks ?? []), taskRecord].slice(-300),
     });
   }
@@ -4523,7 +4408,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (!opts?.force && decideChain(parent, this.state.reviewRounds ?? [], headSha, loop).kind !== "queue_review") {
       return;
     }
-    const reserved = this.writeRound({
+    const reserved = this.reviewState.write({
       roundId,
       codingRunId: parent.runId,
       reviewRunId: `pending:${roundId}`,
@@ -4545,7 +4430,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         repo: pull.repo,
       });
     } catch (error) {
-      this.writeRound({
+      this.reviewState.write({
         roundId,
         codingRunId: parent.runId,
         reviewRunId: `pending:${roundId}`,
@@ -4582,7 +4467,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       decisionTap: (command, decision) => this.spineTap(command, decision),
     });
     this.store.add(reviewRun);
-    this.writeRound({
+    this.reviewState.write({
       roundId,
       codingRunId: parent.runId,
       reviewRunId: reviewRun.runId,
@@ -4628,7 +4513,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const rounds = this.state.reviewRounds ?? [];
     const existing = rounds.find((item) => item.roundId === roundId || item.reviewRunId === run.runId);
     if (!existing || existing.status === "posted" || existing.publicationOutcome) return;
-    this.writeRound({
+    this.reviewState.write({
       ...existing,
       reviewRunId: run.runId,
       status: "failed",
@@ -4692,7 +4577,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(coding.attachments?.length ? { attachments: coding.attachments } : {}),
         createdAt: Date.now(),
       });
-      this.writeApprovals(approvals);
+      this.approvalState.replace(approvals);
       return Response.json({ ok: true, wake: wake.kind, approvalId });
     } catch (error) {
       return Response.json(
@@ -4743,7 +4628,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         payload,
         createdAt: Date.now(),
       });
-      this.writeApprovals(approvals);
+      this.approvalState.replace(approvals);
       return Response.json({ ok: true, approvalId });
     } catch (error) {
       return Response.json(
@@ -4881,7 +4766,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const runId = typeof payload.runId === "string" ? payload.runId : "";
     const run = this.store.get(runId);
     if (!run || run.status !== "completed" || run.parentRunId || payload.ownerId !== this.name) {
-      this.writeApprovals(recordApprovalExecution(this.approvals, {
+      this.approvalState.replace(recordApprovalExecution(this.approvals, {
         threadKey: record.threadKey, approvalId: record.approvalId,
         execution: { status: "failed", error: "Publication source run is unavailable or outside this owner.", executedAt: Date.now() },
       }));
@@ -4891,13 +4776,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       repoUrl: record.repoUrl, task: record.task, baseBranch: record.baseBranch, publishPullRequest: record.publishPullRequest,
       payload: record.payload, createdAt: record.createdAt }, { ownerId: this.name, runId, repoUrl: run.repoUrl, sandboxId: run.sandboxId, baseBranch: run.baseBranch });
     if (!publicationReviewMatches(this.state.publicationReviews?.find((review) => review.runId === runId), proposal, this.name)) {
-      this.writeApprovals(recordApprovalExecution(this.approvals, {
+      this.approvalState.replace(recordApprovalExecution(this.approvals, {
         threadKey: record.threadKey, approvalId: record.approvalId,
         execution: { status: "failed", error: "Publication requires a successful read-only review of this exact captured artifact.", executedAt: Date.now() },
       }));
       return;
     }
-    this.writeApprovals(recordApprovalExecution(this.approvals, {
+    this.approvalState.replace(recordApprovalExecution(this.approvals, {
       threadKey: record.threadKey, approvalId: record.approvalId,
       execution: { status: "executing", executedAt: Date.now() },
     }));
@@ -4935,7 +4820,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         }));
       } catch (error) {
         const message = redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 4000);
-        this.writeApprovals(recordApprovalExecution(this.approvals, {
+        this.approvalState.replace(recordApprovalExecution(this.approvals, {
           threadKey: record.threadKey, approvalId: record.approvalId,
           execution: { status: publicationAttempted ? "unknown" : "failed", error: publicationAttempted
             ? `Publication stopped. Inspect GitHub before retrying. ${message}`
@@ -4974,7 +4859,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           token,
           { apiBase: this.env.GITHUB_API_BASE },
         );
-        this.writeApprovals(
+        this.approvalState.replace(
           recordApprovalExecution(this.approvals, {
             threadKey,
             approvalId,
@@ -4985,7 +4870,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       } catch (error) {
         const message = redactSecrets(String(error)).slice(0, 4000);
         console.error(`PR merge approval ${approvalId} failed`, message);
-        this.writeApprovals(
+        this.approvalState.replace(
           recordApprovalExecution(this.approvals, {
             threadKey,
             approvalId,
@@ -5000,24 +4885,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
     };
     void dispatch();
-  }
-
-  /** A terminal round with a newer generation wins. A late result is dropped. */
-  private writeRound(round: ReviewRound): boolean {
-    const rounds = this.state.reviewRounds ?? [];
-    const current = rounds.find((item) => item.roundId === round.roundId);
-    if (reviewRoundWriteRejected(current, round)) {
-      return false;
-    }
-    const next = current
-      ? rounds.map((item) => (item.roundId === round.roundId ? round : item))
-      : [...rounds, round];
-    this.setState({ ...this.state, reviewRounds: next });
-    const coding = this.store.get(round.codingRunId);
-    if (coding && coding.reviewRoundId !== round.roundId) {
-      this.store.replace(round.codingRunId, { ...coding, reviewRoundId: round.roundId });
-    }
-    return true;
   }
 
   private async pullHeadSha(owner: string, repo: string, number: number): Promise<string> {
@@ -5061,7 +4928,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const roundId = run.reviewRoundId ?? `${run.reviewOf ?? run.runId}:head`;
     const envelope = parseReviewEnvelope(output);
     if (!envelope.findingsPresent || envelope.rejected > 0) {
-      this.writeRound({
+      this.reviewState.write({
         roundId,
         codingRunId: parent?.runId ?? run.reviewOf ?? run.runId,
         reviewRunId: run.runId,
@@ -5100,13 +4967,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const repoUrl = pull ? `https://github.com/${pull.owner}/${pull.repo}` : undefined;
     const githubCred = repoUrl ? await resolveGitHubCredential(this.env, repoUrl) : null;
     if (!pull || !parent?.pullUrl || !githubCred) {
-      this.writeRound({ ...round, status: "failed", error: "github_not_configured" });
+      this.reviewState.write({ ...round, status: "failed", error: "github_not_configured" });
       return;
     }
     const current = (this.state.reviewRounds ?? []).find((item) => item.roundId === round.roundId);
     if (current?.publicationOutcome) return;
     const posting: ReviewRound = { ...round, publicationOutcome: "posting" };
-    if (!this.writeRound(posting)) return;
+    if (!this.reviewState.write(posting)) return;
     try {
       const posted = await postReview(posting, githubCred.token, {
         apiBase: githubCred.apiBase,
@@ -5120,7 +4987,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         githubReviewId: posted.githubReviewId,
         postedAt: Date.now(),
       };
-      this.writeRound(postedRound);
+      this.reviewState.write(postedRound);
       logStructured("info", {
         event: "review.posted",
         runId: run.runId,
@@ -5129,7 +4996,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       });
       await this.maybeAutoMerge(postedRound);
     } catch (error) {
-      this.writeRound({
+      this.reviewState.write({
         ...posting,
         status: "failed",
         publicationOutcome: error instanceof ReviewPublicationUnknownError ? "unknown" : undefined,
@@ -5296,7 +5163,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         });
         // The record is the only durable account of this runless
         // execution — the outcome lands on it, not only in logs.
-        this.writeApprovals(
+        this.approvalState.replace(
           recordApprovalExecution(this.approvals, {
             threadKey,
             approvalId,
@@ -5315,7 +5182,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         // double-send, so the record reads `executed` with the
         // bookkeeping failure noted.
         const transmitted = error instanceof PostTransmitError;
-        this.writeApprovals(
+        this.approvalState.replace(
           recordApprovalExecution(this.approvals, {
             threadKey,
             approvalId,
@@ -5644,21 +5511,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   /** Find the complete dependent tree, including children of terminal runs. */
   private dependentRuns(runId: string): DelegatedRun[] {
-    const visited = new Set([runId]);
-    const pending = [runId];
-    const dependents: DelegatedRun[] = [];
-    for (let index = 0; index < pending.length; index += 1) {
-      const parentId = pending[index]!;
-      for (const run of this.store.list()) {
-        if (visited.has(run.runId) || (run.reviewOf !== parentId && run.parentRunId !== parentId)) continue;
-        visited.add(run.runId);
-        pending.push(run.runId);
-        // A finished intermediary can still have an active subagent or review.
-        // Its own terminal state stays immutable while traversal continues.
-        dependents.push(run);
-      }
-    }
-    return dependents;
+    return dependentRuns(this.store.list(), runId);
   }
 
   private stampCheckpoint(runId: string, checkpoint: NonNullable<DelegatedRun["checkpoint"]>): void {
@@ -5679,7 +5532,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       },
       listApprovals: () => this.approvals,
       writeApprovals: (approvals: PendingApproval[]) => {
-        this.writeApprovals(approvals);
+        this.approvalState.replace(approvals);
       },
       cancelRun: (id: string) => this.cancelRun(id),
       resolveRoute: (input: {
@@ -5898,12 +5751,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   /** Wire projection for API responses: errorCode -> {status, code, userMessage}. */
   private serializeRun(run: DelegatedRun): DelegatedRun & { errorWire?: RunErrorWire; timedOut?: boolean } {
-    const timedOut = runTimedOut(run);
-    // T68: the sealed env never leaves the DO through the API.
-    const visible = { ...run };
-    delete visible.envSealed;
-    const projected = visible.errorCode ? { ...visible, errorWire: runErrorWire(visible.errorCode) } : visible;
-    return timedOut ? { ...projected, timedOut: true } : projected;
+    return serializeRun(run);
   }
 
   /** Mirror the per-isolate leak registry into DO state so hibernation
@@ -5988,7 +5836,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       // A restart loses the adapter's abort listener; revoke any mailbox claim
       // here too so a native CLI cannot outlive an unknown/cancelled run.
       // The mailbox preserves settled results and makes repeated cancel safe.
-      const response = await localDispatchStub(this.env).fetch(new Request("https://local-dispatch/cancel", {
+      // Legacy runs without a frozen or actor owner retain the default owner mailbox.
+      const response = await localDispatchStub(this.env, run.personalExecution?.ownerAccountId ?? initiatorUserIdFromOrchestratorName(this.name)).fetch(new Request("https://local-dispatch/cancel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sandboxId: run.sandboxId }),
@@ -6138,7 +5987,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const response = await Promise.race([
-        localDispatchStub(this.env).fetch(new Request(`https://local-dispatch/status?sandboxId=${encodeURIComponent(sandboxId)}`)),
+        // Orphaned legacy leak records have no run owner; use this actor's owner when available.
+        localDispatchStub(this.env, initiatorUserIdFromOrchestratorName(this.name)).fetch(new Request(`https://local-dispatch/status?sandboxId=${encodeURIComponent(sandboxId)}`)),
         new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Local identity lookup timed out")), 2_000); }),
       ]);
       if (!response.ok) return false;
@@ -6289,20 +6139,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * case that cannot wait — a touch that just dropped expired sends
    * (or a DO restart, where the floor starts at zero anyway).
    */
-  private signingWarned = false;
-
-  private warnSigningDisabledOnce(): void {
-    // INTERNAL_SIGNING_KEY unset → header-trust fallback. Once per DO
-    // lifetime so operators see it without log spam.
-    if (this.signingWarned) return;
-    this.signingWarned = true;
-    console.warn(
-      "edge-identity: INTERNAL_SIGNING_KEY unset — trusting vouched headers " +
-        "(X-Agent-Principal / X-Shiba-Intake) unsigned. Set the secret on " +
-        "the Worker to require signed internal requests.",
-    );
-  }
-
   private sweepStaleDrafts(force = false): void {
     const now = Date.now();
     if (!force && now - (this.lastStaleSweepAt ?? 0) < STALE_SWEEP_INTERVAL_MS) {
@@ -6369,7 +6205,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    */
   private async listApprovals(agentPrincipal: string | null): Promise<Response> {
     const now = Date.now();
-    this.evictExpiredWebSessions(now);
+    this.sessionState.prune(now);
     const expiredSends = this.expiredEmailSends(now);
     for (const approval of this.approvals) {
       if (approval.kind !== "budget_override" || approval.status !== "pending" || !isApprovalExpired(approval, now)) continue;
@@ -6378,7 +6214,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     const pruned = pruneApprovals(this.approvals, now);
     if (pruned.length !== this.approvals.length) {
-      this.writeApprovals(pruned);
+      this.approvalState.replace(pruned);
       this.releaseEmailApprovalDrafts(expiredSends, this.liveApprovalDrafts(now));
     }
     this.sweepStaleDrafts(expiredSends.length > 0);
@@ -6410,7 +6246,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   private async handleInternalWebSessions(request: Request, url: URL): Promise<Response> {
     // Prune before any read/write below so expired records neither list
     // nor count against the per-user cap.
-    this.evictExpiredWebSessions(Date.now());
+    this.sessionState.prune(Date.now());
     if (url.pathname === "/internal/web-sessions") {
       if (request.method === "GET") {
         // Sessions marked for deletion are mid-teardown and must not be
@@ -6457,7 +6293,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         }
         const next =
           index >= 0 ? existing.map((s, i) => (i === index ? session : s)) : [...existing, session];
-        this.writeWebSessions(next);
+        this.sessionState.replace(next);
         return Response.json({ session }, { status: 201 });
       }
       return Response.json({ error: "Method not allowed." }, { status: 405 });
@@ -6474,7 +6310,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return Response.json({ error: "Session not found." }, { status: 404 });
       }
       const updated: WebSessionRecord = { ...session, updatedAt: Date.now() };
-      this.writeWebSessions(this.storedWebSessions.map((s) => (s.id === sessionId ? updated : s)));
+      this.sessionState.replace(this.storedWebSessions.map((s) => (s.id === sessionId ? updated : s)));
       return Response.json({ session: updated, resumed: true });
     }
 
@@ -6500,7 +6336,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const updated: WebSessionRecord = deleting
         ? { ...session, deletingAt: session.deletingAt ?? Date.now() }
         : { ...session, deletingAt: undefined };
-      this.writeWebSessions(this.storedWebSessions.map((s) => (s.id === sessionId ? updated : s)));
+      this.sessionState.replace(this.storedWebSessions.map((s) => (s.id === sessionId ? updated : s)));
       return Response.json({ session: updated });
     }
 
@@ -6548,13 +6384,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           metadata: sanitizedMeta,
           updatedAt: Date.now(),
         };
-        this.writeWebSessions(
+        this.sessionState.replace(
           this.storedWebSessions.map((s) => (s.id === sessionId ? updated : s)),
         );
         return Response.json({ session: updated });
       }
       if (request.method === "DELETE") {
-        this.writeWebSessions(this.storedWebSessions.filter((s) => s.id !== sessionId));
+        this.sessionState.replace(this.storedWebSessions.filter((s) => s.id !== sessionId));
         return Response.json({ ok: true, deleted: existing });
       }
       return Response.json({ error: "Method not allowed." }, { status: 405 });
@@ -6606,7 +6442,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             }
           : a,
       );
-      this.writeApprovals(updated);
+      this.approvalState.replace(updated);
     }
     await this.reclaimRuns();
     return Response.json({
@@ -6675,7 +6511,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return Response.json({ ok: false, error: "review_state_changed" }, { status: 409 });
     }
     const posting: ReviewRound = { ...round, status: "running", publicationOutcome: "posting", generation: (round.generation ?? 0) + 1 };
-    if (!this.writeRound(posting)) return Response.json({ ok: false, error: "review_state_changed" }, { status: 409 });
+    if (!this.reviewState.write(posting)) return Response.json({ ok: false, error: "review_state_changed" }, { status: 409 });
     try {
       const posted = await postReview(posting, cred.token, {
         apiBase: cred.apiBase,
@@ -6683,7 +6519,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         inlineThreshold: this.inlineReviewThreshold(),
       });
       const next: ReviewRound = { ...posting, status: "posted", publicationOutcome: undefined, githubReviewId: posted.githubReviewId, postedAt: Date.now() };
-      this.writeRound(next);
+      this.reviewState.write(next);
       logStructured("info", { event: "review.retry", runId: round.reviewRunId, threadId: round.codingRunId, detail: "repost" });
       await this.maybeAutoMerge(next);
       return Response.json({ ok: true, round: next, action: "repost" });
@@ -6694,7 +6530,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         publicationOutcome: error instanceof ReviewPublicationUnknownError ? "unknown" : undefined,
         error: redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 500),
       };
-      this.writeRound(failed);
+      this.reviewState.write(failed);
       return Response.json(
         { ok: false, round: failed, userMessage: error instanceof ReviewPublicationUnknownError
           ? "Review publication may have succeeded. Inspect GitHub before requesting another review."
@@ -7075,7 +6911,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/internal/slack-canvas") {
-      const origin = await verifySlackCanvasRequest(request, this.env.INTERNAL_SIGNING_KEY, this.name);
+      const origin = await verifySlackCanvasRequest(request, this.env.INTERNAL_SIGNING_KEY, this.name, Date.now(), this.env.SHIBA_LEGACY_SIGNING_FALLBACK, this.env);
       const approvalId = url.searchParams.get("approval") ?? "";
       if (request.method !== "GET" || !origin || url.searchParams.get("origin") !== origin ||
         url.searchParams.getAll("origin").length !== 1 || url.searchParams.getAll("approval").length !== 1 ||
@@ -7107,9 +6943,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         { status: 401 },
       );
     }
-    if (!verification.signed && carriesVouchedHeaders(request)) {
-      this.warnSigningDisabledOnce();
-    }
     // Worker-vouched agent identity: only mcp-run-tools sets this after
     // bearer auth, so it scopes reads/cancels to records that principal
     // queued. External callers never reach this DO without an Access or
@@ -7128,7 +6961,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return run && approval?.status === "approved" && (!approval.kind || approval.kind === "run") &&
           proof.executionOwner === this.name && run.generation === proof.generation &&
           (run.status === "pending" || run.status === "running") && run.approval?.inputHash === proof.inputHash &&
-          this.frozenRunApprovalHash(proof.approvalId) === proof.inputHash &&
+          this.approvalState.frozenRunHash(proof.approvalId) === proof.inputHash &&
           proof.handoffId === run.collaborationHandoffId &&
           JSON.stringify(run.personalExecution) === JSON.stringify(proof.snapshot) &&
           JSON.stringify(approval.personalExecution) === JSON.stringify(proof.snapshot) &&
@@ -7270,7 +7103,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (url.pathname === "/api/slack/buffer") {
       if (agentPrincipal !== null || !parseSlackThreadName(this.name) ||
-          !await verifySlackBufferRequest(request, this.env.INTERNAL_SIGNING_KEY)) {
+          !await verifySlackBufferRequest(request, this.env.INTERNAL_SIGNING_KEY, Date.now(), this.env.SHIBA_LEGACY_SIGNING_FALLBACK)) {
         return Response.json({ error: "Forbidden." }, { status: 403 });
       }
       const body = await request.json().catch(() => null) as Record<string, unknown> | null;
@@ -7590,7 +7423,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
       const next = patchFindingTriage(round, findingId, triage);
       if (!next) return Response.json({ ok: false, error: "finding_not_found" }, { status: 404 });
-      this.writeRound(next);
+      this.reviewState.write(next);
       return Response.json({ ok: true, round: next });
     }
     const mergeMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/merge$/);
@@ -7707,7 +7540,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return super.onRequest(request);
     }
     if (request.method === "POST" && url.pathname === "/api/runs") {
-      const trustedSlackOrigin = await verifySlackCanvasIntake(request, this.env.INTERNAL_SIGNING_KEY, this.name);
+      const trustedSlackOrigin = await verifySlackCanvasIntake(request, this.env.INTERNAL_SIGNING_KEY, this.name, Date.now(), this.env.SHIBA_LEGACY_SIGNING_FALLBACK, this.env);
       if (!trustedSlackOrigin && ["X-Shiba-Slack-Canvas-Origin", "X-Shiba-Slack-Canvas-Timestamp", "X-Shiba-Slack-Canvas-Signature"].some((header) => request.headers.has(header))) {
         return Response.json({ error: "Invalid Slack intake provenance." }, { status: 403 });
       }

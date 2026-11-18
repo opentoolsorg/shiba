@@ -17,8 +17,8 @@ vi.mock("../src/request-auth.js", async (importOriginal) => ({
   resolveUserId: vi.fn(async () => auth.userId),
 }));
 const alice = "alice@example.test", bob = "bob@example.test", eve = "eve@example.test";
-async function fixture(options?: { bare?: boolean }) {
-  const { database, sqlite } = customAgentD1(options);
+async function fixture() {
+  const { database, sqlite } = customAgentD1();
   const env = { AGENT_AUDIT: database } as unknown as Env;
   const workspace = await createTeamWorkspace(env, alice, { name: "Product" }, 100);
   return { env, sqlite, workspace, workspaceId: workspace.workspaceId };
@@ -37,14 +37,14 @@ beforeEach(() => { auth.userId = alice; auth.authorized = true; });
 
 describe("explicit team workspace grants", () => {
   it("creates a separate owner scope without importing legacy rooms or private memory", async () => {
-    const f = await fixture({ bare: true });
+    const f = await fixture();
     expect(f.workspace).toMatchObject({ name: "Product", version: 1, members: [{ userId: alice, role: "owner", version: 1 }] });
     expect(f.workspaceId).toMatch(/^ws_[a-f0-9]{24}$/);
     expect(await listTeamWorkspaces(f.env, bob)).toEqual([]);
     expect(await isTeamWorkspaceMember(f.env, "default", alice)).toBe(false);
     expect(await getTeamWorkspace(f.env, f.workspaceId, eve)).toBeNull();
-    expect(f.sqlite.prepare("SELECT name FROM sqlite_master WHERE name LIKE '%memory%'").all()).toEqual([]);
-    expect(f.sqlite.prepare("SELECT name FROM sqlite_master WHERE name='collaboration_rooms'").all()).toEqual([]);
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM collaboration_memory").get()).toEqual({ n: 0 });
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM collaboration_rooms").get()).toEqual({ n: 0 });
   });
   it("stores only a hash and never reveals tokens or invitation recipients to ordinary members", async () => {
     const f = await fixture();

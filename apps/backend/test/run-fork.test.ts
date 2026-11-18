@@ -19,7 +19,7 @@ import {
 } from "@shiba/shared";
 import { createRun } from "../src/runs.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
-import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 
 const mocks = vi.hoisted(() => ({
   destroy: vi.fn(),
@@ -276,10 +276,10 @@ describe("POST /api/runs/<id>/fork", () => {
     const instance = agent();
     const parent = await seedParent(instance, true);
     instance.state.runs = [{ ...parent, queuedBy: "agent-alpha" }];
-    const res = await instance.onRequest(forkBody("run-parent", {}, "agent-beta"));
+    const res = await sendWorkerRequest(instance, forkBody("run-parent", {}, "agent-beta"));
     expect(res.status).toBe(404);
     // Its own run is visible and queues under its own name.
-    const mine = await instance.onRequest(forkBody("run-parent", {}, "agent-alpha"));
+    const mine = await sendWorkerRequest(instance, forkBody("run-parent", {}, "agent-alpha"));
     expect(mine.status).toBe(200);
     const { approvalId } = (await mine.json()) as { approvalId: string };
     expect(

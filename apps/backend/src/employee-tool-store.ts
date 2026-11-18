@@ -1,7 +1,6 @@
 import { isEmployeeToolName } from "./employee-tool-policy.js";
 import { randomHex } from "./mailbox-store.js";
 import type { AuditEnv } from "./audit.js";
-import { initAudit } from "./audit.js";
 import { expireUnusedEmployeeActionApproval } from "./capability-invocations.js";
 import type { EmployeeRole } from "./employee-tool-policy.js";
 import type { EmployeeActionApproval } from "./employee-tool-policy.js";
@@ -108,98 +107,12 @@ export interface EmployeeApprovalRecord {
   decisionOwnerAccountId?: string;
 }
 
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS employee_tool_memberships (
-    org_id TEXT NOT NULL,
-    employee_id TEXT NOT NULL,
-    actor_id TEXT NOT NULL,
-    role TEXT NOT NULL CHECK(role IN ('owner','admin','operator','member','viewer')),
-    employee_version INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    updated_by TEXT NOT NULL,
-    PRIMARY KEY(org_id, employee_id, actor_id)
-  )`,
-  `CREATE TABLE IF NOT EXISTS employee_tool_grants (
-    org_id TEXT NOT NULL,
-    employee_id TEXT NOT NULL,
-    employee_version INTEGER NOT NULL,
-    subject_type TEXT NOT NULL CHECK(subject_type IN ('workspace','actor','role')),
-    subject_id TEXT NOT NULL,
-    capability_id TEXT NOT NULL,
-    connection_id TEXT NOT NULL,
-    resource_id TEXT NOT NULL,
-    lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active','revoked','expired')),
-    provider_scopes_json TEXT NOT NULL,
-    account_id TEXT,
-    policy_version TEXT NOT NULL,
-    generation INTEGER NOT NULL,
-    created_by TEXT NOT NULL,
-    updated_at INTEGER NOT NULL,
-    PRIMARY KEY(org_id, employee_id, employee_version, subject_type, subject_id, capability_id, resource_id)
-  )`,
-  `CREATE INDEX IF NOT EXISTS employee_tool_grants_lookup
-    ON employee_tool_grants(org_id, employee_id, employee_version, lifecycle, capability_id)`,
-  `CREATE TABLE IF NOT EXISTS employee_tool_approvals (
-    approval_id TEXT PRIMARY KEY,
-    org_id TEXT NOT NULL,
-    employee_id TEXT NOT NULL,
-    employee_version INTEGER NOT NULL,
-    actor_id TEXT NOT NULL,
-    execution_context_id TEXT,
-    consumed_at INTEGER,
-    consumed_invocation_id TEXT,
-    connection_id TEXT NOT NULL,
-    connection_generation INTEGER NOT NULL,
-    capability_kind TEXT NOT NULL,
-    capability_id TEXT NOT NULL,
-    action TEXT NOT NULL,
-    resource_id TEXT,
-    account_id TEXT,
-    argument_digest TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    policy_version TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('pending','approved','denied','expired')),
-    created_at INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL,
-    decided_by TEXT,
-    decided_at INTEGER
-  )`,
-  `CREATE INDEX IF NOT EXISTS employee_tool_approvals_pending
-    ON employee_tool_approvals(org_id, status, created_at DESC)`,
-] as const;
-
 function hasControlCharacters(value: string): boolean {
   for (const character of value) {
     const code = character.codePointAt(0);
     if (code !== undefined && (code <= 0x1f || code === 0x7f)) return true;
   }
   return false;
-}
-
-const initialized = new WeakSet<D1Database>();
-
-async function ensureTables(env: AuditEnv): Promise<void> {
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await initAudit(env);
-  for (const sql of SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
-  const approvalColumns = await env.AGENT_AUDIT.prepare("PRAGMA table_info(employee_tool_approvals)").all<{ name: string }>();
-  for (const [name, type] of [["execution_context_id", "TEXT"], ["consumed_at", "INTEGER"], ["consumed_invocation_id", "TEXT"], ["employee_context_json", "TEXT"], ["decision_owner_account_id", "TEXT"]]) {
-    if ((approvalColumns.results ?? []).some((column) => column.name === name)) continue;
-    try {
-      await env.AGENT_AUDIT.prepare(`ALTER TABLE employee_tool_approvals ADD COLUMN ${name} ${type}`).run();
-    } catch (error) {
-      if (!new RegExp(`duplicate column name:\\s*${name}\\b`, "i").test(error instanceof Error ? error.message : String(error))) throw error;
-    }
-  }
-  // Migrate the prior uniqueness key so identical payloads in separate run
-  // contexts receive separate approval records. Install its replacement first;
-  // cold starts must never drop the live constraint or race to recreate it.
-  await env.AGENT_AUDIT.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS employee_tool_approval_active_payload_v2
-    ON employee_tool_approvals(org_id, employee_id, employee_version, actor_id, IFNULL(execution_context_id, ''), capability_id, action,
-      argument_digest, IFNULL(resource_id, ''), connection_generation)
-    WHERE status IN ('pending','approved')`).run();
-  await env.AGENT_AUDIT.prepare("DROP INDEX IF EXISTS employee_tool_approval_active_payload").run();
-  initialized.add(env.AGENT_AUDIT);
 }
 
 export async function replaceEmployeeToolGrants(
@@ -213,7 +126,6 @@ export async function replaceEmployeeToolGrants(
     resourceGenerationsByCapability?: Readonly<Record<string, Readonly<Record<string, number>>>>;
   },
 ): Promise<void> {
-  await ensureTables(env);
   if (!input.orgId || !input.employeeId || !input.actorId || !Number.isSafeInteger(input.employeeVersion) || input.employeeVersion < 1) throw new Error("Invalid employee grant owner.");
   if (!Array.isArray(input.capabilityIds) || input.capabilityIds.length > 50) throw new Error("Employee tool grant limit exceeded.");
   const now = input.now ?? Date.now();
@@ -265,7 +177,6 @@ export async function resolveEmployeeToolPolicy(
   env: AuditEnv,
   input: { orgId: string; employeeId: string; employeeVersion: number; actorId: string },
 ): Promise<{ role: EmployeeRole; workspaceCapabilityIds: string[]; actorCapabilityIds: string[]; roleCapabilityIds: string[]; employeeGrants: EmployeeToolGrantRecord[] } | null> {
-  await ensureTables(env);
   const membership = await env.AGENT_AUDIT.prepare(`SELECT role, employee_version FROM employee_tool_memberships
     WHERE org_id = ? AND employee_id = ? AND actor_id = ?`).bind(input.orgId, input.employeeId, input.actorId).first<MembershipRow>();
   if (!membership || membership.employee_version !== input.employeeVersion || !isEmployeeRole(membership.role)) return null;
@@ -288,7 +199,6 @@ export async function resolveCurrentEmployeeToolMembership(
   env: AuditEnv,
   input: { orgId: string; employeeId: string; employeeVersion: number },
 ): Promise<{ actorId: string; role: EmployeeRole } | null> {
-  await ensureTables(env);
   const rows = await env.AGENT_AUDIT.prepare(`SELECT actor_id, role FROM employee_tool_memberships
     WHERE org_id = ? AND employee_id = ? AND employee_version = ? LIMIT 2`)
     .bind(input.orgId, input.employeeId, input.employeeVersion).all<{ actor_id: string; role: string }>();
@@ -302,7 +212,6 @@ export async function listEmployeeToolGrantRecords(
   env: AuditEnv,
   input: { orgId: string; employeeId: string; employeeVersion?: number },
 ): Promise<EmployeeToolGrantRecord[]> {
-  await ensureTables(env);
   const query = input.employeeVersion === undefined
     ? `SELECT * FROM employee_tool_grants WHERE org_id = ? AND employee_id = ? ORDER BY employee_version DESC, subject_type, subject_id, capability_id, resource_id LIMIT 500`
     : `SELECT * FROM employee_tool_grants WHERE org_id = ? AND employee_id = ? AND employee_version = ? ORDER BY subject_type, subject_id, capability_id, resource_id LIMIT 500`;
@@ -316,7 +225,6 @@ export async function resolveEmployeeConnectionGrant(
   env: AuditEnv,
   input: { orgId: string; employeeId: string; employeeVersion: number; actorId: string; capabilityId: string; resourceId: string },
 ): Promise<ConnectionGrant | null> {
-  await ensureTables(env);
   const policy = await resolveEmployeeToolPolicy(env, input);
   if (!policy) return null;
   for (const subjectType of ["workspace", "actor", "role"] as const) {
@@ -424,7 +332,6 @@ export async function requestEmployeeActionApproval(
   env: AuditEnv,
   input: Omit<EmployeeApprovalRecord, "approvalId" | "status" | "createdAt" | "decidedBy" | "decidedAt"> & { now?: number },
 ): Promise<EmployeeApprovalRecord> {
-  await ensureTables(env);
   const now = input.now ?? Date.now();
   const approvalId = `eap-${randomHex(16)}`;
   await env.AGENT_AUDIT.prepare(`INSERT OR IGNORE INTO employee_tool_approvals
@@ -450,7 +357,6 @@ export async function getEmployeeActionApproval(
   env: AuditEnv,
   input: { orgId: string; employeeId: string; approvalId: string; actorId?: string; now?: number },
 ): Promise<EmployeeApprovalRecord | null> {
-  await ensureTables(env);
   const row = await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT} WHERE org_id = ? AND employee_id = ? AND approval_id = ?${input.actorId ? " AND actor_id = ?" : ""} LIMIT 1`)
     .bind(input.orgId, input.employeeId, input.approvalId, ...(input.actorId ? [input.actorId] : [])).first<Record<string, unknown>>();
   const approval = row && approvalFromRow(row);
@@ -484,7 +390,6 @@ export async function findEmployeeActionApproval(
     connectionGeneration: number; executionContextId?: string; now?: number;
   },
 ): Promise<EmployeeApprovalRecord | null> {
-  await ensureTables(env);
   const row = await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT}
     WHERE org_id = ? AND employee_id = ? AND employee_version = ? AND actor_id = ? AND IFNULL(execution_context_id, '') = ? AND capability_id = ?
       AND action = ? AND argument_digest = ? AND resource_id = ? AND connection_generation = ?
@@ -516,7 +421,6 @@ export async function listEmployeeActionApprovals(
   env: AuditEnv,
   input: { orgId: string; status?: EmployeeApprovalRecord["status"]; limit?: number },
 ): Promise<EmployeeApprovalRecord[]> {
-  await ensureTables(env);
   const limit = Math.max(1, Math.min(50, input.limit ?? 20));
   const rows = input.status
     ? await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT} WHERE org_id = ? AND status = ? ORDER BY created_at DESC LIMIT ?`)
@@ -530,7 +434,6 @@ export async function decideEmployeeActionApproval(
   env: AuditEnv,
   input: { orgId: string; employeeId: string; approvalId: string; approved: boolean; decidedBy: string; now?: number; requirePendingTransition?: boolean; decisionOwnerAccountId?: string },
 ): Promise<EmployeeApprovalRecord | null> {
-  await ensureTables(env);
   const now = input.now ?? Date.now();
   const updated = await env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals SET status = ?, decided_by = ?, decided_at = ?, decision_owner_account_id = ?
     WHERE org_id = ? AND employee_id = ? AND approval_id = ? AND status = 'pending' AND expires_at > ?`)

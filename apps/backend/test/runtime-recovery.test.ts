@@ -9,7 +9,7 @@ import { FIXTURE_BASELINE_COMMIT, FIXTURE_BASE_REVISION, repositorySnapshotFixtu
 async function fixture() {
   const initial: CodingTaskInput = { sandboxId: "run-recovery", repoUrl: "https://github.com/owner/repo", baseBranch: "main",
     publishPullRequest: false, task: "Create a.txt", codingModel: "google/gemini-3.5-flash-lite", sandboxProvider: "cloudflare" };
-  const input = { ...initial, ...await sealChildDispatch({ INTERNAL_SIGNING_KEY: "test-runtime-key" },
+  const input = { ...initial, ...await sealChildDispatch({ INTERNAL_SIGNING_KEY: "test-runtime-key-minimum-32-characters" },
     { approvalId: "approved-runtime", sandboxId: initial.sandboxId, inputHash: "a".repeat(64) }, initial) };
   const snapshot = repositorySnapshotFixture({ status: "?? a.txt\n", files: { "a.txt": "result" } });
   const checkout = vi.fn(async () => {});

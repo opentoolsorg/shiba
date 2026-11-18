@@ -526,7 +526,7 @@ ${taskForRun}` : taskForRun;
           body: JSON.stringify({ ...payload, threadKey: input.threadKey }),
         });
       if ((env.INTERNAL_SIGNING_KEY?.length ?? 0) >= 32 && slackCanvasOwner(env, input.threadKey)) {
-        request = await signSlackCanvasIntake(request, env.INTERNAL_SIGNING_KEY ?? "", input.threadKey);
+        request = await signSlackCanvasIntake(request, env.INTERNAL_SIGNING_KEY ?? "", input.threadKey, Date.now(), env);
       }
       const queued = await stub.fetch(request);
       if (!queued.ok) throw new Error(`Queue failed (${queued.status}).`);

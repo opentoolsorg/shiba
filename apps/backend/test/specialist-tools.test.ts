@@ -8,7 +8,7 @@ vi.mock("agents/agent-tools", () => ({ agentTool: () => ({ execute: mocks.execut
 
 const input = { goal: "Inspect", context: "only this", files: [{ path: "a.ts", content: "export const a = 1;" }] };
 const observation = { agent: "explorer", status: "completed", summary: "Found a.", report: "a.ts declares a.", findings: [] };
-const env = { INTERNAL_SIGNING_KEY: "test-key" } as Env;
+const env = { INTERNAL_SIGNING_KEY: "test-key-minimum-32-characters-long-enough" } as Env;
 const options = { toolCallId: "call-1", messages: [], context: undefined };
 
 beforeEach(() => {
@@ -26,7 +26,7 @@ describe("specialist orchestration", () => {
     const dispatch = mocks.execute.mock.calls[0]?.[0] as SpecialistDispatch;
     expect(dispatch.input).toEqual(input);
     expect(dispatch.parentName).toBe("owner");
-    expect(dispatch.signature).toMatch(/^[a-f0-9]{64}$/);
+    expect(dispatch.signature).toMatch(/^v1:[a-f0-9]{16}:[a-f0-9]{64}$/);
     expect(dispatch).not.toHaveProperty("messages");
     expect(dispatch).not.toHaveProperty("env");
     expect(events.map((event) => event.kind)).toEqual(["ChildTaskSpawned", "ChildTaskProgress", "ChildTaskCompleted"]);

@@ -8,7 +8,6 @@ import { createTeamWorkspace, getTeamWorkspaceMembership } from "../src/team-wor
 import { addCollaborationMember, createCollaborationRoom } from "../src/collaboration-store.js";
 import { handleReportSlack } from "../src/report-slack-routes.js";
 import { ensureReportSlackSchema, neutralizeReportSlackText, type ReportSlackDeps } from "../src/report-slack-store.js";
-import { REPORT_SLACK_SCHEMA } from "../src/report-slack-schema.js";
 import { postReportSlackMessage } from "../src/report-slack-sender.js";
 import { ensureSlackInstallations, installationDigest, installationPurpose, installationSnapshot, type SlackInstallationRow } from "../src/slack-installations-store.js";
 import { sealSlackSecret } from "../src/slack-installations-crypto.js";
@@ -38,8 +37,7 @@ beforeEach(() => { identity.email = OWNER; identity.native = true; identity.acco
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function fixture() {
   const db = customAgentD1();
-  db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT)');
-  for (const email of [OWNER, ADMIN]) { identity.accounts[email] = crypto.randomUUID(); db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(identity.accounts[email]!, email); db.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?)").run(identity.accounts[email]!, email); }
+  for (const email of [OWNER, ADMIN]) { identity.accounts[email] = crypto.randomUUID(); db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(identity.accounts[email]!, email); db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')").run(identity.accounts[email]!, email); }
   const env = { AGENT_AUDIT: db.database, SLACK_ROOM_OUTBOX_ENABLED: "true", SLACK_BOT_TOKEN: "fixture-bot-not-real", SLACK_APPROVALS_CHANNEL: "C123", DASHBOARD_APPROVERS: ADMIN,
     SLACK_CANVAS_OWNERS: JSON.stringify([{ teamId: "T123", channelId: "C123", ownerId: OWNER, viewerIds: [ADMIN] }]) } as unknown as Env;
   const workspace = await createTeamWorkspace(env, OWNER, { name: "Private report export" });
@@ -181,10 +179,9 @@ describe("native one-shot report disclosure and Slack delivery", () => {
     expect((await f.call("/preview", { ...f.input(), ownerAccountId: identity.accounts[OWNER] })).response.status).toBe(400);
     expect((await f.call("/preview", f.input(), undefined, { "Content-Type": "text/plain" })).response.status).toBe(415);
   });
-  it("applies migration to a fresh database twice and preserves runtime schema parity", () => {
+  it("applies migration to a fresh database twice", () => {
     const sqlite = new DatabaseSync(":memory:"), migration = readFileSync(new URL("../migrations/0016_report_slack_deliveries.sql", import.meta.url), "utf8");
     sqlite.exec(migration); sqlite.exec(migration);
-    for (const sql of REPORT_SLACK_SCHEMA) sqlite.exec(sql);
     expect(sqlite.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='trigger' AND name LIKE 'report_slack_%'").get()).toMatchObject({ n: 9 }); sqlite.close();
   });
   it("pins a managed installation and uses only that token for an explicitly allowed channel", async () => {
