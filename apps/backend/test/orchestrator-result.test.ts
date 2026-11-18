@@ -130,7 +130,7 @@ describe("T8 orchestrator structured result", () => {
   it.each([false, true])("does not accept an unsigned routine voucher (signing configured: %s)", async (configured) => {
     const orchestrator = makeOrchestrator();
     orchestrator.name = "default";
-    if (configured) orchestrator.env.INTERNAL_SIGNING_KEY = "ab".repeat(32);
+    orchestrator.env.INTERNAL_SIGNING_KEY = configured ? "ab".repeat(32) : undefined;
     const response = await orchestrator.onRequest(new Request("https://internal/api/runs", {
       method: "POST", headers: { "content-type": "application/json", [LOCAL_INTAKE_HEADER]: "routine:forged:test" },
       body: JSON.stringify(DELEGATE_INPUT),
