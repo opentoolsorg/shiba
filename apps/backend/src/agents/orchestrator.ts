@@ -1,4 +1,5 @@
 import { connectedDefaultForUser } from "../acp-providers.js";
+import { answerSideQuestion, sideQuestionSchema } from "../side-question.js";
 import { isTerminalStatus, usageBudgetPolicySchema, type UsageBudgetPolicy } from "@shiba/shared";
 import { meterSandboxRun } from "../sandbox-metering.js";
 import { resolveInstanceType } from "../instance-type.js";
@@ -6908,6 +6909,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/internal/side-question" && request.method === "POST") {
+      const body = await request.json() as Record<string, unknown>;
+      const parsed = sideQuestionSchema.safeParse(body);
+      if (!parsed.success || typeof body.instructions !== "string") return Response.json({ error: "Invalid side question." }, { status: 400 });
+      // Side questions use the thread chat provider, not the employee's execution harness/model.
+      return answerSideQuestion(parsed.data, body.instructions, this.messages, () => this.resolveModel());
+    }
     if (url.pathname === "/internal/slack-canvas") {
       const origin = await verifySlackCanvasRequest(request, this.env.INTERNAL_SIGNING_KEY, this.name, Date.now(), this.env.SHIBA_LEGACY_SIGNING_FALLBACK, this.env);
       const approvalId = url.searchParams.get("approval") ?? "";
