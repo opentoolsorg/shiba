@@ -518,12 +518,14 @@ export function App(): React.JSX.Element {
   if (mainView === "inbox" && !inboxMounted) setInboxMounted(true);
   const [setupDone, setSetupDone] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  // A thread link is the strongest entry intent, so it seeds selection before
-  // the sessions list arrives; the list later confirms this viewer may open it.
-  const [selectedSessionId, setSelectedSessionId] = useState<string>(() => {
-    if (typeof window === "undefined") return "default";
+  const [selectedSessionId, setSelectedSessionId] = useState<string>("default");
+  // A thread link is applied only once the registry confirms this viewer may open
+  // it. Until then the composer stays shut: a draft restored into a socket that
+  // still belongs to the default conversation would be filed in the wrong thread.
+  const [pendingThreadLink, setPendingThreadLink] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
     const linked = readThreadLink(window.location.search);
-    return linked && linked !== "invalid" ? linked.threadId : "default";
+    return linked && linked !== "invalid" && linked.threadId !== "default" ? linked.threadId : null;
   });
 const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const [taskHistoryError, setTaskHistoryError] = useState<string | null>(null);
@@ -552,6 +554,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [runTarget, harness, customAgentId, executionTargetKind]);
   const [sessionApiAvailable, setSessionApiAvailable] = useState(false);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  // The link is unconfirmed until the registry answers, so nothing may be sent yet.
+  const threadLinkPending = pendingThreadLink !== null;
   const [webSessions, setWebSessions] = useState<WebThread[]>([]);
   // History navigation restores a thread from its link without a resume round trip.
   const webSessionsRef = useRef<WebThread[]>([]);
@@ -752,6 +756,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
   const urlSynced = useRef(false);
   const syncedView = useRef<MainView | null>(null);
+  const historyTraversal = useRef(false);
   // Only a navigation the person asked for adds a history step. Restoring a
   // remembered thread, falling back from a dead link and pruning a deleted one
   // replace the entry, so the first Back press goes somewhere real.
@@ -761,6 +766,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   useEffect(() => {
     const first = !urlSynced.current;
     const viewChanged = syncedView.current !== mainView;
+    // A traversal restored this address itself; rewriting or pushing over it
+    // would spend the Forward entry on a duplicate.
+    const traversing = historyTraversal.current;
+    historyTraversal.current = false;
     syncedView.current = mainView;
     const base = pathForView(mainView);
     if (mainView === "settings") {
@@ -777,11 +786,16 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       // A shared room — and a team workspace, where every thread is a room —
       // carries its own link; a private session id never goes in that address.
       const shared = Boolean(teamWorkspaceId) || readRoomLink(window.location.search) !== null;
-      // Query state belongs to the view that set it, so a view change starts clean.
-      const kept = first || !viewChanged ? window.location.search : "";
+      // An unconfirmed private link keeps the address it arrived with; rewriting
+      // it now would drop the selector the reader just followed. A shared
+      // destination has nothing to confirm and drops the stray selector at once.
+      if (threadLinkPending && !shared) { urlSynced.current = true; return; }
+      // Query state belongs to the view that set it, so a view change starts
+      // clean — except when the browser itself restored the query.
+      const kept = traversing || first || !viewChanged ? window.location.search : "";
       const query = withThreadLink(kept, shared ? null : selectedSessionId);
       const path = query ? `${base}?${query}` : base;
-      const push = (viewChanged && !first) || threadUrlMode.current === "push";
+      const push = !traversing && ((viewChanged && !first) || threadUrlMode.current === "push");
       threadUrlMode.current = "replace";
       urlSynced.current = true;
       if (window.location.pathname + window.location.search === path) return;
@@ -793,10 +807,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     if (window.location.pathname === base) return;
     if (first) router.history.replace(base + window.location.search + window.location.hash);
     else router.history.push(base);
-  }, [mainView, settingsSection, selectedSessionId, teamWorkspaceId, router]);
+  }, [mainView, settingsSection, selectedSessionId, teamWorkspaceId, threadLinkPending, router]);
 
   useEffect(() => {
     const onPop = () => {
+      historyTraversal.current = true;
       const view = viewFromUrl();
       setWorkViewMode(workViewFromUrl());
       setMainView(view ?? DEFAULT_VIEW);
@@ -1387,6 +1402,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             ? resolveLinkedThread(linkedId, nextSessions)
             : resolveRememberedSessionId(readRememberedSessionId(), nextSessions);
           setSelectedSessionId(restoredSessionId);
+          setPendingThreadLink(null);
           writeRememberedSessionId(restoredSessionId);
           if (linkedId && restoredSessionId !== linkedId) {
             setNotice("That thread isn't available to you. It may belong to another workspace or have been deleted.");
@@ -1400,7 +1416,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         if (!cancelled) setNotice(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
-        if (!cancelled) setSessionsLoaded(true);
+        if (!cancelled) {
+          setSessionsLoaded(true);
+          setPendingThreadLink(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -1700,6 +1719,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
   const submitTask = useCallback(
     async (event?: React.FormEvent, options?: { forceWork?: boolean; customAgentId?: string }) => {
+      if (threadLinkPending) return;
       const selectedCustomAgentId = options?.customAgentId ?? customAgentId;
       if (event) event.preventDefault();
       if (submitInFlight.current || clearInFlight.current || attachmentsUploadingRef.current) return;
@@ -2124,6 +2144,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       artifactDeliverables,
       sessionApiAvailable,
       selectedSessionId,
+      threadLinkPending,
       selectedLocalMachineId,
       localComputersLoading,
       localComputersError,
@@ -3788,7 +3809,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         onSubmit={submitTask}
                         onStop={() => { void chat.stop(); }}
                         onRetry={() => { void chat.regenerate(); }}
-                        busy={isSubmitting || clearing}
+                        busy={isSubmitting || clearing || threadLinkPending}
                         streaming={chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"}
                         failed={Boolean(chat.error)}
                       />
