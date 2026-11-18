@@ -1,3 +1,4 @@
+import { signInternalRequest } from "../src/edge-identity.js";
 import { encryptAuthJson } from "../src/subscription-credentials.js";
 /**
  * Shared `setState` for CodingOrchestrator test hosts.
@@ -57,11 +58,12 @@ const testKv = {
 
 export function productionEnvStubs(): Pick<
   Env,
-  "ModelConfig" | "Mailbox" | "MEMORY_ENABLED" | "AI_GATEWAY_TOKEN" | "AGENT_TOKENS" | "MODEL_CREDENTIAL_KEY" | "DASHBOARD_APPROVERS"
+  "ModelConfig" | "Mailbox" | "MEMORY_ENABLED" | "AI_GATEWAY_TOKEN" | "AGENT_TOKENS" | "MODEL_CREDENTIAL_KEY" | "INTERNAL_SIGNING_KEY" | "DASHBOARD_APPROVERS"
 > {
   return {
     AI_GATEWAY_TOKEN: "test-gateway-token",
     MODEL_CREDENTIAL_KEY: "ab".repeat(32),
+    INTERNAL_SIGNING_KEY: "cd".repeat(32),
     AGENT_TOKENS: testKv,
     DASHBOARD_APPROVERS: "test",
     ModelConfig: {
@@ -80,4 +82,11 @@ export function productionEnvStubs(): Pick<
     } as unknown as Env["Mailbox"],
     MEMORY_ENABLED: "0",
   };
+}
+
+/** Model an authenticated Worker call into the DO, including its authority seal. */
+export async function sendWorkerRequest(host: { onRequest(request: Request): Response | Promise<Response> }, request: Request): Promise<Response> {
+  const env = (host as { env?: Env }).env ?? productionEnvStubs();
+  await signInternalRequest(request, env);
+  return host.onRequest(request);
 }

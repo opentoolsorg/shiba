@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
@@ -7,8 +6,7 @@ import { insertFileRecord } from "../src/files/files-store.js";
 
 describe("ingestion consumer", () => {
   it("chunks, indexes FTS and upserts vectors", async () => {
-    const { database, sqlite } = customAgentD1();
-    sqlite.exec(readFileSync(new URL("../migrations/0050_files_notes.sql", import.meta.url), "utf8"));
+    const { database } = customAgentD1();
     const upsert = vi.fn(async () => {});
     const objects = new Map<string, Uint8Array>();
     const env = {

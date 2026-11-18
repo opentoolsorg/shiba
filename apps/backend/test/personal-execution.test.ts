@@ -1,3 +1,4 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { localRunEnvelopeSchema, personalExecutionContextDigest, PERSONAL_CONTROL_BODY_LIMIT, PERSONAL_EVENTS_BODY_LIMIT, PERSONAL_RESULT_BODY_LIMIT, type PersonalExecutionSnapshot } from "@shiba/shared";
@@ -42,7 +43,7 @@ function req(path: string, method = "GET", body?: unknown, headers: Record<strin
 const cookie = (response: Response) => response.headers.getSetCookie().map((item) => item.split(";")[0]).join("; ");
 
 async function fixture() {
-  const sqlite = new DatabaseSync(":memory:");
+  const sqlite = new DatabaseSync(":memory:"); applyAllMigrations(sqlite);
   applyEmailOutboxSchema(sqlite);
   databases.push(sqlite);
   const value = (input: unknown): never => (input instanceof Date ? input.getTime() : typeof input === "boolean" ? Number(input) : input ?? null) as never;

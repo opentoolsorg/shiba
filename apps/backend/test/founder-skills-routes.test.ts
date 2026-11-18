@@ -18,7 +18,7 @@ const bundleRequest = (action: string, body: unknown) => new Request(`https://sh
   method: "POST", headers: { Origin: "https://shiba.test", "Content-Type": "application/json" }, body: JSON.stringify(body),
 });
 function fixture() {
-  const db = customAgentD1({ bare: true });
+  const db = customAgentD1();
   const env = { AGENT_AUDIT: db.database } as Env;
   for (const name of ["CodingOrchestrator", "Sandbox", "GITHUB_TOKEN", "OPENCONNECTOR_ADMIN_KEY", "SLACK_BOT_TOKEN"])
     Object.defineProperty(env, name, { get: () => { throw new Error(`Setup must not access ${name}`); } });
@@ -77,6 +77,8 @@ describe("founder skill drafts", () => {
 
   it("prepares setup without writes, then imports only a digest-reviewed archived profile and draft instructions", async () => {
     const { env, sqlite } = fixture();
+    const schemaBefore = sqlite.prepare("SELECT type,name,sql FROM sqlite_master ORDER BY type,name").all();
+    const changesBefore = sqlite.prepare("SELECT total_changes() AS count").get();
     const prepared = await handleFounderSkills(request(`/${id}/setup`), env);
     expect(prepared?.status).toBe(200);
     const body = await prepared!.json() as { recipe: unknown };
@@ -84,7 +86,8 @@ describe("founder skill drafts", () => {
     expect(recipe.profile.expectedDeliverables).toEqual(["reports/stripe-revenue-pulse.md"]);
     expect(recipe.requirements).toMatchObject([{ name: "stripe", kind: "app" }]);
     expect(recipe.routines.every((routine) => routine.enabled === false)).toBe(true);
-    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()).toEqual([]);
+    expect(sqlite.prepare("SELECT type,name,sql FROM sqlite_master ORDER BY type,name").all()).toEqual(schemaBefore);
+    expect(sqlite.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
     const previewResponse = await handleEmployeeBundles(bundleRequest("preview", { recipe }), env);
     expect(previewResponse?.status).toBe(200);
     const preview = await previewResponse!.json() as { previewId: string; digest: string };
@@ -100,7 +103,8 @@ describe("founder skill drafts", () => {
     expect(employee?.config.expectedDeliverables).toEqual(recipe.profile.expectedDeliverables);
     expect(employee?.config.toolScopes).toBeUndefined();
     expect(await getSkill(env, auth.orgId, auth.owner, result.skillIds[0]!)).toMatchObject({ status: "draft", version: 1 });
-    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name IN ('employee_tool_grants','automations')").all()).toEqual([]);
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM employee_tool_grants").get()).toEqual({ count: 0 });
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name='automations'").all()).toEqual([]);
     expect(await (await handleEmployeeBundles(bundleRequest("import", input), env))?.json()).toMatchObject(result);
     auth.owner = "other@example.test";
     expect((await handleEmployeeBundles(bundleRequest("import", { ...input, importId: "foreign-founder-setup" }), env))?.status).toBe(409);

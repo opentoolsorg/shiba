@@ -14,7 +14,6 @@ import { addCollaborationMember, COLLAB_TENANT_ID, createCollaborationRoom, ensu
 import { coordinateHumanMessage, setWorkspacePrimaryBot } from "../src/collaboration-router.js";
 import { ackListenAllAgents, ackThreadOwner } from "../src/collaboration-reply-claims.js";
 import { loadRankedBots, primaryActorId } from "../src/collaboration-router-rank.js";
-import { applyCollabV2Migrations } from "./fixtures/collab-v2-migrations.js";
 import { listPaletteBots, searchPaletteBots } from "../src/palette-store.js";
 import { handleCustomAgents } from "../src/custom-agents-routes.js";
 import { handleWebSessions } from "../src/sessions-routes.js";
@@ -119,6 +118,8 @@ describe("employee access", () => {
   });
   it("requires chat for funded turn prepare, approve and execute and direct employee session selection", async () => {
     const { env, sqlite, employee, set, auth, workspaceId } = await fixture(); auth();
+    // Fixture applies every migration; swap in a minimal stand-in schema.
+    sqlite.exec("DROP TABLE IF EXISTS team_model_turns; DROP TABLE IF EXISTS team_model_funding;");
     sqlite.exec(`CREATE TABLE team_model_funding (id TEXT, workspace_id TEXT, contract_json TEXT, room_id TEXT DEFAULT 'room');
       CREATE TABLE team_model_turns (id TEXT, workspace_id TEXT, grant_id TEXT);`);
     sqlite.prepare("INSERT INTO team_model_funding (id,workspace_id,contract_json) VALUES ('funding', ?, ?)").run(workspaceId, JSON.stringify({ employeeId: employee.id }));
@@ -140,8 +141,7 @@ describe("employee access", () => {
   });
   it("filters every coordination selector using the posting member, canonicalizes slugs, and hides discovery", async () => {
     const { env, sqlite, employee, workspaceId, set } = await fixture();
-    await ensureCollaborationSchema(env); applyCollabV2Migrations(sqlite);
-    for (const file of ["0036_team_work_tasks.sql", "0052_search_fts.sql", "0053_ask_user_and_claims.sql", "0060_palette_search.sql"]) sqlite.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
+    await ensureCollaborationSchema(env);
     const scope = { tenantId: COLLAB_TENANT_ID, workspaceId, userId: owner };
     const room = await createCollaborationRoom(env, scope, { roomId: "room_access", title: "Team", visibility: "private", createdAt: 1 });
     await addCollaborationMember(env, scope, room.roomId, { userId: member, displayName: member, actorId: `human:${member}`, kind: "human", createdAt: 2 });

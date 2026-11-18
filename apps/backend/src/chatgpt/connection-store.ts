@@ -23,7 +23,7 @@ export async function loadHostId(env: Env, userId: string, workspaceId = DEFAULT
     .bind(workspaceId, userId, HOST_KIND)
     .first<{ auth_cipher: string }>();
   if (!row) return null;
-  const plain = await decryptAuthJson(row.auth_cipher, env.MODEL_CREDENTIAL_KEY!, workspaceId, userId, HOST_KIND);
+  const plain = await decryptAuthJson(row.auth_cipher, env, workspaceId, userId, HOST_KIND);
   const parsed = JSON.parse(plain) as { hostId?: string };
   return typeof parsed.hostId === "string" ? parsed.hostId : null;
 }
@@ -33,7 +33,7 @@ export async function saveHostId(env: Env, userId: string, hostId: string, works
   await ensureSubscriptionCredentialSchema(env);
   const cipher = await encryptAuthJson(
     JSON.stringify({ hostId }),
-    env.MODEL_CREDENTIAL_KEY!,
+    env,
     workspaceId,
     userId,
     HOST_KIND,
@@ -62,7 +62,7 @@ export async function loadConnection(
   if (!row) return null;
   const plain = await decryptAuthJson(
     row.auth_cipher,
-    env.MODEL_CREDENTIAL_KEY!,
+    env,
     workspaceId,
     userId,
     OPENAI_SUBSCRIPTION_KIND,
@@ -80,7 +80,7 @@ export async function saveConnection(
   await ensureSubscriptionCredentialSchema(env);
   const cipher = await encryptAuthJson(
     JSON.stringify(record),
-    env.MODEL_CREDENTIAL_KEY!,
+    env,
     workspaceId,
     userId,
     OPENAI_SUBSCRIPTION_KIND,

@@ -7,7 +7,6 @@ import type {
 } from "@shiba/shared";
 import { randomHex } from "./mailbox-store.js";
 import type { AuditEnv } from "./audit.js";
-import { initAudit } from "./audit.js";
 import { teamSkillWriteGuard, type SkillMutationOptions, type TeamSkillGrant } from "./team-skill-grant.js";
 
 export interface ExtensionSkillsEnv extends AuditEnv {}
@@ -20,41 +19,6 @@ interface MutationOptions extends SkillMutationOptions {
 
 export interface ExtensionSkillRow extends ExtensionSkillRecord {
   orgId: string;
-}
-
-const TABLES = [
-  `CREATE TABLE IF NOT EXISTS org_extension_skills (
-    id TEXT PRIMARY KEY,
-    org_id TEXT NOT NULL,
-    owner_id TEXT NOT NULL,
-    workspace_id TEXT,
-    scope TEXT NOT NULL DEFAULT 'personal' CHECK (scope IN ('personal','workspace')),
-    archived_at INTEGER,
-    archived_by TEXT,
-    archived_from_scope TEXT CHECK (archived_from_scope IS NULL OR archived_from_scope IN ('personal','workspace')),
-    name TEXT NOT NULL,
-    description TEXT NOT NULL,
-    instructions TEXT NOT NULL,
-    enabled INTEGER,
-    version INTEGER NOT NULL DEFAULT 1,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS org_extension_skills_org_scope_updated
-    ON org_extension_skills(org_id, scope, archived_at, updated_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS org_extension_skills_owner_updated
-    ON org_extension_skills(org_id, owner_id, updated_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS org_extension_skills_workspace_scope
-    ON org_extension_skills(workspace_id, scope, archived_at)`,
-];
-
-const initialized = new WeakSet<D1Database>();
-
-async function ensureTables(env: ExtensionSkillsEnv): Promise<void> {
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await initAudit(env);
-  for (const sql of TABLES) await env.AGENT_AUDIT.prepare(sql).run();
-  initialized.add(env.AGENT_AUDIT);
 }
 
 function skillFromRow(row: Record<string, unknown>): ExtensionSkillRow | null {
@@ -115,7 +79,6 @@ async function readById(
   orgId: string,
   id: string,
 ): Promise<ExtensionSkillRow | null> {
-  await ensureTables(env);
   const row = await env.AGENT_AUDIT.prepare(`SELECT ${COLUMNS} FROM org_extension_skills WHERE org_id = ? AND id = ?`)
     .bind(orgId, id).first();
   return row ? skillFromRow(row as Record<string, unknown>) : null;
@@ -127,7 +90,6 @@ export async function listExtensionSkills(
   userId: string,
   options: { workspaceId?: string; view?: ExtensionSkillView } = {},
 ): Promise<ExtensionSkillRecord[]> {
-  await ensureTables(env);
   const results = await env.AGENT_AUDIT.prepare(`SELECT ${COLUMNS} FROM org_extension_skills WHERE org_id = ? ORDER BY updated_at DESC, id ASC`)
     .bind(orgId).all();
   const rows = (results.results ?? [])
@@ -146,7 +108,6 @@ export async function listExtensionSkillDirectory(
   userId: string,
   options: { workspaceId?: string; workspaceOnly?: boolean; scope?: ExtensionSkillScope } = {},
 ): Promise<ExtensionSkillDirectoryEntry[]> {
-  await ensureTables(env);
   const results = await env.AGENT_AUDIT.prepare(`SELECT ${COLUMNS} FROM org_extension_skills WHERE org_id = ? ORDER BY updated_at DESC, id ASC`)
     .bind(orgId).all();
   return (results.results ?? [])
@@ -196,7 +157,6 @@ export async function createExtensionSkill(
   now = Date.now(),
   options: MutationOptions = {},
 ): Promise<string> {
-  await ensureTables(env);
   if (input.scope === "workspace" && !input.workspaceId) throw new Error("workspace_required");
   const id = `skill_${randomHex(12)}`;
   const guard = teamSkillWriteGuard(orgId, userId, options.teamGrant);

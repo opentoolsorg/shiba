@@ -40,19 +40,16 @@ const OWNER = "owner@example.test",
   DRAFT = `sd_${"2".repeat(32)}`;
 async function fixture() {
   const { database, sqlite } = customAgentD1();
-  sqlite.exec(
-    'CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT); CREATE TABLE "session"(id TEXT PRIMARY KEY,userId TEXT,expiresAt INTEGER)',
-  );
   const env = {
       AGENT_AUDIT: database,
       SLACK_INSTALLATIONS_ENABLED: "true",
       INTERNAL_SIGNING_KEY: "fixture-signing-only-012345678901234567",
     } as unknown as Env,
     session = { id: "s1", expiresAt: Date.now() + 600_000 };
-  sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run("account", OWNER);
-  sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?)").run("account", OWNER);
+  sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run("account", OWNER);
+  sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')").run("account", OWNER);
   sqlite
-    .prepare('INSERT INTO "session" VALUES(?,?,?)')
+    .prepare('INSERT INTO "session"(id,userId,expiresAt,token,createdAt,updatedAt) VALUES(?,?,?,lower(hex(randomblob(16))),1,1)')
     .run(session.id, "account", session.expiresAt);
   const ws = await createTeamWorkspace(env, OWNER, { name: "Team" }),
     member = {
@@ -126,14 +123,12 @@ async function fixture() {
     expiresAt: Date.now() + 600_000,
     allowedPhases: ["local_repository_task"],
   };
-  sqlite.exec(
-    "CREATE TABLE personal_execution_grants(grant_id TEXT,owner_account_id TEXT,workspace_id TEXT,status TEXT,version INTEGER,snapshot_json TEXT,scope_json TEXT,expires_at INTEGER)",
-  );
   sqlite
-    .prepare("INSERT INTO personal_execution_grants VALUES(?,?,?,'active',1,?,?,?)")
+    .prepare("INSERT INTO personal_execution_grants(grant_id,owner_account_id,actor_id,workspace_id,status,version,snapshot_json,scope_json,expires_at,created_at) VALUES(?,?,?,?,'active',1,?,?,?,1)")
     .run(
       state.grant.grantId,
       "account",
+      OWNER,
       ws.workspaceId,
       JSON.stringify(state.grant),
       JSON.stringify(state.scope),

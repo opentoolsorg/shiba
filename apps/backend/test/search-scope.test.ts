@@ -1,6 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { COLLAB_TENANT_ID } from "../src/collaboration-store.js";
 import type { Env } from "../src/env.js";
@@ -16,16 +14,11 @@ vi.mock("../src/request-auth.js", async (original) => ({
   resolveUserId: async () => state.userId,
 }));
 
-const FILES = ["0036_team_work_tasks.sql", "0052_search_fts.sql", "0053_ask_user_and_claims.sql", "0060_palette_search.sql"];
 const databases: DatabaseSync[] = [];
 afterEach(() => { for (const database of databases.splice(0)) database.close(); });
 
 const ADA = "ada@example.test";
 const BEN = "ben@example.test";
-
-function load(sqlite: DatabaseSync) {
-  for (const file of FILES) sqlite.exec(readFileSync(join(import.meta.dirname, "../migrations", file), "utf8"));
-}
 
 function seed(sqlite: DatabaseSync, workspaceId: string) {
   const room = (id: string, title: string, by: string) => sqlite.prepare(
@@ -77,7 +70,6 @@ function seed(sqlite: DatabaseSync, workspaceId: string) {
 async function fixture() {
   const { database, sqlite } = customAgentD1();
   databases.push(sqlite);
-  load(sqlite);
   const env = { AGENT_AUDIT: database } as unknown as Env;
   const workspace = await createTeamWorkspace(env, ADA, { name: "Palette" }, 1);
   const invite = await createTeamWorkspaceInvitation(env, workspace.workspaceId, ADA, { email: BEN, role: "member" }, 2);

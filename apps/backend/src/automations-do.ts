@@ -1,7 +1,6 @@
 /**
  * Durable Object that owns automation records and the fire path.
- * One instance (`default`) holds the full set so scheduled ticks and
- * webhooks share lastTriggeredAt / daily budget / lastSkip.
+ * Workspace instances share trigger accounting within their own scope.
  */
 import { APPROVAL_TTL_MS } from "./pending-approvals.js";
 import { LOCAL_INTAKE_HEADER } from "@shiba/shared";
@@ -41,7 +40,9 @@ import {
 } from "./automations.js";
 import type { Env } from "./env.js";
 import { InputError } from "./security.js";
-import { ORCHESTRATOR_NAME } from "./slack-routes.js";
+import { orchestratorFor } from "./platform/do-resolver.js";
+import { AutomationsScope } from "./platform/automations-scope.js";
+import { readPrOwner } from "./pr-owner-index.js";
 import { sha256Hex } from "./agent-tokens.js";
 import { getCustomAgentById } from "./custom-agents-store.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
@@ -171,10 +172,11 @@ async function resolveOnOrchestrator(
 }
 
 export class Automations {
+  private readonly scope: AutomationsScope;
   constructor(
     private readonly ctx: DurableObjectState,
     private readonly env: Env,
-  ) {}
+  ) { this.scope = new AutomationsScope(ctx, env); }
 
   private storeFrom(items: Automation[]): AutomationStore {
     const store = new AutomationStore();
@@ -273,7 +275,10 @@ export class Automations {
       nowMs,
       globalEnabled: automationsEnabled(this.env.AUTOMATIONS_ENABLED),
       canPublishPullRequest: isGitHubPublishConfigured(this.env),
-      queueRun: (input) => queueOnOrchestrator(orchestrator, input, this.env),
+      queueRun: (input) => queueOnOrchestrator(orchestrator, {
+        ...input,
+        ...(this.env.SHIBA_SCOPED_DO === "1" ? { orgId: this.scope.workspaceId } : {}),
+      }, this.env),
       env: this.env,
       resolveCustomAgentPin: async (pin) => {
         if (!this.env.AGENT_AUDIT) return null;
@@ -480,7 +485,7 @@ export class Automations {
   }
 
   private async orchestrator(): Promise<OrchestratorStub> {
-    return getAgentByName(this.env.CodingOrchestrator, ORCHESTRATOR_NAME);
+    return orchestratorFor(this.env, { workspaceId: this.scope.workspaceId });
   }
 
   private async orchestratorForAgent(agentName: string): Promise<OrchestratorStub> {
@@ -488,6 +493,7 @@ export class Automations {
   }
 
   private async lookupPrOwner(repoFullName: string, pullNumber: number): Promise<PrOwnerRecord | null> {
+    if (this.env.SHIBA_SCOPED_DO === "1") return readPrOwner(this.env, repoFullName, pullNumber);
     if (!repoFullName || !Number.isInteger(pullNumber) || pullNumber < 1) return null;
     const record = await this.ctx.storage.get<PrOwnerRecord>(prOwnerStorageKey(repoFullName, pullNumber));
     if (!record || typeof record.agentName !== "string" || record.agentName === "") return null;
@@ -575,6 +581,10 @@ export class Automations {
   }
 
   async fetch(request: Request): Promise<Response> {
+    return this.scope.fetch(request, (scopedRequest) => this.fetchLocal(scopedRequest));
+  }
+
+  private async fetchLocal(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "POST" && url.pathname === "/internal/tick") {
       const result = await this.tick(await this.orchestrator());
@@ -601,6 +611,7 @@ export class Automations {
         },
         orchestratorDefault,
       );
+      if (this.scope.workspaceId !== DASHBOARD_ORG_ID) return Response.json(result);
       const repoFullName = typeof mapped.repo === "string" ? mapped.repo : "";
       const pullNumber = typeof mapped.pullNumber === "number" ? mapped.pullNumber : 0;
       const headSha = typeof mapped.headSha === "string" ? mapped.headSha : "";
@@ -798,6 +809,7 @@ export class Automations {
       const sessionId = typeof record.sessionId === "string" ? record.sessionId : undefined;
       const mapped = linearEventToAutomation({ action, ...(teamKey ? { teamKey } : {}), ...(sessionId ? { sessionId } : {}) });
       const result = await this.fireEvent({ kind: "linear", ...mapped }, await this.orchestrator());
+      if (this.scope.workspaceId !== DASHBOARD_ORG_ID) return Response.json(result);
       const task = typeof record.task === "string" ? record.task : "";
       const repoUrl =
         (typeof record.repoUrl === "string" ? record.repoUrl : "") ||
@@ -848,7 +860,7 @@ export class Automations {
         const input = body as CreateAutomationInput;
         if (input.customAgentId?.trim()) {
           if (!this.env.AGENT_AUDIT) return Response.json({ error: "Bot storage is not configured." }, { status: 503 });
-          const agent = await getCustomAgentById(this.env, DASHBOARD_ORG_ID, input.customAgentId.trim());
+          const agent = await getCustomAgentById(this.env, this.scope.workspaceId, input.customAgentId.trim());
           if (!agent) return Response.json({ error: "Bot not found or unavailable." }, { status: 404 });
           if (agent.config.toolScopes?.length) return Response.json({ error: "Bot toolScopes are not supported." }, { status: 400 });
           input.customAgentId = agent.id;
@@ -962,7 +974,7 @@ export class Automations {
       let customAgentPin = patch.customAgentId === null ? undefined : automation.customAgentPin;
       if (customAgentId && patch.reviewCustomAgent === true) {
         if (!this.env.AGENT_AUDIT) return Response.json({ error: "Bot storage is not configured." }, { status: 503 });
-        const agent = await getCustomAgentById(this.env, DASHBOARD_ORG_ID, customAgentId);
+        const agent = await getCustomAgentById(this.env, this.scope.workspaceId, customAgentId);
         if (!agent) return Response.json({ error: "Bot not found or unavailable." }, { status: 404 });
         if (agent.config.toolScopes?.length) return Response.json({ error: "Bot toolScopes are not supported." }, { status: 400 });
         customAgentPin = { id: agent.id, orgId: agent.orgId, version: agent.version, configSha256: await sha256Hex(JSON.stringify(agent.config)) };

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AUDIT_STATEMENTS, audit, initAudit, type AuditEnv } from "../src/audit.js";
+import { audit, type AuditEnv } from "../src/audit.js";
 
 /**
  * Pure-boundary harness: the writer's only seam is `env.AGENT_AUDIT`, faked
@@ -48,18 +48,6 @@ const ENTRY = {
   outcome: "ok",
 } as const;
 
-describe("initAudit", () => {
-  it("executes every AUDIT_STATEMENTS DDL statement", async () => {
-    const env = makeEnv();
-    await initAudit(env);
-    expect(env.d1.calls).toHaveLength(AUDIT_STATEMENTS.length);
-    expect(env.d1.calls.map((c) => c.sql)).toEqual([...AUDIT_STATEMENTS]);
-    expect(AUDIT_STATEMENTS[0]).toContain("CREATE TABLE IF NOT EXISTS audit_log");
-    // Idempotent by contract — a second run must not fail.
-    await initAudit(env);
-  });
-});
-
 describe("audit", () => {
   it("inserts one audit_log row with hashed args, never the args", async () => {
     const env = makeEnv();
@@ -85,15 +73,13 @@ describe("audit", () => {
     expect(insert.params[6]).toBeNull();
   });
 
-  it("self-heals a missing table once, then writes directly", async () => {
+  it("writes directly without changing the migrated schema", async () => {
     const env = makeEnv();
     await audit(env, ENTRY);
     await audit(env, ENTRY);
-    // First call ran the DDL batch + one insert; the second inserts alone —
-    // the WeakSet memo means steady-state cost is a single round-trip.
     const ddl = env.d1.calls.filter((c) => c.sql.startsWith("CREATE"));
     const inserts = env.d1.calls.filter((c) => c.sql.startsWith("INSERT"));
-    expect(ddl).toHaveLength(AUDIT_STATEMENTS.length);
+    expect(ddl).toHaveLength(0);
     expect(inserts).toHaveLength(2);
   });
 

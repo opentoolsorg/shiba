@@ -11,30 +11,6 @@ import {
 
 type Row = Record<string, unknown>;
 
-/** Mirrors migrations/0061_learning_review.sql for databases created before it applies. */
-const SCHEMA = [
-  "CREATE TABLE IF NOT EXISTS learning_settings ( workspace_id TEXT PRIMARY KEY, turn_setting TEXT NOT NULL, updated_at INTEGER NOT NULL )",
-  "CREATE TABLE IF NOT EXISTS learning_threads ( thread_key TEXT PRIMARY KEY, org_id TEXT NOT NULL, workspace_id TEXT NOT NULL, owner_id TEXT NOT NULL, employee_id TEXT NOT NULL, turns_total INTEGER NOT NULL DEFAULT 0, reviewed_through INTEGER NOT NULL DEFAULT 0, last_turn_at INTEGER NOT NULL, closed_at INTEGER, review_lease_until INTEGER )",
-  "CREATE INDEX IF NOT EXISTS learning_threads_idle ON learning_threads(last_turn_at)",
-  "CREATE TABLE IF NOT EXISTS learning_turns ( thread_key TEXT NOT NULL, seq INTEGER NOT NULL, run_id TEXT NOT NULL, text TEXT NOT NULL, completed_at INTEGER NOT NULL, PRIMARY KEY (thread_key, seq), UNIQUE (thread_key, run_id) )",
-  "CREATE TABLE IF NOT EXISTS learning_usage ( id INTEGER PRIMARY KEY AUTOINCREMENT, workspace_id TEXT NOT NULL, employee_id TEXT NOT NULL, thread_key TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, created_at INTEGER NOT NULL )",
-  "CREATE INDEX IF NOT EXISTS learning_usage_employee ON learning_usage(workspace_id, employee_id)",
-  "CREATE TABLE IF NOT EXISTS learning_suggestions ( id TEXT PRIMARY KEY, thread_key TEXT NOT NULL, workspace_id TEXT NOT NULL, owner_id TEXT NOT NULL, employee_id TEXT NOT NULL, skill_id TEXT NOT NULL, skill_version INTEGER NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL, instructions TEXT NOT NULL, dropped_share REAL NOT NULL, status TEXT NOT NULL CHECK (status IN ('pending','applied','dismissed')), created_at INTEGER NOT NULL )",
-  "CREATE INDEX IF NOT EXISTS learning_suggestions_owner ON learning_suggestions(workspace_id, owner_id, status)",
-];
-
-const ready = new WeakMap<D1Database, Promise<void>>();
-
-function ensureTables(db: D1Database): Promise<void> {
-  let pending = ready.get(db);
-  if (!pending) {
-    pending = db.batch(SCHEMA.map((sql) => db.prepare(sql))).then(() => undefined);
-    pending.catch(() => ready.delete(db));
-    ready.set(db, pending);
-  }
-  return pending;
-}
-
 function threadFromRow(row: Row): LearningThreadState {
   return {
     threadKey: String(row.thread_key),
@@ -77,7 +53,6 @@ function randomId(): string {
 /** D1-backed learning port on the AGENT_AUDIT database. */
 export function d1LearningPort(db: D1Database): LearningPort {
   const getThread = async (threadKey: string) => {
-    await ensureTables(db);
     const row = await db
       .prepare("SELECT * FROM learning_threads WHERE thread_key = ?")
       .bind(threadKey)
@@ -86,7 +61,6 @@ export function d1LearningPort(db: D1Database): LearningPort {
   };
   return {
     async getSetting(workspaceId) {
-      await ensureTables(db);
       const row = await db
         .prepare("SELECT turn_setting FROM learning_settings WHERE workspace_id = ?")
         .bind(workspaceId)
@@ -94,7 +68,6 @@ export function d1LearningPort(db: D1Database): LearningPort {
       return parseLearningTurnSetting(row?.turn_setting) ?? DEFAULT_LEARNING_TURNS;
     },
     async setSetting(workspaceId, value: LearningTurnSetting, now) {
-      await ensureTables(db);
       await db
         .prepare(
           `INSERT INTO learning_settings (workspace_id, turn_setting, updated_at) VALUES (?, ?, ?)
@@ -104,7 +77,6 @@ export function d1LearningPort(db: D1Database): LearningPort {
         .run();
     },
     async recordTurn(ref: LearningThreadRef, turn) {
-      await ensureTables(db);
       await db.batch([
         db
           .prepare(
@@ -140,7 +112,6 @@ export function d1LearningPort(db: D1Database): LearningPort {
     },
     getThread,
     async closeThread(threadKey, now) {
-      await ensureTables(db);
       await db
         .prepare(
           "UPDATE learning_threads SET closed_at = COALESCE(closed_at, ?) WHERE thread_key = ?",
@@ -150,7 +121,6 @@ export function d1LearningPort(db: D1Database): LearningPort {
       return getThread(threadKey);
     },
     async idleThreads(before, limit) {
-      await ensureTables(db);
       const { results } = await db
         .prepare(
           `SELECT t.* FROM learning_threads t
@@ -164,7 +134,6 @@ export function d1LearningPort(db: D1Database): LearningPort {
       return (results ?? []).map(threadFromRow);
     },
     async turnsSince(threadKey, afterSeq, limit) {
-      await ensureTables(db);
       const { results } = await db
         .prepare(
           "SELECT seq, run_id, text, completed_at FROM learning_turns WHERE thread_key = ? AND seq > ? ORDER BY seq LIMIT ?",
@@ -179,7 +148,6 @@ export function d1LearningPort(db: D1Database): LearningPort {
       }));
     },
     async claimReview(threadKey, now, leaseMs) {
-      await ensureTables(db);
       const result = await db
         .prepare(
           `UPDATE learning_threads SET review_lease_until = ?
@@ -190,7 +158,6 @@ export function d1LearningPort(db: D1Database): LearningPort {
       return result.meta?.changes === 1;
     },
     async completeReview(threadKey, throughSeq) {
-      await ensureTables(db);
       await db
         .prepare(
           "UPDATE learning_threads SET reviewed_through = MAX(reviewed_through, ?), review_lease_until = NULL WHERE thread_key = ?",
@@ -199,14 +166,12 @@ export function d1LearningPort(db: D1Database): LearningPort {
         .run();
     },
     async releaseReview(threadKey) {
-      await ensureTables(db);
       await db
         .prepare("UPDATE learning_threads SET review_lease_until = NULL WHERE thread_key = ?")
         .bind(threadKey)
         .run();
     },
     async recordUsage(ref, usage, now) {
-      await ensureTables(db);
       await db
         .prepare(
           `INSERT INTO learning_usage (workspace_id, employee_id, thread_key, model, input_tokens, output_tokens, created_at)
@@ -224,7 +189,6 @@ export function d1LearningPort(db: D1Database): LearningPort {
         .run();
     },
     async usageByEmployee(workspaceId) {
-      await ensureTables(db);
       const { results } = await db
         .prepare(
           `SELECT employee_id, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, COUNT(*) AS reviews
@@ -240,7 +204,6 @@ export function d1LearningPort(db: D1Database): LearningPort {
       }));
     },
     async addSuggestion(ref, proposal, now) {
-      await ensureTables(db);
       const suggestion: LearningSuggestion = {
         ...proposal,
         id: randomId(),
@@ -275,7 +238,6 @@ export function d1LearningPort(db: D1Database): LearningPort {
       return suggestion;
     },
     async listSuggestions(workspaceId, ownerId) {
-      await ensureTables(db);
       const { results } = await db
         .prepare(
           `SELECT * FROM learning_suggestions WHERE workspace_id = ? AND owner_id = ? AND status = 'pending'
@@ -286,7 +248,6 @@ export function d1LearningPort(db: D1Database): LearningPort {
       return (results ?? []).map(suggestionFromRow);
     },
     async getSuggestion(id, ownerId) {
-      await ensureTables(db);
       const row = await db
         .prepare("SELECT * FROM learning_suggestions WHERE id = ? AND owner_id = ?")
         .bind(id, ownerId)
@@ -294,7 +255,6 @@ export function d1LearningPort(db: D1Database): LearningPort {
       return row ? suggestionFromRow(row) : null;
     },
     async resolveSuggestion(id, ownerId, status) {
-      await ensureTables(db);
       const result = await db
         .prepare(
           "UPDATE learning_suggestions SET status = ? WHERE id = ? AND owner_id = ? AND status = 'pending'",
