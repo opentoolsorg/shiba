@@ -491,7 +491,12 @@ describe("personal subscription kill switches", () => {
     ["antigravity-subscription", "SHIBA_ANTIGRAVITY_SUBSCRIPTION"],
     ["cursor-subscription", "SHIBA_CURSOR_SUBSCRIPTION"],
   ])("enables %s with storage and refuses an explicit kill switch", (harness, flag) => {
-    const ready = { MODEL_CREDENTIAL_KEY: "ab".repeat(32), UserProviderOAuth: {} };
+    const ready = {
+      MODEL_CREDENTIAL_KEY: "ab".repeat(32),
+      UserProviderOAuth: {},
+      // Claude is opt-in; storage alone only makes its per-user OAuth path available.
+      ...(harness === "claude-subscription" ? { SHIBA_CLAUDE_SUBSCRIPTION: "1" } : {}),
+    };
     expect(resolveHarness(harness!, ready).name).toBe(harness);
     expect(() => resolveHarness(harness!, { ...ready, [flag!]: "0" })).toThrow(/Unknown agent harness/);
   });
