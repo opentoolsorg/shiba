@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, symlink, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TARGET, DO_IDS, EXPECTED_BINDINGS, validateSnapshot, normalizeBindings, generatedConfig, assertConfig, wranglerArgs, inspectAssets, verifyHttpBuild } from "./preview-update-existing.mjs";
+import { TARGET, DO_IDS, EXPECTED_BINDINGS, validateSnapshot, normalizeBindings, generatedConfig, assertConfig, wranglerArgs, inspectAssets, verifyHttpBuild, verifyHttpBuildAt } from "./preview-update-existing.mjs";
 
 export function fixture() {
   const text = { OPEN_DASHBOARD: "0", WORKER_HOSTNAME: TARGET.hostname, BETTER_AUTH_URL: `https://${TARGET.hostname}`,
@@ -122,13 +122,18 @@ test("post-deploy HTTP proof requires locked API and exact built HTML/entrypoint
     const html = '<html><link href="/assets/app.css"/><script src="/assets/app.js"></script></html>';
     await writeFile(join(dir, "app/index.html"), html); await writeFile(join(dir, "assets/app.css"), "body{}"); await writeFile(join(dir, "assets/app.js"), "new build");
     const replies = new Map([["/api/__shiba_preview_auth_probe__", [401, "Unauthorized"]], ["/app/", [200, html]], ["/assets/app.css", [200, "body{}"]], ["/assets/app.js", [200, "new build"]]]);
+    let expectedHostname = TARGET.hostname;
     const fetcher = async (url, options) => {
-      assert.equal(new URL(url).hostname, TARGET.hostname); assert.equal(options.redirect, "error");
+      assert.equal(new URL(url).hostname, expectedHostname); assert.equal(options.redirect, "error");
       assert.equal(options.headers.Authorization, undefined);
       const [status, body] = replies.get(new URL(url).pathname);
       return new Response(body, { status });
     };
     assert.deepEqual(await verifyHttpBuild(dir, fetcher), { anonymousApiStatus: 401, dashboardHtmlVerified: true, staticEntrypointsVerified: 2 });
+    expectedHostname = "shiba-ai-coworker-pr-277.preview.workers.dev";
+    assert.equal((await verifyHttpBuildAt(dir, `https://${expectedHostname}`, fetcher)).staticEntrypointsVerified, 2);
+    for (const origin of ["https://app.example.com", "https://shiba-ai-coworker-dogfood.preview.workers.dev", "http://shiba-ai-coworker-pr-277.preview.workers.dev"]) await assert.rejects(verifyHttpBuildAt(dir, origin, fetcher), /Only a preview/);
+    expectedHostname = TARGET.hostname;
     replies.set("/api/__shiba_preview_auth_probe__", [404, "Unmatched route"]);
     await assert.rejects(verifyHttpBuild(dir, fetcher), /not locked/);
     replies.set("/api/__shiba_preview_auth_probe__", [401, "Unauthorized"]); replies.set("/assets/app.js", [200, "old build"]);
@@ -140,13 +145,10 @@ test("post-deploy HTTP proof requires locked API and exact built HTML/entrypoint
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
-test("new workflow mode is fixed to PR188 and does not run Alchemy, comment or expose model/Slack credentials", async () => {
+test("incident workflow is retired without loosening its fixed-target evidence helpers", async () => {
   const yaml = await readFile(new URL("../.github/workflows/preview-deploy.yml", import.meta.url), "utf8");
-  const job = yaml.split("  update-existing-preview:")[1].split("  deploy-preview:")[0];
-  assert.match(job, /preview:update-existing/); assert.match(job, /pull_request.number == 188/);
-  assert.match(job, /opentoolsorg\/shiba/); assert.match(job, /persist-credentials: false/);
-  assert.match(job, /pnpm build/); assert.match(job, /--preflight/); assert.match(job, /--apply/);
-  assert.doesNotMatch(job, /run:.*alchemy|gh pr comment|secrets\.(?:SLACK|AI_GATEWAY|CLAUDE|CODEX|INTERNAL_SIGNING|ARTIFACT_SIGNING)/);
-  assert.match(yaml.split("  deploy-preview:")[1], /label.name == 'preview:deploy'/);
+  assert.doesNotMatch(yaml, /update-existing-preview|preview:update-existing|number == 188/);
+  assert.match(yaml, /node scripts\/deploy\.mjs/);
+  assert.doesNotMatch(yaml, /secrets\.(?:SLACK|AI_GATEWAY|CLAUDE|CODEX)/);
   assert.equal(normalizeBindings(fixture().settings.bindings).length, 47);
 });

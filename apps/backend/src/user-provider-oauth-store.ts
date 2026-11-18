@@ -36,7 +36,7 @@ export async function loadUserOAuthRecord(
     .bind(workspaceId, userId, kind)
     .first<{ auth_cipher: string }>();
   if (!row) return null;
-  const plain = await decryptAuthJson(row.auth_cipher, env.MODEL_CREDENTIAL_KEY!, workspaceId, userId, kind);
+  const plain = await decryptAuthJson(row.auth_cipher, env, workspaceId, userId, kind);
   return JSON.parse(plain) as UserOAuthRecord;
 }
 
@@ -54,7 +54,7 @@ export async function saveUserOAuthRecord(
   const kind = oauthKind(provider);
   const cipher = await encryptAuthJson(
     JSON.stringify(record),
-    env.MODEL_CREDENTIAL_KEY!,
+    env,
     workspaceId,
     userId,
     kind,
@@ -113,7 +113,7 @@ export async function sealOAuthPendingField(
   }
   return encryptAuthJson(
     plaintext,
-    env.MODEL_CREDENTIAL_KEY!,
+    env,
     DEFAULT_WORKSPACE_ID,
     userId,
     pendingFieldKind(provider, field),
@@ -132,7 +132,7 @@ export async function openOAuthPendingField(
   }
   return decryptAuthJson(
     cipher,
-    env.MODEL_CREDENTIAL_KEY!,
+    env,
     DEFAULT_WORKSPACE_ID,
     userId,
     pendingFieldKind(provider, field),

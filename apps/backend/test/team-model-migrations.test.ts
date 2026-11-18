@@ -8,7 +8,7 @@ import type { Env } from "../src/env.js";
 const migration = readFileSync(new URL("../migrations/0013_team_model_sessions.sql", import.meta.url), "utf8");
 const room = "room_aaaaaaaaaaaaaaaaaaaaaaaa", workspace = "ws_aaaaaaaaaaaaaaaaaaaaaaaa", member = "human:member@example.test";
 function seedRoom(sqlite: ReturnType<typeof customAgentD1>["sqlite"]) {
-  sqlite.prepare("INSERT INTO collaboration_rooms VALUES(?,'self-hosted',?,'Preserved shared room','shared','owner@example.test',1)").run(room, workspace);
+  sqlite.prepare("INSERT INTO collaboration_rooms(room_id,tenant_id,workspace_id,title,visibility,created_by_user_id,created_at) VALUES(?,'self-hosted',?,'Preserved shared room','shared','owner@example.test',1)").run(room, workspace);
   sqlite.prepare("INSERT INTO collaboration_memberships(tenant_id,workspace_id,room_id,user_id,display_name,actor_id,actor_kind,role,status,capabilities_json,created_at) VALUES('self-hosted',?,?,'member@example.test','Preserved member',?,'human','member','active','[\"room.read\"]',2)").run(workspace, room, member);
 }
 function seedFunding(sqlite: ReturnType<typeof customAgentD1>["sqlite"]) {

@@ -1,7 +1,7 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BETTER_AUTH_STATEMENTS, ensureBetterAuthSchema } from "../src/better-auth.js";
 import { sendWorkspaceInvitationEmail } from "../src/native-enrollment-email.js";
 import { createTeamWorkspace, createTeamWorkspaceInvitation } from "../src/team-workspaces-store.js";
 import type { Env } from "../src/env.js";
@@ -10,8 +10,8 @@ const outboxMigration = readFileSync(new URL("../migrations/0040_email_outbox.sq
 const databases: DatabaseSync[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.close(); vi.restoreAllMocks(); });
 
-function fixture() {
-  const sqlite = new DatabaseSync(":memory:");
+function fixture(through = Infinity) {
+  const sqlite = new DatabaseSync(":memory:"); applyAllMigrations(sqlite, through);
   databases.push(sqlite);
   sqlite.exec(outboxMigration);
   const value = (item: unknown): never => (typeof item === "boolean" ? Number(item) : item ?? null) as never;
@@ -31,8 +31,6 @@ function fixture() {
 describe("workspace invitation email", () => {
   it("enqueues an outbox row when inviting a member", async () => {
     const f = fixture();
-    await ensureBetterAuthSchema(f.env);
-    for (const statement of BETTER_AUTH_STATEMENTS) f.sqlite.exec(statement);
     const owner = "owner@example.test";
   f.sqlite.prepare(`INSERT INTO "user"(id,name,email,emailVerified,createdAt,updatedAt) VALUES('owner','Owner',?,1,?,?)`).run(owner, Date.now(), Date.now());
     const workspace = await createTeamWorkspace(f.env, owner, { name: "Core" });

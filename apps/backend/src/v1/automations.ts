@@ -176,7 +176,7 @@ export async function handleAutomations(ctx: V1Context): Promise<Response | null
     if (!/^\d+$/.test(limit) || Number(limit) < 1 || Number(limit) > 100) return invalid();
   }
 
-  const stub = automationsStub(ctx.env);
+  const stub = automationsStub(ctx.env, ctx.principal.orgId);
   const call = (method: string, path: string, input?: unknown) => stub.fetch(new Request(`https://internal${path}`, { method,
     ...(input === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }) }));
   const listAll = async () => {

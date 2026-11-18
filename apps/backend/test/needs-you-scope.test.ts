@@ -1,3 +1,4 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
@@ -30,6 +31,7 @@ function database(): D1Database {
       payload_json TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (run_id, seq)
     );
   `);
+  applyAllMigrations(db);
   const insert = db.prepare("INSERT INTO run_milestones (run_id, seq, kind, text, created_at) VALUES (?, ?, ?, ?, ?)");
   insert.run("run-a", 1, "blocked", "A blocker", 10);
   insert.run("run-a", 2, "status", "A status", 11);
