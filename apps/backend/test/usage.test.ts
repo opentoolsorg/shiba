@@ -19,6 +19,7 @@ import {
 } from "../src/usage.js";
 import { handleUsage } from "../src/usage-routes.js";
 import { mergeRunUsage } from "@shiba/shared";
+import { defaultUsageBudgetPolicy } from "../src/usage.js";
 import { createRun, type DelegatedRun } from "../src/runs.js";
 import { evidenceFor } from "./seeding.js";
 import type { Env } from "../src/env.js";
@@ -276,5 +277,40 @@ describe("GET /api/usage", () => {
     const env = envWithRuns({ REQUIRE_ACCESS: "1" } as Partial<Env>);
     const response = await handleUsage(new Request("http://localhost/api/usage"), env);
     expect(response?.status).toBe(401);
+  });
+
+  it("reads the scoped saved policy and includes budget spend", async () => {
+    const paths: string[] = [];
+    const saved = { ...defaultUsageBudgetPolicy({}), dailyLimitUsd: .1, perRunLimitUsd: 1 };
+    const env = { CodingOrchestrator: { get: () => ({ fetch: async (req: Request) => {
+      paths.push(new URL(req.url).pathname);
+      return Response.json(new URL(req.url).pathname.endsWith("budget") ? { policy: saved } : { runs: seededRuns });
+    } }) } } as unknown as Env;
+    const response = await handleUsage(new Request("http://localhost/api/usage"), env);
+    expect(await response!.json()).toMatchObject({ budgetUsd: .1, budget: { policy: saved, blocked: true, today: { llmUsd: .25 } } });
+    expect(paths).toEqual(["/api/usage/budget", "/api/runs"]);
+  });
+
+  it("guards, validates, and forwards dashboard budget writes", async () => {
+    const forwarded: Request[] = [];
+    const saved = defaultUsageBudgetPolicy({});
+    const env = { CodingOrchestrator: { get: () => ({ fetch: async (req: Request) => {
+      forwarded.push(req);
+      return Response.json({ policy: req.method === "PUT" ? await req.json() : saved });
+    } }) } } as unknown as Env;
+    const put = (body: unknown, headers: Record<string, string> = { origin: "http://localhost", "content-type": "application/json" }) =>
+      new Request("http://localhost/api/usage/budget", { method: "PUT", headers, body: JSON.stringify(body) });
+    expect((await handleUsage(put(saved, { "content-type": "application/json" }), env))?.status).toBe(403);
+    expect((await handleUsage(put(saved, { origin: "http://localhost" }), env))?.status).toBe(415);
+    expect((await handleUsage(put({ ...saved, dailyLimitUsd: -1 }), env))?.status).toBe(400);
+    expect((await handleUsage(new Request("http://localhost/api/usage/budget", { method: "DELETE" }), env))?.status).toBe(405);
+    expect((await handleUsage(new Request("http://localhost/api/usage/budget"), envWithRuns({ REQUIRE_ACCESS: "1" })))?.status).toBe(401);
+    const response = await handleUsage(put({ ...saved, updatedBy: "forged" }), env);
+    expect(response?.status).toBe(200);
+    expect(await response!.json()).toMatchObject({ policy: { updatedAt: NOW, updatedBy: "local-dashboard" } });
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0]?.method).toBe("PUT");
+    const read = await handleUsage(new Request("http://localhost/api/usage/budget"), env);
+    expect(await read!.json()).toEqual({ policy: saved });
   });
 });

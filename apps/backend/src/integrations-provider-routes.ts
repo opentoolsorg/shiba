@@ -3,6 +3,7 @@ import {
   SHIBA_INTEGRATIONS_OAUTH_CHANNEL,
   integrationProviderSetupStateSchema,
   mergeFeaturedWithLive,
+  parseIntegrationCollection,
   setupRequiredCatalog,
   type IntegrationProviderBeginConnectResponse,
   type IntegrationProviderSetupState,
@@ -37,8 +38,8 @@ export function isOpenConnectorSetupError(error: unknown): boolean {
 }
 
 /** 200 body for catalog reads while OpenConnector is not set up. */
-export function setupCatalogResponse(query?: string | null, extra: Record<string, unknown> = {}): Response {
-  return json({ ...setupRequiredCatalog(query ?? undefined), ...extra });
+export function setupCatalogResponse(query?: string | null, extra: Record<string, unknown> = {}, serviceIds?: readonly string[]): Response {
+  return json({ ...setupRequiredCatalog(query ?? undefined, serviceIds), ...extra });
 }
 
 function integrationUnavailable(error: unknown): Response {
@@ -207,12 +208,15 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
   if (suffix === "/catalog" && request.method === "GET") {
     const readiness = parseReadiness(url.searchParams.get("readiness"));
     if (readiness === null) return json({ ok: false, error: "readiness must be ready, needs_configuration, unsupported or unverified." }, 400);
-    if (!openConnectorConfigured(env)) return setupCatalogResponse(url.searchParams.get("query"));
+    const collection = parseIntegrationCollection(url.searchParams.get("collection"));
+    if (collection === null) return json({ ok: false, error: "collection must be one of the listed catalog collections." }, 400);
+    if (!openConnectorConfigured(env)) return setupCatalogResponse(url.searchParams.get("query"), {}, collection?.serviceIds);
     try {
       const page = await provider.listCatalog({
         userId: owner,
         query: url.searchParams.get("query") ?? undefined,
         ...(readiness ? { readiness } : {}),
+        ...(collection ? { services: collection.serviceIds } : {}),
         cursor: url.searchParams.get("cursor") ?? undefined,
         limit: parseLimit(url.searchParams.get("limit")),
       });
@@ -229,7 +233,7 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
         oauthCapable: page.oauthCapable,
       });
     } catch (error) {
-      if (isOpenConnectorSetupError(error)) return setupCatalogResponse(url.searchParams.get("query"));
+      if (isOpenConnectorSetupError(error)) return setupCatalogResponse(url.searchParams.get("query"), {}, collection?.serviceIds);
       return integrationUnavailable(error);
     }
   }
