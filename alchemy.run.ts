@@ -179,6 +179,11 @@ export const Worker = Cloudflare.Worker("Worker", {
     OPEN_CONNECTOR_ENABLED: "0",
     SHIBA_PERSONAL_LOCAL_EXECUTION: "0",
     SHIBA_TEAM_MODEL_SESSIONS: "0",
+    SHIBA_ERROR_REPORTING: "none",
+    SHIBA_ANALYTICS: "none",
+    SHIBA_OPEN_TELEMETRY: "0",
+    POSTHOG_HOST: "",
+    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "",
     SHIBA_SHARED_COMPUTER: "0",
     SHIBA_SHARED_COMPUTER_IMAGE: "",
     FOUNDER_AUTOMATIC_READS_ENABLED: "false",
@@ -208,8 +213,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     CODING_MODEL: "google/gemini-3.5-flash-lite",
     RUNTIME: "sandbox",
     SHIBA_CLAUDE_SUBSCRIPTION: "0",
-    // Dark by default; configVars() below overrides from the deploy env.
-    SHIBA_CODEX_SUBSCRIPTION: "0",
+    // Enabled: the ChatGPT-plan lane carries the orchestrator pin below.
+    // configVars() below can still override from the deploy env.
+    SHIBA_CODEX_SUBSCRIPTION: "1",
     SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH: "0",
     SHIBA_CODEX_DEVICE_AUTH: "0",
     SHIBA_CURSOR_SUBSCRIPTION: "0",
@@ -342,6 +348,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     }),
 
     ...secrets([
+      "SENTRY_DSN",
+      "POSTHOG_API_KEY",
+      "OTEL_EXPORTER_OTLP_HEADERS",
       "GITHUB_TOKEN",
       "GITHUB_APP_ID",
       "GITHUB_APP_PRIVATE_KEY",
@@ -425,13 +434,20 @@ export const Worker = Cloudflare.Worker("Worker", {
     MCP_TRUSTED_HOSTS: "",
     // T56 (PLAN.md §20): the shipped role pin, as a LITERAL env member — the
     // drift guard compares declared vars by value (scripts/check-alchemy-drift.mjs),
-    // so a configVars() spread would read as an absent var. Model ids verified
-    // against primary sources 2026-10-06; orchestrator moved to gpt-6-sol ahead
-    // of gpt-5.6-sol's 2026-10-14 Codex retirement (PLAN.md §20.2). The
-    // reviewer pin keeps #99's Sol review lane (opencode-go/gpt-6.1-sol).
+    // so a configVars() spread would read as an absent var.
+    //   orchestrator → codex-subscription + openai-subscription/gpt-6.2-sol
+    //                  (the operator's ChatGPT plan; auth rides
+    //                  CODEX_SUBSCRIPTION_AUTH_JSON or per-user Sign in with ChatGPT)
+    //   work roles   → opencode + google/gemini-3.5-flash-lite (the free-tier
+    //                  model — same id CODING_MODEL ships as the default)
     ROLE_MODEL_MAP:
-      "{\"orchestrator\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"explorer\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"fixer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-sonnet-5-5\"},\"reviewer\":{\"harness\":\"opencode\",\"model\":\"opencode-go/gpt-6.1-sol\"},\"designer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-opus-5-5\"}}",
+      "{\"orchestrator\":{\"harness\":\"codex-subscription\",\"model\":\"openai-subscription/gpt-6.2-sol\"},\"explorer\":{\"harness\":\"opencode\",\"model\":\"google/gemini-3.5-flash-lite\"},\"fixer\":{\"harness\":\"opencode\",\"model\":\"google/gemini-3.5-flash-lite\"},\"reviewer\":{\"harness\":\"opencode\",\"model\":\"google/gemini-3.5-flash-lite\"},\"designer\":{\"harness\":\"opencode\",\"model\":\"google/gemini-3.5-flash-lite\"}}",
     ...configVars([
+      "SHIBA_ERROR_REPORTING",
+      "SHIBA_ANALYTICS",
+      "SHIBA_OPEN_TELEMETRY",
+      "POSTHOG_HOST",
+      "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
       "AUTOMATIONS_ENABLED",
       "AGENT_HARNESS",
       "CLAUDE_CODE_MODEL",

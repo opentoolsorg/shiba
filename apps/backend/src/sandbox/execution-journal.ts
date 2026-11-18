@@ -1,6 +1,6 @@
 import type { JournalExecutionInput, JournalPage, JournalState } from "@shiba/sandbox";
 
-export const EXECUTION_EPOCH_LABEL = "shiba-execution-epoch";
+export const EXECUTION_EPOCH_LABEL = "shiba-exec-epoch";
 export const JOURNAL_MAX_RUNTIME_MS = 15 * 60_000;
 export const JOURNAL_START_GRACE_MS = 5_000;
 export const JOURNAL_MAX_REPLY_BYTES = 400_000;

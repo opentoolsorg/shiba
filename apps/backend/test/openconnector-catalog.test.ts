@@ -72,6 +72,23 @@ describe("OpenConnector full catalog (fixture upstream)", () => {
     expect(fetchImpl.mock.calls.some(([url]) => String(url).includes("/svc_000/setup"))).toBe(false);
   });
 
+  it("restricts a collection page to its services in shelf order and skips services the provider lacks", async () => {
+    const adapter = new OpenConnectorIntegrationProvider({ env: configured, fetchImpl: upstream() });
+    const page = await adapter.listCatalog({ userId: "alice", limit: 50, services: ["svc_005", "missing_app", "svc_001"] });
+    expect(page.items.map((item) => item.providerKey)).toEqual(["svc_005", "svc_001"]);
+    expect(page).toMatchObject({ total: 2, oauthCapable: 2, hasMore: false });
+    expect((await adapter.listCatalog({ userId: "alice", limit: 50, services: ["svc_005"], query: "nothing" })).items).toEqual([]);
+  });
+
+  it("rejects an unknown collection and passes a known one to the provider", async () => {
+    const env = { ...configured, OPEN_CONNECTOR: { fetch: upstream() } } as unknown as Env;
+    const bad = await handleIntegrationProviderRoutes(new Request("https://app.example.test/api/integrations/provider/catalog?collection=everything"), env);
+    expect(bad?.status).toBe(400);
+    const good = await handleIntegrationProviderRoutes(new Request("https://app.example.test/api/integrations/provider/catalog?collection=sales"), env);
+    expect(good?.status).toBe(200);
+    expect(await good?.json()).toMatchObject({ ok: true, total: 0, items: [] });
+  });
+
   it("returns promptly at the page deadline and leaves pending setup probes unverified", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;

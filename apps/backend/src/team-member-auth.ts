@@ -24,6 +24,7 @@ export async function isTeamDeploymentOperator(request: Request, env: Env): Prom
 }
 
 const ownApi = [
+  /^\/api\/observability$/,
   /^\/api\/memory\/(?:facts(?:\/[^/]+)?|sessions|sources(?:\/[^/]+)?|projects(?:\/[^/]+)?|recall)\/?$/,
 ];
 const workspaceApi = [
@@ -43,6 +44,7 @@ const workspaceApi = [
   /^\/api\/founder-stripe-slack(?:\/|$)/,
   /^\/api\/workspace-integrations(?:\/|$)/,
   /^\/api\/(?:custom-agents|employee-bundles|skills)(?:\/|$)/,
+  /^\/api\/employee-tools(?:\/|$)/,
   /^\/api\/v1\/extensions\/skills(?:\/|$)/,
   /^\/api\/onboarding\/progress(?:\/team-task)?\/?$/,
   /^\/api\/governance(?:\/|$)/,

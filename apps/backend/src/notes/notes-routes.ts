@@ -7,6 +7,7 @@ import { assertKnowledgeRead, KnowledgeAccessError } from "../knowledge/knowledg
 import { enqueueIngestion } from "../knowledge/knowledge-ingestion.js";
 import { filesBucket } from "../knowledge/knowledge-ingestion.js";
 import { createNote, getNote, listNotes, NotesConflictError, NotesStoreError, updateNoteMarkdown } from "./notes-store.js";
+import { handleNoteChat } from "./note-chat.js";
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: {
   "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
@@ -57,11 +58,11 @@ export async function handleNotes(request: Request, env: Env): Promise<Response 
     return json({ error: "Method not allowed." }, 405);
   }
 
-  const match = /^\/api\/notes\/([^/]+)(\/body)?$/.exec(url.pathname);
+  const match = /^\/api\/notes\/([^/]+)(\/body|\/chat)?$/.exec(url.pathname);
   if (!match) return json({ error: "Not found." }, 404);
   const noteId = match[1]!;
   const note = await getNote(env, noteId);
-  if (!note || note.workspaceId !== workspaceId) return json({ error: "Note not found." }, 404);
+  if (!note || note.archivedAt || note.workspaceId !== workspaceId) return json({ error: "Note not found." }, 404);
   try {
     await assertKnowledgeRead(env, userId, {
       workspaceId: note.workspaceId, scope: note.scope, createdBy: note.createdBy, resourceId: note.id, resourceKind: "note",
@@ -70,6 +71,8 @@ export async function handleNotes(request: Request, env: Env): Promise<Response 
     if (error instanceof KnowledgeAccessError) return json({ error: error.message }, error.status);
     throw error;
   }
+
+  if (match[2] === "/chat") return handleNoteChat(request, env, userId, note);
 
   if (match[2] === "/body" && request.method === "GET") {
     const object = await filesBucket(env).get(note.r2Key);
