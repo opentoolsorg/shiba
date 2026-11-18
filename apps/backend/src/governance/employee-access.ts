@@ -3,7 +3,6 @@ import type { Env } from "../env.js";
 import { COLLAB_TENANT_ID } from "../collaboration-store.js";
 import { getTeamWorkspaceMembership } from "../team-workspaces-store.js";
 import { getCustomAgentById } from "../custom-agents-store.js";
-import { initAudit } from "../audit.js";
 import { randomHex } from "../mailbox-store.js";
 import { GovernanceError, hashOpaqueToken, listActiveGroupIdsForUser } from "./governance-store.js";
 
@@ -96,7 +95,6 @@ export async function setEmployeeAccess(env: AccessEnv, workspaceId: string, emp
   const after = level.success ? level.data : null;
   if (before === after) return;
   const detail = JSON.stringify({ workspaceId, employeeId, employeeName: employee.config.name, actorName: actorId, principalKind: kind, principalId, principalName: name, before, after });
-  await initAudit({ AGENT_AUDIT: env.AGENT_AUDIT });
   await env.AGENT_AUDIT.batch([
     inherit ? env.AGENT_AUDIT.prepare(`DELETE FROM employee_access WHERE tenant_id=? AND workspace_id=? AND employee_id=? AND principal_kind=? AND principal_id=?`)
       .bind(COLLAB_TENANT_ID, workspaceId, employeeId, kind, principalId) : env.AGENT_AUDIT.prepare(`INSERT INTO employee_access (tenant_id,workspace_id,employee_id,principal_kind,principal_id,principal_name,level)

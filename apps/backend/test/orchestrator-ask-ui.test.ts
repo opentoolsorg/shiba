@@ -64,7 +64,7 @@ describe("production orchestrator ask_ui", () => {
     expect(await execute(block, { toolCallId: "question-call", messages: [] })).toMatchObject({ isError: true, error: "ask_ui_requires_run" });
   });
 
-  it.each(["slack:T1:C1:123.000001", "telegram:12345", "discord:123456789012345678"])("delivers a newly stored question once via postToThread for %s", async (name) => {
+  it.each(["slack:T1:C1:123.000001", "telegram:12345", "discord:4815162342"])("delivers a newly stored question once via postToThread for %s", async (name) => {
     const { database, sqlite } = customAgentD1();
     try {
       sqlite.exec(readFileSync(new URL("../migrations/0068_ui_block_questions.sql", import.meta.url), "utf8"));

@@ -26,11 +26,10 @@ type Account = { id: string; service: string; connectionName: string; configured
 async function fixture(service = "github", inputSchema: Record<string, unknown> = { type: "object", properties: { title: { type: "string" } } }) {
   const db = customAgentD1();
   db.sqlite.exec(readFileSync(new URL("../migrations/0042_workspace_connectors_v2.sql", import.meta.url), "utf8"));
-  db.sqlite.exec('CREATE TABLE "user" (id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy (account_id TEXT PRIMARY KEY,email TEXT)');
   for (const email of [OWNER, MEMBER, ADMIN, "other-owner@example.test"]) {
     const accountId = crypto.randomUUID(); actor.accounts[email] = accountId;
-    db.sqlite.prepare('INSERT INTO "user"(id,email,emailVerified) VALUES(?,?,1)').run(accountId, email);
-    db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email) VALUES(?,?)").run(accountId, email);
+    db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(accountId, email);
+    db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')").run(accountId, email);
   }
   const accounts: Account[] = [{ id: "private-owned-row", service: "github", connectionName: await openConnectorConnectionName(OWNER), configured: true, virtual: false,
     oauthAuthorizationId: "private-consent", profile: { displayName: "Private account must stay private" } }];
@@ -220,8 +219,8 @@ describe("workspace-shared connections with real route/SQLite and fixture siblin
     await f.grant(connection);
     const original = actor.accounts[OWNER]!, replacement = crypto.randomUUID();
     f.sqlite.prepare('DELETE FROM "user" WHERE id=?').run(original);
-    f.sqlite.prepare('INSERT INTO "user"(id,email,emailVerified) VALUES(?,?,1)').run(replacement, OWNER);
-    f.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email) VALUES(?,?)").run(replacement, OWNER);
+    f.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(replacement, OWNER);
+    f.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')").run(replacement, OWNER);
     actor.accounts[OWNER] = replacement;
     actor.email = MEMBER;
     expect((await f.call("/connections")).body.connections).toEqual([]);
@@ -247,8 +246,8 @@ describe("workspace-shared connections with real route/SQLite and fixture siblin
     expect((await f.call(`/approvals/${approvalId}/decision`, "POST", { approved: true })).response.status).toBe(200);
     const original = actor.accounts[replaced]!, replacement = crypto.randomUUID();
     f.sqlite.prepare('DELETE FROM "user" WHERE id=?').run(original);
-    f.sqlite.prepare('INSERT INTO "user"(id,email,emailVerified) VALUES(?,?,1)').run(replacement, replaced);
-    f.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email) VALUES(?,?)").run(replacement, replaced);
+    f.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(replacement, replaced);
+    f.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')").run(replacement, replaced);
     actor.accounts[replaced] = replacement; actor.email = MEMBER;
     expect((await f.call("/connections")).body.connections).toEqual([]);
     expect((await f.call(`/approvals/${approvalId}/execute`, "POST", {})).response.status).toBe(403);

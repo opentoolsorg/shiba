@@ -1,3 +1,4 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 /**
  * T52 Remote Access fleet: heartbeat upsert, stale → offline, prune,
  * single-use + TTL-bound pairing, and revoke → the machine's next call 401s.
@@ -76,7 +77,7 @@ function toBind(value: unknown): null | number | bigint | string | Uint8Array {
   return value as never;
 }
 function fakeD1(): D1Database {
-  const db = new DatabaseSync(":memory:");
+  const db = new DatabaseSync(":memory:"); applyAllMigrations(db);
   const prepared = (sql: string, params: unknown[]) => ({
     bind: (...args: unknown[]) => prepared(sql, args),
     run: async () => {

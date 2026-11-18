@@ -10,39 +10,15 @@ import { getSkill } from "./skills-store.js";
 import { randomHex } from "./mailbox-store.js";
 
 const PREVIEW_TTL = 15 * 60_000;
-const initialized = new WeakSet<D1Database>();
 
 export class EmployeeBundleError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
-}
-
-async function ensureTables(env: AuditEnv): Promise<void> {
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  // These public reads initialize the existing schemas without changing their contracts.
-  await getCustomAgentById(env, "_bundle_schema", "_bundle_schema");
-  await getSkill(env, "_bundle_schema", "_bundle_schema", "_bundle_schema");
-  for (const sql of [
-    `CREATE TABLE IF NOT EXISTS employee_bundle_profile_owners (
-      org_id TEXT NOT NULL, employee_id TEXT NOT NULL, owner_id TEXT NOT NULL,
-      PRIMARY KEY (org_id, employee_id))`,
-    `CREATE TABLE IF NOT EXISTS employee_bundle_previews (
-      id TEXT PRIMARY KEY, org_id TEXT NOT NULL, owner_id TEXT NOT NULL,
-      digest TEXT NOT NULL, recipe_json TEXT NOT NULL, expires_at INTEGER NOT NULL,
-      consumed_import_id TEXT)`,
-    `CREATE TABLE IF NOT EXISTS employee_bundle_imports (
-      org_id TEXT NOT NULL, owner_id TEXT NOT NULL, import_id TEXT NOT NULL,
-      preview_id TEXT NOT NULL UNIQUE, digest TEXT NOT NULL, employee_id TEXT NOT NULL,
-      recipe_json TEXT NOT NULL, result_json TEXT NOT NULL, created_at INTEGER NOT NULL,
-      PRIMARY KEY (org_id, owner_id, import_id))`,
-  ]) await env.AGENT_AUDIT.prepare(sql).run();
-  initialized.add(env.AGENT_AUDIT);
 }
 
 /** Capture only at authenticated creation; never infer ownership from org-wide visibility. */
 export async function recordEmployeeBundleProfileOwner(
   env: AuditEnv, orgId: string, employeeId: string, ownerId: string,
 ): Promise<void> {
-  await ensureTables(env);
   await env.AGENT_AUDIT.prepare(
     `INSERT INTO employee_bundle_profile_owners (org_id,employee_id,owner_id) VALUES (?,?,?)
      ON CONFLICT (org_id,employee_id) DO NOTHING`,
@@ -59,7 +35,6 @@ export async function previewEmployeeBundle(
 ): Promise<EmployeeBundlePreview> {
   const recipe = validateEmployeeBundle(input);
   const digest = await employeeBundleDigest(recipe);
-  await ensureTables(env);
   const previewId = `ebp-${randomHex(16)}`;
   const expiresAt = now + PREVIEW_TTL;
   await env.AGENT_AUDIT.prepare(
@@ -79,7 +54,6 @@ export async function exportEmployeeBundle(
   input: { employeeId: string; expectedVersion: number; skillPins: Array<{ skillId: string; version: number }>;
     requirements?: EmployeeBundle["requirements"]; routines?: EmployeeBundle["routines"] },
 ): Promise<EmployeeBundle> {
-  await ensureTables(env);
   const ownership = await env.AGENT_AUDIT.prepare(
     `SELECT employee_id FROM employee_bundle_profile_owners WHERE org_id=? AND employee_id=? AND owner_id=?`,
   ).bind(orgId, input.employeeId, ownerId).first();
@@ -133,7 +107,6 @@ export async function importEmployeeBundle(
   const recipe = validateEmployeeBundle(input.recipe);
   const digest = await employeeBundleDigest(recipe);
   if (digest !== input.expectedDigest) throw new EmployeeBundleError("preview_digest_mismatch", 409);
-  await ensureTables(env);
   const previous = await receipt(env, orgId, ownerId, input.importId);
   if (previous) {
     if (previous.digest !== digest) throw new EmployeeBundleError("import_id_conflict", 409);

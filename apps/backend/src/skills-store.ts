@@ -1,6 +1,5 @@
 import { randomHex } from "./mailbox-store.js";
 import type { AuditEnv } from "./audit.js";
-import { initAudit } from "./audit.js";
 import { teamSkillWriteGuard, type SkillMutationOptions } from "./team-skill-grant.js";
 
 export type SkillStatus = "draft" | "review" | "active" | "disabled";
@@ -35,52 +34,6 @@ export interface SkillPin {
   version: number;
   name: string;
   sourceUrl?: string;
-}
-
-const TABLES = [
-  `CREATE TABLE IF NOT EXISTS skills (
-    id TEXT PRIMARY KEY,
-    org_id TEXT NOT NULL,
-    owner_id TEXT NOT NULL,
-    version INTEGER NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('draft','review','active','disabled')),
-    active_version INTEGER,
-    reviewed_version INTEGER,
-    reviewed_instructions TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS skills_org_status_updated ON skills(org_id, status, updated_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS skills_owner_updated ON skills(org_id, owner_id, updated_at DESC)`,
-  `CREATE TABLE IF NOT EXISTS skill_versions (
-    skill_id TEXT NOT NULL,
-    org_id TEXT NOT NULL,
-    owner_id TEXT NOT NULL,
-    version INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    instructions TEXT NOT NULL,
-    source_url TEXT,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (skill_id, version)
-  )`,
-  `CREATE TABLE IF NOT EXISTS skill_installs (
-    org_id TEXT NOT NULL,
-    library_slug TEXT NOT NULL,
-    library_version TEXT NOT NULL,
-    skill_id TEXT NOT NULL,
-    installed_by TEXT NOT NULL,
-    installed_at INTEGER NOT NULL,
-    PRIMARY KEY (org_id, installed_by, library_slug)
-  )`,
-];
-
-const initialized = new WeakSet<D1Database>();
-
-async function ensureTables(env: AuditEnv): Promise<void> {
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await initAudit(env);
-  for (const sql of TABLES) await env.AGENT_AUDIT.prepare(sql).run();
-  initialized.add(env.AGENT_AUDIT);
 }
 
 function versionFromRow(row: Record<string, unknown>): SkillVersion | null {
@@ -137,7 +90,6 @@ export async function getSkill(
   id: string,
   options: { includeSharedActive?: boolean } = {},
 ): Promise<SkillRecord | null> {
-  await ensureTables(env);
   const shared = options.includeSharedActive ? " OR s.status = 'active'" : "";
   const row = await env.AGENT_AUDIT.prepare(
     `SELECT ${SKILL_COLUMNS}, ${CONTENT_COLUMNS}
@@ -154,7 +106,6 @@ export async function listSkills(
   ownerId: string,
   options: { limit: number; offset: number },
 ): Promise<{ skills: SkillRecord[]; nextOffset?: number }> {
-  await ensureTables(env);
   const rows = await env.AGENT_AUDIT.prepare(
     `SELECT ${SKILL_COLUMNS}, ${CONTENT_COLUMNS}
      FROM skills s JOIN skill_versions v ON v.skill_id = s.id AND v.version =
@@ -177,7 +128,6 @@ export async function listSkillVersions(
   limit: number,
   offset: number,
 ): Promise<{ versions: SkillVersion[]; nextOffset?: number }> {
-  await ensureTables(env);
   const rows = await env.AGENT_AUDIT.prepare(
     `SELECT skill_id, org_id, owner_id, version, name, instructions, source_url, created_at
      FROM skill_versions WHERE org_id = ? AND skill_id = ? ORDER BY version DESC LIMIT ? OFFSET ?`,
@@ -197,7 +147,6 @@ export async function createSkill(
   now = Date.now(),
   options: SkillMutationOptions = {},
 ): Promise<SkillRecord> {
-  await ensureTables(env);
   const id = `skill-${randomHex(12)}`;
   const guard = teamSkillWriteGuard(orgId, ownerId, options.teamGrant);
   const changes = await env.AGENT_AUDIT.batch([
@@ -226,7 +175,6 @@ export async function updateSkill(
   now = Date.now(),
   options: SkillMutationOptions = {},
 ): Promise<SkillRecord | null> {
-  await ensureTables(env);
   const current = await getSkill(env, orgId, ownerId, id);
   if (!current) return null;
   if (current.version !== expectedVersion) throw new Error("version_conflict");
@@ -304,7 +252,6 @@ export async function disableSkill(
   now = Date.now(),
   options: SkillMutationOptions = {},
 ): Promise<SkillRecord | null> {
-  await ensureTables(env);
   const guard = teamSkillWriteGuard(orgId, ownerId, options.teamGrant);
   const result = await env.AGENT_AUDIT.prepare(
     `UPDATE skills SET status = 'disabled', active_version = NULL, updated_at = ?
@@ -352,7 +299,6 @@ export async function areSkillPinsActive(
 ): Promise<boolean> {
   if (pins.length > 5 || new Set(pins.map((pin) => pin.skillId)).size !== pins.length) return false;
   if (pins.length === 0) return true;
-  await ensureTables(env);
   for (const pin of pins) {
     const row = await env.AGENT_AUDIT.prepare(
       `SELECT 1 AS active FROM skills

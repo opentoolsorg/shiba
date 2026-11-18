@@ -33,7 +33,7 @@ async function sealed(overrides: Partial<CodingTaskInput> = {}): Promise<CodingT
   const base = { ...INPUT, ...overrides };
   return {
     ...base,
-    ...(await sealChildDispatch({ MODEL_CREDENTIAL_KEY: DISPATCH_KEY }, {
+    ...(await sealChildDispatch({ INTERNAL_SIGNING_KEY: DISPATCH_KEY, MODEL_CREDENTIAL_KEY: DISPATCH_KEY }, {
       approvalId: "agent-tool:test",
       sandboxId: base.sandboxId,
       inputHash: "a".repeat(64),
@@ -49,7 +49,7 @@ const RESULT: CodingTaskResult = {
 
 function agent(input = sealedInput, token?: string) {
   return Object.assign(Object.create(OpenCodeAgent.prototype) as OpenCodeAgent, {
-    env: { GITHUB_TOKEN: token, MODEL_CREDENTIAL_KEY: DISPATCH_KEY },
+    env: { GITHUB_TOKEN: token, INTERNAL_SIGNING_KEY: DISPATCH_KEY, MODEL_CREDENTIAL_KEY: DISPATCH_KEY },
     messages: [{ id: "input", role: "user", parts: [{ type: "text", text: formatAgentToolInput(input) }] }],
     reportProgress: mocks.progress,
   });
@@ -489,7 +489,7 @@ describe("OpenCodeAgent response boundary", () => {
     const instance = Object.assign(Object.create(OpenCodeAgent.prototype) as OpenCodeAgent, {
       env: {
         GITHUB_TOKEN: "token",
-        MODEL_CREDENTIAL_KEY: DISPATCH_KEY,
+        INTERNAL_SIGNING_KEY: DISPATCH_KEY, MODEL_CREDENTIAL_KEY: DISPATCH_KEY,
         BROWSER: {},
         ATTACHMENTS: { put: vi.fn(async () => undefined) },
         WORKER_HOSTNAME: "shiba.example.com",

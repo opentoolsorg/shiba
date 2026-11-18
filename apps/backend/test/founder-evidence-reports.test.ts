@@ -28,9 +28,8 @@ const OWNER="owner@example.test",ADMIN="admin@example.test",MEMBER="member@examp
 async function fixture(options:{slack?:boolean}={}) {
   const db=customAgentD1();
   db.sqlite.function("julianday",(_value:unknown)=>2_440_587.5+Date.now()/86_400_000);
-  db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER);CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT)');
   session.email=OWNER;session.accounts={};session.available=true;
-  for(const email of [OWNER,ADMIN,MEMBER]){const accountId=crypto.randomUUID();session.accounts[email]=accountId;db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(accountId,email);db.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?)").run(accountId,email);}
+  for(const email of [OWNER,ADMIN,MEMBER]){const accountId=crypto.randomUUID();session.accounts[email]=accountId;db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(accountId,email);db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')").run(accountId,email);}
   const accounts:Array<{id:string;service:string;connectionName:string;configured:boolean;virtual:boolean;oauthAuthorizationId:string;profile:{displayName:string}}> = [];
   let afterMetadata:(()=>void)|undefined;let metadataBody:string|undefined;
   const fetcher=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{expect(new URL(String(input)).pathname).toBe("/api/connections");expect(init?.method??"GET").toBe("GET");const snapshot=metadataBody??JSON.stringify(accounts);afterMetadata?.();afterMetadata=undefined;return new Response(snapshot,{headers:{"content-type":"application/json"}});});
@@ -124,7 +123,7 @@ describe("private deterministic founder evidence using real SQLite and auth-meta
   it("does not transfer a private report to a replacement native account with the same email",async()=>{
     const f=await fixture(),{report}=await f.create(),replacement=crypto.randomUUID();
     f.sqlite.prepare("DELETE FROM shiba_auth_account_policy WHERE account_id=?").run(f.owner.accountId);f.sqlite.prepare('DELETE FROM "user" WHERE id=?').run(f.owner.accountId);
-    f.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(replacement,OWNER);f.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?)").run(replacement,OWNER);session.accounts[OWNER]=replacement;
+    f.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(replacement,OWNER);f.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')").run(replacement,OWNER);session.accounts[OWNER]=replacement;
     expect((await f.call(`/${report.id}`)).status).toBe(404);await expect(loadFounderEvidenceReport(f.env,f.owner,LIBRARY,report.id)).rejects.toThrow("workspace_authority_changed");
   });
   it("recovers an unknown insert acknowledgement only through its same request UUID and exact frozen hash",async()=>{

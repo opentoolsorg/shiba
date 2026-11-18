@@ -4,23 +4,10 @@
  */
 import type { Env } from "./env.js";
 import { parseCodexAuthJson } from "@shiba/shared";
+import { encryptSecret, decryptSecret, type VaultKey } from "./vault.js";
 
 export const OPENAI_SUBSCRIPTION_KIND = "openai-subscription";
 export const DEFAULT_WORKSPACE_ID = "default";
-
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS user_subscription_credentials (
-    workspace_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    auth_cipher TEXT NOT NULL,
-    account_email_hash TEXT,
-    expires_at INTEGER,
-    saved_at INTEGER NOT NULL,
-    PRIMARY KEY (workspace_id, user_id, kind)
-  )`,
-];
-const initialized = new WeakSet<D1Database>();
 
 export interface SubscriptionCredentialStatus {
   connected: boolean;
@@ -36,16 +23,6 @@ export class SubscriptionCredentialError extends Error {
   }
 }
 
-function base64url(bytes: Uint8Array): string {
-  // Chunked: spreading a large buffer into fromCharCode overflows the call stack.
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-function fromBase64url(text: string): Uint8Array<ArrayBuffer> {
-  return Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
-}
-
 export function modelCredentialKeyConfigured(env?: Pick<Env, "MODEL_CREDENTIAL_KEY">): boolean {
   return /^[a-fA-F0-9]{64}$/.test(env?.MODEL_CREDENTIAL_KEY ?? "");
 }
@@ -57,57 +34,32 @@ function requireKey(env: Pick<Env, "MODEL_CREDENTIAL_KEY">): string {
   return env.MODEL_CREDENTIAL_KEY!;
 }
 
-async function importAesKey(hex: string): Promise<CryptoKey> {
-  const key = Uint8Array.from(hex.match(/../g)!, (part) => Number.parseInt(part, 16));
-  return crypto.subtle.importKey("raw", key, "AES-GCM", false, ["encrypt", "decrypt"]);
-}
-
 function aad(workspaceId: string, userId: string, kind: string): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(JSON.stringify(["subscription-credential-v1", workspaceId, userId, kind]));
 }
 
 export async function encryptAuthJson(
   plaintext: string,
-  keyHex: string,
+  keyHex: VaultKey,
   workspaceId: string,
   userId: string,
   kind: string,
 ): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const cipher = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv, additionalData: aad(workspaceId, userId, kind), tagLength: 128 },
-    await importAesKey(keyHex),
-    new TextEncoder().encode(plaintext),
-  );
-  return `v1.${base64url(iv)}.${base64url(new Uint8Array(cipher))}`;
+  return encryptSecret(plaintext, keyHex, "subscription-credential", { aad: aad(workspaceId, userId, kind) });
 }
 
 export async function decryptAuthJson(
   cipher: string,
-  keyHex: string,
+  keyHex: VaultKey,
   workspaceId: string,
   userId: string,
   kind: string,
 ): Promise<string> {
-  const [version, encodedIv, encodedCipher, extra] = cipher.split(".");
-  if (version !== "v1" || !encodedIv || !encodedCipher || extra !== undefined) {
-    throw new SubscriptionCredentialError("Stored credential is corrupt.", 500);
-  }
-  const iv = fromBase64url(encodedIv);
-  if (iv.length !== 12) throw new SubscriptionCredentialError("Stored credential is corrupt.", 500);
-  const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv, additionalData: aad(workspaceId, userId, kind), tagLength: 128 },
-    await importAesKey(keyHex),
-    fromBase64url(encodedCipher),
-  );
-  return new TextDecoder().decode(plaintext);
+  return decryptSecret(cipher, keyHex, "subscription-credential", { aad: aad(workspaceId, userId, kind) });
 }
 
 export async function ensureSubscriptionCredentialSchema(env: Pick<Env, "AGENT_AUDIT">): Promise<void> {
   if (!env.AGENT_AUDIT) throw new SubscriptionCredentialError("Subscription storage unavailable.", 503);
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await env.AGENT_AUDIT.batch(SCHEMA.map((sql) => env.AGENT_AUDIT.prepare(sql)));
-  initialized.add(env.AGENT_AUDIT);
 }
 
 function jwtExp(accessToken: string): number | undefined {
@@ -159,7 +111,7 @@ export async function saveUserSubscriptionAuthJson(
   await ensureSubscriptionCredentialSchema(env);
   validateAuthJsonPayload(authJson);
   const key = requireKey(env);
-  const cipher = await encryptAuthJson(authJson, key, workspaceId, userId, OPENAI_SUBSCRIPTION_KIND);
+  const cipher = await encryptAuthJson(authJson, { ...env, MODEL_CREDENTIAL_KEY: key }, workspaceId, userId, OPENAI_SUBSCRIPTION_KIND);
   const parsed = parseCodexAuthJson(authJson)!;
   const expiresAt = jwtExp(parsed.accessToken);
   const accountEmailHash = await emailHashFromAuthJson(authJson);
@@ -233,7 +185,7 @@ export async function loadUserSubscriptionAuthJson(
     .bind(workspaceId, userId, OPENAI_SUBSCRIPTION_KIND)
     .first<{ auth_cipher: string }>();
   if (!row) return null;
-  return decryptAuthJson(row.auth_cipher, env.MODEL_CREDENTIAL_KEY!, workspaceId, userId, OPENAI_SUBSCRIPTION_KIND);
+  return decryptAuthJson(row.auth_cipher, env, workspaceId, userId, OPENAI_SUBSCRIPTION_KIND);
 }
 
 export async function persistUserSubscriptionAuthJson(

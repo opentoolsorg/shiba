@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { applyAuthMigrations } from "./fixtures/auth-migrations.js";
 import { createServer, type Server } from "node:http";
 import { generateKeyPairSync, sign, createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
@@ -8,6 +9,7 @@ const BASE = "http://localhost:8787";
 const credentials = {};
 async function fixture(overrides: Partial<BetterAuthLaneEnv> = {}) {
   const sqlite = new DatabaseSync(":memory:");
+  applyAuthMigrations(sqlite);
   const value = (v: unknown): never => (v instanceof Date ? v.getTime() : typeof v === "boolean" ? Number(v) : v ?? null) as never;
   const prepared = (sql: string, params: unknown[] = []) => ({
     bind: (...args: unknown[]) => prepared(sql, args),
