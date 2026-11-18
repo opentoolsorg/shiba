@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { DesktopDaemonState, DesktopStatus } from "@shiba/shared";
+import type { DesktopCapability, DesktopDaemonState, DesktopStatus } from "@shiba/shared";
 import { createLatest, shouldShowConnect, targetMachineFields } from "./desktop-status";
 
 const status = (state: DesktopDaemonState, machineId?: string): DesktopStatus =>
@@ -45,21 +45,29 @@ describe("createLatest", () => {
 describe("shouldShowConnect", () => {
   const hidden: DesktopDaemonState[] = ["disabled", "signed-out", "idle", "busy", "starting"];
   const shown: DesktopDaemonState[] = ["unpaired", "paired-elsewhere", "offline", "revoked", "conflict", "crashed"];
+  const pairingShell = { capabilities: ["status", "pair", "unpair", "onStatus"] as DesktopCapability[] };
+  const deferredShell = { capabilities: ["status", "unpair", "onStatus"] as DesktopCapability[] };
 
   it.each(hidden)("hides for %s", (state) => {
-    expect(shouldShowConnect(true, status(state))).toBe(false);
+    expect(shouldShowConnect(pairingShell, status(state))).toBe(false);
   });
   it.each(shown)("shows for %s", (state) => {
-    expect(shouldShowConnect(true, status(state))).toBe(true);
+    expect(shouldShowConnect(pairingShell, status(state))).toBe(true);
   });
   it("shows with a bridge but no status yet", () => {
-    expect(shouldShowConnect(true, null)).toBe(true);
+    expect(shouldShowConnect(pairingShell, null)).toBe(true);
   });
   it.each([...hidden, ...shown])("never shows without a bridge (%s)", (state) => {
-    expect(shouldShowConnect(false, status(state))).toBe(false);
+    expect(shouldShowConnect(undefined, status(state))).toBe(false);
   });
   it("never shows without a bridge or status", () => {
-    expect(shouldShowConnect(false, null)).toBe(false);
+    expect(shouldShowConnect(undefined, null)).toBe(false);
+  });
+  it.each(shown)("never shows for a shell that defers native pairing (%s)", (state) => {
+    expect(shouldShowConnect(deferredShell, status(state))).toBe(false);
+  });
+  it("hides for a shell with no capability list at all", () => {
+    expect(shouldShowConnect({} as { capabilities: DesktopCapability[] }, status("unpaired"))).toBe(false);
   });
 });
 

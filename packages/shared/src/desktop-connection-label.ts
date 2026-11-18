@@ -16,16 +16,30 @@ export function formatDesktopConnectionLabel(status: DesktopStatus): string {
     case "idle":
       return "This computer · idle";
     case "busy":
-      return status.detail ? `This computer · running · ${status.detail}` : "This computer · running";
+      return "This computer · running";
     case "offline":
-      return status.detail ? `This computer · offline · ${status.detail}` : "This computer · offline";
+      return `This computer · ${offlineCopy(status)}`;
     case "revoked":
       return "Revoked · reconnect from Remote Access";
     case "conflict":
       return "Another daemon is running on this machine";
     case "crashed":
-      return status.detail ? `Daemon crashed · ${status.detail}` : "Daemon crashed · check logs";
+      return status.reason === "exit" && status.exitCode !== undefined
+        ? `Daemon crashed · exit ${status.exitCode}`
+        : "Daemon crashed · check logs";
   }
+}
+
+/**
+ * Offline copy from typed reasons only. The shell never sends daemon text,
+ * repository names, or URLs, so every branch here is fixed wording.
+ */
+function offlineCopy(status: DesktopStatus): string {
+  if (status.reason === "retrying" && status.retryInMs !== undefined) {
+    return `offline · retrying in ${Math.max(1, Math.ceil(status.retryInMs / 1000))}s`;
+  }
+  if (status.reason === "daemon-stopped") return "offline · daemon stopped";
+  return "offline";
 }
 
 /** Short harness summary for the desktop row; never includes secrets. */

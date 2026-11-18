@@ -1,29 +1,18 @@
-// T63 — desktop:pair/unpair/set-url handler rules (DESKTOP-PLAN §4 D3/D4/D7,
-// §11.3 pairing-fork rule: exit before first "polling" = pair failure).
+// T63 — desktop:pair/unpair/set-url handler rules (DESKTOP-PLAN §4 D3/D4/D7).
+// Native pairing is deferred (§11.3), so the pair handler answers with a fixed
+// refusal and the tests below cover only unpair, set-url, and status.
 import { describe, expect, it, vi } from "vitest";
 import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EventEmitter } from "node:events";
 import { isSetupSender, isTrustedSender, parseDeploymentUrl } from "../src/navigation.js";
 import { createIpcBounds } from "../src/ipc-guard.js";
 import { registerDesktopIpc } from "../src/pairing.js";
-import type { ChildLike } from "../src/controller.js";
 import type { DesktopIpcDeps, DesktopStatus } from "../src/pairing.js";
+import { PAIR_FAILURE_MESSAGES } from "@shiba/shared";
 
 const ORIGIN = "https://shiba.example.com";
 const SETUP_URL = "file:///app/dist/setup.html";
-
-type FakeChild = ChildLike & EventEmitter & { stderr: EventEmitter };
-
-function fakeChild(): FakeChild {
-  const ee = new EventEmitter() as FakeChild;
-  ee.stderr = new EventEmitter();
-  ee.kill = vi.fn();
-  return ee;
-}
-
-const TOKEN = "nonce.sig";
 
 function makeDeps(overrides: Partial<DesktopIpcDeps> = {}) {
   const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
@@ -38,11 +27,9 @@ function makeDeps(overrides: Partial<DesktopIpcDeps> = {}) {
         (event as { senderFrame?: { url?: string } }).senderFrame?.url,
         ORIGIN,
       ),
-    mintPairingToken: vi.fn(async () => ({ ok: true as const, token: TOKEN })),
     supervisor: {
       status: () => ({ state: "unpaired" }) as DesktopStatus,
       stop: vi.fn(),
-      forkDaemon: vi.fn(() => fakeChild()),
     },
     isSetupEvent: (event) =>
       isSetupSender(
@@ -53,7 +40,6 @@ function makeDeps(overrides: Partial<DesktopIpcDeps> = {}) {
     getConfiguredOrigin: () => ORIGIN,
     sessionFetch: vi.fn(async () => new Response("{}", { status: 200 })),
     runRoot: mkdtempSync(join(tmpdir(), "shiba-pair-test-")),
-    confirmPairElsewhere: vi.fn(async () => true),
     readLocalConfig: () => null,
     bounds: createIpcBounds(),
     ...overrides,
@@ -72,306 +58,28 @@ describe("desktop:pair", () => {
   it("rejects an untrusted sender frame (D4)", async () => {
     const { deps, handlers } = makeDeps();
     registerDesktopIpc(deps);
-    const res = await invoke(handlers, "desktop:pair", "https://evil.example/x", "aa.bb");
-    expect(res).toEqual({ ok: false, code: "untrusted_sender" });
-    expect(deps.supervisor.forkDaemon).not.toHaveBeenCalled();
+    const res = await invoke(handlers, "desktop:pair", "https://evil.example/x", "renderer.token");
+    expect(res).toEqual({ ok: false, code: "untrusted_sender", error: PAIR_FAILURE_MESSAGES.untrusted_sender });
   });
 
-  it("mints the token in main and never reads one from the renderer", async () => {
+  it("defers native pairing with a fixed browser direction and mints nothing", async () => {
     const { deps, handlers } = makeDeps();
     registerDesktopIpc(deps);
-    const child = fakeChild();
-    const forkDaemon = vi.fn(() => child);
-    (deps.supervisor as { forkDaemon: unknown }).forkDaemon = forkDaemon;
-    // A token-shaped argument from the page is ignored: only the minted one is used.
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "renderer.supplied");
-    await new Promise((r) => setTimeout(r, 0));
-    expect(deps.mintPairingToken).toHaveBeenCalled();
-    expect(forkDaemon).toHaveBeenCalledWith(["--connect", ORIGIN, "--pair"], TOKEN);
-    child.emit("message", { type: "status", state: "polling", machineId: "m1", harnesses: [] });
-    expect(await pending).toEqual({ ok: true });
-  });
-
-  it("pairs nothing when the mint fails, and names the reason as a code", async () => {
-    const forkDaemon = vi.fn(() => fakeChild());
-    const { deps, handlers } = makeDeps({
-      mintPairingToken: vi.fn(async () => ({ ok: false as const, code: "not_configured" as const })),
-      supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon },
-    });
-    registerDesktopIpc(deps);
-    expect(await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`)).toEqual({
+    // A token-shaped argument from the page changes nothing: nothing is minted,
+    // nothing forks, and no reply quotes the page's input.
+    const res = await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    expect(res).toEqual({
       ok: false,
-      code: "not_configured",
+      code: "pairing_deferred",
+      error: PAIR_FAILURE_MESSAGES.pairing_deferred,
     });
-    expect(forkDaemon).not.toHaveBeenCalled();
-  });
-
-  it("stops the daemon, forks with --connect <origin> --pair <token>, resolves on first polling", async () => {
-    const child = fakeChild();
-    const forkDaemon = vi.fn(() => child);
-    const { deps, handlers } = makeDeps({
-      supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon },
-    });
-    registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(deps.supervisor.stop).toHaveBeenCalled();
-    // The token rides the child environment, never argv (D7).
-    expect(forkDaemon).toHaveBeenCalledWith(["--connect", ORIGIN, "--pair"], "nonce.sig");
-    child.emit("message", { type: "status", state: "polling", machineId: "m1", harnesses: [] });
-    expect(await pending).toEqual({ ok: true });
-  });
-
-  it("maps a pair fork's early exit to a code and keeps its stderr out of the reply", async () => {
-    const child = fakeChild();
-    const onPairStderr = vi.fn();
-    const { deps, handlers } = makeDeps({
-      onPairStderr,
-      supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon: () => child },
-    });
-    registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    await new Promise((r) => setTimeout(r, 0));
-    child.stderr!.emit("data", "shiba-local: pairing token expired, reused, or invalid — mint a new one\n");
-    child.emit("exit", 1);
-    expect(await pending).toEqual({ ok: false, code: "pairing_rejected" });
-    // The daemon's own words reach the log sink, never the renderer.
-    expect(onPairStderr).toHaveBeenCalledWith(expect.stringContaining("pairing token expired"));
-  });
-
-  it("reports a daemon without the local runtime as not configured", async () => {
-    const child = fakeChild();
-    const { deps, handlers } = makeDeps({
-      supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon: () => child },
-    });
-    registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    await new Promise((r) => setTimeout(r, 0));
-    child.emit("exit", 79);
-    expect(await pending).toEqual({ ok: false, code: "not_configured" });
-  });
-
-  it("rejects a concurrent submit without killing the in-progress pair fork", async () => {
-    const child = fakeChild();
-    const forkDaemon = vi.fn(() => child);
-    const { deps, handlers } = makeDeps({
-      supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon },
-    });
-    registerDesktopIpc(deps);
-    const first = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`)).toEqual({
-      ok: false,
-      code: "pairing_busy",
-    });
-    expect(deps.supervisor.stop).toHaveBeenCalledTimes(1);
-    expect(forkDaemon).toHaveBeenCalledTimes(1);
-    expect(child.kill).not.toHaveBeenCalled();
-    child.emit("message", { type: "status", state: "polling", machineId: "m1", harnesses: [] });
-    expect(await first).toEqual({ ok: true });
-    // The guard releases once the first pairing settles.
-    const again = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(forkDaemon).toHaveBeenCalledTimes(2);
-    child.emit("message", { type: "status", state: "polling", machineId: "m1", harnesses: [] });
-    expect(await again).toEqual({ ok: true });
-  });
-
-  it("asks for confirmation when already paired-elsewhere and honours a cancel", async () => {
-    const confirmPairElsewhere = vi.fn(async () => false);
-    const { deps, handlers } = makeDeps({
-      supervisor: {
-        status: () => ({ state: "paired-elsewhere", pairedTo: "https://other.example.com" }),
-        stop: vi.fn(),
-        forkDaemon: vi.fn(() => fakeChild()),
-      },
-      confirmPairElsewhere,
-    });
-    registerDesktopIpc(deps);
-    const res = await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    expect(confirmPairElsewhere).toHaveBeenCalledWith("https://other.example.com");
-    expect(res).toEqual({ ok: false, code: "pairing_cancelled" });
-    expect(deps.supervisor.forkDaemon).not.toHaveBeenCalled();
-  });
-
-  it("requires native confirmation when saved config points at another deployment", async () => {
-    const OTHER = "https://other.example.com";
-    const confirmPairElsewhere = vi.fn(async () => false);
-    const { deps, handlers } = makeDeps({
-      readLocalConfig: () => ({ workerUrl: OTHER, machineId: "old-id" }),
-      supervisor: {
-        status: () => ({ state: "unpaired" }),
-        stop: vi.fn(),
-        forkDaemon: vi.fn(() => fakeChild()),
-      },
-      confirmPairElsewhere,
-    });
-    registerDesktopIpc(deps);
-    const res = await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    expect(confirmPairElsewhere).toHaveBeenCalledWith(OTHER);
-    expect(res).toEqual({ ok: false, code: "pairing_cancelled" });
-    expect(deps.supervisor.forkDaemon).not.toHaveBeenCalled();
-  });
-
-  const LOCAL_HERE = { workerUrl: ORIGIN, machineId: "old-id" };
-  const polling = { type: "status", state: "polling", machineId: "new-id", harnesses: [] };
-
-  it("revokes the old machineId after the new pairing lands, and stop() comes first (§11.3)", async () => {
-    const order: string[] = [];
-    const child = fakeChild();
-    let live: DesktopStatus = { state: "idle", machineId: "old-id" };
-    const { deps, handlers } = makeDeps({
-      readLocalConfig: () => LOCAL_HERE,
-      sessionFetch: vi.fn(async (url: string, init?: RequestInit) => {
-        order.push(`fetch ${url} ${init?.body}`);
-        return new Response("{}", { status: 200 });
-      }),
-      supervisor: {
-        status: () => live,
-        stop: vi.fn(() => {
-          order.push("stop");
-          live = { state: "unpaired" };
-        }),
-        forkDaemon: vi.fn(() => {
-          order.push("fork");
-          return child;
-        }),
-      },
-    });
-    registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(order).toEqual(["stop", "fork"]);
-    child.emit("message", polling);
-    expect(await pending).toEqual({ ok: true });
-    expect(order).toEqual(["stop", "fork", `fetch ${ORIGIN}/api/computers/revoke {"machineId":"old-id"}`]);
-  });
-
-  it("re-probes after a successful pair so the bridge resyncs", async () => {
-    const child = fakeChild();
-    const probe = vi.fn();
-    const { deps, handlers } = makeDeps({
-      supervisor: {
-        status: () => ({ state: "unpaired" }),
-        stop: vi.fn(),
-        forkDaemon: () => child,
-        probe,
-      },
-    });
-    registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    await new Promise((r) => setTimeout(r, 0));
-    child.emit("message", polling);
-    expect(await pending).toEqual({ ok: true });
-    expect(probe).toHaveBeenCalledOnce();
-  });
-
-  it("keeps the old pairing untouched when the new pair fails", async () => {
-    const child = fakeChild();
-    const { deps, handlers } = makeDeps({
-      readLocalConfig: () => LOCAL_HERE,
-      supervisor: { status: () => ({ state: "idle", machineId: "old-id" }), stop: vi.fn(), forkDaemon: () => child },
-    });
-    registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    await new Promise((r) => setTimeout(r, 0));
-    child.emit("exit", 1);
-    expect((await pending) as { ok: boolean }).toMatchObject({ ok: false });
+    expect(deps.supervisor.stop).not.toHaveBeenCalled();
     expect(deps.sessionFetch).not.toHaveBeenCalled();
   });
 
-  it("falls back to config.json's machineId when the status dropped it", async () => {
-    const child = fakeChild();
-    const { deps, handlers } = makeDeps({
-      readLocalConfig: () => ({ workerUrl: ORIGIN, machineId: "cfg-id" }),
-      supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon: () => child },
-    });
-    registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    await new Promise((r) => setTimeout(r, 0));
-    child.emit("message", polling);
-    await pending;
-    expect(deps.sessionFetch).toHaveBeenCalledWith(
-      `${ORIGIN}/api/computers/revoke`,
-      expect.objectContaining({ body: JSON.stringify({ machineId: "cfg-id" }) }),
-    );
-  });
-
-  it("still returns ok when the revoke call fails", async () => {
-    const child = fakeChild();
-    const { deps, handlers } = makeDeps({
-      readLocalConfig: () => LOCAL_HERE,
-      sessionFetch: vi.fn(async () => {
-        throw new Error("offline");
-      }),
-      supervisor: { status: () => ({ state: "idle", machineId: "old-id" }), stop: vi.fn(), forkDaemon: () => child },
-    });
-    registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    await new Promise((r) => setTimeout(r, 0));
-    child.emit("message", polling);
-    expect(await pending).toEqual({ ok: true });
-  });
-
-  it("logs a non-ok revoke status without the token and still returns ok", async () => {
-    const child = fakeChild();
-    const log = vi.fn();
-    const { deps, handlers } = makeDeps({
-      readLocalConfig: () => LOCAL_HERE,
-      sessionFetch: vi.fn(async () => new Response("{}", { status: 500 })),
-      supervisor: { status: () => ({ state: "idle", machineId: "old-id" }), stop: vi.fn(), forkDaemon: () => child },
-      log,
-    });
-    registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    await new Promise((r) => setTimeout(r, 0));
-    child.emit("message", polling);
-    expect(await pending).toEqual({ ok: true });
-    expect(log).toHaveBeenCalledWith("re-pair: revoke returned 500");
-    expect(JSON.stringify(log.mock.calls)).not.toContain("nonce.sig");
-  });
-
-  it("does not revoke when unpaired, paired to another origin, or config.json is for another origin", async () => {
-    const cases: Partial<DesktopIpcDeps>[] = [
-      {},
-      {
-        readLocalConfig: () => ({ workerUrl: "https://other.example.com", machineId: "other-id" }),
-        supervisor: {
-          status: () => ({ state: "paired-elsewhere", machineId: "other-id", pairedTo: "https://other.example.com" }),
-          stop: vi.fn(),
-          forkDaemon: () => fakeChild(),
-        },
-      },
-      {
-        readLocalConfig: () => ({ workerUrl: "https://other.example.com", machineId: "other-id" }),
-        supervisor: { status: () => ({ state: "idle", machineId: "other-id" }), stop: vi.fn(), forkDaemon: () => fakeChild() },
-      },
-    ];
-    for (const overrides of cases) {
-      const child = fakeChild();
-      const { deps, handlers } = makeDeps({
-        ...overrides,
-        supervisor: { ...(overrides.supervisor ?? { status: () => ({ state: "unpaired" }), stop: vi.fn() }), forkDaemon: () => child },
-      });
-      registerDesktopIpc(deps);
-      const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-      await new Promise((r) => setTimeout(r, 0));
-      child.emit("message", polling);
-      await pending;
-      expect(deps.sessionFetch).not.toHaveBeenCalled();
-    }
-  });
-
-  it("kills a hung pair fork and resolves after pairTimeoutMs (REVIEW3 F9)", async () => {
-    const child = fakeChild();
-    const { deps, handlers } = makeDeps({
-      pairTimeoutMs: 10,
-      supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon: () => child },
-    });
-    registerDesktopIpc(deps);
-    const res = await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
-    expect(res).toEqual({ ok: false, code: "pairing_timeout" });
-    expect(child.kill).toHaveBeenCalled();
+  it("keeps the browser direction free of the origin and any secret", () => {
+    expect(PAIR_FAILURE_MESSAGES.pairing_deferred).not.toContain(ORIGIN);
+    expect(PAIR_FAILURE_MESSAGES.pairing_deferred).not.toMatch(/token|bearer|https?:\/\//i);
   });
 });
 
@@ -382,7 +90,7 @@ describe("desktop:unpair", () => {
     });
     writeFileSync(join(deps.runRoot, "config.json"), "{}");
     registerDesktopIpc(deps);
-    expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toEqual({
+    expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toMatchObject({
       ok: false,
       code: "revoke_unreachable",
     });
@@ -394,12 +102,13 @@ describe("desktop:unpair", () => {
   it("keeps config and resumes probing after a revoke network failure", async () => {
     const probe = vi.fn();
     const { deps, handlers } = makeDeps({
-      supervisor: { status: () => ({ state: "idle", machineId: "m1" }), stop: vi.fn(), forkDaemon: () => fakeChild(), probe },
+      supervisor: { status: () => ({ state: "idle", machineId: "m1" }), stop: vi.fn()
+, probe },
       sessionFetch: vi.fn(async () => { throw new Error("offline"); }),
     });
     writeFileSync(join(deps.runRoot, "config.json"), "{}");
     registerDesktopIpc(deps);
-    expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toEqual({
+    expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toMatchObject({
       ok: false,
       code: "revoke_unreachable",
     });
@@ -407,22 +116,27 @@ describe("desktop:unpair", () => {
     expect(existsSync(join(deps.runRoot, "config.json"))).toBe(true);
   });
 
-  it("serializes pairing, native disconnect, renderer unpair and deployment changes together", async () => {
-    const child = fakeChild();
-    const onSetUrl = vi.fn();
+  it("serializes disconnect and deployment changes behind one connection label", async () => {
+    const onSetUrl = vi.fn(async () => ({ ok: true as const }));
+    let releaseStop: () => void = () => {};
+    const stop = vi.fn(() => new Promise<void>((resolve) => { releaseStop = resolve; }));
     const { deps, handlers } = makeDeps({
       onSetUrl,
-      supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon: () => child },
+      supervisor: { status: () => ({ state: "unpaired" }), stop },
     });
     const native = registerDesktopIpc(deps);
-    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`);
+    const pending = invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`) as Promise<unknown>;
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(await native.unpair()).toMatchObject({ ok: false });
-    expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toMatchObject({ ok: false });
-    expect(await invoke(handlers, "desktop:set-url", SETUP_URL, "https://new.example.com")).toMatchObject({ ok: false });
-    expect(deps.supervisor.stop).toHaveBeenCalledOnce();
+    // Both the native tray action and a setup-page address change are refused
+    // while the disconnect is still stopping the daemon.
+    expect(await native.unpair()).toMatchObject({ ok: false, code: "pairing_busy" });
+    expect(await invoke(handlers, "desktop:set-url", SETUP_URL, "https://new.example.com")).toMatchObject({
+      ok: false,
+      code: "pairing_busy",
+    });
+    expect(stop).toHaveBeenCalledOnce();
     expect(onSetUrl).not.toHaveBeenCalled();
-    child.emit("message", { type: "status", state: "polling" });
+    releaseStop();
     expect(await pending).toEqual({ ok: true });
   });
 
@@ -431,8 +145,7 @@ describe("desktop:unpair", () => {
       supervisor: {
         status: () => ({ state: "idle", machineId: "mach-1" }),
         stop: vi.fn(),
-        forkDaemon: vi.fn(() => fakeChild()),
-      },
+        },
     });
     writeFileSync(join(deps.runRoot, "config.json"), "{}");
     registerDesktopIpc(deps);
@@ -454,15 +167,14 @@ describe("desktop:unpair", () => {
       supervisor: {
         status: () => ({ state: "idle", machineId: "mach-1" }),
         stop: vi.fn(),
-        forkDaemon: vi.fn(() => fakeChild()),
-        probe: vi.fn(),
+          probe: vi.fn(),
       },
       sessionFetch: vi.fn(async () => new Response("nope", { status: 500 })),
     });
     writeFileSync(join(deps.runRoot, "config.json"), "{}");
     registerDesktopIpc(deps);
     const res = await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`);
-    expect(res).toEqual({ ok: false, code: "revoke_failed" });
+    expect(res).toMatchObject({ ok: false, code: "revoke_failed" });
     expect(deps.supervisor.probe).toHaveBeenCalledTimes(1);
     expect(existsSync(join(deps.runRoot, "config.json"))).toBe(true);
   });
@@ -473,8 +185,7 @@ describe("desktop:unpair", () => {
       supervisor: {
         status: () => ({ state: "busy", machineId: "mach-1" }),
         stop: vi.fn(async () => { order.push("stop"); }),
-        forkDaemon: vi.fn(() => fakeChild()),
-      },
+        },
       sessionFetch: vi.fn(async () => { order.push("revoke"); return new Response("{}", { status: 200 }); }),
     });
     registerDesktopIpc(deps);
@@ -488,12 +199,11 @@ describe("desktop:unpair", () => {
       supervisor: {
         status: () => ({ state: "idle", machineId: "mach-1" }),
         stop: vi.fn(() => new Promise<void>((r) => { releaseStop = r; })),
-        forkDaemon: vi.fn(() => fakeChild()),
-      },
+        },
     });
     registerDesktopIpc(deps);
     const first = invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`);
-    expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toEqual({
+    expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toMatchObject({
       ok: false,
       code: "pairing_busy",
     });
@@ -508,8 +218,7 @@ describe("desktop:unpair", () => {
       supervisor: {
         status: () => ({ state: "crashed" }),
         stop: vi.fn(),
-        forkDaemon: vi.fn(() => fakeChild()),
-      },
+        },
       readLocalConfig: () => ({ workerUrl: ORIGIN, machineId: "mach-disk" }),
     });
     writeFileSync(join(deps.runRoot, "config.json"), "{}");

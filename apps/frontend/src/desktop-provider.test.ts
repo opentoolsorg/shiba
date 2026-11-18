@@ -13,7 +13,7 @@ const bridge = (capabilities: DesktopCapability[]): ShibaDesktopBridge =>
 describe("desktopHasCapability", () => {
   it("reads the shell's advertised capability list", () => {
     expect(desktopHasCapability(bridge(["status", "claudeLogin"]), "claudeLogin")).toBe(true);
-    expect(desktopHasCapability(bridge(["status", "pair"]), "claudeLogin")).toBe(false);
+    expect(desktopHasCapability(bridge(["status", "unpair"]), "claudeLogin")).toBe(false);
   });
 
   it("stays false without a bridge or without a list", () => {
@@ -32,6 +32,6 @@ describe("desktopCanSignInClaude", () => {
 
   it("never advertises the retired native ChatGPT receiver", () => {
     // The shell has no loopback listener, so no capability may revive that button.
-    expect(desktopHasCapability(bridge(["status", "pair", "unpair", "onStatus", "claudeLogin"]), "status")).toBe(true);
+    expect(desktopHasCapability(bridge(["status", "unpair", "onStatus", "claudeLogin"]), "status")).toBe(true);
   });
 });

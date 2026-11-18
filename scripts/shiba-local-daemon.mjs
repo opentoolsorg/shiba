@@ -124,6 +124,9 @@ function parseArgs(argv) {
       if (inline !== undefined && !inline.startsWith("--"))
         fail("The pairing token is never an argument; set SHIBA_PAIRING_TOKEN.", EXIT_USAGE);
       args.pair = process.env.SHIBA_PAIRING_TOKEN ?? "";
+      // One-shot: the value is consumed here and must not outlive this read in
+      // the daemon's own environment (children would inherit it).
+      delete process.env.SHIBA_PAIRING_TOKEN;
     }
     else if (argv[i] === "--inspect-personal-auth" && argv[i + 1]) args.inspectPersonal = argv[++i];
     else if (argv[i] === "--personal-harness" && argv[i + 1]) args.personalHarness = argv[++i];
@@ -290,9 +293,9 @@ function parseLocalApiResponse(sub, res, text) {
         { status: res.status, accessHtml: true },
       );
     }
-    throw Object.assign(new Error(`${sub}: HTTP ${res.status} ${text.slice(0, 300)}`), {
-      status: res.status,
-    });
+    // The body is not quoted: it is Worker-controlled text and belongs in
+    // neither a log nor an operator's copy.
+    throw Object.assign(new Error(`${sub}: HTTP ${res.status}`), { status: res.status });
   }
   if (text === "") return {};
   try {
@@ -301,10 +304,10 @@ function parseLocalApiResponse(sub, res, text) {
     if (looksLikeHtml(text)) {
       throw Object.assign(new Error(`${sub}: got an HTML login page instead of JSON — bypass Cloudflare Access for ${workerUrl}/api/local/*.`), { status: res.status, accessHtml: true });
     }
-    throw Object.assign(
-      new Error(`${sub}: response was not JSON (${text.slice(0, 120)}…)`),
-      { status: res.status, badJson: true },
-    );
+    throw Object.assign(new Error(`${sub}: response was not JSON`), {
+      status: res.status,
+      badJson: true,
+    });
   }
 }
 

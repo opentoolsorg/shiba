@@ -9,7 +9,6 @@ function setup(opts: { code?: number | "throw"; local?: LocalConfig | null } = {
     child: ChildLike;
     hooks: Parameters<ControllerDeps["fork"]>[1];
     args: string[];
-    pairingToken?: string;
     killed: boolean;
   }> = [];
   const statuses: string[] = [];
@@ -22,8 +21,8 @@ function setup(opts: { code?: number | "throw"; local?: LocalConfig | null } = {
       return { status: state.code };
     },
     readLocalConfig: () => state.local,
-    fork: (args, hooks, pairingToken) => {
-      const entry = { args, hooks, pairingToken, killed: false, child: undefined as unknown as ChildLike };
+    fork: (args, hooks) => {
+      const entry = { args, hooks, killed: false, child: undefined as unknown as ChildLike };
       entry.child = {
         on: () => undefined,
         once: (_e, l) => { (entry as { exitListener?: (c: number | null) => void }).exitListener = l; },
@@ -82,19 +81,6 @@ describe("probe state machine", () => {
     await vi.waitFor(() => expect(t.ctl.status().state).toBe("paired-elsewhere"));
     expect(urls).toEqual([`${ORIGIN}/api/computers`, "https://new.example.com/api/computers"]);
     expect(t.children).toHaveLength(0);
-  });
-
-  it("does not let an old404 probe stop a newly paired daemon", async () => {
-    const t = setup();
-    let resolveProbe!: (result: { status: number }) => void;
-    t.deps.probeFetch = () => new Promise((resolve) => { resolveProbe = resolve; });
-    const pending = t.ctl.probe();
-    await t.ctl.stop();
-    t.ctl.forkForPairing(["--connect", ORIGIN, "--pair"], "nonce.signature");
-    resolveProbe({ status: 404 });
-    await pending;
-    expect(t.children).toHaveLength(1);
-    expect(t.children[0]?.killed).toBe(false);
   });
 
   it("ignores a late probe result after disposal", async () => {
@@ -165,7 +151,9 @@ describe("daemon messages and exits", () => {
     onMessage({ type: "status", state: "polling", machineId: "m1", harnesses: ["claude"] });
     expect(t.ctl.status()).toMatchObject({ state: "idle", machineId: "m1", harnesses: ["claude"] });
     onMessage({ type: "status", state: "claimed", runId: "r1", harness: "claude", repoUrl: "https://github.com/o/r" });
-    expect(t.ctl.status()).toMatchObject({ state: "busy", activeRunId: "r1", detail: "o/r" });
+    // The repo slug stays in main; status carries only typed fields.
+    expect(t.ctl.status()).toMatchObject({ state: "busy", activeRunId: "r1" });
+    expect(t.ctl.status()).not.toHaveProperty("detail");
     onMessage({ type: "status", state: "settled", runId: "r1", status: "ok", exitCode: 0, repoUrl: "https://github.com/o/r", posted: true });
     expect(t.ctl.status().state).toBe("idle");
     expect(t.deps.onSettled).toHaveBeenCalledOnce();
@@ -196,28 +184,17 @@ describe("daemon messages and exits", () => {
     expect(t.children[1]?.args).toEqual([]);
   });
 
-  it("hands the pairing token to the fork outside argv", async () => {
-    const t = setup({ local: null });
-    await t.ctl.probe();
-    t.ctl.forkForPairing(["--connect", ORIGIN, "--pair"], "nonce.signature");
-    expect(t.children[0]?.args).toEqual(["--connect", ORIGIN, "--pair"]);
-    expect(t.children[0]?.pairingToken).toBe("nonce.signature");
-  });
-
-  it("reports an exit as a structured event, never free daemon text", async () => {
+  it("reports an exit as a structured event with an output byte count, never daemon text", async () => {
     const t = setup();
     await t.ctl.probe();
+    t.children[0]!.hooks.onLog("repo acme/widgets: fatal\n");
     t.children[0]!.hooks.onExit(78);
-    expect(t.deps.event).toHaveBeenCalledWith({ event: "daemon-exit", state: "revoked", code: 78 });
-  });
-
-  it("pairing fork exiting before polling re-probes instead of restarting", async () => {
-    const t = setup({ local: null });
-    await t.ctl.probe();
-    t.ctl.forkForPairing(["--connect", ORIGIN, "--pair"], "a.b");
-    t.children[0]!.hooks.onExit(1);
-    await vi.waitFor(() => expect(t.ctl.status().state).toBe("unpaired"));
-    expect(t.children).toHaveLength(1);
+    expect(t.deps.event).toHaveBeenCalledWith({
+      event: "daemon-exit",
+      state: "revoked",
+      code: 78,
+      bytes: "repo acme/widgets: fatal\n".length,
+    });
   });
 
   it("stop() SIGTERMs and does not restart", async () => {
@@ -271,7 +248,7 @@ describe("daemon messages and exits", () => {
     expect(t.children).toHaveLength(forks + 1);
     // The crash window was reset: one more abnormal exit restarts instead of re-latching.
     t.children.at(-1)!.hooks.onExit(1);
-    expect(t.ctl.status()).toMatchObject({ state: "offline", detail: "restarting in 1s" });
+    expect(t.ctl.status()).toMatchObject({ state: "offline", reason: "retrying", retryInMs: 1000 });
   });
 
   it("a good heartbeat resets the consecutive-miss count (F8)", async () => {
