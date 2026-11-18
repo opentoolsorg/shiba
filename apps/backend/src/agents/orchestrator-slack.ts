@@ -46,9 +46,10 @@ export function slackSessionIntent(
   state: OrchestratorState,
   name: string,
   enabled: boolean,
+  env: Pick<Env, "SHIBA_SCOPED_DO"> = {},
 ): SlackAgentSessionIntent | null {
   if (state?.sessionDeletedAt !== undefined || !enabled) return null;
-  const scope = parseSlackCanvasOrigin(name);
+  const scope = parseSlackCanvasOrigin(name, env);
   const revision = state?.events?.at(-1)?.seq;
   if (
     !scope ||

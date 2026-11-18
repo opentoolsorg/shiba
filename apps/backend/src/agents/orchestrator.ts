@@ -832,7 +832,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   /** Only committed, signed Slack source records can produce a native status intent. */
   #slackAgentSessionIntent(): SlackAgentSessionIntent | null {
-    return slackSessionIntent(this.state, this.name, !this.statePersistenceFailed && this.env.SLACK_AGENT_SESSIONS_ENABLED === "true");
+    return slackSessionIntent(this.state, this.name, !this.statePersistenceFailed && this.env.SLACK_AGENT_SESSIONS_ENABLED === "true", this.env);
   }
 
   /** Native private methods are absent from the external RPC method surface. */
@@ -4191,7 +4191,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     this.setState({
       ...this.state,
       pendingApprovals,
-      ...slackCanvasOriginPatch(this.state, this.name, toolCallId, canvasOrigin, canvasRoom),
+      ...slackCanvasOriginPatch(this.state, this.name, toolCallId, canvasOrigin, canvasRoom, this.env),
       tasks: [...(this.state?.tasks ?? []), taskRecord].slice(-300),
     });
   }
