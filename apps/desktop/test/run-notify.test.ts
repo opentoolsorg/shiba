@@ -6,7 +6,9 @@ import {
   ACTIVITY_PATH,
   handleDaemonMessage,
   runFinishedNotification,
+  RUN_FINISHED_BODY,
   RUN_FINISHED_TITLE,
+  RUN_UNREPORTED_BODY,
   RUN_UNREPORTED_TITLE,
 } from "../src/run-notify.js";
 
@@ -26,15 +28,22 @@ const settled = (posted: boolean): DaemonStatusMessage => ({
 it("maps a real settled daemon message to the run-finished notification", () => {
   expect(runFinishedNotification(settled(true))).toEqual({
     title: RUN_FINISHED_TITLE,
-    body: "owner/repo",
+    body: RUN_FINISHED_BODY,
     path: ACTIVITY_PATH,
   });
 });
 
-it("posted:false does not claim the run finished — title and owner/repo only (D7)", () => {
+it("posted:false does not claim the run finished (D7)", () => {
   const n = runFinishedNotification(settled(false));
-  expect(n).toEqual({ title: RUN_UNREPORTED_TITLE, body: "owner/repo", path: ACTIVITY_PATH });
+  expect(n).toEqual({ title: RUN_UNREPORTED_TITLE, body: RUN_UNREPORTED_BODY, path: ACTIVITY_PATH });
   expect(n!.title).not.toBe(RUN_FINISHED_TITLE);
+});
+
+it("carries no repository text, path, or daemon detail in a run notification", () => {
+  const n = runFinishedNotification(settled(true))!;
+  expect(JSON.stringify(n)).not.toContain("owner/repo");
+  expect(n.body).toBe(RUN_FINISHED_BODY);
+  expect(n.body).not.toMatch(/https?:\/\/|token|bearer/i);
 });
 
 it.each<DaemonStatusMessage>([

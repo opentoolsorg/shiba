@@ -23,22 +23,11 @@ export interface ApprovalNotification {
 
 export const APPROVALS_POLL_MS = 30_000;
 
-/** "https://github.com/owner/repo" -> "owner/repo"; unparseable input passes through trimmed. */
-export function repoSlug(repoUrl: string): string {
-  const trimmed = repoUrl.trim();
-  try {
-    const parts = new URL(trimmed).pathname.split("/").filter(Boolean);
-    if (parts.length >= 2) {
-      return `${parts[parts.length - 2]}/${parts[parts.length - 1].replace(/\.git$/, "")}`;
-    }
-  } catch {
-    const parts = trimmed.split("/").filter(Boolean);
-    if (parts.length >= 2) return parts.slice(-2).join("/").replace(/\.git$/, "");
-  }
-  return trimmed;
-}
-
-/** D7: email kinds get a fixed label so the mailbox address never reaches a notification. */
+/**
+ * D7: every body is fixed copy. Email kinds name their action so the mailbox
+ * address never reaches a notification, and a run approval names no repository:
+ * the notification opens Shiba, which is where the approval describes itself.
+ */
 export function approvalNotificationBody(approval: ApprovalLike): string {
   switch (approval.kind ?? "run") {
     case "email_send":
@@ -46,7 +35,7 @@ export function approvalNotificationBody(approval: ApprovalLike): string {
     case "email_delete":
       return "Email delete";
     default:
-      return repoSlug(approval.repoUrl);
+      return "Local run approval";
   }
 }
 

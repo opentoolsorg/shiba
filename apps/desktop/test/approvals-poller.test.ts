@@ -39,7 +39,7 @@ it("seeds silently on first start, then notifies on new approvals", async () => 
   expect(await poller.start()).toBe(true);
   expect(notified).toHaveLength(0);
   intervals.at(-1)!();
-  await vi.waitFor(() => expect(notified).toEqual(["Approval needed:o/r2"]));
+  await vi.waitFor(() => expect(notified).toEqual(["Approval needed:Local run approval"]));
 });
 
 it("does not re-seed on restart — approvals queued while stopped notify on resume (F13)", async () => {
@@ -53,7 +53,7 @@ it("does not re-seed on restart — approvals queued while stopped notify on res
   poller.stop();
   // a2 arrived while the poller was stopped (e.g. the machine was suspended).
   expect(await poller.start()).toBe(true);
-  expect(notified).toEqual(["Approval needed:o/r2"]);
+  expect(notified).toEqual(["Approval needed:Local run approval"]);
 });
 
 it("stays off when the endpoint does not return 200", async () => {

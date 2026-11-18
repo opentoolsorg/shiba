@@ -20,6 +20,15 @@ type Handshake = {
   surface: Surface;
 };
 
+/**
+ * A non-empty string capped at `max`, mirroring boundedText in the contract:
+ * the two layers must refuse the same handshakes (test/preload-gate.e2e.ts).
+ */
+function boundedText(value: unknown, max: number): string | null {
+  if (typeof value !== "string" || value.length === 0 || value.length > max) return null;
+  return value.includes("\0") ? null : value;
+}
+
 /** Origin string with no credentials and a web protocol; anything else is refused. */
 function absoluteOrigin(value: unknown): string | null {
   if (typeof value !== "string" || value.length === 0 || value.length > 2048) return null;
@@ -48,16 +57,11 @@ function readHandshake(): Handshake | null {
   const origin = absoluteOrigin(value.origin);
   if (!origin) return null;
   if (value.bridgeVersion !== BRIDGE_VERSION) return null;
-  if (typeof value.appVersion !== "string" || value.appVersion.length > 64) return null;
-  if (typeof value.platform !== "string" || value.platform.length > 32) return null;
+  const appVersion = boundedText(value.appVersion, 64);
+  const platform = boundedText(value.platform, 32);
+  if (!appVersion || !platform) return null;
   if (value.surface !== "dashboard" && value.surface !== "setup") return null;
-  return {
-    origin,
-    bridgeVersion: value.bridgeVersion,
-    appVersion: value.appVersion,
-    platform: value.platform,
-    surface: value.surface,
-  };
+  return { origin, bridgeVersion: value.bridgeVersion, appVersion, platform, surface: value.surface };
 }
 
 const handshake = readHandshake();

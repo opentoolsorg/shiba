@@ -117,9 +117,11 @@ export function RemoteAccessView(): JSX.Element {
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
   const { bridge, status: desktopStatus, refresh: refreshDesktop } = useDesktopStatus();
   const showConnectThisComputer = shouldShowConnect(bridge, desktopStatus);
-  // A shell that cannot pair natively falls back to the browser command here,
-  // so the shell never shows a control that only leads to `pairing_deferred`.
-  const showConnectCommand = bridge === undefined || !showConnectThisComputer;
+  // Inside any Electron shell the token path belongs to the browser: this page
+  // never mints and never shows a command, whichever bridge version it finds.
+  const inShell = bridge !== undefined;
+  const showConnectCommand = !inShell;
+  const showBrowserInstruction = inShell && !showConnectThisComputer;
   const mounted = useRef(true);
   const [loads] = useState(createLatest);
 
@@ -166,6 +168,8 @@ export function RemoteAccessView(): JSX.Element {
   }, []);
 
   const addComputer = async () => {
+    // Belt and braces with showConnectCommand: a shell window has no mint path.
+    if (inShell) return;
     setPairingBusy(true);
     try {
       const res = await fetch("/api/computers/pairing-token", { method: "POST" });
@@ -240,6 +244,13 @@ export function RemoteAccessView(): JSX.Element {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {showBrowserInstruction ? (
+            <p className="text-xs text-[#71717a] dark:text-zinc-400 max-w-sm" role="note">
+              To pair this machine, open this Shiba in your browser and use{" "}
+              <span className="font-medium text-[#0a0a0a] dark:text-zinc-200">Add computer</span> there. This
+              window never creates a pairing token.
+            </p>
+          ) : null}
           {bridge && showConnectThisComputer ? (
             <button
               type="button"
@@ -346,7 +357,7 @@ export function RemoteAccessView(): JSX.Element {
                   ) : showConnectCommand ? (
                     "Use Add computer to generate a one-time connect command."
                   ) : (
-                    "Use Connect this computer to run the local daemon here."
+                    "Open this Shiba in your browser and use Add computer there to pair this machine."
                   )}
                 </p>
               </div>
@@ -423,7 +434,7 @@ export function RemoteAccessView(): JSX.Element {
         </div>
       </div>
 
-      {pairing && showConnectCommand ? (
+      {pairing && showConnectCommand && !inShell ? (
         <PairingModal pairing={pairing} onClose={closePairing} />
       ) : null}
     </div>

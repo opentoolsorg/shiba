@@ -102,7 +102,9 @@ test("configured origin gets the handshake bridge; a foreign origin gets none", 
         : null;
     });
     expect(handshake?.bridgeVersion).toBe(1);
-    expect(typeof handshake?.appVersion).toBe("string");
+    // The bridge reports exactly the version main runs, so the two cannot drift.
+    const appVersion = await app.evaluate(({ app }) => app.getVersion());
+    expect(handshake?.appVersion).toBe(appVersion);
     expect(handshake?.platform).toBe(process.platform);
     expect(handshake?.surface).toBe("dashboard");
     // Pairing takes no payload: main mints the token, the page never holds one.
