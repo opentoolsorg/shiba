@@ -39,7 +39,14 @@ async function api<T>(
 
 const progress = (page: Page) => api<Progress>(page, "/api/onboarding/progress");
 
+const setupNudgeHandled = new WeakSet<Page>();
+
 async function openChat(page: Page) {
+  if (!setupNudgeHandled.has(page)) {
+    setupNudgeHandled.add(page);
+    await page.addLocatorHandler(page.getByRole("dialog", { name: "Your first task is waiting", exact: true }),
+      (dialog) => dialog.getByRole("button", { name: "Not now", exact: true }).click());
+  }
   const close = page.getByRole("button", { name: "Close task", exact: true });
   if (await close.isVisible()) await close.click();
   await page.getByRole("navigation", { name: "Workspace areas", exact: true })
