@@ -4,7 +4,7 @@ export const DEFAULT_WEB_SEARCH_BUDGET = 10;
 
 export async function incrementToolUsage(
   env: Pick<Env, "AGENT_AUDIT">,
-  input: { orgId: string; runId: string; toolName: string; budgetLimit?: number | null },
+  input: { orgId: string; runId: string; toolName: string; budgetLimit?: number | null; calls?: number },
 ): Promise<{ allowed: boolean; count: number; limit: number | null }> {
   if (!env.AGENT_AUDIT) return { allowed: true, count: 0, limit: input.budgetLimit ?? null };
   const now = Date.now();
@@ -13,7 +13,7 @@ export async function incrementToolUsage(
     `SELECT call_count, budget_limit FROM agent_tool_usage
      WHERE org_id = ? AND run_id = ? AND tool_name = ?`,
   ).bind(input.orgId, input.runId, input.toolName).first<{ call_count: number; budget_limit: number | null }>();
-  const count = (row?.call_count ?? 0) + 1;
+  const count = (row?.call_count ?? 0) + Math.max(1, input.calls ?? 1);
   if (limit !== null && count > limit) {
     return { allowed: false, count: row?.call_count ?? 0, limit };
   }
