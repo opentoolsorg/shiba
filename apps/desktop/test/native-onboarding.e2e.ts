@@ -99,7 +99,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     let page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
     await page.waitForURL((url) => url.origin === fixture.origin && ["/app/", "/work/", "/threads/"].includes(url.pathname));
-    await page.getByRole("button", { name: "First sign-in? Create the account" }).click();
+    await page.getByRole("button", { name: "Create account", exact: true }).click();
     await page.getByLabel("Name", { exact: true }).fill("Native Fixture Owner");
     await page.getByLabel("Email", { exact: true }).fill("native-owner@example.test");
     await page.getByLabel("Password", { exact: true }).fill("native-fixture-only-password-2026!");
