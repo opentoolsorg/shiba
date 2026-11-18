@@ -12,7 +12,7 @@ const SECRET_PREFIX = "user_provider_secret:";
 const OWNER_PREFIX = "user_provider_owner:";
 const WORKSPACE = "installation";
 
-type KeyEnv = Pick<Env, "MODEL_CREDENTIAL_KEY"> & {
+type KeyEnv = Pick<Env, "MODEL_CREDENTIAL_KEY" | "VAULT_KEYRING" | "VAULT_WRITE_V2"> & {
   AGENT_TOKENS?: Env["AGENT_TOKENS"];
 };
 
@@ -63,7 +63,7 @@ export async function putUserProviderSecret(
   if (!env.AGENT_TOKENS || !modelCredentialKeyConfigured(env)) {
     throw new Error("Sign-in storage is not ready on this deployment.");
   }
-  const cipher = await encryptAuthJson(secret, env.MODEL_CREDENTIAL_KEY!, WORKSPACE, userId, kind);
+  const cipher = await encryptAuthJson(secret, env, WORKSPACE, userId, kind);
   await env.AGENT_TOKENS.put(secretKey(userId, kind), cipher);
   await env.AGENT_TOKENS.put(ownerKey(userId, kind), userId);
 }
@@ -77,7 +77,7 @@ export async function readUserProviderSecret(
   const cipher = await env.AGENT_TOKENS.get(secretKey(userId, kind), { type: "text" });
   if (!cipher) return null;
   try {
-    const plain = await decryptAuthJson(cipher, env.MODEL_CREDENTIAL_KEY!, WORKSPACE, userId, kind);
+    const plain = await decryptAuthJson(cipher, env, WORKSPACE, userId, kind);
     return plain.trim() === "" ? null : plain;
   } catch {
     return null;

@@ -5,6 +5,7 @@ import { orgIdForRecord } from "./agent-tokens.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 import { audit } from "./audit.js";
 import type { Env } from "./env.js";
+import { encryptSecret, decryptSecret, type VaultKey } from "./vault.js";
 import { wrapUntrusted } from "./mailbox-store.js";
 
 export const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
@@ -40,35 +41,8 @@ export interface GmailGrant {
 }
 
 // Deliberately separate tables, sharing only the existing D1 binding.
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS gmail_oauth_states (
-    state_hash TEXT PRIMARY KEY, owner TEXT NOT NULL UNIQUE,
-    verifier TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed INTEGER NOT NULL DEFAULT 0
-  )`,
-  `CREATE INDEX IF NOT EXISTS gmail_states_expiry ON gmail_oauth_states(expires_at)`,
-  `CREATE TABLE IF NOT EXISTS gmail_resource_candidates (
-    owner TEXT NOT NULL, connection_id TEXT NOT NULL, message_id TEXT NOT NULL, thread_id TEXT NOT NULL,
-    sender TEXT NOT NULL DEFAULT '', subject TEXT NOT NULL DEFAULT '', date TEXT NOT NULL DEFAULT '',
-    expires_at INTEGER NOT NULL, PRIMARY KEY(owner, connection_id, message_id)
-  )`,
-  `CREATE INDEX IF NOT EXISTS gmail_resource_candidates_expiry ON gmail_resource_candidates(expires_at)`,
-  `CREATE TABLE IF NOT EXISTS gmail_connections (
-    id TEXT PRIMARY KEY, owner TEXT NOT NULL UNIQUE, email TEXT NOT NULL,
-    refresh_cipher TEXT NOT NULL, created_at INTEGER NOT NULL,
-    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1))
-  )`,
-  `CREATE TABLE IF NOT EXISTS gmail_grants (
-    principal TEXT NOT NULL, owner TEXT NOT NULL, connection_id TEXT NOT NULL,
-    created_at INTEGER NOT NULL, token_created INTEGER NOT NULL, PRIMARY KEY (principal, token_created),
-    FOREIGN KEY(connection_id) REFERENCES gmail_connections(id) ON DELETE CASCADE
-  )`,
-];
-const initialized = new WeakSet<D1Database>();
-export async function ensureGmailSchema(env: Env): Promise<void> {
+export async function assertGmailStorage(env: Env): Promise<void> {
   if (!env.AGENT_AUDIT) throw new GmailError("Gmail storage unavailable.", 503);
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await env.AGENT_AUDIT.batch(SCHEMA.map((sql) => env.AGENT_AUDIT.prepare(sql)));
-  initialized.add(env.AGENT_AUDIT);
 }
 
 /** Fail closed on missing, malformed, or non-canonical operator configuration. */
@@ -87,7 +61,7 @@ export function gmailConfig(env: Env) {
     throw new GmailError("Gmail is not configured.", 503);
   }
   return { clientId: env.GMAIL_CLIENT_ID, clientSecret: env.GMAIL_CLIENT_SECRET,
-    redirectUri: env.GMAIL_REDIRECT_URI, tokenKey: env.GMAIL_TOKEN_KEY! };
+    redirectUri: env.GMAIL_REDIRECT_URI, tokenKey: { ...env, MODEL_CREDENTIAL_KEY: env.GMAIL_TOKEN_KEY! } };
 }
 
 function base64url(bytes: Uint8Array): string {
@@ -99,33 +73,15 @@ function fromBase64url(text: string): Uint8Array<ArrayBuffer> {
 function random(bytes = 32): string {
   return base64url(crypto.getRandomValues(new Uint8Array(bytes)));
 }
-async function tokenKey(hex: string): Promise<CryptoKey> {
-  if (!/^[a-fA-F0-9]{64}$/.test(hex)) throw new GmailError("Gmail key unavailable.", 503);
-  const key = Uint8Array.from(hex.match(/../g)!, (part) => Number.parseInt(part, 16));
-  return crypto.subtle.importKey("raw", key, "AES-GCM", false, ["encrypt", "decrypt"]);
-}
 function aad(owner: string, connectionId: string): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(JSON.stringify(["gmail-refresh-v1", owner, connectionId]));
 }
-export async function encryptGmailToken(token: string, key: string, owner: string, connectionId: string): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const cipher = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv, additionalData: aad(owner, connectionId), tagLength: 128 },
-    await tokenKey(key), new TextEncoder().encode(token),
-  );
-  return `v1.${base64url(iv)}.${base64url(new Uint8Array(cipher))}`;
+export async function encryptGmailToken(token: string, key: VaultKey, owner: string, connectionId: string): Promise<string> {
+  return encryptSecret(token, key, "gmail-refresh", { aad: aad(owner, connectionId) });
 }
-export async function decryptGmailToken(cipher: string, key: string, owner: string, connectionId: string): Promise<string> {
+export async function decryptGmailToken(cipher: string, key: VaultKey, owner: string, connectionId: string): Promise<string> {
   try {
-    const [version, encodedIv, encodedCipher, extra] = cipher.split(".");
-    if (version !== "v1" || !encodedIv || !encodedCipher || extra !== undefined) throw new Error();
-    const iv = fromBase64url(encodedIv);
-    if (iv.length !== 12) throw new Error();
-    const plaintext = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv, additionalData: aad(owner, connectionId), tagLength: 128 },
-      await tokenKey(key), fromBase64url(encodedCipher),
-    );
-    return new TextDecoder().decode(plaintext);
+    return await decryptSecret(cipher, key, "gmail-refresh", { aad: aad(owner, connectionId) });
   } catch {
     // Never propagate crypto/provider errors containing credential material.
     throw new GmailError("Gmail credentials unavailable; disconnect and reconnect.", 503);
@@ -223,7 +179,7 @@ export interface GmailResourceCandidate {
 }
 
 async function activeOwnerConnection(env: Env, owner: string): Promise<StoredConnection> {
-  await ensureGmailSchema(env);
+  await assertGmailStorage(env);
   const connection = await env.AGENT_AUDIT.prepare(
     "SELECT id, owner, email, refresh_cipher AS refreshCipher, created_at AS createdAt FROM gmail_connections WHERE owner = ? AND active = 1",
   ).bind(owner).first<StoredConnection>();
@@ -331,7 +287,7 @@ export async function readGmailForEmployee(
       messageIds.some((id) => typeof id !== "string" || !MESSAGE_ID.test(id)) || new Set(messageIds).size !== messageIds.length) {
     throw new GmailError("Provide 1–25 distinct selected Gmail message IDs.");
   }
-  await ensureGmailSchema(env);
+  await assertGmailStorage(env);
   const connection = await env.AGENT_AUDIT.prepare(`SELECT id, owner, email, refresh_cipher AS refreshCipher, created_at AS createdAt
     FROM gmail_connections WHERE owner = ? AND id = ? AND active = 1`).bind(owner, connectionId).first<StoredConnection>();
   if (!connection) throw new GmailError("Gmail connection is disconnected or revoked.", 403);
@@ -354,7 +310,7 @@ export async function readGmailForEmployee(
 
 export async function beginGmailConnect(env: Env, owner: string, now = Date.now()) {
   const config = gmailConfig(env);
-  await ensureGmailSchema(env);
+  await assertGmailStorage(env);
   if (await env.AGENT_AUDIT.prepare("SELECT id FROM gmail_connections WHERE owner = ?").bind(owner).first()) {
     throw new GmailError("Disconnect the existing Gmail connection before reconnecting.", 409);
   }
@@ -378,7 +334,7 @@ export async function beginGmailConnect(env: Env, owner: string, now = Date.now(
 export async function finishGmailConnect(env: Env, owner: string, state: string, code: string, now = Date.now()): Promise<GmailConnection> {
   const config = gmailConfig(env);
   if (!/^[A-Za-z0-9_-]{43}$/.test(state) || !code || code.length > 4096) throw new GmailError("Invalid Gmail callback.");
-  await ensureGmailSchema(env);
+  await assertGmailStorage(env);
   // Atomic consume, never read-then-delete. The consumed tombstone fences the
   // final commit: disconnect can delete it while Google HTTP is in flight.
   const stateHash = await sha256Hex(state);
@@ -418,7 +374,7 @@ export async function finishGmailConnect(env: Env, owner: string, state: string,
 /** Google returned `error=` (user denied): drop that pending flow so reconnect isn't blocked. */
 export async function cancelGmailConnect(env: Env, owner: string, state: string): Promise<void> {
   if (!/^[A-Za-z0-9_-]{43}$/.test(state)) return;
-  await ensureGmailSchema(env);
+  await assertGmailStorage(env);
   await env.AGENT_AUDIT.prepare("DELETE FROM gmail_oauth_states WHERE state_hash = ? AND owner = ? AND consumed = 0")
     .bind(await sha256Hex(state), owner).run();
 }
@@ -426,7 +382,7 @@ export async function cancelGmailConnect(env: Env, owner: string, state: string)
 export async function gmailStatus(env: Env, owner: string) {
   let configured = true;
   try { gmailConfig(env); } catch { configured = false; }
-  await ensureGmailSchema(env);
+  await assertGmailStorage(env);
   const connection = await env.AGENT_AUDIT.prepare(
     "SELECT id, email, created_at AS createdAt FROM gmail_connections WHERE owner = ? AND active = 1",
   ).bind(owner).first<GmailConnection>();
@@ -457,7 +413,7 @@ export async function grantGmail(env: Env, owner: string, token: string, now = D
   const record = typeof token === "string" ? await verifyToken(env, token.trim()) : null;
   if (!record || !record.scopes.includes("gmail:read")) throw new GmailError("Provide an active agent token with the gmail:read scope.");
   validateGmailPrincipal(record.principal);
-  await ensureGmailSchema(env);
+  await assertGmailStorage(env);
   // A principal has exactly one mailbox, selected by this grant, never by tool args.
   // ponytail: token identity is (principal, created ms); store the token hash if same-ms mints ever matter.
   await env.AGENT_AUDIT.prepare(
@@ -476,7 +432,7 @@ export async function grantGmail(env: Env, owner: string, token: string, now = D
 }
 export async function revokeGmailGrant(env: Env, owner: string, principal: string): Promise<void> {
   validateGmailPrincipal(principal);
-  await ensureGmailSchema(env);
+  await assertGmailStorage(env);
   await env.AGENT_AUDIT.prepare("DELETE FROM gmail_grants WHERE principal = ? AND owner = ?").bind(principal, owner).run();
   await auditOwner(env, owner, "gmail.revoke_grant", principal);
 }
@@ -498,7 +454,7 @@ async function revokeGoogleToken(token: string): Promise<"revoked" | "failed"> {
 }
 
 export async function disconnectGmail(env: Env, owner: string) {
-  await ensureGmailSchema(env);
+  await assertGmailStorage(env);
   // Deny access and new grants atomically before waiting for Google, while
   // keeping only the encrypted credential available for best-effort revoke.
   const disabled = await env.AGENT_AUDIT.batch<StoredConnection>([
@@ -510,7 +466,7 @@ export async function disconnectGmail(env: Env, owner: string) {
   let revoke: "not_connected" | "revoked" | "failed" = connection ? "failed" : "not_connected";
   try {
     if (connection) {
-      const token = await decryptGmailToken(connection.refreshCipher, env.GMAIL_TOKEN_KEY ?? "", owner, connection.id);
+      const token = await decryptGmailToken(connection.refreshCipher, { ...env, MODEL_CREDENTIAL_KEY: env.GMAIL_TOKEN_KEY }, owner, connection.id);
       revoke = await revokeGoogleToken(token);
     }
   } catch { revoke = "failed"; }
@@ -559,7 +515,7 @@ async function accessForPrincipal(
   if (orgIdForRecord(principal) !== DASHBOARD_ORG_ID) throw new GmailError("Gmail access denied.", 403);
   validateGmailPrincipal(principal.principal);
   const config = gmailConfig(env);
-  await ensureGmailSchema(env);
+  await assertGmailStorage(env);
   const connection = await env.AGENT_AUDIT.prepare(
     `SELECT c.id, c.owner, c.email, c.refresh_cipher AS refreshCipher, g.token_created AS generation FROM gmail_connections c
      JOIN gmail_grants g ON g.connection_id = c.id AND g.owner = c.owner

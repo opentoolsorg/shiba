@@ -16,8 +16,7 @@ import {
   v1Forbidden,
   v1Unauthorized,
 } from "./v1-auth.js";
-import { getAgentByName } from "agents/routing";
-import { ORCHESTRATOR_NAME } from "./slack-routes.js";
+import { orchestratorFor } from "./platform/do-resolver.js";
 import { isAuthorizedRequest } from "./request-auth.js";
 import { InputError } from "./security.js";
 
@@ -49,7 +48,7 @@ async function handleV1RunsApiKey(request: Request, env: Env): Promise<Response 
   if (request.method !== "GET") {
     return Response.json({ error: "Method not allowed." }, { status: 405 });
   }
-  const stub = await getAgentByName(env.CodingOrchestrator, ORCHESTRATOR_NAME);
+  const stub = await orchestratorFor(env, { workspaceId: principal.orgId });
   const internal = new Request(new URL("/api/runs", request.url), {
     method: "GET",
     headers: { authorization: request.headers.get("authorization") ?? "" },

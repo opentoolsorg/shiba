@@ -19,12 +19,11 @@ afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 async function fixture(withEmployee = false) {
   const f = customAgentD1();
-  f.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT,kind TEXT); CREATE TABLE "session"(id TEXT PRIMARY KEY,userId TEXT,expiresAt INTEGER)');
   for (const email of [actor.email, "member@example.test"]) {
     actor.ids[email] = crypto.randomUUID();
-    f.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(actor.ids[email], email);
-    f.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?,?)").run(actor.ids[email], email, email === actor.email ? "bootstrap" : "invited");
-    f.sqlite.prepare('INSERT INTO "session" VALUES(?,?,?)').run(`session:${email}`, actor.ids[email], actor.expiresAt);
+    f.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(actor.ids[email], email);
+    f.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) SELECT ?,?,kind,CASE WHEN kind='invited' THEN 'fixture-invite' END,CASE WHEN kind='invited' THEN 'fixture-workspace' END FROM (SELECT ? AS kind)").run(actor.ids[email], email, email === actor.email ? "bootstrap" : "invited");
+    f.sqlite.prepare('INSERT INTO "session"(id,userId,expiresAt,token,createdAt,updatedAt) VALUES(?,?,?,lower(hex(randomblob(16))),1,1)').run(`session:${email}`, actor.ids[email], actor.expiresAt);
   }
   const env = { AGENT_AUDIT: f.database, BETTER_AUTH_SECRET: "s".repeat(32) } as unknown as Env;
   const team = await createTeamWorkspace(env, actor.email, { name: "Team" });

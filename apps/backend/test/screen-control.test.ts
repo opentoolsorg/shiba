@@ -18,7 +18,7 @@ import {
   setSandboxHandleResolver,
   setSandboxOpsFactory,
 } from "../src/sandbox/lifecycle.js";
-import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 
 const mocks = vi.hoisted(() => ({
   destroy: vi.fn(),
@@ -221,7 +221,7 @@ describe("POST /api/runs/<id>/screen", () => {
     const run = seedRun(instance, "running");
     instance.state.runs = [{ ...run, queuedBy: "agent-alpha" }];
     expect(
-      (await instance.onRequest(screenPost("run-1", { type: "click", x: 0, y: 0 }, "agent-beta"))).status,
+      (await sendWorkerRequest(instance, screenPost("run-1", { type: "click", x: 0, y: 0 }, "agent-beta"))).status,
     ).toBe(404);
   });
 
