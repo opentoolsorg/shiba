@@ -1,5 +1,4 @@
 import type { AuditEnv } from "./audit.js";
-import { initAudit } from "./audit.js";
 
 export interface SpaceIndexRow {
   id: string;
@@ -9,25 +8,6 @@ export interface SpaceIndexRow {
   createdBy: string;
   createdAt: number;
   updatedAt: number;
-}
-
-const TABLE = `CREATE TABLE IF NOT EXISTS spaces_index (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  template TEXT NOT NULL,
-  created_by TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-)`;
-
-const initialized = new WeakSet<D1Database>();
-
-async function ensureTables(env: AuditEnv): Promise<void> {
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await initAudit(env);
-  await env.AGENT_AUDIT.prepare(TABLE).run();
-  initialized.add(env.AGENT_AUDIT);
 }
 
 function fromRow(row: Record<string, unknown>): SpaceIndexRow | null {
@@ -52,7 +32,6 @@ function fromRow(row: Record<string, unknown>): SpaceIndexRow | null {
 }
 
 export async function insertSpaceIndex(env: AuditEnv, row: SpaceIndexRow): Promise<void> {
-  await ensureTables(env);
   await env.AGENT_AUDIT.prepare(
     `INSERT INTO spaces_index (id, org_id, name, template, created_by, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -60,7 +39,6 @@ export async function insertSpaceIndex(env: AuditEnv, row: SpaceIndexRow): Promi
 }
 
 export async function listSpacesIndex(env: AuditEnv, orgId: string): Promise<SpaceIndexRow[]> {
-  await ensureTables(env);
   const rows = await env.AGENT_AUDIT.prepare(
     "SELECT id, org_id, name, template, created_by, created_at, updated_at FROM spaces_index WHERE org_id = ? ORDER BY updated_at DESC",
   ).bind(orgId).all();
@@ -68,7 +46,6 @@ export async function listSpacesIndex(env: AuditEnv, orgId: string): Promise<Spa
 }
 
 export async function getSpaceIndex(env: AuditEnv, orgId: string, id: string): Promise<SpaceIndexRow | null> {
-  await ensureTables(env);
   const row = await env.AGENT_AUDIT.prepare(
     "SELECT id, org_id, name, template, created_by, created_at, updated_at FROM spaces_index WHERE org_id = ? AND id = ?",
   ).bind(orgId, id).first();
@@ -76,7 +53,6 @@ export async function getSpaceIndex(env: AuditEnv, orgId: string, id: string): P
 }
 
 export async function updateSpaceIndexName(env: AuditEnv, orgId: string, id: string, name: string, updatedAt: number): Promise<boolean> {
-  await ensureTables(env);
   const result = await env.AGENT_AUDIT.prepare(
     "UPDATE spaces_index SET name = ?, updated_at = MAX(updated_at, ?) WHERE org_id = ? AND id = ?",
   ).bind(name, updatedAt, orgId, id).run();
@@ -85,7 +61,6 @@ export async function updateSpaceIndexName(env: AuditEnv, orgId: string, id: str
 
 /** Bump index ordering timestamp without regressing when clocks skew backward. */
 export async function touchSpaceIndexUpdatedAt(env: AuditEnv, orgId: string, id: string, updatedAt: number): Promise<boolean> {
-  await ensureTables(env);
   const result = await env.AGENT_AUDIT.prepare(
     "UPDATE spaces_index SET updated_at = MAX(updated_at, ?) WHERE org_id = ? AND id = ?",
   ).bind(updatedAt, orgId, id).run();
@@ -93,7 +68,6 @@ export async function touchSpaceIndexUpdatedAt(env: AuditEnv, orgId: string, id:
 }
 
 export async function deleteSpaceIndex(env: AuditEnv, orgId: string, id: string): Promise<boolean> {
-  await ensureTables(env);
   const result = await env.AGENT_AUDIT.prepare(
     "DELETE FROM spaces_index WHERE org_id = ? AND id = ?",
   ).bind(orgId, id).run();

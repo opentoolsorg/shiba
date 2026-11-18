@@ -24,8 +24,8 @@ async function fixture(libraryId=LIBRARY){
  const db=customAgentD1();db.sqlite.function("julianday",(_v:unknown)=>2440587.5+Date.now()/86400000);
  let maxParameters=0,maxSqlBytes=0;const originalPrepare=db.database.prepare.bind(db.database);
  db.database.prepare=(sql)=>{maxSqlBytes=Math.max(maxSqlBytes,new TextEncoder().encode(sql).length);if(maxSqlBytes>100000)throw new Error("D1 SQL statement length exceeded");const wrap=(statement:D1PreparedStatement):D1PreparedStatement=>({...statement,bind:(...args:unknown[])=>{maxParameters=Math.max(maxParameters,args.length);if(args.length>100)throw new Error("D1 bound parameter limit exceeded");return wrap(statement.bind(...args));}}as D1PreparedStatement);return wrap(originalPrepare(sql));};
- db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER);CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT)');actor.email=OWNER;actor.native=true;actor.accounts={};
- for(const email of[OWNER,ADMIN]){actor.accounts[email]=crypto.randomUUID();db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(actor.accounts[email]!,email);db.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?)").run(actor.accounts[email]!,email);}
+ actor.email=OWNER;actor.native=true;actor.accounts={};
+ for(const email of[OWNER,ADMIN]){actor.accounts[email]=crypto.randomUUID();db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(actor.accounts[email]!,email);db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')").run(actor.accounts[email]!,email);}
  const manifest=await readGatewayManifest(),manifestHash=await hash(manifest),provider=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const url=new URL(String(input));if(url.hostname==="api.figma.com")return Response.json({name:"Bounded Figma fact",echo:"private-fixture-oauth",runtimeEcho:`oct_${"r".repeat(43)}`});
   expect(url.href).toBe("https://api.linear.app/graphql");expect(JSON.parse(String(init?.body)).query).not.toContain("mutation");
@@ -79,7 +79,7 @@ describe("standing founder reads with real parent D1/HMAC callbacks and fixed ga
   const input={...f.input,operations:[{connectionId:"connection-googleads",connectionVersion:1,operationId:"googleads.campaign_daily_metrics",arguments:{customerId:"1234567890",loginCustomerId:"9876543210",startDate:"2026-10-01",endDate:"2026-10-30"}}]};
   const draft=await f.call("","POST",input);expect(draft.response.status,JSON.stringify(draft.body)).toBe(200);expect(draft.body.grant?.contract.operations[0]?.sourceFingerprint).toBe(fingerprint);expect(f.provider).not.toHaveBeenCalled();
   const scoped=f.env as Env & {OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS:string},originalMap=scoped.OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS;
-  expect(draft.body.grant?.contract.operations[0]?.runtimeKeyFingerprint).toMatch(/^[a-f0-9]{64}$/);expect(JSON.stringify(draft.body)).not.toContain(`oct_${"s".repeat(43)}`);
+  expect(draft.body.grant?.contract.operations[0]?.runtimeKeyFingerprint).toMatch(/^v1:[a-f0-9]{16}:[a-f0-9]{64}$/);expect(JSON.stringify(draft.body)).not.toContain(`oct_${"s".repeat(43)}`);
   scoped.OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS=originalMap.replace(`oct_${"s".repeat(43)}`,`oct_${"t".repeat(43)}`);
   expect((await f.call("/enable","POST",f.decision(draft.body))).response.status).toBe(409);expect(f.provider).not.toHaveBeenCalled();
   scoped.OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS=originalMap;

@@ -1,3 +1,4 @@
+import { signInternal, verifyInternal } from "./security/signing.js";
 import { redactSecrets } from "./security.js";
 
 export const SLACK_BUFFER_MAX_MESSAGES = 50;
@@ -155,12 +156,8 @@ async function bufferRequestBody(request: Request): Promise<string | null> {
   return new TextDecoder("utf-8", { fatal: true }).decode(joined);
 }
 
-function bufferSignaturePayload(request: Request, timestamp: string, body: string): Uint8Array<ArrayBuffer> {
-  return new TextEncoder().encode(["shiba:slack-buffer:v1", request.method, new URL(request.url).pathname, timestamp, body].join("\n"));
-}
-
-async function bufferCryptoKey(secret: string, usage: "sign" | "verify"): Promise<CryptoKey> {
-  return crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [usage]);
+function bufferSignaturePayload(request: Request, timestamp: string, body: string): string {
+  return ["shiba:slack-buffer:v1", request.method, new URL(request.url).pathname, timestamp, body].join("\n");
 }
 
 export async function signSlackBufferRequest(request: Request, secret: string, now = Date.now()): Promise<Request> {
@@ -169,24 +166,23 @@ export async function signSlackBufferRequest(request: Request, secret: string, n
   const body = await bufferRequestBody(request);
   if (body === null) throw new Error("Slack follow-up exceeds the request limit.");
   const timestamp = String(Math.floor(now / 1000));
-  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", await bufferCryptoKey(secret, "sign"), bufferSignaturePayload(request, timestamp, body)));
+  const signature = await signInternal({ INTERNAL_SIGNING_KEY: secret }, "shiba/slack-buffer/v1", bufferSignaturePayload(request, timestamp, body));
   const headers = new Headers(request.headers);
   headers.set(BUFFER_TIMESTAMP_HEADER, timestamp);
-  headers.set(BUFFER_SIGNATURE_HEADER, Array.from(signature, (byte) => byte.toString(16).padStart(2, "0")).join(""));
+  headers.set(BUFFER_SIGNATURE_HEADER, signature);
   return new Request(request, { headers });
 }
 
-export async function verifySlackBufferRequest(request: Request, secret: string | undefined, now = Date.now()): Promise<boolean> {
+export async function verifySlackBufferRequest(request: Request, secret: string | undefined, now = Date.now(), legacyFallback?: string): Promise<boolean> {
   if (!secret?.trim() || request.method !== "POST" || new URL(request.url).pathname !== "/api/slack/buffer") return false;
   const timestamp = request.headers.get(BUFFER_TIMESTAMP_HEADER) ?? "";
   const signature = request.headers.get(BUFFER_SIGNATURE_HEADER) ?? "";
-  if (!/^\d{1,12}$/.test(timestamp) || !/^[a-f0-9]{64}$/.test(signature)) return false;
+  if (!/^\d{1,12}$/.test(timestamp)) return false;
   if (Math.abs(now / 1000 - Number(timestamp)) > 300) return false;
   try {
     const body = await bufferRequestBody(request);
     if (body === null) return false;
-    const bytes = Uint8Array.from(signature.match(/.{2}/g) ?? [], (byte) => Number.parseInt(byte, 16));
-    return await crypto.subtle.verify("HMAC", await bufferCryptoKey(secret, "verify"), bytes, bufferSignaturePayload(request, timestamp, body));
+    return await verifyInternal({ INTERNAL_SIGNING_KEY: secret, SHIBA_LEGACY_SIGNING_FALLBACK: legacyFallback }, "shiba/slack-buffer/v1", bufferSignaturePayload(request, timestamp, body), signature, secret);
   } catch {
     return false;
   }

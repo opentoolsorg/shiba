@@ -70,10 +70,10 @@ export async function listArchivedCenter(
   const agents = await safeQuery(() =>
     env
       .AGENT_AUDIT!.prepare(
-        `SELECT agent_id AS resourceId, name AS title, archived_at AS archivedAt
-     FROM custom_agents WHERE workspace_id=? AND archived_at IS NOT NULL LIMIT 50`,
+        `SELECT id AS resourceId, json_extract(config_json, '$.name') AS title, archived_at AS archivedAt
+     FROM org_custom_agents WHERE org_id=? AND archived_at IS NOT NULL AND deleted_at IS NULL LIMIT 50`,
       )
-      .bind(workspaceId)
+      .bind(`team:${workspaceId}`)
       .all<{ resourceId: string; title: string; archivedAt: number }>(),
   );
   for (const row of agents) {

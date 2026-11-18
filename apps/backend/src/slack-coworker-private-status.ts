@@ -72,7 +72,6 @@ interface Row {
   error_code: string | null;
 }
 const nowSql = "CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)";
-const SCHEMA = `CREATE TABLE IF NOT EXISTS slack_coworker_private_status (preview_id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL,account_id TEXT NOT NULL,member_json TEXT NOT NULL,draft_id TEXT NOT NULL UNIQUE,handoff_id TEXT NOT NULL UNIQUE,target_json TEXT NOT NULL,installation_json TEXT NOT NULL,source_json TEXT NOT NULL,preview_json TEXT NOT NULL,preview_digest TEXT NOT NULL,state TEXT NOT NULL,delivery_state TEXT NOT NULL,claim_id TEXT,lease_expires_at INTEGER,attempted_json TEXT NOT NULL,last_status TEXT,used_notices INTEGER NOT NULL,next_check_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,error_code TEXT,created_at INTEGER NOT NULL)`;
 const POLL = 300_000,
   LEASE = 30_000;
 function configured(env: Env): boolean {
@@ -86,12 +85,6 @@ function configured(env: Env): boolean {
   } catch {
     return false;
   }
-}
-async function schema(env: Env) {
-  await env.AGENT_AUDIT.prepare(SCHEMA).run();
-  await env.AGENT_AUDIT.prepare(
-    "CREATE INDEX IF NOT EXISTS slack_coworker_private_status_due ON slack_coworker_private_status(state,next_check_at)",
-  ).run();
 }
 async function hash(value: unknown) {
   return Array.from(
@@ -172,7 +165,6 @@ export async function activateSlackCoworkerPrivateStatus(
 ): Promise<void> {
   if (!consent) return;
   if (!configured(env)) throw new Error("private_status_unavailable");
-  await schema(env);
   const selected = await derive(env, member, preview.draftId, preview.personalExecution.expiresAt);
   if (
     !selected ||
@@ -504,7 +496,6 @@ export async function tickSlackCoworkerPrivateStatus(
 ) {
   if (!configured(env) || !env.AGENT_AUDIT || !env.CodingOrchestrator)
     return { accepted: 0, unavailable: true };
-  await schema(env);
   const rows = await env.AGENT_AUDIT.prepare(
     `SELECT * FROM slack_coworker_private_status WHERE state='active' AND next_check_at<=${nowSql} ORDER BY next_check_at,preview_id LIMIT 20`,
   ).all<Row>();
@@ -700,7 +691,6 @@ export async function revokeSlackCoworkerPrivateStatus(
   member: WorkspaceNativeMember,
   previewId: string,
 ): Promise<boolean> {
-  await schema(env);
   const m = membershipSql(member);
   const r = await env.AGENT_AUDIT.prepare(
     `UPDATE slack_coworker_private_status SET state='revoked' WHERE preview_id=? AND workspace_id=? AND account_id=? AND ${m.sql}`,

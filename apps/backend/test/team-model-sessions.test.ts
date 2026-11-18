@@ -23,11 +23,10 @@ type TurnReceipt = { id: string; version: number; inputHash: string; status: str
 function aiResponse(content: string) { return { id: `fixture_${crypto.randomUUID()}`, model: TEAM_MODEL_TEXT_MODEL, usage: { prompt_tokens: 32, completion_tokens: 8, total_tokens: 40 }, choices: [{ message: { content } }] }; }
 async function fixture(enabled = true) {
   const db = customAgentD1();
-  db.sqlite.exec('CREATE TABLE "user"(id TEXT PRIMARY KEY,email TEXT UNIQUE,emailVerified INTEGER); CREATE TABLE shiba_auth_account_policy(account_id TEXT PRIMARY KEY,email TEXT,kind TEXT)');
   for (const email of [OPERATOR, MEMBER, MANAGER, "other@example.test"]) {
     const id = crypto.randomUUID(); user.accounts[email] = id;
-    db.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(id, email);
-    db.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?,?)").run(id, email, email === OPERATOR ? "bootstrap" : "invited");
+    db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(id, email);
+    db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) SELECT ?,?,kind,CASE WHEN kind='invited' THEN 'fixture-invite' END,CASE WHEN kind='invited' THEN 'fixture-workspace' END FROM (SELECT ? AS kind)").run(id, email, email === OPERATOR ? "bootstrap" : "invited");
   }
   const calls: Array<{ model: string; input: Record<string, unknown>; signal: AbortSignal }> = [];
   let held: Promise<unknown> | undefined, release: ((result: unknown) => void) | undefined;
@@ -406,8 +405,9 @@ describe("default-off native funded text with actual routes/SQLite and fixture A
     const f = await fixture(), grant = await f.fund(), approved = await f.approve(await f.turn(grant));
     const old = user.accounts[email]!, replacement = crypto.randomUUID();
     f.sqlite.prepare('DELETE FROM "user" WHERE id=?').run(old);
-    f.sqlite.prepare('INSERT INTO "user" VALUES(?,?,1)').run(replacement, email);
-    f.sqlite.prepare("INSERT INTO shiba_auth_account_policy VALUES(?,?,?)").run(replacement, email, email === OPERATOR ? "bootstrap" : "invited"); user.accounts[email] = replacement;
+    f.sqlite.prepare('DELETE FROM shiba_auth_account_policy WHERE account_id=?').run(old);
+    f.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(replacement, email);
+    f.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) SELECT ?,?,kind,CASE WHEN kind='invited' THEN 'fixture-invite' END,CASE WHEN kind='invited' THEN 'fixture-workspace' END FROM (SELECT ? AS kind)").run(replacement, email, email === OPERATOR ? "bootstrap" : "invited"); user.accounts[email] = replacement;
     await f.execute(approved); expect(f.calls).toHaveLength(0);
     const state = await f.call(`/state?roomId=${f.roomId}`);
     expect(JSON.stringify(state.body)).not.toContain("Prepare a short response."); expect(JSON.stringify(state.body)).not.toContain("Fixture text response");
@@ -529,7 +529,7 @@ describe("default-off native funded text with actual routes/SQLite and fixture A
     const f = await fixture(), grant = await f.fund(), approved = await f.approve(await f.turn(grant));
     if (source === "profile") f.sqlite.prepare("UPDATE org_custom_agents SET version=version+1 WHERE id=?").run(f.employee.id);
     else if (source === "recipient") f.sqlite.prepare('UPDATE "user" SET emailVerified=0 WHERE id=?').run(user.accounts[MEMBER]!);
-    else if (source === "issuer-policy") f.sqlite.prepare("UPDATE shiba_auth_account_policy SET kind='invited' WHERE account_id=?").run(user.accounts[OPERATOR]!);
+    else if (source === "issuer-policy") f.sqlite.prepare("UPDATE shiba_auth_account_policy SET kind='invited',invitation_id='replacement-invite',workspace_id='replacement-workspace' WHERE account_id=?").run(user.accounts[OPERATOR]!);
     else f.sqlite.prepare("UPDATE team_workspace_memberships SET role='member',version=version+1 WHERE workspace_id=? AND user_id=?").run(f.workspace.workspaceId, OPERATOR);
     await f.execute(approved); expect(f.calls).toHaveLength(0);
     expect(f.sqlite.prepare("SELECT used_requests FROM team_model_funding WHERE id=?").get(grant.id)).toEqual({ used_requests: 0 });
@@ -576,6 +576,6 @@ describe("funded capability boundary", () => {
     const f = await fixture();
     const prepared = await f.call("/funding/prepare", "POST", { ...f.fundingInput, model });
     expect(prepared.response.status).toBe(400); expect(f.run).not.toHaveBeenCalled();
-    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='team_model_funding'").get()).toEqual({ n: 0 });
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM team_model_funding").get()).toEqual({ n: 0 });
   });
 });

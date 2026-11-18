@@ -1,5 +1,4 @@
 /** Durable ledger for Reason Network sends. Never store message bodies here. */
-import { ensureReasonNetworkApprovalSchema } from "./approval-store.js";
 
 export type ReasonOperationState = "pending_approval" | "approved" | "queued" | "claimed" | "accepted" | "unknown" | "rejected" | "cancelled";
 
@@ -48,17 +47,6 @@ export interface ReasonNetworkOperationEnv { AGENT_AUDIT: D1Database }
 export const REASON_NETWORK_RECOVERY_WINDOW_MS = 6 * 24 * 60 * 60_000;
 
 // Queue state and terminal cancellation stay separate from the historical `state` CHECK constraint.
-export const REASON_NETWORK_OPERATION_SQL = [
-  `CREATE TABLE IF NOT EXISTS reason_network_operations (
-    owner_id TEXT NOT NULL, grant_id TEXT NOT NULL, conversation_id TEXT NOT NULL, session_id TEXT NOT NULL,
-    idempotency_key TEXT NOT NULL, payload_digest TEXT NOT NULL, destination TEXT NOT NULL,
-    operation_id TEXT NOT NULL, approval_id TEXT, companion_machine_id TEXT, claim_token TEXT, cancel_requested INTEGER NOT NULL DEFAULT 0, first_attempt_at INTEGER, dispatch_state TEXT, cancelled_at INTEGER,
-    state TEXT NOT NULL CHECK (state IN ('pending_approval','approved','accepted','unknown','rejected','cancelled')), remote_message_id TEXT,
-    updated_at INTEGER NOT NULL,
-    PRIMARY KEY(owner_id, grant_id, conversation_id, session_id, idempotency_key)
-  )`,
-] as const;
-
 interface DbRow {
   owner_id: string; grant_id: string; conversation_id: string; session_id: string;
   operation_id:string;approval_id:string|null;companion_machine_id:string|null;claim_token:string|null;cancel_requested:number;first_attempt_at:number|null;dispatch_state:"queued"|"claimed"|null;cancelled_at:number|null;
@@ -66,32 +54,8 @@ interface DbRow {
   remote_message_id: string | null; updated_at: number;
 }
 
-const initialized = new WeakSet<D1Database>();
 async function ensure(env: ReasonNetworkOperationEnv): Promise<void> {
   if (!env.AGENT_AUDIT) throw new Error("Reason Network operation storage is unavailable.");
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await ensureReasonNetworkApprovalSchema(env);
-  const db=env.AGENT_AUDIT;
-  for (const sql of REASON_NETWORK_OPERATION_SQL) await db.prepare(sql).run();
-  const columns=await db.prepare("PRAGMA table_info(reason_network_operations)").all<{name:string}>();
-  const names=new Set((columns.results??[]).map((column)=>column.name));
-  const migrations:[string,string][]=[
-    ["operation_id","TEXT"],["approval_id","TEXT"],["companion_machine_id","TEXT"],["claim_token","TEXT"],
-    ["cancel_requested","INTEGER NOT NULL DEFAULT 0"],["first_attempt_at","INTEGER"],["dispatch_state","TEXT"],["cancelled_at","INTEGER"],
-  ];
-  for(const [name,type] of migrations)if(!names.has(name)){
-    try{await db.prepare(`ALTER TABLE reason_network_operations ADD COLUMN ${name} ${type}`).run();}
-    catch(error){
-      const current=await db.prepare("PRAGMA table_info(reason_network_operations)").all<{name:string}>();
-      if(!(current.results??[]).some((column)=>column.name===name))throw error;
-    }
-  }
-  await db.prepare("UPDATE reason_network_operations SET operation_id='rno-legacy-'||lower(hex(randomblob(16))) WHERE operation_id IS NULL").run();
-  await db.prepare("UPDATE reason_network_operations SET dispatch_state=state,state='approved' WHERE state IN ('queued','claimed') AND dispatch_state IS NULL").run();
-  await db.prepare("UPDATE reason_network_operations SET first_attempt_at=CASE WHEN state='unknown' THEN 0 WHEN dispatch_state='claimed' THEN updated_at ELSE NULL END WHERE first_attempt_at IS NULL AND (state='unknown' OR dispatch_state='claimed')").run();
-  await db.prepare("UPDATE reason_network_operations SET cancelled_at=COALESCE(cancelled_at,updated_at),dispatch_state=NULL WHERE dispatch_state='cancelled'").run();
-  await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS reason_network_operations_operation_id ON reason_network_operations(operation_id)").run();
-  initialized.add(env.AGENT_AUDIT);
 }
 function fromRow(row: DbRow): ReasonOperation {
   return {

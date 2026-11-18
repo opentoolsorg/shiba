@@ -1,33 +1,9 @@
 import type { AuditEnv } from "./audit.js";
-import { initAudit } from "./audit.js";
 import {
   decryptAuthJson,
   encryptAuthJson,
   modelCredentialKeyConfigured,
 } from "./subscription-credentials.js";
-
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS org_secrets (
-     org_id TEXT NOT NULL,
-     kind TEXT NOT NULL,
-     name TEXT NOT NULL,
-     cipher TEXT NOT NULL,
-     last4 TEXT NOT NULL,
-     updated_at INTEGER NOT NULL,
-     PRIMARY KEY (org_id, kind, name)
-   )`,
-];
-
-const initialized = new WeakSet<D1Database>();
-
-async function ensure(env: AuditEnv): Promise<void> {
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  await initAudit(env);
-  for (const statement of SCHEMA) {
-    await env.AGENT_AUDIT.prepare(statement).run();
-  }
-  initialized.add(env.AGENT_AUDIT);
-}
 
 export interface StoredSecretMeta {
   configured: boolean;
@@ -36,7 +12,7 @@ export interface StoredSecretMeta {
 }
 
 export async function putOrgSecret(
-  env: AuditEnv & { MODEL_CREDENTIAL_KEY?: string },
+  env: AuditEnv & { MODEL_CREDENTIAL_KEY?: string; VAULT_KEYRING?: string; VAULT_WRITE_V2?: string },
   orgId: string,
   kind: string,
   name: string,
@@ -46,11 +22,10 @@ export async function putOrgSecret(
   if (!modelKey || modelKey.length !== 64) {
     throw new Error("MODEL_CREDENTIAL_KEY is not configured.");
   }
-  await ensure(env);
   const trimmed = secretValue.trim();
   const last4 = trimmed.slice(-4);
   const now = Date.now();
-  const cipher = await encryptAuthJson(trimmed, modelKey, orgId, name, kind);
+  const cipher = await encryptAuthJson(trimmed, { ...env, MODEL_CREDENTIAL_KEY: modelKey }, orgId, name, kind);
 
   await env.AGENT_AUDIT.prepare(
     `INSERT INTO org_secrets (org_id, kind, name, cipher, last4, updated_at)
@@ -76,7 +51,6 @@ export async function getOrgSecretMeta(
   kind: string,
   name: string,
 ): Promise<StoredSecretMeta> {
-  await ensure(env);
   const row = await env.AGENT_AUDIT.prepare(
     `SELECT last4, updated_at FROM org_secrets WHERE org_id = ? AND kind = ? AND name = ?`,
   )
@@ -92,12 +66,11 @@ export async function getOrgSecretMeta(
 }
 
 export async function getDecryptedOrgSecret(
-  env: AuditEnv & { MODEL_CREDENTIAL_KEY?: string },
+  env: AuditEnv & { MODEL_CREDENTIAL_KEY?: string; VAULT_KEYRING?: string; VAULT_WRITE_V2?: string },
   orgId: string,
   kind: string,
   name: string,
 ): Promise<string | null> {
-  await ensure(env);
   const row = await env.AGENT_AUDIT.prepare(
     `SELECT cipher FROM org_secrets WHERE org_id = ? AND kind = ? AND name = ?`,
   )
@@ -110,7 +83,7 @@ export async function getDecryptedOrgSecret(
   if (!modelKey || modelKey.length !== 64) {
     throw new Error("MODEL_CREDENTIAL_KEY is not configured.");
   }
-  return decryptAuthJson(row.cipher, modelKey, orgId, name, kind);
+  return decryptAuthJson(row.cipher, { ...env, MODEL_CREDENTIAL_KEY: modelKey }, orgId, name, kind);
 }
 
 export async function deleteOrgSecret(
@@ -119,7 +92,6 @@ export async function deleteOrgSecret(
   kind: string,
   name: string,
 ): Promise<void> {
-  await ensure(env);
   await env.AGENT_AUDIT.prepare(
     `DELETE FROM org_secrets WHERE org_id = ? AND kind = ? AND name = ?`,
   )

@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { betterAuthFor, ensureBetterAuthSchema, handleBetterAuth, resolveBetterAuthSessionAccount, resolveBetterAuthUserId, type BetterAuthLaneEnv } from "../src/better-auth.js";
+import { applyAuthMigrations } from "./fixtures/auth-migrations.js";
 
 const BASE = "http://localhost:8787";
 const credentials = {
@@ -9,6 +10,7 @@ const credentials = {
 };
 async function fixture(overrides: Partial<BetterAuthLaneEnv> = {}) {
   const sqlite = new DatabaseSync(":memory:");
+  applyAuthMigrations(sqlite);
   const value = (v: unknown): never => (v instanceof Date ? v.getTime() : typeof v === "boolean" ? Number(v) : v ?? null) as never;
   const prepared = (sql: string, params: unknown[] = []) => ({
     bind: (...args: unknown[]) => prepared(sql, args),
@@ -19,7 +21,6 @@ async function fixture(overrides: Partial<BetterAuthLaneEnv> = {}) {
   const db = { prepare: (sql: string) => prepared(sql), exec: (sql: string) => sqlite.exec(sql),
     batch: async (statements: ReturnType<typeof prepared>[]) => Promise.all(statements.map(s => s.all())) } as unknown as D1Database;
   const env: BetterAuthLaneEnv = { AGENT_AUDIT: db, BETTER_AUTH_SECRET: "s".repeat(32), BETTER_AUTH_URL: BASE, ...credentials, ...overrides };
-  await ensureBetterAuthSchema({ AGENT_AUDIT: db });
   const auth = await betterAuthFor(env);
   return { sqlite, db, env, auth };
 }
@@ -99,7 +100,7 @@ describe("public bootstrap policy", () => {
     expect(await response?.json()).toEqual({
       requiresToken: false, requiresOwnerEmail: false, locked: false, ownerExists,
     });
-    expect(prepare.mock.calls).toEqual([['SELECT COUNT(*) AS c FROM "user"']]);
+    expect(prepare.mock.calls.filter(([sql]) => sql === 'SELECT COUNT(*) AS c FROM "user"')).toEqual([['SELECT COUNT(*) AS c FROM "user"']]);
   });
 });
 

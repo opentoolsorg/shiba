@@ -34,7 +34,7 @@ import { createEmployeeRunTools } from "../src/employee-run-tools.js";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
 import { createWebSession, buildSessionAgentName } from "../src/web-sessions.js";
 import { handleEmployeeDraftRequest, type EmployeeDraft, type EmployeeDraftStore, type EmployeeReadReceipt } from "../src/employee-drafts.js";
-import { ensureGmailSchema, encryptGmailToken, GMAIL_SCOPE } from "../src/gmail.js";
+import { assertGmailStorage, encryptGmailToken, GMAIL_SCOPE } from "../src/gmail.js";
 import { handleEmployeeTools } from "../src/employee-tool-routes.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { preparedGoal } from "./fixtures/onboarding-goal.js";
@@ -105,7 +105,7 @@ function gmailProviderMock() {
 }
 
 async function seedSelectedMessage(env: Env): Promise<void> {
-  await ensureGmailSchema(env);
+  await assertGmailStorage(env);
   const refreshCipher = await encryptGmailToken("mock-refresh-token", TOKEN_KEY, OWNER, CONNECTION_ID);
   await env.AGENT_AUDIT.prepare(`INSERT INTO gmail_connections
     (id, owner, email, refresh_cipher, created_at, active) VALUES (?, ?, ?, ?, ?, 1)`)
