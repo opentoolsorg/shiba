@@ -34,6 +34,12 @@
     { "pattern": "app.tryshiba.dev", "custom_domain": true },
   ],
   "vars": {
+    // Outbound telemetry requires explicit opt-in and operator-supplied destinations.
+    "SHIBA_ERROR_REPORTING": "none",
+    "SHIBA_ANALYTICS": "none",
+    "SHIBA_OPEN_TELEMETRY": "0",
+    "POSTHOG_HOST": "",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "",
     // No upstream MCP host is enabled by default. Operators must list exact public
     // hostnames here and pre-provision referenced MCP_CREDENTIAL_* secrets.
     // Optional MCP_OAUTH_CLIENT_* IDs are Wrangler secrets listed in

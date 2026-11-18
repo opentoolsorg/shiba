@@ -12,6 +12,7 @@ import { Automations } from "./automations-do.js";
 import { automationsStub } from "./automations-stub.js";
 import { ensureLiveCodingModel } from "./coding-model.js";
 import type { Env } from "./env.js";
+import { reportError } from "./observability.js";
 import { Mailbox } from "./mailbox-do.js";
 import { MCP_PRINCIPAL_HEADER } from "./mcp-principal.js";
 import { Memory } from "./memory-do.js";
@@ -81,15 +82,27 @@ let claudeSubscriptionDeprecationWarned = false;
 
 export default {
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (/^shiba-jobs(?:-|$)/.test(batch.queue)) await consumeScheduledJobs(batch, env);
-    else await dispatchQueueBatch(batch, env, ctx);
+    try {
+      if (/^shiba-jobs(?:-|$)/.test(batch.queue)) await consumeScheduledJobs(batch, env);
+      else await dispatchQueueBatch(batch, env, ctx);
+    } catch (error) {
+      ctx.waitUntil(reportError(env, "queue", error));
+      throw error;
+    }
   },
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runScheduledJobs(controller.scheduledTime ?? Date.now(), env));
+    ctx.waitUntil(runScheduledJobs(controller.scheduledTime ?? Date.now(), env).catch(async (error) => {
+      await reportError(env, "scheduled", error);
+      throw error;
+    }));
   },
   // Email Routing delivery — registered-mailbox gate + store, see email-handler.ts.
   async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
-    await (await import("./email-handler.js")).handleInboundEmail(message, env, ctx);
+    try { await (await import("./email-handler.js")).handleInboundEmail(message, env, ctx); }
+    catch (error) {
+      ctx.waitUntil(reportError(env, "email", error));
+      throw error;
+    }
   },
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     return withRequestTiming(request, async () => {
@@ -160,6 +173,9 @@ export default {
       throw new Error("Route table has no final response.");
     } catch (error) {
       // The client gets a generic 500; the redacted detail stays in the log.
+      const delivery = reportError(env, "worker", error);
+      if (ctx) ctx.waitUntil(delivery);
+      else await delivery;
       console.error(redactSecrets(error instanceof Error ? error.message : String(error)));
       return Response.json({ error: "Internal error." }, { status: 500 });
     }

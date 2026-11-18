@@ -4,6 +4,7 @@
  * TypeScript + zod only: no cloudflare:*, agents, or DOM imports.
  */
 export * from "./audit.js";
+export * from "./observability.js";
 export * from "./approvals.js";
 export * from "./chat.js";
 export * from "./decide.js";
@@ -16,6 +17,8 @@ export * from "./mcp.js";
 export * from "./memory.js";
 export * from "./knowledge.js";
 export * from "./governance.js";
+export * from "./note-chat.js";
+export * from "./usage-budget.js";
 export * from "./model.js";
 export * from "./receipts.js";
 export * from "./roles.js";
@@ -59,6 +62,7 @@ export * from "./capability-catalog.js";
 export * from "./integration-catalog.js";
 export * from "./integrations-provider.js";
 export * from "./integration-featured-catalog.js";
+export * from "./integration-collections.js";
 export * from "./workspace-integrations.js";
 export * from "./curated-mcp-vendors.js";
 export * from "./founder-skill-library.js";
