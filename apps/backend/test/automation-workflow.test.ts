@@ -8,11 +8,13 @@ import type { Env } from "../src/env.js";
 import { insertAutomationWorkflowRun, settleRoutineWorkflowRun, patchAutomationWorkflowRun } from "../src/platform/automation-workflow-store.js";
 import type { DelegatedRun } from "@shiba/shared";
 import { Automations } from "../src/automations-do.js";
+import { fireAutomation } from "../src/automation-runner.js";
+import * as workflowStore from "../src/platform/automation-workflow-store.js";
 
 describe("automation workflow runs", () => {
   it("exposes recent outcomes on a routine detail, and handles empty and missing routines", async () => {
     const db = customAgentD1();
-    for (const migration of ["0055_automation_workflow_runs.sql", "0066_routine_outcomes.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+    for (const migration of ["0055_automation_workflow_runs.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
     const env = { AGENT_AUDIT: db.database } as unknown as Env;
     const automation = createAutomation({ id: "nightly", prompt: "Check", repoUrl: "https://github.com/o/r", triggers: [{ kind: "manual" }] }).automation;
     const ctx = { storage: { get: async () => ({ items: [automation] }) } } as unknown as DurableObjectState;
@@ -28,7 +30,7 @@ describe("automation workflow runs", () => {
     [false, false, "failed", "failed"], [true, false, "failed", "failed"],
   ])("persists precedence and redacted history (%s, %s, %s)", async (noUpdate, test, failureReason, outcome) => {
     const db = customAgentD1();
-    for (const migration of ["0055_automation_workflow_runs.sql", "0066_routine_outcomes.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+    for (const migration of ["0055_automation_workflow_runs.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
     const env = { AGENT_AUDIT: db.database } as unknown as Env;
     const row = await insertAutomationWorkflowRun(env, { automationId: "nightly", commandId: "command" });
     await patchAutomationWorkflowRun(env, row.id, { approval_id: "approved" });
@@ -45,7 +47,7 @@ describe("automation workflow runs", () => {
   });
   it("keeps harness errors failed even when no-update was requested", async () => {
     const db = customAgentD1();
-    for (const migration of ["0055_automation_workflow_runs.sql", "0066_routine_outcomes.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+    for (const migration of ["0055_automation_workflow_runs.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
     const env = { AGENT_AUDIT: db.database } as unknown as Env;
     const row = await insertAutomationWorkflowRun(env, { automationId: "nightly", commandId: "command" });
     await patchAutomationWorkflowRun(env, row.id, { run_id: "run-1" });
@@ -53,10 +55,50 @@ describe("automation workflow runs", () => {
       routineRun: { automationId: "nightly", test: false }, routineOutcome: { noUpdate: true } } as DelegatedRun);
     expect((await listAutomationWorkflowRuns(env, "nightly"))[0]).toMatchObject({ status: "failed", outcome: "failed", failure_reason: "Harness unavailable" });
   });
+  it("charges a replay once when the workflow failed after queueing but before recording a charge", async () => {
+    const db = customAgentD1();
+    db.sqlite.exec(readFileSync(new URL("../migrations/0055_automation_workflow_runs.sql", import.meta.url), "utf8"));
+    const automation = createAutomation({ id: "charge-replay", prompt: "Task", repoUrl: "https://github.com/o/r", triggers: [{ kind: "webhook" }] }).automation;
+    const env = { AGENT_AUDIT: db.database } as unknown as Env;
+    const originalPatch = workflowStore.patchAutomationWorkflowRun;
+    let failDispatch = true;
+    const patch = vi.spyOn(workflowStore, "patchAutomationWorkflowRun").mockImplementation(async (...args) => {
+      if (args[2].status === "dispatched" && failDispatch) { failDispatch = false; throw new Error("dispatch receipt write failed"); }
+      return originalPatch(...args);
+    });
+    try {
+      const queueRun = vi.fn().mockResolvedValueOnce({ approvalId: "accepted" }).mockResolvedValue({ approvalId: "accepted", deduped: true });
+      const deps = { env, ai: {} as import("../src/automations.js").RunWhenAi, model: "test", globalEnabled: true, queueRun };
+      const event = { kind: "hook" as const, deliveryId: "retry", body: "" };
+      const first = await fireAutomation(automation, event, deps);
+      expect(first.fired).toBe(false);
+      expect(first.automation.runCount).toBe(0);
+      const retry = await fireAutomation(first.automation, event, deps);
+      expect(retry.fired).toBe(true);
+      expect(retry.approvalId).toBe("accepted");
+      expect(retry.automation.runCount).toBe(1);
+      expect(retry.automation.runsToday).toBe(1);
+      const replay = await fireAutomation(retry.automation, event, deps);
+      expect(replay.automation.runCount).toBe(1);
+      expect(replay.automation.runsToday).toBe(1);
+      expect(replay.automation.chargedHookCommands).toHaveLength(1);
+    } finally { patch.mockRestore(); }
+  });
+  it("propagates replay metadata from the approval queue", async () => {
+    const db = customAgentD1();
+    db.sqlite.exec(readFileSync(new URL("../migrations/0055_automation_workflow_runs.sql", import.meta.url), "utf8"));
+    const automation = createAutomation({ id: "replay", prompt: "Task", repoUrl: "https://github.com/o/r", triggers: [{ kind: "webhook" }] }).automation;
+    const result = await startAutomationRunWorkflow({ AGENT_AUDIT: db.database } as unknown as Env, {
+      automation, commandId: "same-command", threadKey: "automation:replay", repoUrl: automation.repoUrl,
+      task: automation.prompt, publishPullRequest: false, unattendedApproved: false,
+      queueRun: async () => ({ approvalId: "same-approval", deduped: true }),
+    });
+    expect(result.approvalId).toBe("same-approval");
+    expect(result.deduped).toBe(true);
+  });
   it("records a dispatched workflow row when D1 is available", async () => {
     const db = customAgentD1();
     db.sqlite.exec(readFileSync(new URL("../migrations/0055_automation_workflow_runs.sql", import.meta.url), "utf8"));
-    db.sqlite.exec(readFileSync(new URL("../migrations/0066_routine_outcomes.sql", import.meta.url), "utf8"));
     const env = { AGENT_AUDIT: db.database } as unknown as Env;
     const automation = createAutomation({
       id: "auto-1",

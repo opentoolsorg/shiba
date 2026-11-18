@@ -125,6 +125,7 @@ export const ACCESS_BYPASS_PATHS = [
   "/mcp/*",
   "/api/local/*",
   "/api/automations/*/trigger",
+  "/api/hooks/*",
   "/api/waitlist",
   "/api/trigger",
   // Downloads authenticate the exact archive with a short-lived signed capability.

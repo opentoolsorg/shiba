@@ -673,6 +673,7 @@ for (const path of bypassPaths) {
   if ((path === "/api/local" || path === "/api/local/*") && hasLocalRuntimeRule) continue;
   if (path === "/api/artifacts/download" && hasArtifactDownloadRule) continue;
   if (path === "/api/automations/*/trigger" && hasAutomationRule) continue;
+  if (path === "/api/hooks/*" && /hooks/.test(indexText) && hasAutomationRule) continue;
   if (path === "/api/waitlist" && hasPublicWaitlistRule) continue;
   drift.push(`ACCESS_BYPASS_PATHS "${path}" has no Worker auth exemption in apps/backend/src/index.ts`);
 }

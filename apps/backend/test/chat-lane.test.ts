@@ -506,7 +506,7 @@ describe("postToChatThread", () => {
       expect(posted).not.toBeNull();
       await posted;
       expect(bodies).toHaveLength(1);
-      expect(bodies[0]!.chat_id).toBe("-100");
+      expect(bodies[0]!.chat_id).toBe(-100);
       expect(bodies[0]!.text).toHaveLength(4000);
     } finally {
       vi.unstubAllGlobals();
