@@ -2,6 +2,7 @@ import type { CollaborationScope } from "./collaboration-store.js";
 import { postRoomEvent } from "./collaboration-thread-post.js";
 import { ensureCoordinationSchema } from "./coordination-schema.js";
 import type { Env } from "./env.js";
+import { filterEmployeesByAccess } from "./governance/employee-access.js";
 
 /** Explicit @agent mentions claim their own actor id. Everything else shares this slot. */
 export const AUTO_REPLY_SLOT = "auto";
@@ -66,7 +67,7 @@ export async function ackListenAllAgents(
   )
     .bind(scope.tenantId, scope.workspaceId, input.roomId)
     .all<{ actor_id: string; user_id: string; display_name: string }>();
-  for (const row of rows.results ?? []) {
+  for (const row of await filterEmployeesByAccess(env, scope, rows.results ?? [], "chat", (row) => row.actor_id)) {
     const won = await claimReply(env, scope, {
       roomId: input.roomId,
       triggerMessageId: input.triggerMessageId,
@@ -115,6 +116,7 @@ export async function ackThreadOwner(
     .bind(scope.tenantId, scope.workspaceId, input.roomId, input.threadRootId)
     .first<{ owner_actor_id: string; user_id: string; display_name: string }>();
   if (!owner) return false;
+  if (!(await filterEmployeesByAccess(env, scope, [owner], "chat", (row) => row.owner_actor_id)).length) return false;
   const won = await claimReply(env, scope, {
     roomId: input.roomId,
     triggerMessageId: input.triggerMessageId,
