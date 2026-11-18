@@ -178,6 +178,11 @@ export const Worker = Cloudflare.Worker("Worker", {
     OPEN_CONNECTOR_ENABLED: "0",
     SHIBA_PERSONAL_LOCAL_EXECUTION: "0",
     SHIBA_TEAM_MODEL_SESSIONS: "0",
+    SHIBA_ERROR_REPORTING: "none",
+    SHIBA_ANALYTICS: "none",
+    SHIBA_OPEN_TELEMETRY: "0",
+    POSTHOG_HOST: "",
+    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "",
     SHIBA_SHARED_COMPUTER: "0",
     SHIBA_SHARED_COMPUTER_IMAGE: "",
     FOUNDER_AUTOMATIC_READS_ENABLED: "false",
@@ -341,6 +346,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     }),
 
     ...secrets([
+      "SENTRY_DSN",
+      "POSTHOG_API_KEY",
+      "OTEL_EXPORTER_OTLP_HEADERS",
       "GITHUB_TOKEN",
       "GITHUB_APP_ID",
       "GITHUB_APP_PRIVATE_KEY",
@@ -431,6 +439,11 @@ export const Worker = Cloudflare.Worker("Worker", {
     ROLE_MODEL_MAP:
       "{\"orchestrator\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"explorer\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"fixer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-sonnet-5-5\"},\"reviewer\":{\"harness\":\"opencode\",\"model\":\"opencode-go/gpt-6.1-sol\"},\"designer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-opus-5-5\"}}",
     ...configVars([
+      "SHIBA_ERROR_REPORTING",
+      "SHIBA_ANALYTICS",
+      "SHIBA_OPEN_TELEMETRY",
+      "POSTHOG_HOST",
+      "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
       "AUTOMATIONS_ENABLED",
       "AGENT_HARNESS",
       "CLAUDE_CODE_MODEL",
