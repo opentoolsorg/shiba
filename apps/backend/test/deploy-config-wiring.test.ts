@@ -18,6 +18,12 @@ function block(source: string, start: string): string {
 }
 
 describe("deploy config wiring", () => {
+  it("keeps the dedicated OAuth issuance limiter in sync", () => {
+    expect(WRANGLER).toContain('{ "name": "OAUTH_RATE_LIMIT", "namespace_id": "1004", "simple": { "limit": 10, "period": 60 } }');
+    expect(ALCHEMY).toMatch(/OAUTH_RATE_LIMIT: Cloudflare\.RateLimit\("OAUTH_RATE_LIMIT", \{\s*namespaceId: "1004",\s*simple: \{ limit: 10, period: 60 \}/);
+    expect(ENV_TYPES).toContain("OAUTH_RATE_LIMIT?: RateLimit;");
+  });
+
   // P7 #3: unprovisioned DASHBOARD_APPROVERS = no surface can approve shared runs.
   it("provisions DASHBOARD_APPROVERS like SLACK_APPROVERS", () => {
     expect(block(ALCHEMY, "...secrets([")).toContain('"DASHBOARD_APPROVERS"');

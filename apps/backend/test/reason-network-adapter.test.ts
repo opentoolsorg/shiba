@@ -1,3 +1,4 @@
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { ReasonNetworkAdapter, reasonNetworkReadiness, type ReasonNetworkApprovalBinding, type ReasonNetworkApprovalReceipt, type ReasonNetworkMcpClient, type ReasonNetworkTrustedScope } from "../src/reason-network/adapter.js";
@@ -6,6 +7,7 @@ import { createReasonNetworkGrant, listReasonNetworkGrants } from "../src/reason
 import { REASON_NETWORK_RECOVERY_WINDOW_MS } from "../src/reason-network/operation-store.js";
 
 function sqliteD1(sqlite:DatabaseSync):D1Database{
+  applyAllMigrations(sqlite);
   return {prepare(sql:string){let params:unknown[]=[];return {
     bind(...values:unknown[]){params=values;return this;},
     async run(){const result=sqlite.prepare(sql).run(...params as (string|number|null)[]);return {success:true,meta:{changes:Number(result.changes)}};},

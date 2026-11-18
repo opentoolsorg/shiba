@@ -102,6 +102,7 @@ describe("GET /api/setup/status subscription diagnostics", () => {
     };
     const env = setupStatusEnv({
       AI_GATEWAY_TOKEN: "",
+      INTERNAL_SIGNING_KEY: "fixture-internal-key-at-least-32-characters",
       MODEL_CREDENTIAL_KEY: "ab".repeat(32),
       AGENT_TOKENS: {
         get: async () => null,

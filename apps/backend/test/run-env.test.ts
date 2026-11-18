@@ -22,7 +22,7 @@ import { signInternalRequest } from "../src/edge-identity.js";
 import { makeReceipt } from "../src/receipts.js";
 import { handleRuns } from "../src/runs-routes.js";
 import { LocalRuntimeAdapter, SandboxRuntimeAdapter, type LocalDispatchClient, type SandboxOps } from "../src/runtime.js";
-import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 
 vi.mock("@cloudflare/sandbox", () => ({
   ContainerProxy: class {},
@@ -229,7 +229,7 @@ describe("/api/runs intake", () => {
 
   it("refuses env on the local runtime", async () => {
     const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" });
-    const res = await orchestrator.onRequest(
+    const res = await sendWorkerRequest(orchestrator,
       await queue(
         { runtime: "local", harness: "opencode", environment: await sealRunEnv(KEY, "default", VARS) },
         { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD },

@@ -4,13 +4,15 @@ import { asEmployeeActionApproval, decideEmployeeActionApproval, findEmployeeAct
   replaceEmployeeToolGrants, requestEmployeeActionApproval, resolveEmployeeConnectionGrant,
   resolveEmployeeToolPolicy, listEmployeeActionApprovals } from "../src/employee-tool-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { applyAllMigrations } from "./fixtures/all-migrations.js";
 
 function env(): Env {
   return { AGENT_AUDIT: customAgentD1().database } as unknown as Env;
 }
 
 function legacyApprovals() {
-  const { database, sqlite } = customAgentD1();
+  const { database, sqlite } = customAgentD1({ bare: true });
+  applyAllMigrations(sqlite, 60);
   sqlite.exec(`CREATE TABLE employee_tool_approvals (
     approval_id TEXT PRIMARY KEY,org_id TEXT,employee_id TEXT,employee_version INTEGER,actor_id TEXT,
     connection_id TEXT,connection_generation INTEGER,capability_kind TEXT,capability_id TEXT,action TEXT,
@@ -28,77 +30,47 @@ function legacyApprovals() {
   return { database, sqlite, insert };
 }
 
-function interceptDatabase(database: D1Database, hooks: {
-  run?: (sql: string, execute: () => Promise<D1Result>) => Promise<D1Result>;
-  all?: (sql: string, execute: () => Promise<D1Result>) => Promise<D1Result>;
-}): D1Database {
-  return { ...database, prepare(sql: string) {
-    const wrap = (statement: D1PreparedStatement): D1PreparedStatement => ({
-      bind: (...values: unknown[]) => wrap(statement.bind(...values)),
-      run: () => hooks.run ? hooks.run(sql, () => statement.run()) : statement.run(),
-      all: () => hooks.all ? hooks.all(sql, () => statement.all()) : statement.all(),
-      first: (...args: Parameters<D1PreparedStatement["first"]>) => statement.first(...args),
-    }) as D1PreparedStatement;
-    return wrap(database.prepare(sql));
-  } } as D1Database;
-}
-
 describe("persistent employee tool grants and exact approvals", () => {
-  it.each(["alter", "index"])("keeps approval uniqueness through two cold initializers paused at %s", async (phase) => {
+  it.each([false, true])("preserves approval payloads and uniqueness when context columns already exist: %s", (hasContext) => {
     const f = legacyApprovals();
-    if (phase === "index") f.sqlite.exec(`ALTER TABLE employee_tool_approvals ADD COLUMN execution_context_id TEXT;
-      ALTER TABLE employee_tool_approvals ADD COLUMN consumed_at INTEGER;
-      ALTER TABLE employee_tool_approvals ADD COLUMN consumed_invocation_id TEXT`);
-    let release = () => {};
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    let reached = () => {};
-    const held = new Promise<void>((resolve) => { reached = resolve; });
-    let snapshotCount = 0;
-    let bothSnapshots = () => {};
-    const snapshots = new Promise<void>((resolve) => { bothSnapshots = resolve; });
-    let paused = false;
-    const hooks = {
-      all: async (sql: string, execute: () => Promise<D1Result>) => {
-        const result = await execute();
-        if (sql.includes("PRAGMA table_info(employee_tool_approvals)")) {
-          if (++snapshotCount === 2) bothSnapshots();
-          await snapshots;
-        }
-        return result;
-      },
-      run: async (sql: string, execute: () => Promise<D1Result>) => {
-        if (phase === "index" && /CREATE UNIQUE INDEX/.test(sql)) { reached(); await gate; }
-        const result = await execute();
-        if (phase === "alter" && !paused && /ADD COLUMN execution_context_id/.test(sql)) {
-          paused = true; reached(); await gate;
-        }
-        return result;
-      },
-    };
-    const first = listEmployeeActionApprovals({ AGENT_AUDIT: interceptDatabase(f.database, hooks) }, { orgId: "org-a" });
-    const second = listEmployeeActionApprovals({ AGENT_AUDIT: interceptDatabase(f.database, hooks) }, { orgId: "org-a" });
-    const settled = Promise.allSettled([first, second]);
     try {
-      await held;
-      expect(() => f.insert("duplicate-during-migration")).toThrow(/UNIQUE constraint failed/);
-    } finally { release(); }
-    expect((await settled).map((result) => result.status)).toEqual(["fulfilled", "fulfilled"]);
-    expect(() => f.insert("duplicate-after-migration")).toThrow(/UNIQUE constraint failed/);
-    expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM employee_tool_approvals").get()).toEqual({ count: 1 });
-    const indexes = f.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'employee_tool_approval_active_payload%'").all();
-    expect(indexes).toEqual([{ name: "employee_tool_approval_active_payload_v2" }]);
-    f.sqlite.close();
+      if (hasContext) {
+        f.sqlite.exec(`ALTER TABLE employee_tool_approvals ADD COLUMN execution_context_id TEXT;
+          ALTER TABLE employee_tool_approvals ADD COLUMN consumed_at INTEGER;
+          ALTER TABLE employee_tool_approvals ADD COLUMN consumed_invocation_id TEXT;
+          ALTER TABLE employee_tool_approvals ADD COLUMN employee_context_json TEXT;
+          ALTER TABLE employee_tool_approvals ADD COLUMN decision_owner_account_id TEXT;
+          UPDATE employee_tool_approvals SET execution_context_id='context-a',employee_context_json='{"employeeId":"employee-a"}',
+            decision_owner_account_id='decision-owner',consumed_at=10,consumed_invocation_id='invocation-a'`);
+      }
+      expect(() => f.insert("duplicate-before-migration")).toThrow(/UNIQUE constraint failed/);
+      applyAllMigrations(f.sqlite);
+      expect(f.sqlite.prepare("SELECT approval_id,payload_json,execution_context_id,employee_context_json,decision_owner_account_id,consumed_at,consumed_invocation_id FROM employee_tool_approvals").get())
+        .toEqual({ approval_id: "original", payload_json: "{}", execution_context_id: hasContext ? "context-a" : null,
+          employee_context_json: hasContext ? '{"employeeId":"employee-a"}' : null,
+          decision_owner_account_id: hasContext ? "decision-owner" : null,
+          consumed_at: hasContext ? 10 : null, consumed_invocation_id: hasContext ? "invocation-a" : null });
+      // Reusing the identical payload in the same execution context stays fenced.
+      expect(() => f.sqlite.prepare(`INSERT INTO employee_tool_approvals (
+        employee_context_json,decision_owner_account_id,approval_id,org_id,employee_id,employee_version,actor_id,
+        execution_context_id,consumed_at,consumed_invocation_id,connection_id,connection_generation,capability_kind,
+        capability_id,action,resource_id,account_id,argument_digest,payload_json,policy_version,status,created_at,expires_at,decided_by,decided_at)
+        SELECT employee_context_json,decision_owner_account_id,'duplicate',org_id,employee_id,employee_version,actor_id,
+          execution_context_id,consumed_at,consumed_invocation_id,connection_id,connection_generation,capability_kind,
+          capability_id,action,resource_id,account_id,argument_digest,payload_json,policy_version,status,created_at,expires_at,decided_by,decided_at
+        FROM employee_tool_approvals`).run()).toThrow(/UNIQUE constraint failed/);
+      expect(f.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'employee_tool_approval_active_payload%'").all())
+        .toEqual([{ name: "employee_tool_approval_active_payload_v2" }]);
+    } finally { f.sqlite.close(); }
   });
 
-  it("propagates unrelated ALTER failures instead of claiming initialization succeeded", async () => {
-    const f = legacyApprovals();
-    const db = interceptDatabase(f.database, { run: async (sql, execute) => {
-      if (sql.includes("ALTER TABLE employee_tool_approvals")) throw new Error("D1 storage unavailable");
-      return execute();
-    } });
-    await expect(listEmployeeActionApprovals({ AGENT_AUDIT: db }, { orgId: "org-a" })).rejects.toThrow("D1 storage unavailable");
-    expect(() => f.insert("duplicate-after-failure")).toThrow(/UNIQUE constraint failed/);
-    f.sqlite.close();
+  it("fails on an uninstalled schema without creating tables during a read", async () => {
+    const { database, sqlite } = customAgentD1({ bare: true });
+    try {
+      await expect(listEmployeeActionApprovals({ AGENT_AUDIT: database }, { orgId: "org-a" }))
+        .rejects.toThrow(/no such table/);
+      expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()).toEqual([]);
+    } finally { sqlite.close(); }
   });
 
   it("persists selected provider resources with their authenticated connection and account", async () => {

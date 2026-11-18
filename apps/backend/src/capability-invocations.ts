@@ -41,29 +41,9 @@ export type BeginInvocationResult =
   | { kind: "payload_conflict" }
   | { kind: "failed" };
 
-export const CAPABILITY_INVOCATION_STATEMENTS = [
-  `CREATE TABLE IF NOT EXISTS capability_invocations (
-    invocation_id TEXT PRIMARY KEY,
-    org_id TEXT NOT NULL,
-    principal TEXT NOT NULL,
-    tool TEXT NOT NULL,
-    args_hash TEXT NOT NULL,
-    idempotency_key TEXT,
-    status TEXT NOT NULL CHECK (status IN ('dispatching','succeeded','pending_approval','approved','denied','failed','unknown_outcome')),
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    approval_id TEXT,
-    error_code TEXT,
-    UNIQUE (org_id, principal, idempotency_key)
-  )`,
-  `CREATE INDEX IF NOT EXISTS capability_invocations_created ON capability_invocations(created_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS capability_invocations_status_updated ON capability_invocations(status, updated_at)`,
-] as const;
-
 export const CAPABILITY_INVOCATION_UNKNOWN_AFTER_MS = 30_000;
 export const MAX_CAPABILITY_INVOCATIONS = 50;
 export const EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX = "employee-action:";
-const initialized = new WeakSet<D1Database>();
 
 interface StoredInvocation {
   invocation_id: string;
@@ -75,14 +55,6 @@ interface StoredInvocation {
   status: CapabilityInvocationStatus;
   approval_id: string | null;
   error_code: string | null;
-}
-
-async function ensureTable(env: CapabilityInvocationEnv): Promise<void> {
-  if (initialized.has(env.AGENT_AUDIT)) return;
-  for (const statement of CAPABILITY_INVOCATION_STATEMENTS) {
-    await env.AGENT_AUDIT.prepare(statement).run();
-  }
-  initialized.add(env.AGENT_AUDIT);
 }
 
 function publicStatus(row: StoredInvocation, now: number): CapabilityInvocationReceipt["status"] {
@@ -123,7 +95,6 @@ export async function beginCapabilityInvocation(
   const now = input.now ?? Date.now();
   const invocationId = `inv-${randomHex(16)}`;
   try {
-    await ensureTable(env);
     const inserted = await env.AGENT_AUDIT.prepare(
       `INSERT OR IGNORE INTO capability_invocations
        (invocation_id, org_id, principal, tool, args_hash, idempotency_key, status, created_at, updated_at)
@@ -156,7 +127,6 @@ export async function getCapabilityInvocationByIdempotencyKey(
   env: CapabilityInvocationEnv,
   input: { orgId: string; principal: string; idempotencyKey: string; now?: number },
 ): Promise<CapabilityInvocationReceipt | null> {
-  await ensureTable(env);
   const row = await env.AGENT_AUDIT.prepare(
     `SELECT invocation_id, created_at, updated_at, principal, tool, args_hash, status, approval_id, error_code
      FROM capability_invocations WHERE org_id = ? AND principal = ? AND idempotency_key = ? LIMIT 1`,
@@ -188,7 +158,6 @@ export async function claimEmployeeActionInvocation(
   const timeExpression = input.now === undefined ? "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)" : "?";
   const timeBindings = input.now === undefined ? [] : [input.now];
   try {
-    await ensureTable(env);
     await env.AGENT_AUDIT.batch([
       env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals
         SET consumed_at = COALESCE(consumed_at, ${timeExpression}),
@@ -263,7 +232,6 @@ export async function finishCapabilityInvocation(
   },
 ): Promise<boolean> {
   try {
-    await ensureTable(env);
     const result = await env.AGENT_AUDIT.prepare(
       `UPDATE capability_invocations SET status = ?, updated_at = ?, approval_id = ?, error_code = ?
        WHERE invocation_id = ? AND status = 'dispatching'`,
@@ -283,7 +251,6 @@ export async function resolveCapabilityInvocationApproval(
 ): Promise<number> {
   if (!input.approvalId) return 0;
   try {
-    await ensureTable(env);
     const result = await env.AGENT_AUDIT.prepare(
       `UPDATE capability_invocations SET status = ?, updated_at = ?, error_code = ?
        WHERE approval_id = ? AND status = 'pending_approval'`,
@@ -301,7 +268,6 @@ export async function finishCapabilityInvocationApproval(
 ): Promise<number> {
   if (!input.approvalId) return 0;
   try {
-    await ensureTable(env);
     const result = await env.AGENT_AUDIT.prepare(
       `UPDATE capability_invocations SET status = ?, updated_at = ?, error_code = ?
        WHERE approval_id = ? AND status = 'approved'`,
@@ -318,7 +284,6 @@ export async function resolveDispatchingAsUnknown(
   now = Date.now(),
 ): Promise<void> {
   try {
-    await ensureTable(env);
     await env.AGENT_AUDIT.prepare(
       `UPDATE capability_invocations SET status = 'unknown_outcome', updated_at = ?
        WHERE invocation_id = ? AND status = 'dispatching' AND updated_at <= ?`,
@@ -332,7 +297,6 @@ export async function listCapabilityInvocations(
   env: CapabilityInvocationEnv,
   options: { limit?: number; orgId?: string; now?: number } = {},
 ): Promise<CapabilityInvocationReceipt[]> {
-  await ensureTable(env);
   const limit = Math.max(1, Math.min(MAX_CAPABILITY_INVOCATIONS, Math.floor(options.limit ?? 25)));
   const rows = options.orgId
     ? await env.AGENT_AUDIT.prepare(
@@ -347,7 +311,6 @@ export async function listCapabilityInvocations(
 }
 
 export async function pruneCapabilityInvocations(env: CapabilityInvocationEnv, cutoff: number): Promise<number> {
-  await ensureTable(env);
   const result = await env.AGENT_AUDIT.prepare(
     `DELETE FROM capability_invocations WHERE created_at < ?`,
   ).bind(cutoff).run();
@@ -364,7 +327,6 @@ export async function expireUnusedEmployeeActionApproval(
   env: CapabilityInvocationEnv,
   input: { approvalId: string; orgId: string; principal: string; now?: number },
 ): Promise<boolean> {
-  await ensureTable(env);
   const key = `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${input.approvalId}`;
   const timeExpression = input.now === undefined ? "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)" : "?";
   const timeBindings = input.now === undefined ? [] : [input.now];

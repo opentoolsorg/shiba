@@ -4,7 +4,8 @@
 // route; the DO is the serialization point (live-run check, exec
 // allowlist, signal receipts). Deliberately no batch/multi-action tool.
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { getAgentByName } from "agents/routing";
+import { orchestratorFor } from "./platform/do-resolver.js";
+import { orgIdForRecord, type TokenRecord } from "./agent-tokens.js";
 import {
   AGENT_PRINCIPAL_HEADER,
   screenClickInputSchema,
@@ -18,7 +19,6 @@ import { signInternalRequest } from "./edge-identity.js";
 
 import type { ToolRegistry } from "./mcp-gateway.js";
 
-const ORCHESTRATOR_NAME = "default";
 
 function jsonResult(payload: Record<string, unknown>): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload };
@@ -28,15 +28,15 @@ async function orchestratorScreen(
   env: Env,
   runId: string,
   action: Record<string, unknown>,
-  principal?: string,
+  principal: TokenRecord,
 ): Promise<Record<string, unknown>> {
-  const stub = await getAgentByName(env.CodingOrchestrator, ORCHESTRATOR_NAME);
+  const stub = await orchestratorFor(env, { workspaceId: orgIdForRecord(principal) });
   const request = new Request(`https://internal/api/runs/${encodeURIComponent(runId)}/screen`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action }),
   });
-  if (principal) request.headers.set(AGENT_PRINCIPAL_HEADER, principal);
+  request.headers.set(AGENT_PRINCIPAL_HEADER, principal.principal);
   // Edge identity: sign the vouched principal so the DO can verify the
   // Worker minted it (no-op until INTERNAL_SIGNING_KEY is configured).
   await signInternalRequest(request, env);
@@ -66,7 +66,7 @@ export function registerScreenTools(registry: ToolRegistry, env: Env): void {
             y: args.y,
             ...(args.button !== undefined ? { button: args.button } : {}),
           },
-          ctx.principal.principal,
+          ctx.principal,
         ),
       ),
     {
@@ -85,7 +85,7 @@ export function registerScreenTools(registry: ToolRegistry, env: Env): void {
           env,
           String(args.runId),
           { type: "type", text: args.text },
-          ctx.principal.principal,
+          ctx.principal,
         ),
       ),
     {
@@ -104,7 +104,7 @@ export function registerScreenTools(registry: ToolRegistry, env: Env): void {
           env,
           String(args.runId),
           { type: "scroll", dx: args.dx, dy: args.dy },
-          ctx.principal.principal,
+          ctx.principal,
         ),
       ),
     {
@@ -123,7 +123,7 @@ export function registerScreenTools(registry: ToolRegistry, env: Env): void {
           env,
           String(args.runId),
           { type: "key", keys: args.keys },
-          ctx.principal.principal,
+          ctx.principal,
         ),
       ),
     {
@@ -141,7 +141,7 @@ export function registerScreenTools(registry: ToolRegistry, env: Env): void {
         env,
         String(args.runId),
         { type: "shot" },
-        ctx.principal.principal,
+        ctx.principal,
       );
       const data = typeof body.screenshotBase64 === "string" ? body.screenshotBase64 : "";
       if (data === "") {
