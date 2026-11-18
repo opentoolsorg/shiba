@@ -185,6 +185,17 @@ describe("scoped Durable Object caller isolation", () => {
     expect(console.error).toHaveBeenCalledOnce();
   });
 
+  it("sweeps workspaces beyond the admin UI's first 100 rows", async () => {
+    const env = { ...environment("1"), AGENT_AUDIT: {} } as Env;
+    const workspaces = Array.from({ length: 137 }, (_, index) => ({ workspaceId: `workspace-${index}`, name: `Workspace ${index}`, memberCount: 1, lastActivity: null }));
+    vi.mocked(listAdminWorkspaces).mockImplementation(async (_env, limit = 100) => limit < 0 ? workspaces : workspaces.slice(0, limit));
+    await scheduledJobs["drafts.sweep"](env);
+    expect(listAdminWorkspaces).toHaveBeenCalledExactlyOnceWith(env, -1);
+    expect(new Set(names())).toEqual(new Set(["ws:self-hosted", ...workspaces.map(({ workspaceId }) => `ws:team%3A${workspaceId}`)]));
+    expect(names()).toHaveLength(138);
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
   it("reports unsuccessful sweep responses without stopping other workspaces", async () => {
     const env = { ...environment("1"), AGENT_AUDIT: {} } as Env;
     vi.mocked(listAdminWorkspaces).mockResolvedValue([{ workspaceId: "a", name: "A", memberCount: 1, lastActivity: null }]);

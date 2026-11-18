@@ -143,14 +143,16 @@ describe("trusted Slack canvas provenance", () => {
     expect(a?.sessionId).not.toBe(b?.sessionId);
   });
 
-  it("inherits only a verified thread anchor into new coordinator approval pointers", async () => {
+  it.each([undefined, "1"])("inherits only a verified thread anchor into new coordinator approval pointers (scope flag %s)", async (flag) => {
     const context = host();
+    context.instance.env.SHIBA_SCOPED_DO = flag;
     await queue(context.instance);
     const delegate = context.instance.getTools()["delegate_coding_task"] as unknown as { needsApproval(input: unknown, options: { toolCallId: string }): PromiseLike<boolean> };
     expect(await delegate.needsApproval({ repoUrl: REPO, task: "A follow-up decision.", baseBranch: "main", publishPullRequest: false }, { toolCallId: "followup-1" })).toBe(true);
     expect(context.instance.state.slackCanvasOrigins?.["followup-1"]).toBe(ORIGIN);
     expect((await snapshot(context.instance, ORIGIN, "followup-1")).status).toBe(200);
     const unproven = host();
+    unproven.instance.env.SHIBA_SCOPED_DO = flag;
     const unprovenDelegate = unproven.instance.getTools()["delegate_coding_task"] as unknown as typeof delegate;
     await unprovenDelegate.needsApproval({ repoUrl: REPO, task: "Unproven source.", baseBranch: "main", publishPullRequest: false }, { toolCallId: "followup-2" });
     expect(unproven.instance.state.slackCanvasOrigins).toBeUndefined();

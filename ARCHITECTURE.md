@@ -445,3 +445,5 @@ Not bugs — deliberate or inherited, recorded so they are not rediscovered:
 | state and persistence | the nine DO classes in §4 (`*-do.ts` plus the agent classes) |
 | every ingress surface | `slack-routes.ts`, `chat-lane.ts`, `telegram.ts`, `discord.ts`, `email-handler.ts` |
 | what is planned and why | `PLAN.md` (§17 for parity roadmap, §4 for what was cut and why) |
+
+**Do not enable `SHIBA_SCOPED_DO` for personal desktop pairing yet.** Several LocalDispatch callers still resolve the default owner mailbox (`local-routes.ts`, `computers-routes.ts`, `provider-sign-in.ts`) while scoped personal dispatch resolves the account owner, so flag-on daemon routing needs its own review first.
