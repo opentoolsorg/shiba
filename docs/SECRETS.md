@@ -48,7 +48,10 @@ Lists binding **names** only; never store values in git.
 | `OPEN_CONNECTOR_READ_RUNTIME_TOKEN` | optional | Separate scoped read-lane key; never replace the existing manual integration key. | OpenConnector integrations and read gateway |
 | `OPEN_CONNECTOR_RUNTIME_TOKEN` | optional | undocumented | OpenConnector integrations and read gateway |
 | `OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS` | optional | Exact workspace/connection/operation runtime keys; JSON array, Worker-only. | OpenConnector integrations and read gateway |
+| `OTEL_EXPORTER_OTLP_HEADERS` | optional | Optional comma-separated URL-encoded key=value header pairs. | Optional outbound observability (all disabled by default) |
 | `PAIRING_SECRET` | optional | undocumented | Shiba Desktop local runtime and pairing |
+| `POSTHOG_API_KEY` | optional | undocumented | Optional operator configuration |
+| `SENTRY_DSN` | optional | Outbound error reporting only; unrelated to the inbound Sentry webhook. | Outbound error reporting only; unrelated to the inbound Sentry webhook |
 | `SLACK_APPROVERS` | optional | Comma-separated Slack approver user IDs — not a credential. | Slack approvals, installs, and channel routing |
 | `SLACK_BOT_TOKEN` | optional | undocumented | Slack approvals, installs, and channel routing |
 | `SLACK_CHANNEL_REPOS` | optional | Slack channel→repo routing map — not a credential. | Slack approvals, installs, and channel routing |

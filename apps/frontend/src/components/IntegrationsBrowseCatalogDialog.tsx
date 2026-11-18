@@ -1,6 +1,6 @@
 import { IntegrationLogo } from "./IntegrationLogo";
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
-import type { IntegrationProviderCatalogItem, IntegrationProviderSetupState } from "@shiba/shared";
+import { INTEGRATION_COLLECTIONS, type IntegrationCollectionId, type IntegrationProviderCatalogItem, type IntegrationProviderSetupState } from "@shiba/shared";
 import { ToneChip } from "./ToneChip";
 import { RoleCapabilityFilter } from "./RoleCapabilityFilter";
 import { integrationRecommendedForRole, type CapabilityRoleFilter } from "../role-capability-recommendations";
@@ -57,6 +57,7 @@ function ScopedBrowseCatalog({
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<CapabilityRoleFilter>(roleFilter);
   const [readiness, setReadiness] = useState<IntegrationProviderSetupState | "all">("all");
+  const [collection, setCollection] = useState<IntegrationCollectionId | "all">("all");
   const [totals, setTotals] = useState<{ total: number; oauthCapable: number } | null>(null);
   const controller = useRef<AbortController | null>(null), epoch = useRef(0), mounted = useRef(true), visible = useRef(open);
   const dialog = useRef<HTMLDivElement>(null), close = useRef(onClose), accessLost = useRef(onAccessLost); close.current = onClose; accessLost.current = onAccessLost;
@@ -102,6 +103,7 @@ function ScopedBrowseCatalog({
         if (opts.query.trim()) params.set("query", opts.query.trim());
         if (!opts.reset && opts.nextCursor) params.set("cursor", opts.nextCursor);
         if (readiness !== "all") params.set("readiness", readiness);
+        if (collection !== "all") params.set("collection", collection);
         const response = await fetch(`${workspaceId ? "/api/workspace-integrations/catalog" : "/api/integrations/provider/catalog"}?${params.toString()}`, {
           credentials: "same-origin",
           cache: "no-store",
@@ -135,7 +137,7 @@ function ScopedBrowseCatalog({
         if (active() && generation === epoch.current && !abort.signal.aborted) setLoading(false);
       }
     },
-    [active, actorId, workspaceId, readiness],
+    [active, actorId, workspaceId, readiness, collection],
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: Confirmed owner-account revisions invalidate the open catalog without dropping filters.
@@ -183,6 +185,20 @@ function ScopedBrowseCatalog({
             aria-label="Search connector catalog"
             className="w-full rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-sm"
           />
+          <div role="group" aria-label="Browse by collection" className="mt-2 flex flex-wrap gap-1.5">
+            {([["all", "All apps"], ...INTEGRATION_COLLECTIONS.map((entry) => [entry.id, entry.title] as const)] as const).map(([id, title]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={collection === id}
+                onClick={() => setCollection(id)}
+                className={`rounded-[var(--radius-button)] border px-2 py-0.5 text-[11px] font-medium ${collection === id ? "border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--primary)]" : "border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-2)] hover:bg-[var(--card-hover)]"}`}
+              >
+                {title}
+              </button>
+            ))}
+          </div>
+          {collection !== "all" ? <p className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">{INTEGRATION_COLLECTIONS.find((entry) => entry.id === collection)?.description} Apps your provider does not offer are left out.</p> : null}
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <RoleCapabilityFilter value={role} onChange={setRole} label="Catalog recommendations for role" />
             <select aria-label="Filter by readiness" value={readiness} onChange={(event) => setReadiness(event.target.value as IntegrationProviderSetupState | "all")} className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-2 py-1 text-xs">

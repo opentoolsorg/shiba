@@ -5,6 +5,52 @@ description: Current runtime defaults, optional secrets, and what harness verifi
 
 Non-secret defaults are in `apps/backend/wrangler.jsonc` and `alchemy.run.ts`. For local Wrangler runs, copy `apps/backend/.dev.vars.example` to the ignored `apps/backend/.dev.vars`. The Alchemy bootstrap stores deployment configuration/secrets in root `.env` (gitignored, mode 0600); inspect `scripts/setup.mjs` and `alchemy.run.ts`. Neither file belongs in version control. `.dev.vars` is not uploaded as production configuration.
 
+## Optional monitoring
+
+Shiba sends nothing to a monitoring service unless you enable an adapter and
+provide its destination. Each adapter works independently. The browser never
+receives collector URLs, keys or DSNs: signed-in dashboards send only a fixed
+event name to Shiba's same-origin `/api/observability` endpoint.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `SHIBA_ERROR_REPORTING` | `none` | Set `sentry` to report Worker, queue, email, scheduled-job and dashboard errors, and failed coding runs |
+| `SENTRY_DSN` | unset | Worker secret: HTTPS Sentry DSN, including the project number; self-hosted path prefixes are supported |
+| `SHIBA_ANALYTICS` | `none` | Set `posthog` to send anonymous dashboard-opened and coding-run outcome events |
+| `POSTHOG_HOST` | unset | Explicit HTTPS PostHog collector origin; hosted and self-hosted collectors work |
+| `POSTHOG_API_KEY` | unset | Worker secret: PostHog project ingestion key, not a personal API key |
+| `SHIBA_OPEN_TELEMETRY` | `0` | Set `1` to export `shiba.lifecycle.events` counters using OTLP/HTTP JSON |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | unset | Full HTTPS collector URL, including `/v1/metrics`; no query string or embedded credentials |
+| `OTEL_EXPORTER_OTLP_HEADERS` | unset | Optional Worker secret: comma-separated, URL-encoded header pairs, e.g. `Authorization=Bearer%20your-token` |
+
+For Alchemy, set these in the ignored root `.env` or use `pnpm bootstrap`.
+For Wrangler, set non-secret settings in `vars`, and bind the three secrets with
+`wrangler secret put`. Local development uses `.dev.vars`. Run `pnpm env:load`,
+`pnpm env:scan`, `pnpm check:deploy` and `pnpm check:dev-vars` after configuration
+changes. Removing an adapter's opt-in disables it even when credentials remain.
+Invalid or incomplete destinations fail closed; HTTP destinations are not used.
+
+The event contract contains only source, fixed event name, schema version,
+timestamp and the immutable Worker version ID when available. Sentry also gets
+an intrinsic error class and a fixed description, **not** the exception message,
+stack, cause, breadcrumbs or request data. No prompts, customer code, file paths,
+repository names, URLs, user IDs, email addresses, cookies or headers are exported.
+PostHog gets a new random identifier per event, with profiles and GeoIP disabled;
+there is no autocapture, session replay, browser storage or cross-event identity.
+This supports aggregate counts, not per-user funnels or retention reporting.
+Dashboard activity honors the browser's Do Not Track setting; error counters
+remain independent of activity analytics.
+
+Reporting is best-effort: each destination has a two-second timeout, redirects
+are refused, and failures never fail the task or request. Worker background
+deliveries use `waitUntil`; the dashboard limits itself to ten events per signed-in
+mount and the ingress reuses the existing rate-limit binding with a separate key.
+There is no durable telemetry queue or retry, automatic distributed tracing,
+source-map upload, or sandbox console capture. The Sentry inbound automation
+webhook is unchanged and is unrelated to this reporting adapter.
+
+## Runtime settings
+
 | Setting | Default / status | Purpose |
 | --- | --- | --- |
 | `GATEWAY_ID` | `default` | Account-owned AI Gateway selected through the Workers AI binding |

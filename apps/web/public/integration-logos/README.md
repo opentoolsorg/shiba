@@ -15,5 +15,6 @@ Site favicon sources (retrieved November 7, 2026):
 - Krea: https://www.krea.ai/favicon.ico
 - Bright Data: https://brightdata.com/favicon.ico
 - Moz: https://moz.com/favicon.ico
+- Affinity: https://www.affinity.co/favicon.ico (PNG, retrieved November 17, 2026)
 
 Generic Shiba capabilities do not receive invented vendor marks. Unknown upstream services may display their HTTPS provider-supplied logo, with a neutral fallback when it fails.
