@@ -115,6 +115,8 @@ const PASTE_KEY_LABEL: Record<string, string> = {
   openrouter: "OpenRouter API key",
   groq: "Groq API key",
   copilot: "GitHub Copilot token",
+  kimi: "Kimi Code API key",
+  meta: "Meta Model API key",
 };
 
 function WaitingSignIn({

@@ -338,6 +338,18 @@ describe("opencode config and argv", () => {
       .toBe("shiba-dummy-key");
   });
 
+  it.each([
+    ["kimi-code/k3.1-pro", "kimi-code", "https://api.kimi.ai/coding/v1", "k3.1-pro"],
+    ["meta/muse-spark-1.3", "meta", "https://api.meta.ai/v1", "muse-spark-1.3"],
+  ])("points %s at its plan host with only the placeholder key", (codingModel, provider, baseURL, model) => {
+    const config = buildOpencodeConfig({ ...INPUT, codingModel });
+    expect(config.enabled_providers).toEqual([provider]);
+    const entry = (config.provider as Record<string, { npm: string; models: Record<string, unknown>; options: Record<string, string> }>)[provider];
+    expect(entry?.npm).toBe("@ai-sdk/openai-compatible");
+    expect(entry?.models).toHaveProperty(model);
+    expect(entry?.options).toEqual({ apiKey: "shiba-dummy-key", baseURL });
+  });
+
   it("refuses a provider the harness cannot drive, and a model with no provider", () => {
     expect(() => buildOpencodeConfig({ ...INPUT, codingModel: "mistral/large" }))
       .toThrow(/supports google, anthropic, openai/);

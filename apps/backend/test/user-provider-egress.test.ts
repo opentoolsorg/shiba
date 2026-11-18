@@ -70,6 +70,39 @@ describe("user provider key egress", () => {
     } finally { globalThis.fetch = original; }
   });
 
+  it.each([
+    ["kimi", "api.kimi.ai", "/coding/v1/chat/completions"],
+    ["meta", "api.meta.ai", "/v1/chat/completions"],
+  ] as const)("attaches a saved %s plan key at %s and never the container placeholder", async (kind, host, path) => {
+    const kv = new FakeKV();
+    const deployment = env(kv);
+    const secret = crypto.randomUUID();
+    await putUserProviderSecret(deployment, "ada", kind, secret);
+    expect([...kv.map.values()].some((value) => value === secret)).toBe(false);
+    let seen: { url?: string; auth?: string | null } = {};
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen = { url: String(input), auth: new Headers(init?.headers).get("authorization") };
+      return new Response("ok");
+    }) as typeof fetch;
+    try {
+      const config = loadOutboundConfig({
+        orgId: "workspace", initiatorUserId: "ada", allowedHosts: [host],
+        outboundByHost: { [host]: { kind: "builtin", host } },
+      });
+      const request = new Request(`https://${host}${path}`, {
+        method: "POST", body: "{}", headers: { authorization: "Bearer shiba-egress-placeholder" },
+      });
+      expect((await dispatchOutboundRequest(request, deployment, config)).status).toBe(200);
+      expect(seen.url).toBe(`https://${host}${path}`);
+      expect(seen.auth).toBe(`Bearer ${secret}`);
+      seen = {};
+      const other = await dispatchOutboundRequest(new Request(`https://${host}${path}`, { method: "POST", body: "{}" }), deployment, { ...config, initiatorUserId: "bob" });
+      expect(other.status).toBe(503);
+      expect(seen.auth).toBeUndefined();
+    } finally { globalThis.fetch = original; }
+  });
+
   it("sends a saved Gemini key to Google and not the gateway", async () => {
     const kv = new FakeKV();
     const deployment = env(kv);

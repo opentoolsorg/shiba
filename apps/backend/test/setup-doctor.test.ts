@@ -190,4 +190,22 @@ describe("personal API-key preflight", () => {
     await putUserProviderSecret(configured, "personal-owner", "openai-api", crypto.randomUUID());
     await expect(assertRunPreflight(configured, params, snapshot)).resolves.toBeUndefined();
   });
+
+  it.each([
+    ["kimi", "kimi-code/k3.1-pro"],
+    ["meta", "meta/muse-spark-1.3"],
+  ] as const)("runs the %s plan lane without AI_GATEWAY_TOKEN once its key is saved", async (kind, model) => {
+    const records = new Map<string, string>();
+    const configured = env({ AI_GATEWAY_TOKEN: "", MODEL_CREDENTIAL_KEY: "ab".repeat(32),
+      AGENT_TOKENS: {
+        get: async (key: string) => records.get(key) ?? null,
+        put: async (key: string, value: string) => { records.set(key, value); },
+      } as unknown as KVNamespace,
+    });
+    const lane = { ...params, harness: "opencode-acp", codingModel: model,
+      route: { ...params.route, modelId: model, harness: "opencode-acp" } };
+    await expect(assertRunPreflight(configured, lane, snapshot)).rejects.toThrow(/Settings → Providers/);
+    await putUserProviderSecret(configured, "personal-owner", kind, crypto.randomUUID());
+    await expect(assertRunPreflight(configured, lane, snapshot)).resolves.toBeUndefined();
+  });
 });

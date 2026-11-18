@@ -65,6 +65,8 @@ describe("worker /api/providers", () => {
       "openrouter",
       "groq",
       "copilot",
+      "kimi",
+      "meta",
     ]);
     expect(body.providers.find((provider) => provider.id === "claude")?.protocol).toBe("acp");
   });

@@ -226,6 +226,20 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
     defaultModel: "github-copilot/gpt-4.1", docsUrl: "https://docs.github.com/en/copilot", oauth: false, subscription: null, credentialEnv: [],
   },
+  {
+    id: "kimi", label: "Kimi Code",
+    blurb: "Use your Kimi membership. Paste a Kimi Code Console key; runs draw on your plan quota and egress attaches the key.",
+    adapter: "opencode-acp", packageName: "opencode-ai", license: "see package",
+    harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
+    defaultModel: "kimi-code/k3.1-pro", docsUrl: "https://www.kimi.com/code/console", oauth: false, subscription: null, credentialEnv: [],
+  },
+  {
+    id: "meta", label: "Meta Muse",
+    blurb: "Muse Spark through your Meta Model API account. Paste a Model API key; it is encrypted for you and attached at egress.",
+    adapter: "opencode-acp", packageName: "opencode-ai", license: "see package",
+    harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
+    defaultModel: "meta/muse-spark-1.3", docsUrl: "https://dev.meta.ai/docs/quickstart", oauth: false, subscription: null, credentialEnv: [],
+  },
 ];
 
 const BY_ID = new Map(ACP_PROVIDER_REGISTRY.map((provider) => [provider.id, provider]));
