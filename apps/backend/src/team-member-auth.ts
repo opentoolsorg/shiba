@@ -24,6 +24,7 @@ export async function isTeamDeploymentOperator(request: Request, env: Env): Prom
 }
 
 const ownApi = [
+  /^\/api\/observability$/,
   /^\/api\/memory\/(?:facts(?:\/[^/]+)?|sessions|sources(?:\/[^/]+)?|projects(?:\/[^/]+)?|recall)\/?$/,
 ];
 const workspaceApi = [
