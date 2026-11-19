@@ -99,6 +99,20 @@ describe("context import from another assistant", () => {
     expect(((await foreign.json()) as { sources: unknown[] }).sources).toEqual([]);
   });
 
+  it.each([
+    ["a short legacy key", "sk-abc12345", "sk-abc12345"],
+    ["an assignment", "password: must-be-12-chars-or-longer", "must-be-12-chars-or-longer"],
+    ["a JSON field", '{"client_secret": "abcdef123456"}', "abcdef123456"],
+    ["a modern prefixed key", "sk-ant-api03-abcdefghijklmnop", "sk-ant-api03"],
+  ])("redacts %s on the way into memory", async (_shape, text, leaked) => {
+    const env = fixture();
+    const response = await importContext(env, { assistant: "chatgpt", content: `about me:\n${text}` });
+    expect(response.status).toBe(201);
+    const body = await response.json() as { source: OwnerMemorySource };
+    expect(body.source.content).not.toContain(leaked);
+    expect(body.source.content).toContain("[redacted]");
+  });
+
   it("refuses an oversized paste at the route before the body is buffered", async () => {
     const env = fixture();
     const response = await importContext(env, { assistant: "chatgpt", content: "x".repeat(70_000) });
