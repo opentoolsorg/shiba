@@ -67,7 +67,8 @@ export interface ApprovalsPollerDeps {
   loadURL: (url: string) => Promise<unknown> | unknown;
   /** new Notification(...) — injected so this file stays electron-free. */
   notify: (n: ApprovalNotification, onClick: () => void) => void;
-  log?: (...args: unknown[]) => void;
+  /** Fixed failure note; the thrown value never leaves this module. */
+  onError?: (reason: "poll-failed") => void;
   intervalMs?: number;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
@@ -86,7 +87,7 @@ interface ApprovalsBody {
 }
 
 export function createApprovalsPoller(deps: ApprovalsPollerDeps): ApprovalsPoller {
-  const log = deps.log ?? (() => {});
+  const onError = deps.onError ?? (() => {});
   const intervalMs = deps.intervalMs ?? APPROVALS_POLL_MS;
   const setI = deps.setIntervalFn ?? setInterval;
   const clearI = deps.clearIntervalFn ?? clearInterval;
@@ -101,8 +102,8 @@ export function createApprovalsPoller(deps: ApprovalsPollerDeps): ApprovalsPolle
       if (res.status !== 200) return null;
       const body = (await res.json()) as ApprovalsBody;
       return Array.isArray(body.approvals) ? body.approvals : [];
-    } catch (error) {
-      log("approvals poll failed:", error);
+    } catch {
+      onError("poll-failed");
       return null;
     }
   }

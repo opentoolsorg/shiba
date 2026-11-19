@@ -50,7 +50,8 @@ export interface DesktopIpcDeps {
   /** Reads the daemon's config.json — revoke fallback when status dropped machineId (conflict/crashed). */
   readLocalConfig(): { workerUrl?: string; machineId?: string } | null;
   /** Main-process log sink; never receives tokens or request bodies. */
-  log?(line: string): void;
+  /** Fixed structured notes only: no status text, response body, or error value. */
+  event?(fields: { event: string; state?: string; code?: number }): void;
   /** Surface-wide concurrency ceiling shared with the rest of the bridge. */
   bounds: IpcBounds;
 }
@@ -98,10 +99,10 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ machineId }),
       });
-      if (!res.ok) deps.log?.(`re-pair: revoke returned ${res.status}`);
+      if (!res.ok) deps.event?.({ event: "revoke-stale", state: "failed", code: res.status });
     } catch {
       // offline or signed out: the old row ages out after 7 days
-      deps.log?.("re-pair: revoke request failed");
+      deps.event?.({ event: "revoke-stale", state: "unreachable" });
     }
   }
 
@@ -146,7 +147,7 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
         if (!res.ok) {
           // Config is kept, so the probe brings the stopped daemon back.
           void deps.supervisor.probe?.();
-          deps.log?.(`revoke returned ${res.status}`);
+          deps.event?.({ event: "revoke", state: "failed", code: res.status });
           return failure("revoke_failed");
         }
       }

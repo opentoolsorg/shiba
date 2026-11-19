@@ -34,20 +34,22 @@ it("packaged checks immediately and on every interval", () => {
   expect(u.isRunning()).toBe(true);
 });
 
-it("a synchronous throw is logged, not thrown", () => {
-  const log = vi.fn();
-  const boom = new Error("sync");
+it("a synchronous throw becomes a fixed note, with no error text", () => {
+  const onError = vi.fn();
+  const boom = new Error("sync secret");
   expect(() =>
-    startUpdater({ isPackaged: true, checkForUpdatesAndNotify: () => { throw boom; }, log, ...timers() }),
+    startUpdater({ isPackaged: true, checkForUpdatesAndNotify: () => { throw boom; }, onError, ...timers() }),
   ).not.toThrow();
-  expect(log).toHaveBeenCalledWith("update check failed:", boom);
+  // The note is a constant: the thrown value never leaves the module.
+  expect(onError).toHaveBeenCalledWith("check-failed");
+  expect(JSON.stringify(onError.mock.calls)).not.toContain("sync secret");
 });
 
-it("a rejected promise is logged, not thrown", async () => {
-  const log = vi.fn();
-  const boom = new Error("async");
-  startUpdater({ isPackaged: true, checkForUpdatesAndNotify: () => Promise.reject(boom), log, ...timers() });
-  await vi.waitFor(() => expect(log).toHaveBeenCalledWith("update check failed:", boom));
+it("a rejected promise becomes the same fixed note", async () => {
+  const onError = vi.fn();
+  startUpdater({ isPackaged: true, checkForUpdatesAndNotify: () => Promise.reject(new Error("async secret")), onError, ...timers() });
+  await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("check-failed"));
+  expect(JSON.stringify(onError.mock.calls)).not.toContain("async secret");
 });
 
 it("stop() clears the interval", () => {
