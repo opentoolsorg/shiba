@@ -6,6 +6,8 @@ const VISOR = "#14161c";
 const VISOR_HIGHLIGHT = "#2c3548";
 const GLYPH_INK = "#332a24";
 const GLYPH_INK_ON_DARK = "#f4e2c4";
+/** Dark coats sit within a hair of a dark card, so their silhouette carries a light rim. */
+const DARK_COAT_RIM = "rgba(244,255,252,0.38)";
 
 function shade(hex: string, amount: number): string {
   const value = Number.parseInt(hex.slice(1), 16);
@@ -22,26 +24,27 @@ function isDark(hex: string): boolean {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.42;
 }
 
-function Head({ shape, color }: { shape: AgentMascotShape; color: string }) {
+function Head({ shape, color, rim }: { shape: AgentMascotShape; color: string; rim?: string }) {
+  const edge = rim ? { stroke: rim, strokeWidth: 0.9 } : {};
   switch (shape) {
     case "round":
-      return <ellipse cx="32" cy="39" rx="16.5" ry="15" fill={color} />;
+      return <ellipse cx="32" cy="39" rx="16.5" ry="15" fill={color} {...edge} />;
     case "bean":
-      return <path fill={color} d="M15 40c0-11 7-17 17-17 7 0 11 3 14 8 3 7 0 16-6 20-8 5-25 3-25-11z" />;
+      return <path fill={color} {...edge} d="M15 40c0-11 7-17 17-17 7 0 11 3 14 8 3 7 0 16-6 20-8 5-25 3-25-11z" />;
     case "pointed":
-      return <path fill={color} d="M32 23c9 5 17 11 17 19 0 10-7.5 16.5-17 16.5S15 52 15 42c0-8 8-14 17-19z" />;
+      return <path fill={color} {...edge} d="M32 23c9 5 17 11 17 19 0 10-7.5 16.5-17 16.5S15 52 15 42c0-8 8-14 17-19z" />;
     case "cloud":
-      return <path fill={color} d="M18 44c-5.5.5-8-5-5.5-9 1.2-5.2 7-7.4 11.2-5.2 1.6-5.4 8.4-7.6 13.4-4.2 4.6-2.4 10.4.4 11.2 6.2 4.6.4 7.2 6.2 4.2 10.2-1.6 4.2-6.4 5.2-10.4 4.2-2.2 3.6-8 4.6-12.2 2.4-3.4 2-9.2 1.2-11.9-4.6z" />;
+      return <path fill={color} {...edge} d="M18 44c-5.5.5-8-5-5.5-9 1.2-5.2 7-7.4 11.2-5.2 1.6-5.4 8.4-7.6 13.4-4.2 4.6-2.4 10.4.4 11.2 6.2 4.6.4 7.2 6.2 4.2 10.2-1.6 4.2-6.4 5.2-10.4 4.2-2.2 3.6-8 4.6-12.2 2.4-3.4 2-9.2 1.2-11.9-4.6z" />;
     case "hex":
-      return <polygon fill={color} points="32,22 49,31 49,47 32,55 15,47 15,31" />;
+      return <polygon fill={color} {...edge} points="32,22 49,31 49,47 32,55 15,47 15,31" />;
     case "squircle":
-      return <rect x="15" y="24" width="34" height="30" rx="12" fill={color} />;
+      return <rect x="15" y="24" width="34" height="30" rx="12" fill={color} {...edge} />;
     case "pebble":
-      return <path fill={color} d="M17 42c-4-12 2-20 15-22 10-1.5 17 4 20 13 2.5 9-2 16.5-12 19.5-9 2.5-25-1.5-23-10.5z" />;
+      return <path fill={color} {...edge} d="M17 42c-4-12 2-20 15-22 10-1.5 17 4 20 13 2.5 9-2 16.5-12 19.5-9 2.5-25-1.5-23-10.5z" />;
     case "egg":
-      return <ellipse cx="32" cy="40" rx="14" ry="17.5" fill={color} />;
+      return <ellipse cx="32" cy="40" rx="14" ry="17.5" fill={color} {...edge} />;
     case "capsule":
-      return <rect x="17" y="26" width="30" height="28" rx="14" fill={color} />;
+      return <rect x="17" y="26" width="30" height="28" rx="14" fill={color} {...edge} />;
     default:
       return null;
   }
@@ -119,6 +122,7 @@ export function AgentMascot({ look, expression, live = false, label }: {
 }): JSX.Element {
   const eyes = expression ?? look.eyes;
   const inner = shade(look.color, -48);
+  const rim = isDark(look.color) ? DARK_COAT_RIM : undefined;
   return (
     <svg
       viewBox="0 0 64 64"
@@ -134,10 +138,10 @@ export function AgentMascot({ look, expression, live = false, label }: {
       data-live={live ? "true" : "false"}
     >
       <g data-part="ears">
-        <path d="M17 31 L23.5 6 L33 28 Z" fill={look.color} />
-        <path d="M47 31 L40.5 6 L31 28 Z" fill={look.color} />
+        <path d="M17 31 L23.5 6 L33 28 Z" fill={look.color} stroke={rim} strokeWidth={rim ? 0.9 : undefined} />
+        <path d="M47 31 L40.5 6 L31 28 Z" fill={look.color} stroke={rim} strokeWidth={rim ? 0.9 : undefined} />
       </g>
-      <Head shape={look.shape} color={look.color} />
+      <Head shape={look.shape} color={look.color} rim={rim} />
       <g data-part="fluff" fill={look.color}>
         <circle cx="22" cy="30" r="3.1" />
         <circle cx="32" cy="26" r="3.5" />
