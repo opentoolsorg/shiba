@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AGENT_AVATAR_COATS, AGENT_AVATAR_VARIANTS, type AgentAvatarChoice } from "@shiba/shared";
 import type { EmployeeRole } from "../employee-templates";
 import { AgentAvatar } from "./AgentAvatar";
-import { BotAvatarEditor, textOnCoat } from "./BotAvatarEditor";
+import { BotAvatarEditor, pillTone, textOnCoat } from "./BotAvatarEditor";
 
 afterEach(cleanup);
 
@@ -73,7 +73,20 @@ describe("bot avatar editor", () => {
   });
 
   it("keeps the name pill readable on every coat", () => {
-    for (const coat of AGENT_AVATAR_COATS) expect(["#222320", "#fafafa"]).toContain(textOnCoat(coat));
+    const lum = (color: string) => {
+      const value = Number.parseInt(color.slice(1), 16);
+      const channel = (raw: number) => { const unit = raw / 255; return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * channel((value >> 16) & 255) + 0.7152 * channel((value >> 8) & 255) + 0.0722 * channel(value & 255);
+    };
+    const ratio = (a: string, b: string) => {
+      const [high, low] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number];
+      return (high + 0.05) / (low + 0.05);
+    };
+    for (const coat of AGENT_AVATAR_COATS) {
+      expect(["#222320", "#fafafa"]).toContain(textOnCoat(coat));
+      const tone = pillTone(coat);
+      expect(ratio(tone.background, tone.color)).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });
 
