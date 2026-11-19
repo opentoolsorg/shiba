@@ -149,7 +149,7 @@ export function RoomRail({
                 <span className="flex items-center gap-2 truncate font-medium">
                   <span className="truncate">{room.title}</span>
                   {room.roomId === activeRoomId && activePresenceCount > 0 ? (
-                    <span aria-label={`${activePresenceCount} online`} className="flex shrink-0 items-center gap-1 text-[10px]">
+                    <span role="img" aria-label={`${activePresenceCount} online`} className="flex shrink-0 items-center gap-1 text-[10px]">
                       <span aria-hidden="true" className="size-1.5 rounded-full bg-[var(--success)]" />{activePresenceCount}
                     </span>
                   ) : null}

@@ -66,16 +66,15 @@ export function useMentionAutocomplete(opts: {
 export function MentionMenu({ options, active, onPick }: { options: MentionOption[]; active: number; onPick: (option: MentionOption) => void }): JSX.Element | null {
   if (options.length === 0) return null;
   return (
-    <ul role="listbox" aria-label="Mention suggestions" className="absolute bottom-full left-3 z-20 mb-1 w-64 border border-[var(--line)] bg-[var(--card)] text-sm shadow-sm">
+    <div role="listbox" aria-label="Mention suggestions" className="absolute bottom-full left-3 z-20 mb-1 w-64 border border-[var(--line)] bg-[var(--card)] text-sm shadow-sm">
       {options.map((option, i) => (
-        <li key={option.token} role="option" aria-selected={i === active}>
-          <button type="button" tabIndex={-1} onMouseDown={(event) => { event.preventDefault(); onPick(option); }}
-            className={`flex min-h-9 w-full items-center justify-between gap-2 px-3 text-left ${i === active ? "bg-[var(--panel-2)]" : ""}`}>
-            <span className="truncate">{option.label}</span>
-            <span className="font-mono text-[10px] text-[var(--ink-2)]">{option.kind === "agent" ? "employee" : "member"}</span>
-          </button>
-        </li>
+        <div key={option.token} role="option" tabIndex={-1} aria-selected={i === active}
+          onMouseDown={(event) => { event.preventDefault(); onPick(option); }}
+          className={`flex min-h-9 w-full cursor-pointer items-center justify-between gap-2 px-3 text-left ${i === active ? "bg-[var(--panel-2)]" : ""}`}>
+          <span className="truncate">{option.label}</span>
+          <span className="font-mono text-[10px] text-[var(--ink-2)]">{option.kind === "agent" ? "employee" : "member"}</span>
+        </div>
       ))}
-    </ul>
+    </div>
   );
 }
