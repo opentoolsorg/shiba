@@ -39,7 +39,7 @@ describe("AgentAvatar", () => {
   it("maps a role to its default look and exposes the role", () => {
     const design: EmployeeRole = "design";
     const { container } = render(<AgentAvatar id="custom-1" name="Designer" role={design} />);
-    expect(face("Designer").getAttribute("data-shape")).toBe("cloud");
+    expect(face("Designer").getAttribute("data-shape")).toBe("pointed");
     expect(face("Designer").getAttribute("data-eyes")).toBe("star");
     expect(face("Designer").getAttribute("data-acc")).toBe("pen");
     expect(container.querySelector('[data-employee-role="design"]')).toBeTruthy();

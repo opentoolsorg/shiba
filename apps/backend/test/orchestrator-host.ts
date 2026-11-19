@@ -48,7 +48,7 @@ export function setStateLikeProduction(host: unknown, next: OrchestratorState): 
  */
 const testKv = {
   get: async (key: string) => {
-    const match = /^user_provider_secret:([^:]+):(google|xai|opencode|openai-api|anthropic-api|openrouter|groq|copilot)$/.exec(key);
+    const match = /^user_provider_secret:([^:]+):(google|xai|opencode|openai-api|anthropic-api|openrouter|groq|copilot|kimi|meta|deepseek|zai|minimax|qwen|mistral)$/.exec(key);
     return match ? encryptAuthJson(crypto.randomUUID(), "ab".repeat(32), "installation", decodeURIComponent(match[1]!), match[2]!) : null;
   },
   put: async () => undefined,

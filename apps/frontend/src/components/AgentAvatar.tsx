@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
+import { avatarLook, normalizeAgentAvatar, type AgentAvatarChoice, type AgentMascotLook, type CustomAgentMascotPreset } from "@shiba/shared";
 import { mascotExpression, resolveAgentLook, type AgentAvatarStatus } from "../agent-mascots";
 import { employeeRole, type EmployeeRole } from "../employee-templates";
 import { AgentMascot } from "./AgentMascot";
@@ -22,7 +22,7 @@ function initials(name: string): string {
   return ((parts[0]?.[0] ?? "?") + (parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "")).toUpperCase();
 }
 
-export function AgentAvatar({ id, name, size = 40, status, role, mascotPreset, look, live = true, imageSrc, decorative = false, className = "" }: {
+export function AgentAvatar({ id, name, size = 40, status, role, mascotPreset, look, avatar, live = true, imageSrc, decorative = false, className = "" }: {
   id: string;
   name: string;
   size?: number;
@@ -30,6 +30,8 @@ export function AgentAvatar({ id, name, size = 40, status, role, mascotPreset, l
   role?: EmployeeRole;
   mascotPreset?: CustomAgentMascotPreset;
   look?: AgentMascotLook;
+  /** A saved variant-and-coat or uploaded portrait; wins over the role mark. */
+  avatar?: AgentAvatarChoice | null;
   /** Blink and a small gaze when motion is allowed. */
   live?: boolean;
   /** Optional uploaded portrait. A failed image falls back to initials. */
@@ -39,7 +41,8 @@ export function AgentAvatar({ id, name, size = 40, status, role, mascotPreset, l
 }) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const known = role ?? employeeRole(id);
-  const resolved = resolveAgentLook({
+  const choice = normalizeAgentAvatar(avatar);
+  const resolved = avatarLook(choice) ?? resolveAgentLook({
     id,
     role: known === "custom" ? undefined : known,
     fallbackId: id,
@@ -47,12 +50,13 @@ export function AgentAvatar({ id, name, size = 40, status, role, mascotPreset, l
     look,
   });
   const expression = mascotExpression(status, resolved.eyes);
-  const showImage = Boolean(imageSrc) && failedSrc !== imageSrc;
+  const portrait = choice?.kind === "upload" ? `/api/files/${choice.fileId}/download` : imageSrc;
+  const showImage = Boolean(portrait) && failedSrc !== portrait;
   return (
     <span className={`agent-avatar relative inline-flex shrink-0 ${className}`} style={{ width: size, height: size }} data-status={status} data-employee-role={known}>
       {showImage ? (
-        <img src={imageSrc} alt={decorative ? "" : name} aria-hidden={decorative || undefined} onError={() => setFailedSrc(imageSrc ?? null)} className="size-full rounded-full object-cover" />
-      ) : imageSrc ? (
+        <img src={portrait} alt={decorative ? "" : name} aria-hidden={decorative || undefined} onError={() => setFailedSrc(portrait ?? null)} className="size-full rounded-full object-cover" />
+      ) : portrait ? (
         decorative ? <span aria-hidden="true" className={initialsClass} style={{ fontSize: Math.max(10, size * 0.38) }}>{initials(name)}</span>
         : <span role="img" aria-label={name} className={initialsClass} style={{ fontSize: Math.max(10, size * 0.38) }}>{initials(name)}</span>
       ) : (

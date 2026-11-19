@@ -71,6 +71,8 @@ export const knowledgeSearchHitSchema = z.object({
   chunkId: z.string(),
   sourceKind: knowledgeSourceKindSchema,
   sourceId: z.string(),
+  sourceName: z.string().optional(),
+  scope: knowledgeScopeSchema.optional(),
   ordinal: z.number().int().nonnegative(),
   text: z.string(),
   score: z.number(),
