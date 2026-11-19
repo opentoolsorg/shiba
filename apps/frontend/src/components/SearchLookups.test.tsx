@@ -51,6 +51,13 @@ describe("ChatMessageComposer lookups", () => {
     expect((screen.getByRole("button", { name: "Web" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("describes the toggle as staying on, not as a one-message choice", () => {
+    render(<ChatMessageComposer {...props} streaming={false} lookups={chatLookupOptions(setup, ["web_search"])} onToggleLookup={vi.fn()} />);
+    const web = screen.getByRole("button", { name: "Web" });
+    expect(web.title).toBe("Turn off the web lookup. It stays on for later Chat messages until you turn it off.");
+    expect(web.title).not.toContain("for this message");
+  });
+
   it("renders no lookup controls without a toggle handler", () => {
     render(<ChatMessageComposer {...props} streaming={false} lookups={chatLookupOptions(setup, [])} />);
     expect(screen.queryByRole("group", { name: "Lookups for this message" })).toBeNull();

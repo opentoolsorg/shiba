@@ -121,7 +121,9 @@ export function ChatMessageComposer({
                       type="button"
                       aria-pressed={lookup.on}
                       disabled={!lookup.available || streaming}
-                      title={lookup.available ? `${lookup.on ? "Turn off" : "Use"} ${lookup.label.toLowerCase()} lookup for this message` : lookup.unavailableReason}
+                      title={lookup.available
+                        ? `${lookup.on ? "Turn off" : "Turn on"} the ${lookup.label.toLowerCase()} lookup. It stays on for later Chat messages until you turn it off.`
+                        : lookup.unavailableReason}
                       onClick={() => onToggleLookup(lookup.id)}
                       className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-50 ${
                         lookup.on
