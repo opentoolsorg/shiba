@@ -24,6 +24,11 @@ export interface ChatAgentToolsContext {
    * passes the session's server-assigned pin. Absent means the deployment scope.
    */
   workspaceId?: string;
+  /**
+   * Budget window for paid lookups. The caller passes one per user message:
+   * a thread-wide key would let two batches exhaust search for its lifetime.
+   */
+  budgetKey?: string;
   onClose?: () => void;
 }
 
@@ -33,6 +38,7 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
   const runId = ctx.runId;
   const userId = ctx.userId;
   const knowledgeWorkspaceId = ctx.workspaceId ?? orgId.replace(/^team:/, "");
+  const budgetKey = ctx.budgetKey ?? runId;
 
   return {
     web_search: tool({
@@ -43,9 +49,9 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
           return { ok: false, unavailable: true, message: "Web search is not configured on this deployment." };
         }
         const budget = await incrementToolUsage(env, {
-          orgId, runId, toolName: "web_search", budgetLimit: DEFAULT_WEB_SEARCH_BUDGET, calls: webSearchQueries(input).length,
+          orgId, runId: budgetKey, toolName: "web_search", budgetLimit: DEFAULT_WEB_SEARCH_BUDGET, calls: webSearchQueries(input).length,
         });
-        if (!budget.allowed) return { ok: false, error: "Web search budget exceeded for this conversation." };
+        if (!budget.allowed) return { ok: false, error: "Web search budget exceeded for this message." };
         return runWebSearch(env, input);
       },
     }),
