@@ -20,6 +20,7 @@ export const AGENT_MASCOT_FRIENDLY_EYES = [
 
 export const AGENT_MASCOT_ACCS = [
   "none", "pen", "wrench", "coffee", "loupe", "megaphone", "clipboard", "compass", "headset", "chart",
+  "list", "bag", "check",
 ] as const;
 export type AgentMascotAcc = (typeof AGENT_MASCOT_ACCS)[number];
 
@@ -45,6 +46,11 @@ export const AGENT_MASCOT_FURS = [
   { id: "indigo", label: "Indigo", hex: "#5c6bc0" },
 ] as const;
 export type AgentMascotFurId = (typeof AGENT_MASCOT_FURS)[number]["id"];
+
+/** Cream, brown, slate and navy coats: what an agent gets when nobody chose a look. */
+export const AGENT_MASCOT_BRAND_FURS = [
+  "cream", "sesame", "sand", "red", "cocoa", "white", "gray", "moss", "dusk", "navy", "ink", "black",
+] as const satisfies readonly AgentMascotFurId[];
 
 export const CUSTOM_AGENT_MASCOT_PRESETS = ["hero", "climbing", "riding", "sleeping", "sunglasses"] as const;
 export type CustomAgentMascotPreset = (typeof CUSTOM_AGENT_MASCOT_PRESETS)[number];
@@ -85,19 +91,29 @@ const TEMPLATE_LOOKS: Record<string, AgentMascotLook> = {
   "reason-engineering-lead": { shape: "hex", color: "#a65a3a", eyes: "code", acc: "compass" },
 };
 
-const ROLE_LOOKS: Record<string, AgentMascotLook> = {
-  engineering: { shape: "pointed", color: "#6b4a32", eyes: "code", acc: "wrench" },
-  marketing: { shape: "cloud", color: "#e07a5f", eyes: "big", acc: "megaphone" },
-  sales: { shape: "bean", color: "#6e7ca8", eyes: "happy", acc: "megaphone" },
-  product: { shape: "squircle", color: "#f4e2c4", eyes: "pill", acc: "pen" },
-  design: { shape: "cloud", color: "#f7f1e6", eyes: "star", acc: "pen" },
-  research: { shape: "hex", color: "#2a3138", eyes: "surprised", acc: "loupe" },
-  operations: { shape: "round", color: "#c4a574", eyes: "sleepy", acc: "coffee" },
-  qa: { shape: "pointed", color: "#a65a3a", eyes: "squint", acc: "loupe" },
-  gtm: { shape: "bean", color: "#6e8b6a", eyes: "wink", acc: "chart" },
-  hr: { shape: "squircle", color: "#f4e2c4", eyes: "heart", acc: "clipboard" },
-  finance: { shape: "hex", color: "#3a342e", eyes: "squint", acc: "chart" },
+/**
+ * Role marks: one pointed-ear silhouette, the visor every mark shares, and one
+ * coat, face and muzzle glyph per role. Fur and inner-ear shades match the
+ * public role marks on the marketing site; the inner ear is always the coat
+ * darkened by 48 per channel. gtm, hr and finance are app-only additions built
+ * the same way.
+ */
+export const AGENT_MASCOT_ROLE_LOOKS: Record<string, AgentMascotLook> = {
+  engineering: { shape: "pointed", color: "#af886e", eyes: "code", acc: "wrench" },
+  marketing: { shape: "pointed", color: "#e07a5f", eyes: "big", acc: "megaphone" },
+  sales: { shape: "pointed", color: "#82a0bd", eyes: "happy", acc: "bag" },
+  research: { shape: "pointed", color: "#788c96", eyes: "surprised", acc: "loupe" },
+  product: { shape: "pointed", color: "#cf977e", eyes: "pill", acc: "list" },
+  design: { shape: "pointed", color: "#efcfac", eyes: "star", acc: "pen" },
+  qa: { shape: "pointed", color: "#d2ad79", eyes: "squint", acc: "check" },
+  operations: { shape: "pointed", color: "#89ad8d", eyes: "sleepy", acc: "coffee" },
+  custom: { shape: "pointed", color: "#cfb9d8", eyes: "wink", acc: "none" },
+  gtm: { shape: "pointed", color: "#b78fa8", eyes: "heart", acc: "compass" },
+  hr: { shape: "pointed", color: "#d9a8b4", eyes: "happy", acc: "headset" },
+  finance: { shape: "pointed", color: "#9490b0", eyes: "pill", acc: "chart" },
 };
+
+const ROLE_LOOKS = AGENT_MASCOT_ROLE_LOOKS;
 
 /** Sticker presets stay recognizable as unique visor looks. */
 export const MASCOT_PRESET_LOOKS: Record<CustomAgentMascotPreset, AgentMascotLook> = {
@@ -151,8 +167,13 @@ function mix(seed: string, salt: number): number {
   return value;
 }
 
+function brandFur(index: number): (typeof AGENT_MASCOT_FURS)[number] {
+  const id = AGENT_MASCOT_BRAND_FURS[index % AGENT_MASCOT_BRAND_FURS.length]!;
+  return AGENT_MASCOT_FURS.find((fur) => fur.id === id)!;
+}
+
 function hashLook(id: string): AgentMascotLook {
-  const fur = AGENT_MASCOT_FURS[mix(id, 1) % AGENT_MASCOT_FURS.length]!;
+  const fur = brandFur(mix(id, 1));
   return {
     shape: AGENT_MASCOT_SHAPES[mix(id, 3) % AGENT_MASCOT_SHAPES.length]!,
     color: fur.hex,
