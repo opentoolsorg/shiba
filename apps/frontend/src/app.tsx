@@ -2852,13 +2852,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       threadCreationPending.current = false;
     }
   }, [taskCreationBlocker, teamWorkspaceId, pushThreadUrl]);
+  handleNewTaskRef.current = () => { void handleNewTask(); };
 
   const handleStartAgentThread = useCallback(async (profile: CustomAgentWire) => {
     if (teamWorkspaceId) {
       setSharedRoomId(undefined); setSharedHandoffId(undefined); setSharedEmployeeId(profile.id); setMainView("threads");
       return null;
     }
-    if (!privateDataEnabled) throw new Error("Wait for your workspace access to be verified.");
+    if (taskCreationBlocker) throw new Error(taskCreationBlocker);
     const creationScope = activeSurfaceScopeRef.current;
     if (threadCreationPending.current) throw new Error("Another thread is being created. Wait, then try again.");
     threadCreationPending.current = true;
@@ -2885,7 +2886,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     } finally {
       threadCreationPending.current = false;
     }
-  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, teamWorkspaceId, privateDataEnabled, pushThreadUrl]);
+  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, teamWorkspaceId, taskCreationBlocker, pushThreadUrl]);
 
   const startSidebarAgentThread = async (profile?: CustomAgentWire) => {
     const creationScope = activeSurfaceScopeRef.current;
@@ -3040,6 +3041,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         onSelectAgent={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
         onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
         onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
+        newThreadDisabledReason={taskCreationBlocker ?? undefined}
         onNewAgent={() => openView("custom-agents")}
       />
     );

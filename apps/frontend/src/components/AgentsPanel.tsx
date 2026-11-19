@@ -38,6 +38,8 @@ export interface AgentsPanelProps {
   /** Live run state per thread id (e.g. the streaming session); overrides session metadata. */
   threadStates?: Record<string, ThreadRunState>;
   onNewThread?: (agentId?: string) => void;
+  /** Why no thread can be started yet; New thread buttons stay disabled until it clears. */
+  newThreadDisabledReason?: string;
   onSelectThread?: (id: string) => void;
   onSelectAgent?: (id: string) => void;
   onNewAgent?: () => void;
@@ -73,6 +75,7 @@ export function AgentsPanel({
   threads = [],
   threadStates,
   onNewThread,
+  newThreadDisabledReason,
   onSelectThread,
   onSelectAgent,
   onNewAgent,
@@ -296,9 +299,10 @@ export function AgentsPanel({
                   <button
                     type="button"
                     aria-label={`New thread with ${row.name}`}
-                    title={`New thread with ${row.name}`}
+                    title={newThreadDisabledReason ?? `New thread with ${row.name}`}
+                    disabled={Boolean(newThreadDisabledReason)}
                     onClick={() => onNewThread?.(row.agent?.id)}
-                    className={rowAction}
+                    className={`${rowAction} disabled:cursor-not-allowed disabled:opacity-50`}
                   >
                     <Plus className="size-3.5" strokeWidth={2} aria-hidden="true" />
                   </button>

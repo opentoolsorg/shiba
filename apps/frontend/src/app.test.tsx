@@ -624,6 +624,63 @@ describe("app Work and Threads routing", () => {
     await waitFor(() => expect(createSession).toHaveBeenCalledOnce());
   });
 
+  it("creates one task from the new-task shortcut once the thread registry answers", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    let answerRegistry!: () => void;
+    const registry = new Promise<void>((resolve) => { answerRegistry = resolve; });
+    let finish!: (response: Response) => void;
+    const createSession = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/sessions" && options?.method === "POST") return createSession();
+      if (String(url) === "/api/sessions") { await registry; return Response.json({ sessions: [], defaultSessionId: "default" }); }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const newTask = await screen.findByRole("button", { name: "New task" }) as HTMLButtonElement;
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.not.objectContaining({ method: "POST" })));
+    fireEvent.keyDown(window, { key: "O", ctrlKey: true, shiftKey: true });
+    expect(createSession).not.toHaveBeenCalled();
+    await act(async () => answerRegistry());
+    await waitFor(() => expect(newTask.disabled).toBe(false));
+    expect(createSession).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "O", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(window, { key: "O", metaKey: true, shiftKey: true });
+    expect(createSession).toHaveBeenCalledOnce();
+    await act(async () => finish(Response.json({ session: { id: "shortcut-thread", name: "New thread", agentName: "new-agent", updatedAt: 1 } })));
+    expect(await screen.findByRole("button", { name: "Rename thread" })).toBeTruthy();
+  });
+
+  it("holds the employee sidebar's New thread until the thread registry answers", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/custom-agents/");
+    const originalFetch = fetch;
+    const template = EMPLOYEE_TEMPLATES.find((item) => item.id === "research")!;
+    const profile = { id: "research-agent", slug: template.slug, version: 1, config: { ...template.config, harness: "opencode" } };
+    let answerRegistry!: () => void;
+    const registry = new Promise<void>((resolve) => { answerRegistry = resolve; });
+    const createSession = vi.fn(async () => Response.json({ session: { id: "agent-thread", name: profile.config.name, agentName: "research-chat", updatedAt: 1, metadata: { customAgentId: profile.id } } }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/custom-agents") return Response.json({ agents: [profile] });
+      if (String(url) === "/api/sessions" && options?.method === "POST") return createSession();
+      if (String(url) === "/api/sessions") { await registry; return Response.json({ sessions: [], defaultSessionId: "default" }); }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const start = await screen.findByRole("button", { name: `New thread with ${profile.config.name}` }) as HTMLButtonElement;
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.not.objectContaining({ method: "POST" })));
+    expect(start.disabled).toBe(true);
+    expect(start.title).toBe("Loading your threads…");
+    fireEvent.click(start);
+    expect(createSession).not.toHaveBeenCalled();
+    await act(async () => answerRegistry());
+    await waitFor(() => expect(start.disabled).toBe(false));
+    expect(createSession).not.toHaveBeenCalled();
+    fireEvent.click(start);
+    fireEvent.click(start);
+    await waitFor(() => expect(createSession).toHaveBeenCalledOnce());
+  });
+
   it("keeps task creation disabled with a reason when the server has no thread registry", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     const originalFetch = fetch;
@@ -962,7 +1019,9 @@ describe("app Work and Threads routing", () => {
       return originalFetch(url, options);
     }));
     render(<App />);
-    const start = await screen.findByRole("button", { name: `New thread with ${profile.config.name}` });
+    const start = await screen.findByRole("button", { name: `New thread with ${profile.config.name}` }) as HTMLButtonElement;
+    // Starting a thread opens once the thread registry has answered.
+    await waitFor(() => expect(start.disabled).toBe(false));
     fireEvent.click(start);
     fireEvent.click(start);
     fireEvent.click(start);
@@ -1359,7 +1418,9 @@ describe("bot thread links", () => {
     mocks.chat.messages = [];
     stubThreads();
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "New thread with Research bot" }));
+    const start = await screen.findByRole("button", { name: "New thread with Research bot" }) as HTMLButtonElement;
+    await waitFor(() => expect(start.disabled).toBe(false));
+    fireEvent.click(start);
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe("44444444-4444-4444-8444-444444444444"));
     expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({
       method: "POST",
