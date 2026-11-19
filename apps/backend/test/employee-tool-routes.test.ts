@@ -701,7 +701,7 @@ describe("employee tool local workflow", () => {
       authState.dashboard = false;
       const read = (id: string) => handleEmployeeTools(callRequest(employeeId, "run_status", { runId: "run-1" }, id), env_);
       const first = await (await read("check-1"))!.json() as { approvalId: string };
-      expect(await (await read("check-1"))?.json()).toMatchObject({ approvalId: first.approvalId, status: "pending_approval" });
+      expect(await (await read("check-1"))?.json()).toMatchObject({ approvalId: first.approvalId, status: "pending" });
       authState.dashboard = true;
       expect((await decide(employeeId, first.approvalId))?.status).toBe(200);
       authState.dashboard = false;
