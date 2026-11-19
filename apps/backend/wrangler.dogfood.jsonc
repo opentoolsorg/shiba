@@ -22,6 +22,7 @@
   "keep_vars": true,
   "vars": {
     "MCP_TRUSTED_HOSTS": "",
+    "AGENT_HARNESS": "opencode",
     "INTEGRATIONS_PROVIDER": "openconnector",
     // Matches wrangler.jsonc: without the OPEN_CONNECTOR service binding or an
     // OPEN_CONNECTOR_URL, setup status would otherwise report the lane enabled
@@ -306,103 +307,22 @@
       }
     }
   ],
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "CodingOrchestrator",
-        "OpenCodeAgent",
-        "Sandbox"
-      ]
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": [
-        "Automations"
-      ]
-    },
-    {
-      "tag": "v3",
-      "new_sqlite_classes": [
-        "Mailbox"
-      ]
-    },
-    {
-      "tag": "v4",
-      "new_sqlite_classes": [
-        "McpGateway"
-      ]
-    },
-    {
-      "tag": "v5",
-      "new_sqlite_classes": [
-        "Memory"
-      ]
-    },
-    {
-      "tag": "v6",
-      "new_sqlite_classes": [
-        "Waitlist"
-      ]
-    },
-    {
-      "tag": "v7",
-      "new_sqlite_classes": [
-        "ModelConfig"
-      ]
-    },
-    {
-      "tag": "v8",
-      "deleted_classes": [
-        "McpGateway"
-      ]
-    },
-    {
-      "tag": "v9",
-      "new_sqlite_classes": [
-        "LocalDispatch"
-      ]
-    },
-    {
-      "tag": "alchemy:v10"
-    },
-    {
-      "tag": "alchemy:v11"
-    },
-    {
-      "tag": "v12",
-      "new_sqlite_classes": [
-        "ChatGptAuth"
-      ]
-    },
-    {
-      "tag": "alchemy:v22"
-    },
-    {
-      "tag": "v13",
-      "new_sqlite_classes": [
-        "UserProviderOAuth"
-      ]
-    },
-    {
-      "tag": "v14",
-      "new_sqlite_classes": [
-        "Spaces"
-      ]
-    },
-    {
-      "tag": "v15",
-      "new_sqlite_classes": [
-        "ConversationRoom"
-      ]
-    },
-    {
-      "tag": "v16",
-      "new_sqlite_classes": [
-        "WorkspaceEvents"
-      ]
-    }
-  ],
+  "exports": {
+    "Automations": { "type": "durable-object", "storage": "sqlite" },
+    "ChatGptAuth": { "type": "durable-object", "storage": "sqlite" },
+    "CodingOrchestrator": { "type": "durable-object", "storage": "sqlite" },
+    "ConversationRoom": { "type": "durable-object", "storage": "sqlite" },
+    "LocalDispatch": { "type": "durable-object", "storage": "sqlite" },
+    "Mailbox": { "type": "durable-object", "storage": "sqlite" },
+    "Memory": { "type": "durable-object", "storage": "sqlite" },
+    "ModelConfig": { "type": "durable-object", "storage": "sqlite" },
+    "OpenCodeAgent": { "type": "durable-object", "storage": "sqlite" },
+    "Sandbox": { "type": "durable-object", "storage": "sqlite", "container": "shiba-ai-coworker-sandbox-dogfood" },
+    "Spaces": { "type": "durable-object", "storage": "sqlite" },
+    "UserProviderOAuth": { "type": "durable-object", "storage": "sqlite" },
+    "Waitlist": { "type": "durable-object", "storage": "sqlite" },
+    "WorkspaceEvents": { "type": "durable-object", "storage": "sqlite" }
+  },
   // No OPEN_CONNECTOR service binding: shiba-openconnector-dogfood does not
   // exist in the account, and wrangler.jsonc leaves the same binding commented
   // out for the HTTP fallback through OPEN_CONNECTOR_URL.

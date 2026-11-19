@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useId, useRef, useState } from "react";
 import { ChevronRight, MoreHorizontal, PanelRight, Users } from "lucide-react";
-import type { AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
+import type { AgentAvatarChoice, AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
 import type { EmployeeRole } from "../employee-templates";
 import { AgentAvatar } from "./AgentAvatar";
 import { SideQuestion } from "./SideQuestion";
@@ -24,7 +24,7 @@ export function AgentChatHeader({
   sideQuestion,
   thread,
 }: {
-  agent: { id: string; name: string; role?: EmployeeRole; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook };
+  agent: { id: string; name: string; role?: EmployeeRole; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; avatar?: AgentAvatarChoice };
   participants: readonly AgentChatParticipant[];
   panelOpen: boolean;
   onTogglePanel: () => void;
@@ -75,7 +75,7 @@ export function AgentChatHeader({
           {thread ? (
             <li className="shrink-0">
               <span className="flex items-center gap-2">
-                <AgentAvatar id={agent.id} name={agent.name} mascotPreset={agent.mascotPreset} look={agent.look} role={agent.role} size={20} decorative />
+                <AgentAvatar id={agent.id} name={agent.name} mascotPreset={agent.mascotPreset} look={agent.look} avatar={agent.avatar} role={agent.role} size={20} decorative />
                 <span className="max-w-24 truncate sm:max-w-40">{agent.name}</span>
               </span>
             </li>
@@ -95,7 +95,7 @@ export function AgentChatHeader({
             </>
           ) : (
             <li aria-current="page" className="flex min-w-0 items-center gap-2 font-medium text-[var(--fg)]">
-              <AgentAvatar id={agent.id} name={agent.name} mascotPreset={agent.mascotPreset} look={agent.look} role={agent.role} size={20} decorative />
+              <AgentAvatar id={agent.id} name={agent.name} mascotPreset={agent.mascotPreset} look={agent.look} avatar={agent.avatar} role={agent.role} size={20} decorative />
               <span className="truncate">{agent.name}</span>
             </li>
           )}
