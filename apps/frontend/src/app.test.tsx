@@ -430,6 +430,16 @@ describe("app Work and Threads routing", () => {
     expect(window.location.search).toBe("");
   });
 
+  it("opens the Outputs video handoff as an unsent Chat draft", async () => {
+    window.history.replaceState(null, "", `/threads/?${new URLSearchParams({ prompt: "Create a 9:16 video of " })}`);
+    render(<App />);
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Create a 9:16 video of "));
+    expect(window.location.search).toBe("");
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+    const posts = vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "POST").map(([url]) => String(url));
+    expect(posts.filter((url) => /\/api\/(runs|approvals|outputs)|video|image/.test(url))).toEqual([]);
+  });
+
   it("opens the task inbox at root and after popstate", async () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
