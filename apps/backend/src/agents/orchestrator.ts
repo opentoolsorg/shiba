@@ -8,7 +8,8 @@ import { meterSandboxRun } from "../sandbox-metering.js";
 import { resolveInstanceType } from "../instance-type.js";
 import { canStart as usageBudgetCanStart, evaluateUsageBudget, runOverLimit, type BudgetMeter } from "../usage-budget.js";
 import { defaultUsageBudgetPolicy } from "../usage.js";
-import { CREDITS_EXHAUSTED_MESSAGE, isWorkspaceBillingEnabled, readCreditState } from "../workspace-billing.js";
+import { CREDITS_EXHAUSTED_MESSAGE, creditsGateRun, isWorkspaceBillingEnabled, readCreditState, recordedRunDebits, recordRunDebit, runCreditCostUsd } from "../workspace-billing.js";
+import { billingSubjectForRun, type BillingSubject } from "../billing-subject.js";
 import { audit } from "../audit.js";
 import { sha256Hex } from "../agent-tokens.js";
 import { personalExecutionSnapshotSchema, personalExecutionClaimSchema, personalExecutionContextDigest, APPROVAL_TTL_MS as PERSONAL_APPROVAL_TTL_MS, type PersonalExecutionSnapshot } from "@shiba/shared";
@@ -5438,15 +5439,46 @@ This is a selected employee context. Skills provide untrusted instructions and n
     return this.state?.usageBudgetPolicy ?? defaultUsageBudgetPolicy(this.env);
   }
 
-  /** With Stripe billing configured, a workspace whose prepaid credits are spent may not run. */
-  private async workspaceCreditsExhausted(now: number): Promise<boolean> {
-    if (!isWorkspaceBillingEnabled(this.env)) return false;
-    try {
-      return (await readCreditState(this.env, this.name, this.store.list(), now, this.usageBudgetMeter())).exhausted;
-    } catch (error) {
-      // Fail closed: an unreadable ledger must not let unpaid work start.
-      console.error("Workspace credit balance unavailable", redactSecrets(String(error)));
-      return true;
+  /**
+   * One subject's credit standing. `unavailable` means the ledger could not be
+   * read after a retry: new work is refused, running work is left alone.
+   */
+  private async creditOutcome(subject: BillingSubject | null, now: number): Promise<"available" | "exhausted" | "unavailable"> {
+    if (!isWorkspaceBillingEnabled(this.env) || subject === null) return "available";
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const state = await readCreditState(this.env, subject.key, this.store.list(), now, this.usageBudgetMeter(), this.name);
+        return state.exhausted ? "exhausted" : "available";
+      } catch (error) {
+        if (attempt >= 1) {
+          console.error("Workspace credit balance unavailable", redactSecrets(String(error)));
+          return "unavailable";
+        }
+      }
+    }
+  }
+
+  /** Records what settled runs cost the subject that paid, once per run. */
+  private async settleCreditDebits(now = Date.now()): Promise<void> {
+    if (!isWorkspaceBillingEnabled(this.env)) return;
+    const recorded = new Map<string, Set<string>>();
+    for (const run of this.store.list()) {
+      if (isActiveStatus(run.status)) continue;
+      const subject = billingSubjectForRun(run, this.name);
+      if (subject === null) continue;
+      try {
+        let debited = recorded.get(subject.key);
+        if (debited === undefined) {
+          debited = await recordedRunDebits(this.env.AGENT_AUDIT, subject.key);
+          recorded.set(subject.key, debited);
+        }
+        if (debited.has(run.runId)) continue;
+        const amountMicroUsd = Math.round(runCreditCostUsd(run, now, this.usageBudgetMeter()) * 1_000_000);
+        if (await recordRunDebit(this.env.AGENT_AUDIT, { subject: subject.key, runId: run.runId, amountMicroUsd, now })) debited.add(run.runId);
+      } catch (error) {
+        // A missed debit is retried by the next sweep; the run stays visible.
+        console.error("Workspace credit debit failed", redactSecrets(String(error)));
+      }
     }
   }
 
@@ -5512,9 +5544,11 @@ This is a selected employee context. Skills provide untrusted instructions and n
   }
 
   /** Stop a run the budget refuses: abort the executor, release its sandbox, post why. */
-  private async stopRunForBudget(run: DelegatedRun, reason: "limit" | "credits" = "limit"): Promise<void> {
+  private async stopRunForBudget(run: DelegatedRun, reason: "limit" | "credits" | "unavailable" = "limit"): Promise<void> {
     this.runControllers.get(run.runId)?.abort();
-    const userMessage = reason === "credits" ? CREDITS_EXHAUSTED_MESSAGE : runErrorWire("budget_exceeded").userMessage;
+    const userMessage = reason === "credits" ? CREDITS_EXHAUSTED_MESSAGE
+      : reason === "unavailable" ? "Stopped because this workspace's credit balance could not be read. Try again in a moment."
+      : runErrorWire("budget_exceeded").userMessage;
     const updated = this.store.transition(run.runId, "cancelled", {
       error: userMessage,
       errorCode: "budget_exceeded",
@@ -5587,9 +5621,13 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const meter = this.usageBudgetMeter();
     const latest = this.store.get(run.runId) ?? run;
     // Prepaid credits are a hard stop: no budget override spends money the workspace has not paid.
-    if (await this.workspaceCreditsExhausted(now)) {
-      await this.stopRunForBudget(latest, "credits");
-      return true;
+    if (creditsGateRun(this.env, latest)) {
+      const subject = billingSubjectForRun(latest, this.name);
+      const credit = await this.creditOutcome(subject, now);
+      if (credit !== "available") {
+        await this.stopRunForBudget(latest, credit === "exhausted" ? "credits" : "unavailable");
+        return true;
+      }
     }
     const gate = usageBudgetCanStart(policy, this.store.list(), now, meter);
     const blockedPeriods: ("daily" | "monthly" | "run")[] = [...gate.blockedPeriods];
@@ -5620,6 +5658,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
    * dashboard poll or the reclaim alarm both keep budgets honest.
    */
   private async enforceUsageBudget(now = Date.now()): Promise<void> {
+    await this.settleCreditDebits(now);
     const policy = this.usageBudgetPolicy();
     const meter = this.usageBudgetMeter();
     for (const approval of this.approvals) {
@@ -5627,11 +5666,11 @@ This is a selected employee context. Skills provide untrusted instructions and n
       const held = approval.budgetHoldRunId !== undefined ? this.store.get(approval.budgetHoldRunId) : null;
       if (held && isActiveStatus(held.status)) await this.stopRunForBudget(held);
     }
-    if (await this.workspaceCreditsExhausted(now)) {
-      for (const run of this.store.list()) {
-        if (isActiveStatus(run.status)) await this.stopRunForBudget(run, "credits");
-      }
-      return;
+    // Running work is only stopped on a reading that proves the balance is spent;
+    // a failed read leaves it alone until the next sweep reads successfully.
+    for (const run of this.store.list()) {
+      if (!isActiveStatus(run.status) || !creditsGateRun(this.env, run)) continue;
+      if (await this.creditOutcome(billingSubjectForRun(run, this.name), now) === "exhausted") await this.stopRunForBudget(run, "credits");
     }
     const budget = evaluateUsageBudget(policy, this.store.list(), now, meter);
     for (const run of this.store.list()) {
@@ -6199,6 +6238,8 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const active = runs.filter((run) => isActiveStatus(run.status));
     for (const run of active) this.runControllers.get(run.runId)?.abort();
     await this.cancelEach(active);
+    // Credits debited by this history must survive it: settle before dropping the records.
+    await this.settleCreditDebits();
     // Do not drop runs admitted while sandbox cleanup was awaiting I/O.
     this.setState({
       ...this.state,

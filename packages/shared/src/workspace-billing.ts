@@ -28,6 +28,8 @@ export const workspaceBillingSchema = z.strictObject({
   mode: z.enum(["test", "live"]).nullable(),
   creditedUsd: z.number(),
   spentUsd: z.number(),
+  /** Live cost of runs still executing; not yet debited. */
+  pendingUsd: z.number(),
   balanceUsd: z.number(),
   exhausted: z.boolean(),
   hasCustomer: z.boolean(),

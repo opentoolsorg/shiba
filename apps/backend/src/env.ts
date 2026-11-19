@@ -432,6 +432,11 @@ export interface Env {
    * Personal keys, plan subscriptions and local daemons keep working.
    */
   SHIBA_HOSTED_PROVIDER_KILL_SWITCH?: string;
+  /**
+   * One yes/no for whether runs paid for by a plan subscription or paired local
+   * daemon also stop at zero credits. Unset = yes (every lane stops); "0" exempts them.
+   */
+  SHIBA_CREDITS_GATE_USER_FUNDED_RUNS?: string;
   /** Optional. Stripe secret key for workspace credit top-ups; Worker-only, never sent to the dashboard or containers. */
   STRIPE_SECRET_KEY?: string;
   /** Optional. Stripe webhook signing secret (whsec_…) for /api/billing/stripe/webhook. */

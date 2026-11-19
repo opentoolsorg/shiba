@@ -232,54 +232,116 @@ describe("orchestrator budget enforcement", () => {
 
 });
 
-describe("orchestrator prepaid credits", () => {
-  function creditDb(creditedMicroUsd: number) {
-    return {
-      prepare: (sql: string) => ({
-        bind: () => ({
-          run: async () => ({ meta: { changes: 0 } }),
-          first: async () => sql.includes("SUM(amount_micro_usd)") ? { total: creditedMicroUsd }
-            : { owner: "owner@example.test", stripe_customer_id: "cus_1", created_at: 0 },
-        }),
-      }),
+describe("orchestrator credit ledger", () => {
+  /** The minimum D1 surface the credit path touches, so a sweep can be observed. */
+  function creditDb(initial: { creditedMicroUsd?: number; failFirstReads?: number } = {}) {
+    const state = { debits: new Map<string, number>(), creditedMicroUsd: initial.creditedMicroUsd ?? 0, failures: initial.failFirstReads ?? 0 };
+    const submit = (sql: string, params: unknown[]) => {
+      if (sql.includes("INSERT OR IGNORE INTO workspace_billing_accounts")) return { changes: 0 };
+      if (sql.includes("INSERT OR IGNORE INTO workspace_billing_debits")) {
+        const [entryId, subject, runId, amount] = params as [string, string, string, number];
+        if (state.debits.has(entryId)) return { changes: 0 };
+        state.debits.set(entryId, amount);
+        void subject; void runId;
+        return { changes: 1 };
+      }
+      return { changes: 0 };
     };
+    const first = (sql: string, params: unknown[]) => {
+      if (sql.includes("kind='refund') AS total")) return { total: state.creditedMicroUsd };
+      if (sql.includes("FROM workspace_billing_debits WHERE subject=? AND kind='run'")) return { total: [...state.debits.values()].reduce((sum, value) => sum + value, 0) };
+      if (sql.includes("FROM workspace_billing_accounts")) return { owner: String(params[0]), stripe_customer_id: null, created_at: 0 };
+      return null;
+    };
+    const db = {
+      state,
+      prepare: (sql: string) => {
+        const bound: unknown[] = [];
+        const call = {
+          bind: (...params: unknown[]) => { bound.push(...params); return call; },
+          run: async () => {
+            if (state.failures > 0) { state.failures -= 1; throw new Error("D1 transient"); }
+            return { meta: submit(sql, bound) };
+          },
+          first: async () => {
+            if (state.failures > 0) { state.failures -= 1; throw new Error("D1 transient"); }
+            return first(sql, bound);
+          },
+          all: async () => {
+            if (state.failures > 0) { state.failures -= 1; throw new Error("D1 transient"); }
+            if (sql.includes("SELECT run_id FROM workspace_billing_debits")) return { results: [] };
+            return { results: [] };
+          },
+        };
+        return call;
+      },
+    };
+    return db;
   }
-  function creditHost(runs: DelegatedRun[], creditedMicroUsd: number | null) {
+  function ledgerHost(runs: DelegatedRun[], db: ReturnType<typeof creditDb>) {
     const instance = host({ runs });
-    instance.env = { INSTANCE_TYPE: "basic", ...(creditedMicroUsd === null ? {} : {
-      STRIPE_SECRET_KEY: "sk_test_1", STRIPE_WEBHOOK_SECRET: "whsec_1", AGENT_AUDIT: creditDb(creditedMicroUsd),
-    }) } as unknown as typeof instance.env;
+    instance.env = { INSTANCE_TYPE: "basic", STRIPE_SECRET_KEY: "sk_test_1", STRIPE_WEBHOOK_SECRET: "whsec_1", AGENT_AUDIT: db } as unknown as typeof instance.env;
     return instance as unknown as {
       state: OrchestratorState;
       enforceUsageBudget(now: number): Promise<void>;
+      settleCreditDebits(now: number): Promise<void>;
       gateRunOnUsageBudget(run: DelegatedRun, record: unknown): Promise<boolean>;
     };
   }
-  const queued = (runId: string, extra: Partial<DelegatedRun> = {}): DelegatedRun => ({
+  const settled = (runId: string, costUsd: number, extra: Partial<DelegatedRun> = {}): DelegatedRun => ({
     ...createRun({ runId, sandboxId: "s-" + runId, repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false, now: 1000 }),
-    status: "running", ...extra,
+    status: "completed", queuedBy: "owner@example.test", usage: { costUsd }, ...extra,
   });
 
-  it("stops a dispatch when the workspace has no credits, even with an approved budget override", async () => {
-    const run = queued("r1");
-    const instance = creditHost([run], 0);
-    expect(await instance.gateRunOnUsageBudget(run, { kind: "budget_override", status: "approved" })).toBe(true);
+  it("debits a settled run once, so a repeated sweep cannot bill it twice", async () => {
+    const db = creditDb({ creditedMicroUsd: 5_000_000 });
+    const instance = ledgerHost([settled("r1", 2)], db);
+    await instance.settleCreditDebits(10_000);
+    expect([...db.state.debits.values()]).toEqual([2_000_000]);
+    await instance.settleCreditDebits(11_000);
+    expect(db.state.debits.size).toBe(1);
+  });
+
+  it("stops refusing work once the ledger proves the balance is spent", async () => {
+    const db = creditDb({ creditedMicroUsd: 0 });
+    const running: DelegatedRun = { ...settled("r2", 0), status: "running" };
+    const instance = ledgerHost([running], db);
+    await instance.enforceUsageBudget(10_000);
     expect(instance.state.runs[0]).toMatchObject({ status: "cancelled", errorCode: "budget_exceeded" });
-    expect(instance.state.runs[0]!.error).toMatch(/out of prepaid credits/);
   });
 
-  it("lets a funded workspace start and stops active runs once spend uses the credits up", async () => {
-    const run = queued("r1", { usage: { costUsd: 4 } });
-    const funded = creditHost([run], 10_000_000);
-    expect(await funded.gateRunOnUsageBudget(run, undefined)).toBe(false);
-    const spent = creditHost([queued("r2", { usage: { costUsd: 12 } })], 10_000_000);
-    await spent.enforceUsageBudget(10_000);
-    expect(spent.state.runs[0]).toMatchObject({ status: "cancelled", errorCode: "budget_exceeded" });
+  it("refuses a new dispatch but leaves running work alone when the ledger read fails", async () => {
+    // Two failed reads for the gate, then one for the sweep: both retried once, then unavailable.
+    const db = creditDb({ creditedMicroUsd: 5_000_000, failFirstReads: 2 });
+    const queuedRun: DelegatedRun = { ...settled("r3", 0), status: "pending" };
+    const running: DelegatedRun = { ...settled("r4", 0), status: "running" };
+    const instance = ledgerHost([queuedRun, running], db);
+    expect(await instance.gateRunOnUsageBudget(queuedRun, undefined)).toBe(true);
+    expect(instance.state.runs.find((run) => run.runId === "r3")).toMatchObject({ status: "cancelled" });
+    db.state.failures = 2;
+    await instance.enforceUsageBudget(10_000);
+    expect(instance.state.runs.find((run) => run.runId === "r4")?.status).toBe("running");
   });
 
-  it("ignores credits entirely when Stripe billing is not configured", async () => {
-    const run = queued("r1");
-    expect(await creditHost([run], null).gateRunOnUsageBudget(run, undefined)).toBe(false);
+  it("exempts plan and paired-computer runs only when the switch is off", async () => {
+    const db = creditDb({ creditedMicroUsd: 0 });
+    const subscription: DelegatedRun = { ...settled("r5", 0), status: "pending", authAccount: "plan" };
+    const strict = ledgerHost([subscription], db);
+    expect(await strict.gateRunOnUsageBudget(subscription, undefined)).toBe(true);
+    const lenient = ledgerHost([subscription], creditDb({ creditedMicroUsd: 0 }));
+    lenient.env = { ...lenient.env, SHIBA_CREDITS_GATE_USER_FUNDED_RUNS: "0" } as typeof lenient.env;
+    expect(await lenient.gateRunOnUsageBudget(subscription, undefined)).toBe(false);
+    expect(lenient.state.runs[0]?.status).toBe("pending");
+  });
+
+  it("bills a team run to its workspace, not to the person running it", async () => {
+    const db = creditDb({ creditedMicroUsd: 0 });
+    const team = settled("r6", 1, { orgId: "team:ws_0123456789abcdef01234567" });
+    const instance = ledgerHost([team], db);
+    await instance.settleCreditDebits(10_000);
+    const entries = [...db.state.debits.keys()];
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toContain("team:ws_0123456789abcdef01234567");
   });
 });
 
