@@ -26,6 +26,16 @@ describe("Shiba brand mark", () => {
     expect(logo.className).not.toContain("border");
   });
 
+  it("names itself, or hides from assistive tech inside a named control", () => {
+    render(<div>
+      <ShibaMark label="Shiba Guard" className="size-5" />
+      <button type="button" aria-label="Shiba Home"><ShibaMark className="size-7" decorative /></button>
+    </div>);
+    expect(screen.getByRole("img", { name: "Shiba Guard" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Shiba Home" })).toBeTruthy();
+    expect(screen.queryByRole("img", { name: "Shiba" })).toBeNull();
+  });
+
   it("takes a size class and can be decorative", () => {
     const { rerender } = render(<ShibaMark className="size-6" />);
     expect(screen.getByRole("img", { name: "Shiba" }).className).toContain("size-6");
