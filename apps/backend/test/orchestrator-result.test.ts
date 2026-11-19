@@ -14,7 +14,6 @@ import { approveDirect } from "./seeding.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { signInternalRequest } from "../src/edge-identity.js";
 import { LOCAL_INTAKE_HEADER } from "@shiba/shared";
-import { readFileSync } from "node:fs";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { insertAutomationWorkflowRun, patchAutomationWorkflowRun, listAutomationWorkflowRuns } from "../src/platform/automation-workflow-store.js";
 
@@ -87,7 +86,6 @@ describe("T8 orchestrator structured result", () => {
   it("settles cancelled routine workflows and ignores a late child result", async () => {
     const orchestrator = makeOrchestrator();
     const db = customAgentD1();
-    for (const migration of ["0055_automation_workflow_runs.sql", "0066_routine_outcomes.sql"]) db.sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
     orchestrator.env.AGENT_AUDIT = db.database;
     const pending: Promise<unknown>[] = [];
     orchestrator.ctx = { waitUntil: (promise: Promise<unknown>) => pending.push(promise) };
@@ -130,7 +128,7 @@ describe("T8 orchestrator structured result", () => {
   it.each([false, true])("does not accept an unsigned routine voucher (signing configured: %s)", async (configured) => {
     const orchestrator = makeOrchestrator();
     orchestrator.name = "default";
-    if (configured) orchestrator.env.INTERNAL_SIGNING_KEY = "ab".repeat(32);
+    orchestrator.env.INTERNAL_SIGNING_KEY = configured ? "ab".repeat(32) : undefined;
     const response = await orchestrator.onRequest(new Request("https://internal/api/runs", {
       method: "POST", headers: { "content-type": "application/json", [LOCAL_INTAKE_HEADER]: "routine:forged:test" },
       body: JSON.stringify(DELEGATE_INPUT),
