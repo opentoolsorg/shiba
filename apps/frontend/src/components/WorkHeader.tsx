@@ -15,6 +15,8 @@ export interface WorkHeaderProps {
   onNewTask(): void;
   /** No task can be created yet, for example while the thread registry loads. */
   newTaskDisabled?: boolean;
+  /** Shown beside the disabled New task button to say why. */
+  newTaskDisabledReason?: string;
   activeView?: WorkHeaderViewMode;
   onViewChange?: (view: WorkHeaderViewMode) => void;
   className?: string;
@@ -35,6 +37,7 @@ export function WorkHeader({
   searchOpen = false,
   onNewTask,
   newTaskDisabled = false,
+  newTaskDisabledReason,
   activeView,
   onViewChange,
   className = "",
@@ -141,6 +144,11 @@ export function WorkHeader({
           </button>
         </Tooltip>
 
+        {newTaskDisabled && newTaskDisabledReason ? (
+          <span role="status" className="max-w-[16rem] truncate text-xs text-[var(--muted-foreground-2)]">
+            {newTaskDisabledReason}
+          </span>
+        ) : null}
         <button
           type="button"
           onClick={onNewTask}
