@@ -25,8 +25,29 @@ export function createLatest() {
 // Connected or bridge-owned states hide the button: re-pairing would kill a live daemon.
 const HIDE_CONNECT_STATES: readonly string[] = ["disabled", "signed-out", "idle", "busy", "starting"];
 
-export function shouldShowConnect(bridgePresent: boolean, status: DesktopStatus | null): boolean {
-  return bridgePresent && !HIDE_CONNECT_STATES.includes(status?.state ?? "");
+/**
+ * A shell that does not advertise "pair" cannot connect this computer itself:
+ * native pairing is deferred, so that shell shows the browser flow instead of a
+ * button that can only answer `pairing_deferred`.
+ */
+export function shouldShowConnect(
+  bridge: Pick<ShibaDesktopBridge, "capabilities"> | undefined,
+  status: DesktopStatus | null,
+): boolean {
+  // Read as plain strings: a later shell may advertise "pair" again, which is
+  // why the check is a name match rather than a member of today's union.
+  const capabilities: readonly string[] = bridge?.capabilities ?? [];
+  if (!capabilities.includes("pair")) return false;
+  return !HIDE_CONNECT_STATES.includes(status?.state ?? "");
+}
+
+/**
+ * True in any Electron window: today's bridge or an older one, since both carry
+ * `window.shibaDesktop`. The preload decides once per page load, so this is a
+ * render-time read, not state.
+ */
+export function isDesktopShell(): boolean {
+  return typeof window !== "undefined" && window.shibaDesktop !== undefined;
 }
 
 // Local runs target this machine only when the desktop shell reports its id.

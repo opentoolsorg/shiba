@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { registerShellIpc, type ShellIpcDeps } from "../src/shell-ipc.js";
+import { ALLOWED_CHANNELS, DESKTOP_CHANNELS } from "../src/bridge-contract.js";
+import { createIpcBounds } from "../src/ipc-guard.js";
+import { CODEX_CALLBACK_RETIRED, registerShellIpc, type ShellIpcDeps } from "../src/shell-ipc.js";
 
 const ORIGIN = "https://app.tryshiba.dev";
-const PATCH = "diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n-old\n+new\n";
 
 function makeDeps(overrides: Partial<ShellIpcDeps> = {}) {
   const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
@@ -12,15 +13,9 @@ function makeDeps(overrides: Partial<ShellIpcDeps> = {}) {
         handlers.set(channel, fn as never);
       },
     },
-    isTrustedSender: (frame, origin) => frame === `${origin}/app/`,
-    getConfiguredOrigin: () => ORIGIN,
-    isDiffSender: (frame) => frame === "file:///diff.html",
-    loadDashboardPath: vi.fn(),
-    openExternal: vi.fn(async () => undefined),
-    presentDiff: vi.fn(),
-    readDiffPatch: () => PATCH,
-    receiveCodex: vi.fn(async () => "http://127.0.0.1:1455/auth/callback?code=c&state=state-state"),
-    cancelCodex: vi.fn(),
+    isTrustedEvent: (event) =>
+      (event as { senderFrame?: { url?: string } }).senderFrame?.url === `${ORIGIN}/app/`,
+    bounds: createIpcBounds(2),
     startClaudeLogin: vi.fn(async () => ({ ok: true as const })),
     ...overrides,
   };
@@ -36,70 +31,58 @@ const invoke = (
 ) => handlers.get(channel)?.({ senderFrame: { url: frameUrl } }, ...args);
 
 describe("shell ipc", () => {
-  it("rejects an untrusted sender for provider login, diff, and pull requests", async () => {
+  it("registers only allowlisted channels", () => {
+    const { handlers } = makeDeps();
+    for (const channel of handlers.keys()) expect(ALLOWED_CHANNELS).toContain(channel);
+    expect(handlers.has("desktop:show-diff")).toBe(false);
+    expect(handlers.has("desktop:open-pr")).toBe(false);
+    // The retired callback stays registered only to refuse; nothing else remains.
+    expect(handlers.has("desktop:show-diff")).toBe(false);
+    expect(handlers.has("desktop:open-pr")).toBe(false);
+  });
+
+  it("answers an older dashboard's callback request with a fixed refusal", async () => {
     const { deps, handlers } = makeDeps();
-    expect(await invoke(handlers, "desktop:claude-login", "https://evil.example/")).toEqual({
+    // No listener exists: the call resolves, and the copy sends the user to the browser.
+    expect(await invoke(handlers, DESKTOP_CHANNELS.retiredCodexCallback, `${ORIGIN}/app/`)).toEqual({
       ok: false,
-      error: "Untrusted sender.",
+      error: CODEX_CALLBACK_RETIRED,
     });
-    expect(await invoke(handlers, "desktop:show-diff", "https://evil.example/", PATCH)).toEqual({
-      ok: false,
-      error: "Untrusted sender.",
-    });
-    expect(
-      await invoke(
-        handlers,
-        "desktop:open-pr",
-        "https://evil.example/",
-        "https://github.com/a/b/pull/1",
-      ),
-    ).toEqual({
+    expect(await invoke(handlers, DESKTOP_CHANNELS.retiredCodexCallback, "https://evil.example/")).toEqual({
       ok: false,
       error: "Untrusted sender.",
     });
     expect(deps.startClaudeLogin).not.toHaveBeenCalled();
-    expect(deps.presentDiff).not.toHaveBeenCalled();
-    expect(deps.openExternal).not.toHaveBeenCalled();
   });
 
-  it("rejects desktop:codex-callback from an untrusted frame", async () => {
+  it("rejects an untrusted sender without starting a login", async () => {
     const { deps, handlers } = makeDeps();
-    expect(
-      await invoke(
-        handlers,
-        "desktop:codex-callback",
-        "https://evil.example/",
-        "https://auth.openai.com/oauth/authorize",
-      ),
-    ).toEqual({ ok: false, error: "Untrusted sender." });
-    expect(deps.receiveCodex).not.toHaveBeenCalled();
-  });
-
-  it("opens a dashboard view and a github pull request", async () => {
-    const { deps, handlers } = makeDeps();
-    await invoke(handlers, "desktop:open-view", `${ORIGIN}/app/`, "approvals");
-    expect(deps.loadDashboardPath).toHaveBeenCalledWith("/app/?tab=approvals");
-    const opened = await invoke(
-      handlers,
-      "desktop:open-pr",
-      `${ORIGIN}/app/`,
-      "https://github.com/acme/widgets/pull/4?w=1",
-    );
-    expect(opened).toEqual({ ok: true, url: "https://github.com/acme/widgets/pull/4" });
-    expect(deps.openExternal).toHaveBeenCalledWith("https://github.com/acme/widgets/pull/4");
-  });
-
-  it("summarizes a patch and presents it, and only the diff frame can read it", () => {
-    const { deps, handlers } = makeDeps();
-    expect(invoke(handlers, "desktop:show-diff", `${ORIGIN}/app/`, PATCH)).toEqual({
-      ok: true,
-      files: ["a.ts"],
-      hunks: 1,
-      additions: 1,
-      deletions: 1,
+    expect(await invoke(handlers, DESKTOP_CHANNELS.claudeLogin, "https://evil.example/")).toEqual({
+      ok: false,
+      error: "Untrusted sender.",
     });
-    expect(deps.presentDiff).toHaveBeenCalledWith(PATCH);
-    expect(invoke(handlers, "desktop:diff-payload", `${ORIGIN}/app/`)).toBe("");
-    expect(invoke(handlers, "desktop:diff-payload", "file:///diff.html")).toBe(PATCH);
+    expect(deps.startClaudeLogin).not.toHaveBeenCalled();
+  });
+
+  it("keeps a second concurrent login out instead of spawning a second process", async () => {
+    let release: (value: { ok: true }) => void = () => {};
+    const startClaudeLogin = vi.fn(
+      () => new Promise<{ ok: true }>((resolve) => { release = resolve; }),
+    );
+    const { handlers } = makeDeps({ startClaudeLogin });
+    const first = invoke(handlers, DESKTOP_CHANNELS.claudeLogin, `${ORIGIN}/app/`);
+    expect(await invoke(handlers, DESKTOP_CHANNELS.claudeLogin, `${ORIGIN}/app/`)).toEqual({
+      ok: false,
+      error: "Claude sign-in is already running on this computer.",
+    });
+    release({ ok: true });
+    expect(await first).toEqual({ ok: true });
+    expect(startClaudeLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the exclusive lock so a later sign-in still runs", async () => {
+    const { handlers } = makeDeps();
+    expect(await invoke(handlers, DESKTOP_CHANNELS.claudeLogin, `${ORIGIN}/app/`)).toEqual({ ok: true });
+    expect(await invoke(handlers, DESKTOP_CHANNELS.claudeLogin, `${ORIGIN}/app/`)).toEqual({ ok: true });
   });
 });

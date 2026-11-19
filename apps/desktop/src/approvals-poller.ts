@@ -23,22 +23,11 @@ export interface ApprovalNotification {
 
 export const APPROVALS_POLL_MS = 30_000;
 
-/** "https://github.com/owner/repo" -> "owner/repo"; unparseable input passes through trimmed. */
-export function repoSlug(repoUrl: string): string {
-  const trimmed = repoUrl.trim();
-  try {
-    const parts = new URL(trimmed).pathname.split("/").filter(Boolean);
-    if (parts.length >= 2) {
-      return `${parts[parts.length - 2]}/${parts[parts.length - 1].replace(/\.git$/, "")}`;
-    }
-  } catch {
-    const parts = trimmed.split("/").filter(Boolean);
-    if (parts.length >= 2) return parts.slice(-2).join("/").replace(/\.git$/, "");
-  }
-  return trimmed;
-}
-
-/** D7: email kinds get a fixed label so the mailbox address never reaches a notification. */
+/**
+ * D7: every body is fixed copy. Email kinds name their action so the mailbox
+ * address never reaches a notification, and a run approval names no repository:
+ * the notification opens Shiba, which is where the approval describes itself.
+ */
 export function approvalNotificationBody(approval: ApprovalLike): string {
   switch (approval.kind ?? "run") {
     case "email_send":
@@ -46,7 +35,7 @@ export function approvalNotificationBody(approval: ApprovalLike): string {
     case "email_delete":
       return "Email delete";
     default:
-      return repoSlug(approval.repoUrl);
+      return "Local run approval";
   }
 }
 
@@ -78,7 +67,8 @@ export interface ApprovalsPollerDeps {
   loadURL: (url: string) => Promise<unknown> | unknown;
   /** new Notification(...) — injected so this file stays electron-free. */
   notify: (n: ApprovalNotification, onClick: () => void) => void;
-  log?: (...args: unknown[]) => void;
+  /** Fixed failure note; the thrown value never leaves this module. */
+  onError?: (reason: "poll-failed") => void;
   intervalMs?: number;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
@@ -97,7 +87,7 @@ interface ApprovalsBody {
 }
 
 export function createApprovalsPoller(deps: ApprovalsPollerDeps): ApprovalsPoller {
-  const log = deps.log ?? (() => {});
+  const onError = deps.onError ?? (() => {});
   const intervalMs = deps.intervalMs ?? APPROVALS_POLL_MS;
   const setI = deps.setIntervalFn ?? setInterval;
   const clearI = deps.clearIntervalFn ?? clearInterval;
@@ -112,8 +102,8 @@ export function createApprovalsPoller(deps: ApprovalsPollerDeps): ApprovalsPolle
       if (res.status !== 200) return null;
       const body = (await res.json()) as ApprovalsBody;
       return Array.isArray(body.approvals) ? body.approvals : [];
-    } catch (error) {
-      log("approvals poll failed:", error);
+    } catch {
+      onError("poll-failed");
       return null;
     }
   }

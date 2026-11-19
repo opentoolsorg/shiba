@@ -1,18 +1,100 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-// Origin comes from BrowserWindow additionalArguments, never from the page (D4).
-const origin = process.argv
-  .find((a) => a.startsWith("--shiba-origin="))
-  ?.slice("--shiba-origin=".length);
-const version =
-  process.argv.find((a) => a.startsWith("--shiba-version="))?.slice("--shiba-version=".length) ??
-  "";
+// Origin and metadata come from BrowserWindow additionalArguments, never from
+// the page (D4). A sandboxed preload cannot require a shared module, so it does
+// not re-implement the contract: main validates the handshake, and this gate
+// only decides whether to expose anything, enforcing the surface tag.
 
-if (origin && location.origin === origin) {
+const HANDSHAKE_PREFIX = "--shiba-bridge=";
+const BRIDGE_VERSION = 1;
+const DESKTOP_CAPABILITIES = ["status", "unpair", "onStatus", "claudeLogin"];
+const SETUP_PAGE = /\/setup\.html$/;
+
+type Surface = "dashboard" | "setup";
+
+type Handshake = {
+  origin: string;
+  bridgeVersion: number;
+  appVersion: string;
+  platform: string;
+  surface: Surface;
+};
+
+/**
+ * A non-empty string capped at `max`, mirroring boundedText in the contract:
+ * the two layers must refuse the same handshakes (test/preload-gate.e2e.ts).
+ */
+function boundedText(value: unknown, max: number): string | null {
+  if (typeof value !== "string" || value.length === 0 || value.length > max) return null;
+  return value.includes("\0") ? null : value;
+}
+
+/**
+ * Origin string with no credentials and a web protocol. The bounds are the
+ * contract's: maxDeploymentUrlChars (2048), no NUL byte — a value main would
+ * refuse must never reach a page here (test/preload-gate.e2e.ts pins parity).
+ */
+function absoluteOrigin(value: unknown): string | null {
+  const text = boundedText(value, 2048);
+  if (!text) return null;
+  try {
+    const url = new URL(text);
+    if (url.username || url.password) return null;
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Exactly one handshake argument, parsed and typed; the tag is checked below. */
+function readHandshake(): Handshake | null {
+  const matches = process.argv.filter((arg) => arg.startsWith(HANDSHAKE_PREFIX));
+  if (matches.length !== 1) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(matches[0].slice(HANDSHAKE_PREFIX.length));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const value = parsed as Partial<Handshake>;
+  const origin = absoluteOrigin(value.origin);
+  if (!origin) return null;
+  if (value.bridgeVersion !== BRIDGE_VERSION) return null;
+  const appVersion = boundedText(value.appVersion, 64);
+  const platform = boundedText(value.platform, 32);
+  if (!appVersion || !platform) return null;
+  if (value.surface !== "dashboard" && value.surface !== "setup") return null;
+  return { origin, bridgeVersion: value.bridgeVersion, appVersion, platform, surface: value.surface };
+}
+
+const handshake = readHandshake();
+// The bundled setup page is the one explicit exception: a file: document whose
+// name is setup.html. It gets only the address bridge, and only that page.
+const isBundledSetupPage = location.protocol === "file:" && SETUP_PAGE.test(location.pathname);
+
+if (isBundledSetupPage) {
+  contextBridge.exposeInMainWorld("shibaSetup", {
+    surface: "setup",
+    setUrl: (url: string) => ipcRenderer.invoke("desktop:set-url", url),
+  });
+} else if (
+  handshake &&
+  // A `setup`-tagged handshake never exposes the dashboard bridge.
+  handshake.surface === "dashboard" &&
+  location.origin === handshake.origin
+) {
   contextBridge.exposeInMainWorld("shibaDesktop", {
-    version,
+    bridgeVersion: handshake.bridgeVersion,
+    appVersion: handshake.appVersion,
+    platform: handshake.platform,
+    surface: handshake.surface,
+    capabilities: DESKTOP_CAPABILITIES,
     status: () => ipcRenderer.invoke("desktop:status"),
-    pair: (pairingToken: string) => ipcRenderer.invoke("desktop:pair", pairingToken),
+    // Compatibility: native pairing is deferred, so main refuses and the page
+    // shows the browser direction. No token crosses this bridge.
+    pair: () => ipcRenderer.invoke("desktop:pair"),
     unpair: () => ipcRenderer.invoke("desktop:unpair"),
     onStatus: (listener: (status: unknown) => void) => {
       const handler = (_e: unknown, status: unknown) => listener(status);
@@ -21,18 +103,11 @@ if (origin && location.origin === origin) {
         ipcRenderer.removeListener("desktop:status-changed", handler);
       };
     },
-    receiveCodexCallback: (authorizationUrl: string) =>
-      ipcRenderer.invoke("desktop:codex-callback", authorizationUrl),
-    cancelCodexCallback: (authorizationUrl: string) =>
-      ipcRenderer.invoke("desktop:codex-callback-cancel", authorizationUrl),
     startClaudeLogin: () => ipcRenderer.invoke("desktop:claude-login"),
-    openView: (view: string) => ipcRenderer.invoke("desktop:open-view", view),
-    openPullRequest: (url: string) => ipcRenderer.invoke("desktop:open-pr", url),
-    showDiff: (patch: string) => ipcRenderer.invoke("desktop:show-diff", patch),
-  });
-} else if (location.protocol === "file:" && location.pathname.endsWith("/setup.html")) {
-  // Setup page only; main re-checks the sender frame in the handler.
-  contextBridge.exposeInMainWorld("shibaSetup", {
-    setUrl: (url: string) => ipcRenderer.invoke("desktop:set-url", url),
+    // Compatibility: an older dashboard still asks for a PKCE callback. Nothing
+    // listens; main answers with a fixed refusal so the page shows the browser
+    // instruction instead of a broken promise.
+    receiveCodexCallback: (_authorizationUrl: string) =>
+      ipcRenderer.invoke("desktop:codex-callback"),
   });
 }

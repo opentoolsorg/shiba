@@ -31,9 +31,7 @@ const DISCONNECTABLE: DesktopDaemonState[] = ["starting", "idle", "busy", "offli
 const RETRYABLE: DesktopDaemonState[] = ["conflict", "crashed"];
 
 export function statusLabel(s: DesktopStatus): string {
-  const base = LABELS[s.state];
-  if (s.state === "busy" && s.detail) return `${base} · ${s.detail}`;
-  return base;
+  return LABELS[s.state];
 }
 
 // agy is probed by the daemon but not locally runnable: list it, don't promise it.

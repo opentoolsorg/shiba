@@ -1,7 +1,9 @@
 /**
- * Desktop journey through the session harness: pair the real daemon, claim a
- * task, stream a Claude tool approval, approve it, render the diff, and open
- * a pull request against a mocked GitHub.
+ * Desktop journey through the session harness: run the real daemon from a
+ * pre-seeded config, claim a task, stream a Claude tool approval, approve it,
+ * render the diff, and open a pull request against a mocked GitHub. Native
+ * pairing is deferred, so the page's pairing request must come back as
+ * `pairing_deferred` with the browser direction and leave the run untouched.
  */
 
 import { execFileSync } from "node:child_process";
@@ -47,7 +49,8 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Shiba</tit
 <main>
   <h1>Shiba</h1>
   <p id="daemon"></p>
-  <button type="button" id="pair">Pair this computer</button>
+  <button type="button" id="pair">Connect this computer</button>
+  <p id="pair-result"></p>
   <form id="task">
     <textarea aria-label="Task description"></textarea>
     <button type="submit">Send task</button>
@@ -60,8 +63,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Shiba</tit
   <section id="diff-section" hidden>
     <h2>Pull requests</h2>
     <pre data-testid="diff"></pre>
-    <button type="button" id="show">Show diff</button>
-    <button type="button" id="pr">Open pull request</button>
+    <a id="pr" href="${PR_URL}" target="_blank" rel="noopener noreferrer">Open pull request</a>
   </section>
 </main>
 <script>
@@ -72,8 +74,11 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Shiba</tit
     bridge.status().then(paint);
     bridge.onStatus(paint);
   }
-  document.getElementById("pair").addEventListener("click", () => {
-    if (bridge) void bridge.pair("e2e.token");
+  document.getElementById("pair").addEventListener("click", async () => {
+    if (!bridge) return;
+    // An older page passed a token here; the current one takes no argument.
+    const result = await bridge.pair("e2e.token");
+    document.getElementById("pair-result").textContent = result.ok ? "ok" : result.code;
   });
   document.getElementById("task").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -84,14 +89,8 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Shiba</tit
     document.getElementById("approval").hidden = true;
     void fetch("/api/e2e/decide", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision: "allow" }) });
   });
-  document.getElementById("show").addEventListener("click", async () => {
-    const patch = document.querySelector("[data-testid=diff]").textContent;
-    if (bridge) await bridge.showDiff(patch);
-  });
   document.getElementById("pr").addEventListener("click", async () => {
-    const response = await fetch("/github/repos/acme/widgets/pulls", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-    const body = await response.json();
-    if (bridge) void bridge.openPullRequest(body.html_url);
+    await fetch("/github/repos/acme/widgets/pulls", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   });
   setInterval(async () => {
     const board = await fetch("/api/e2e/board").then((response) => response.json()).catch(() => null);
@@ -197,8 +196,6 @@ beforeAll(async () => {
       if (url.pathname === "/api/computers") return json(res, { computers: [] });
       if (url.pathname === "/api/approvals") return json(res, { approvals: [] });
       if (url.pathname === "/api/computers/revoke") return json(res, { ok: true });
-      if (url.pathname === "/api/local/pair")
-        return json(res, { adapterToken: "e2e-adapter", machineId: "machine-e2e" });
       if (url.pathname === "/api/local/heartbeat") return json(res, { ok: true });
       if (url.pathname === "/api/local/claim") {
         if (task === null || claimed) return json(res, { envelope: null });
@@ -266,17 +263,24 @@ afterAll(async () => {
   for (const dir of roots) rmSync(dir, { recursive: true, force: true });
 });
 
-test("pair, stream a harness approval, render the diff, and open a pull request", async () => {
+test("run, stream a harness approval, render the diff, and open a pull request", async () => {
   const userData = mkdtempSync(path.join(tmpdir(), "shiba-harness-electron-"));
   const runRoot = mkdtempSync(path.join(tmpdir(), "shiba-harness-root-"));
   userDataDirs.push(userData, runRoot);
+  // Native pairing is deferred, so a paired machine is the fixture: the daemon
+  // starts from config.json exactly as the browser CLI would have written it.
+  writeFileSync(
+    path.join(runRoot, "config.json"),
+    JSON.stringify({ workerUrl: stubUrl, adapterToken: "e2e-adapter", machineId: "machine-e2e" }),
+  );
   const app: ElectronApplication = await electron.launch({
     chromiumSandbox: true,
-    args: ["dist/main.js", `--user-data-dir=${userData}`],
+    args: ["test/electron-bootstrap.cjs"],
     env: {
       ...(process.env as Record<string, string>),
       SHIBA_DESKTOP_URL: stubUrl,
       SHIBA_LOCAL_RUN_ROOT: runRoot,
+      SHIBA_DESKTOP_TEST_USER_DATA: userData,
     },
   });
   try {
@@ -285,11 +289,15 @@ test("pair, stream a harness approval, render the diff, and open a pull request"
     await win.waitForURL(`${stubUrl}/app/**`, { timeout: 20_000 });
     await expect
       .poll(async () => win.locator("#daemon").textContent(), { timeout: 20_000 })
-      .toBe("unpaired");
-    await win.getByRole("button", { name: "Pair this computer" }).click();
-    await expect
-      .poll(async () => win.locator("#daemon").textContent(), { timeout: 20_000 })
       .toBe("idle");
+
+    // The page's pairing request is refused with a code the page owns the copy
+    // for, and the running daemon is untouched.
+    await win.getByRole("button", { name: "Connect this computer" }).click();
+    await expect
+      .poll(async () => win.locator("#pair-result").textContent(), { timeout: 10_000 })
+      .toBe("pairing_deferred");
+    await expect.poll(async () => win.locator("#daemon").textContent()).toBe("idle");
 
     await win.getByLabel("Task description").fill("Add a greeting");
     await win.getByRole("button", { name: "Send task" }).click();
@@ -305,13 +313,6 @@ test("pair, stream a harness approval, render the diff, and open a pull request"
       .poll(async () => win.getByTestId("diff").textContent(), { timeout: 20_000 })
       .toContain("greeting.txt");
 
-    const diffWindow = app.waitForEvent("window");
-    await win.getByRole("button", { name: "Show diff" }).click();
-    const patch = await diffWindow;
-    await expect
-      .poll(async () => patch.locator("#patch").textContent(), { timeout: 10_000 })
-      .toContain("greeting.txt");
-
     await app.evaluate(({ shell }) => {
       const g = globalThis as { __opened?: string[] };
       g.__opened = [];
@@ -319,12 +320,43 @@ test("pair, stream a harness approval, render the diff, and open a pull request"
         g.__opened?.push(url);
       };
     });
-    await win.getByRole("button", { name: "Open pull request" }).click();
+    await win.getByRole("link", { name: "Open pull request" }).click();
     await expect
       .poll(() => app.evaluate(() => (globalThis as { __opened?: string[] }).__opened ?? []), {
         timeout: 10_000,
       })
       .toContain(PR_URL);
+
+    // The test bootstrap answers notifications, so the finished-run one arrives
+    // with main's own click handler attached: no secret in the body, and the
+    // click may only load a validated app route.
+    await expect
+      .poll(
+        () =>
+          app.evaluate(() => {
+            const shown = (globalThis as { __notifications?: { title: string; body: string }[] })
+              .__notifications;
+            const last = shown?.[shown.length - 1];
+            return last ? { title: last.title, body: last.body } : null;
+          }),
+        { timeout: 30_000 },
+      )
+      .not.toBeNull();
+    const notification = await app.evaluate(() => {
+      const shown = (globalThis as { __notifications?: { title: string; body: string }[] })
+        .__notifications;
+      const last = shown?.[shown.length - 1];
+      return last ? { title: last.title, body: last.body } : null;
+    });
+    expect(notification?.title).toMatch(/^Local run/);
+    expect(notification?.body).not.toMatch(/[A-Za-z0-9_-]{40,}\.[A-Za-z0-9_-]{20,}/);
+    await expect
+      .poll(
+        () => app.evaluate(() => (globalThis as { __notificationClicks?: number }).__notificationClicks ?? 0),
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThan(0);
+    await win.waitForURL(`${stubUrl}/app/?tab=activity`, { timeout: 10_000 });
   } finally {
     await app.close();
   }

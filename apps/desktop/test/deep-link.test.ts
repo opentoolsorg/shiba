@@ -24,14 +24,11 @@ describe("parseDeepLink", () => {
     });
   });
 
-  it("accepts a loopback Codex callback and rejects a foreign one", () => {
+  it("ignores the retired native auth route", () => {
+    // Sign-in never comes back through a loopback receiver, so no link may submit one.
     const callback = "http://127.0.0.1:1455/auth/callback?code=abc&state=state-state";
-    expect(parseDeepLink(`shiba://auth/codex?callback=${encodeURIComponent(callback)}`)).toEqual({
-      kind: "codex-callback",
-      callbackUrl: callback,
-    });
     expect(
-      parseDeepLink("shiba://auth/codex?callback=https%3A%2F%2Fevil.example%2Fcallback"),
+      parseDeepLink(`shiba://auth/codex?callback=${encodeURIComponent(callback)}`),
     ).toBeNull();
   });
 });

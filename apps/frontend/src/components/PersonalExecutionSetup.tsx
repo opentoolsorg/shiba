@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type JSX } from "react";
 import type { ConnectedComputer, PairingTokenResponse } from "@shiba/shared";
 import { currentPersonalAccounts, PersonalExecutionClient, personalGrantAvailable, type PersonalExecutionGrant } from "../personal-execution-client";
+import { isDesktopShell } from "../desktop-status";
 import { PersonalExecutionControls } from "./PersonalExecutionControls";
 
 const FIELD = "mt-1 min-h-11 w-full min-w-0 border border-[var(--input-line)] bg-[var(--paper)] p-2 text-sm";
 const BUTTON = "min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 py-2 text-xs disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
+// The same shell-wide rule as Remote Access: a desktop window never mints or
+// shows a single-use code, whichever bridge version it runs.
+const SHELL_PAIRING_INSTRUCTION = "Open this Shiba in your browser to generate a personal pairing code. This window never creates or shows one.";
 export interface PersonalExecutionSetupProps {
   workspaceId: string;
   actorId: string;
@@ -22,6 +26,7 @@ export function PersonalExecutionSetup(props: PersonalExecutionSetupProps): JSX.
 
 function ScopedPersonalExecutionSetup({ workspaceId, actorId, selected, onSelectionChange }: PersonalExecutionSetupProps): JSX.Element {
   const client = useMemo(() => new PersonalExecutionClient(workspaceId), [workspaceId]);
+  const inShell = isDesktopShell();
   const [computers, setComputers] = useState<ConnectedComputer[]>([]);
   const [grants, setGrants] = useState<PersonalExecutionGrant[]>([]);
   const [ready, setReady] = useState(false);
@@ -90,7 +95,8 @@ function ScopedPersonalExecutionSetup({ workspaceId, actorId, selected, onSelect
     finally { if (current()) setBusy(false); operating.current = false; }
   };
   const pair = () => operation(async () => {
-    if (!pairHarness || !/^[a-f0-9]{64}$/.test(pairFingerprint.trim())) return;
+    // No mint path in a shell window; the control is not rendered either.
+    if (inShell || !pairHarness || !/^[a-f0-9]{64}$/.test(pairFingerprint.trim())) return;
     const result = await client.pair({ harness: pairHarness, accountFingerprint: pairFingerprint.trim() }, controller.current.signal);
     if (!current()) return;
     if (result.expiresAt <= Date.now() || result.expiresAt > Date.now() + 15 * 60_000 + 5_000) throw new Error("The pairing code expiry could not be verified.");
@@ -143,11 +149,17 @@ function ScopedPersonalExecutionSetup({ workspaceId, actorId, selected, onSelect
       <p className="mt-2 text-xs text-[var(--ink-2)]">Local account observation is not proof of live entitlement, available quota or model support. Offline, stale and revoked grants cannot be selected.</p>
       <details onToggle={(event) => { if (!event.currentTarget.open) setPairing(null); }} className="mt-3 border-t border-[var(--line)] pt-2"><summary className="min-h-11 cursor-pointer py-2 text-xs">Pair a computer or create an explicit grant</summary>
         <p className="text-xs text-[var(--ink-2)]">Inspect your chosen CLI account locally first. Enter only the printed account fingerprint, never an API key, login file or token. Claude currently requires file-backed native login on Linux; Codex supports file-backed ChatGPT login on supported non-Windows machines.</p>
-        <label className="mt-2 block text-xs">Native CLI to pair<select className={FIELD} value={pairHarness} disabled={busy} onChange={(event) => { setPairHarness(event.target.value as typeof pairHarness); setPairFingerprint(""); setPairing(null); }}><option value="">Choose a native CLI</option><option value="claude-code">Claude Code native subscription</option><option value="codex">Codex ChatGPT subscription</option></select></label>
-        {pairHarness && <p className="mt-2 text-xs">From your Shiba checkout, inspect without starting a task:<code className="mt-1 block whitespace-pre-wrap break-all">node scripts/shiba-local-daemon.mjs --inspect-personal-auth {pairHarness}</code></p>}
-        <label className="mt-2 block text-xs">Locally inspected account fingerprint<input className={FIELD} value={pairFingerprint} disabled={busy} maxLength={64} autoComplete="off" spellCheck={false} onChange={(event) => { setPairFingerprint(event.target.value); setPairing(null); }} /></label>
-        <button type="button" className={`${BUTTON} mt-2`} disabled={busy || !pairHarness || !/^[a-f0-9]{64}$/.test(pairFingerprint.trim())} onClick={() => { void pair(); }}>Generate my personal pairing code</button>
-        {pairing && <div className="mt-2 min-w-0 border border-[var(--line)] p-2"><p className="text-xs">Run this on your own computer. This single-use code expires in 15 minutes and stays only in this open setup.</p><pre className="mt-2 whitespace-pre-wrap break-all text-xs">{pairing.connectCommand}</pre><button type="button" className={`${BUTTON} mt-2`} onClick={() => setPairing(null)}>Hide pairing code</button></div>}
+        {inShell ? (
+          <p className="mt-2 text-xs" role="note">{SHELL_PAIRING_INSTRUCTION}</p>
+        ) : (
+          <>
+            <label className="mt-2 block text-xs">Native CLI to pair<select className={FIELD} value={pairHarness} disabled={busy} onChange={(event) => { setPairHarness(event.target.value as typeof pairHarness); setPairFingerprint(""); setPairing(null); }}><option value="">Choose a native CLI</option><option value="claude-code">Claude Code native subscription</option><option value="codex">Codex ChatGPT subscription</option></select></label>
+            {pairHarness && <p className="mt-2 text-xs">From your Shiba checkout, inspect without starting a task:<code className="mt-1 block whitespace-pre-wrap break-all">node scripts/shiba-local-daemon.mjs --inspect-personal-auth {pairHarness}</code></p>}
+            <label className="mt-2 block text-xs">Locally inspected account fingerprint<input className={FIELD} value={pairFingerprint} disabled={busy} maxLength={64} autoComplete="off" spellCheck={false} onChange={(event) => { setPairFingerprint(event.target.value); setPairing(null); }} /></label>
+            <button type="button" className={`${BUTTON} mt-2`} disabled={busy || !pairHarness || !/^[a-f0-9]{64}$/.test(pairFingerprint.trim())} onClick={() => { void pair(); }}>Generate my personal pairing code</button>
+          </>
+        )}
+        {pairing && !inShell && <div className="mt-2 min-w-0 border border-[var(--line)] p-2"><p className="text-xs">Run this on your own computer. This single-use code expires in 15 minutes and stays only in this open setup.</p><pre className="mt-2 whitespace-pre-wrap break-all text-xs">{pairing.connectCommand}</pre><button type="button" className={`${BUTTON} mt-2`} onClick={() => setPairing(null)}>Hide pairing code</button></div>}
         {computers.length > 0 && <ul aria-label="My personal computers" className="mt-3 space-y-2">{computers.map((computer) => <li key={computer.machineId} className="flex flex-wrap items-center justify-between gap-2 border border-[var(--line)] p-2 text-xs"><span className="min-w-0 break-all">{computer.hostname} · {computer.status} · {computer.machineId.slice(-8)}</span><button type="button" className={`${BUTTON} max-w-full break-all`} disabled={busy} onClick={() => { void unpair(computer); }}>Unpair computer {computer.hostname}</button></li>)}</ul>}
         <form onSubmit={create} className="mt-3 flex min-w-0 flex-col gap-3">
           <label className="text-xs">Locally observed account<select className={FIELD} value={accountId} disabled={busy} onChange={(event) => { setAccountId(event.target.value); setModel(""); setConsent(false); setHostingConsent(false); }}><option value="">Choose your computer and observed account</option>{accounts.map(({ computer, account, id }) => <option key={id} value={id}>{computer.hostname} · {account.harness} · account {account.accountFingerprint.slice(0, 10)} · CLI {account.cliVersion}</option>)}</select></label>

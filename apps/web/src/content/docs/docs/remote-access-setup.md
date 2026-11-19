@@ -24,14 +24,24 @@ Alchemy deploys create a second Access application (`MachineBypass`) that covers
 2. Copy the connect command. It looks like this:
 
    ```sh
-   node scripts/shiba-local-daemon.mjs --connect https://shiba.example.com --pair <token>
+   SHIBA_PAIRING_TOKEN='<token>' node scripts/shiba-local-daemon.mjs --connect https://shiba.example.com --pair
    ```
 
 3. Run it from a checkout of this repository on the machine you want to pair.
 
+The token travels in the environment, never in the command line: `--pair` takes no argument, and a token pasted after it is refused rather than used, because process arguments are visible to every user on the machine.
+
 The pairing token works once and expires after 15 minutes; the modal shows a countdown. The daemon sends the token to `POST /api/local/pair`. The Worker checks the token's HMAC signature and expiry, then burns its nonce, so the same token can't be used twice. On success the Worker returns a new adapter token and a machine id, and the daemon starts polling.
 
 If the token was expired, already used, or mistyped, the daemon exits with a message telling you to mint a new one. Mint a new token and run the command again.
+
+Pairing runs from the browser because that is where the token is minted, for your signed-in session. Shiba Desktop does not pair itself: in the desktop window the Remote Access view shows this instruction instead of a connect control, and `bridge.pair()` answers `pairing_deferred`.
+
+### Rollout order
+
+The dashboard decides what the desktop window renders, so deploy this web change before or together with the shell that refuses native pairing. An older dashboard bundle opened in the new shell still contains its own **Add computer** button and token dialog — the shell cannot remove a control the page draws — and a new bundle in an older shell hides the button and shows the instruction. Either way the token comes from the browser session; the shell is not a second authority for it.
+
+The same rule covers the personal pairing code used for personal-subscription execution: a desktop window shows a browser instruction there too, and never mints, displays, or copies that code. Both surfaces read the same web bundle, so the rollout order above covers them together.
 
 ## Files on the machine
 

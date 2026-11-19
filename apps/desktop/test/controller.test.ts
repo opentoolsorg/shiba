@@ -5,7 +5,12 @@ import type { ChildLike, ControllerDeps, LocalConfig } from "../src/controller.j
 const ORIGIN = "https://shiba.example.com";
 
 function setup(opts: { code?: number | "throw"; local?: LocalConfig | null } = {}) {
-  const children: Array<{ child: ChildLike; hooks: Parameters<ControllerDeps["fork"]>[1]; args: string[]; killed: boolean }> = [];
+  const children: Array<{
+    child: ChildLike;
+    hooks: Parameters<ControllerDeps["fork"]>[1];
+    args: string[];
+    killed: boolean;
+  }> = [];
   const statuses: string[] = [];
   const timers: Array<() => void> = [];
   const state = { code: opts.code ?? 200, local: opts.local === undefined ? { workerUrl: ORIGIN, machineId: "m1" } : opts.local };
@@ -35,7 +40,7 @@ function setup(opts: { code?: number | "throw"; local?: LocalConfig | null } = {
     },
     onStatus: (s) => statuses.push(s.state),
     onSettled: vi.fn(),
-    log: () => undefined,
+    event: vi.fn(),
     setTimeoutFn: ((fn: () => void) => { timers.push(fn); return timers.length; }) as unknown as typeof setTimeout,
     clearTimeoutFn: (() => undefined) as unknown as typeof clearTimeout,
   };
@@ -76,19 +81,6 @@ describe("probe state machine", () => {
     await vi.waitFor(() => expect(t.ctl.status().state).toBe("paired-elsewhere"));
     expect(urls).toEqual([`${ORIGIN}/api/computers`, "https://new.example.com/api/computers"]);
     expect(t.children).toHaveLength(0);
-  });
-
-  it("does not let an old404 probe stop a newly paired daemon", async () => {
-    const t = setup();
-    let resolveProbe!: (result: { status: number }) => void;
-    t.deps.probeFetch = () => new Promise((resolve) => { resolveProbe = resolve; });
-    const pending = t.ctl.probe();
-    await t.ctl.stop();
-    t.ctl.forkForPairing(["--connect", ORIGIN, "--pair", "nonce.signature"]);
-    resolveProbe({ status: 404 });
-    await pending;
-    expect(t.children).toHaveLength(1);
-    expect(t.children[0]?.killed).toBe(false);
   });
 
   it("ignores a late probe result after disposal", async () => {
@@ -159,7 +151,9 @@ describe("daemon messages and exits", () => {
     onMessage({ type: "status", state: "polling", machineId: "m1", harnesses: ["claude"] });
     expect(t.ctl.status()).toMatchObject({ state: "idle", machineId: "m1", harnesses: ["claude"] });
     onMessage({ type: "status", state: "claimed", runId: "r1", harness: "claude", repoUrl: "https://github.com/o/r" });
-    expect(t.ctl.status()).toMatchObject({ state: "busy", activeRunId: "r1", detail: "o/r" });
+    // The repo slug stays in main; status carries only typed fields.
+    expect(t.ctl.status()).toMatchObject({ state: "busy", activeRunId: "r1" });
+    expect(t.ctl.status()).not.toHaveProperty("detail");
     onMessage({ type: "status", state: "settled", runId: "r1", status: "ok", exitCode: 0, repoUrl: "https://github.com/o/r", posted: true });
     expect(t.ctl.status().state).toBe("idle");
     expect(t.deps.onSettled).toHaveBeenCalledOnce();
@@ -190,13 +184,17 @@ describe("daemon messages and exits", () => {
     expect(t.children[1]?.args).toEqual([]);
   });
 
-  it("pairing fork exiting before polling re-probes instead of restarting", async () => {
-    const t = setup({ local: null });
+  it("reports an exit as a structured event with an output byte count, never daemon text", async () => {
+    const t = setup();
     await t.ctl.probe();
-    t.ctl.forkForPairing(["--connect", ORIGIN, "--pair", "a.b"]);
-    t.children[0]!.hooks.onExit(1);
-    await vi.waitFor(() => expect(t.ctl.status().state).toBe("unpaired"));
-    expect(t.children).toHaveLength(1);
+    t.children[0]!.hooks.onLog("repo acme/widgets: fatal\n");
+    t.children[0]!.hooks.onExit(78);
+    expect(t.deps.event).toHaveBeenCalledWith({
+      event: "daemon-exit",
+      state: "revoked",
+      code: 78,
+      bytes: "repo acme/widgets: fatal\n".length,
+    });
   });
 
   it("stop() SIGTERMs and does not restart", async () => {
@@ -250,7 +248,7 @@ describe("daemon messages and exits", () => {
     expect(t.children).toHaveLength(forks + 1);
     // The crash window was reset: one more abnormal exit restarts instead of re-latching.
     t.children.at(-1)!.hooks.onExit(1);
-    expect(t.ctl.status()).toMatchObject({ state: "offline", detail: "restarting in 1s" });
+    expect(t.ctl.status()).toMatchObject({ state: "offline", reason: "retrying", retryInMs: 1000 });
   });
 
   it("a good heartbeat resets the consecutive-miss count (F8)", async () => {

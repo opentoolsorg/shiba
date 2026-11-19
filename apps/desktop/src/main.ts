@@ -19,25 +19,18 @@ import {
 } from "electron";
 import type { ApprovalsPoller } from "./approvals-poller.js";
 import { createApprovalsPoller } from "./approvals-poller.js";
+import { BRIDGE_VERSION, encodeHandshake, parseHandshake } from "./bridge-contract.js";
 import { startClaudeLogin } from "./claude-login.js";
-import {
-  cancelCodexCallback,
-  receiveCodexCallback,
-  submitCodexCallback,
-} from "./codex-callback.js";
 import type { Controller } from "./controller.js";
 import { createController } from "./controller.js";
+import { dashboardCspReportOnly } from "./csp.js";
 import { parseDeepLink } from "./deep-link.js";
+import { createIpcBounds } from "./ipc-guard.js";
+import { createDashboardTrust, createSetupTrust } from "./ipc-trust.js";
 import { dashboardPath, resolveConfiguredOrigin } from "./launch.js";
 import type { Logger } from "./logs.js";
 import { createLogger } from "./logs.js";
-import {
-  DEFAULT_AUTH_HOSTS,
-  decideNavigation,
-  isSetupSender,
-  isTrustedSender,
-  parseDeploymentUrl,
-} from "./navigation.js";
+import { DEFAULT_AUTH_HOSTS, isSafeAppPath, parseDeploymentUrl } from "./navigation.js";
 import type { DesktopSupervisor } from "./pairing.js";
 import { emitStatusChanged, registerDesktopIpc } from "./pairing.js";
 import { handleDaemonMessage } from "./run-notify.js";
@@ -46,6 +39,7 @@ import { captureShellEnv } from "./shell-env.js";
 import { registerShellIpc } from "./shell-ipc.js";
 import { forkDaemon, resolveDaemonPath, shouldConfirmQuit } from "./supervisor.js";
 import { buildTrayMenu, createTray } from "./tray.js";
+import { guardWebContents } from "./window-security.js";
 import {
   mediaDetailsFromHandler,
   shouldAllowSessionPermission,
@@ -73,8 +67,6 @@ const SETUP_DIR = app.isPackaged
   : __dirname;
 const SETUP_FILE = path.join(SETUP_DIR, "setup.html");
 const SETUP_URL = pathToFileURL(SETUP_FILE).href;
-const DIFF_FILE = path.join(SETUP_DIR, "diff.html");
-const DIFF_URL = pathToFileURL(DIFF_FILE).href;
 
 let config: DesktopConfig = {};
 let sessionOrigin: string | undefined;
@@ -89,13 +81,12 @@ let daemonLog: Logger | null = null;
 let shellEnv: Env = {};
 let runRoot = path.join(os.homedir(), ".shiba-local");
 let shutdownStarted = false;
-let diffPatch = "";
-let diffWindow: BrowserWindow | null = null;
 let desktopActions: ReturnType<typeof registerDesktopIpc> | null = null;
 const pendingLinks: string[] = process.argv.filter((arg) => arg.startsWith("shiba:"));
 
-const log = (line: string) => mainLog?.line(line);
-
+const logEvent = (fields: Parameters<NonNullable<Logger["event"]>>[0]) => mainLog?.event(fields);
+/** One bridge-wide concurrency ceiling; pairing and shell handlers share it. */
+const bounds = createIpcBounds();
 const configPath = () => path.join(app.getPath("userData"), "config.json");
 
 function loadConfig(): DesktopConfig {
@@ -162,44 +153,41 @@ function loadDashboard(): void {
   void mainWindow?.loadURL(`${origin}/app/`);
 }
 
-function guardNavigation(win: BrowserWindow, allowFileUrl?: string): void {
-  const wc = win.webContents;
-  const gate = (event: { preventDefault(): void }, url: string) => {
-    if (allowFileUrl && sameFileUrl(url, allowFileUrl)) return;
-    const decision = decideNavigation(url, configuredOrigin(), authHosts());
-    if (decision === "allow") return;
-    event.preventDefault();
-    if (decision === "external") void shell.openExternal(url);
-  };
-  wc.on("will-navigate", (event) => gate(event, event.url));
-  wc.on("will-redirect", (event) => gate(event, event.url));
-  wc.on("will-attach-webview", (event) => event.preventDefault());
-  wc.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("https:") && decideNavigation(url, configuredOrigin(), authHosts()) !== "deny")
-      void shell.openExternal(url);
-    return { action: "deny" };
-  });
-  wc.on("did-fail-load", (_e, code, description, validatedUrl, isMainFrame) => {
+/**
+ * Load-failure UX for one window. Navigation, popup, and webview policy come
+ * from the app-wide web-contents-created hook, so a window never carries two
+ * copies of the gate (which would hand one link to the browser twice).
+ */
+function attachLoadFailure(win: BrowserWindow): void {
+  win.webContents.on("did-fail-load", (_e, code, _description, validatedUrl, isMainFrame) => {
     // -3 = ERR_ABORTED (superseded navigation), not a real failure.
     if (!isMainFrame || code === -3) return;
     const origin = configuredOrigin();
-    if (origin && validatedUrl.startsWith(origin))
-      loadSetup(`Could not load ${origin}: ${description}`);
+    if (origin && validatedUrl.startsWith(origin)) {
+      // Persistent diagnostics carry no free-form input: the numeric code is the
+      // record, and the page shows fixed copy plus that code.
+      logEvent({ event: "load-failed", code, url: origin });
+      // Recovery keeps the saved URL and shows the address form with the code,
+      // so a retry is one Continue away and nothing is silently forgotten.
+      loadSetup(`Could not load ${origin} (error ${code}). Check the address and try again.`);
+    }
   });
 }
 
-function sameFileUrl(target: string, fileUrl: string): boolean {
-  try {
-    const next = new URL(target);
-    const allowed = new URL(fileUrl);
-    return (
-      next.protocol === "file:" &&
-      allowed.protocol === "file:" &&
-      next.pathname === allowed.pathname
-    );
-  } catch {
-    return false;
-  }
+/**
+ * The handshake the preload will accept, or nothing. A window created while no
+ * deployment is configured gets no bridge at all, which is what the setup page
+ * expects; anything the contract rejects fails closed the same way.
+ */
+function bridgeArguments(): string[] {
+  const encoded = encodeHandshake({
+    origin: configuredOrigin(),
+    bridgeVersion: BRIDGE_VERSION,
+    appVersion: app.getVersion(),
+    platform: process.platform,
+    surface: "dashboard",
+  });
+  return parseHandshake([encoded]) ? [encoded] : [];
 }
 
 function saveBoundsSoon(win: BrowserWindow): void {
@@ -223,15 +211,12 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: false,
-      // preload reads these; the page can't influence them (D4).
-      additionalArguments: [
-        `--shiba-origin=${configuredOrigin()}`,
-        `--shiba-version=${app.getVersion()}`,
-      ],
+      // preload reads this; the page can't influence it (D4).
+      additionalArguments: bridgeArguments(),
     },
   });
   mainWindow = win;
-  guardNavigation(win);
+  attachLoadFailure(win);
   win.once("ready-to-show", () => win.show());
   // Sign-in finishes with a navigation; re-probe then instead of waiting for the 60s timer.
   win.webContents.on("did-navigate", () => {
@@ -253,35 +238,6 @@ function createWindow(): void {
   loadDashboard();
 }
 
-function presentDiff(patch: string): void {
-  diffPatch = patch;
-  if (diffWindow && !diffWindow.isDestroyed()) {
-    diffWindow.show();
-    void diffWindow.loadURL(DIFF_URL);
-    return;
-  }
-  const win = new BrowserWindow({
-    width: 960,
-    height: 720,
-    title: "Shiba diff",
-    webPreferences: {
-      preload: path.join(__dirname, "diff-preload.js"),
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false,
-      webviewTag: false,
-    },
-  });
-  diffWindow = win;
-  guardNavigation(win, DIFF_URL);
-  win.on("closed", () => {
-    if (diffWindow !== win) return;
-    diffWindow = null;
-    diffPatch = "";
-  });
-  void win.loadURL(DIFF_URL);
-}
-
 function handleDeepLink(raw: string): void {
   if (!mainWindow) {
     pendingLinks.push(raw);
@@ -290,8 +246,7 @@ function handleDeepLink(raw: string): void {
   const link = parseDeepLink(raw);
   if (!link) return;
   if (link.kind === "view") openPath(dashboardPath(link.view));
-  else if (link.kind === "pull-request") void shell.openExternal(link.url);
-  else submitCodexCallback(link.callbackUrl);
+  else void shell.openExternal(link.url);
 }
 
 function flushDeepLinks(): void {
@@ -346,7 +301,8 @@ async function ensureMicrophoneAccess(): Promise<boolean> {
   return systemPreferences.askForMediaAccess("microphone");
 }
 
-function configurePermissions(win: BrowserWindow): void {
+/** Installed on the default session before the first window loads a page. */
+function configurePermissions(): void {
   const evaluate = (permission: string, requestUrl: string, details?: unknown) =>
     shouldAllowSessionPermission(
       permission,
@@ -355,7 +311,7 @@ function configurePermissions(win: BrowserWindow): void {
       mediaDetailsFromHandler(permission, details),
     );
 
-  const ses = win.webContents.session;
+  const ses = session.defaultSession;
   ses.setPermissionRequestHandler((wc, permission, callback, details) => {
     const requestUrl =
       details && typeof details === "object" && "requestingUrl" in details
@@ -385,6 +341,28 @@ function configurePermissions(win: BrowserWindow): void {
   });
 }
 
+/** Adds the shell's Report-Only dashboard policy only when the Worker sent none. */
+function installCspReportOnly(): void {
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const policy = dashboardCspReportOnly({
+      url: details.url,
+      resourceType: details.resourceType,
+      headers: details.responseHeaders ?? {},
+      configuredOrigin: configuredOrigin(),
+    });
+    if (!policy) {
+      callback({});
+      return;
+    }
+    callback({
+      responseHeaders: {
+        ...(details.responseHeaders ?? {}),
+        "Content-Security-Policy-Report-Only": [policy],
+      },
+    });
+  });
+}
+
 const sessionFetch = (url: string, init?: RequestInit) =>
   // Timeout: a hung probe would leave the controller's probing flag set forever.
   session.defaultSession.fetch(url, {
@@ -408,14 +386,32 @@ function notify(n: { title: string; body: string }, onClick: () => void): void {
   notification.show();
 }
 
-function openPath(pathAndQuery: string): void {
+/** Loads an absolute dashboard URL only when it is ours and on a known path. */
+function loadAppUrl(url: string): void {
+  const origin = configuredOrigin();
+  if (!origin || !url.startsWith(`${origin}/`)) {
+    // A deep link or notification click is caller-supplied text: the event name
+    // is the record, and the refused string is never written anywhere.
+    logEvent({ event: "app-url-refused" });
+    return;
+  }
+  openPath(url.slice(origin.length));
+}
+
+/** Loads an app-internal path; a native caller can only reach a known tab. */
+function openPath(pathAndQuery: string): boolean {
+  if (!isSafeAppPath(pathAndQuery)) {
+    logEvent({ event: "app-path-refused" });
+    return false;
+  }
   const origin = configuredOrigin();
   if (!origin) {
     loadSetup();
-    return;
+    return false;
   }
   showWindow();
   void mainWindow?.loadURL(`${origin}${pathAndQuery}`);
+  return true;
 }
 
 function buildPoller(): void {
@@ -427,9 +423,9 @@ function buildPoller(): void {
         approvalsUrl: `${origin}/api/approvals`,
         openUrl: `${origin}/app/?tab=approvals`,
         showWindow,
-        loadURL: (url) => mainWindow?.loadURL(url),
+        loadURL: loadAppUrl,
         notify,
-        log: (...args) => log(args.map(String).join(" ")),
+        onError: () => logEvent({ event: "approvals-poll", state: "failed" }),
       })
     : null;
 }
@@ -456,15 +452,17 @@ async function disconnectLocal(): Promise<void> {
   try {
     const result = await desktopActions?.unpair();
     if (result && !result.ok) {
+      logEvent({ event: "unpair", state: result.code });
+      // Fixed copy: the code is logged, the page owns the per-code wording.
       await dialog.showMessageBox({
         type: "info",
         message: "Could not disconnect this computer.",
-        detail: result.error,
+        detail: "Check the connection and retry from the dashboard.",
         buttons: ["OK"],
       });
     }
-  } catch (error) {
-    log(`disconnect failed: ${String(error)}`);
+  } catch {
+    logEvent({ event: "disconnect", state: "failed" });
   }
 }
 
@@ -512,7 +510,7 @@ function onTraySelect(id: string): void {
     case "logs":
       return void shell.openPath(path.join(app.getPath("userData"), "logs"));
     case "updates":
-      return void checkForUpdates().catch((e) => log(`update check failed: ${String(e)}`));
+      return void checkForUpdates().catch(() => logEvent({ event: "update-check", state: "failed" }));
     case "quit":
       app.quit();
       return;
@@ -549,17 +547,25 @@ const supervisorFacade: DesktopSupervisor = {
     controller?.setStatus({ state: "unpaired" });
   },
   probe: () => controller?.probe(),
-  forkDaemon: (args) => {
-    if (!controller) throw new Error("Shiba Desktop is still starting.");
-    return controller.forkForPairing(args);
-  },
 };
 
+/** The shell's own window contents; anything else is a foreign webContents. */
+const ownedContents = () => mainWindow?.webContents ?? null;
+
+// Native pairing is deferred: the Worker mints tokens for the same authorized
+// operator session this window already holds, so the shell has nothing to add
+// and mints nothing. The browser flow (Add computer) stays the supported path.
+
 function registerIpc(): void {
+  const isTrustedEvent = createDashboardTrust({ configuredOrigin, ownedContents });
+  const isSetupEvent = createSetupTrust({
+    setupFileUrl: SETUP_URL,
+    ownedContents,
+  });
   desktopActions = registerDesktopIpc({
     ipcMain,
-    isTrustedSender,
-    isSetupSender: (frameUrl) => isSetupSender(frameUrl, SETUP_URL),
+    isTrustedEvent,
+    isSetupEvent,
     parseDeploymentUrl: (input) => parseDeploymentUrl(input, app.isPackaged),
     onSetUrl: (origin) => {
       saveConfig({ deploymentUrl: origin });
@@ -575,35 +581,14 @@ function registerIpc(): void {
     get runRoot() {
       return runRoot;
     },
-    confirmPairElsewhere: async (pairedTo) => {
-      const { response } = await dialog.showMessageBox({
-        type: "warning",
-        message: `This computer is paired to ${pairedTo ?? "another Shiba"}.`,
-        detail: `Pair it with ${configuredOrigin()} instead?`,
-        buttons: ["Re-pair", "Cancel"],
-        defaultId: 1,
-        cancelId: 1,
-      });
-      return response === 0;
-    },
     readLocalConfig,
-    log,
+    event: (fields) => logEvent(fields),
+    bounds,
   });
   registerShellIpc({
     ipcMain,
-    isTrustedSender,
-    isDiffSender: (frame) => isSetupSender(frame, DIFF_URL),
-    getConfiguredOrigin: configuredOrigin,
-    loadDashboardPath: openPath,
-    openExternal: (url) => shell.openExternal(url),
-    presentDiff,
-    readDiffPatch: () => diffPatch,
-    receiveCodex: (authorizationUrl) =>
-      receiveCodexCallback(authorizationUrl, async (url) => {
-        await shell.openExternal(url);
-        return true;
-      }),
-    cancelCodex: cancelCodexCallback,
+    isTrustedEvent,
+    bounds,
     startClaudeLogin: () => startClaudeLogin({ env: shellEnv }),
   });
 }
@@ -635,10 +620,12 @@ function initController(): void {
       handleDaemonMessage(msg, {
         origin: configuredOrigin(),
         showWindow,
-        loadURL: (url) => mainWindow?.loadURL(url),
+        loadURL: loadAppUrl,
         notify,
       }),
-    log: (line) => (line.startsWith("daemon: ") ? daemonLog?.line(line.slice(8)) : log(line)),
+    // Daemon output is counted, never logged: a chunk can carry a URL, a repo
+    // name, or a token, and none of that belongs in a file.
+    event: (fields) => daemonLog?.event(fields),
   });
 }
 
@@ -652,13 +639,13 @@ async function initIntegrations(): Promise<void> {
   buildPoller();
   const icon = trayIconPath();
   if (icon) tray = createTray(icon, onTraySelect);
-  else log("tray icon missing; running without a tray item");
+  else logEvent({ event: "tray", state: "missing" });
   refreshTray();
   applyLoginItem();
   startUpdater({
     isPackaged: app.isPackaged,
     checkForUpdatesAndNotify: checkForUpdates,
-    log: (...a) => log(a.map(String).join(" ")),
+    onError: () => logEvent({ event: "update-check", state: "failed" }),
   });
   powerMonitor.on("suspend", () => poller?.stop());
   powerMonitor.on("resume", () => {
@@ -699,8 +686,8 @@ function registerProtocol(): void {
   if (!app.isPackaged) return;
   try {
     app.setAsDefaultProtocolClient("shiba");
-  } catch (error) {
-    log(`protocol registration failed: ${error instanceof Error ? error.message : String(error)}`);
+  } catch {
+    logEvent({ event: "protocol-register", state: "failed" });
   }
 }
 
@@ -721,14 +708,29 @@ if (!app.requestSingleInstanceLock()) {
   app.on("window-all-closed", () => {
     if (!isMac) app.quit();
   });
+  // Every window webContents gets the same policy, including any the app opens later.
+  app.on("web-contents-created", (_event, contents) => {
+    if (contents.getType() !== "window") return;
+    guardWebContents(contents, {
+      configuredOrigin,
+      authHosts,
+      openExternal: (url) => void shell.openExternal(url),
+      onDecision: (decision) => {
+        if (decision !== "allow") logEvent({ event: "navigation", action: decision });
+      },
+    });
+  });
   void app.whenReady().then(() => {
     setDockIcon();
     config = loadConfig();
     registerProtocol();
     buildMenu();
     registerIpc();
+    // Deny-by-default permissions and the report-only CSP must exist before the
+    // first page loads, or the first request races the policy.
+    configurePermissions();
+    installCspReportOnly();
     createWindow();
-    if (mainWindow) configurePermissions(mainWindow);
     flushDeepLinks();
     void initIntegrations();
   });

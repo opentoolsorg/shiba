@@ -114,7 +114,10 @@ describe("pairing", () => {
     const fleet = makeFleet();
     const { minted, res } = await pair(fleet);
     expect(minted.expiresAt).toBe(Date.now() + LOCAL_PAIRING_TTL_MS);
-    expect(minted.connectCommand).toContain(`--connect https://localhost --pair ${minted.token}`);
+    // The token travels in the environment, never as an argument.
+    expect(minted.connectCommand).toContain(`SHIBA_PAIRING_TOKEN='${minted.token}'`);
+    expect(minted.connectCommand).toContain("--connect https://localhost --pair");
+    expect(minted.connectCommand).not.toContain(`--pair ${minted.token}`);
     expect(res.status).toBe(200);
     const { adapterToken, machineId } = (await res.json()) as { adapterToken: string; machineId: string };
     expect(adapterToken).toMatch(/^[0-9a-f]{64}$/);

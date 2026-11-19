@@ -1,7 +1,7 @@
 import type { AcpProviderCard, AcpProvidersSnapshot } from "@shiba/shared";
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { desktopCanSignInClaude, desktopCodexAuthorizationUrl } from "../desktop-provider";
+import { desktopCanSignInClaude } from "../desktop-provider";
 import { describeProviderRoute } from "../supported-task-routes";
 import { LoadErrorState } from "./LoadErrorState";
 import { ConnectionsCard } from "./ModelRoutingSection";
@@ -139,7 +139,6 @@ function WaitingSignIn({
 }): JSX.Element {
   const [callbackUrl, setCallbackUrl] = useState("");
   const [credential, setCredential] = useState("");
-  const [desktopError, setDesktopError] = useState<string | null>(null);
   const device = Boolean(card.connection.userCode);
   const needsCallback =
     card.connection.signInKind === "chatgpt-pkce" ||
@@ -150,7 +149,6 @@ function WaitingSignIn({
   const steps = card.connection.operatorSteps ?? [];
   const verificationUri = card.connection.verificationUri;
   const finishRef = useRef<() => void>(() => {});
-  const codexAuthorization = desktopCodexAuthorizationUrl(verificationUri);
   function finish(): void {
     if (device && callbackUrl.trim() !== "") {
       onVerify(card.id, { callbackUrl: callbackUrl.trim() });
@@ -307,23 +305,6 @@ function WaitingSignIn({
             </NewTabLabel>
           </a>
         ) : null}
-        {codexAuthorization && typeof window !== "undefined" && window.shibaDesktop ? (
-          <button
-            type="button"
-            data-testid={`provider-receive-${card.id}`}
-            disabled={busy}
-            onClick={() => {
-              setDesktopError(null);
-              void window.shibaDesktop?.receiveCodexCallback(codexAuthorization).then((result) => {
-                if (result.ok) onVerify(card.id, { callbackUrl: result.callbackUrl });
-                else setDesktopError(result.error);
-              });
-            }}
-            className={SECONDARY}
-          >
-            Receive callback on this computer
-          </button>
-        ) : null}
         <button
           type="button"
           disabled={busy || (needsToken && credential.trim() === "")}
@@ -341,11 +322,6 @@ function WaitingSignIn({
           {actionLabel(busy, action, "disconnect", "Cancel", "Working…")}
         </button>
       </div>
-      {desktopError ? (
-        <p className="mt-2 text-xs text-[var(--destructive)]" role="alert">
-          {desktopError}
-        </p>
-      ) : null}
     </div>
   );
 }

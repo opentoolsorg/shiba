@@ -2,124 +2,80 @@
 // once. Every handler re-checks the sender frame (D4) and main builds the
 // daemon argv itself from the configured origin (D3) — the renderer only
 // supplies the single-use pairing token, never a URL (D7: the token reaches
-// only the daemon argv, never IPC replies, logs or notifications).
+// only the daemon's environment, never argv, IPC replies, logs or
+// notifications).
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import type { DesktopStatus, PairResult } from "@shiba/shared";
+import type { ShellPairFailureCode } from "./pair-copy.js";
+import { shellFailure } from "./pair-copy.js";
+import {
+  boundedText,
+  DESKTOP_CHANNELS,
+  MAX_DEPLOYMENT_URL_CHARS,
+  SETUP_CHANNELS,
+} from "./bridge-contract.js";
 import type { ChildLike } from "./controller.js";
+import type { IpcBounds } from "./ipc-guard.js";
 import { originOf } from "./navigation.js";
 
-export type { DesktopStatus, PairResult };
+const failure = (code: ShellPairFailureCode): PairResult => shellFailure(code);
 
-export const DESKTOP_STATUS_CHANNEL = "desktop:status";
-export const DESKTOP_PAIR_CHANNEL = "desktop:pair";
-export const DESKTOP_UNPAIR_CHANNEL = "desktop:unpair";
-export const DESKTOP_SET_URL_CHANNEL = "desktop:set-url";
-export const DESKTOP_STATUS_CHANGED_CHANNEL = "desktop:status-changed";
+export type { DesktopStatus, PairResult };
 
 export interface DesktopSupervisor {
   status(): DesktopStatus;
   stop(): Promise<void> | void;
-  /** Forks the daemon script with the given argv. Pairing forks never restart. */
-  forkDaemon(args: string[]): ChildLike;
   /** Re-reads config.json and restarts the daemon if it is still paired. */
   probe?(): unknown;
 }
 
 export interface DesktopIpcDeps {
   ipcMain: Pick<IpcMain, "handle">;
-  /** navigation.ts#isTrustedSender — every handler re-checks D4. */
-  isTrustedSender(senderFrameUrl: string | undefined, configuredOrigin: string): boolean;
+  /** ipc-trust.ts — own window, its main frame, the configured origin. */
+  isTrustedEvent(event: IpcMainInvokeEvent): boolean;
   supervisor: DesktopSupervisor;
   getConfiguredOrigin(): string;
   /** session.defaultSession.fetch — cookies ride along automatically. */
   sessionFetch(input: string, init?: RequestInit): Promise<Response>;
   /** Daemon runRoot that holds config.json (~/.shiba-local by default). */
   runRoot: string;
-  /** Native confirm before re-pairing a machine already paired to another origin. */
-  confirmPairElsewhere(pairedTo: string | undefined): Promise<boolean>;
-  /** navigation.ts#isSetupSender bound to the bundled setup.html URL (D4). */
-  isSetupSender(senderFrameUrl: string | undefined): boolean;
+  /** ipc-trust.ts — own window, its main frame, the bundled setup.html page. */
+  isSetupEvent(event: IpcMainInvokeEvent): boolean;
   /** navigation.ts#parseDeploymentUrl bound to app.isPackaged; returns the origin or null. */
   parseDeploymentUrl(input: string): string | null;
   /** Applied only when the bundled setup.html frame supplies a new URL; receives the reduced origin. */
   onSetUrl?(origin: string): void | PairResult | Promise<void | PairResult>;
   /** Reads the daemon's config.json — revoke fallback when status dropped machineId (conflict/crashed). */
   readLocalConfig(): { workerUrl?: string; machineId?: string } | null;
-  /** Pair fork watchdog (default PAIR_TIMEOUT_MS); tests pass a few ms. */
-  pairTimeoutMs?: number;
   /** Main-process log sink; never receives tokens or request bodies. */
-  log?(line: string): void;
+  /** Fixed structured notes only: no status text, response body, or error value. */
+  event?(fields: { event: string; state?: string; code?: number }): void;
+  /** Surface-wide concurrency ceiling shared with the rest of the bridge. */
+  bounds: IpcBounds;
 }
 
-// Two base64url segments joined by ".", capped at the server schema's 1024
-// (local-fleet-schema.ts); real tokens are ~124 chars.
-const PAIRING_TOKEN = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
-const PAIRING_TOKEN_MAX = 1024;
-
-function lastStderrLine(tail: string): string {
-  const line = tail.trim().split("\n").filter(Boolean).pop() ?? "";
-  return line.replace(/^shiba-local:\s*/, "");
-}
-
-// Any exit of a --pair fork before its first "polling" message is a pair
-// failure — no restart (DESKTOP-PLAN §3.4, §11.3). The daemon already prints
-// "pairing token expired, reused, or invalid" on 401 and "pairing failed: …"
-// otherwise, so the last stderr line is the user-facing error verbatim.
-// A pairing fork that never reaches "polling" and never exits would leave the
-// renderer's "Connecting…" spinning forever — cap it (REVIEW3 F9).
-export const PAIR_TIMEOUT_MS = 30_000;
-
-function waitForPair(child: ChildLike,timeoutMs = PAIR_TIMEOUT_MS): Promise<PairResult> {
-  return new Promise((resolve) => {
-    let stderrTail = "";
-    let done = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (result: PairResult) => {
-      if (done) return;
-      done = true;
-      if (timer !== undefined) clearTimeout(timer);
-      resolve(result);
-    };
-    timer = setTimeout(() => {
-      try {
-        child.kill();
-      } catch {
-        // already gone — the exit listener finishes with the stderr error
-      }
-      finish({ ok: false, error: "pairing timed out" });
-    }, timeoutMs);
-    child.stderr?.on("data", (chunk) => {
-      stderrTail = (stderrTail + chunk.toString()).slice(-4096);
-    });
-    child.on("message", (message: unknown) => {
-      const msg = message as { type?: unknown; state?: unknown } | null;
-      if (msg?.type === "status" && msg.state === "polling") finish({ ok: true });
-    });
-    child.once("exit", () => {
-      const error = lastStderrLine(stderrTail);
-      finish({ ok: false, error: error === "" ? "pairing failed" : error });
-    });
-  });
-}
+// Native pairing is deferred: the Worker mints tokens for the same authorized
+// operator session the renderer uses, so the shell has no separate authority to
+// offer. The browser CLI flow is the supported path, and the shell answers a
+// pairing request with `pairing_deferred` and a fixed browser direction.
 
 export function emitStatusChanged(
   webContents: Pick<WebContents, "send"> | undefined | null,
   status: DesktopStatus,
 ): void {
-  webContents?.send(DESKTOP_STATUS_CHANGED_CHANNEL, status);
+  webContents?.send(DESKTOP_CHANNELS.statusChanged, status);
 }
 
 export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<PairResult> } {
-  const trusted = (event: IpcMainInvokeEvent): boolean =>
-    deps.isTrustedSender(event.senderFrame?.url, deps.getConfiguredOrigin());
+  const trusted = (event: IpcMainInvokeEvent): boolean => deps.isTrustedEvent(event);
 
   // A second submit would stop() the daemon and kill the in-progress pairing fork.
   const inFlight = new Map<string, Promise<PairResult>>();
   const connectionChange = "connection-change";
   function singleFlight(channel: string, run: () => Promise<PairResult>): Promise<PairResult> {
-    if (inFlight.has(channel)) return Promise.resolve({ ok: false, error: "Pairing already in progress." });
+    if (inFlight.has(channel)) return Promise.resolve(failure("pairing_busy"));
     const pending = run().finally(() => inFlight.delete(channel));
     inFlight.set(channel, pending);
     return pending;
@@ -143,55 +99,22 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ machineId }),
       });
-      if (!res.ok) deps.log?.(`re-pair: revoke returned ${res.status}`);
-    } catch (error) {
+      if (!res.ok) deps.event?.({ event: "revoke-stale", state: "failed", code: res.status });
+    } catch {
       // offline or signed out: the old row ages out after 7 days
-      deps.log?.(`re-pair: revoke failed: ${error instanceof Error ? error.message : String(error)}`);
+      deps.event?.({ event: "revoke-stale", state: "unreachable" });
     }
   }
 
-  deps.ipcMain.handle(DESKTOP_STATUS_CHANNEL, (event): DesktopStatus => {
+  deps.ipcMain.handle(DESKTOP_CHANNELS.status, (event): DesktopStatus => {
     if (!trusted(event)) throw new Error("Untrusted sender.");
     return deps.supervisor.status();
   });
 
-  deps.ipcMain.handle(DESKTOP_PAIR_CHANNEL, async (event, token: unknown): Promise<PairResult> => {
-    const origin = deps.getConfiguredOrigin();
-    if (!trusted(event)) return { ok: false, error: "Untrusted sender." };
-    if (
-      typeof token !== "string" ||
-      token.length === 0 ||
-      token.length > PAIRING_TOKEN_MAX ||
-      !PAIRING_TOKEN.test(token)
-    ) {
-      return { ok: false, error: "Invalid pairing token." };
-    }
-    return singleFlight(connectionChange, async () => {
-      const local = deps.readLocalConfig();
-      const savedOrigin = local?.workerUrl ? originOf(local.workerUrl) : undefined;
-      const status = deps.supervisor.status();
-      const replacingOtherDeployment =
-        status.state === "paired-elsewhere" ||
-        (savedOrigin !== undefined && savedOrigin !== origin);
-      if (replacingOtherDeployment) {
-        const pairedTo =
-          status.state === "paired-elsewhere" ? status.pairedTo : savedOrigin;
-        const confirmed = await deps.confirmPairElsewhere(pairedTo);
-        if (!confirmed) return { ok: false, error: "Pairing cancelled." };
-      }
-      // Read before stop(): stopping resets the live status and drops machineId.
-      const staleId = staleMachineId(origin, status);
-      await deps.supervisor.stop();
-      const child = deps.supervisor.forkDaemon(["--connect", origin, "--pair", token]);
-      const result = await waitForPair(child, deps.pairTimeoutMs ?? PAIR_TIMEOUT_MS);
-      // Only after the new pairing lands: a failed re-pair must not leave the old token revoked.
-      if (result.ok) {
-        await revokeStaleMachine(origin, staleId);
-        // Re-read config and refresh tray/bridge status if the polling message raced IPC return.
-        void deps.supervisor.probe?.();
-      }
-      return result;
-    });
+  deps.ipcMain.handle(DESKTOP_CHANNELS.pair, async (event): Promise<PairResult> => {
+    if (!trusted(event)) return failure("untrusted_sender");
+    // No listener, no mint, no token: the browser flow is the supported path.
+    return failure("pairing_deferred");
   });
 
   async function unpair(): Promise<PairResult> {
@@ -202,7 +125,7 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
       // The current page cannot revoke a machine from another deployment
       // using this origin's cookies or accidentally discard that pairing.
       if ((local?.workerUrl && originOf(local.workerUrl) !== origin) || status.state === "paired-elsewhere") {
-        return { ok: false, error: "Switch to the paired Shiba URL before disconnecting this computer." };
+        return failure("revoke_unreachable");
       }
       // conflict/crashed drop machineId from the live status; fall back to the
       // on-disk config so the server-side revoke still runs (REVIEW3 F5).
@@ -219,12 +142,13 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
           });
         } catch {
           void deps.supervisor.probe?.();
-          return { ok: false, error: "Could not revoke this computer. Check the connection and retry." };
+          return failure("revoke_unreachable");
         }
         if (!res.ok) {
           // Config is kept, so the probe brings the stopped daemon back.
           void deps.supervisor.probe?.();
-          return { ok: false, error: `Revoke failed with ${res.status}.` };
+          deps.event?.({ event: "revoke", state: "failed", code: res.status });
+          return failure("revoke_failed");
         }
       }
       await rm(join(deps.runRoot, "config.json"), { force: true });
@@ -232,20 +156,20 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
     });
   }
 
-  deps.ipcMain.handle(DESKTOP_UNPAIR_CHANNEL, async (event): Promise<PairResult> => {
-    if (!trusted(event)) return { ok: false, error: "Untrusted sender." };
-    return unpair();
+  deps.ipcMain.handle(DESKTOP_CHANNELS.unpair, async (event): Promise<PairResult> => {
+    if (!trusted(event)) return failure("untrusted_sender");
+    return deps.bounds.run(unpair, () => failure("pairing_busy"));
   });
 
-  // Accepted only from the bundled setup.html frame, never from a remote origin.
-  deps.ipcMain.handle(DESKTOP_SET_URL_CHANNEL, async (event, url: unknown): Promise<PairResult> => {
-    if (!deps.isSetupSender(event.senderFrame?.url)) {
-      return { ok: false, error: "desktop:set-url is only accepted from the setup frame." };
-    }
-    const origin = typeof url === "string" ? deps.parseDeploymentUrl(url) : null;
-    if (!origin) return { ok: false, error: "URL must be https:// (http://localhost only in dev)." };
-    if (inFlight.has(connectionChange)) return { ok: false, error: "Pairing already in progress." };
-    return (await deps.onSetUrl?.(origin)) ?? { ok: true };
+  // Accepted only from the setup page's own main frame, never from a remote origin.
+  deps.ipcMain.handle(SETUP_CHANNELS.setUrl, async (event, url: unknown): Promise<PairResult> => {
+    if (!deps.isSetupEvent(event)) return failure("url_wrong_frame");
+    const candidate = boundedText(url, MAX_DEPLOYMENT_URL_CHARS);
+    const origin = candidate ? deps.parseDeploymentUrl(candidate) : null;
+    if (!origin) return failure("url_invalid");
+    // A deployment change shares the connection label with unpair, so it waits
+    // instead of pointing the daemon at a host that is being disconnected.
+    return singleFlight(connectionChange, async () => (await deps.onSetUrl?.(origin)) ?? { ok: true });
   });
   // Native tray actions use the same serialized, origin-bound operation.
   return { unpair };

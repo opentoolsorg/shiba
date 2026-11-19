@@ -69,7 +69,9 @@ const authFile=process.env.VERIFY_LOCAL_AUTH_FILE??'.verify/local-daemon-e2e/aut
 cookie=signup.res.headers.getSetCookie().map(x=>x.split(';')[0]).join('; ');assert(cookie);
 const pairing=(await api('/api/computers/pairing-token',{})).data;
 const daemonEnv={...process.env,HOME:operatorProfile,PATH:bin+path.delimiter+process.env.PATH,SHIBA_LOCAL_RUN_ROOT:daemonRoot};delete daemonEnv.LOCAL_ADAPTER_TOKEN;delete daemonEnv.SHIBA_WORKER_URL;
-const daemon=spawn(process.execPath,['scripts/shiba-local-daemon.mjs','--connect',origin,'--pair',pairing.token,'--poll','500'],{cwd:process.cwd(),env:daemonEnv,stdio:['ignore','pipe','pipe']});
+// The single-use token travels in the environment: `--pair` takes no argument,
+// because process arguments are readable by every local user.
+const daemon=spawn(process.execPath,['scripts/shiba-local-daemon.mjs','--connect',origin,'--pair','--poll','500'],{cwd:process.cwd(),env:{...daemonEnv,SHIBA_PAIRING_TOKEN:pairing.token},stdio:['ignore','pipe','pipe']});
 // Pairing credentials stay in this disposable operator profile, never artifacts.
 let output='';daemon.stdout.on('data',v=>output+=v);daemon.stderr.on('data',v=>output+=v);
 let machine;let target;let page;const uiSteps=[];

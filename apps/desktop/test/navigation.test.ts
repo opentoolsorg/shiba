@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   decideNavigation,
+  externalHandoffUrl,
+  isSafeAppPath,
   isSetupSender,
+  isSubframeNavigationAllowed,
   isTrustedSender,
   parseDeploymentUrl,
 } from "../src/navigation.js";
@@ -106,5 +109,53 @@ describe("isSetupSender", () => {
     undefined,
   ])("rejects %s", (frame) => {
     expect(isSetupSender(frame, setup)).toBe(false);
+  });
+});
+
+describe("externalHandoffUrl", () => {
+  it("returns a normalized https link for the OS browser", () => {
+    // A fragment can be part of a sign-in response; the OS browser keeps it.
+    expect(externalHandoffUrl("https://example.org/docs?x=1#top", ORIGIN)).toBe(
+      "https://example.org/docs?x=1#top",
+    );
+    expect(externalHandoffUrl("https://user:pw@example.org/#frag", ORIGIN)).toBeNull();
+  });
+
+  it("never hands over the app origin, an auth hop, or a non-https url", () => {
+    expect(externalHandoffUrl(`${ORIGIN}/app/`, ORIGIN)).toBeNull();
+    expect(externalHandoffUrl("https://accounts.google.com/o/oauth2/auth", ORIGIN)).toBeNull();
+    expect(externalHandoffUrl("http://example.org/", ORIGIN)).toBeNull();
+    expect(externalHandoffUrl("file:///etc/passwd", ORIGIN)).toBeNull();
+    expect(externalHandoffUrl("https://user:pw@example.org/", ORIGIN)).toBeNull();
+    expect(externalHandoffUrl(`https://example.org/${"a".repeat(2100)}`, ORIGIN)).toBeNull();
+    expect(externalHandoffUrl("", ORIGIN)).toBeNull();
+  });
+});
+
+describe("isSubframeNavigationAllowed", () => {
+  it("keeps frames on the app origin", () => {
+    expect(isSubframeNavigationAllowed(`${ORIGIN}/artifact?id=1`, ORIGIN)).toBe(true);
+    expect(isSubframeNavigationAllowed("https://evil.example/", ORIGIN)).toBe(false);
+    expect(isSubframeNavigationAllowed("file:///etc/passwd", ORIGIN)).toBe(false);
+    expect(isSubframeNavigationAllowed("https://user:pw@" + "shiba.example.com/", ORIGIN)).toBe(false);
+    expect(isSubframeNavigationAllowed(`${ORIGIN}/`, "")).toBe(false);
+  });
+});
+
+describe("isSafeAppPath", () => {
+  it.each([
+    ["/app/", true],
+    ["/app/?tab=activity", true],
+    ["/app/?tab=approvals", true],
+    ["/app/?tab=settings", false],
+    ["/app/?tab=activity&run=1", false],
+    ["/app/../etc/passwd", false],
+    ["https://evil.example/app/", false],
+    ["//evil.example/app/", false],
+    ["/app/?tab=activity\nSet-Cookie: x", false],
+    ["", false],
+    [`/app/?tab=${"a".repeat(300)}`, false],
+  ])("%s -> %s", (value, expected) => {
+    expect(isSafeAppPath(value)).toBe(expected);
   });
 });
