@@ -1079,9 +1079,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // same reads the composer gates a launch on; no key or token value lands here.
   const [providerReadiness, setProviderReadiness] = useState<{
     ready: boolean;
+    pending: boolean;
     label: string | null;
     findings: { severity: string; message: string; fix?: string }[];
-  }>({ ready: false, label: null, findings: [] });
+  }>({ ready: false, pending: true, label: null, findings: [] });
   // Which guided-journey stage the person is looking at; null follows the
   // derived resume point, so a satisfied stage is never re-asked.
   const [journeyStage, setJourneyStage] = useState<JourneyStepId | null>(null);
@@ -1121,6 +1122,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             : [];
         setProviderReadiness({
           ready: gateway || Boolean(connectedProvider),
+          pending: false,
           label: connectedProvider?.label ?? (gateway ? "this deployment's gateway" : null),
           findings,
         });
@@ -1131,12 +1133,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         }
       })
       .catch(() => {
-        if (!cancelled) setLaunchBlocked(false);
+        if (!cancelled) {
+          setLaunchBlocked(false);
+          setProviderReadiness((previous) => ({ ...previous, pending: false }));
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [privateDataEnabled, mainView]);
+  }, [privateDataEnabled]);
   // Header setup pill: count deployment-proven steps only after whoami.
   useEffect(() => {
     if (showOnboardingModal || !privateDataEnabled) return;
@@ -3409,6 +3414,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               }}
               provider={{
                 ready: providerReadiness.ready,
+                pending: providerReadiness.pending,
                 label: providerReadiness.label,
                 findings: providerReadiness.findings,
                 onOpenProviders: () => { setShowFirstRun(false); openView("providers"); },

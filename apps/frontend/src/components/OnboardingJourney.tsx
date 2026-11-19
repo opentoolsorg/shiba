@@ -9,7 +9,7 @@
  * itself: the approval stage sends the saved draft and forwards the person's
  * own decision to the same handler the approval queue uses.
  */
-import { useState, type JSX, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type JSX, type ReactNode } from "react";
 import { EMPLOYEE_TEMPLATES, type EmployeeTemplate } from "../employee-templates";
 import type { JourneyStepId, JourneyStatus } from "../onboarding-journey";
 import { resolveAgentLook } from "../agent-mascots";
@@ -32,6 +32,8 @@ export interface JourneyWorkspaceState {
 
 export interface JourneyProviderState {
   ready: boolean;
+  /** Readiness has not been answered yet; the stage says so instead of guessing. */
+  pending?: boolean;
   label: string | null;
   findings: { severity: string; message: string; fix?: string }[];
   onOpenProviders: () => void;
@@ -107,25 +109,34 @@ function Stage({
   title,
   blurb,
   action,
+  headingRef,
   children,
 }: {
   title: string;
   blurb: string;
   action?: ReactNode;
+  headingRef?: React.RefObject<HTMLHeadingElement | null>;
   children: ReactNode;
 }): JSX.Element {
   return (
-    <section aria-label={`${title} step`} className="flex flex-col gap-4">
+    <section aria-label={`${title} step`} className="shiba-journey-stage flex flex-col gap-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold text-[var(--fg)]">{title}</h2>
-          <p className="mt-1 max-w-2xl text-xs text-[var(--muted-foreground-2)]">{blurb}</p>
+          <h2 ref={headingRef} tabIndex={-1} className="text-lg font-semibold leading-tight text-[var(--fg)] outline-none focus-visible:underline focus-visible:decoration-[var(--primary)] focus-visible:decoration-2 focus-visible:underline-offset-4">
+            {title}
+          </h2>
+          <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-[var(--muted-foreground-2)]">{blurb}</p>
         </div>
         {action}
       </div>
       {children}
     </section>
   );
+}
+
+/** A primary action and its secondary siblings, always in the same place. */
+function StageActions({ children }: { children: ReactNode }): JSX.Element {
+  return <div className="flex flex-wrap items-center gap-3 border-t border-[var(--border-1)] pt-4">{children}</div>;
 }
 
 export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
@@ -137,6 +148,17 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
   // The counter follows the stage on screen, so opening a later stage from the
   // rail never claims a position the person is not looking at.
   const stageIndex = status.steps.findIndex((step) => step.id === stage.id) + 1;
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const openedStage = useRef<string | null>(null);
+  const statusId = useId();
+  // A keyboard or screen-reader user lands in the new stage instead of at the
+  // top of the page; the first render keeps focus where the person put it.
+  useEffect(() => {
+    if (openedStage.current === stage.id) return;
+    const first = openedStage.current === null;
+    openedStage.current = stage.id;
+    if (!first) headingRef.current?.focus();
+  }, [stage.id]);
 
   const runStage = (next: JourneyStepId) => props.onSelectStage(next);
 
@@ -174,7 +196,7 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
   // A completed journey still shows its result when the person opens that
   // stage; the summary panel replaces the other stages only.
   const body = status.complete && stage.id !== "result" ? (
-    <Stage title="You are set up" blurb="A workspace, a provider, a saved employee, your first approved run, and its result are all in place. Everything else lives in the sidebar.">
+    <Stage headingRef={headingRef} title="You are set up" blurb="A workspace, a provider, a saved employee, your first approved run, and its result are all in place. Everything else lives in the sidebar.">
       <div className={`${CARD} flex flex-wrap items-center gap-3 text-sm text-[var(--fg)]`}>
         <StatusChip tone="ready">Complete</StatusChip>
         <p>Open Threads to keep working, or Approvals to review anything waiting on you.</p>
@@ -183,6 +205,7 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
     </Stage>
   ) : stage.id === "workspace" ? (
     <Stage
+      headingRef={headingRef}
       title="Choose a workspace"
       blurb="Work lands in your personal workspace, or in a shared one you belong to. Creating a shared workspace does not invite anyone or grant access."
       action={<StatusChip tone={workspace.personalReady ? "ready" : "waiting"}>{workspace.personalReady ? "Personal ready" : "No workspace"}</StatusChip>}
@@ -229,18 +252,25 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
           <button type="submit" disabled={busy || !workspaceName.trim()} className={BUTTON}>Create workspace</button>
         </form>
       ) : null}
-      {error ? <p role="alert" className="text-xs text-[var(--destructive)]">{error}</p> : null}
-      <div><button type="button" disabled={busy || !workspace.personalReady} onClick={() => runStage("provider")} className={PRIMARY}>Continue</button></div>
+      {error ? <p role="alert" aria-live="assertive" className="text-sm text-[var(--destructive)]">{error}</p> : null}
+      <StageActions>
+        <button type="button" disabled={busy || !workspace.personalReady} onClick={() => runStage("provider")} className={PRIMARY}>Continue to providers</button>
+      </StageActions>
     </Stage>
   ) : stage.id === "provider" ? (
     <Stage
+      headingRef={headingRef}
       title="Connect a provider"
       blurb="Shiba runs work through a connected plan, an API key, or this deployment's own gateway. Readiness is reported by the deployment, not assumed here."
-      action={<StatusChip tone={provider.ready ? "ready" : "waiting"}>{provider.ready ? "Ready" : "Not connected"}</StatusChip>}
+      action={<StatusChip tone={provider.ready ? "ready" : "waiting"}>{provider.pending ? "Checking" : provider.ready ? "Ready" : "Not connected"}</StatusChip>}
     >
       <div className={CARD}>
-        <p className="text-sm text-[var(--fg)]">
-          {provider.ready ? `This account can run work${provider.label ? ` via ${provider.label}` : ""}.` : "No provider is ready yet. Connect one, or enter a key on the Providers screen."}
+        <p aria-busy={provider.pending ? "true" : undefined} className="text-sm leading-relaxed text-[var(--fg)]">
+          {provider.pending
+            ? "Checking what this deployment can run work on…"
+            : provider.ready
+              ? `This account can run work${provider.label ? ` via ${provider.label}` : ""}.`
+              : "No provider is ready yet. Connect a plan or enter a key on the Providers screen, then come back here."}
         </p>
         {provider.findings.length ? (
           <ul className="mt-3 flex flex-col gap-2 text-xs text-[var(--muted-foreground-2)]">
@@ -254,13 +284,14 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
         <button type="button" onClick={provider.onOpenProviders} className={`${BUTTON} mt-3`}>Open Providers</button>
         <p className="mt-3 text-xs text-[var(--muted-foreground-2)]">Keys are entered on the Providers screen. Onboarding never asks for or stores a provider credential, and the sandbox only ever sees a placeholder.</p>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => runStage("employee")} className={PRIMARY}>Continue</button>
-        <button type="button" onClick={provider.onOpenProviders} className={BUTTON}>Connect now</button>
-      </div>
+      <StageActions>
+        <button type="button" onClick={() => runStage("employee")} className={PRIMARY}>Continue to employees</button>
+        <button type="button" onClick={provider.onOpenProviders} className={BUTTON}>Connect a provider now</button>
+      </StageActions>
     </Stage>
   ) : stage.id === "employee" ? (
     <Stage
+      headingRef={headingRef}
       title="Pick or create an AI employee"
       blurb="An employee is a saved role with its own instructions and expected deliverables. Choosing one here does not grant app access, install tools, or approve spending."
       action={selectedEmployee ? <StatusChip tone="ready">Saved</StatusChip> : undefined}
@@ -296,14 +327,14 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
           ))}
         </div>
       </fieldset>
-      {error ? <p role="alert" className="text-xs text-[var(--destructive)]">{error}</p> : null}
-      <div className="flex flex-wrap gap-2">
-        <button type="button" disabled={busy} onClick={() => runStage("task")} className={PRIMARY}>Continue</button>
-        <button type="button" disabled={busy} onClick={() => runStage("task")} className={BUTTON}>Choose later</button>
-      </div>
+      {error ? <p role="alert" aria-live="assertive" className="text-sm text-[var(--destructive)]">{error}</p> : null}
+      <StageActions>
+        <button type="button" disabled={busy} onClick={() => runStage("task")} className={PRIMARY}>{selectedEmployee ? "Continue to your first task" : "Continue without an employee"}</button>
+      </StageActions>
     </Stage>
   ) : stage.id === "approval" ? (
     <Stage
+      headingRef={headingRef}
       title="Approve the run"
       blurb="Sending the saved draft creates an approval. Nothing starts — no sandbox, no repository access — until you approve it here or in the queue."
       action={<StatusChip tone={run && run.status !== "pending" ? "ready" : openApprovals.length ? "waiting" : "waiting"}>{run ? "Approved" : openApprovals.length ? "Needs you" : "Not sent"}</StatusChip>}
@@ -350,6 +381,7 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
     </Stage>
   ) : stage.id === "result" ? (
     <Stage
+      headingRef={headingRef}
       title="See the result"
       blurb="The run's status and the files it produced. Recording your own review is what completes setup — dismissal never counts."
       action={run ? <StatusChip tone={run.status === "completed" ? "ready" : run.status === "failed" || run.status === "error" ? "failed" : "waiting"}>{run.status}</StatusChip> : undefined}
@@ -373,10 +405,10 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
               </dd>
             </div>
           </dl>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" onClick={props.onOpenRun} className={BUTTON}>Open the run</button>
+          <StageActions>
             <button type="button" onClick={props.onOpenReview} className={PRIMARY}>Record your review</button>
-          </div>
+            <button type="button" onClick={props.onOpenRun} className={BUTTON}>Open the run</button>
+          </StageActions>
         </div>
       ) : (
         <div className={CARD}>
@@ -391,42 +423,61 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
 
   return (
     <section aria-label="Guided onboarding" className="flex min-h-0 flex-1 flex-col bg-[var(--bg)]">
-      <header className="shrink-0 border-b border-[var(--border-1)] bg-[var(--card)] px-4 py-3">
-        <div className="mx-auto flex w-full max-w-3xl items-center gap-3">
+      <header className="shrink-0 border-b border-[var(--border-1)] bg-[var(--card)] px-4 pb-3 pt-4">
+        <div className="mx-auto flex w-full max-w-3xl items-start gap-3">
           <div className="size-10 shrink-0"><AgentMascot look={resolveAgentLook({ id: "shiba-guide" })} label="Shiba guide" /></div>
           <div className="min-w-0 flex-1">
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">
-              Getting started · {status.complete ? "Done" : `Step ${stageIndex} of ${status.steps.length}`}
+            <h1 id="journey-title" className="text-base font-semibold leading-tight text-[var(--fg)]">From first launch to your first result</h1>
+            <p role="status" id={statusId} className="mt-1 font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--primary)]">
+              {status.complete ? "Setup complete" : `Step ${stageIndex} of ${status.steps.length} · ${stage.label}`}
             </p>
-            <h1 id="journey-title" className="truncate text-base font-semibold text-[var(--fg)]">From first launch to your first result</h1>
           </div>
-          <button type="button" onClick={props.onSkip} className={BUTTON}>Skip for now</button>
+          <button type="button" onClick={props.onSkip} className={`${BUTTON} shrink-0`}>Skip for now</button>
         </div>
-        <nav aria-label="Onboarding steps" className="mx-auto mt-3 flex w-full max-w-3xl gap-1.5 overflow-x-auto pb-1">
+        <div aria-hidden="true" className="mx-auto mt-3 flex w-full max-w-3xl gap-1.5">
           {status.steps.map((step, index) => (
-            <button
+            <span
               key={step.id}
-              type="button"
-              aria-current={step.id === stage.id ? "step" : undefined}
-              aria-label={`${step.label}: ${step.summary}`}
-              onClick={() => props.onSelectStage(step.id)}
-              className={`flex min-h-9 shrink-0 items-center gap-2 rounded-[var(--radius-button)] border px-2.5 text-[11px] ${
-                step.id === stage.id
-                  ? "border-[var(--primary)] bg-[var(--secondary)] text-[var(--fg)]"
-                  : "border-[var(--border-1)] text-[var(--muted-foreground-2)] hover:border-[var(--border-2)] hover:text-[var(--fg)]"
+              className={`h-1 flex-1 rounded-full ${
+                step.state === "done" ? "bg-[var(--success)]" : index + 1 === stageIndex ? "bg-[var(--primary)]" : "bg-[var(--border-1)]"
               }`}
-            >
-              <span
-                aria-hidden="true"
-                className={`grid size-5 shrink-0 place-items-center rounded-full border text-[10px] font-semibold ${
-                  step.state === "done" ? "border-[var(--success)] text-[var(--success)]" : "border-[var(--border-1)]"
+            />
+          ))}
+        </div>
+        <nav aria-label="Onboarding steps" aria-describedby={statusId} className="mx-auto mt-3 flex w-full max-w-3xl flex-wrap gap-1.5">
+          {status.steps.map((step, index) => {
+            const current = step.id === stage.id;
+            return (
+              <button
+                key={step.id}
+                type="button"
+                aria-current={current ? "step" : undefined}
+                onClick={() => props.onSelectStage(step.id)}
+                className={`flex min-h-11 shrink-0 items-center gap-2 rounded-[var(--radius-button)] border px-3 text-xs transition-colors duration-150 motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] ${
+                  current
+                    ? "border-[var(--primary)] bg-[var(--secondary)] font-semibold text-[var(--fg)]"
+                    : step.state === "done"
+                      ? "border-[var(--border-1)] text-[var(--fg)] hover:border-[var(--border-2)]"
+                      : "border-[var(--border-1)] text-[var(--muted-foreground-2)] hover:border-[var(--border-2)] hover:text-[var(--fg)]"
                 }`}
               >
-                {step.state === "done" ? "✓" : index + 1}
-              </span>
-              <span className="whitespace-nowrap">{step.label}</span>
-            </button>
-          ))}
+                <span
+                  aria-hidden="true"
+                  className={`grid size-5 shrink-0 place-items-center rounded-full border text-[10px] font-semibold ${
+                    step.state === "done"
+                      ? "border-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)]"
+                      : current
+                        ? "border-[var(--primary)] text-[var(--fg)]"
+                        : "border-[var(--border-1)]"
+                  }`}
+                >
+                  {step.state === "done" ? "✓" : index + 1}
+                </span>
+                <span>{step.label}</span>
+                <span className="sr-only"> — {step.summary}</span>
+              </button>
+            );
+          })}
         </nav>
       </header>
       {stage.id === "task" && !status.complete ? (

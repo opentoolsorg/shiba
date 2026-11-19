@@ -29,13 +29,19 @@ if (hostedOrigin) {
   hosted.setAttribute("disabled", "disabled");
 }
 
+// Declared before the saved-URL handling below reads it.
+const setError = (message) => {
+  error.textContent = message;
+  input.setAttribute("aria-invalid", message && selfHosted.checked ? "true" : "false");
+};
+
 const savedUrl = params.get("url") || "";
 if (savedUrl && savedUrl !== hostedOrigin) {
   selfHosted.checked = true;
   input.value = savedUrl;
 }
 if (savedUrl === hostedOrigin && hostedOrigin) hosted.checked = true;
-if (params.get("error")) error.textContent = params.get("error");
+if (params.get("error")) setError(params.get("error"));
 
 const syncFields = () => {
   const self = selfHosted.checked;
@@ -59,17 +65,21 @@ function parseable(value) {
   }
 }
 
+input.addEventListener("input", () => {
+  if (error.textContent) setError("");
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (button.disabled) return;
-  error.textContent = "";
+  setError("");
   const target = selfHosted.checked ? input.value.trim() : hostedOrigin;
   if (!target) {
-    error.textContent = "Enter the address of your Shiba server.";
+    setError("Enter the address of your Shiba server.");
     return;
   }
   if (selfHosted.checked && !parseable(target)) {
-    error.textContent = "Enter the address of your Shiba server, for example https://shiba.example.com.";
+    setError("Enter the address of your Shiba server, for example https://shiba.example.com.");
     input.focus();
     return;
   }
@@ -78,10 +88,10 @@ form.addEventListener("submit", async (event) => {
   try {
     const result = await window.shibaSetup.setUrl(target);
     if (result && !result.ok) {
-      error.textContent = result.error || FAILURE_COPY[result.code] || FALLBACK_COPY;
+      setError(result.error || FAILURE_COPY[result.code] || FALLBACK_COPY);
     }
   } catch (cause) {
-    error.textContent = cause instanceof Error ? cause.message : String(cause);
+    setError(cause instanceof Error ? cause.message : String(cause));
   } finally {
     input.disabled = false;
     button.disabled = false;

@@ -57,7 +57,7 @@ function props(overrides: Partial<OnboardingJourneyProps> = {}): OnboardingJourn
 describe("OnboardingJourney", () => {
   it("shows the position in the flow and never lets a frame approve on its own", () => {
     render(<OnboardingJourney {...props()} />);
-    expect(screen.getByText("Getting started · Step 2 of 6")).toBeTruthy();
+    expect(screen.getByText(/Step 2 of 6 · Connect a provider/)).toBeTruthy();
     const steps = screen.getByRole("navigation", { name: "Onboarding steps" });
     expect(steps.querySelector('[aria-current="step"]')?.textContent).toContain("Connect a provider");
     expect(screen.queryByRole("button", { name: "Approve and start" })).toBeNull();
@@ -73,7 +73,7 @@ describe("OnboardingJourney", () => {
         })}
       />,
     );
-    expect(screen.getByLabelText("Choose a workspace: Workspace ready")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Choose a workspace — Workspace ready/ })).toBeTruthy();
     expect(screen.getByText("No model route is ready. Connect a provider in Providers.")).toBeTruthy();
     expect(screen.getByText(/Onboarding never asks for or stores a provider credential/)).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "Open Providers" })[0]!);
@@ -130,7 +130,7 @@ describe("OnboardingJourney", () => {
     );
     expect(screen.getByText("Brief written")).toBeTruthy();
     expect(screen.getByText("reports/brief.md · 42 B")).toBeTruthy();
-    expect(screen.getByText(/Getting started/).textContent).toBe("Getting started · Done");
+    expect(screen.getByText(/Setup complete/)).toBeTruthy();
 
     rerender(
       <OnboardingJourney

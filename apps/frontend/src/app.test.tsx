@@ -1137,7 +1137,7 @@ describe("first-run setup reminders", () => {
     installProgress({ dismissedAt: null });
     render(<App />);
     const journey = await screen.findByRole("region", { name: "Guided onboarding" });
-    expect(journey.textContent).toContain("Getting started");
+    expect(journey.textContent).toContain("Step 2 of 6");
     // A signed-in account already owns its personal workspace, so the flow opens
     // on the first unfinished stage rather than re-asking for it.
     expect(journey.textContent).toContain("Step 2 of 6");

@@ -1250,3 +1250,17 @@ select:focus-visible,
 @media (hover: hover) {
   :is(.shiba-area-button, .shiba-area-heading, .shiba-area-link, .shiba-shell-icon):hover { background: var(--secondary-hover); color: var(--fg); }
 }
+
+/* Guided onboarding: a short entrance for a stage that just opened, and the
+   same content without travel when the person asked for less motion. */
+.shiba-journey-stage {
+  animation: shiba-journey-stage-in 300ms cubic-bezier(0.2, 0, 0, 1);
+}
+@keyframes shiba-journey-stage-in {
+  from { opacity: 0; transform: translateY(12px); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shiba-journey-stage { animation: shiba-journey-stage-fade 180ms linear; }
+  @keyframes shiba-journey-stage-fade { from { opacity: 0; } to { opacity: 1; } }
+}

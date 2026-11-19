@@ -25,8 +25,13 @@
   button:disabled { opacity: .5; cursor: default; }
   button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
   input:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
-  #error { color: #b00020; margin-top: 12px; min-height: 1em; line-height: 1.4; }
-  .hint { color: #666; font-size: 12px; line-height: 1.5; margin: 16px 0 0; }
+  #error { color: #b00020; margin-top: 12px; min-height: 1em; line-height: 1.5; font-weight: 600; }
+  #error:empty { margin-top: 0; }
+  .hint { color: #666; font-size: 12px; line-height: 1.5; margin: 6px 0 0; }
+  .choice:hover { border-color: #888; }
+  @media (prefers-reduced-motion: no-preference) {
+    .choice, button { transition: border-color 150ms ease-out, background-color 150ms ease-out; }
+  }
   @media (prefers-color-scheme: dark) {
     body { background: #111; color: #eee; }
     .lede, .hint, .choice .sub, legend { color: #aaa; }
@@ -67,12 +72,13 @@
     </fieldset>
     <div id="self-hosted-fields" hidden>
       <label class="field" for="url">Server address</label>
-      <input id="url" type="url" inputmode="url" placeholder="https://shiba.example.com" autocomplete="url" spellcheck="false" />
+      <input id="url" type="url" inputmode="url" placeholder="https://shiba.example.com" autocomplete="url" spellcheck="false" aria-describedby="url-help" />
+      <p class="hint" id="url-help">Use the https:// address of your Shiba deployment. Local development may use http://localhost.</p>
     </div>
     <button type="submit">Continue</button>
   </form>
+  <div id="error" role="alert" aria-live="assertive"></div>
   <p class="hint">This window stores only the server address. Your account, provider credentials, and approvals stay in the dashboard.</p>
-  <div id="error" role="alert"></div>
 </main>
 <script src="setup.js"></script>
 </body>
