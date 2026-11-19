@@ -1431,6 +1431,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setSessionsLoaded(true);
       return;
     }
+    // Until this read answers, whether threads can be created is unknown, not
+    // false: creation controls wait for it instead of reporting it unavailable.
+    setSessionsLoaded(false);
     let cancelled = false;
     fetch("/api/sessions", { cache: "no-store", credentials: "same-origin" })
       .then(async (response) => {
@@ -2778,6 +2781,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   };
 
   const threadCreationPending = useRef(false);
+  // A shared workspace opens its room without a session; a private thread needs
+  // verified access and an answered thread registry before one can be created.
+  const taskCreationReady = Boolean(teamWorkspaceId) || (privateDataEnabled && sessionsLoaded);
   const handleNewTask = useCallback(async () => {
     if (teamWorkspaceId) {
       setSharedRoomId(undefined); setSharedHandoffId(undefined); setSharedEmployeeId(undefined); setMainView("threads");
@@ -2785,6 +2791,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     }
     if (threadCreationPending.current || !privateDataEnabled) return null;
     const creationScope = activeSurfaceScopeRef.current;
+    if (!sessionsLoaded) return null;
     if (!sessionApiAvailable) {
       setNotice("Session creation is unavailable. Your existing draft has been kept.");
       return null;
@@ -2829,7 +2836,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     } finally {
       threadCreationPending.current = false;
     }
-  }, [sessionApiAvailable, teamWorkspaceId, privateDataEnabled, pushThreadUrl]);
+  }, [sessionApiAvailable, sessionsLoaded, teamWorkspaceId, privateDataEnabled, pushThreadUrl]);
 
   const handleStartAgentThread = useCallback(async (profile: CustomAgentWire) => {
     if (teamWorkspaceId) {
@@ -3361,8 +3368,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     void handleSelectSession(id);
                     setMainView("threads");
                   }}
-                  onNewTask={handleNewTask}
-                  onQuickAddTask={async (taskText) => {
+                  onNewTask={taskCreationReady ? handleNewTask : undefined}
+                  onQuickAddTask={taskCreationReady ? async (taskText) => {
                     const id = await handleNewTask();
                     if (!id) return false;
                     if (!orchestratorName) return false;
@@ -3371,7 +3378,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     writeDraft(scope, taskText);
                     setTask(taskText);
                     return true;
-                  }}
+                  } : undefined}
                   onReviewApproval={(approvalId) => {
                     // Stay in Work: the review is a tab on the same receipt.
                     applyWorkSelection({ view: workViewMode, task: approvalId, taskKind: "approval", tab: "approval" }, "push");

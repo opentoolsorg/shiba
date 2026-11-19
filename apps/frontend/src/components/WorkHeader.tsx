@@ -13,6 +13,8 @@ export interface WorkHeaderProps {
   /** Whether the task filter input (id `work-search`) is currently shown. */
   searchOpen?: boolean;
   onNewTask(): void;
+  /** No task can be created yet, for example while the thread registry loads. */
+  newTaskDisabled?: boolean;
   activeView?: WorkHeaderViewMode;
   onViewChange?: (view: WorkHeaderViewMode) => void;
   className?: string;
@@ -32,6 +34,7 @@ export function WorkHeader({
   onSearch,
   searchOpen = false,
   onNewTask,
+  newTaskDisabled = false,
   activeView,
   onViewChange,
   className = "",
@@ -141,8 +144,9 @@ export function WorkHeader({
         <button
           type="button"
           onClick={onNewTask}
+          disabled={newTaskDisabled}
           aria-label="New task"
-          className="h-11 lg:h-8 px-2.5 rounded-lg bg-[var(--primary,#0a0a0a)] text-[var(--primary-text,#fff)] hover:opacity-90 text-[13px] font-medium flex items-center gap-1.5 transition-opacity shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[var(--ring,#a1a1aa)]"
+          className="h-11 lg:h-8 px-2.5 rounded-lg bg-[var(--primary,#0a0a0a)] text-[var(--primary-text,#fff)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-[13px] font-medium flex items-center gap-1.5 transition-opacity shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[var(--ring,#a1a1aa)]"
         >
           <Plus className="size-3.5" strokeWidth={2} aria-hidden="true" />
           <span className="hidden sm:inline">New task</span>

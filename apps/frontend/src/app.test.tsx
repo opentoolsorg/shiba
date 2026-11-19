@@ -536,8 +536,10 @@ describe("app Work and Threads routing", () => {
       return originalFetch(url, options);
     }));
     render(<App />);
-    const newTask = await screen.findByRole("button", { name: "New task" });
+    const newTask = await screen.findByRole("button", { name: "New task" }) as HTMLButtonElement;
     const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+    // Creation opens once the thread registry has answered; the burst must land on that state.
+    await waitFor(() => expect(newTask.disabled || input.disabled).toBe(false));
     fireEvent.change(input, { target: { value: "Keep quick-add draft" } });
     const form = input.closest("form")!;
     if (entry === "quick-add") fireEvent.submit(form);
@@ -554,6 +556,31 @@ describe("app Work and Threads routing", () => {
     expect(createSession).toHaveBeenCalledTimes(2);
     await act(async () => finish(Response.json({ session: { id: "mixed-thread", name: "New thread", agentName: "new-agent", updatedAt: 1 } })));
     expect((await screen.findByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Keep quick-add draft");
+  });
+
+  it("holds task creation until the thread registry answers", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    let answerRegistry!: () => void;
+    const registry = new Promise<void>((resolve) => { answerRegistry = resolve; });
+    const createSession = vi.fn(async () => Response.json({ session: { id: "ready-thread", name: "New thread", agentName: "new-agent", updatedAt: 1 } }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/sessions" && options?.method === "POST") return createSession();
+      if (String(url) === "/api/sessions") { await registry; return Response.json({ sessions: [], defaultSessionId: "default" }); }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const newTask = await screen.findByRole("button", { name: "New task" }) as HTMLButtonElement;
+    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+    expect(newTask.disabled).toBe(true);
+    expect(input.disabled).toBe(true);
+    fireEvent.click(newTask);
+    expect(createSession).not.toHaveBeenCalled();
+    await act(async () => answerRegistry());
+    await waitFor(() => expect(newTask.disabled).toBe(false));
+    expect(input.disabled).toBe(false);
+    fireEvent.click(newTask);
+    expect(createSession).toHaveBeenCalledOnce();
   });
 
   it("opens run deep links in Threads", async () => {

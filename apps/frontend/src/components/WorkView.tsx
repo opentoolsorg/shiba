@@ -464,6 +464,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
           if (searchOpen) setFilterQuery("");
         }}
         onNewTask={onNewTask ?? (() => {})}
+        newTaskDisabled={!onNewTask}
         activeView={activeView}
         onViewChange={setView}
         className="border-b border-zinc-200 dark:border-zinc-800"
