@@ -46,6 +46,17 @@ import {
   employeeExternalPolicyVersion,
   type EmployeeApprovalRecord,
 } from "./employee-tool-store.js";
+import {
+  STANDING_SUGGESTION_APPROVALS,
+  allowedEmployeeToolLevels,
+  countRecentOneTimeApprovals,
+  defaultEmployeeToolLevel,
+  effectiveEmployeeToolLevel,
+  getStoredEmployeeToolLevel,
+  isEmployeeToolLevel,
+  listEmployeeToolLevels,
+  setEmployeeToolLevel,
+} from "./employee-tool-levels.js";
 
 const MAX_TOOLS = 50;
 const APPROVAL_TTL_MS = 15 * 60_000;
@@ -76,6 +87,10 @@ async function currentNativeApprovalContext(env: Env, row: EmployeeApprovalRecor
 
 async function nativeApprovalAudience(env: Env, row: EmployeeApprovalRecord, userId: string, ownerAccountId: string | null): Promise<boolean> {
   if (!humanDecisionIdentity(userId) || !await currentNativeApprovalContext(env, row)) return false;
+  return nativeApprovalViewer(env, row, userId, ownerAccountId);
+}
+
+function nativeApprovalViewer(env: Env, row: EmployeeApprovalRecord, userId: string, ownerAccountId: string | null): boolean {
   if (row.accountId) return ownerAccountId !== null && ownerAccountId === row.accountId;
   // Missing private connection provenance never falls back to an operator role.
   if (row.action.startsWith("integrations.")) return false;
@@ -138,18 +153,68 @@ function hasControlCharacters(value: string): boolean {
   return false;
 }
 
-function connectionPolicy(toolName: keyof typeof EMPLOYEE_TOOL_ACTIONS) {
+function connectionPolicy(toolName: keyof typeof EMPLOYEE_TOOL_ACTIONS, requiresApproval: boolean) {
   const id = capabilityId(toolName);
   const action = EMPLOYEE_TOOL_ACTIONS[toolName];
   return {
     version: "employee-policy-current",
     allowlist: [{ kind: "mcp" as const, id }],
     actions: [{
-      capability: { kind: "mcp" as const, id }, action: toolName, risk: action.risk,
+      capability: { kind: "mcp" as const, id }, action: toolName, risk: requiresApproval ? "external_write" as const : "read" as const,
       requiredProviderScopes: [], resourceRequired: action.resourceRequired,
       resourceArgument: action.resourceArgument, requiresLiveVerification: action.requiresLiveVerification,
     }],
   };
+}
+
+function nativeToolName(capability: string): keyof typeof EMPLOYEE_TOOL_ACTIONS | null {
+  if (!capability.startsWith("mcp:shiba:")) return null;
+  const name = capability.slice("mcp:shiba:".length);
+  return Object.hasOwn(EMPLOYEE_TOOL_ACTIONS, name) ? name as keyof typeof EMPLOYEE_TOOL_ACTIONS : null;
+}
+
+/** Current level, allowed levels and standing-approval suggestion for every native employee action. */
+async function describeEmployeeToolLevels(env: Env, orgId: string, employeeId: string) {
+  const [stored, approvals] = await Promise.all([
+    listEmployeeToolLevels(env, { orgId, employeeId }),
+    countRecentOneTimeApprovals(env, { orgId, employeeId }),
+  ]);
+  return (Object.keys(EMPLOYEE_TOOL_ACTIONS) as (keyof typeof EMPLOYEE_TOOL_ACTIONS)[]).map((toolName) => {
+    const id = capabilityId(toolName);
+    const record = stored.find((item) => item.capabilityId === id);
+    const level = effectiveEmployeeToolLevel(toolName, EMPLOYEE_TOOL_ACTIONS[toolName].risk, record?.level);
+    const allowed = allowedEmployeeToolLevels(toolName);
+    const recentApprovals = approvals.get(id) ?? 0;
+    return {
+      capabilityId: id, tool: toolName, level, allowedLevels: allowed,
+      defaultLevel: defaultEmployeeToolLevel(EMPLOYEE_TOOL_ACTIONS[toolName].risk),
+      ...(record ? { setBy: record.setBy, updatedAt: record.updatedAt } : {}),
+      recentApprovals,
+      suggestStanding: level === "ask" && allowed.includes("auto") && recentApprovals >= STANDING_SUGGESTION_APPROVALS,
+    };
+  });
+}
+
+async function configureLevel(request: Request, env: Env, employeeId: string): Promise<Response> {
+  if (!env.AGENT_AUDIT) return jsonError("employee_policy_storage_unavailable", 503);
+  const auth = await resolveOrgForApiRequest(request, env, { allowMemberWrite: true });
+  if (auth instanceof Response) return auth;
+  // A level can loosen consent. Only an authenticated person sets it, never an API key or agent token.
+  if (auth.principal) return v1Forbidden();
+  const userId = await resolveUserId(request, env);
+  if (!humanDecisionIdentity(userId)) return jsonError("authenticated_human_required", 401);
+  if (auth.workspace) {
+    const denied = employeeAccessDenial(await resolveEmployeeAccess(env, auth.workspace.workspaceId, employeeId, userId), "manage");
+    if (denied) return denied;
+  }
+  const body = await parseObject(request);
+  const toolName = body && typeof body.capabilityId === "string" ? nativeToolName(body.capabilityId) : null;
+  if (!body || !toolName || !isEmployeeToolLevel(body.level)) return jsonError("invalid_employee_tool_level", 400);
+  if (!allowedEmployeeToolLevels(toolName).includes(body.level)) return jsonError("employee_tool_level_not_allowed", 400);
+  const profile = await getCustomAgentById(env, auth.orgId, employeeId);
+  if (!profile) return jsonError("not_found", 404);
+  await setEmployeeToolLevel(env, { orgId: auth.orgId, employeeId, capabilityId: capabilityId(toolName), level: body.level, setBy: userId });
+  return Response.json({ ok: true, employeeId, levels: await describeEmployeeToolLevels(env, auth.orgId, employeeId) }, { headers: { "cache-control": "no-store" } });
 }
 
 function employeeClaimFailure(reason: string): EmployeeToolResult {
@@ -328,7 +393,7 @@ async function readPolicy(request: Request, env: Env, employeeId: string): Promi
     return grant ? [[choice.capabilityId, grant.policyVersion.slice(prefix.length)]] : [];
   }));
   return Response.json({ ok: true, employeeId, employeeVersion: profile.version,
-    externalCapabilities, externalResourceArguments,
+    externalCapabilities, externalResourceArguments, levels: await describeEmployeeToolLevels(env, auth.orgId, employeeId),
     toolScopes: profile.config.toolScopes ?? [], grants: grants.map(({ subjectType, subjectId, capabilityId, resourceId, lifecycle, updatedAt }) => ({
       subjectType, subjectId, capabilityId, resourceId, lifecycle, updatedAt,
     })) }, { headers: { "cache-control": "no-store" } });
@@ -378,6 +443,10 @@ export async function dispatchEmployeeToolForPrincipal(
   const actorId = principal.principal;
   const employee = await getCustomAgentById(env, orgId, employeeId);
   if (!employee) return jsonError("not_found", 404);
+  const levelKey = { orgId, employeeId, capabilityId: capabilityId(toolName) };
+  const storedLevel = await getStoredEmployeeToolLevel(env, levelKey);
+  const level = effectiveEmployeeToolLevel(toolName, action.risk, storedLevel);
+  if (level === "off") return jsonError("employee_tool_off", 403);
   const policyState = await resolveEmployeeToolPolicy(env, {
     orgId, employeeId, employeeVersion: employee.version, actorId,
   });
@@ -452,11 +521,9 @@ export async function dispatchEmployeeToolForPrincipal(
       }
     }
   }
-  const policy = { ...connectionPolicy(toolName), version: connection.policyVersion };
-
   let approval;
   let nativeApprovalRecord: EmployeeApprovalRecord | undefined;
-  if (action.risk === "external_write") {
+  if (level === "ask" || storedLevel === "auto") {
     const argumentDigest = await hashToolArgs(args);
     const saved = await findEmployeeActionApproval(env, {
       orgId, employeeId, employeeVersion: employee.version, actorId,
@@ -464,7 +531,7 @@ export async function dispatchEmployeeToolForPrincipal(
       connectionGeneration: connection.generation, now: Date.now(),
       ...(executionContextId ? { executionContextId } : {}),
     });
-    if (!saved || saved.status === "denied" || saved.status === "expired") {
+    if (level === "ask" && (!saved || saved.status === "denied" || saved.status === "expired")) {
       await beforeDispatch?.();
       const pending = await requestEmployeeActionApproval(env, {
         orgId: principal.orgId, employeeId, employeeVersion: employee.version, actorId: principal.principal,
@@ -472,7 +539,7 @@ export async function dispatchEmployeeToolForPrincipal(
         capability: { kind: "mcp", id }, action: toolName, resourceId,
         ...(executionContextId ? { executionContextId } : {}),
         ...(connection.accountId ? { accountId: connection.accountId } : {}), argumentDigest,
-        payload: args, policyVersion: policy.version, expiresAt: Date.now() + APPROVAL_TTL_MS,
+        payload: args, policyVersion: connection.policyVersion, expiresAt: Date.now() + APPROVAL_TTL_MS,
       });
       const { notifyEmployeeToolApprovalInChat } = await import("./chat-employee.js");
       await notifyEmployeeToolApprovalInChat(env, {
@@ -487,37 +554,44 @@ export async function dispatchEmployeeToolForPrincipal(
       return Response.json({ ok: true, status: "pending_approval", approvalId: pending.approvalId,
         employeeId, employeeVersion: employee.version, tool: toolName }, { status: 202, headers: { "cache-control": "no-store" } });
     }
-    if (saved.status !== "approved") return Response.json({ ok: true, status: saved.status, approvalId: saved.approvalId }, { status: 202, headers: { "cache-control": "no-store" } });
-    if (!await nativeApprovalDecisionCurrent(env, saved)) return jsonError("employee_approval_authority_changed", 403);
-    const idempotencyKey = `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${saved.approvalId}`;
-    if (Date.now() >= saved.expiresAt) {
-      const receipt = await getCapabilityInvocationByIdempotencyKey(env, {
-        orgId, principal: actorId, idempotencyKey,
-      });
-      if (!receipt) return jsonError(saved.consumedAt !== undefined || saved.consumedInvocationId
-        ? "employee_invocation_receipt_pruned_no_replay"
-        : "employee_approval_expired_retry_for_consent", 409);
-      if (receipt.tool !== toolName || receipt.argsHash !== await hashToolArgs(args)) {
-        return jsonError("employee_invocation_payload_conflict", 409);
+    if (level === "ask" && saved && saved.status !== "approved") return Response.json({ ok: true, status: saved.status, approvalId: saved.approvalId }, { status: 202, headers: { "cache-control": "no-store" } });
+    if (saved?.status === "approved" && (level === "ask" || (saved.consumedAt === undefined && saved.consumedInvocationId === undefined && Date.now() < saved.expiresAt))) {
+      if (!await nativeApprovalDecisionCurrent(env, saved)) return jsonError("employee_approval_authority_changed", 403);
+      const idempotencyKey = `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${saved.approvalId}`;
+      if (Date.now() >= saved.expiresAt) {
+        const receipt = await getCapabilityInvocationByIdempotencyKey(env, {
+          orgId, principal: actorId, idempotencyKey,
+        });
+        if (!receipt) return jsonError(saved.consumedAt !== undefined || saved.consumedInvocationId
+          ? "employee_invocation_receipt_pruned_no_replay"
+          : "employee_approval_expired_retry_for_consent", 409);
+        if (receipt.tool !== toolName || receipt.argsHash !== await hashToolArgs(args)) {
+          return jsonError("employee_invocation_payload_conflict", 409);
+        }
+        // Expired approvals with receipts can only return the frozen receipt.
+        // Never re-enter dispatch: a receipt may describe a write whose outcome
+        // is unknown, or a Shiba approval that is still being processed.
+        return Response.json({ ok: true, result: {
+          content: [{ type: "text", text: `Request replay suppressed; inspect invocation ${receipt.invocationId} for its recorded status.` }],
+          _meta: { "com.shiba/invocation": {
+            invocationId: receipt.invocationId, status: receipt.status,
+            ...(receipt.approvalId ? { approvalId: receipt.approvalId } : {}), replayed: true,
+          } },
+        } }, { headers: { "cache-control": "no-store" } });
       }
-      // Expired approvals with receipts can only return the frozen receipt.
-      // Never re-enter dispatch: a receipt may describe a write whose outcome
-      // is unknown, or a Shiba approval that is still being processed.
-      return Response.json({ ok: true, result: {
-        content: [{ type: "text", text: `Request replay suppressed; inspect invocation ${receipt.invocationId} for its recorded status.` }],
-        _meta: { "com.shiba/invocation": {
-          invocationId: receipt.invocationId, status: receipt.status,
-          ...(receipt.approvalId ? { approvalId: receipt.approvalId } : {}), replayed: true,
-        } },
-      } }, { headers: { "cache-control": "no-store" } });
+      nativeApprovalRecord = saved;
+      approval = asEmployeeActionApproval(saved);
     }
-    nativeApprovalRecord = saved;
-    approval = asEmployeeActionApproval(saved);
   }
+  const policy = { ...connectionPolicy(toolName, level === "ask" || Boolean(approval)), version: connection.policyVersion };
+  const assertCurrentLevel = async () => {
+    if (effectiveEmployeeToolLevel(toolName, action.risk, await getStoredEmployeeToolLevel(env, levelKey)) !== level) throw new Error("Employee approval level changed.");
+  };
   const integrationRegistry = toolName.startsWith("integrations.") ? createToolRegistry(env) : null;
   if (integrationRegistry && connection.accountId) {
     const assertCurrentIntegrationAuthority = async () => {
       await beforeDispatch?.();
+      await assertCurrentLevel();
       if (nativeApprovalRecord && (Date.now() >= nativeApprovalRecord.expiresAt || !await nativeApprovalDecisionCurrent(env, nativeApprovalRecord))) {
         throw new Error("Employee approval authority changed or expired.");
       }
@@ -537,25 +611,29 @@ export async function dispatchEmployeeToolForPrincipal(
       await assertCurrentIntegrationAuthority();
     }, connection.connectionId, signal, nativeApprovalRecord?.expiresAt);
   }
-  const registeredDispatchRegistry: Pick<ToolRegistry, "invoke"> = integrationRegistry ?? (toolName === "gmail_read" ? { invoke: async (_name, toolArgs) => {
+  const gmailRegistry = toolName === "gmail_read" ? createToolRegistry(env) : null;
+  gmailRegistry?.registerTool("gmail_read", "gmail:read", async (toolArgs) => {
     const currentIds = (toolArgs as Record<string, unknown>).messageIds as string[];
     const freshEmployee = await getCustomAgentById(env, orgId, employeeId);
     if (!freshEmployee || freshEmployee.version !== employee.version) throw new Error("Employee policy changed.");
     const data = await readGmailForEmployee(env, connection.accountId!, connection.connectionId, actorId, currentIds, async (selectedId) => {
       await beforeDispatch?.();
+      await assertCurrentLevel();
       const current = await resolveEmployeeConnectionGrant(env, { orgId, employeeId, employeeVersion: employee.version, actorId,
         capabilityId: id, resourceId: selectedId });
       return Boolean(current && current.connectionId === connection.connectionId && current.accountId === connection.accountId &&
         await isGmailConnectionActive(env, connection.accountId!, connection.connectionId));
     });
     return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
-  } } : registry);
-  const guardedDispatchRegistry: Pick<ToolRegistry, "invoke"> = beforeDispatch ? {
+  });
+  const registeredDispatchRegistry = integrationRegistry ?? gmailRegistry ?? registry;
+  const guardedDispatchRegistry: Pick<ToolRegistry, "invoke"> = {
     invoke: async (name, toolArgs, callPrincipal, options) => {
-      await beforeDispatch();
+      await beforeDispatch?.();
+      await assertCurrentLevel();
       return registeredDispatchRegistry.invoke(name, toolArgs, callPrincipal, options);
     },
-  } : registeredDispatchRegistry;
+  };
   const approvedAction = approval;
   const dispatchRegistry: Pick<ToolRegistry, "invoke"> = approvedAction ? {
     invoke: async (name, toolArgs, callPrincipal, options) => {
@@ -565,7 +643,7 @@ export async function dispatchEmployeeToolForPrincipal(
       if (!nativeApprovalRecord || !await nativeApprovalDecisionCurrent(env, nativeApprovalRecord)) return employeeClaimFailure("approval authority changed");
       const claim = await claimEmployeeActionInvocation(env, {
         approvalId: approvedAction.approvalId, orgId, principal: actorId, tool: name,
-        argsHash: await hashToolArgs(toolArgs), idempotencyKey,
+        argsHash: await hashToolArgs(toolArgs), idempotencyKey, employeeLevel: level,
       });
       if (claim.kind === "claimed") {
         return guardedDispatchRegistry.invoke(name, toolArgs, callPrincipal, {
@@ -608,6 +686,17 @@ async function handleApprovals(request: Request, env: Env, approvalId?: string):
   const ownerId = await resolveUserId(request, env);
   if (!humanDecisionIdentity(ownerId)) return jsonError("authenticated_human_required", 401);
   const ownerAccountId = await gmailOwner(request, env);
+  if (request.method === "GET" && !approvalId && new URL(request.url).searchParams.get("view") === "history") {
+    const rows = await listEmployeeActionApprovals(env, { orgId: auth.orgId, decided: true, limit: 50 });
+    const visible = await Promise.all(rows.map(async (row) => {
+      const employeeId = row.employeeContext?.employeeId ?? row.employeeId;
+      if (auth.workspace && await resolveEmployeeAccess(env, auth.workspace.workspaceId, employeeId, ownerId) === "none") return null;
+      return row.employeeContext
+        ? await getExternalMcpServer(env, auth.orgId, ownerId, row.employeeId) ? row : null
+        : nativeApprovalViewer(env, row, ownerId, ownerAccountId) ? row : null;
+    }));
+    return Response.json({ ok: true, approvals: visible.filter((row) => row !== null) }, { headers: { "cache-control": "no-store" } });
+  }
   if (request.method === "GET" && !approvalId) {
     const rows = await listEmployeeActionApprovals(env, { orgId: auth.orgId, status: "pending", limit: 50 });
     const visible = await Promise.all(rows.map(async (row) => {
@@ -620,7 +709,7 @@ async function handleApprovals(request: Request, env: Env, approvalId?: string):
   }
   if (request.method === "POST" && approvalId) {
     const body = await parseObject(request);
-    if (!body || typeof body.approved !== "boolean") return jsonError("invalid_approval_decision", 400);
+    if (!body || typeof body.approved !== "boolean" || (body.alwaysApprove !== undefined && typeof body.alwaysApprove !== "boolean")) return jsonError("invalid_approval_decision", 400);
     const record = await getEmployeeActionApproval(env, {
       orgId: auth.orgId, employeeId: typeof body.employeeId === "string" ? body.employeeId : "", approvalId,
     });
@@ -631,13 +720,24 @@ async function handleApprovals(request: Request, env: Env, approvalId?: string):
     }
     if (record.employeeContext) return jsonError("external_mcp_owner_approval_route_required", 409);
     if (!await nativeApprovalAudience(env, record, ownerId, ownerAccountId)) return jsonError("not_found", 404);
+    const toolName = nativeToolName(record.capability.id);
+    if (!toolName || toolName !== record.action) return jsonError("approval_not_decidable", 409);
+    const alwaysApprove = body.approved === true && body.alwaysApprove === true;
+    if (alwaysApprove) {
+      if (!allowedEmployeeToolLevels(toolName).includes("auto")) return jsonError("employee_tool_level_not_allowed", 400);
+      if (auth.workspace) {
+        const denied = employeeAccessDenial(await resolveEmployeeAccess(env, auth.workspace.workspaceId, record.employeeId, ownerId), "manage");
+        if (denied) return denied;
+      }
+    }
     const decided = await decideEmployeeActionApproval(env, {
       orgId: auth.orgId, employeeId: record.employeeId, approvalId,
       approved: body.approved, decidedBy: ownerId, requirePendingTransition: true,
+      ...(alwaysApprove ? { standingCapabilityId: record.capability.id } : {}),
       ...(record.accountId ? { decisionOwnerAccountId: ownerAccountId! } : {}),
     });
     if (!decided || decided.status === "pending" || decided.status === "expired") return jsonError("approval_not_decidable", 409);
-    return Response.json({ ok: true, approvalId, status: decided.status, decidedAt: decided.decidedAt }, { headers: { "cache-control": "no-store" } });
+    return Response.json({ ok: true, approvalId, status: decided.status, decidedAt: decided.decidedAt, ...(alwaysApprove ? { level: "auto" } : {}) }, { headers: { "cache-control": "no-store" } });
   }
   return jsonError("method_not_allowed", 405);
 }
@@ -654,7 +754,7 @@ export async function handleEmployeeTools(request: Request, env: Env): Promise<R
     if (request.method === "GET" && !approvalId || request.method === "POST" && approvalId) return handleApprovals(request, env, approvalId);
     return jsonError("method_not_allowed", 405);
   }
-  const match = url.pathname.match(/^\/api\/employee-tools\/([^/]+)\/(policy|call)\/?$/);
+  const match = url.pathname.match(/^\/api\/employee-tools\/([^/]+)\/(policy|call|levels)\/?$/);
   if (!match) {
     const auth = await resolveOrgForApiRequest(request, env);
     if (auth instanceof Response) return auth;
@@ -666,5 +766,6 @@ export async function handleEmployeeTools(request: Request, env: Env): Promise<R
   if (match[2] === "policy" && request.method === "GET") return readPolicy(request, env, employeeId);
   if (match[2] === "policy" && request.method === "PUT") return configurePolicy(request, env, employeeId);
   if (match[2] === "call" && request.method === "POST") return callEmployeeTool(request, env, employeeId);
+  if (match[2] === "levels" && request.method === "PUT") return configureLevel(request, env, employeeId);
   return jsonError("method_not_allowed", 405);
 }

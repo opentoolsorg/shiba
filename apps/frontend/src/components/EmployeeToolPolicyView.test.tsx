@@ -89,6 +89,48 @@ describe("EmployeeToolPolicyView", () => {
     expect(screen.queryByText(/Frozen write/)).toBeNull();
   });
 
+  it("sets per-tool levels, offers the standing-approval suggestion and Always allow, and lists approval history", async () => {
+    const writes: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const level = (tool: string, current: string, allowedLevels: string[], extra: Record<string, unknown> = {}) => ({ capabilityId: `mcp:shiba:${tool}`, tool, level: current, allowedLevels, defaultLevel: current, recentApprovals: 0, suggestStanding: false, ...extra });
+    let levels = [level("run_status", "ask", ["ask", "auto", "off"], { defaultLevel: "auto", recentApprovals: 2, suggestStanding: true }), level("queue_run", "ask", ["ask", "off"])];
+    let approvals = [{ approvalId: "eap-1", employeeId: "employee-1", employeeVersion: 2, actorId: "agent-a", action: "run_status", resourceId: "run-1", payload: { runId: "run-1" }, status: "pending", createdAt: 1, expiresAt: 99_999_999_999 },
+      { approvalId: "eap-2", employeeId: "employee-1", employeeVersion: 2, actorId: "agent-a", action: "queue_run", resourceId: "https://github.com/acme/demo", payload: { task: "x" }, status: "pending", createdAt: 1, expiresAt: 99_999_999_999 }];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = init?.method ?? "GET";
+      if (url === "/api/custom-agents") return json({ agents: [{ id: "employee-1", slug: "scout", version: 2, config: { name: "Scout" } }] });
+      if (url === "/api/agents") return json({ principals: [] });
+      if (url === "/api/whoami") return json({ agent: "owner@example.test" });
+      if (url === "/api/employee-tools/approvals") return json({ approvals });
+      if (url === "/api/employee-tools/approvals?view=history") return json({ approvals: [{ approvalId: "eap-0", employeeId: "employee-1", employeeVersion: 2, actorId: "agent-a", action: "send_email", payload: { mailbox: "ops" }, status: "approved", createdAt: 1, expiresAt: 2, decidedBy: "owner@example.test", decidedAt: 1, levelAtDecision: "ask", levelAtExecution: "auto" }] });
+      if (url.startsWith("/api/integrations/provider/connections")) return json({ ok: true, provider: "openconnector", connections: [] });
+      if (url.endsWith("/policy") && method === "GET") return json({ employeeVersion: 2, toolScopes: [], grants: [], levels });
+      if (url.endsWith("/levels") && method === "PUT") {
+        const body = JSON.parse(String(init?.body)); writes.push({ url, body });
+        levels = levels.map((item) => item.capabilityId === body.capabilityId ? { ...item, level: body.level, suggestStanding: false } : item);
+        return json({ ok: true, levels });
+      }
+      if (url.startsWith("/api/employee-tools/approvals/") && method === "POST") {
+        writes.push({ url, body: JSON.parse(String(init?.body)) }); approvals = approvals.filter((item) => !url.endsWith(item.approvalId)); return json({ ok: true, status: "approved", level: "auto" });
+      }
+      return json({ error: `Unexpected ${method} ${url}` }, 500);
+    }));
+    render(<EmployeeToolPolicyView />);
+    const queueGroup = await screen.findByRole("radiogroup", { name: "Approval level for Queue a coding run" });
+    expect((queueGroup.querySelector("[aria-checked='true']") as HTMLButtonElement).textContent).toBe("Ask");
+    expect(([...queueGroup.querySelectorAll("button")].find((button) => button.textContent === "Auto") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/approved this 2 times in the last 14 days/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Switch to Auto" }));
+    await screen.findByText("Read run status is now Auto.");
+    expect(writes[0]).toEqual({ url: "/api/employee-tools/employee-1/levels", body: { capabilityId: "mcp:shiba:run_status", level: "auto" } });
+    expect(screen.queryByText(/approved this 2 times/)).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Approve and always allow" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Approve and always allow" }));
+    await screen.findByText(/run_status now runs on Auto/);
+    expect(writes[1]).toEqual({ url: "/api/employee-tools/approvals/eap-1", body: { employeeId: "employee-1", approved: true, alwaysApprove: true } });
+    expect(screen.getByText("Approval history")).toBeTruthy();
+    expect(screen.getByText("Ask → Auto")).toBeTruthy();
+  });
+
   it("selects Gmail resources from owner-discovered metadata and submits only checked message IDs", async () => {
     let version = 1;
     const writes: Array<Record<string, unknown>> = [];

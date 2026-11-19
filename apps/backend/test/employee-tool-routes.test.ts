@@ -593,4 +593,119 @@ describe("employee tool local workflow", () => {
       vi.useRealTimers();
     }
   });
+
+  describe("per-tool Ask/Auto/Off levels", () => {
+    const owner = { "CF-Access-Authenticated-User-Email": "owner@example.test" };
+    const setLevel = (employeeId: string, capabilityId: string, level: string, headers: Record<string, string> = owner) =>
+      handleEmployeeTools(new Request(`https://x/api/employee-tools/${employeeId}/levels`, {
+        method: "PUT", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ capabilityId, level }),
+      }), env_);
+    const decide = (employeeId: string, approvalId: string, extra: Record<string, unknown> = {}) =>
+      handleEmployeeTools(new Request(`https://x/api/employee-tools/approvals/${approvalId}`, {
+        method: "POST", headers: { "content-type": "application/json", ...owner }, body: JSON.stringify({ employeeId, approved: true, ...extra }),
+      }), env_);
+    const readLevels = async (employeeId: string) => {
+      const response = await handleEmployeeTools(new Request(`https://x/api/employee-tools/${employeeId}/policy`, { headers: owner }), env_);
+      return (await response!.json() as { levels: Array<{ tool: string; level: string; allowedLevels: string[]; suggestStanding: boolean; recentApprovals: number }> }).levels;
+    };
+    let env_: Env;
+
+    async function scout() {
+      authState.dashboard = true;
+      env_ = env();
+      const employee = await createCustomAgent(env_, "self-hosted", "scout", { name: "Scout", instructions: "Read run status", harness: "opencode" });
+      const configured = await handleEmployeeTools(policyRequest(employee.id, { "mcp:shiba:run_status": ["run-1", "run-2", "run-3"], "mcp:shiba:queue_run": ["https://github.com/acme/demo"] }), env_);
+      expect(configured?.status).toBe(200);
+      return employee.id;
+    }
+
+    it("defaults reads to Auto and writes to Ask, and keeps queue_run and integration execution off Auto", async () => {
+      const employeeId = await scout();
+      const levels = await readLevels(employeeId);
+      expect(levels).toEqual(expect.arrayContaining([
+        expect.objectContaining({ tool: "run_status", level: "auto", allowedLevels: ["ask", "auto", "off"] }),
+        expect.objectContaining({ tool: "send_email", level: "ask", allowedLevels: ["ask", "off"] }),
+        expect.objectContaining({ tool: "queue_run", level: "ask", allowedLevels: ["ask", "off"] }),
+        expect.objectContaining({ tool: "integrations.execute", level: "ask", allowedLevels: ["ask", "off"] }),
+      ]));
+      const refused = await setLevel(employeeId, "mcp:shiba:queue_run", "auto");
+      expect(refused?.status).toBe(400);
+      expect(await refused?.json()).toMatchObject({ error: "employee_tool_level_not_allowed" });
+      expect(await (await setLevel(employeeId, "mcp:shiba:not_a_tool", "auto"))?.json()).toMatchObject({ error: "invalid_employee_tool_level" });
+      authState.dashboard = false;
+      const unauthenticated = await setLevel(employeeId, "mcp:shiba:run_status", "off", {});
+      expect(unauthenticated?.status).not.toBe(200);
+    });
+
+    it("Off refuses dispatch before any tool runs", async () => {
+      const employeeId = await scout();
+      expect((await setLevel(employeeId, "mcp:shiba:run_status", "off"))?.status).toBe(200);
+      authState.dashboard = false;
+      const denied = await handleEmployeeTools(callRequest(employeeId, "run_status", { runId: "run-1" }), env_);
+      expect(denied?.status).toBe(403);
+      expect(await denied?.json()).toMatchObject({ error: "employee_tool_off" });
+      const runTools = createEmployeeRunTools(env_, () => employeeId, () => "web:owner:session-off", () => "self-hosted", () => "agent-a");
+      const catalog = runTools.employee_tool_catalog as unknown as { execute: (args: Record<string, never>) => Promise<{ actions: Array<{ tool: string }> }> };
+      expect((await catalog.execute({})).actions.map((action) => action.tool)).toEqual(["queue_run"]);
+      const queued = await handleEmployeeTools(callRequest(employeeId, "queue_run", { repoUrl: "https://github.com/acme/demo", task: "x" }), env_);
+      expect(queued?.status).toBe(202);
+      expect(orchestrator.requests).toHaveLength(0);
+    });
+
+    it("Ask gates a read behind an exact approval and records the level at decision and execution", async () => {
+      const employeeId = await scout();
+      expect((await setLevel(employeeId, "mcp:shiba:run_status", "ask"))?.status).toBe(200);
+      authState.dashboard = false;
+      const pending = await handleEmployeeTools(callRequest(employeeId, "run_status", { runId: "run-1" }), env_);
+      expect(pending?.status).toBe(202);
+      const { approvalId } = await pending!.json() as { approvalId: string };
+      expect(orchestrator.requests).toHaveLength(0);
+      authState.dashboard = true;
+      expect(await (await decide(employeeId, approvalId))?.json()).toMatchObject({ status: "approved" });
+      authState.dashboard = false;
+      const dispatched = await handleEmployeeTools(callRequest(employeeId, "run_status", { runId: "run-1" }), env_);
+      expect(dispatched?.status).toBe(200);
+      expect(orchestrator.requests).toHaveLength(1);
+      authState.dashboard = true;
+      const history = await handleEmployeeTools(new Request("https://x/api/employee-tools/approvals?view=history", { headers: owner }), env_);
+      expect(await history?.json()).toMatchObject({ approvals: [{ approvalId, status: "approved", decidedBy: "owner@example.test", levelAtDecision: "ask", levelAtExecution: "ask", payload: { runId: "run-1" } }] });
+    });
+
+    it("suggests a standing approval after two one-time approvals and Always approve switches the tool to Auto", async () => {
+      const employeeId = await scout();
+      expect((await setLevel(employeeId, "mcp:shiba:run_status", "ask"))?.status).toBe(200);
+      const approvalIds: string[] = [];
+      for (const runId of ["run-1", "run-2", "run-3"]) {
+        authState.dashboard = false;
+        const pending = await handleEmployeeTools(callRequest(employeeId, "run_status", { runId }), env_);
+        approvalIds.push((await pending!.json() as { approvalId: string }).approvalId);
+      }
+      authState.dashboard = true;
+      await decide(employeeId, approvalIds[0]!);
+      expect((await readLevels(employeeId)).find((item) => item.tool === "run_status")).toMatchObject({ suggestStanding: false, recentApprovals: 1 });
+      await decide(employeeId, approvalIds[1]!);
+      expect((await readLevels(employeeId)).find((item) => item.tool === "run_status")).toMatchObject({ level: "ask", suggestStanding: true, recentApprovals: 2 });
+      expect(await (await decide(employeeId, approvalIds[2]!, { alwaysApprove: true }))?.json()).toMatchObject({ status: "approved", level: "auto" });
+      expect((await readLevels(employeeId)).find((item) => item.tool === "run_status")).toMatchObject({ level: "auto", suggestStanding: false });
+      authState.dashboard = false;
+      const direct = await handleEmployeeTools(callRequest(employeeId, "run_status", { runId: "run-2" }), env_);
+      expect(direct?.status).toBe(200);
+      authState.dashboard = true;
+      const history = await handleEmployeeTools(new Request("https://x/api/employee-tools/approvals?view=history", { headers: owner }), env_);
+      expect(await history?.json()).toMatchObject({ approvals: expect.arrayContaining([expect.objectContaining({ approvalId: approvalIds[1], levelAtDecision: "ask", levelAtExecution: "auto" })]) });
+    });
+
+    it("refuses Always approve for a tool that cannot run on Auto", async () => {
+      const employeeId = await scout();
+      authState.dashboard = false;
+      const pending = await handleEmployeeTools(callRequest(employeeId, "queue_run", { repoUrl: "https://github.com/acme/demo", task: "x" }), env_);
+      const { approvalId } = await pending!.json() as { approvalId: string };
+      authState.dashboard = true;
+      const refused = await decide(employeeId, approvalId, { alwaysApprove: true });
+      expect(refused?.status).toBe(400);
+      expect((await readLevels(employeeId)).find((item) => item.tool === "queue_run")).toMatchObject({ level: "ask" });
+      const list = await handleEmployeeTools(new Request("https://x/api/employee-tools/approvals", { headers: owner }), env_);
+      expect(await list?.json()).toMatchObject({ approvals: [{ approvalId, status: "pending" }] });
+    });
+  });
 });

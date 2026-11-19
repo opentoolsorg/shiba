@@ -39,6 +39,24 @@ An account connection alone does not let every employee use it. Check the employ
 
 Installing a template, enabling a skill, or setting up an automation does not bypass these controls. See [Connections and tools](/docs/connections/).
 
+## Choose Ask, Auto or Off for each employee tool
+
+In **Tool policy**, each employee tool has an approval level:
+
+| Level | What happens |
+|---|---|
+| **Ask** | Every call waits for a person to approve the exact payload. This is the default for actions that change something. |
+| **Auto** | The call runs without a per-call card. This is the default for reads. |
+| **Off** | The tool never runs, and the employee no longer sees it. |
+
+Coding run requests, connected-app execution and sending email allow **Ask** or **Off** only. Queueing a coding run still produces a separate approval before the sandbox starts.
+
+When you approve the same tool twice within 14 days, **Tool policy** suggests switching it to **Auto**. On an approval card, **Approve and always allow** approves that call and switches the tool to **Auto** in one step. Both need permission to manage the employee.
+
+**Approval history** lists decided approvals with who decided, the payload, and the tool's level when the decision was made and when the approved call ran. If someone changed the level in between, the two values differ.
+
+Levels apply to one employee's actions during a run. They never replace the approval that starts a run, publishes a pull request, or sends from a mailbox.
+
 ## File reviews are another decision
 
 In a deliverable card, **Approve** records that you accept the captured file. **Request revision** plus **Save review** records feedback. To run the revision, choose **Create revision approval**, then review and approve that new request. Neither accepting a file nor saving feedback sends it to an external service. See [Files and revisions](/docs/artifacts/).

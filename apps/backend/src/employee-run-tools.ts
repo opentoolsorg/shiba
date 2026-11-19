@@ -11,6 +11,7 @@ import { getCustomAgentById } from "./custom-agents-store.js";
 import { registerAllMcpTools } from "./mcp-tool-registration.js";
 import { createToolRegistry } from "./mcp-gateway.js";
 import { capabilityId, selectEmployeeCapabilities } from "./employee-tool-policy.js";
+import { effectiveEmployeeToolLevel, listEmployeeToolLevels, type EmployeeToolLevel } from "./employee-tool-levels.js";
 import {
   resolveCurrentEmployeeToolMembership,
   resolveEmployeeToolPolicy,
@@ -75,6 +76,8 @@ export interface EmployeeRunToolContext {
   principal: TokenRecord;
   allowed: string[];
   resources: Record<string, string[]>;
+  /** Ask/Auto/Off per native action; Off actions are already removed from allowed. */
+  levels?: Record<string, EmployeeToolLevel>;
   externalActions?: Awaited<ReturnType<typeof employeeExternalMcpCatalog>>["actions"];
 }
 
@@ -153,8 +156,11 @@ export async function resolveEmployeeRunToolContext(
     const roleResources = new Set(all.filter((grant) => grant.subjectType === "role" && grant.subjectId === membership.role).map((grant) => grant.resourceId));
     resources[id] = [...workspace].filter((resource) => actor.has(resource) && roleResources.has(resource)).sort();
   }
-  const allowed = selection.allowedCapabilityIds.filter((id) => (resources[id]?.length ?? 0) > 0);
-  const context: EmployeeRunToolContext = { employeeId, employeeVersion: employee.version, actorId: membership.actorId, role: membership.role, principal, allowed, resources };
+  const storedLevels = await listEmployeeToolLevels(env, { orgId, employeeId });
+  const levels: Record<string, EmployeeToolLevel> = Object.fromEntries(ACTION_NAMES.map((name) => [capabilityId(name),
+    effectiveEmployeeToolLevel(name, EMPLOYEE_TOOL_ACTIONS[name].risk, storedLevels.find((item) => item.capabilityId === capabilityId(name))?.level)]));
+  const allowed = selection.allowedCapabilityIds.filter((id) => (resources[id]?.length ?? 0) > 0 && levels[id] !== "off");
+  const context: EmployeeRunToolContext = { employeeId, employeeVersion: employee.version, actorId: membership.actorId, role: membership.role, principal, allowed, resources, levels };
   if (appExecutionContextId) {
     const external = await employeeExternalMcpCatalog(env, { orgId, employeeId, employeeVersion: employee.version,
       actorId: membership.actorId, executionContextId: appExecutionContextId });
@@ -318,7 +324,7 @@ export function employeeToolCatalogSources(
       const action = EMPLOYEE_TOOL_ACTIONS[name];
       return {
         name, source: "builtin", summary: entry?.description ?? name,
-        effect: action.risk === "external_write" ? "approval_required" : "read",
+        effect: action.risk === "external_write" || context.levels?.[capabilityId(name)] === "ask" ? "approval_required" : "read",
         resourceArgument: action.resourceArgument, resources: context.resources[capabilityId(name)] ?? [],
         ...(entry?.inputSchema ? { inputSchema: entry.inputSchema as Record<string, unknown> } : {}),
       };
