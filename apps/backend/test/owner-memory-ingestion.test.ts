@@ -76,6 +76,60 @@ function fixture() {
   return { call, upload, patch, snapshot, objects, controls, databases, restart: () => instances.clear() };
 }
 
+describe("context import from another assistant", () => {
+  const importContext = (env: ReturnType<typeof fixture>, body: unknown, owner?: string) =>
+    env.call("/sources/import", owner, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+  it("saves a pasted brief as a private, versioned source with secrets redacted", async () => {
+    const env = fixture();
+    const secret = "sk-" + "a".repeat(32);
+    const response = await importContext(env, { assistant: "chatgpt", content: `I lead platform at Acme.\nWorking on billing v2.\napi_key: ${secret}` });
+    expect(response.status).toBe(201);
+    const body = await response.json() as { source: OwnerMemorySource; redacted: number };
+    expect(body.redacted).toBe(1);
+    expect(body.source).toMatchObject({ title: "Context from ChatGPT", kind: "conversation", retentionDays: null, version: 1 });
+    expect(body.source.ingestion).toMatchObject({ state: "ready", mediaType: "text/markdown" });
+    expect(body.source.ingestion?.filename).toMatch(/^context-from-chatgpt-\d{4}-\d{2}-\d{2}\.md$/);
+    expect(body.source.content).toContain("I lead platform at Acme.");
+    expect(body.source.content).not.toContain(secret);
+    expect([...env.objects.values()].some((bytes) => new TextDecoder().decode(bytes).includes(secret))).toBe(false);
+    const recall = await env.call("/recall?q=billing");
+    expect(((await recall.json()) as { hits: Array<{ id: string }> }).hits.map((hit) => hit.id)).toContain(body.source.id);
+    const foreign = await env.call("/sources", "mallory@example.test");
+    expect(((await foreign.json()) as { sources: unknown[] }).sources).toEqual([]);
+  });
+
+  it.each([
+    ["a short legacy key", "sk-abc12345", "sk-abc12345"],
+    ["an assignment", "password: must-be-12-chars-or-longer", "must-be-12-chars-or-longer"],
+    ["a JSON field", '{"client_secret": "abcdef123456"}', "abcdef123456"],
+    ["a modern prefixed key", "sk-ant-api03-abcdefghijklmnop", "sk-ant-api03"],
+  ])("redacts %s on the way into memory", async (_shape, text, leaked) => {
+    const env = fixture();
+    const response = await importContext(env, { assistant: "chatgpt", content: `about me:\n${text}` });
+    expect(response.status).toBe(201);
+    const body = await response.json() as { source: OwnerMemorySource };
+    expect(body.source.content).not.toContain(leaked);
+    expect(body.source.content).toContain("[redacted]");
+  });
+
+  it("refuses an oversized paste at the route before the body is buffered", async () => {
+    const env = fixture();
+    const response = await importContext(env, { assistant: "chatgpt", content: "x".repeat(70_000) });
+    expect(response.status).toBe(413);
+    expect(((await response.json()) as { error: string }).error).toMatch(/too large/);
+    expect(env.objects.size).toBe(0);
+  });
+
+  it("refuses an unknown assistant, an empty paste, and active markup", async () => {
+    const env = fixture();
+    expect((await importContext(env, { assistant: "bard", content: "hello" })).status).toBe(400);
+    expect((await importContext(env, { assistant: "claude", content: "   " })).status).toBe(400);
+    expect((await importContext(env, { assistant: "claude", content: "<script>alert(1)</script>" })).status).toBe(400);
+    expect(env.objects.size).toBe(0);
+  });
+});
+
 describe("managed owner text ingestion through authenticated routes", () => {
   it("downloads exact private upload bytes with pinned version and safe attachment headers", async () => {
     const { upload, call, patch } = fixture();

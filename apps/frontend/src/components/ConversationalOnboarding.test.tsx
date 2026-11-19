@@ -325,6 +325,26 @@ describe("conversational first task setup", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("imports another assistant's context and selects it for the first task", async () => {
+    const imported = { id: `memsrc_${"4".repeat(24)}`, title: "Context from Claude", version: 1, sha256: "b".repeat(64), ingestion: { state: "ready" }, disabledAt: null, expiresAt: null };
+    const calls: Array<{ url: string; body?: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: init?.body as string | undefined });
+      return url === "/api/memory/sources/import"
+        ? { ok: true, json: async () => ({ source: imported, redacted: 0 }) }
+        : { ok: true, json: async () => ({ sources: [] }) };
+    }));
+    const h = harness({ draft: { ...reviewDraft, currentStep: "context" } });
+    render(<h.Harness />);
+    const form = await screen.findByRole("form", { name: "Import context from another assistant" });
+    fireEvent.click(within(form).getByRole("radio", { name: "Claude" }));
+    fireEvent.change(within(form).getByRole("textbox", { name: "Paste its reply" }), { target: { value: "I run growth at Acme." } });
+    fireEvent.click(within(form).getByRole("button", { name: "Save context" }));
+    await screen.findByRole("checkbox", { name: "Context from Claude · v1 · ready", checked: true });
+    expect(JSON.parse(calls.find((call) => call.url === "/api/memory/sources/import")?.body ?? "{}")).toEqual({ assistant: "claude", content: "I run growth at Acme." });
+    expect(h.updates.at(-1)).toEqual({ action: "save-draft", draftTask: { sourceIds: [imported.id] } });
+  });
+
   it("saves only ready source ids while preserving unsent facts and Memory return", async () => {
     const source = { id: `memsrc_${"1".repeat(24)}`, title: "Private facts", version: 3, sha256: "a".repeat(64), ingestion: { state: "ready" }, disabledAt: null, expiresAt: null };
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ sources: [source, { ...source, id: `memsrc_${"2".repeat(24)}`, title: "Expired facts", expiresAt: 1 }, { ...source, id: `memsrc_${"3".repeat(24)}`, title: "Legacy note", ingestion: undefined, version: undefined }] }) })));

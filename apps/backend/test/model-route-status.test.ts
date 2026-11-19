@@ -92,14 +92,22 @@ describe("readToolSetup", () => {
     expect(readToolSetup(makeEnv({ AI: {} })).find((row) => row.id === "generate_image")).toMatchObject({ ready: false, env: "FILES or ARTIFACTS" });
     expect(readToolSetup(makeEnv({ AI: {}, FILES: {} })).find((row) => row.id === "generate_image")).toMatchObject({ ready: true });
   });
+  it("offers knowledge search on the database alone and says when ranking is keyword-only", () => {
+    expect(readToolSetup(makeEnv({ AGENT_AUDIT: {} })).find((row) => row.id === "knowledge_search"))
+      .toMatchObject({ ready: true, label: "Knowledge search (keyword only)" });
+    expect(readToolSetup(makeEnv({ AGENT_AUDIT: {}, AI: {}, MEMORY_VECTORS: {} })).find((row) => row.id === "knowledge_search"))
+      .toMatchObject({ ready: true, label: "Knowledge search" });
+  });
+
   it("marks tools missing their key or binding and names only the env", () => {
     const missing = readToolSetup(makeEnv({ AI: undefined }));
     expect(missing.map((row) => [row.id, row.ready, row.env])).toEqual([
       ["web_search", false, "WEB_SEARCH_API_KEY"],
       ["generate_image", false, "AI; FILES or ARTIFACTS"],
       ["browser", false, "BROWSER"],
+      ["knowledge_search", false, "AGENT_AUDIT"],
     ]);
-    const ready = readToolSetup(makeEnv({ WEB_SEARCH_API_KEY: "k", AI: {}, ARTIFACTS: {}, BROWSER: {} }));
+    const ready = readToolSetup(makeEnv({ WEB_SEARCH_API_KEY: "k", AI: {}, ARTIFACTS: {}, BROWSER: {}, AGENT_AUDIT: {}, MEMORY_VECTORS: {} }));
     expect(ready.every((row) => row.ready)).toBe(true);
     expect(JSON.stringify(ready)).not.toContain('"k"');
   });

@@ -115,6 +115,13 @@ const PASTE_KEY_LABEL: Record<string, string> = {
   openrouter: "OpenRouter API key",
   groq: "Groq API key",
   copilot: "GitHub Copilot token",
+  kimi: "Kimi Code API key",
+  meta: "Meta Model API key",
+  deepseek: "DeepSeek API key",
+  zai: "Z.ai API key",
+  minimax: "MiniMax API key",
+  qwen: "DashScope API key",
+  mistral: "Mistral API key",
 };
 
 function WaitingSignIn({
