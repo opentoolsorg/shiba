@@ -32,12 +32,13 @@ export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): vo
     "api:read",
     async (args, ctx) => {
       const orgId = ctx.principal.orgId ?? "self-hosted";
-      const runId = runIdFromArgs(args, ctx.principal.principal);
       const input = webSearchInputSchema.safeParse(args);
       if (!input.success) return jsonResult({ ok: false, error: input.error.issues[0]?.message ?? "Invalid web search input." });
+      // The budget key never comes from tool arguments: a caller could otherwise
+      // pass a fresh value per call and spend the operator's search key without limit.
       const budget = await incrementToolUsage(env, {
         orgId,
-        runId,
+        runId: `api:${ctx.principal.principal}`,
         toolName: "web_search",
         budgetLimit: DEFAULT_WEB_SEARCH_BUDGET,
         calls: webSearchQueries(input.data).length,
@@ -53,7 +54,7 @@ export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): vo
     },
     {
       description: WEB_SEARCH_DESCRIPTION,
-      inputSchema: { ...webSearchInputShape, runId: z.string().min(1).max(200).optional() },
+      inputSchema: webSearchInputShape,
       annotations: { readOnlyHint: true },
     },
   );
