@@ -960,6 +960,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const [toolSetup, setToolSetup] = useState<SetupStatus["toolSetup"] | null>(null);
   const [chatLookupIds, setChatLookupIds] = useState<ChatLookupId[]>([]);
   const chatLookups = useMemo(() => chatLookupOptions(toolSetup ?? null, chatLookupIds), [toolSetup, chatLookupIds]);
+  // The lookup toggles must not change the submit callback's identity after mount:
+  // StrictMode render retries restore the composer draft against it.
+  const chatLookupsRef = useRef(chatLookups);
+  chatLookupsRef.current = chatLookups;
   useEffect(() => {
     if (!privateDataEnabled) {
       setLaunchBlocked(false);
@@ -1682,7 +1686,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               metadata: {
                 shibaMode: "chat",
                 shibaRoomViewerId: realtimeViewerId,
-                ...(selectedChatLookups(chatLookups).length ? { shibaChatTools: selectedChatLookups(chatLookups) } : {}),
+                ...(selectedChatLookups(chatLookupsRef.current).length ? { shibaChatTools: selectedChatLookups(chatLookupsRef.current) } : {}),
               },
             });
             finishRealtimeStream(streamId, "complete");
@@ -2054,7 +2058,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       connectionId,
       chat,
       realtimeViewerId,
-      chatLookups,
       startRealtimeStream,
       finishRealtimeStream,
       agent,
