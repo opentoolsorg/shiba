@@ -3,6 +3,10 @@ import type { Env } from "../src/env.js";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
 import { chatOptInTools } from "../src/conversation-mode.js";
 import { createChatAgentMediaTools } from "../src/tools/chat-agent-tools.js";
+import { insertFileRecord } from "../src/files/files-store.js";
+import { runIngestionJob } from "../src/knowledge/knowledge-ingestion.js";
+import { buildSessionAgentName } from "../src/web-sessions.js";
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 vi.mock("@cloudflare/think", () => ({ Think: class {} }));
 vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
@@ -53,5 +57,48 @@ describe("chat lookup opt-in", () => {
     const unavailable = await (tools.knowledge_search as { execute: (input: unknown, options: unknown) => Promise<unknown> })
       .execute({ query: "launch" }, { toolCallId: "t", messages: [] });
     expect(unavailable).toMatchObject({ ok: false, unavailable: true });
+  });
+});
+
+describe("chat knowledge lookup scope", () => {
+  /** Chat runs in the deployment scope, where a dashboard user's files are personal to them. */
+  async function fixture() {
+    const { database } = customAgentD1();
+    const objects = new Map<string, Uint8Array>();
+    const env = {
+      AGENT_AUDIT: database,
+      // Keyword-only: this test is about whose sources are read, not ranking.
+      AI: { run: vi.fn(async (_model: string, input: { text: string[] }) => ({ data: input.text.map(() => [0.1, 0.2]) })) },
+      FILES: { async get(key: string) { const bytes = objects.get(key); return bytes ? { arrayBuffer: async () => bytes.buffer } : null; } },
+    } as unknown as Env;
+    async function add(owner: string, name: string, body: string) {
+      objects.set(name, new TextEncoder().encode(body));
+      const file = await insertFileRecord(env, {
+        workspaceId: "self-hosted", scope: "personal", name, mime: "text/markdown",
+        size: body.length, r2Key: name, sha256: "a".repeat(64), createdBy: owner,
+      });
+      await runIngestionJob(env, {
+        jobId: `job-${name}`, sourceKind: "file", sourceId: file.id, workspaceId: "self-hosted",
+        scope: "personal", version: 1, sha256: file.sha256, r2Key: name, mime: "text/markdown",
+      });
+    }
+    await add("ada@example.test", "ada-falcon.md", "Falcon rollout notes.");
+    await add("ben@example.test", "ben-falcon.md", "Falcon budget notes.");
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const instance = Object.assign(Object.create(CodingOrchestrator.prototype) as object, {
+      env,
+      name: buildSessionAgentName("ada@example.test", sessionId),
+      messages: [{ role: "user", id: "m1", metadata: { shibaMode: "chat", shibaChatTools: ["knowledge_search"] }, parts: [] }],
+      state: { runs: [] },
+      employeeToolProfileId: () => undefined,
+    }) as unknown as CodingOrchestrator;
+    return { instance };
+  }
+
+  it("registers the tool on a dashboard chat session and returns only the caller's own sources", async () => {
+    const { instance } = await fixture();
+    const tools = instance.getTools() as Record<string, { execute: (input: unknown, options: unknown) => Promise<{ ok: boolean; hits?: Array<{ sourceName?: string }> }> }>;
+    const result = await tools.knowledge_search!.execute({ query: "falcon" }, { toolCallId: "t", messages: [] });
+    expect(result.hits?.map((hit) => hit.sourceName)).toEqual(["ada-falcon.md"]);
   });
 });
