@@ -1269,7 +1269,10 @@ select:focus-visible,
    most of the screen. Labels stay in the accessibility tree as the button's
    name. */
 @media (max-height: 700px) {
-  .shiba-journey-step { min-height: 2.25rem; padding-inline: 0.5rem; gap: 0; }
+  /* Labels come out of the layout, but the target stays 44x44: the marker is the
+     whole control, so the padding is what makes it big enough to hit. */
+  .shiba-journey-rail { gap: 0; }
+  .shiba-journey-step { min-height: 2.75rem; min-width: 2.75rem; justify-content: center; padding-inline: 0; gap: 0; }
   .shiba-journey-step-label {
     position: absolute;
     width: 1px;

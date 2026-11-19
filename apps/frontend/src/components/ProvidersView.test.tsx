@@ -131,7 +131,7 @@ describe("ProvidersView sign-in", () => {
       if (url === "/api/providers" && !init?.method) {
         return { ok: true, json: async () => snapshot() };
       }
-      if (url === "/api/providers/claude/verify") {
+      if (url === "/api/providers/codex/verify") {
         const body = JSON.parse(String(init?.body)) as { userCode?: string };
         expect(body.userCode).toBe("UPYX-F4F7");
         return {

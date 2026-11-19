@@ -1207,7 +1207,9 @@ describe("first-run setup reminders", () => {
         return Response.json({
           approvals: [
             { approvalId: "approval_linked", draftTaskId: "draft_1", task: "Draft the launch brief", repoUrl: "", threadKey: "personal" },
-            { approvalId: "approval_other", task: "Deploy the other project", repoUrl: "", threadKey: "personal" },
+            // Same words as the draft, no server-issued draft association: it is
+            // still someone else's decision and must not be offered here.
+            { approvalId: "approval_lookalike", task: "Draft the launch brief", repoUrl: "", threadKey: "personal" },
           ],
           decided: [],
         });
@@ -1218,13 +1220,46 @@ describe("first-run setup reminders", () => {
     const journey = await screen.findByRole("region", { name: "Guided onboarding" });
     fireEvent.click(within(journey).getByRole("button", { name: /^Approve the run —/ }));
     await screen.findByRole("button", { name: "Review and approve this run" });
-    expect(screen.getByText("Draft the launch brief")).toBeTruthy();
-    expect(screen.queryByText("Deploy the other project")).toBeNull();
+    // One linked approval, one text lookalike: only the linked one is offered.
+    expect(screen.getAllByText("Draft the launch brief")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Approve and start" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Review and approve this run" }));
     await waitFor(() => expect(window.location.pathname).toBe("/work/"));
     // The decision surface is the existing Work approval card, and focus lands on it.
     await waitFor(() => expect(screen.queryByRole("region", { name: "Guided onboarding" })).toBeNull());
+    expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url) === "/api/approvals" && init?.method === "POST")).toBe(false);
+  });
+
+  it("offers no action when the only pending approval merely shares the draft's text", async () => {
+    window.history.replaceState(null, "", "/threads/");
+    const draftTask = {
+      ...EMPTY_ONBOARDING_DRAFT,
+      goal: "Draft the launch brief",
+      audience: "The team",
+      acceptance: "A one-page brief",
+      preparedAt: 2,
+      employeeId: "employee_1",
+      employeeVersion: 1,
+    };
+    installProgress({ dismissedAt: null, draftTaskId: "draft_1", draftTask });
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/approvals") {
+        return Response.json({
+          approvals: [
+            { approvalId: "approval_lookalike", task: "Draft the launch brief", repoUrl: "", threadKey: "personal" },
+          ],
+          decided: [],
+        });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const journey = await screen.findByRole("region", { name: "Guided onboarding" });
+    fireEvent.click(within(journey).getByRole("button", { name: /^Approve the run —/ }));
+    await screen.findByText(/One other approval is waiting/);
+    expect(screen.queryByRole("button", { name: "Review and approve this run" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Approve and start" })).toBeNull();
     expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url) === "/api/approvals" && init?.method === "POST")).toBe(false);
   });
 

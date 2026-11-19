@@ -3148,14 +3148,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // Guided journey: every stage is derived from state the server already owns,
   // so a reload or relaunch resumes in place and a satisfied stage is skipped.
   const journeyDraft = firstRunProgress?.draftTask ?? null;
-  const journeyDraftText = journeyDraft?.preparedAt ? onboardingTaskText(journeyDraft) : "";
-  // The guided approval is the one the server issued for this draft, matched on
-  // the draft id the approval was frozen with. Task text is only the fallback for
-  // approvals queued before that id was recorded, and unrelated pending approvals
-  // are never presented as this flow's decision.
+  // The guided approval is the one the server issued for this draft, matched only
+  // on the draft id the approval was frozen with. Task text is not an identifier:
+  // an unrelated approval can carry the same words, and offering it here would put
+  // this flow's framing on someone else's decision.
   const journeyApproval: StoredApproval | null = firstRunProgress?.draftTaskId
-    ? visibleStoredApprovals.find((approval) => approval.draftTaskId === firstRunProgress.draftTaskId) ??
-      (journeyDraftText ? visibleStoredApprovals.find((approval) => !approval.draftTaskId && approval.task === journeyDraftText) ?? null : null)
+    ? visibleStoredApprovals.find((approval) => approval.draftTaskId === firstRunProgress.draftTaskId) ?? null
     : null;
   const journeyOtherApprovalCount = visibleStoredApprovals.filter((approval) => approval.approvalId !== journeyApproval?.approvalId).length;
   const journeyRunRecord = firstRunProgress?.draftTaskId
