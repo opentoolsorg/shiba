@@ -29,7 +29,7 @@ function matchesReadiness(row: DisplayRow, readiness: ReadinessFilter): boolean 
   if (readiness === "all") return true;
   if (readiness === "ready") return Boolean(row.providerItem?.connectable) && !row.connected;
   if (readiness === "configured") return row.connected;
-  if (readiness === "supported") return Boolean(row.providerItem) || row.connected || row.entry?.status === "live";
+  if (readiness === "supported") return (row.providerItem !== undefined && row.providerItem.source !== "static") || row.connected || row.entry?.status === "live";
   return !row.providerItem;
 }
 
@@ -142,19 +142,18 @@ function mergeProviderRows(
 
   // A bundled reference row covers several apps at once. Once the provider lists
   // every one of those apps, the per-app rows replace a provider-only bundle;
-  // a bundle that also names a native binding keeps its own row. While the
-  // provider lists only some of a bundle's apps, the bundle may not claim
-  // configured unless every app is connected.
+  // a bundle that also names a native binding keeps its own row. A bundle only
+  // claims configured when every app it covers is connected, judged from account
+  // state rather than from which apps the current search happened to return.
   for (const [key, row] of byKey) {
-    const services = row.entry?.openConnectorServiceIds;
-    if (row.providerItem || !row.entry || !services || services.length < 2) continue;
-    const listedApps = services.filter((serviceId) => byKey.has(`provider:${serviceId}`));
-    if (listedApps.length === services.length && !row.entry.nativeBinding) {
+    const entry = row.entry;
+    const services = entry?.openConnectorServiceIds;
+    if (row.providerItem || !entry || !services || services.length < 2) continue;
+    if (!entry.nativeBinding && services.every((serviceId) => byKey.has(`provider:${serviceId}`))) {
       byKey.delete(key);
       continue;
     }
-    if (listedApps.length === 0 || row.phase === "loading") continue;
-    if (row.phase === "configured" && !services.every((serviceId) => connectedKeys.has(serviceId))) {
+    if (row.phase === "configured" && !services.every((serviceId) => serviceId === entry.nativeBinding || connectedKeys.has(serviceId))) {
       byKey.set(key, { ...row, connected: false, phase: "partial" });
     }
   }
@@ -377,17 +376,17 @@ function ScopedIntegrationCatalogDirectory({
     return () => { alive.current = false; refreshEpoch.current++; catalogEpoch.current++; controller.current.abort(); window.removeEventListener("focus", focus); };
   }, [refreshProvider, connectionRevision]);
   // Search the sibling catalog, not just the first loaded page. Stale query responses stay fenced.
+  const catalogRequestKey = `${search}\0${readiness === "ready" || readiness === "supported" ? "ready" : "all"}`;
   useEffect(() => {
-    const query = `${search}\0${readiness === "ready" || readiness === "supported" ? "ready" : "all"}`;
-    if (previousQuery.current === query) return;
-    previousQuery.current = query;
+    if (previousQuery.current === catalogRequestKey) return;
+    previousQuery.current = catalogRequestKey;
     catalogEpoch.current++;
     setProviderItems([]); setCatalogCursor(null); setCatalogHasMore(false);
     if (actorId === null) return;
     setCatalogLoading(true);
     const timer = window.setTimeout(() => { void loadProviderCatalogPage({ reset: true }); }, 250);
     return () => window.clearTimeout(timer);
-  }, [search, readiness, actorId, loadProviderCatalogPage]);
+  }, [catalogRequestKey, actorId, loadProviderCatalogPage]);
   const oauth = useIntegrationOAuth({ actorId, onVerified: () => { if (active()) { void refreshProvider(); setVerifiedRevision((value) => value + 1); onOAuthComplete?.(); } } });
   const connectingKey = externalConnectingKey ?? oauth.connectingKey;
 
