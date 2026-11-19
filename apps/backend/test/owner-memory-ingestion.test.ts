@@ -99,6 +99,14 @@ describe("context import from another assistant", () => {
     expect(((await foreign.json()) as { sources: unknown[] }).sources).toEqual([]);
   });
 
+  it("refuses an oversized paste at the route before the body is buffered", async () => {
+    const env = fixture();
+    const response = await importContext(env, { assistant: "chatgpt", content: "x".repeat(70_000) });
+    expect(response.status).toBe(413);
+    expect(((await response.json()) as { error: string }).error).toMatch(/too large/);
+    expect(env.objects.size).toBe(0);
+  });
+
   it("refuses an unknown assistant, an empty paste, and active markup", async () => {
     const env = fixture();
     expect((await importContext(env, { assistant: "bard", content: "hello" })).status).toBe(400);
