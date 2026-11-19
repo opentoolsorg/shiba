@@ -35,12 +35,13 @@ export function getSsoConfig(env: SsoEnv) {
   const conflicting: string[] = [];
   const presetName = env.SSO_OIDC_PRESET?.trim().toLowerCase() || undefined;
   const preset = presetName && Object.hasOwn(SSO_OIDC_PRESETS, presetName) ? presetName as SsoOidcPreset : undefined;
-  const configuredIssuer = env.SSO_OIDC_ISSUER?.trim().replace(/\/+$/, "") || undefined;
+  const suppliedIssuer = env.SSO_OIDC_ISSUER?.trim() || undefined;
+  const configuredIssuer = suppliedIssuer?.replace(/\/+$/, "");
   let issuer: string | undefined;
   if (presetName && !preset) {
     missing.push("SSO_OIDC_PRESET");
   } else if (preset) {
-    if (configuredIssuer && configuredIssuer !== SSO_OIDC_PRESETS[preset].issuer) conflicting.push("SSO_OIDC_PRESET", "SSO_OIDC_ISSUER");
+    if (suppliedIssuer && configuredIssuer !== SSO_OIDC_PRESETS[preset].issuer) conflicting.push("SSO_OIDC_PRESET", "SSO_OIDC_ISSUER");
     else issuer = SSO_OIDC_PRESETS[preset].issuer;
   } else if (configuredIssuer && isValidIssuer(configuredIssuer)) {
     issuer = configuredIssuer;

@@ -503,7 +503,7 @@ export async function handleBetterAuth(
     const enabled = enabledBetterAuthProviderIds(env);
     const sso = getSsoConfig(env);
     return Response.json({ providers: { google: enabled.includes("google"), slack: enabled.includes("slack") },
-      sso: { enabled: sso.enabled, displayName: sso.displayName } }, {
+      sso: { enabled: getSsoReadiness(env).ready, displayName: sso.displayName } }, {
       headers: { "Cache-Control": "no-store" },
     });
   }

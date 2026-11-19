@@ -104,9 +104,12 @@ describe("SSO configuration and domain policy", () => {
     expect(getSsoConfig({ ...preset, SSO_OIDC_PRESET: "google-workspace", SSO_OIDC_DISPLAY_NAME: "Example Inc" }).displayName).toBe("Example Inc");
     expect(getSsoConfig({ ...complete, SSO_OIDC_PRESET: "google-workspace", SSO_OIDC_ISSUER: `${GOOGLE_ISSUER}/` })).toMatchObject({ enabled: true, issuer: GOOGLE_ISSUER });
   });
-  it("rejects a preset that conflicts with an explicit issuer", () => {
-    expect(getSsoConfig({ ...complete, SSO_OIDC_PRESET: "google-workspace" })).toMatchObject({ enabled: false, issuer: undefined,
+  it.each([complete.SSO_OIDC_ISSUER, "/", "//", "accounts.google.com"])("rejects a preset beside a different explicit issuer %s", value => {
+    expect(getSsoConfig({ ...complete, SSO_OIDC_PRESET: "google-workspace", SSO_OIDC_ISSUER: value })).toMatchObject({ enabled: false, issuer: undefined,
       missing: [], conflicting: ["SSO_OIDC_PRESET", "SSO_OIDC_ISSUER"] });
+  });
+  it("treats a blank explicit issuer beside the preset as unset", () => {
+    expect(getSsoConfig({ ...complete, SSO_OIDC_PRESET: "google-workspace", SSO_OIDC_ISSUER: "  " })).toMatchObject({ enabled: true, issuer: GOOGLE_ISSUER });
   });
   it.each(["okta", "__proto__", "constructor"])("rejects unknown preset %s", value => {
     expect(getSsoConfig({ ...complete, SSO_OIDC_PRESET: value })).toMatchObject({ enabled: false, issuer: undefined, missing: ["SSO_OIDC_PRESET"] });
@@ -127,17 +130,26 @@ describe("SSO configuration and domain policy", () => {
   });
   it("publishes only the display name and enabled state for configured SSO", async () => {
     const response = await handleBetterAuth(new Request(`${BASE}/api/auth/social-providers`), { ...complete,
-      BETTER_AUTH_SECRET: "s".repeat(32), SSO_OIDC_DISPLAY_NAME: "Company Identity" });
+      BETTER_AUTH_SECRET: "s".repeat(32), AGENT_AUDIT: {} as D1Database, SSO_OIDC_DISPLAY_NAME: "Company Identity" });
     expect(await response?.json()).toEqual({ providers: { google: false, slack: false },
       sso: { enabled: true, displayName: "Company Identity" } });
   });
   it("publishes only the preset display name, never issuer or client values", async () => {
     const { SSO_OIDC_ISSUER: _issuer, ...preset } = complete;
     const response = await handleBetterAuth(new Request(`${BASE}/api/auth/social-providers`), { ...preset, SSO_OIDC_PRESET: "google-workspace",
-      BETTER_AUTH_SECRET: "s".repeat(32) });
+      BETTER_AUTH_SECRET: "s".repeat(32), AGENT_AUDIT: {} as D1Database });
     const body = await response?.text() ?? "";
     expect(JSON.parse(body)).toEqual({ providers: { google: false, slack: false }, sso: { enabled: true, displayName: "Google Workspace" } });
     for (const value of [GOOGLE_ISSUER, "accounts.google.com", "client", "fixture-secret", "google-workspace"]) expect(body).not.toContain(value);
+  });
+  it("hides preset SSO when the auth store is missing, matching setup readiness and the handler", async () => {
+    const { SSO_OIDC_ISSUER: _issuer, ...preset } = complete;
+    const env: BetterAuthLaneEnv = { ...preset, SSO_OIDC_PRESET: "google-workspace", BETTER_AUTH_SECRET: "s".repeat(32) };
+    expect(getSsoReadiness(env)).toMatchObject({ ready: false, missing: ["AGENT_AUDIT"] });
+    const options = await handleBetterAuth(new Request(`${BASE}/api/auth/social-providers`), env);
+    expect(await options?.json()).toMatchObject({ sso: { enabled: false } });
+    const signIn = await handleBetterAuth(post("sign-in/social", { provider: "sso", callbackURL: `${BASE}/app/` }), env);
+    expect(signIn?.status).toBe(503);
   });
   it.each([{}, { SHIBA_SSO_ENABLED: "1" }])("hides incomplete or disabled SSO without discovery or a database", async env => {
     const response = await handleBetterAuth(new Request(`${BASE}/api/auth/social-providers`), { ...env, BETTER_AUTH_SECRET: "s".repeat(32) });

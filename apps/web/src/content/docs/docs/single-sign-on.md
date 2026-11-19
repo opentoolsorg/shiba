@@ -27,9 +27,9 @@ Register the following redirect URI with the identity provider, replacing the or
 https://shiba.example.com/api/auth/callback/sso
 ```
 
-Discovery uses `<issuer>/.well-known/openid-configuration`. A disabled flag or incomplete settings hides the sign-in button. Setting `SSO_OIDC_PRESET` together with a different `SSO_OIDC_ISSUER` is rejected as a conflict, and an unknown preset is treated as invalid; either way SSO stays off.
+Discovery uses `<issuer>/.well-known/openid-configuration`. A disabled flag or incomplete settings hides the sign-in button. Setting `SSO_OIDC_PRESET` together with any non-blank `SSO_OIDC_ISSUER` other than the preset's issuer is rejected as a conflict, and an unknown preset is treated as invalid; either way SSO stays off.
 
-`/api/setup/status` reports an `sso` entry with `configured`, `missing`, and `conflicting` setting names; it never returns credential values. `sso.enabled` is true only when the sign-in handler will actually mount, which also needs `BETTER_AUTH_SECRET` (at least 32 characters) and the `AGENT_AUDIT` database binding, so those names appear in `missing` when absent. When the flag is on, the setup doctor reports the same readiness.
+`/api/setup/status` reports an `sso` entry with `configured`, `missing`, and `conflicting` setting names; it never returns credential values. `sso.enabled` is true only when the sign-in handler will actually mount, which also needs `BETTER_AUTH_SECRET` (at least 32 characters) and the `AGENT_AUDIT` database binding, so those names appear in `missing` when absent. When the flag is on, the setup doctor reports the same readiness, and the sign-in button appears only when it is ready.
 
 ## Account and workspace policy
 
