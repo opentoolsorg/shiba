@@ -25,7 +25,9 @@ import type { AgentMascotLook, CustomAgentMascotPreset } from "./agent-mascot.js
 
 export {
   AGENT_MASCOT_ACCS,
+  AGENT_MASCOT_BRAND_FURS,
   AGENT_MASCOT_EYES,
+  AGENT_MASCOT_ROLE_LOOKS,
   AGENT_MASCOT_FRIENDLY_EYES,
   AGENT_MASCOT_FURS,
   AGENT_MASCOT_SHAPES,

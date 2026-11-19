@@ -5,6 +5,7 @@ import type { AppNavView } from "./AppNavRail";
 import { providerPhaseLabel } from "./provider-phase";
 import { ToneChip } from "./ToneChip";
 import { EMPLOYEE_TEMPLATES, type EmployeeTemplate } from "../employee-templates";
+import { AgentAvatar } from "./AgentAvatar";
 import { ModelRouteCard } from "./SetupCards";
 import type { OnboardingDraft } from "../onboarding-draft";
 
@@ -595,9 +596,10 @@ export function FirstRunWizard({
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {EMPLOYEE_TEMPLATES.map((template) => (
               <article key={template.id} className="border border-[var(--border-1)] bg-[var(--bg)] p-3">
-                <h3 className="text-[13px] font-medium text-[var(--text)]">
-                  {template.config.emoji} {template.label}
-                </h3>
+                <div className="flex items-center gap-2">
+                  <AgentAvatar id={template.slug} name={template.label} role={template.id} size={24} decorative />
+                  <h3 className="text-[13px] font-medium text-[var(--text)]">{template.label}</h3>
+                </div>
                 <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
                   {template.description}
                 </p>

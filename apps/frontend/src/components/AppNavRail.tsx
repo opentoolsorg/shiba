@@ -273,7 +273,7 @@ export function AppNavRail({
           aria-label="Shiba Home"
           className="shiba-shell-icon"
         >
-          <ShibaMark className="size-7" />
+          <ShibaMark className="size-7" decorative />
         </a>
         {sheet ? (
           <>
@@ -497,7 +497,7 @@ export function AppNavRail({
             aria-expanded={accountOpen}
             onClick={() => setAccountOpen(!accountOpen)}
           >
-            <ShibaMark className="size-6" />
+            <ShibaMark className="size-6" decorative />
           </button>
           {accountOpen ? (
             <div
