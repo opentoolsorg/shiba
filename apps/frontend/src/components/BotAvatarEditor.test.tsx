@@ -1,14 +1,14 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AGENT_AVATAR_COATS, AGENT_AVATAR_VARIANTS } from "@shiba/shared";
+import { AGENT_AVATAR_COATS, AGENT_AVATAR_VARIANTS, type AgentAvatarChoice } from "@shiba/shared";
 import type { EmployeeRole } from "../employee-templates";
 import { AgentAvatar } from "./AgentAvatar";
 import { BotAvatarEditor, textOnCoat } from "./BotAvatarEditor";
 
 afterEach(cleanup);
 
-const save = () => vi.fn<(choice: { kind: "variant"; variant: string; color: string }) => void>();
+const save = () => vi.fn<(choice: AgentAvatarChoice) => void>();
 const cancel = vi.fn();
 
 describe("bot avatar editor", () => {
@@ -31,8 +31,7 @@ describe("bot avatar editor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save avatar" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     const choice = onSave.mock.calls[0]![0];
-    expect(choice.color).toBe(AGENT_AVATAR_COATS[4]);
-    expect(choice.kind).toBe("variant");
+    expect(choice).toMatchObject({ kind: "variant", color: AGENT_AVATAR_COATS[4] });
   });
 
   it("shuffles to a different variant and stays stable while the dialog is open", () => {
