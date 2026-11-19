@@ -146,13 +146,14 @@ export async function handleEmailTaskRequest(
   }
 
   const dashboard = slackCanvasUrl(env.WORKER_HOSTNAME);
+  const approvalsUrl = dashboard && new URL("/approvals/", dashboard).href;
   const card: ApprovalCardInput = {
     threadKey,
     approvalId: queued.approvalId,
     repoUrl: parsed.repoUrl,
     task: `Emailed by ${message.authorId}: ${redactSecrets(parsed.task)}\nOpen the dashboard to see the full frozen input.`,
     employeeLabel: employee,
-    ...(dashboard ? { canvasUrl: dashboard } : {}),
+    ...(approvalsUrl ? { canvasUrl: approvalsUrl } : {}),
   };
   const slackChannel = env.SLACK_APPROVALS_CHANNEL?.trim();
   const slackToken = env.SLACK_BOT_TOKEN?.trim();
@@ -169,7 +170,7 @@ export async function handleEmailTaskRequest(
       "Your request is waiting for approval. Nothing runs until an approver accepts it in the Shiba dashboard or Slack.",
       "",
       `Approval: ${queued.approvalId}`,
-      ...(dashboard ? [`Open Shiba: ${dashboard}`] : []),
+      ...(approvalsUrl ? [`Open Shiba Approvals: ${approvalsUrl}`] : []),
       "",
       "Replying to this email cannot approve or reject the request.",
     ].join("\n"),

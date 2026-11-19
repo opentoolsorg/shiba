@@ -243,7 +243,7 @@ describe("email task lane", () => {
       native: { from: MAILBOX },
     });
     expect(h.posts[0]!.text).toContain(`Approval: ${APPROVAL_ID}`);
-    expect(h.posts[0]!.text).toContain("Open Shiba: https://shiba.example/app/");
+    expect(h.posts[0]!.text).toContain("Open Shiba Approvals: https://shiba.example/approvals/");
     expect(h.posts[0]!.text).toContain(
       "Replying to this email cannot approve or reject the request.",
     );
