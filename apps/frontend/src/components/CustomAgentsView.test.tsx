@@ -559,7 +559,7 @@ describe("account-scoped employee directory", () => {
 
   it("keeps the avatar editor open across a version conflict so the same draft can be saved again", async () => {
     let version = 1;
-    let avatar: unknown;
+    let avatar: CustomAgentWire["config"]["avatar"];
     let patches = 0;
     const agent = (): CustomAgentWire => ({ id: "finance", slug: "finance", version, config: { name: "Finance", instructions: "Finance tasks", harness: "opencode", ...(avatar ? { avatar } : {}) } });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -572,7 +572,7 @@ describe("account-scoped employee directory", () => {
       if (url.endsWith("/finance") && (init?.method ?? "GET") === "PATCH") {
         patches += 1;
         if (patches === 1) return Response.json({ error: "version_conflict" }, { status: 409 });
-        const sent = JSON.parse(String(init?.body)) as { config: { avatar?: unknown } };
+        const sent = JSON.parse(String(init?.body)) as { config: CustomAgentWire["config"] };
         avatar = sent.config.avatar;
         version += 1;
         return Response.json({ agent: agent() });
