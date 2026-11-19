@@ -1,6 +1,7 @@
 import type { Env } from "./env.js";
 import { updateExtensionSkill } from "./extension-skills-store.js";
 import { type ResolvedOrgAuth, resolveOrgForApiRequest } from "./org-request-auth.js";
+import { dismissLearningCheckIn, listLearningCheckIns } from "./ports/learning/check-ins.js";
 import { d1LearningPort } from "./ports/learning/d1-adapter.js";
 import { LEARNING_TURN_OPTIONS, parseLearningTurnSetting } from "./ports/learning/index.js";
 import {
@@ -18,23 +19,25 @@ function canManageLearning(auth: ResolvedOrgAuth): boolean {
   return true;
 }
 
-/** `/api/learning/settings` and `/api/learning/suggestions[/:id/(apply|dismiss)]`. */
 export async function handleLearning(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   const match = url.pathname.match(
-    /^\/api\/learning\/(settings|suggestions)(?:\/([^/]+)\/(apply|dismiss))?\/?$/,
+    /^\/api\/learning\/(settings|suggestions|check-ins)(?:\/([^/]+)\/(apply|dismiss))?\/?$/,
   );
   if (!match)
     return url.pathname.startsWith("/api/learning")
       ? Response.json({ error: "not_found" }, { status: 404 })
       : null;
   const isRead = request.method === "GET";
+  const checkIns = match[1] === "check-ins";
+  if (checkIns && request.headers.has("authorization"))
+    return Response.json({ error: "authentication_required" }, { status: 401 });
   if (!isRead) {
     const csrf = requireSameOriginBrowserMutation(request);
     if (csrf) return csrf;
   }
   const auth = await resolveOrgForApiRequest(request, env, {
-    allowMemberWrite: match[1] === "suggestions",
+    allowMemberWrite: match[1] === "suggestions" || checkIns,
   });
   if (auth instanceof Response) return auth;
   if (auth.principal && (isRead ? !requireV1Read(auth.principal) : !requireV1Write(auth.principal)))
@@ -71,6 +74,20 @@ export async function handleLearning(request: Request, env: Env): Promise<Respon
   const ownerId =
     auth.workspace?.userId ?? auth.principal?.principal ?? (await resolveUserId(request, env));
   if (!ownerId) return Response.json({ error: "authentication_required" }, { status: 401 });
+  if (checkIns) {
+    if (isRead && !match[2]) {
+      return Response.json(
+        { checkIns: await listLearningCheckIns(env.AGENT_AUDIT, workspaceId, ownerId) },
+        { headers: noStore },
+      );
+    }
+    if (request.method !== "POST" || match[3] !== "dismiss" || !match[2])
+      return Response.json({ error: "method_not_allowed" }, { status: 405 });
+    const dismissed = await dismissLearningCheckIn(env.AGENT_AUDIT, workspaceId, ownerId, match[2]);
+    return dismissed
+      ? Response.json({ status: "dismissed" }, { headers: noStore })
+      : Response.json({ error: "not_found" }, { status: 404 });
+  }
   if (!match[2]) {
     if (!isRead) return Response.json({ error: "method_not_allowed" }, { status: 405 });
     return Response.json(

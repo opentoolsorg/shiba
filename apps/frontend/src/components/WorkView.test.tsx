@@ -8,6 +8,7 @@ import { WorkView } from "./WorkView";
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   window.history.replaceState(null, "", "/");
 });
 
@@ -70,6 +71,28 @@ const sharedTask: TeamWorkItem = {
 };
 
 describe("WorkView", () => {
+  it("offers scoped check-ins on the Work list with no action except dismiss", async () => {
+    const task = "Review the weekly support ticket backlog";
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (!url.startsWith("/api/learning/check-ins")) return new Response(null, { status: 404 });
+      return init?.method === "POST"
+        ? Response.json({ status: "dismissed" })
+        : Response.json({ checkIns: [{ id: "check-1", task }] });
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<WorkView workspaceId="workspace-1" sharedTasks={[]} />);
+    const checkIns = await screen.findByRole("region", { name: "Learning check-ins" });
+    expect(within(checkIns).getByText(task)).toBeTruthy();
+    expect(within(checkIns).getByText(/No routine was created/)).toBeTruthy();
+    const buttons = within(checkIns).getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    fireEvent.click(within(checkIns).getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(screen.queryByText(task)).toBeNull());
+    expect(fetch).toHaveBeenCalledWith("/api/learning/check-ins/check-1/dismiss", expect.objectContaining({
+      method: "POST",
+      headers: { "X-Shiba-Workspace": "workspace-1" },
+    }));
+  });
   it("derives published PRs from pullUrl, excludes archived runs and separates unsuccessful runs", () => {
     const base = mockRuns[2]!;
     render(<WorkView runs={[

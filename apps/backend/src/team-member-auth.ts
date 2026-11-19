@@ -45,6 +45,7 @@ const workspaceApi = [
   /^\/api\/workspace-integrations(?:\/|$)/,
   /^\/api\/(?:custom-agents|employee-bundles|skills)(?:\/|$)/,
   /^\/api\/employee-tools(?:\/|$)/,
+  /^\/api\/learning\/check-ins(?:\/[a-f0-9-]{36}\/dismiss)?\/?$/,
   /^\/api\/v1\/extensions\/skills(?:\/|$)/,
   /^\/api\/onboarding\/progress(?:\/team-task)?\/?$/,
   /^\/api\/governance(?:\/|$)/,

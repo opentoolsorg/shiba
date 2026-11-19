@@ -8,11 +8,15 @@ import { reportError } from "./observability.js";
 import { redactSecrets } from "./security.js";
 
 const jobRunners = {
-  "learning.sweep": async (env: Env) => {
+  "learning.sweep": async (env: Env, scheduledAt: number) => {
     if (env.AGENT_AUDIT === undefined) return;
     const learning = await import("./ports/learning/review.js");
     const { d1LearningPort } = await import("./ports/learning/d1-adapter.js");
-    await learning.sweepIdleLearningThreads(env, d1LearningPort(env.AGENT_AUDIT));
+    const { sweepLearningCheckIns } = await import("./ports/learning/check-ins.js");
+    await Promise.all([
+      learning.sweepIdleLearningThreads(env, d1LearningPort(env.AGENT_AUDIT)),
+      sweepLearningCheckIns(env, scheduledAt),
+    ]);
   },
   "founder.stripe": async (env: Env) => (await import("./founder-stripe-runtime.js")).tickFounderStripeReads(env),
   "founder.meta": async (env: Env) => (await import("./founder-meta-runtime.js")).tickFounderMetaReads(env),

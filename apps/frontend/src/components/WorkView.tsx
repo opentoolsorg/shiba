@@ -6,6 +6,7 @@ import { isTeamWorkAssignedToViewer, selectTeamWorkItems, type TeamWorkItem, tea
 import type { RetainedRun, StoredApproval } from "../types";
 import { type PendingApproval as ChatPendingApproval, parseRepoName, statusLabel } from "../ui-helpers";
 import type { WorkTaskPatch } from "../work-mutations";
+import { LearningCheckIns } from "./LearningCheckIns";
 import { parseWorkSearch, updateWorkSearch, type WorkPeekTab, type WorkSearchState, type WorkTaskKind } from "../work-search";
 import type { SessionItem } from "./SessionsSidebar";
 import { type TaskDetailAgent, TaskDetailPanel } from "./TaskDetailPanel";
@@ -430,6 +431,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
       {/* Main body by view */}
       {activeView === "list" ? (
         <section aria-label="List view" className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 flex flex-col">
+          <LearningCheckIns />
           {tasks.length === 0 ? (
             <div className="flex min-h-[280px] flex-1 flex-col items-center justify-center p-8 text-center select-none">
               <ListChecks
@@ -634,6 +636,7 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
           ) : null}
           {view === "list" ? (
             <section aria-label="List view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+              <div className="px-4"><LearningCheckIns workspaceId={props.workspaceId} /></div>
               <WorkListView agents={agents} tasks={tasks} selectedId={selected?.id} onOpen={onTaskChange} onToggleDone={toggleDone} />
             </section>
           ) : view === "board" ? (
