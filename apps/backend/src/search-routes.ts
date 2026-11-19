@@ -6,9 +6,23 @@ import { getTeamWorkspaceMembership, normalizeTeamWorkspaceEmail } from "./team-
 import { searchPaletteBots } from "./palette-store.js";
 import { searchWorkspace, type WorkspaceSearchHit, type WorkspaceSearchKind } from "./workspace-search-store.js";
 import { hybridKnowledgeSearch } from "./knowledge/knowledge-search.js";
+import type { KnowledgeSearchHit } from "@shiba/shared";
 
 const json = (body: unknown, status = 200, extra?: Record<string, string>) =>
   Response.json(body, { headers: { "content-type": "application/json; charset=utf-8", ...extra }, status });
+
+/** The palette answers on keystroke time; knowledge yields rather than delay chat and task hits. */
+export const KNOWLEDGE_DEADLINE_MS = 600;
+
+export async function knowledgeWithinDeadline(work: Promise<KnowledgeSearchHit[]>): Promise<KnowledgeSearchHit[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), KNOWLEDGE_DEADLINE_MS); });
+  try {
+    return (await Promise.race([work, deadline])) ?? [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 const KINDS: Record<string, readonly WorkspaceSearchKind[]> = {
   chats: ["room", "message"],
@@ -74,8 +88,10 @@ export async function handleSearch(request: Request, env: Env): Promise<Response
     const [hits, bots, knowledgeHits] = await Promise.all([
       parsed.kinds.length ? searchWorkspace(env, workspaceId, q, userId, limit, parsed.kinds) : Promise.resolve([]),
       parsed.bots ? searchPaletteBots(env, workspaceId, orgId, userId, q, limit) : Promise.resolve([]),
-      // Knowledge is additive: an indexing outage must not hide task and chat results.
-      parsed.knowledge ? hybridKnowledgeSearch(env, userId, workspaceId, q, Math.min(limit, 8)).catch(() => []) : Promise.resolve([]),
+      // Knowledge is additive: an indexing outage or a slow embedding must not hide or delay task and chat results.
+      parsed.knowledge
+        ? knowledgeWithinDeadline(hybridKnowledgeSearch(env, userId, workspaceId, q, Math.min(limit, 8)).catch(() => []))
+        : Promise.resolve([]),
     ]);
     const tookMs = Date.now() - started;
     const tasks = hits.filter((hit) => hit.kind === "task").map((hit) => ({

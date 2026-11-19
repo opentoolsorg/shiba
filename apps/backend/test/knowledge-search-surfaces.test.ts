@@ -4,6 +4,7 @@ import type { Env } from "../src/env.js";
 import { insertFileRecord } from "../src/files/files-store.js";
 import { runIngestionJob } from "../src/knowledge/knowledge-ingestion.js";
 import { ftsMatchExpression, hybridKnowledgeSearch } from "../src/knowledge/knowledge-search.js";
+import { KNOWLEDGE_DEADLINE_MS, knowledgeWithinDeadline } from "../src/search-routes.js";
 import { createToolRegistry } from "../src/mcp-gateway.js";
 import { registerKnowledgeSearchTool } from "../src/knowledge/knowledge-tool.js";
 import { handleSearch } from "../src/search-routes.js";
@@ -124,5 +125,29 @@ describe("knowledge_search MCP tool", () => {
     expect(body.hits.map((hit) => hit.sourceName)).toEqual(["launch-plan.md"]);
     const outsider = await tool!.handler({ query: "falcon" }, { principal: { principal: "eve@example.test", orgId: `team:${f.workspaceId}` } } as never);
     expect(JSON.parse((outsider.content[0] as { text: string }).text).hits).toEqual([]);
+  });
+});
+
+describe("palette knowledge deadline", () => {
+  it("returns knowledge hits when the embedding answers in time", async () => {
+    await expect(knowledgeWithinDeadline(Promise.resolve([{ chunkId: "c1" }] as never))).resolves.toEqual([{ chunkId: "c1" }]);
+  });
+
+  it("yields an empty list rather than hold the palette on a stalled embedding", async () => {
+    const started = Date.now();
+    await expect(knowledgeWithinDeadline(new Promise(() => {}))).resolves.toEqual([]);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(KNOWLEDGE_DEADLINE_MS - 20);
+  });
+
+  it("still answers task search when the knowledge branch stalls", async () => {
+    const f = await fixture();
+    const stall = { ...f.env, AI: { run: () => new Promise(() => {}) } } as unknown as Env;
+    const started = Date.now();
+    const response = await handleSearch(new Request("https://dashboard.test/api/search?q=falcon&types=tasks,knowledge", {
+      headers: { "X-Shiba-Workspace": f.workspaceId },
+    }), stall);
+    expect(response?.status).toBe(200);
+    expect(Date.now() - started).toBeLessThan(KNOWLEDGE_DEADLINE_MS + 1500);
+    expect((await response?.json() as { knowledge: unknown[] }).knowledge).toEqual([]);
   });
 });
