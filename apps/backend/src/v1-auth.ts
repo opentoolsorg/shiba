@@ -47,10 +47,10 @@ const DASHBOARD_API_SCOPES = [...API_KEY_SCOPES] as Scope[];
 
 export async function authorizeV1ApiKey(request: Request, env: Env): Promise<V1Principal | Response> {
   const bearer = bearerToken(request);
-  const record = bearer && await resolveBearerRecord(env, bearer);
-  if (!record || record.kind !== "api_key" ||
+  const record = bearer ? await resolveBearerRecord(env, bearer) : null;
+  if (record?.kind !== "api_key" ||
     !record.scopes.some((scope) => (API_KEY_SCOPES as readonly string[]).includes(scope))) return v1Unauthorized();
-  if (await apiKeyRateLimited(env, record, request)) return v1TooManyRequests();
+  if (await apiKeyRateLimited(env, record)) return v1TooManyRequests();
   return { principal: record.principal, orgId: orgIdForRecord(record), scopes: record.scopes, apiKey: record };
 }
 
@@ -97,7 +97,7 @@ const API_KEY_RATE_LIMIT = 120;
 const API_KEY_RATE_WINDOW_MS = 60_000;
 
 /** Returns true when the API key has exceeded its per-minute request budget. */
-export async function apiKeyRateLimited(env: Env, record: TokenRecord, request: Request): Promise<boolean> {
+async function apiKeyRateLimited(env: Env, record: TokenRecord): Promise<boolean> {
   const kv = env.AGENT_TOKENS;
   if (!kv || record.kind !== "api_key" || !record.keyId) return false;
   const window = Math.floor(Date.now() / API_KEY_RATE_WINDOW_MS);
