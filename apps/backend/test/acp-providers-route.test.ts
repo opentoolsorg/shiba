@@ -67,6 +67,11 @@ describe("worker /api/providers", () => {
       "copilot",
       "kimi",
       "meta",
+      "deepseek",
+      "zai",
+      "minimax",
+      "qwen",
+      "mistral",
     ]);
     expect(body.providers.find((provider) => provider.id === "claude")?.protocol).toBe("acp");
   });

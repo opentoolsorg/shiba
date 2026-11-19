@@ -240,6 +240,41 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
     defaultModel: "meta/muse-spark-1.3", docsUrl: "https://dev.meta.ai/docs/quickstart", oauth: false, subscription: null, credentialEnv: [],
   },
+  {
+    id: "deepseek", label: "DeepSeek",
+    blurb: "DeepSeek platform key. OpenCode talks to api.deepseek.com; egress attaches the key and the sandbox only sees a placeholder.",
+    adapter: "opencode-acp", packageName: "opencode-ai", license: "see package",
+    harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
+    defaultModel: "deepseek/deepseek-chat", docsUrl: "https://platform.deepseek.com/api_keys", oauth: false, subscription: null, credentialEnv: [],
+  },
+  {
+    id: "zai", label: "Z.ai (GLM)",
+    blurb: "Z.ai platform key for the GLM models. Paste it here; the Worker attaches it at egress on api.z.ai.",
+    adapter: "opencode-acp", packageName: "opencode-ai", license: "see package",
+    harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
+    defaultModel: "zai/glm-5.3", docsUrl: "https://z.ai/manage-apikey/apikey-list", oauth: false, subscription: null, credentialEnv: [],
+  },
+  {
+    id: "minimax", label: "MiniMax",
+    blurb: "MiniMax platform key for the M-series models. Keys and M Plan subscription keys both work here.",
+    adapter: "opencode-acp", packageName: "opencode-ai", license: "see package",
+    harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
+    defaultModel: "minimax/MiniMax-M3", docsUrl: "https://platform.minimax.io/docs/api-reference/api-overview", oauth: false, subscription: null, credentialEnv: [],
+  },
+  {
+    id: "qwen", label: "Qwen (Model Studio)",
+    blurb: "Alibaba Model Studio key, international DashScope OpenAI-compatible endpoint. Qwen coder models run through OpenCode ACP.",
+    adapter: "opencode-acp", packageName: "opencode-ai", license: "see package",
+    harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
+    defaultModel: "qwen/qwen3-coder-plus", docsUrl: "https://www.alibabacloud.com/help/en/model-studio/get-api-key", oauth: false, subscription: null, credentialEnv: [],
+  },
+  {
+    id: "mistral", label: "Mistral",
+    blurb: "Mistral La Plateforme key. Devstral and Mistral models run through OpenCode ACP; the key stays on the Worker.",
+    adapter: "opencode-acp", packageName: "opencode-ai", license: "see package",
+    harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
+    defaultModel: "mistral/devstral-medium-latest", docsUrl: "https://console.mistral.ai/api-keys", oauth: false, subscription: null, credentialEnv: [],
+  },
 ];
 
 const BY_ID = new Map(ACP_PROVIDER_REGISTRY.map((provider) => [provider.id, provider]));

@@ -73,6 +73,11 @@ describe("user provider key egress", () => {
   it.each([
     ["kimi", "api.kimi.ai", "/coding/v1/chat/completions"],
     ["meta", "api.meta.ai", "/v1/chat/completions"],
+    ["deepseek", "api.deepseek.com", "/v1/chat/completions"],
+    ["zai", "api.z.ai", "/api/paas/v4/chat/completions"],
+    ["minimax", "api.minimax.io", "/v1/chat/completions"],
+    ["qwen", "dashscope-intl.aliyuncs.com", "/compatible-mode/v1/chat/completions"],
+    ["mistral", "api.mistral.ai", "/v1/chat/completions"],
   ] as const)("attaches a saved %s plan key at %s and never the container placeholder", async (kind, host, path) => {
     const kv = new FakeKV();
     const deployment = env(kv);

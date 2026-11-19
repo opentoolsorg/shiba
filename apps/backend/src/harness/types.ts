@@ -60,6 +60,11 @@ export const PROVIDER_HOSTS: Record<string, string> = {
   "github-copilot": "api.githubcopilot.com",
   "kimi-code": "api.kimi.ai",
   meta: "api.meta.ai",
+  deepseek: "api.deepseek.com",
+  zai: "api.z.ai",
+  minimax: "api.minimax.io",
+  qwen: "dashscope-intl.aliyuncs.com",
+  mistral: "api.mistral.ai",
   // OpenCode Go is a key-authenticated subscription endpoint (spec
   // MODEL-CONNECTIONS-ARCHITECTURE.md §3). Its API key is held as an AI
   // Gateway BYOK credential for the opencode-go custom provider; the
@@ -129,6 +134,11 @@ export const PROVIDER_KEY_ENV: Record<string, string> = {
   "github-copilot": "COPILOT_API_KEY",
   "kimi-code": "KIMI_API_KEY",
   meta: "MODEL_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  zai: "ZAI_API_KEY",
+  minimax: "MINIMAX_API_KEY",
+  qwen: "DASHSCOPE_API_KEY",
+  mistral: "MISTRAL_API_KEY",
   // OpenCode Go authenticates with its issued API key; the container holds
   // the dummy and the gateway injects the real one at egress.
   "opencode-go": "OPENCODE_GO_API_KEY",

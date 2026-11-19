@@ -88,6 +88,7 @@ export async function assertModelRunPreflight(
     openai: "openai-api", anthropic: "anthropic-api", google: "google", xai: "xai",
     openrouter: "openrouter", groq: "groq", "github-copilot": "copilot", opencode: "opencode",
     "kimi-code": "kimi", meta: "meta",
+    deepseek: "deepseek", zai: "zai", minimax: "minimax", qwen: "qwen", mistral: "mistral",
   };
   const keyKind = personalKinds[params.codingModel.split("/")[0]!];
   const personalKey = params.initiatorUserId && keyKind
