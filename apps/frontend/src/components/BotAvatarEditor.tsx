@@ -9,7 +9,6 @@ import {
   type AgentAvatarChoice,
   type AgentAvatarCoat,
 } from "@shiba/shared";
-import { AgentAvatar } from "./AgentAvatar";
 import { AgentMascot } from "./AgentMascot";
 
 const ACC_LABEL: Record<string, string> = {
@@ -67,6 +66,23 @@ export function BotAvatarEditor({ name, current, busy = false, error = null, onS
       if (event.key === "Escape" && !busy) {
         event.stopPropagation();
         onCancel();
+        return;
+      }
+      // aria-modal promises a trap, so Tab cycles inside the dialog and never
+      // wanders into the page behind it.
+      if (event.key !== "Tab" || !dialog.current) return;
+      const focusable = [...dialog.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )].filter((node) => node.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     };
     document.addEventListener("keydown", onKey);
@@ -114,7 +130,9 @@ export function BotAvatarEditor({ name, current, busy = false, error = null, onS
                 {AGENT_AVATAR_COATS.indexOf(coat as AgentAvatarCoat) >= 0 ? `Coat ${AGENT_AVATAR_COATS.indexOf(coat as AgentAvatarCoat) + 1} of ${AGENT_AVATAR_COATS.length}` : "Custom colour"}
               </p>
             </div>
-            <div className="flex size-14 shrink-0 items-center justify-center"><AgentAvatar id="preview" name={name || "Bot"} size={44} live={false} decorative /></div>
+            <div className="flex size-11 shrink-0 items-center justify-center" aria-hidden="true">
+              <AgentMascot look={preview} expression={preview.eyes} />
+            </div>
           </div>
 
           <div role="tablist" aria-label="Avatar sources" className="flex gap-1 border-b border-[var(--border-1)] pb-1">

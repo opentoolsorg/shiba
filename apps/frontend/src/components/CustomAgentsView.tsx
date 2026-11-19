@@ -339,7 +339,15 @@ function ScopedCustomAgentsView({
       });
       const body = (await response.json().catch(() => ({}))) as { error?: string; agent?: CustomAgentWire };
       if (response.status === 409) {
-        setAvatarError("This bot changed since you opened it. Reload the latest version, then pick the avatar again.");
+        // Pull the fresh version so the same draft can be saved again, and say
+        // that the retry will keep the one field this dialog owns.
+        const latest = await fetch(`/api/custom-agents/${encodeURIComponent(agent.id)}`, { headers: teamWorkspaceHeaders(workspaceId) })
+          .then((reply) => reply.json() as Promise<{ agent?: CustomAgentWire }>)
+          .catch(() => ({}) as { agent?: CustomAgentWire });
+        if (latest.agent) setAvatarEditorFor(latest.agent);
+        setAvatarError(latest.agent
+          ? `This bot changed since you opened it. The latest version (v${latest.agent.version}) is loaded — save again to keep your avatar and leave their changes intact.`
+          : "This bot changed since you opened it. Reload the latest version, then pick the avatar again.");
         return;
       }
       if (!response.ok || !body.agent) {
