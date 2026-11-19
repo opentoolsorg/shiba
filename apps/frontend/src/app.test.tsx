@@ -1213,7 +1213,7 @@ describe("bot page without a thread", () => {
   const engineeringThreadRecord = { id: ENGINEERING_THREAD, name: "Flaky test triage", agentName: `web:test-operator:${ENGINEERING_THREAD}`, createdAt: 2, updatedAt: 2, metadata: { customAgentId: engineering.id } };
 
   /** Two bots; Research always has a thread, Engineering only when asked. */
-  function stubBots(resume?: () => Promise<Response>, engineeringThread?: boolean) {
+  function stubBots(resume?: (path: string) => Promise<Response>, engineeringThread?: boolean) {
     const originalFetch = fetch;
     const request = vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
       const path = String(url);
@@ -1221,7 +1221,7 @@ describe("bot page without a thread", () => {
       if (path === "/api/custom-agents" && options?.method !== "POST") return Response.json({ agents: [research, engineering] });
       if (path === "/api/sessions" && options?.method === "POST") return Response.json({ status: 201, session: { id: "55555555-5555-4555-8555-555555555555", name: "Engineering bot", agentName: "web:test-operator:55555555-5555-4555-8555-555555555555", createdAt: 5, updatedAt: 5, metadata: { customAgentId: engineering.id } } });
       if (path === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: engineeringThread ? [researchThread, engineeringThreadRecord] : [researchThread], defaultSessionId: "default" });
-      if (/^\/api\/sessions\/[^/]+\/resume$/.test(path)) return resume ? resume() : Response.json({ session: researchThread, resumed: true });
+      if (/^\/api\/sessions\/[^/]+\/resume$/.test(path)) return resume ? resume(path) : Response.json({ session: researchThread, resumed: true });
       if (path === "/api/agents") return Response.json({ agents: [] });
       if (path === "/api/approvals") return Response.json({ approvals: [], decided: [] });
       if (path.startsWith("/api/runs")) return Response.json({ runs: [] });
@@ -1278,7 +1278,66 @@ describe("bot page without a thread", () => {
     await screen.findByRole("heading", { name: /Engineering bot's thread could not be opened/ });
     // The bot and its session commit together: no Research composer survives under this bot.
     expect(screen.queryByTestId("task-composer")).toBeNull();
+    expect(screen.queryByTestId("chat-composer")).toBeNull();
     await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+    // The keyboard send shortcut reaches nothing here either.
+    mocks.chat.sendMessage.mockClear();
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("stays inert while a bot's thread opens and never sends the previous draft", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    stubBots(async (path) => {
+      if (!path.includes(ENGINEERING_THREAD)) return Response.json({ resumed: true });
+      await held;
+      return Response.json({ session: engineeringThreadRecord, resumed: true });
+    }, true);
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+
+    await openBotFromAgentsView(/Engineering bot/);
+    await screen.findByRole("heading", { name: /Opening Engineering bot/ });
+    expect(screen.queryByTestId("task-composer")).toBeNull();
+    expect(screen.queryByTestId("chat-composer")).toBeNull();
+    mocks.chat.sendMessage.mockClear();
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+
+    await act(async () => { release?.(); await held; });
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
+  });
+
+  it("does not call a superseded resume a failure", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    // Engineering's resume hangs, then fails after Research is selected again.
+    stubBots(async (path) => {
+      if (!path.includes(ENGINEERING_THREAD)) return Response.json({ resumed: true });
+      await held;
+      return new Response(JSON.stringify({ error: "late failure" }), { status: 503, headers: { "Content-Type": "application/json" } });
+    }, true);
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+
+    await openBotFromAgentsView(/Engineering bot/);
+    await screen.findByRole("heading", { name: /Opening Engineering bot/ });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+    await act(async () => { release?.(); await held; });
+    await act(async () => { await Promise.resolve(); });
+
+    // The newer Research selection owns the page; the stale failure is not narrated.
+    expect(screen.queryByRole("heading", { name: /could not be opened/ })).toBeNull();
+    expect(await screen.findByTestId("chat-composer")).toBeTruthy();
   });
 
   it("drops a resume reply that lands after a newer bot was opened", async () => {
@@ -1358,7 +1417,10 @@ describe("bot run outputs across a thread switch", () => {
     // The held answer means the old file is still in memory; it must not be
     // relabelled with the session that has not answered yet.
     await panel.findByText(/Loading this bot's captured files/);
-    expect(panel.queryByRole("link", { name: "Download reports/first.md" })).toBeNull();
+    // Nothing anywhere on the page — panel or the conversation's own Deliverables
+    // card — offers the retained file under the session that has not answered.
+    expect(screen.queryAllByRole("link").map((anchor) => anchor.getAttribute("href") ?? "").join(" ")).not.toContain(THREAD_B);
+    expect(screen.queryByRole("link", { name: "Download reports/first.md" })).toBeNull();
 
     await act(async () => { release?.(); await held; });
   });

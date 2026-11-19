@@ -457,7 +457,7 @@ export function App(): React.JSX.Element {
   // or its thread did not answer. Both are their own states — the surface shows
   // the bot and one Start action, and the previous bot's thread chrome, composer
   // and draft stay off screen.
-  const [botPage, setBotPage] = useState<"chat" | "empty" | "unavailable">("chat");
+  const [botPage, setBotPage] = useState<"chat" | "pending" | "empty" | "unavailable">("chat");
   // Every selection takes a ticket; an answer that arrives after a newer
   // selection threw its ticket away is dropped.
   const sessionSelectionSeq = useRef(0);
@@ -1505,7 +1505,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     };
   }, [privateDataEnabled, orchestratorName]);
   // Inspectors need the retained details; other surfaces use the summary projection.
-  const { runs: retainedRuns, error: runsError, detailReady: runsDetailReady, listSettled, runsSession } =
+  const { runs: fetchedRuns, error: runsError, detailReady: runsDetailReady, listSettled, runsSession } =
     useRetainedRuns(
       refreshToken,
       selectedSessionId,
@@ -1513,6 +1513,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       mainView === "diff" || mainView === "work",
       privateDataEnabled,
     );
+  // Rows outlive the session they were read from, so every consumer reads this
+  // one gated list: while another session's answer is pending, a run from the
+  // previous session is not on screen to be linked, reviewed or measured.
+  const runsStale = runsSession !== null && runsSession !== selectedSessionId;
+  const retainedRuns = runsStale ? [] : fetchedRuns;
   useEffect(() => {
     if (!privateDataEnabled) {
       setTaskHistoryItems([]); setTaskHistoryError(null); setTaskHistoryLoading(false);
@@ -1829,6 +1834,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const submitTask = useCallback(
     async (event?: React.FormEvent, options?: { forceWork?: boolean; customAgentId?: string }) => {
       if (threadLinkPending) return;
+      // A bot page that is opening, empty or failed has no committed conversation
+      // to send into; the keyboard shortcut reaches here too.
+      if (botPage !== "chat" && !options?.customAgentId) return;
       const selectedCustomAgentId = options?.customAgentId ?? customAgentId;
       if (event) event.preventDefault();
       if (submitInFlight.current || clearInFlight.current || attachmentsUploadingRef.current) return;
@@ -2735,8 +2743,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const liveSession = sessions.find((session) => session.id === selectedSessionId) ?? sessions[0];
 
   const handleSelectSession = useCallback(
-    async (id: string): Promise<boolean> => {
-      if (!privateDataEnabled) return false;
+    async (id: string): Promise<"ok" | "failed" | "superseded"> => {
+      if (!privateDataEnabled) return "failed";
       const selectionScope = activeSurfaceScopeRef.current;
       const selectionTicket = ++sessionSelectionSeq.current;
       const session = visibleWebSessions.find((item) => item.id === id);
@@ -2746,18 +2754,18 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         setSelectedRunId(id);
         setMobileSessionsOpen(false);
         setMainView("analytics");
-        return false;
+        return "ok";
       }
       if (session && id !== "default") {
         try {
           const response = await fetch(`/api/sessions/${encodeURIComponent(id)}/resume`, {
             method: "POST",
           });
-          if (activeSurfaceScopeRef.current !== selectionScope) return false;
+          if (activeSurfaceScopeRef.current !== selectionScope) return "superseded";
           if (response.status === 404 || response.status === 405) {
             if (response.status === 404 && (await isSessionNotFoundBody(response))) {
-              if (activeSurfaceScopeRef.current !== selectionScope) return false;
-              if (selectionTicket !== sessionSelectionSeq.current) return false;
+              if (activeSurfaceScopeRef.current !== selectionScope) return "superseded";
+              if (selectionTicket !== sessionSelectionSeq.current) return "superseded";
               // Real session-not-found: the API is healthy, this item is stale.
               // Prune it and land on the default session — don't mark the
               // sessions API unavailable or select the dead session.
@@ -2768,24 +2776,26 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               setSelectedRunId(null);
               setMainView("threads");
               setNotice("That session no longer exists — it was removed from the list.");
-              return false;
+              return "failed";
             }
             // Older backends lack the resume route: degrade to local selection
             // instead of blocking the switch.
-            if (activeSurfaceScopeRef.current !== selectionScope) return false;
+            if (activeSurfaceScopeRef.current !== selectionScope) return "superseded";
             setSessionApiAvailable(false);
           } else if (!response.ok) {
             throw new Error(`Could not resume session: ${response.status}`);
           }
         } catch (error) {
-          if (activeSurfaceScopeRef.current !== selectionScope) return false;
+          if (activeSurfaceScopeRef.current !== selectionScope) return "superseded";
+          // A stale failure must not narrate over a newer selection.
+          if (selectionTicket !== sessionSelectionSeq.current) return "superseded";
           setNotice(error instanceof Error ? error.message : String(error));
-          return false;
+          return "failed";
         }
       }
-      if (activeSurfaceScopeRef.current !== selectionScope) return false;
+      if (activeSurfaceScopeRef.current !== selectionScope) return "superseded";
       // A newer click already owns the surface; this reply is stale.
-      if (selectionTicket !== sessionSelectionSeq.current) return false;
+      if (selectionTicket !== sessionSelectionSeq.current) return "superseded";
       pushThreadUrl();
       setSelectedSessionId(id);
       writeRememberedSessionId(id);
@@ -2794,7 +2804,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setSelectedRunId(null);
       setBotPage("chat");
       setMainView("threads");
-      return true;
+      return "ok";
     },
     [visibleWebSessions, privateDataEnabled, pushThreadUrl],
   );
@@ -2920,11 +2930,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     setAgentDetailsOpen(true);
     setMainView("threads");
     if (latest) {
-      setBotPage("chat");
-      // The session and the bot commit together: a failed resume must not leave
-      // the previous bot's composer live under this bot's name.
-      void handleSelectSession(latest.id).then((opened) => {
-        if (!opened) setBotPage("unavailable");
+      // Nothing from the previous bot stays actionable while its session opens:
+      // a failed or slow resume must not leave another bot's composer live here.
+      setBotPage("pending");
+      const opening = handleSelectSession(latest.id);
+      const ticket = sessionSelectionSeq.current;
+      void opening.then((result) => {
+        // A newer selection owns the surface; it decides what shows.
+        if (ticket !== sessionSelectionSeq.current) return;
+        if (result === "failed") setBotPage("unavailable");
       });
     } else {
       // No thread is this bot's own state, not a reason to keep the last bot's
@@ -2980,7 +2994,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // Rows stay on screen while the next scope loads, so a run's link must carry
   // the session its own answer came from — not the one just selected.
   const runsSourceSession = runsSession ?? selectedSessionId;
-  const runsStale = runsSession !== null && runsSession !== selectedSessionId;
   // Runs are stored per session and the deliverable route reads only the session
   // it is given, so every captured file carries the conversation that owns it.
   const botRunOutputs = useMemo(() => botRuns.flatMap((run) => (run.deliverables ?? []).map((file, index) => ({
@@ -3640,7 +3653,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     look={chatAgent.look}
                     avatar={chatAgent.avatar}
                     busy={threadLinkPending}
-                    unavailable={botPage === "unavailable"}
+                    state={botPage}
                     onStart={() => void startSidebarAgentThread(activeEmployee)}
                   />
                 ) : (
@@ -4171,9 +4184,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     loading: localComputersLoading,
                     error: localComputersError,
                   }}
-                  runs={runsStale ? [] : botRunRows}
+                  runs={botRunRows}
                   pendingApprovals={botPendingApprovals}
-                  runOutputs={runsStale ? [] : botRunOutputs}
+                  runOutputs={botRunOutputs}
                   runsScope={botRunsScope}
                   onOpenRun={(runId) => { setSelectedRunId(runId); setMainView("analytics"); }}
                   onOpenApprovals={() => setMainView("approvals")}

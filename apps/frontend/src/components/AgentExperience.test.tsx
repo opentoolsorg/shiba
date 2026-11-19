@@ -564,6 +564,16 @@ describe("threadless bot page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start a thread with Engineering bot" }));
     expect(onStart).toHaveBeenCalledOnce();
   });
+
+  it("is inert while the bot's thread opens and says so when it could not open", () => {
+    const onStart = vi.fn();
+    const { rerender } = render(<BotThreadlessState name="Engineering bot" state="pending" onStart={onStart} />);
+    expect(screen.getByRole("heading", { name: "Opening Engineering bot…" })).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+    rerender(<BotThreadlessState name="Engineering bot" state="unavailable" onStart={onStart} />);
+    expect(screen.getByRole("heading", { name: "Engineering bot's thread could not be opened" })).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
 });
 
 describe("bot run scope", () => {
