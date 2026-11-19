@@ -2,6 +2,10 @@ import { generateText, type LanguageModel, type UIMessage } from "ai";
 
 const MAX_SUGGESTIONS = 3;
 const MAX_SUGGESTION_LENGTH = 140;
+const CACHE_LIMIT = 200;
+const CACHE_TTL_MS = 10 * 60_000;
+const WINDOW_MS = 60 * 60_000;
+const WINDOW_LIMIT = 30;
 
 const STARTER_INSTRUCTIONS = [
   "Suggest exactly 3 short prompts a person could send to start a conversation with Shiba, an AI coworker that answers questions and plans work.",
@@ -17,27 +21,86 @@ const FOLLOW_UP_INSTRUCTIONS = [
   'Reply with only JSON in this exact shape: {"prompts":["...","...","..."]}',
 ].join(" ");
 
-/** Up to three next prompts for a chat thread; any failure yields an empty list. */
-export async function suggestChatPrompts(tail: UIMessage[], model: () => LanguageModel): Promise<Response> {
-  const transcript = tail.slice(-8)
-    .filter((message) => message.role === "user" || message.role === "assistant")
-    .map((message) => `${message.role === "user" ? "Person" : "Shiba"}: ${message.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n").trim().slice(-2000)}`)
-    .filter((line) => !line.endsWith(": "));
+/** Last suggestions per owner and transcript, so a revisit never pays for the same answer twice. */
+const results = new Map<string, { suggestions: string[]; at: number }>();
+/** Generations per owner in the current window; the disclosure in the UI says suggestions are automatic. */
+const windows = new Map<string, { start: number; count: number }>();
+
+/** Only a browser's own page may ask for suggestions; a cross-site or server-side POST would spend inference for someone else. */
+export function isSameOriginRequest(request: Request): boolean {
+  const site = request.headers.get("Sec-Fetch-Site");
+  if (site && site !== "same-origin" && site !== "none") return false;
+  const origin = request.headers.get("Origin");
+  if (!origin) return false;
+  try {
+    return new URL(origin).host === new URL(request.url).host;
+  } catch {
+    return false;
+  }
+}
+
+/** Up to three next prompts for a chat thread; any refusal or failure yields an empty list. */
+export async function suggestChatPrompts(
+  tail: UIMessage[],
+  model: () => LanguageModel,
+  owner: string,
+  now = Date.now(),
+): Promise<Response> {
+  const lines = transcriptLines(tail);
+  const key = `${owner}\n${lines.join("\n")}`;
+  const cached = results.get(key);
+  if (cached && now - cached.at < CACHE_TTL_MS) return respond(cached.suggestions);
+  if (!spend(owner, now)) return respond([]);
   let suggestions: string[] = [];
   try {
     const result = await generateText({
       model: model(),
-      system: transcript.length ? FOLLOW_UP_INSTRUCTIONS : STARTER_INSTRUCTIONS,
-      prompt: transcript.length ? `<conversation>\n${transcript.join("\n\n")}\n</conversation>` : "Suggest the starter prompts now.",
+      system: lines.length ? FOLLOW_UP_INSTRUCTIONS : STARTER_INSTRUCTIONS,
+      prompt: lines.length ? `<conversation>\n${lines.join("\n\n")}\n</conversation>` : "Suggest the starter prompts now.",
       tools: {},
       maxOutputTokens: 300,
       abortSignal: AbortSignal.timeout(20000),
     });
     suggestions = parseSuggestions(result.text);
+    if (suggestions.length) remember(key, suggestions, now);
   } catch {
     suggestions = [];
   }
+  return respond(suggestions);
+}
+
+function respond(suggestions: string[]): Response {
   return Response.json({ suggestions }, { headers: { "Cache-Control": "no-store" } });
+}
+
+function transcriptLines(tail: UIMessage[]): string[] {
+  return tail.slice(-8)
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .map((message) => `${message.role === "user" ? "Person" : "Shiba"}: ${message.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n").trim().slice(-2000)}`)
+    .filter((line) => !line.endsWith(": "));
+}
+
+function spend(owner: string, now: number): boolean {
+  const current = windows.get(owner);
+  if (!current || now - current.start >= WINDOW_MS) {
+    windows.set(owner, { start: now, count: 1 });
+    return true;
+  }
+  if (current.count >= WINDOW_LIMIT) return false;
+  current.count += 1;
+  return true;
+}
+
+function remember(key: string, suggestions: string[], now: number): void {
+  for (const [existing, entry] of results) if (now - entry.at >= CACHE_TTL_MS) results.delete(existing);
+  if (results.size >= CACHE_LIMIT) results.delete(results.keys().next().value as string);
+  results.set(key, { suggestions, at: now });
+}
+
+/** Test seam: limits and cached results are per isolate, which is enough to bound one caller's spend. */
+export function resetChatSuggestionLimits(): void {
+  results.clear();
+  windows.clear();
 }
 
 export function parseSuggestions(text: string): string[] {
