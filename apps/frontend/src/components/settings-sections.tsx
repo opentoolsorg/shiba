@@ -342,7 +342,7 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
       <ChecklistRow
         label="Hosted models available"
         ok={!status.gateway.hostedAccessStopped}
-        detail={status.gateway.hostedAccessStopped ? "SHIBA_HOSTED_PROVIDER_KILL_SWITCH is on — gateway-funded runs are refused" : "SHIBA_HOSTED_PROVIDER_KILL_SWITCH is off"}
+        detail={status.gateway.hostedAccessStopped ? "SHIBA_HOSTED_PROVIDER_KILL_SWITCH is on — gateway-funded runs are refused; Workers AI features still run" : "SHIBA_HOSTED_PROVIDER_KILL_SWITCH is off"}
       />
       <ChecklistRow
         label="AI Gateway reachable"
@@ -373,9 +373,9 @@ const EXPERIMENTAL_FLAGS: { title: string; summary: string; setup: string; flag:
 const KILL_SWITCHES: { title: string; summary: string; flag: string; effect: string }[] = [
   {
     title: "Hosted models",
-    summary: "Emergency stop for models this deployment pays for through its AI Gateway, and for team model turns.",
+    summary: "Emergency stop for AI Gateway traffic, gateway-backed tasks and team model turns.",
     flag: "SHIBA_HOSTED_PROVIDER_KILL_SWITCH",
-    effect: 'Set to "1" to stop them at once. Personal provider keys, ChatGPT or Claude plans, and paired computers keep working.',
+    effect: 'Set to "1" to stop those at once. Personal provider keys, ChatGPT or Claude plans, and paired computers keep working. It does not stop Workers AI features: chat replies, note chat, summaries, image generation, voice transcription and search indexing still run.',
   },
   {
     title: "Memory summaries",

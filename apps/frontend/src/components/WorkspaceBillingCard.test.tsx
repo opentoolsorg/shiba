@@ -12,7 +12,7 @@ afterEach(() => {
 
 function billing(overrides: Partial<WorkspaceBilling> = {}): WorkspaceBilling {
   return {
-    enabled: true, missing: [], mode: "test", creditedUsd: 25, spentUsd: 5.5, balanceUsd: 19.5, exhausted: false,
+    enabled: true, missing: [], mode: "test", creditedUsd: 25, spentUsd: 5.5, pendingUsd: 0, balanceUsd: 19.5, exhausted: false,
     hasCustomer: true, since: Date.UTC(2026, 10, 1), limits: { minUsd: 5, maxUsd: 500 },
     topUps: [{ id: "cs_1", amountUsd: 25, status: "succeeded", createdAt: Date.UTC(2026, 10, 2), settledAt: Date.UTC(2026, 10, 2) }],
     ...overrides,

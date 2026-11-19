@@ -107,6 +107,7 @@ function BillingBody({ billing, sessionId, sessionApiAvailable }: { billing: Wor
           <div className={`text-2xl font-semibold tabular-nums ${billing.exhausted ? "text-rose-600 dark:text-rose-400" : "text-[#0a0a0a] dark:text-zinc-100"}`}>{usd(billing.balanceUsd)}</div>
           <div className="text-[11px] tabular-nums text-[#71717a] dark:text-zinc-400">
             {usd(billing.creditedUsd)} added · {usd(billing.spentUsd)} used{billing.since !== null ? ` since ${day(billing.since)}` : ""}
+            {billing.pendingUsd > 0 ? ` · ${usd(billing.pendingUsd)} in flight` : ""}
           </div>
         </div>
         <button type="button" className={viewButtonClass} disabled={!billing.hasCustomer || busy !== null} onClick={() => go("portal")}

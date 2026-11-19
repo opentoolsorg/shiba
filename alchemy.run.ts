@@ -190,6 +190,7 @@ export const Worker = Cloudflare.Worker("Worker", {
     SHIBA_PERSONAL_LOCAL_EXECUTION: "0",
     SHIBA_TEAM_MODEL_SESSIONS: "0",
     SHIBA_HOSTED_PROVIDER_KILL_SWITCH: "0",
+    SHIBA_CREDITS_GATE_USER_FUNDED_RUNS: "1",
     SHIBA_ERROR_REPORTING: "none",
     SHIBA_ANALYTICS: "none",
     SHIBA_OPEN_TELEMETRY: "0",
@@ -386,6 +387,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       // Workspace credit top-ups (Stripe Checkout + Portal). Both unset = billing off.
       "STRIPE_SECRET_KEY",
       "STRIPE_WEBHOOK_SECRET",
+      "STRIPE_PORTAL_CONFIGURATION_ID",
       "FOUNDER_META_CREDENTIAL_KEY",
       "FOUNDER_HUBSPOT_CREDENTIAL_KEY",
       "SLACK_APPROVERS",
@@ -503,6 +505,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "SHIBA_PERSONAL_LOCAL_EXECUTION",
       "SHIBA_TEAM_MODEL_SESSIONS",
       "SHIBA_HOSTED_PROVIDER_KILL_SWITCH",
+      "SHIBA_CREDITS_GATE_USER_FUNDED_RUNS",
       "SHIBA_SHARED_COMPUTER",
       "SHIBA_SHARED_COMPUTER_IMAGE",
       "FOUNDER_AUTOMATIC_READS_ENABLED",

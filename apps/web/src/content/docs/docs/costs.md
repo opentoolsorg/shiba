@@ -23,6 +23,10 @@ With both secrets set, **Analytics → Workspace credits** shows the balance and
 
 ## Emergency stop for hosted models
 
-Set `SHIBA_HOSTED_PROVIDER_KILL_SWITCH=1` to stop every model call the installation pays for: AI Gateway provider traffic, gateway-backed runs (refused before an approval is created) and team model turns. People's own provider keys, plan subscriptions and paired computers keep working. **Settings → Providers** tells people while the stop is on.
+Set `SHIBA_HOSTED_PROVIDER_KILL_SWITCH=1` to stop AI Gateway provider traffic, gateway-backed runs (refused before an approval is created), team model turns and the router classifier. People's own provider keys, plan subscriptions and paired computers keep working, so the switch stops the deployment's own spend rather than all inference. **Settings → Providers** tells people while the stop is on.
+
+It does not stop Workers AI, which runs inside the Worker rather than through the gateway: chat replies and read-only specialist turns, note chat, session summaries, learning review, image generation, voice transcription and search embeddings keep working. Stop the deployment entirely if those must halt.
+
+Credits are debited to a ledger when a run finishes, so clearing a task's history never refunds what it cost. Stripe refunds for a top-up remove the credits they reverse. A balance can go negative after a refund if the credits were already spent, and runs stay stopped until it is positive again. Setting `SHIBA_CREDITS_GATE_USER_FUNDED_RUNS=0` lets runs paid for by a plan subscription or a paired computer keep going at zero credits.
 
 The [self-hosting guide](/docs/self-hosting/) covers setup. [Runtime costs and limits](/docs/runtime-limits/) lists the technical references for installation owners.
