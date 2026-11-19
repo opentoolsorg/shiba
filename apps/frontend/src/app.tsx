@@ -52,7 +52,9 @@ import {
   readyConnectionOptions,
   useAgentsDirectory,
   useModelConfig,
+  type SetupStatus,
 } from "./live-status";
+import { chatLookupOptions, selectedChatLookups, type ChatLookupId } from "./chat-lookups";
 import { DashboardView } from "./components/DashboardView";
 import { WorkView, type WorkViewMode } from "./components/WorkView";
 import type { OrganizationEmployee } from "./components/WorkOrganizationView";
@@ -997,6 +999,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         slug: agent.slug,
         emoji: agent.config.emoji,
         mascotPreset: agent.config.mascotPreset,
+        avatar: agent.config.avatar,
         look: agent.config.look,
         roleTemplateId: agent.config.roleTemplateId,
         expectedDeliverables: agent.config.expectedDeliverables,
@@ -1030,6 +1033,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     identityKey: orchestratorName ?? "",
   });
   const [launchBlocked, setLaunchBlocked] = useState(false);
+  const [toolSetup, setToolSetup] = useState<SetupStatus["toolSetup"] | null>(null);
+  const [chatLookupIds, setChatLookupIds] = useState<ChatLookupId[]>([]);
+  const chatLookups = useMemo(() => chatLookupOptions(toolSetup ?? null, chatLookupIds), [toolSetup, chatLookupIds]);
+  // The lookup toggles must not change the submit callback's identity after mount:
+  // StrictMode render retries restore the composer draft against it.
+  const chatLookupsRef = useRef(chatLookups);
+  chatLookupsRef.current = chatLookups;
   useEffect(() => {
     if (!privateDataEnabled) {
       setLaunchBlocked(false);
@@ -1046,6 +1056,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     ])
       .then(([setup, providers]) => {
         if (cancelled) return;
+        setToolSetup((setup as SetupStatus | null)?.toolSetup ?? null);
         const gateway = Boolean(
           setup && typeof setup === "object" && (setup as { gateway?: { token?: boolean } }).gateway?.token,
         );
@@ -1771,6 +1782,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               metadata: {
                 shibaMode: "chat",
                 shibaRoomViewerId: realtimeViewerId,
+                ...(selectedChatLookups(chatLookupsRef.current).length ? { shibaChatTools: selectedChatLookups(chatLookupsRef.current) } : {}),
               },
             });
             finishRealtimeStream(streamId, "complete");
@@ -2819,8 +2831,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   };
   const activeEmployee = customAgentRecords.find((profile) => profile.id === customAgentId);
   const employeeName = activeEmployee?.config.name ?? "Shiba";
-  const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, look: activeEmployee?.config.look, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
-  const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, mascotPreset: record.config.mascotPreset, look: record.config.look, role: employeeRole(record.slug, record.config.roleTemplateId) }));
+  const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, look: activeEmployee?.config.look, avatar: activeEmployee?.config.avatar, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
+  const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, mascotPreset: record.config.mascotPreset, look: record.config.look, avatar: record.config.avatar, role: employeeRole(record.slug, record.config.roleTemplateId) }));
   const showEmployeeOnboarding = !teamWorkspaceId && !restrictedTeamMember && !employeeOnboardingDismissed && !threadsLoading && !customAgentsLoading && !customAgentsError && sessionApiAvailable && customAgentRecords.length === 0 && webSessions.every((session) => session.id === "default") && sessions.every((session) => session.id === "default") && !threadHasWork;
 
   const activeSandboxCount = useMemo(() => {
@@ -3313,6 +3325,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 emoji: profile.config.emoji,
                 defaultRepoUrl: profile.config.defaultRepoUrl,
                 mascotPreset: profile.config.mascotPreset,
+                avatar: profile.config.avatar,
                 look: profile.config.look,
                 role: employeeRole(profile.slug, profile.config.roleTemplateId),
               }))}
@@ -3517,11 +3530,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     </Tooltip>
 
                     <Tooltip content="Shiba Coding Agent" side="bottom">
-                      <img
-                        src="/assets/mascot/pet-logo.png"
-                        alt="Shiba"
-                        className="w-6 h-6 rounded-full bg-white object-contain border border-[var(--primary)]/40 shrink-0 cursor-default"
-                      />
+                      <span className="shrink-0 cursor-default">
+                        <ShibaMark className="size-6" decorative />
+                      </span>
                     </Tooltip>
 <ConversationWorkspaceHeading
                       title={appToolsWork && conversationMode === "work" ? activeWebSession?.name ?? "New app task" : liveSession ? liveSession.title : "New coding task"}
@@ -3825,6 +3836,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         busy={isSubmitting || clearing || threadLinkPending}
                         streaming={chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"}
                         failed={Boolean(chat.error)}
+                        lookups={chatLookups}
+                        onToggleLookup={(id) => setChatLookupIds((current) => current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id])}
                       />
                     </div>
                   ) : (
@@ -4200,6 +4213,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               window.history.pushState(null, "", `/work?${next.toString()}`);
               openView("work");
             }}
+            onOpenKnowledge={() => openView("files")}
             onOpenSettings={(section) => { setSettingsSection(section); openView("settings"); }}
             onOpenNeedsYou={() => openView("work")}
             onToggleTheme={toggleTheme}

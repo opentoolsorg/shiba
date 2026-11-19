@@ -27,13 +27,19 @@ export const Route = createRootRoute({
         content: "Hire AI employees you own. Approve every move. Shiba runs on your own servers, on Cloudflare or any server you choose.",
       },
       { property: "og:type", content: "website" },
-      { property: "og:image", content: "/assets/mascot/pet-logo.png" },
+      // The ASSETS binding answers /app/* ahead of the Worker's own gate, but a
+      // host fronted by Cloudflare Access (ACCESS_EMAILS set) gates it at the
+      // edge too, so only an unproxied deployment serves this to a previewer.
+      { property: "og:image", content: "/app/icon-512.png" },
+      { property: "og:image:width", content: "512" },
+      { property: "og:image:height", content: "512" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:image", content: "/assets/mascot/pet-logo.png" },
+      { name: "twitter:image", content: "/app/icon-512.png" },
       { title: "Shiba · Hire AI employees you own" },
     ],
     links: [
-      { rel: "icon", type: "image/x-icon", href: "/favicon.ico" },
+      { rel: "icon", type: "image/svg+xml", href: "/app/favicon.svg" },
+      { rel: "icon", type: "image/png", sizes: "32x32", href: "/app/favicon-32x32.png" },
       { rel: "apple-touch-icon", sizes: "180x180", href: "/app/apple-touch-icon.png" },
       // use-credentials keeps the Access cookie on the manifest fetch.
       {
