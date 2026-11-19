@@ -20,8 +20,9 @@ export interface RoutineRecord extends RoutineSource {
   skipWhilePending?: boolean;
   nextRunAt?: number | null;
   lastTriggeredAt?: number;
+  lastSkip?: { at: number; reason: string };
   occurrences?: { runId?: string; approvalId?: string; outcome: string }[];
-  triggers: { kind: string; cron?: string; timezone?: string }[];
+  triggers: { kind: string; cron?: string; timezone?: string; runWhen?: string }[];
 }
 export type RoutinePreset = "daily" | "weekdays" | "weekly" | "monthly" | "custom";
 export const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

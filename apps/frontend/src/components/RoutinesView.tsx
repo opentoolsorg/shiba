@@ -111,11 +111,14 @@ export function RoutinesList({ routines, error, onChanged }: { routines: Routine
     {!error && !routines.length ? <p className="text-sm text-[var(--muted-foreground-2)]">No routines yet. Choose “Repeat this…” on a task to schedule recurring work.</p> : null}
     {routines.map((record) => {
       const routine = routineInfo(record);
+      const skipsPending = Boolean(routine.schedule) && record.skipWhilePending !== false;
+      const conditions = new Set(record.triggers.flatMap((trigger) => trigger.runWhen ? [`${trigger.kind}: ${trigger.runWhen}`] : []));
       return <article key={record.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-1)] py-3 text-sm">
         <div className="min-w-0"><h3 className="break-words font-medium">{routine.name}</h3>
           <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">{routine.schedule ? `Repeats ${routineCadence(routine.schedule, routine.timezone).replace(/^Every /, "every ")}` : "Webhook routine"}</p>
           <p className="mt-1 text-xs">{record.enabled ? `Next run: ${routine.nextRunAt ? new Date(routine.nextRunAt).toLocaleString(undefined, { timeZone: routine.timezone }) : "Unavailable"}` : "Paused"}</p>
           <p className="mt-1 text-xs">Last run: {routineOutcome(record.occurrences?.at(-1)?.outcome, Boolean(record.lastTriggeredAt))}</p>
+          {record.lastSkip ? <p className="mt-1 break-words text-xs">Last skip: {record.lastSkip.reason}</p> : null}
           {record.triggers.some((trigger) => trigger.kind === "webhook") ? <div className="mt-2 flex flex-wrap items-center gap-2">
             <code className="break-all">{`${window.location.origin}/api/hooks/${encodeURIComponent(record.id)}`}</code>
             <button type="button" className={control} disabled={busy === record.id} onClick={() => void changeSecret(record.id, "POST")}>Rotate secret</button>
@@ -124,6 +127,20 @@ export function RoutinesList({ routines, error, onChanged }: { routines: Routine
           </div> : null}
         </div>
         <button type="button" role="switch" aria-checked={record.enabled} aria-label={`Enable ${routine.name}`} disabled={busy === record.id} className={control} onClick={() => void toggle(record)}>{record.enabled ? "On" : "Off"}</button>
+        <details className="w-full min-w-0">
+          <summary className={`${control} w-fit cursor-pointer content-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--fg)]`}>Test run (preview only)</summary>
+          <div className="mt-2 space-y-2 break-words text-xs">
+            <p>Nothing was queued or executed. This preview shows saved settings and doesn’t test connected tools or evaluate live conditions.</p>
+            <p className="whitespace-pre-wrap">Saved instructions: {record.prompt}</p>
+            <div className="space-y-1">
+              <p className="font-medium">Skip conditions</p>
+              {!record.enabled ? <p>The routine is paused.</p> : null}
+              {skipsPending ? <p>Scheduled runs skip if a previous run is still waiting for approval.</p> : null}
+              {[...conditions].map((condition) => <p key={condition} className="first-letter:uppercase">{condition} (not evaluated)</p>)}
+              {record.enabled && !skipsPending && !conditions.size ? <p>No skip conditions configured here. Live trigger and safety checks still apply.</p> : null}
+            </div>
+          </div>
+        </details>
         <RoutineHistory record={record} />
       </article>;
     })}
