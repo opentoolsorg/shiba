@@ -74,6 +74,18 @@ describe("ChatSuggestions", () => {
     expect(container.querySelector("[data-testid='chat-composer'] textarea")).not.toBeNull();
   });
 
+  it("does not ask while a draft hides the suggestions, then asks once the composer is cleared", async () => {
+    const fetchMock = respond({ suggestions: ["Explain this"] });
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(<ChatSuggestions agentName="user" refreshKey="empty" hidden onPick={() => {}} />);
+    rerender(<ChatSuggestions agentName="other" refreshKey="empty" hidden onPick={() => {}} />);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
+    rerender(<ChatSuggestions agentName="other" refreshKey="empty" onPick={() => {}} />);
+    await screen.findByRole("button", { name: "Explain this" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("waits out a live stream or recovery before asking, then asks once", async () => {
     const fetchMock = respond({ suggestions: ["Explain this"] });
     vi.stubGlobal("fetch", fetchMock);

@@ -4,12 +4,13 @@ export function chatSuggestionsUrl(agentName: string): string {
   return `/agents/coding-orchestrator/${encodeURIComponent(agentName)}/chat-suggestions`;
 }
 
-/** Suggested next prompts for a chat thread; renders nothing until the backend returns some. */
+/** Suggested next prompts for a chat thread; renders nothing until the backend returns some. Asks only while it could show them, so a prefilled draft never triggers a model call. */
 export function ChatSuggestions({ agentName, refreshKey, busy = false, hidden = false, onPick }: { agentName: string; refreshKey: string; busy?: boolean; hidden?: boolean; onPick: (prompt: string) => void }): JSX.Element | null {
   const [loaded, setLoaded] = useState<{ key: string; suggestions: string[] } | null>(null);
   const key = `${agentName}:${refreshKey}`;
+  const loadedKey = loaded?.key;
   useEffect(() => {
-    if (busy) return;
+    if (busy || hidden || loadedKey === key) return;
     const abort = new AbortController();
     fetch(chatSuggestionsUrl(agentName), { method: "POST", credentials: "include", signal: abort.signal, headers: { "Content-Type": "application/json" }, body: "{}" })
       .then(async (response) => response.ok ? await response.json() as { suggestions?: unknown } : {})
@@ -19,7 +20,7 @@ export function ChatSuggestions({ agentName, refreshKey, busy = false, hidden = 
       })
       .catch(() => { if (!abort.signal.aborted) setLoaded({ key, suggestions: [] }); });
     return () => abort.abort();
-  }, [agentName, key, busy]);
+  }, [agentName, key, busy, hidden, loadedKey]);
   const suggestions = loaded?.key === key ? loaded.suggestions : [];
   if (busy || hidden || !suggestions.length) return null;
   return (
