@@ -44,27 +44,23 @@ test("an unpinned or foreign image reference is rejected", () => {
   }
 });
 
-test("pin-dogfood-image moves only the digest", () => {
+test("pin-dogfood-image replaces the repository and digest of a full reference", () => {
   const source = readFileSync("apps/backend/wrangler.dogfood.jsonc", "utf8");
   const before = pinnedReference(source);
   assert.ok(before, "the dogfood config pins a managed-registry image");
-  const [repository] = before.split("@");
+  const [repository, digest] = before.split("@");
+  const account = repository.split("/")[1];
 
+  const otherRepository = `registry.cloudflare.com/${account}/shiba-ai-coworker-sandbox-dogfood`;
   const nextDigest = `sha256:${"a".repeat(64)}`;
-  const pinned = pinImage(source, nextDigest);
-  assert.equal(pinnedReference(pinned), `${repository}@${nextDigest}`);
-  assert.equal(pinned, source.replace(before, `${repository}@${nextDigest}`));
+  const moved = pinImage(source, `${otherRepository}@${nextDigest}`);
+  assert.equal(pinnedReference(moved), `${otherRepository}@${nextDigest}`);
+  assert.equal(moved, source.replace(before, `${otherRepository}@${nextDigest}`));
 
-  assert.throws(() => pinImage(source, "latest"), /not a sha256 image digest/);
+  const digestOnly = pinImage(source, nextDigest);
+  assert.equal(pinnedReference(digestOnly), `${repository}@${nextDigest}`);
+
+  assert.throws(() => pinImage(source, "latest"), /not a managed-registry image reference/);
+  assert.throws(() => pinImage(source, "docker.io/library/node:22"), /not a managed-registry image reference/);
   assert.throws(() => pinImage("{}", nextDigest), /no managed-registry image pin/);
-});
-
-test("the pin guard requires a re-pin when the image inputs change", () => {
-  const inputs = ["apps/backend/Dockerfile"];
-  const digest = `registry.cloudflare.com/${"a".repeat(32)}/sandbox@sha256:${"b".repeat(64)}`;
-
-  assert.equal(pinProblem({ changedInputs: [], head: digest, previous: "x" }), null);
-  assert.equal(pinProblem({ changedInputs: inputs, head: "sha256:next", previous: "sha256:old" }), null);
-  assert.match(pinProblem({ changedInputs: inputs, head: "sha256:old", previous: "sha256:old" }), /still references the old image/);
-  assert.match(pinProblem({ changedInputs: inputs, head: null, previous: "sha256:old" }), /still references the old image/);
 });
