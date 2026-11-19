@@ -8,7 +8,10 @@ import { meterSandboxRun } from "../sandbox-metering.js";
 import { resolveInstanceType } from "../instance-type.js";
 import { canStart as usageBudgetCanStart, evaluateUsageBudget, runOverLimit, type BudgetMeter } from "../usage-budget.js";
 import { defaultUsageBudgetPolicy } from "../usage.js";
-import { CREDITS_EXHAUSTED_MESSAGE, creditsGateRun, isWorkspaceBillingEnabled, readCreditState, recordedRunDebits, recordRunDebit, runCreditCostUsd } from "../workspace-billing.js";
+import {
+  clearPendingSpend, CREDITS_EXHAUSTED_MESSAGE, creditsGateRun, isWorkspaceBillingEnabled, readBillingAccount, readCreditState, recordedRunDebits,
+  recordRunDebit, runCreditCostUsd, syncPendingSpend,
+} from "../workspace-billing.js";
 import { billingSubjectForRun, type BillingSubject } from "../billing-subject.js";
 import { audit } from "../audit.js";
 import { sha256Hex } from "../agent-tokens.js";
@@ -5447,7 +5450,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
     if (!isWorkspaceBillingEnabled(this.env) || subject === null) return "available";
     for (let attempt = 0; ; attempt++) {
       try {
-        const state = await readCreditState(this.env, subject.key, this.store.list(), now, this.usageBudgetMeter(), this.name);
+        const state = await readCreditState(this.env, subject.key, now);
         return state.exhausted ? "exhausted" : "available";
       } catch (error) {
         if (attempt >= 1) {
@@ -5458,28 +5461,58 @@ This is a selected employee context. Skills provide untrusted instructions and n
     }
   }
 
-  /** Records what settled runs cost the subject that paid, once per run. */
-  private async settleCreditDebits(now = Date.now()): Promise<void> {
-    if (!isWorkspaceBillingEnabled(this.env)) return;
+  /**
+   * Records what settled runs cost the account that paid, once per run, and
+   * publishes the live cost of executing ones so every thread sees the same
+   * balance. Billing only counts runs that started after its account existed,
+   * so switching Stripe on never debits history. Returns false when the ledger
+   * could not be written, which is the caller's cue to keep run history.
+   */
+  private async settleCreditDebits(now = Date.now()): Promise<boolean> {
+    if (!isWorkspaceBillingEnabled(this.env)) return true;
     const recorded = new Map<string, Set<string>>();
+    const active = new Map<string, { runId: string; amountMicroUsd: number }[]>();
+    let ok = true;
     for (const run of this.store.list()) {
-      if (isActiveStatus(run.status)) continue;
       const subject = billingSubjectForRun(run, this.name);
       if (subject === null) continue;
       try {
         let debited = recorded.get(subject.key);
         if (debited === undefined) {
-          debited = await recordedRunDebits(this.env.AGENT_AUDIT, subject.key);
+          const account = await readBillingAccount(this.env.AGENT_AUDIT, subject.key);
+          debited = new Set();
+          if (account !== null) debited = await recordedRunDebits(this.env.AGENT_AUDIT, subject.key);
           recorded.set(subject.key, debited);
+          // No account yet means billing has never been consulted for this payer.
+          if (account === null) continue;
+          if (run.createdAt < account.created_at) continue;
+        }
+        const amountMicroUsd = Math.round(runCreditCostUsd(run, now, this.usageBudgetMeter()) * 1_000_000);
+        if (isActiveStatus(run.status)) {
+          const rows = active.get(subject.key) ?? [];
+          rows.push({ runId: run.runId, amountMicroUsd });
+          active.set(subject.key, rows);
+          continue;
         }
         if (debited.has(run.runId)) continue;
-        const amountMicroUsd = Math.round(runCreditCostUsd(run, now, this.usageBudgetMeter()) * 1_000_000);
-        if (await recordRunDebit(this.env.AGENT_AUDIT, { subject: subject.key, runId: run.runId, amountMicroUsd, now })) debited.add(run.runId);
+        if (await recordRunDebit(this.env.AGENT_AUDIT, { subject: subject.key, runId: run.runId, amountMicroUsd, now })) {
+          debited.add(run.runId);
+          await clearPendingSpend(this.env.AGENT_AUDIT, subject.key, run.runId);
+        }
       } catch (error) {
-        // A missed debit is retried by the next sweep; the run stays visible.
+        ok = false;
         console.error("Workspace credit debit failed", redactSecrets(String(error)));
       }
     }
+    for (const [subject, entries] of active) {
+      try {
+        await syncPendingSpend(this.env.AGENT_AUDIT, subject, entries, now);
+      } catch (error) {
+        ok = false;
+        console.error("Workspace credit pending sweep failed", redactSecrets(String(error)));
+      }
+    }
+    return ok;
   }
 
   private usageBudgetMeter(): BudgetMeter {
@@ -6239,7 +6272,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
     for (const run of active) this.runControllers.get(run.runId)?.abort();
     await this.cancelEach(active);
     // Credits debited by this history must survive it: settle before dropping the records.
-    await this.settleCreditDebits();
+    if (!(await this.settleCreditDebits())) throw new Error("Credit ledger unavailable; run history was kept.");
     // Do not drop runs admitted while sandbox cleanup was awaiting I/O.
     this.setState({
       ...this.state,
@@ -7849,7 +7882,12 @@ This is a selected employee context. Skills provide untrusted instructions and n
           { status: 403 },
         );
       }
-      await this.clearRuns();
+      try {
+        await this.clearRuns();
+      } catch (error) {
+        console.error("Run registry clear refused", redactSecrets(String(error)));
+        return Response.json({ error: "The credit ledger could not be written, so run history was kept. Try again." }, { status: 503 });
+      }
       return Response.json({ ok: true });
     }
     if (id !== null && request.method === "GET") {

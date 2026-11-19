@@ -8,22 +8,18 @@
  * workspace when the request names one the caller belongs to. Both keys are
  * resolved server-side; nothing here trusts a client-supplied owner.
  */
-import { getAgentByName } from "agents/routing";
 import { isTeamWorkspaceId, isValidWorkspaceTopUpUsd, WORKSPACE_TOP_UP_MAX_USD, WORKSPACE_TOP_UP_MIN_USD } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { audit } from "./audit.js";
 import { isAuthorizedRequest } from "./request-auth.js";
 import { resolveRunStoreTarget } from "./runs-routes.js";
-import { readStoreRuns } from "./usage-routes.js";
 import { rejectCrossOriginMutation, rejectNonJsonMutation } from "./dashboard-mutation.js";
-import { meterSandboxRun } from "./sandbox-metering.js";
-import { resolveInstanceType } from "./instance-type.js";
 import { getTeamWorkspaceMembership } from "./team-workspaces-store.js";
 import { COLLAB_WORKSPACE_ID } from "./collaboration-store.js";
 import { logStructured } from "./log.js";
 import { personalBillingSubject, teamBillingSubject, type BillingSubject } from "./billing-subject.js";
 import {
-  closeTopUp, ensureBillingAccount, findTopUp, isWorkspaceBillingEnabled, readWorkspaceBilling, recordPendingTopUp, recordRefund, saveStripeCustomer,
+  closeTopUp, ensureBillingAccount, findTopUp, isWorkspaceBillingEnabled, readBillingAccount, readWorkspaceBilling, recordPendingTopUp, recordRefund, saveStripeCustomer,
   settleTopUp, stripePost, StripeRequestError, verifyStripeSignature,
 } from "./workspace-billing.js";
 
@@ -75,11 +71,7 @@ export async function handleWorkspaceBilling(request: Request, env: Env): Promis
   if (subject instanceof Response) return subject;
 
   if (route === "status") {
-    const runs = await readStoreRuns(request, env, await getAgentByName(env.CodingOrchestrator, resolved.agentName));
-    if (runs instanceof Response) return runs;
-    const now = Date.now();
-    const instanceType = resolveInstanceType(env.INSTANCE_TYPE);
-    return Response.json({ billing: await readWorkspaceBilling(env, subject.key, runs, now, (run, at) => meterSandboxRun(run, at, instanceType), resolved.agentName) });
+    return Response.json({ billing: await readWorkspaceBilling(env, subject.key, Date.now()) });
   }
   if (!isWorkspaceBillingEnabled(env)) return Response.json({ error: "Billing is not configured on this deployment." }, { status: 503 });
   const returnUrl = `${url.origin}/analytics`;
@@ -130,6 +122,7 @@ export async function handleWorkspaceBilling(request: Request, env: Env): Promis
 
 interface CheckoutSessionObject {
   id?: unknown;
+  customer?: unknown;
   amount_total?: unknown;
   payment_status?: unknown;
   payment_intent?: unknown;
@@ -142,10 +135,6 @@ interface RefundChargeObject {
   refunds?: { data?: { id?: unknown; amount?: unknown }[] } | null;
 }
 
-function isTopUpSession(session: CheckoutSessionObject): boolean {
-  return session.metadata?.kind === TOP_UP_KIND && typeof session.metadata.shiba_subject === "string";
-}
-
 /**
  * A paid session with no matching row means the Worker's write was lost. The
  * credits still belong to someone, so record them from the signed event and
@@ -153,11 +142,14 @@ function isTopUpSession(session: CheckoutSessionObject): boolean {
  * else is logged and answered non-2xx so it reaches Stripe's retries.
  */
 async function reconcilePaidSession(env: Env, session: CheckoutSessionObject, sessionId: string, amountMicroUsd: number, paymentIntentId: string | null): Promise<boolean> {
-  if (!isTopUpSession(session)) {
-    logStructured("error", { event: "billing.unmatched_paid_session", detail: `session=${sessionId} reason=missing_metadata` });
+  const subject = session.metadata!.shiba_subject as string;
+  // Signed metadata alone proves nothing: the session must belong to the
+  // customer this Worker already recorded for that subject, or it is not ours.
+  const account = await readBillingAccount(env.AGENT_AUDIT, subject.slice(0, 256));
+  if (account === null || account.stripe_customer_id === null || typeof session.customer !== "string" || session.customer !== account.stripe_customer_id) {
+    logStructured("error", { event: "billing.unmatched_paid_session", detail: `session=${sessionId} reason=foreign_customer` });
     return false;
   }
-  const subject = session.metadata!.shiba_subject as string;
   const publicId = typeof session.metadata?.shiba_topup === "string" ? session.metadata.shiba_topup : `top_${crypto.randomUUID().replaceAll("-", "")}`;
   await recordPendingTopUp(env.AGENT_AUDIT, { publicId, sessionId, subject: subject.slice(0, 256), amountMicroUsd });
   const settled = await settleTopUp(env.AGENT_AUDIT, { sessionId, subject, amountMicroUsd, paymentIntentId });
@@ -180,11 +172,13 @@ async function handleStripeWebhook(request: Request, env: Env): Promise<Response
   }
   const event = JSON.parse(payload) as { id?: string; type?: string; data?: { object?: CheckoutSessionObject & RefundChargeObject } };
   const object = event.data?.object ?? {};
-  if (event.type === "charge.refunded") return handleRefund(env, event.id ?? "", object);
+  if (event.type === "charge.refunded") return handleRefund(env, object);
 
   const session = object as CheckoutSessionObject;
   if (typeof session.id !== "string") return Response.json({ received: true, ignored: true });
-  if (session.metadata?.kind !== undefined && session.metadata.kind !== TOP_UP_KIND) return Response.json({ received: true, ignored: true });
+  // Any other Checkout traffic on this Stripe account is not ours: acknowledge
+  // it so Stripe neither retries nor disables the endpoint.
+  if (session.metadata?.kind !== TOP_UP_KIND) return Response.json({ received: true, ignored: true });
   const paid = event.type === "checkout.session.async_payment_succeeded" ||
     (event.type === "checkout.session.completed" && session.payment_status === "paid");
   if (!paid) {
@@ -210,18 +204,24 @@ async function handleStripeWebhook(request: Request, env: Env): Promise<Response
     : Response.json({ error: "Payment could not be matched to a workspace." }, { status: 500 });
 }
 
-/** A refund removes the credits it reverses; redelivery is a no-op. */
-async function handleRefund(env: Env, eventId: string, charge: RefundChargeObject): Promise<Response> {
+/**
+ * A refund removes the credits it reverses. Stripe's `amount_refunded` is the
+ * running total for the payment, so partials in any order and redeliveries all
+ * reconcile to the same total. A refund for a payment this Worker never
+ * recorded is someone else's Stripe traffic: acknowledge it so Stripe neither
+ * retries nor disables the endpoint.
+ */
+async function handleRefund(env: Env, charge: RefundChargeObject): Promise<Response> {
   const paymentIntentId = typeof charge.payment_intent === "string" ? charge.payment_intent : null;
   const topUp = paymentIntentId === null ? null : await findTopUp(env.AGENT_AUDIT, { paymentIntentId });
-  const refund = charge.refunds?.data?.at(-1);
-  const refundId = typeof refund?.id === "string" ? refund.id : eventId;
-  const amountCents = typeof refund?.amount === "number" ? refund.amount : typeof charge.amount_refunded === "number" ? charge.amount_refunded : null;
-  if (topUp === null || refundId === "" || amountCents === null || amountCents <= 0) {
-    logStructured("error", { event: "billing.unmatched_refund", detail: `refund=${refundId} reason=${topUp === null ? "unknown_payment" : "missing_amount"}` });
-    return Response.json({ error: "Refund could not be matched to a top-up." }, { status: 500 });
+  if (topUp === null || paymentIntentId === null) return Response.json({ received: true, ignored: true });
+  const refundedCents = typeof charge.amount_refunded === "number" ? charge.amount_refunded
+    : typeof charge.refunds?.data?.[0]?.amount === "number" ? charge.refunds.data[0].amount : null;
+  if (refundedCents === null || refundedCents <= 0) {
+    logStructured("error", { event: "billing.unmatched_refund", detail: `payment=${paymentIntentId} reason=missing_amount` });
+    return Response.json({ error: "Refund has no amount." }, { status: 500 });
   }
-  const applied = await recordRefund(env.AGENT_AUDIT, { subject: topUp.subject, refundId, amountMicroUsd: amountCents * 10_000 });
-  logStructured("info", { event: "billing.refund_recorded", detail: `refund=${refundId} applied=${String(applied)}` });
-  return Response.json({ received: true, applied });
+  const removedMicroUsd = await recordRefund(env.AGENT_AUDIT, { subject: topUp.subject, paymentIntentId, refundedSoFarMicroUsd: refundedCents * 10_000 });
+  logStructured("info", { event: "billing.refund_recorded", detail: `payment=${paymentIntentId} removed=${String(removedMicroUsd)}` });
+  return Response.json({ received: true, removedMicroUsd });
 }
