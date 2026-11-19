@@ -8,6 +8,7 @@ const { class: className } = Astro.props;
 
 <figure class:list={['lp-shot', className]}>
   <div class="lp-shot-frame">
+    <slot name="titlebar" />
     <picture>
       <source
         data-theme-source

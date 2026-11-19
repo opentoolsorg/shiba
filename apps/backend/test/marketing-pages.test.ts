@@ -14,6 +14,16 @@ const built = existsSync(join(root, "waitlist", "index.html"));
 describe.skipIf(!built)("new marketing pages", () => {
   const page = (path: string) => readFileSync(join(root, path), "utf8");
 
+  it("explains both approval gates and operator costs in the homepage FAQ and workflow", () => {
+    const html = page("index.html");
+    const faq = html.match(/<section id="faq"[^>]*>([\s\S]*?)<\/section>/)?.[1];
+    expect(faq).toBeDefined();
+    expect(faq).toMatch(/<details[^>]*>\s*<summary[^>]*>Is Shiba free\?<\/summary>/);
+    expect(faq).toContain("You pay for your own hosting and for model usage");
+    expect(faq).toContain("no sandbox starts until you approve that exact request");
+    expect(html).toContain("Pushing changes or opening a pull request requires separate approval");
+  });
+
   it("replaces the shared header self-host CTA with the canonical GitHub stars link", () => {
     for (const route of ["index.html", "why-shiba/index.html", "integrations/index.html", "waitlist/index.html", "blog/index.html"]) {
       const html = page(route);

@@ -12,60 +12,46 @@ const roles = [
 ];
 ---
 
-<section id="employees" class="lp-band lp-cast" aria-labelledby="employees-title">
+<section id="employees" class="lp-section lp-cast" aria-labelledby="employees-title">
   <div class="lp-shell">
-    <div class="lp-cast-head" data-motion="reveal">
-      <div>
-        <p class="lp-eyebrow">Employees</p>
-        <h2 id="employees-title" class="lp-h2">Every department.<br />One workspace.</h2>
+    <div class="lp-cast-board" data-motion="reveal">
+      <div class="lp-cast-head">
+        <h2 id="employees-title" class="lp-h2">Choose a role. Start with one task.</h2>
+        <p class="lp-cast-side">
+          One role, one brief, one thread. Engineering, Marketing, Research and Operations are built-in templates;
+          the others are custom-role examples you can write yourself.
+        </p>
       </div>
-      <p class="lp-cast-side">
-        Four built-in templates: Engineering, Marketing, Research and Operations. Sales, Product, Design and QA are
-        custom-role examples. Add your own instructions for any role.
-      </p>
+
+      <ul class="lp-cast-grid">
+        {
+          roles.map((e) => (
+            <li class="lp-agent">
+              <img class="lp-agent-avatar" src={`/landing/mascots/${e.mascot}.svg`} alt="" width="260" height="240" loading="lazy" decoding="async" />
+              <div class="lp-agent-body">
+                <h3>{e.t} <span class="lp-template-label">{e.kind}</span></h3>
+                <p>{e.d}</p>
+                <p class="lp-deliverables"><span class="visually-hidden">Example outputs: </span>{e.a} · {e.b}</p>
+              </div>
+            </li>
+          ))
+        }
+      </ul>
     </div>
 
-    <div class="lp-cast-grid">
-      {
-        roles.map((e, i) => (
-          <article class="lp-agent-card" data-motion="reveal">
-            <div class="lp-card-top">
-              <span class="lp-template-label">{e.kind}</span>
-              <span aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
-            </div>
-            <div class="lp-avatar">
-              <img src={`/landing/mascots/${e.mascot}.svg`} alt="" width="260" height="240" loading="lazy" decoding="async" />
-            </div>
-            <h3>{e.t}</h3>
-            <p class="lp-role">{e.d}</p>
-            <div class="lp-deliverables">
-              <h4>{i === roles.length - 1 ? 'You define' : 'Example outputs'}</h4>
-              <ul>
-                <li>{e.a}</li>
-                <li>{e.b}</li>
-              </ul>
-            </div>
-          </article>
-        ))
-      }
-    </div>
-
-    <div class="lp-cast-notes">
-      <p>
-        Engineering, Marketing, Research, and Operations have built-in templates. The other roles shown here are
-        examples you can create with custom instructions.
-      </p>
-      <p>
-        Roles use information you supply to prepare drafts. A role alone does not connect accounts, make payments,
-        update external services, or grant permission to publish.
-      </p>
-    </div>
+    <p class="lp-cast-notes">
+      Roles use information you supply to prepare drafts. A role alone does not connect accounts, make payments,
+      update external services, or grant permission to publish.
+    </p>
   </div>
 </section>
 
 <style>
-  .lp-cast {
-    padding-block: 72px;
+  .lp-cast-board {
+    padding: clamp(24px, 4vw, 48px);
+    border: 2px solid var(--lp-ink);
+    background-color: var(--lp-raised);
+    box-shadow: 3px 3px 0 var(--paper-shadow);
   }
 
   .lp-cast-head {
@@ -73,12 +59,12 @@ const roles = [
     flex-wrap: wrap;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 24px;
-    margin-bottom: 40px;
+    gap: 16px 32px;
+    margin-bottom: 32px;
   }
 
   .lp-cast-side {
-    max-width: 340px;
+    max-width: 420px;
     margin: 0;
     color: var(--lp-ink2);
     font-size: 15px;
@@ -87,132 +73,86 @@ const roles = [
   .lp-cast-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 24px;
-  }
-
-  .lp-agent-card {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    padding: 24px;
-    background: var(--lp-card);
-    border: 2px solid var(--lp-ink);
-    border-radius: 0;
-    box-shadow: -3px 3px 0 var(--lp-ink);
-  }
-
-  .lp-card-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    color: var(--lp-ink2);
-    font: 500 12px/1.5 var(--lp-font-mono);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .lp-template-label {
-    padding: 3px 8px;
-    border: 1.5px solid var(--lp-ink);
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
-  .lp-avatar {
-    width: 180px;
-    max-width: 100%;
-    min-height: 160px;
-    display: grid;
-    place-items: center;
-    margin: 16px auto;
-  }
-
-  .lp-avatar img {
-    display: block;
-    width: 150px;
-    max-width: 100%;
-    height: auto;
-  }
-
-  .lp-agent-card h3 {
-    margin: 0 0 10px;
-    color: var(--lp-ink);
-    font: 400 32px/1 var(--lp-font-display);
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-  }
-
-  .lp-role {
-    margin: 0 0 20px;
-    color: var(--lp-ink2);
-    font: 400 13px/1.5 var(--lp-font-mono);
-    text-wrap: pretty;
-  }
-
-  .lp-deliverables {
-    margin-top: auto;
-    padding-top: 16px;
-    border-top: 1.5px dashed var(--lp-line2);
-  }
-
-  .lp-deliverables h4 {
-    margin: 0 0 10px;
-    color: var(--lp-ink2);
-    font: 600 11px/16px var(--lp-font-mono);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
-  .lp-deliverables ul {
-    display: grid;
-    gap: 6px;
+    gap: 4px 32px;
     margin: 0;
     padding: 0;
     list-style: none;
   }
 
-  .lp-deliverables li {
+  .lp-agent {
+    display: flex;
+    gap: 14px;
+    min-width: 0;
+    padding: 18px 0;
+    border-top: 1px solid var(--lp-line);
+  }
+
+  .lp-agent-avatar {
+    flex: none;
+    width: 52px;
+    height: 48px;
+    object-fit: contain;
+  }
+
+  .lp-agent-body { min-width: 0; }
+
+  .lp-agent h3 {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    margin: 0 0 4px;
     color: var(--lp-ink);
-    font: 400 12px/16px var(--lp-font-mono);
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+  }
+
+  .lp-template-label {
+    padding: 1px 6px;
+    border: 1px solid var(--lp-line2);
+    color: var(--lp-ink2);
+    font: 500 10px/1.5 var(--lp-font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .lp-agent p {
+    margin: 0;
+    color: var(--lp-ink2);
+    font-size: 14px;
+    line-height: 1.5;
+    text-wrap: pretty;
+  }
+
+  .lp-agent .lp-deliverables {
+    margin-top: 6px;
+    color: var(--lp-ink);
+    font: 500 12px/1.5 var(--lp-font-mono);
     overflow-wrap: anywhere;
   }
 
   .lp-cast-notes {
-    max-width: 900px;
-    margin-top: 32px;
+    max-width: 760px;
+    margin: 28px 0 0;
     color: var(--lp-ink2);
-    font: 400 12px/16px var(--lp-font-mono);
+    font: 400 12px/1.6 var(--lp-font-mono);
   }
 
-  .lp-cast-notes p {
-    margin: 0 0 12px;
-  }
-
-  .lp-cast-notes p:last-child {
-    margin-bottom: 0;
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   @media (max-width: 1100px) {
-    .lp-cast-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
+    .lp-cast-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 
-  @media (max-width: 560px) {
-    .lp-cast-grid {
-      grid-template-columns: 1fr;
-      gap: 20px;
-    }
-
-    .lp-agent-card {
-      padding: 20px;
-    }
-
-    .lp-agent-card h3 {
-      font-size: 28px;
-    }
+  @media (max-width: 640px) {
+    .lp-cast-grid { grid-template-columns: 1fr; }
   }
 </style>

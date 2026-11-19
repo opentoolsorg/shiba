@@ -5,6 +5,7 @@ import ThemedScreenshot from '../components/landing/ThemedScreenshot.astro';
 import MarketingPage from '../layouts/MarketingPage.astro';
 
 const repoUrl = 'https://github.com/opentoolsorg/shiba';
+const appUrl = 'https://app.tryshiba.dev/tasks/';
 const title = 'Shiba — AI Employees for the Work Behind Your Company';
 const description =
   'Hire AI employees you own. Approve every move. Shiba is open source and runs on your own servers, on Cloudflare or anywhere you deploy. Brief code, design, marketing and ops work, review the plan, and nothing runs until you approve.';
@@ -31,10 +32,45 @@ const schema = [
   },
 ];
 
+const heroHarnesses = ['Claude Code', 'Codex', 'OpenCode', 'Gemini'];
+const harnesses = ['Claude Code', 'Codex', 'OpenCode', 'Cursor', 'Grok', 'Gemini', 'Pi'];
+const surfaces = ['Slack', 'GitHub', 'Linear', 'Telegram', 'Discord', 'MCP'];
+
+const approvalRows = [
+  { k: 'Employee', v: 'Engineering' },
+  { k: 'Repository', v: 'your-org/web' },
+  { k: 'Branch', v: 'shiba/fix-signup-copy' },
+  { k: 'Will do', v: 'Edit files · run tests' },
+];
+
+const scopeRows = [
+  { host: 'github.com/your-org/web', ok: true, note: 'approved' },
+  { host: 'github.com/your-org/billing', ok: false, note: 'refused' },
+  { host: 'api.github.com/user/repos', ok: false, note: 'refused' },
+];
+
+const routines = [
+  { t: 'Nightly lint fixes', w: 'every day' },
+  { t: 'Weekly dependency check', w: 'every Monday' },
+  { t: 'Pull request review', w: 'when a PR opens' },
+];
+
+const homes = [
+  { t: 'In your Cloudflare account', d: 'Deploy the Worker and its supporting services in an account you control.', state: 'Self-hosted', href: '/docs/self-hosting/', cta: 'Self-hosting guide' },
+  { t: 'On computers you pair', d: 'Connect a laptop or server and pick it for local tasks. Pairing a computer never approves work on it.', state: 'On while it runs', href: '/docs/remote-access/', cta: 'Connect a computer' },
+  { t: 'On your machine, for development', d: 'pnpm shiba dev boots the Worker, dashboard and sandbox image locally with Docker.', state: 'Local', href: '/docs/local-development/', cta: 'Local development' },
+];
+
+const plans = [
+  { t: 'ChatGPT plan', d: 'Sign in to Codex with a device code. No gateway token needed.' },
+  { t: 'Claude plan', d: 'Use a paired Claude Code daemon or a Claude setup-token.' },
+  { t: 'Your own keys', d: 'Gemini, Grok, OpenCode or DeepSeek keys, encrypted per user.' },
+];
+
 const steps = [
   { n: '01', t: 'Describe the task', d: 'Name the output: a code change, campaign draft, or account brief. Pick the repository or private workspace it works in.' },
   { n: '02', t: 'Review the proposal', d: 'See the exact files, branch and actions before anything runs. Approve or reject the request.' },
-  { n: '03', t: 'Keep the decision', d: 'Shiba returns a pull request and checks. Publishing and sending stay a separate, human step.' },
+  { n: '03', t: 'Review the results', d: 'Review the files, proposed changes and checks. Pushing changes or opening a pull request requires separate approval.' },
 ];
 
 const rows = [
@@ -45,47 +81,182 @@ const rows = [
   { k: 'Cost', a: 'Seats plus usage', b: 'Free software; hosting and model usage are yours' },
 ];
 
-const controls = [
-  { t: 'Approval before execution', d: 'Every proposed run waits for a human decision.' },
-  { t: 'Runs on your servers', d: 'Self-hosted on Cloudflare or any server you run, not ours.' },
-  { t: 'You choose where work happens', d: 'Coding tasks use a GitHub repository. File work can use a private workspace when artifact storage is configured.' },
-  { t: 'Auditable source', d: 'AGPL-3.0. Read exactly what the agent can do.' },
+const faqs = [
+  { q: 'Is Shiba free?', a: 'The software is free and open source under AGPL-3.0-only. You pay for your own hosting and for model usage, through a plan you already have or your own API keys.' },
+  { q: 'Where does it run?', a: 'In your own Cloudflare account, on computers you pair, or locally for development. Shiba does not host your work for you.' },
+  { q: 'What needs my approval?', a: 'Every proposed run. Queueing a task creates an approval request, and no sandbox starts until you approve that exact request. Publishing and sending stay separate human steps.' },
+  { q: 'Does the sandbox see my model keys?', a: 'No. The container only holds a placeholder. Your real token is attached by the egress proxy outside the container on the way to the provider.' },
+  { q: 'Can it push to any repository?', a: 'No. GitHub traffic is refused until a run is approved for one repository, and requests outside that repository are refused after approval.' },
+  { q: 'Which models can it use?', a: 'Claude Code, Codex, OpenCode, Cursor, Grok, Gemini and Pi harnesses. A connected ChatGPT plan or Claude setup-token runs without a gateway token.' },
 ];
 ---
 <MarketingPage title={title} description={description} path="/" schema={schema}>
-  <div class="landing">
+  <div class="landing home">
     <section class="hero" aria-labelledby="home-title">
       <div class="hero-dots" aria-hidden="true"></div>
       <div class="lp-shell hero-inner" data-motion="hero">
-        <span class="hero-pill">Open source · AGPL-3.0 · Self-hosted</span>
+        <p class="hero-pill"><span class="hero-pill-tag">AGPL-3.0</span> Open source · runs on your servers</p>
         <h1 id="home-title" class="hero-title">
-          Hire AI employees you own.<br />
-          <span class="hero-accent">Approve every move.</span>
+          Meet <img class="hero-mark" src="/landing/shiba-logo.webp" alt="" width="512" height="512" /> Shiba
         </h1>
         <p class="hero-lead">
-          Shiba runs code, design, marketing and ops work on your own servers. Brief it in Slack, review the plan, and nothing executes until you say so.
+          AI employees for marketing, coding, design and QA. They run on
+          {heroHarnesses.map((h, i) => (<><span class="hero-chip">{h}</span>{i < heroHarnesses.length - 2 ? ', ' : i === heroHarnesses.length - 2 ? ' or ' : ''}</>))},
+          can work in your repository, and wait for your approval before anything runs.
         </p>
         <div class="hero-actions">
-          <a class="lp-btn lp-btn-primary" href="https://app.tryshiba.dev/tasks/">Open the app</a>
-          <a class="lp-btn lp-btn-secondary" href="/docs/self-hosting/">Self-host Shiba</a>
+          <a class="lp-btn lp-btn-primary" href={appUrl}>Open the app</a>
           <a class="lp-btn lp-btn-secondary" href={repoUrl} target="_blank" rel="noopener noreferrer">Star on GitHub <span aria-hidden="true">↗</span></a>
         </div>
-        <p class="hero-note">Free to self-host · hosting and model usage cost extra · coding tasks need a GitHub repository</p>
+        <p class="hero-note">Free to self-host. Hosting and model usage are yours. <a href="/docs/self-hosting/">Self-host Shiba <span aria-hidden="true">→</span></a></p>
       </div>
     </section>
 
-    <section id="dashboard" class="dashboard" aria-label="Shiba dashboard">
-      <div class="lp-shell dashboard-inner" data-motion="reveal">
-        <ThemedScreenshot />
+    <section id="dashboard" class="stage" aria-label="Shiba dashboard">
+      <div class="lp-shell">
+        <div class="stage-band" data-motion="reveal">
+          <div class="stage-stickers" aria-hidden="true">
+            <img src="/assets/mascot/shiba-sticker-climbing.webp" alt="" width="512" height="512" loading="lazy" decoding="async" />
+            <img src="/assets/mascot/shiba-sticker-sunglasses.webp" alt="" width="512" height="512" loading="lazy" decoding="async" />
+            <img src="/assets/mascot/shiba-sticker-riding.webp" alt="" width="512" height="512" loading="lazy" decoding="async" />
+          </div>
+          <ThemedScreenshot>
+            <div slot="titlebar" class="window-bar">
+              <span>Shiba · Agents</span>
+              <span>Product screenshot</span>
+            </div>
+          </ThemedScreenshot>
+        </div>
+      </div>
+    </section>
+
+    <section class="works" aria-label="Harnesses and channels">
+      <div class="lp-shell works-inner">
+        <div class="works-row">
+          <span class="works-label">Runs on</span>
+          <ul>{harnesses.map((h) => <li>{h}</li>)}</ul>
+        </div>
+        <div class="works-row">
+          <span class="works-label">Briefed from</span>
+          <ul>{surfaces.map((s) => <li>{s}</li>)}</ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-section statement-wrap" aria-labelledby="statement-title">
+      <div class="lp-shell">
+        <h2 id="statement-title" class="statement" data-motion="reveal">Brief an employee where your team already talks. <span class="statement-quiet">It proposes a run,</span> <span class="token token-wait">waits for your yes</span><span class="statement-quiet">, then hands back</span> <span class="token token-pr">reviewable work</span>.</h2>
       </div>
     </section>
 
     <EmployeeCast />
 
-    <section id="approve" class="lp-section" aria-labelledby="approve-title">
+    <section id="trust" class="lp-section" aria-labelledby="features-title">
+      <div class="lp-shell">
+        <div class="section-head">
+          <h2 id="features-title" class="lp-h2">Capable by design.<br />Never in charge.</h2>
+          <p class="section-side">Controls you can read in the source, not settings you have to find. Sample data below is illustrative.</p>
+        </div>
+        <div class="bento">
+          <article class="tile" data-motion="reveal">
+            <div class="tile-copy">
+              <h3>Nothing runs until you approve</h3>
+              <p>Queueing a task creates an approval request. No sandbox starts until you approve the exact request.</p>
+            </div>
+            <div class="mock">
+              <div class="mock-head"><span class="dot dot-pending"></span>Approval needed</div>
+              <dl class="mock-kv">
+                {approvalRows.map((r) => (<><dt>{r.k}</dt><dd>{r.v}</dd></>))}
+              </dl>
+            </div>
+          </article>
+
+          <article class="tile" data-motion="reveal">
+            <div class="tile-copy">
+              <h3>Keys stay outside the container</h3>
+              <p>The sandbox only ever holds a placeholder. Your real token is attached by the egress proxy on the way out.</p>
+            </div>
+            <div class="mock mock-flow">
+              <div class="flow-box"><span class="flow-label">Sandbox</span><code>Bearer shiba-egress-placeholder</code></div>
+              <span class="flow-arrow" aria-hidden="true">↓</span>
+              <div class="flow-box flow-box-accent"><span class="flow-label">Egress proxy</span><code>attaches your token</code></div>
+              <span class="flow-arrow" aria-hidden="true">↓</span>
+              <div class="flow-box"><span class="flow-label">Model provider</span><code>your plan or key</code></div>
+            </div>
+          </article>
+
+          <article class="tile" data-motion="reveal">
+            <div class="tile-copy">
+              <h3>One repository per run</h3>
+              <p>GitHub traffic is refused until a run is approved for one repository. Everything outside it stays refused.</p>
+            </div>
+            <ul class="mock mock-list">
+              {scopeRows.map((r) => (
+                <li><code>{r.host}</code><span class:list={['state', r.ok ? 'state-ok' : 'state-no']}>{r.note}</span></li>
+              ))}
+            </ul>
+          </article>
+
+          <article class="tile" data-motion="reveal">
+            <div class="tile-copy">
+              <h3>Ask once, repeat on a schedule</h3>
+              <p>Automations request work on a schedule or when something happens. Each request still waits for approval.</p>
+            </div>
+            <ul class="mock mock-list">
+              {routines.map((r) => (
+                <li><span><strong>{r.t}</strong><small>{r.w}</small></span><span class="state state-pending">needs approval</span></li>
+              ))}
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="where" class="lp-section lp-band" aria-labelledby="where-title">
+      <div class="lp-shell">
+        <h2 id="where-title" class="lp-h2 section-title">Run Shiba on infrastructure you control.</h2>
+        <div class="homes">
+          {homes.map((h) => (
+            <article class="home-card" data-motion="reveal">
+              <div class="home-status"><span class="dot dot-ok"></span>{h.state}</div>
+              <h3>{h.t}</h3>
+              <p>{h.d}</p>
+              <a href={h.href}>{h.cta} <span aria-hidden="true">→</span></a>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <section id="models" class="lp-section" aria-labelledby="models-title">
+      <div class="lp-shell">
+        <div class="section-head">
+          <h2 id="models-title" class="lp-h2">Your choice of model, plan, or key.</h2>
+          <p class="section-side">Pick a harness per employee. The container never sees the credential behind it.</p>
+        </div>
+        <div class="plans">
+          {plans.map((p) => (
+            <div class="plan" data-motion="reveal">
+              <h3>{p.t}</h3>
+              <p>{p.d}</p>
+            </div>
+          ))}
+        </div>
+        <div class="free" data-motion="reveal">
+          <p class="free-lead">The software is <strong class="free-word">free</strong></p>
+          <ul class="free-points">
+            <li>Open source, AGPL-3.0-only</li>
+            <li>You pay for hosting and model usage</li>
+          </ul>
+          <a class="free-link" href="/docs/costs/">How costs work <span aria-hidden="true">→</span></a>
+        </div>
+      </div>
+    </section>
+
+    <section id="approve" class="lp-section lp-band" aria-labelledby="approve-title">
       <div class="lp-shell">
         <p class="lp-eyebrow">The approval gate</p>
-        <h2 id="approve-title" class="lp-h2 section-title">Autonomous,<br />not unsupervised.</h2>
+        <h2 id="approve-title" class="lp-h2 section-title">From brief to reviewed work.</h2>
         <ol class="steps">
           {steps.map((s) => (
             <li class="step" data-motion="reveal">
@@ -98,7 +269,7 @@ const controls = [
       </div>
     </section>
 
-    <section id="compare" class="lp-section lp-band" aria-labelledby="compare-title">
+    <section id="compare" class="lp-section" aria-labelledby="compare-title">
       <div class="lp-shell">
         <p class="lp-eyebrow">Why self-host</p>
         <h2 id="compare-title" class="lp-h2 section-title compare-title">Your employees shouldn't live<br />in someone else's account.</h2>
@@ -120,37 +291,31 @@ const controls = [
       </div>
     </section>
 
-    <section id="trust" class="lp-section" aria-labelledby="trust-title">
-      <div class="lp-shell trust" data-motion="reveal">
+    <section id="faq" class="lp-section lp-band" aria-labelledby="faq-title">
+      <div class="lp-shell faq">
         <div>
-          <p class="lp-eyebrow">Trust</p>
-          <h2 id="trust-title" class="lp-h2 trust-title">Capable by design.<br />Never in charge.</h2>
-          <p class="trust-lead">Only controls you can inspect in the source. No badges we haven't earned.</p>
+          <h2 id="faq-title" class="lp-h2">Questions.</h2>
+          <p class="section-side">Short answers about cost, hosting, approvals and your keys. More in the <a href="/docs/troubleshooting/">common questions</a>.</p>
         </div>
-        <ul class="controls">
-          {controls.map((c) => (
-            <li class="control">
-              <span class="control-check" aria-hidden="true">✓</span>
-              <div>
-                <h3>{c.t}</h3>
-                <p>{c.d}</p>
-              </div>
-            </li>
+        <div class="faq-list">
+          {faqs.map((f) => (
+            <details class="faq-item">
+              <summary>{f.q}</summary>
+              <p>{f.a}</p>
+            </details>
           ))}
-        </ul>
+        </div>
       </div>
     </section>
 
     <section id="cta" class="cta" aria-labelledby="cta-title">
-      <div class="cta-dots" aria-hidden="true"></div>
       <div class="lp-shell cta-inner" data-motion="reveal">
-        <img class="cta-logo" src="/landing/shiba-logo.webp" alt="" width="120" height="120" loading="lazy" decoding="async" />
-        <h2 id="cta-title" class="cta-title">Give the next task a clear place to start.</h2>
+        <h2 id="cta-title" class="cta-title">Meet your first <img class="cta-mark" src="/landing/shiba-logo.webp" alt="" width="512" height="512" loading="lazy" decoding="async" /> employee.</h2>
         <p class="cta-lead">Free to self-host. Your servers, your repository, your approval.</p>
-        <div class="cta-actions">
-          <a class="lp-btn cta-btn cta-btn-solid" href="https://app.tryshiba.dev/tasks/">Open the app</a>
-          <a class="lp-btn cta-btn cta-btn-outline" href="/docs/self-hosting/">Self-hosting guide</a>
-          <a class="lp-btn cta-btn cta-btn-outline" href={repoUrl} target="_blank" rel="noopener noreferrer">View on GitHub <span aria-hidden="true">↗</span></a>
+        <div class="hero-actions">
+          <a class="lp-btn lp-btn-primary" href={appUrl}>Open the app</a>
+          <a class="lp-btn lp-btn-secondary" href="/docs/self-hosting/">Self-hosting guide</a>
+          <a class="lp-btn lp-btn-secondary" href={repoUrl} target="_blank" rel="noopener noreferrer">View on GitHub <span aria-hidden="true">↗</span></a>
         </div>
       </div>
     </section>
@@ -174,11 +339,28 @@ const controls = [
     white-space: nowrap;
   }
 
+  .home :global(.lp-btn) { border-radius: 0; box-shadow: 2px 2px 0 var(--paper-shadow); }
+
+  .dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--lp-ink2); }
+  .dot-ok { background: var(--ok); }
+  .dot-pending { background: var(--pending); }
+
+  .hero-chip {
+    display: inline-block;
+    padding: 0 8px;
+    font-size: 0.9em;
+    border: 1px solid var(--lp-line2);
+    background: var(--lp-raised);
+    color: var(--lp-ink);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
   /* Hero */
   .hero {
     position: relative;
     overflow: hidden;
-    padding: 96px 0 24px;
+    padding: 88px 0 56px;
     text-align: center;
   }
   .hero-dots {
@@ -191,64 +373,339 @@ const controls = [
   }
   .hero-inner {
     position: relative;
-    max-width: calc(980px + 2 * var(--lp-gutter));
+    max-width: calc(1180px + 2 * var(--lp-gutter));
     display: flex;
     flex-direction: column;
     align-items: center;
   }
   .hero-pill {
-    display: inline-block;
-    padding: 6px 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    padding: 4px 14px 4px 4px;
     border: 1px solid var(--lp-line2);
-    border-radius: 999px;
-    background: var(--lp-card);
-    color: var(--lp-accent);
-    font: 500 11px/1.4 var(--lp-font-mono);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+    background: var(--lp-raised);
+    color: var(--lp-ink2);
+    font: 500 12px/1.4 var(--lp-font-mono);
+  }
+  .hero-pill-tag {
+    padding: 3px 8px;
+    background: var(--lp-accent);
+    color: var(--lp-onaccent);
+    font-size: 10px;
+    letter-spacing: 0.08em;
   }
   .hero-title {
-    max-width: none;
-    margin: 28px 0 22px;
-    color: var(--lp-ink);
-    font-size: 84px;
-    font-weight: 600;
-    line-height: 1;
-    letter-spacing: -0.05em;
-    text-wrap: balance;
-  }
-  .hero-accent { color: var(--lp-accent); }
-  .hero-lead {
-    max-width: 640px;
-    margin: 0 0 34px;
-    color: var(--lp-ink2);
-    font-size: 20px;
-    line-height: 1.55;
-    text-wrap: pretty;
-  }
-  .hero-actions,
-  .cta-actions {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: 16px;
+    gap: 0 0.22em;
+    max-width: none;
+    margin: 28px 0 26px;
+    color: var(--lp-ink);
+    font-size: clamp(56px, 8.4vw, 124px);
+    font-weight: 600;
+    line-height: 0.95;
+    letter-spacing: -0.06em;
+  }
+  .hero-mark {
+    width: 0.78em;
+    height: 0.78em;
+    padding: 0.06em;
+    border: 2px solid var(--lp-ink);
+    background: var(--logo-paper);
+    box-shadow: 3px 3px 0 var(--paper-shadow);
+    transform: rotate(-4deg);
+  }
+  .hero-lead {
+    max-width: 740px;
+    margin: 0 0 34px;
+    color: var(--lp-ink2);
+    font-size: 20px;
+    line-height: 1.7;
+    text-wrap: pretty;
+  }
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
   }
   .hero-note {
-    margin: 22px 0 0;
+    margin: 20px 0 0;
     color: var(--lp-ink2);
-    font: 500 12px/1.5 var(--lp-font-mono);
+    font: 500 13px/1.5 var(--lp-font-mono);
+  }
+  .hero-note a { color: var(--lp-ink); text-underline-offset: 3px; }
+
+  /* Product stage */
+  .stage { padding: 0 0 40px; }
+  .stage-band {
+    position: relative;
+    padding: clamp(40px, 5vw, 64px) clamp(12px, 3.5vw, 48px) 12px;
+    border: 1px solid var(--line-2);
+    background-color: var(--panel-2);
+    background-image: radial-gradient(var(--paper-dot) 1.2px, transparent 1.4px);
+    background-size: 14px 14px;
+    overflow: hidden;
+  }
+  .stage-stickers {
+    position: absolute;
+    top: 6px;
+    right: clamp(24px, 6vw, 96px);
+    display: flex;
+    gap: 4px;
+  }
+  .stage-stickers img { width: clamp(44px, 5vw, 72px); height: auto; }
+  .window-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 34px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--lp-line);
+    background: var(--paper-title);
+    color: var(--paper-title-fg);
+    font: 500 11px/1 var(--lp-font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .stage-band :global(.lp-shot-frame) { border-radius: 0; box-shadow: 3px 3px 0 var(--paper-shadow); }
+
+  /* Works with */
+  .works { padding: 8px 0 24px; }
+  .works-inner { display: grid; gap: 4px; }
+  .works-row {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--lp-line);
+  }
+  .works-label {
+    color: var(--lp-ink2);
+    font: 500 11px/1.4 var(--lp-font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .works-row ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--lp-ink);
+    font-size: 17px;
+    font-weight: 500;
   }
 
-  /* Dashboard */
-  .dashboard { padding: 40px 0 88px; }
-  .dashboard-inner { max-width: calc(1180px + 2 * var(--lp-gutter)); }
+  /* Statement */
+  .statement-wrap { padding-block: 104px 72px; }
+  .statement {
+    max-width: 1120px;
+    margin: 0;
+    color: var(--lp-ink);
+    font-size: clamp(32px, 4.6vw, 60px);
+    font-weight: 600;
+    line-height: 1.12;
+    letter-spacing: -0.045em;
+    text-wrap: pretty;
+  }
+  .statement-quiet { color: var(--lp-ink2); }
+  .token {
+    display: inline-block;
+    padding: 0 0.22em;
+    border: 2px solid var(--lp-ink);
+    box-shadow: 2px 2px 0 var(--paper-shadow);
+    line-height: 1.05;
+  }
+  .token-wait { color: var(--pending); border-color: var(--pending); }
+  .token-pr { color: var(--navy); border-color: var(--navy); }
 
-  /* Shared section heading spacing */
-  .section-title { max-width: 720px; margin: 0 0 40px; }
-  .compare-title { max-width: 760px; }
+  /* Section heads */
+  .section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 40px;
+  }
+  .section-side {
+    max-width: 380px;
+    margin: 0;
+    color: var(--lp-ink2);
+    font-size: 16px;
+  }
+  .section-side a { color: var(--lp-ink); text-underline-offset: 3px; }
+  .section-title { max-width: 760px; margin: 0 0 40px; }
 
-  /* Approval gate */
+  /* Bento */
+  .bento {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .tile {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    min-width: 0;
+    padding: 32px;
+    border: 1px solid var(--lp-line2);
+    background: var(--lp-card);
+  }
+  .tile h3 {
+    margin: 0 0 8px;
+    color: var(--lp-ink);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+  }
+  .tile p { margin: 0; color: var(--lp-ink2); font-size: 15px; }
+  .mock {
+    margin: auto 0 0;
+    padding: 18px;
+    border: 1px solid var(--lp-line);
+    background: var(--lp-raised);
+    font-size: 14px;
+  }
+  .mock code { font: 500 12.5px/1.4 var(--lp-font-mono); overflow-wrap: anywhere; }
+  .mock-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    color: var(--lp-ink);
+    font-weight: 600;
+  }
+  .mock-kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 8px 20px;
+    margin: 0 0 16px;
+  }
+  .mock-kv dt { color: var(--lp-ink2); font: 500 12px/1.6 var(--lp-font-mono); }
+  .mock-kv dd { margin: 0; color: var(--lp-ink); min-width: 0; overflow-wrap: anywhere; }
+  .mock-flow { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+  .flow-box {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--lp-line2);
+  }
+  .flow-box-accent { border-color: var(--lp-accent); box-shadow: inset 3px 0 0 var(--lp-accent); }
+  .flow-label { color: var(--lp-ink); font-weight: 600; }
+  .flow-arrow { color: var(--lp-ink2); text-align: center; font-size: 13px; line-height: 1; }
+  .mock-list { display: grid; gap: 0; margin: auto 0 0; padding: 4px 18px; list-style: none; }
+  .mock-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 0;
+    min-width: 0;
+  }
+  .mock-list li + li { border-top: 1px solid var(--lp-line); }
+  .mock-list strong { display: block; color: var(--lp-ink); font-weight: 600; }
+  .mock-list small { color: var(--lp-ink2); font: 500 12px/1.5 var(--lp-font-mono); }
+  .state {
+    flex: none;
+    padding: 2px 8px;
+    font: 600 11px/1.5 var(--lp-font-mono);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .state-ok { color: var(--ok); }
+  .state-no { color: var(--danger); }
+  .state-pending { color: var(--pending); }
+
+  /* Where it runs */
+  .homes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .home-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 28px;
+    border: 2px solid var(--lp-ink);
+    background: var(--lp-raised);
+    box-shadow: 3px 3px 0 var(--paper-shadow);
+  }
+  .home-status {
+    display: inline-flex;
+    align-self: flex-start;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 40px;
+    padding: 4px 10px;
+    border: 1px solid var(--lp-line2);
+    color: var(--lp-ink2);
+    font: 500 12px/1.4 var(--lp-font-mono);
+  }
+  .home-card h3 { margin: 0 0 10px; color: var(--lp-ink); font-size: 22px; font-weight: 600; letter-spacing: -0.03em; }
+  .home-card p { margin: 0 0 24px; color: var(--lp-ink2); font-size: 15px; }
+  .home-card a { margin-top: auto; color: var(--lp-ink); font-weight: 600; text-underline-offset: 3px; }
+
+  /* Models + free */
+  .plans {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-block: 1px solid var(--lp-line2);
+  }
+  .plan { padding: 28px 28px 28px 0; }
+  .plan + .plan { padding-left: 28px; border-left: 1px solid var(--lp-line); }
+  .plan h3 { margin: 0 0 8px; color: var(--lp-ink); font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+  .plan p { margin: 0; color: var(--lp-ink2); font-size: 15px; }
+  .free { padding-top: 96px; text-align: center; }
+  .free-lead {
+    margin: 0;
+    color: var(--lp-ink2);
+    font-size: clamp(24px, 3vw, 36px);
+    font-weight: 600;
+    letter-spacing: -0.04em;
+  }
+  .free-word {
+    margin: 0;
+    color: var(--lp-accent);
+    display: block;
+    font: 700 clamp(92px, 14vw, 180px)/0.9 var(--lp-font-mono);
+    letter-spacing: -0.08em;
+    text-shadow: 3px 3px 0 var(--paper-shadow);
+  }
+  .free-points {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px 28px;
+    margin: 28px 0 16px;
+    padding: 0;
+    list-style: none;
+    color: var(--lp-ink);
+    font-size: 16px;
+  }
+  .free-points li::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 10px;
+    background: var(--ok);
+  }
+  .free-link { color: var(--lp-ink); font-weight: 600; text-underline-offset: 3px; }
+
+  /* Steps */
   .steps {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -260,36 +717,26 @@ const controls = [
   .step {
     padding: 28px;
     border: 1px solid var(--lp-line2);
-    border-radius: 12px;
+    border-bottom: 4px solid var(--lp-accent);
     background: var(--lp-raised);
-    box-shadow: var(--lp-shadow);
   }
   .step-num {
     display: block;
-    margin-bottom: 20px;
-    color: var(--lp-accent);
-    font: 500 12px/1.4 var(--lp-font-mono);
-  }
-  .step h3 {
-    margin: 0 0 10px;
+    margin-bottom: 40px;
     color: var(--lp-ink);
-    font-size: 22px;
-    font-weight: 600;
-    letter-spacing: -0.025em;
+    font-size: 48px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.04em;
   }
-  .step p,
-  .control p {
-    margin: 0;
-    color: var(--lp-ink2);
-    font-size: 15px;
-    line-height: 1.55;
-  }
+  .step h3 { margin: 0 0 10px; color: var(--lp-ink); font-size: 22px; font-weight: 600; letter-spacing: -0.025em; }
+  .step p { margin: 0; color: var(--lp-ink2); font-size: 15px; line-height: 1.55; }
 
   /* Comparison */
+  .compare-title { max-width: 760px; }
   .cmp {
     overflow: hidden;
     border: 1px solid var(--lp-line2);
-    border-radius: 12px;
     background: var(--lp-raised);
   }
   .cmp-row {
@@ -313,118 +760,83 @@ const controls = [
   @media (hover: hover) {
     .cmp-row:not(.cmp-head):hover { background: var(--lp-panel); }
   }
-  .cmp-note {
-    margin: 16px 0 0;
-    color: var(--lp-ink2);
-    font-size: 13px;
-  }
+  .cmp-note { margin: 16px 0 0; color: var(--lp-ink2); font-size: 13px; }
 
-  /* Trust */
-  .trust {
+  /* FAQ */
+  .faq {
     display: grid;
-    grid-template-columns: 0.9fr 1.1fr;
+    grid-template-columns: 0.8fr 1.2fr;
     gap: 64px;
     align-items: start;
   }
-  .trust-title { margin: 0 0 20px; }
-  .trust-lead {
-    max-width: 440px;
-    margin: 0;
-    color: var(--lp-ink2);
-    font-size: 17px;
-  }
-  .controls {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    border: 1px solid var(--lp-line2);
-    border-radius: 12px;
-    background: var(--lp-raised);
-  }
-  .control {
+  .faq .section-side { margin-top: 20px; }
+  .faq-list { border-top: 1px solid var(--lp-line2); }
+  .faq-item { border-bottom: 1px solid var(--lp-line2); }
+  .faq-item summary {
     display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: 16px;
-    padding: 20px 24px;
-  }
-  .control + .control { border-top: 1px solid var(--lp-line); }
-  .control-check {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 24px;
-    height: 24px;
-    border-radius: 6px;
-    background: var(--lp-accent);
-    color: var(--lp-onaccent);
-    font: 600 13px/1 var(--lp-font-mono);
-  }
-  .control h3 {
-    margin: 0 0 2px;
+    min-height: 64px;
     color: var(--lp-ink);
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 600;
+    letter-spacing: -0.015em;
+    list-style: none;
+    cursor: pointer;
   }
-  .control p { font-size: 14px; }
+  .faq-item summary::-webkit-details-marker { display: none; }
+  .faq-item summary::after {
+    content: '+';
+    flex: none;
+    color: var(--lp-ink2);
+    font: 400 22px/1 var(--lp-font-mono);
+  }
+  .faq-item[open] summary::after { content: '−'; }
+  .faq-item p { max-width: 620px; margin: 0 0 22px; color: var(--lp-ink2); font-size: 16px; }
 
   /* Closing CTA */
-  .cta {
-    position: relative;
-    overflow: hidden;
-    padding: 96px 0;
-    background: var(--lp-ctabg);
-    color: var(--lp-ctafg);
-    text-align: center;
-  }
-  .cta-dots {
-    position: absolute;
-    inset: 0;
-    background-image: radial-gradient(var(--lp-ctafg) 1px, transparent 1.3px);
-    background-size: 12px 12px;
-    opacity: 0.1;
-  }
-  .cta-inner { position: relative; }
-  .cta-logo {
-    display: block;
-    width: 120px;
-    height: 120px;
-    margin: 0 auto 12px;
-    object-fit: contain;
-  }
+  .cta { padding: 120px 0 40px; text-align: center; }
   .cta-title {
-    max-width: 760px;
+    max-width: 980px;
     margin: 0 auto 20px;
-    color: var(--lp-ctafg);
-    font-size: 56px;
+    color: var(--lp-ink);
+    font-size: clamp(44px, 6.5vw, 88px);
     font-weight: 600;
-    line-height: 1.04;
-    letter-spacing: -0.045em;
+    line-height: 1;
+    letter-spacing: -0.055em;
     text-wrap: balance;
   }
-  .cta-lead {
-    max-width: 520px;
-    margin: 0 auto 32px;
-    font-size: 17px;
-    opacity: 0.75;
+  .cta-mark {
+    display: inline-block;
+    width: 0.8em;
+    height: 0.8em;
+    vertical-align: -0.1em;
+    padding: 0.05em;
+    border: 2px solid var(--lp-ink);
+    background: var(--logo-paper);
+    box-shadow: 2px 2px 0 var(--paper-shadow);
+    transform: rotate(4deg);
   }
-  .cta-btn-solid {
-    background: var(--lp-ctafg);
-    color: var(--lp-ctabg);
+  .cta-lead { max-width: 520px; margin: 0 auto 32px; color: var(--lp-ink2); font-size: 18px; }
+
+  @media (max-width: 1000px) {
+    .homes, .plans { grid-template-columns: 1fr; }
+    .plan, .plan + .plan { padding: 22px 0; border-left: 0; }
+    .plan + .plan { border-top: 1px solid var(--lp-line); }
+    .home-status { margin-bottom: 24px; }
   }
-  .cta-btn-outline {
-    border: 1px solid var(--lp-ctafg);
-    color: var(--lp-ctafg);
-  }
-  .cta-btn:focus-visible { outline-color: var(--lp-ctafg); }
 
   @media (max-width: 900px) {
-    .hero { padding-top: 64px; }
-    .hero-title { font-size: 44px; }
+    .hero { padding: 56px 0 40px; }
     .hero-lead { font-size: 17px; }
-    .dashboard { padding: 24px 0 56px; }
-    .steps { grid-template-columns: 1fr; }
-    .trust { grid-template-columns: 1fr; gap: 32px; }
-    .cta { padding: 72px 0; }
-    .cta-title { font-size: 40px; }
+    .bento, .steps { grid-template-columns: 1fr; }
+    .tile { padding: 22px; }
+    .faq { grid-template-columns: 1fr; gap: 24px; }
+    .statement-wrap { padding-block: 64px 40px; }
+    .cta { padding-top: 72px; }
+    .works-row { grid-template-columns: 1fr; gap: 8px; }
+    .works-row ul { gap: 6px 18px; font-size: 15px; }
 
     .cmp-head {
       position: absolute;
@@ -448,8 +860,13 @@ const controls = [
     .cmp-cell[data-label='Shiba']::before { color: var(--lp-accent); }
   }
 
+  @media (min-width: 640px) {
+    .hero-title { flex-wrap: nowrap; white-space: nowrap; }
+  }
+
   @media (max-width: 480px) {
-    .hero-actions .lp-btn,
-    .cta-actions .lp-btn { width: 100%; }
+    .hero-actions .lp-btn { width: 100%; }
+    .window-bar { min-height: 28px; }
+    .faq-item summary { font-size: 16px; }
   }
 </style>
