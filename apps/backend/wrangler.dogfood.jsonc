@@ -278,9 +278,22 @@
       "class_name": "Sandbox",
       "name": "shiba-ai-coworker-sandbox-dogfood",
       "scheduling_policy": "durable_object",
+      // Workers Builds deploys this config on every push, and an image built
+      // there uploads ~3.3 GB of registry layers from inside the build (one
+      // base layer alone is 1.72 GB); the upload stalls on "timeout awaiting
+      // response headers" and the deploy fails. Referencing a digest instead
+      // means the deploy uploads the Worker and no image.
+      //
+      // .github/workflows/build-sandbox-image.yml builds and pushes the image;
+      // `node scripts/pin-dogfood-image.mjs <digest>` moves the pin to what it
+      // published, and scripts/check-dogfood-image-pin.mjs makes a commit that
+      // changes the image inputs move this pin with them. Until that workflow
+      // can push (the Actions token currently gets 403 from the container
+      // registry), the pin is the account's only managed-registry image, which
+      // is what the dogfood Worker already runs.
       "images": {
         "sandbox": {
-          "dockerfile": "./Dockerfile"
+          "image": "registry.cloudflare.com/73cf43cd7ec224111282832dc96b90e2/shiba-ai-coworker-sandbox-pr-188@sha256:494b5af5080a290a6bb2b092d9062d6974cb1fddb4a2b3e8abb27ee4c9fad360"
         }
       }
     }
