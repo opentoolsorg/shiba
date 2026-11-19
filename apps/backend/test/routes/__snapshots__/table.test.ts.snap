@@ -103,6 +103,7 @@ auditResponse | model | * | ^/api/audit$ | session |
 sandboxRouteResponse | model | * | ^/api/sandboxes/ | session |
 telegramResponse | model | * | ^/api/telegram/webhook$ | signature | Telegram shared header secret.
 discordResponse | model | * | ^/api/discord/interactions$ | signature |
+teamsResponse | model | * | ^/api/teams/messages$ | signature | Bot Framework JWT verified inside handler.
 managedSlackResponse | model | * | ^/api/slack/(?:events|command|interact)$ | signature |
 slackEventsResponse | model | * | ^/api/slack/events$ | signature |
 slackResponse | model | * | ^/api/slack/command$ | signature |
