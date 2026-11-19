@@ -63,6 +63,7 @@ import { guardRunEnvLeak, openRunEnv, runEnvDiffLeakName, runEnvScrubber } from 
 import { openRunAttachment } from "../run-attachments.js";
 import { assertChildDispatchAuthorized } from "../child-dispatch.js";
 import { createSlackRunProgress } from "../slack.js";
+import { slackChannelAudience } from "../slack-reply-review.js";
 import type { SlackProgressReporter } from "../slack-persona.js";
 import { messageText, renderRunTranscript } from "../transcript.js";
 import { createRunRoomPublisher } from "../run-room-events.js";
@@ -118,7 +119,8 @@ export async function pinSandboxEgress(
 function createSlackProgress(env: Env, thread?: CodingTaskInput["slackThread"]): SlackProgressReporter | null {
   const token = env.SLACK_BOT_TOKEN?.trim();
   if (!thread || !token) return null;
-  return createSlackRunProgress(token, thread, "fixer");
+  return createSlackRunProgress(token, thread, "fixer", async () =>
+    await slackChannelAudience(token, thread.channelId) === "internal");
 }
 
 export function createSandboxOps(

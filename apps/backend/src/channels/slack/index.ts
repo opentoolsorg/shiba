@@ -51,7 +51,14 @@ function toHistory(messages: unknown, threadId?: string): ChannelHistoryMessage[
   return out;
 }
 
-export function createSlackAdapter(input: { token: string; fetch?: typeof fetch }): ChannelAdapter {
+interface SlackAdapter extends ChannelAdapter {
+  audience(placeId: string): Promise<"internal" | "external" | "unknown">;
+  isInternalUser(teamId: string, userId: string): Promise<boolean>;
+  openDirect(userId: string): Promise<string>;
+  postPrivate(message: { placeId: string; threadId: string; userId: string; text: string; blocks: unknown[] }): Promise<void>;
+}
+
+export function createSlackAdapter(input: { token: string; fetch?: typeof fetch }): SlackAdapter {
   const fetchImpl = input.fetch ?? fetch;
   const auth = { Authorization: `Bearer ${input.token}` };
   const ok = async (method: string, response: Response) => {
@@ -138,6 +145,30 @@ export function createSlackAdapter(input: { token: string; fetch?: typeof fetch 
       const channel = (await get("conversations.info", { channel: placeId })).channel as Record<string, unknown> | undefined;
       const name = asString(channel?.name);
       return name ? `#${name}` : placeId;
+    },
+    async audience(placeId) {
+      const channel = (await get("conversations.info", { channel: placeId })).channel as Record<string, unknown> | undefined;
+      if (channel?.id !== placeId) return "unknown";
+      if (channel.is_ext_shared === true || channel.is_pending_ext_shared === true) return "external";
+      if (channel.is_shared === true && channel.is_org_shared !== true) return "unknown";
+      return channel.is_ext_shared === false ? "internal" : "unknown";
+    },
+    async isInternalUser(teamId, userId) {
+      const user = (await get("users.info", { user: userId })).user as Record<string, unknown> | undefined;
+      return user?.id === userId && user.team_id === teamId && user.deleted === false &&
+        user.is_bot === false && user.is_app_user !== true &&
+        user.is_stranger !== true && user.is_restricted !== true && user.is_ultra_restricted !== true;
+    },
+    async openDirect(userId) {
+      const channel = (await post("conversations.open", { users: userId })).channel as Record<string, unknown> | undefined;
+      if (typeof channel?.id !== "string" || !/^D[A-Z0-9]+$/.test(channel.id)) throw new Error("Slack returned no direct conversation.");
+      return channel.id;
+    },
+    async postPrivate(message) {
+      await post("chat.postEphemeral", {
+        channel: message.placeId, thread_ts: message.threadId, user: message.userId,
+        text: message.text, blocks: message.blocks,
+      });
     },
     mentions: slackMentions,
   };

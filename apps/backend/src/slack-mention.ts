@@ -5,7 +5,8 @@
 import type { Env } from "./env.js";
 import { tryAnswerUiBlockFallback } from "./ui-block-fallback.js";
 import { redactSecrets } from "./security.js";
-import { postSlackMessage, postSlackMessageWithReceipt, updateSlackMessage, deleteSlackMessage, addSlackReaction, SLACK_POST_TIMEOUT_MS } from "./slack.js";
+import { postSlackMessageWithReceipt, updateSlackMessage, deleteSlackMessage, addSlackReaction, SLACK_POST_TIMEOUT_MS } from "./slack.js";
+import { deliverSlackThreadReply, slackChannelAudience } from "./slack-reply-review.js";
 import { buildSlackCanvasUrl, signSlackCanvasIntake, slackCanvasOwner } from "./slack-canvas.js";
 import { postSystemOne, readChoiceAnswer, type TypeSafeFetch } from "./typesafe.js";
 import { buildApprovalBlocks, slackCanvasUrl } from "./slack-approval.js";
@@ -189,13 +190,6 @@ async function slackApiGet(
   return json;
 }
 
-async function defaultPostMessage(
-  token: string,
-  input: { channel: string; threadTs: string; text: string; blocks?: unknown[] },
-): Promise<void> {
-  await postSlackMessage(token, input);
-}
-
 async function defaultFetchThread(token: string, channel: string, threadTs: string): Promise<SlackThreadMessage[]> {
   const json = await slackApiGet(token, SLACK_REPLIES, { channel, ts: threadTs, limit: "50" });
   const messages = Array.isArray(json.messages) ? json.messages : [];
@@ -320,7 +314,8 @@ export async function handleSlackEvent(
 
   const sendMessage =
     deps.postMessage ??
-    (token ? (input: Parameters<NonNullable<SlackMentionDeps["postMessage"]>>[0]) => defaultPostMessage(token, input) : undefined);
+    (token ? (input: Parameters<NonNullable<SlackMentionDeps["postMessage"]>>[0]) =>
+      deliverSlackThreadReply(env, { teamId, channelId, threadTs }, `event:${body.event_id}`, input) : undefined);
   // No bot token: cannot ask or post a card, so start no run.
   if (!sendMessage) return;
   let postMessage: NonNullable<SlackMentionDeps["postMessage"]> = async (input) => {
@@ -376,7 +371,8 @@ export async function handleSlackEvent(
     await loadThread();
     const visible = applyThreadControls(threadMessages, "", event.type === "app_mention" ? body.event_id : undefined);
     if (!visible.slice(-MAX_CONTEXT_MESSAGES).includes(incoming)) return;
-    const postReceipt = deps.postMessageWithReceipt ?? (!deps.postMessage && token ? (input: Parameters<NonNullable<SlackMentionDeps["postMessageWithReceipt"]>>[0]) => postSlackMessageWithReceipt(token, input) : undefined);
+    const internal = deps.postMessage ? true : token && await slackChannelAudience(token, channelId) === "internal";
+    const postReceipt = internal ? deps.postMessageWithReceipt ?? (!deps.postMessage && token ? (input: Parameters<NonNullable<SlackMentionDeps["postMessageWithReceipt"]>>[0]) => postSlackMessageWithReceipt(token, input) : undefined) : undefined;
     let receipt: { channel: string; ts: string } | undefined;
     if (postReceipt) {
       try { receipt = await postReceipt({ channel: channelId, threadTs, text: "Working on it…" }); }
@@ -387,7 +383,7 @@ export async function handleSlackEvent(
         try { await (deps.deleteMessage ?? ((input) => deleteSlackMessage(token, input)))(receipt); }
         catch (error) { console.error("Slack interim delete failed", redactSecrets(String(error))); }
       }
-      try { await (deps.addReaction ?? ((input) => addSlackReaction(token, input)))({ channel: channelId, timestamp: event.ts, name: "white_check_mark" }); }
+      try { if (internal) await (deps.addReaction ?? ((input) => addSlackReaction(token, input)))({ channel: channelId, timestamp: event.ts, name: "white_check_mark" }); }
       catch (error) { console.error("Slack acknowledgment reaction failed", redactSecrets(String(error))); }
       return;
     }
@@ -395,6 +391,7 @@ export async function handleSlackEvent(
       const fallback = postMessage;
       const interim = receipt;
       postMessage = async (input) => {
+        if (!deps.postMessage && await slackChannelAudience(token, channelId) !== "internal") return fallback(input);
         try { await (deps.updateMessage ?? ((message) => updateSlackMessage(token, message)))({ channel: interim.channel, ts: interim.ts, text: input.text, ...(input.blocks ? { blocks: input.blocks } : {}) }); }
         catch (error) {
           console.error("Slack interim update failed", redactSecrets(String(error)));

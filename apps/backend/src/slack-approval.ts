@@ -21,6 +21,7 @@ import { redactSecrets } from "./security.js";
 import { slackTransport } from "./channels/slack/index.js";
 import { buildSlackThreadName, parseSlackCommandScope, parseSlackThreadName, slackApprovalOrchestratorName } from "./slack-thread.js";
 import { answerSlackUiBlock, type SlackUiPayload } from "./slack-ui-blocks.js";
+import { SEND_SLACK_REPLY_ACTION, sendReviewedSlackReply } from "./slack-reply-review.js";
 
 export const SLACK_INTERACT_PATH = "/api/slack/interact";
 
@@ -377,6 +378,8 @@ function parseBlockActionsPayload(payloadParam: string | null): BlockActionPaylo
   const value = typeof first?.value === "string" ? first.value : "";
   const responseUrl = typeof record.response_url === "string" ? (record.response_url as string) : "";
   const message = record.message as { blocks?: unknown; thread_ts?: string; ts?: string } | undefined;
+  const container = record.container as { thread_ts?: string } | undefined;
+  const threadTs = message?.thread_ts ?? container?.thread_ts ?? message?.ts;
   const blocks = Array.isArray(message?.blocks) ? (message.blocks as unknown[]) : [];
   if (userId === "" || actionId === "" || (!actionId.startsWith("ui_block:") && value === "") || responseUrl === "") {
     throw new Error("Interaction payload is missing user, action, value, or response_url.");
@@ -389,7 +392,7 @@ function parseBlockActionsPayload(payloadParam: string | null): BlockActionPaylo
   if (employeeAction) {
     const team = record.team as { id?: string } | undefined;
     const channel = record.channel as { id?: string } | undefined;
-    const threadKey = buildSlackThreadName(team?.id ?? "", channel?.id ?? "", message?.thread_ts ?? message?.ts ?? "");
+    const threadKey = buildSlackThreadName(team?.id ?? "", channel?.id ?? "", threadTs ?? "");
     const employeePointer = parseEmployeeToolApprovalValue(value);
     if (employeePointer.threadKey !== threadKey) throw new Error("Employee approval does not belong to this chat thread.");
     return {
@@ -417,7 +420,7 @@ function parseBlockActionsPayload(payloadParam: string | null): BlockActionPaylo
   if (thread) {
     const team = record.team as { id?: string } | undefined;
     const channel = record.channel as { id?: string } | undefined;
-    if (team?.id !== thread.teamId || channel?.id !== thread.channelId || (message?.thread_ts ?? message?.ts) !== thread.threadTs) {
+    if (team?.id !== thread.teamId || channel?.id !== thread.channelId || threadTs !== thread.threadTs) {
       throw new Error("Approval does not belong to this Slack workspace and thread.");
     }
   }
@@ -565,6 +568,22 @@ export async function handleSlackInteract(
   const verified = await slackTransport.verify(rawBody, request.headers, env);
   if (!verified.ok) {
     return Response.json({ error: verified.error }, { status: verified.status });
+  }
+  const action = slackTransport.parse(rawBody);
+  if (action?.kind === "action" && action.actionId === SEND_SLACK_REPLY_ACTION) {
+    const payload = action.raw as { actions?: unknown[]; response_url?: unknown };
+    const responseUrl = payload.response_url;
+    if (!Array.isArray(payload.actions) || payload.actions.length !== 1 ||
+      typeof responseUrl !== "string" || !isSlackResponseUrl(responseUrl)) {
+      return Response.json({ error: "Invalid Slack reply review." }, { status: 400 });
+    }
+    const work = sendReviewedSlackReply(env, {
+      id: action.value, teamId: action.workspaceId ?? "", dm: action.placeId, userId: action.actorId,
+    }).catch(() => "Delivery could not be confirmed. Check the thread before sending manually.")
+      .then((text) => respondEphemeral(responseUrl, text, deps.respond));
+    if (ctx) ctx.waitUntil(work);
+    else await work;
+    return new Response("", { status: 200 });
   }
   let interaction: BlockActionPayload;
   try {

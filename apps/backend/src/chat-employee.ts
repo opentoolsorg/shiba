@@ -11,7 +11,7 @@ import type { Env } from "./env.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 import { resolveEmployeeRunToolContext } from "./employee-run-tools.js";
 import { decideEmployeeActionApproval, type EmployeeApprovalRecord } from "./employee-tool-store.js";
-import { postSlackMessage } from "./slack.js";
+import { deliverSlackThreadReply } from "./slack-reply-review.js";
 import {
   buildEmployeeToolApprovalBlocks,
 } from "./slack-approval.js";
@@ -170,9 +170,7 @@ export async function notifyEmployeeToolApprovalInChat(
   const slackIds = parseSlackThreadName(threadName);
   const token = env.SLACK_BOT_TOKEN?.trim();
   if (slackIds && token) {
-    await postSlackMessage(token, {
-      channel: slackIds.channelId,
-      threadTs: slackIds.threadTs,
+    await deliverSlackThreadReply(env, slackIds, `employee:${record.approvalId}`, {
       text: `Employee action approval · ${label} · ${record.action}`,
       blocks: buildEmployeeToolApprovalBlocks({
         threadKey: threadName,

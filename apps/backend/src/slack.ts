@@ -236,13 +236,14 @@ export function createSlackRunProgress(
   token: string,
   thread: { channelId: string; threadTs: string },
   persona: SlackPersonaRole = "fixer",
+  canPost?: () => Promise<boolean>,
 ): SlackProgressReporter {
   let receipt: { channel: string; ts: string } | null = null;
   let inFlight: Promise<void> = Promise.resolve();
   let unknownDelivery = false;
   return new SlackProgressReporter((text, event) => {
     const send = inFlight.then(async () => {
-      if (unknownDelivery) return;
+      if (unknownDelivery || (canPost && !await canPost())) return;
       const blocks = slackProgressBlocks(event);
       if (receipt) {
         await updateSlackMessage(token, { ...receipt, text, blocks });

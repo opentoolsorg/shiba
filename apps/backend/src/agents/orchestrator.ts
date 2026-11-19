@@ -264,6 +264,7 @@ import { InputError, makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "..
 import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.js";
 import { evaluateSessionTriage } from "../session-triage.js";
 import { postSlackMessage } from "../slack.js";
+import { deliverSlackThreadReply } from "../slack-reply-review.js";
 import { deliverSlackCommandReply } from "../slack-command-reply.js";
 import {
   type ApprovalCardInput,
@@ -4735,11 +4736,14 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const commandScope = parseSlackCommandScope(approval.threadKey);
     const channel = slack?.channelId ?? commandScope?.channelId;
     const token = this.env.SLACK_BOT_TOKEN?.trim();
-    if (channel && token) {
-      this.holdOpen(postSlackMessage(token, {
-        channel,
-        ...(slack ? { threadTs: slack.threadTs } : {}), text: approvalCardText(card),
+    if (slack && token) {
+      this.holdOpen(deliverSlackThreadReply(this.env, slack, `publication:${approvalId}`, {
+        text: approvalCardText(card),
         blocks: buildApprovalBlocks(card), persona: "reviewer",
+      }).catch((error) => console.error("Publication approval card failed", redactSecrets(String(error)))));
+    } else if (channel && token) {
+      this.holdOpen(postSlackMessage(token, {
+        channel, text: approvalCardText(card), blocks: buildApprovalBlocks(card), persona: "reviewer",
       }).catch((error) => console.error("Publication approval card failed", redactSecrets(String(error)))));
     } else {
       this.postEmailApprovalCard(card);
@@ -5660,9 +5664,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const send: (() => Promise<void>) | null =
       chat ? () => postToChatThread(this.env, this.name, text) ?? Promise.resolve() :
       (ids && token
-        ? () => postSlackMessage(token, {
-            channel: ids.channelId,
-            threadTs: ids.threadTs,
+        ? () => deliverSlackThreadReply(this.env, ids, effectId, {
             text: text.slice(0, 3000),
             ...(context?.persona ? { persona: context.persona } : {}),
             ...(context?.blocks ? { blocks: context.blocks } : {}),
@@ -5788,9 +5790,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
           const token = this.env.SLACK_BOT_TOKEN?.trim();
           if (!ids || !token) return { ok: false, error: "no Slack thread destination configured" };
           try {
-            await postSlackMessage(token, {
-              channel: ids.channelId,
-              threadTs: ids.threadTs,
+            await deliverSlackThreadReply(this.env, ids, entry.id, {
               text: (entry.summary ?? "").slice(0, 3000),
               ...(entry.persona ? { persona: entry.persona } : {}),
               ...(entry.blocks ? { blocks: entry.blocks } : {}),
