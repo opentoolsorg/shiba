@@ -37,8 +37,8 @@ function orchestrator(overrides: Record<string, unknown> = {}) {
   return { instance, forbidden };
 }
 
-const post = (path = "/agents/coding-orchestrator/owner/chat-suggestions", headers: Record<string, string> = originHeaders) =>
-  new Request(`https://shiba.test${path}`, { method: "POST", headers, body: "{}" });
+const post = (path = "/agents/coding-orchestrator/owner/chat-suggestions", headers: Record<string, string> = originHeaders, body = "{}") =>
+  new Request(`https://shiba.test${path}`, { method: "POST", headers, body });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -137,10 +137,14 @@ describe("chat suggestions", () => {
     expect(isSameOriginRequest(request)).toBe(allowed);
   });
 
-  it("keys the account to its web threads and leaves other surfaces on their own agent", () => {
+  it("resolves dashboard threads to their account and refuses every other lane", () => {
     expect(chatSuggestionOwner("web:owner:11111111-1111-4111-8111-111111111111")).toBe("owner");
     expect(chatSuggestionOwner("owner")).toBe("owner");
-    expect(chatSuggestionOwner("slack:T1:C1:1.2")).toBe("slack:T1:C1:1.2");
+    expect(chatSuggestionOwner("den:abc")).toBeNull();
+    expect(chatSuggestionOwner("captain:abc")).toBeNull();
+    expect(chatSuggestionOwner("slack:T1:C1:1.2")).toBeNull();
+    expect(chatSuggestionOwner("default")).toBeNull();
+    expect(chatSuggestionOwner("web:owner")).toBeNull();
   });
 });
 
@@ -189,6 +193,33 @@ describe("orchestrator chat suggestions route", () => {
     expect(getAgentByName).toHaveBeenCalledWith(expect.anything(), "owner");
     expect(fetchBase).toHaveBeenCalledWith("https://internal/internal/chat-suggestion-quota", { method: "POST" });
     expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("refuses a lane that is not the dashboard before touching quota or the model", async () => {
+    const setState = vi.fn();
+    const { instance } = orchestrator({ name: "den:abc", state: {}, setState });
+    const response = await instance.onRequest(post("/agents/coding-orchestrator/den%3Aabc/chat-suggestions"));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "Chat suggestions are unavailable on this surface." });
+    expect(setState).not.toHaveBeenCalled();
+    expect(getAgentByName).not.toHaveBeenCalled();
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("bounds spend across isolates even though reuse stays inside one", async () => {
+    const state: Record<string, unknown> = {};
+    const first = orchestrator({ name: "owner", state, setState: (next: unknown) => Object.assign(state, next) }).instance;
+    const second = orchestrator({ name: "owner", state, setState: (next: unknown) => Object.assign(state, next) }).instance;
+    const ask = async (target: CodingOrchestrator, turn: string) => {
+      (target as unknown as { messages: UIMessage[] }).messages = [message(turn, "user", `Turn ${turn}`)];
+      return target.onRequest(post());
+    };
+    for (let index = 0; index < CHAT_SUGGESTION_LIMIT; index += 1) {
+      await ask(index % 2 ? first : second, String(index));
+    }
+    expect(generateText).toHaveBeenCalledTimes(CHAT_SUGGESTION_LIMIT);
+    await ask(second, "over");
+    expect(generateText).toHaveBeenCalledTimes(CHAT_SUGGESTION_LIMIT);
   });
 
   it("serves the caller's own thread through the Worker and refuses another owner", async () => {
