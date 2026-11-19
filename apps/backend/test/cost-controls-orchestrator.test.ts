@@ -283,6 +283,7 @@ describe("orchestrator credit ledger", () => {
     instance.env = { INSTANCE_TYPE: "basic", STRIPE_SECRET_KEY: "sk_test_1", STRIPE_WEBHOOK_SECRET: "whsec_1", AGENT_AUDIT: db } as unknown as typeof instance.env;
     return instance as unknown as {
       state: OrchestratorState;
+      env: Record<string, unknown>;
       enforceUsageBudget(now: number): Promise<void>;
       settleCreditDebits(now: number): Promise<void>;
       gateRunOnUsageBudget(run: DelegatedRun, record: unknown): Promise<boolean>;
