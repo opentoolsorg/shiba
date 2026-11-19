@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AGENT_MASCOT_ROLE_LOOKS,
   AGENT_TEMPLATES,
   CUSTOM_AGENT_MASCOT_PRESETS,
   CUSTOM_AGENT_ROLE_TEMPLATE_IDS,
@@ -51,7 +52,7 @@ describe("agent mascot looks", () => {
     expect(defaultLookFor("coding-coworker")).toEqual(mascotLookForPreset("hero"));
     expect(defaultLookFor("pr-reviewer")).toEqual(mascotLookForPreset("sunglasses"));
     expect(defaultLookFor("shiba")).toEqual(mascotLookForPreset("hero"));
-    expect(defaultLookFor("custom-123", "design").shape).toBe("cloud");
+    expect(defaultLookFor("custom-123", "design")).toEqual(AGENT_MASCOT_ROLE_LOOKS.design!);
   });
 
   it("maps sticker presets onto unique looks and hashes unknown ids stably", () => {
@@ -82,6 +83,14 @@ describe("agent mascot looks", () => {
   it("does not treat inherited preset names as known templates", () => {
     expect(CUSTOM_AGENT_MASCOT_PRESETS).toContain(agentMascotPreset("constructor"));
     expect(CUSTOM_AGENT_MASCOT_PRESETS).toContain(agentMascotPreset("unknown", "toString" as EmployeeRole));
+  });
+
+  it("draws every role with one silhouette and the shared brand palette", () => {
+    const layers = Object.values(AGENT_MASCOT_ROLE_LOOKS);
+    expect(layers.length).toBe(CUSTOM_AGENT_ROLE_TEMPLATE_IDS.length + 1);
+    expect(new Set(layers.map((look) => look.shape))).toEqual(new Set(["pointed"]));
+    expect(new Set(layers.map((look) => look.color)).size).toBe(layers.length);
+    expect(AGENT_TEMPLATES.every((template) => defaultLookFor(template.id).shape)).toBe(true);
   });
 
   it("maps run status onto a live expression", () => {

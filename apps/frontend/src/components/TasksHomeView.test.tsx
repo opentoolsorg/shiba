@@ -45,7 +45,7 @@ describe("task handoff", () => {
     rerender(<TasksHomeView task="Fix the bug" onTaskChange={vi.fn()} agents={[{id: "bot-1", name: "Designer", slug: "designer", role: "design", mascotPreset: "sleeping"}]} selectedAgentId="bot-1" onAgentChange={vi.fn()} repoUrl="owner/repo" onRepoUrlChange={vi.fn()} runs={[]} approvals={[]} route={{runTarget: "local"}} onSubmit={vi.fn()} />);
     expect(mascot()?.getAttribute("data-eyes")).toBe("sleepy");
     rerender(<TasksHomeView task="Fix the bug" onTaskChange={vi.fn()} agents={[{id: "bot-1", name: "Designer", slug: "designer", role: "design"}]} selectedAgentId="bot-1" onAgentChange={vi.fn()} repoUrl="owner/repo" onRepoUrlChange={vi.fn()} runs={[]} approvals={[]} route={{runTarget: "local"}} onSubmit={vi.fn()} />);
-    expect(mascot()?.getAttribute("data-shape")).toBe("cloud");
+    expect(mascot()?.getAttribute("data-shape")).toBe("pointed");
   });
   it("offers built-in Shiba even without custom agents and accepts shorthand", async () => {
     const submit = vi.fn(); show({onSubmit: submit});

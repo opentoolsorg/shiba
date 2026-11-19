@@ -10,6 +10,7 @@
   body { font: 14px Geist, system-ui, sans-serif; margin: 0; display: grid; place-items: center; min-height: 100vh; background: #fafafa; color: #111; }
   main { width: min(420px, 90vw); }
   h1 { font: 400 26px/1.1 "Geist", system-ui, sans-serif; margin: 0 0 8px; }
+  .mark { display: block; width: 44px; height: 44px; margin: 0 0 14px; }
   p { color: #555; margin: 0 0 16px; }
   label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; }
   input { width: 100%; box-sizing: border-box; min-height: 44px; padding: 8px 10px; font: inherit; border: 1px solid #888; border-radius: 0; }
@@ -22,6 +23,15 @@
 </head>
 <body>
 <main>
+  <!-- Same drawing as apps/frontend/public/brand/shiba-mark.svg (inlined: CSP blocks fetches). -->
+  <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+    <path fill="#c4a574" d="M17 31 23.5 6 33 28ZM47 31 40.5 6 31 28ZM32 23c9 5 17 11 17 19 0 10-7.5 16.5-17 16.5S15 52 15 42c0-8 8-14 17-19z"/>
+    <g fill="#c4a574"><circle cx="22" cy="30" r="3.1"/><circle cx="32" cy="26" r="3.5"/><circle cx="42" cy="30" r="3.1"/><circle cx="17.5" cy="42" r="2.5"/><circle cx="46.5" cy="42" r="2.5"/></g>
+    <path fill="#947544" d="M21.2 27 24 12 29.2 25.5ZM42.8 27 40 12 34.8 25.5Z"/>
+    <rect x="18" y="31" width="28" height="15" rx="6" fill="#14161c"/>
+    <rect x="20" y="32.4" width="24" height="3.2" rx="1.6" fill="#2c3548"/>
+    <path d="M22.6 39.4Q25 36.2 27.4 39.4M36.6 39.4Q39 36.2 41.4 39.4" fill="none" stroke="#f4fffc" stroke-width="1.5" stroke-linecap="round"/>
+  </svg>
   <h1>Connect to Shiba</h1>
   <p>The app signs in to https://app.tryshiba.dev. Enter a URL only for a self-hosted deployment.</p>
   <form id="form">

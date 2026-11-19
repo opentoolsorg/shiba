@@ -1,10 +1,25 @@
 import type { JSX } from "react";
 import type { AgentMascotAcc, AgentMascotEyes, AgentMascotLook, AgentMascotShape } from "@shiba/shared";
 
+const EYE = "#f4fffc";
+const VISOR = "#14161c";
+const VISOR_HIGHLIGHT = "#2c3548";
+const GLYPH_INK = "#332a24";
+const GLYPH_INK_ON_DARK = "#f4e2c4";
+
 function shade(hex: string, amount: number): string {
   const value = Number.parseInt(hex.slice(1), 16);
   const channel = (shift: number) => Math.max(0, Math.min(255, ((value >> shift) & 255) + amount)).toString(16).padStart(2, "0");
   return `#${channel(16)}${channel(8)}${channel(0)}`;
+}
+
+/** Luma in sRGB space; only used to keep the muzzle glyph legible on dark coats. */
+function isDark(hex: string): boolean {
+  const value = Number.parseInt(hex.slice(1), 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.42;
 }
 
 function Head({ shape, color }: { shape: AgentMascotShape; color: string }) {
@@ -32,18 +47,18 @@ function Head({ shape, color }: { shape: AgentMascotShape; color: string }) {
   }
 }
 
-function EyeGlyph({ kind, x }: { kind: AgentMascotEyes; x: number }) {
-  const glow = "#8dffd8";
-  const core = "#f4fffc";
-  if (kind === "big") return <g><circle cx={x} cy="38.5" r="3.4" fill={glow} opacity="0.45" /><circle cx={x} cy="38.5" r="2.15" fill={core} /></g>;
-  if (kind === "happy") return <path d={`M${x - 2.4} 39.4 Q${x} 36.2 ${x + 2.4} 39.4`} fill="none" stroke={core} strokeWidth="1.5" strokeLinecap="round" />;
-  if (kind === "surprised") return <g><circle cx={x} cy="38.4" r="2.7" fill={glow} opacity="0.4" /><circle cx={x} cy="38.4" r="1.7" fill="none" stroke={core} strokeWidth="1.15" /><circle cx={x} cy="38.6" r="0.55" fill={core} /></g>;
-  if (kind === "squint") return <rect x={x - 2.5} y="37.7" width="5" height="1.35" rx="0.7" fill={core} />;
-  if (kind === "sleepy") return <path d={`M${x - 2.5} 37.6 Q${x} 40.2 ${x + 2.5} 37.6`} fill="none" stroke={core} strokeWidth="1.45" strokeLinecap="round" />;
-  if (kind === "heart") return <path fill={core} d={`M${x} 40.3c-2.2-1.5-3.1-3.3-1.7-4.4 0.8-0.6 1.7-0.2 1.7 0.6 0-0.8 0.9-1.2 1.7-0.6 1.4 1.1 0.5 2.9-1.7 4.4z`} />;
-  if (kind === "star") return <polygon fill={core} points={`${x},35.6 ${x + 0.8},37.4 ${x + 2.6},37.6 ${x + 1.3},38.9 ${x + 1.7},40.7 ${x},39.7 ${x - 1.7},40.7 ${x - 1.3},38.9 ${x - 2.6},37.6 ${x - 0.8},37.4`} />;
-  if (kind === "code") return <path d={`M${x - 0.3} 36.4 L${x - 2.2} 38.5 L${x - 0.3} 40.6 M${x + 0.5} 36.4 L${x + 2.4} 38.5 L${x + 0.5} 40.6`} fill="none" stroke={core} strokeWidth="1.15" strokeLinecap="round" strokeLinejoin="round" />;
-  return <g><rect x={x - 2.3} y="36.9" width="4.6" height="3.1" rx="1.5" fill={glow} opacity="0.4" /><rect x={x - 1.55} y="37.5" width="3.1" height="1.9" rx="0.95" fill={core} /></g>;
+function EyeGlyph({ kind, x, side = -1 }: { kind: AgentMascotEyes; x: number; side?: 1 | -1 }) {
+  const stroke = { fill: "none", stroke: EYE, strokeWidth: 1.5, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  if (kind === "pill") return <rect x={x - 2} y="38" width="4" height="2" rx="1" fill={EYE} />;
+  if (kind === "big") return <circle cx={x} cy="39" r="2" fill={EYE} />;
+  if (kind === "happy") return <path {...stroke} d={`M${x - 2.4} 39.4Q${x} 36.2 ${x + 2.4} 39.4`} />;
+  if (kind === "surprised") return <g><circle {...stroke} cx={x} cy="39" r="2" /><circle cx={x} cy="39" r="0.55" fill={EYE} /></g>;
+  if (kind === "squint") return <path {...stroke} d={`M${x - 3} 39h6`} />;
+  if (kind === "sleepy") return <path {...stroke} d={`M${x - 3} 38.2Q${x} 42 ${x + 3} 38.2`} />;
+  if (kind === "heart") return <path fill={EYE} d={`M${x} 40.6c-2.4-1.5-3.3-3.6-1.8-4.7 0.9-0.7 1.8-0.2 1.8 0.7 0-0.9 0.9-1.4 1.8-0.7 1.5 1.1 0.6 3.2-1.8 4.7z`} />;
+  if (kind === "star") return <polygon fill={EYE} points={`${x},35.4 ${x + 0.9},37.6 ${x + 3.1},37.8 ${x + 1.4},39.4 ${x + 1.9},41.6 ${x},40.4 ${x - 1.9},41.6 ${x - 1.4},39.4 ${x - 3.1},37.8 ${x - 0.9},37.6`} />;
+  if (kind === "code") return <path {...stroke} d={`M${x + side} 37 L${x - side} 39 L${x + side} 41`} />;
+  return null;
 }
 
 function Eyes({ kind }: { kind: AgentMascotEyes }) {
@@ -51,37 +66,51 @@ function Eyes({ kind }: { kind: AgentMascotEyes }) {
     return (
       <g className="shiba-mascot-blink">
         <EyeGlyph kind="pill" x={25} />
-        <path d="M36.4 38.6 H41.2" fill="none" stroke="#f4fffc" strokeWidth="1.45" strokeLinecap="round" />
+        <path d="M36.6 39.4H41.4" fill="none" stroke={EYE} strokeWidth="1.5" strokeLinecap="round" />
       </g>
     );
   }
   return (
     <g className="shiba-mascot-blink">
-      <EyeGlyph kind={kind} x={25} />
-      <EyeGlyph kind={kind} x={39} />
+      <EyeGlyph kind={kind} x={25} side={1} />
+      <EyeGlyph kind={kind} x={39} side={-1} />
     </g>
   );
 }
 
-function Accessory({ acc, ink }: { acc: AgentMascotAcc; ink: string }) {
+/** Muzzle glyphs sit under the visor, on the chin. Each shape's chin height differs. */
+const MUZZLE_SHIFT: Record<AgentMascotShape, number> = {
+  pointed: 0, egg: 0, pebble: 0, round: -3.5, squircle: -3.5, capsule: -3.5, hex: -3.5, bean: -3.5, cloud: -6,
+};
+
+function Accessory({ acc, ink, shift }: { acc: AgentMascotAcc; ink: string; shift: number }) {
   if (acc === "none") return null;
-  const common = { fill: "none" as const, stroke: ink, strokeWidth: 1.4, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  const glyphs: Partial<Record<AgentMascotAcc, string>> = {
+    pen: "m29 55 6-5m-4 6 5-5",
+    wrench: "m29 56 5-5m0 0 2-1m-2 1 1 2",
+    megaphone: "M27 51h3l5-3v8l-5-3h-3z",
+    coffee: "M28 51h6v4h-6zm6 0h2v2h-2",
+    loupe: "M33 53a2 2 0 1 0-4 0 2 2 0 0 0 4 0zm0 1 2 2",
+    bag: "M28 51h8v5h-8z",
+    check: "m28 53 3 3 5-6",
+    list: "M28 51h8m-6 2h6m-8 2h8",
+    clipboard: "M28 51h8v6h-8zM30 50h4v2h-4z",
+    compass: "M33 54a1.8 1.8 0 1 0-3.6 0 1.8 1.8 0 0 0 3.6 0zm-3 -1.2 2.4 0.9-2.4 0.9z",
+    headset: "M28 53a4 3.2 0 0 1 8 0M28 53v3M36 53v3M28 56h1.6M34.4 56H36",
+    chart: "M27 57v-5M27 57h10M29 57v-3M32 57v-5M35 57v-2",
+  };
   return (
-    <g data-part="accessory" transform="translate(46 46)">
-      {acc === "pen" ? <path {...common} d="M2 12 L9 3 M9 3 l2 2 L4 14 l-2.2.4z" /> : null}
-      {acc === "wrench" ? <path {...common} d="M3 11 L8 6 M8 6 a2.2 2.2 0 1 1 2.2-2.2 L9 5" /> : null}
-      {acc === "coffee" ? <path {...common} d="M3 6 h7 v4 a3 3 0 0 1-3 3 h-1 a3 3 0 0 1-3-3z M10 7 h1.4 a1.6 1.6 0 0 1 0 3.2 H10 M5 3.2 v1.4 M7.4 2.6 v1.6" /> : null}
-      {acc === "loupe" ? <g><circle {...common} cx="6" cy="6" r="3.1" /><path {...common} d="M8.4 8.4 L12 12" /></g> : null}
-      {acc === "megaphone" ? <path {...common} d="M2 7 h2 l6-3 v8 L4 9 H2 z M10.2 6.2 a2.4 2.4 0 0 1 0 3.6" /> : null}
-      {acc === "clipboard" ? <path {...common} d="M4 3 h5 v9 H4 z M5.4 2.2 h2.2 v1.6 H5.4 z M5.2 6.2 h2.6 M5.2 8.2 h2.6" /> : null}
-      {acc === "compass" ? <g><circle {...common} cx="6.5" cy="6.5" r="4" /><path {...common} d="M6.5 3.4 L7.6 7.4 L6.5 9.6 L5.4 5.6 z" /></g> : null}
-      {acc === "headset" ? <path {...common} d="M3 8 a4 4 0 0 1 8 0 M3 8 v2.4 M11 8 v2.4 M3 11 h1.6 M9.4 11 H11" /> : null}
-      {acc === "chart" ? <path {...common} d="M2 12 V3 M2 12 H12 M4 10 V7 M7 10 V5 M10 10 V6" /> : null}
+    <g data-part="accessory" transform={shift ? `translate(0 ${shift})` : undefined}>
+      <path d={glyphs[acc]} fill="none" stroke={ink} strokeWidth="1.15" strokeLinecap="round" strokeLinejoin="round" />
     </g>
   );
 }
 
-/** Original pointed-ear Shiba with a dark visor face. No third-party mascot art. */
+/**
+ * Original pointed-ear Shiba with a dark visor face. No third-party mascot art.
+ * Geometry matches the public marketing mark and its role variants: same ears,
+ * head curve, fluff, visor and eye strokes at 64 units.
+ */
 export function AgentMascot({ look, expression, live = false, label }: {
   look: AgentMascotLook;
   expression?: AgentMascotEyes;
@@ -90,7 +119,6 @@ export function AgentMascot({ look, expression, live = false, label }: {
 }): JSX.Element {
   const eyes = expression ?? look.eyes;
   const inner = shade(look.color, -48);
-  const ink = "#1c1915";
   return (
     <svg
       viewBox="0 0 64 64"
@@ -122,13 +150,13 @@ export function AgentMascot({ look, expression, live = false, label }: {
         <path d="M42.8 27 L40 12 L34.8 25.5 Z" />
       </g>
       <g data-part="visor">
-        <rect x="18" y="31" width="28" height="15" rx="6" fill="#14161c" />
-        <rect x="20" y="32.4" width="24" height="3.2" rx="1.6" fill="#2c3548" />
+        <rect x="18" y="31" width="28" height="15" rx="6" fill={VISOR} />
+        <rect x="20" y="32.4" width="24" height="3.2" rx="1.6" fill={VISOR_HIGHLIGHT} />
       </g>
       <g className="shiba-mascot-gaze" data-part="eyes">
         <Eyes kind={eyes} />
       </g>
-      <Accessory acc={look.acc} ink={ink} />
+      <Accessory acc={look.acc} ink={isDark(look.color) ? GLYPH_INK_ON_DARK : GLYPH_INK} shift={MUZZLE_SHIFT[look.shape]} />
     </svg>
   );
 }
