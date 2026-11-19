@@ -486,7 +486,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
     // stage and the person opens the result from the step rail.
     await resultStage.getByRole("button", { name: /^See the result/ }).click();
     await resultStage.getByRole("heading", { name: "See the result", exact: true }).waitFor();
-    await expect(resultStage.getByText("completed", { exact: true }).first().isVisible()).resolves.toBe(true);
+    await resultStage.getByText("Deliverables", { exact: true }).waitFor();
+    await expect(resultStage.getByText("reports/native-fixture.md", { exact: false }).first().isVisible()).resolves.toBe(true);
     await resultStage.getByRole("button", { name: "Record your review", exact: true }).click();
     await openChat(page);
     await page.getByLabel("Review decision for reports/native-fixture.md").selectOption("approved");
