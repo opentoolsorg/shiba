@@ -354,7 +354,10 @@ describe("OpenCodeAgent response boundary", () => {
     expect(result.files).toEqual([]);
   });
 
-  it("bounds and redacts progress, rendered output, and result without exposing raw files", async () => {
+  // This case runs real redaction over multi-megabyte progress and a large diff.
+  // It exceeded the default 5s budget on hosted CI (5,042ms) even after the
+  // fixture was sized to the caps, so it carries its own budget.
+  it("bounds and redacts progress, rendered output, and result without exposing raw files", { timeout: 15_000 }, async () => {
     const token = "opaque-installation-credential";
     const secret = "ghp_1234567890abcdef";
     mocks.run.mockImplementation(async (_ops, _input, emit) => {
