@@ -19,6 +19,7 @@ import {
 import { FounderSkillLibrary } from "./FounderSkillLibrary";
 import { ExtensionSkillsView } from "./ExtensionSkillsView";
 import { MainCard, type Scope } from "./ui/ContextPanel";
+import { TeachSkillRecorder } from "./TeachSkillRecorder";
 
 const FIELD =
   "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors";
@@ -303,6 +304,7 @@ function RunAttachedSkillsView({ onOpenExtensions, scope }: { onOpenExtensions: 
 
       <div className="min-h-0 min-w-0 w-full flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="min-w-0 w-full max-w-3xl mx-auto flex flex-col gap-4">
+          <TeachSkillRecorder />
           <SkillLibraryCards />
           <FounderSkillLibrary />
           <div className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] p-4 flex flex-col gap-2.5 shadow-[var(--sh-overlay)]">
