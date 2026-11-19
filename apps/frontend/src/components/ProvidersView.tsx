@@ -891,6 +891,11 @@ export function ProvidersView({ scope = "personal", embedded = false }: Provider
       .then(async (response) => {
         if (!response.ok) throw new Error(`Providers request failed: ${response.status}`);
         const body = (await response.json()) as AcpProvidersSnapshot;
+        // A body without a provider list would reach ProvidersBoard and throw
+        // during render, taking the whole app tree down; fail into the retry UI.
+        if (!body || !Array.isArray(body.providers)) {
+          throw new Error("Provider status returned an invalid response.");
+        }
         if (ticket !== generation.current) return;
         setSnapshot(body);
         setError(null);
