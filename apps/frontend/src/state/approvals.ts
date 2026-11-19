@@ -16,12 +16,15 @@ export function useApprovalsState(
   error: string | null;
   /** The owner has answered once, so an unknown id means unknown, not unloaded. */
   settled: boolean;
+  /** A read has succeeded since the owner was enabled; an error is never an authoritative empty list. */
+  loaded: boolean;
   reload: () => void;
 } {
   const [approvals, setApprovals] = useState<StoredApproval[]>([]);
   const [decided, setDecided] = useState<StoredApproval[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [settled, setSettled] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -30,6 +33,7 @@ export function useApprovalsState(
       setDecided([]);
       setError(null);
       setSettled(false);
+      setLoaded(false);
       return;
     }
     let cancelled = false;
@@ -47,6 +51,7 @@ export function useApprovalsState(
             setDecided(Array.isArray(body.decided) ? body.decided : []);
             setError(null);
             setSettled(true);
+            setLoaded(true);
           }
         })
         .catch((fetchError: unknown) => {
@@ -73,6 +78,7 @@ export function useApprovalsState(
     decided,
     error,
     settled,
+    loaded,
     reload: () => setTick((value) => value + 1),
   };
 }

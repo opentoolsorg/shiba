@@ -1528,6 +1528,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     decided: decidedStoredApprovals,
     error: storedApprovalsError,
     settled: storedApprovalsSettled,
+    loaded: storedApprovalsLoaded,
   } = useApprovalsState(refreshToken, approvalsEnabled, workspaceLive);
   // An approval receipt resolves to its own linked run from the URL alone, so a
   // refresh, Back or a fresh tab lands where the original decision did. Exact
@@ -1538,7 +1539,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     if (!state.task || state.taskKind === "run" || state.taskKind === "session") return;
     // Only an approved run-kind receipt can be superseded by its run, and only
     // when exactly one retained run claims it; anything else stays on the receipt.
+    // Run-only evidence waits for a successful approvals read: until then the
+    // receipt's kind and outcome are unknown, not absent.
     const local = storedDecisionReceipts[state.task];
+    if (!local && !storedApprovalsLoaded) return;
     const recorded = storedApprovals.find((item) => item.approvalId === state.task) ??
       decidedStoredApprovals.find((item) => item.approvalId === state.task);
     const kind = local ? local.kind : recorded?.kind;
@@ -1547,7 +1551,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     const linked = retainedRuns.filter((item) => item.approval?.approvalId === state.task);
     if (linked.length !== 1) return;
     applyWorkSelection({ view: state.view, task: linked[0]!.runId, taskKind: "run", tab: "steps" }, "replace");
-  }, [mainView, retainedRuns, storedApprovals, decidedStoredApprovals, storedDecisionReceipts, workLocationTick, privateDataEnabled, applyWorkSelection]);
+  }, [mainView, retainedRuns, storedApprovals, decidedStoredApprovals, storedDecisionReceipts, storedApprovalsLoaded, workLocationTick, privateDataEnabled, applyWorkSelection]);
   const reviewAfterPublishById = useMemo(() => {
     const map: Record<string, boolean> = {};
     for (const approval of storedApprovals) {

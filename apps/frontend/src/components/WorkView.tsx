@@ -340,7 +340,8 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
   const decidedLocally = props.selection.task
     ? props.approvalDecisions?.[props.selection.task] !== undefined
     : false;
-  const selectionKnown = Boolean(selected) || decidedLocally;
+  // Ambiguous run linkage is a known state too: keep the selector and its notice.
+  const selectionKnown = Boolean(selected) || decidedLocally || ambiguousRun;
   const resolvedSelection = useRef<string | null>(null);
   const selectionKey = JSON.stringify([props.selection.taskKind, props.selection.task]);
   useEffect(() => {

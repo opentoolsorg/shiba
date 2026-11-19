@@ -381,9 +381,10 @@ describe("WorkPeek diff states", () => {
     peek({ run: { ...base, hasDiff: true }, diffReady: false });
     expect(screen.getByText("Loading the retained diff…")).toBeTruthy();
   });
-  it("says when a loaded run changed no files", () => {
-    peek({ run: { ...base, hasDiff: false } });
-    expect(screen.getByText("This run finished without changing any files.")).toBeTruthy();
+  it("does not claim a completed run changed no files when no patch was captured", () => {
+    peek({ run: { ...base, hasDiff: false, deliverables: [{ path: "out/brief.md", mediaType: "text/markdown", bytes: 12, sha256: "0".repeat(64) }] } });
+    expect(screen.getByText("No repository patch was captured for this run.")).toBeTruthy();
+    expect(screen.queryByText(/without changing any files/)).toBeNull();
   });
   it("does not call an unfinished or failed run a no-change outcome", () => {
     peek({ run: { ...base, status: "running" } });

@@ -1444,13 +1444,14 @@ describe("bot thread links", () => {
 describe("Work approval receipts survive refresh and Back", () => {
   const run = (runId: string, approvalId: string, summary: string) => ({ runId, task: "SAME_TEXT_TASK", status: "completed", repoUrl: "", sandboxId: "fixture-sandbox", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2, summary, approval: { approvalId } });
   const decided = (approvalId: string, status: "approved" | "rejected", task: string) => ({ approvalId, threadKey: "fixture-thread", task, repoUrl: "", createdAt: 1, decidedAt: 2, kind: "run", status });
-  function stub(body: { runs?: unknown[]; approvals?: unknown[]; decided?: unknown[]; decision?: unknown }) {
+  function stub(body: { runs?: unknown[]; approvals?: unknown[]; decided?: unknown[]; decision?: unknown; approvalsDelayMs?: number; runsDelayMs?: number }) {
     const originalFetch = fetch;
+    const later = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
       const path = String(url);
       if (path === "/api/approvals" && options?.method === "POST") return Response.json(body.decision ?? { result: "unknown" });
-      if (path === "/api/approvals" && !options?.method) return Response.json({ approvals: body.approvals ?? [], decided: body.decided ?? [] });
-      if (path.startsWith("/api/runs") && !options?.method) return Response.json({ runs: body.runs ?? [] });
+      if (path === "/api/approvals" && !options?.method) { await later(body.approvalsDelayMs); return Response.json({ approvals: body.approvals ?? [], decided: body.decided ?? [] }); }
+      if (path.startsWith("/api/runs") && !options?.method) { await later(body.runsDelayMs); return Response.json({ runs: body.runs ?? [] }); }
       return originalFetch(url, options);
     }));
   }
@@ -1515,6 +1516,33 @@ describe("Work approval receipts survive refresh and Back", () => {
     await runsAnswered();
     expect(new URLSearchParams(window.location.search).get("task")).toBe("mail-1");
     expect(screen.queryByRole("dialog", { name: "Work inspector: STALE_RUN" })).toBeNull();
+  });
+
+  it.each([
+    ["runs answer first", { approvalsDelayMs: 300 }],
+    ["approvals answer first", { runsDelayMs: 300 }],
+  ])("keeps a decided email receipt against a stale run when %s", async (_label, delays) => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=mail-2&taskKind=approval&tab=approval");
+    stub({ ...delays, runs: [{ ...run("stale-run", "mail-2", "STALE_OUTPUT"), task: "STALE_RUN" }], decided: [{ ...decided("mail-2", "approved", "MAIL_RECEIPT_2"), kind: "email_send" }] });
+    render(<App />);
+    await screen.findByRole("dialog", { name: "Work inspector: MAIL_RECEIPT_2" }, { timeout: 3000 });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 400)); });
+    expect(new URLSearchParams(window.location.search).get("task")).toBe("mail-2");
+    expect(screen.queryByRole("dialog", { name: "Work inspector: STALE_RUN" })).toBeNull();
+  });
+
+  it("keeps the receipt URL and the ambiguity notice when no receipt is listed", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=gate-g&taskKind=approval&tab=approval");
+    stub({ runs: [run("first-run", "gate-g", "FIRST_OUTPUT"), run("second-run", "gate-g", "SECOND_OUTPUT")] });
+    render(<App />);
+    expect(await screen.findByText(/more than one run/)).toBeTruthy();
+    await runsAnswered();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)); });
+    expect(new URLSearchParams(window.location.search).get("task")).toBe("gate-g");
+    expect(screen.queryByText(/isn't available in this workspace/)).toBeNull();
+    expect(screen.getByText(/more than one run/)).toBeTruthy();
   });
 
   it("resolves an already-loaded linked run when Back or Forward restores a receipt inside Work", async () => {

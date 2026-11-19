@@ -138,7 +138,7 @@ export function WorkPeek(props: WorkPeekProps) {
       ) : run.status === "running" || run.status === "pending" ? (
         <p role="status">This run is still in progress. Its patch appears here when it finishes.</p>
       ) : run.status === "completed" ? (
-        <p role="status">This run finished without changing any files.</p>
+        <p role="status">No repository patch was captured for this run.</p>
       ) : (
         <p role="status">
           This run ended as {statusLabel(run.status).toLowerCase()} without a captured patch.
