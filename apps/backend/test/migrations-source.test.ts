@@ -49,6 +49,28 @@ it("rejects runtime D1 DDL, new duplicates and gaps; permits local DO SQLite", (
   } finally { rmSync(fixture, { recursive: true, force: true }); }
 }, 30_000);
 
+it("permits only the duplicate prefixes main already shipped", () => {
+  const fixture = mkdtempSync(join(tmpdir(), "shiba-migrations-"));
+  const directory = join(fixture, "apps/backend/migrations");
+  mkdirSync(join(fixture, "apps/backend/src"), { recursive: true });
+  mkdirSync(join(fixture, "packages/auth/src"), { recursive: true });
+  mkdirSync(directory, { recursive: true });
+  const run = () => execFileSync(process.execPath, [script, fixture], { stdio: "pipe" });
+  try {
+    for (const file of [
+      "0036_slack_coworker_private_status.sql", "0036_team_work_tasks.sql",
+      "0060_palette_search.sql",
+      "0061_learning_review.sql", "0061_note_chat.sql",
+      "0062_inbound_webhook_receipts.sql", "0062_media_generations.sql",
+      "0063_runtime_d1_schema.sql", "0063_workspace_channel_facts.sql",
+      "0064_thread_queue.sql", "0065_scheduled_job_slots.sql",
+    ]) writeFileSync(join(directory, file), "");
+    expect(run().toString()).toContain("passed");
+    writeFileSync(join(directory, "0062_other.sql"), "");
+    expect(run).toThrow(/Duplicate migration prefix/);
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
+}, 30_000);
+
 it("applies the entire migration history to fresh local D1 and covers queried tables", async () => {
   // Miniflare is supplied by the pinned Wrangler dev dependency.
   const require = createRequire(import.meta.url);

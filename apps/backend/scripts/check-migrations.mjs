@@ -11,6 +11,15 @@ const legacyDuplicate = new Set([
   // Both shipped on main under 0061; renaming would break applied history.
   "0061_learning_review.sql",
   "0061_note_chat.sql",
+  // 0062_media_generations and 0063_runtime_d1_schema shipped on main first and
+  // are the identities docs/MIGRATIONS.md records. These two were renumbered to
+  // 0062/0063 on their branches (from 0061) without seeing that pair, so they
+  // landed as a second 0062 and 0063. Both are on main; renaming either one
+  // would re-apply a non-idempotent CREATE TABLE on an applied database.
+  "0062_inbound_webhook_receipts.sql",
+  "0062_media_generations.sql",
+  "0063_runtime_d1_schema.sql",
+  "0063_workspace_channel_facts.sql",
 ]);
 // main skipped these numbers when it added 0068/0069; never fill them retroactively.
 const skippedNumbers = new Set([66, 67]);
