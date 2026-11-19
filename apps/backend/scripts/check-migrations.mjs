@@ -11,9 +11,14 @@ const legacyDuplicate = new Set([
   // Both shipped on main under 0061; renaming would break applied history.
   "0061_learning_review.sql",
   "0061_note_chat.sql",
+  // Both pairs shipped on main under 0062 and 0063; renaming would break applied history.
+  "0062_inbound_webhook_receipts.sql",
+  "0062_media_generations.sql",
+  "0063_runtime_d1_schema.sql",
+  "0063_workspace_channel_facts.sql",
 ]);
-// main skipped these numbers when it added 0068/0069; never fill them retroactively.
-const skippedNumbers = new Set([66, 67]);
+// main skipped 0067 when it added 0068/0069; never fill it retroactively.
+const skippedNumbers = new Set([67]);
 
 const historicalNames = new Set([
   "0001_audit_log.sql",
