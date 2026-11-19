@@ -1444,10 +1444,11 @@ describe("bot thread links", () => {
 describe("Work approval receipts survive refresh and Back", () => {
   const run = (runId: string, approvalId: string, summary: string) => ({ runId, task: "SAME_TEXT_TASK", status: "completed", repoUrl: "", sandboxId: "fixture-sandbox", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2, summary, approval: { approvalId } });
   const decided = (approvalId: string, status: "approved" | "rejected", task: string) => ({ approvalId, threadKey: "fixture-thread", task, repoUrl: "", createdAt: 1, decidedAt: 2, kind: "run", status });
-  function stub(body: { runs?: unknown[]; approvals?: unknown[]; decided?: unknown[] }) {
+  function stub(body: { runs?: unknown[]; approvals?: unknown[]; decided?: unknown[]; decision?: unknown }) {
     const originalFetch = fetch;
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
       const path = String(url);
+      if (path === "/api/approvals" && options?.method === "POST") return Response.json(body.decision ?? { result: "unknown" });
       if (path === "/api/approvals" && !options?.method) return Response.json({ approvals: body.approvals ?? [], decided: body.decided ?? [] });
       if (path.startsWith("/api/runs") && !options?.method) return Response.json({ runs: body.runs ?? [] });
       return originalFetch(url, options);
@@ -1483,6 +1484,66 @@ describe("Work approval receipts survive refresh and Back", () => {
     expect(within(inspector).queryByText(/sandbox starting/)).toBeNull();
     expect(new URLSearchParams(window.location.search).get("task")).toBe("gate-c");
     expect(posted()).toHaveLength(0);
+  });
+
+  const runsAnswered = async () => {
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).startsWith("/api/runs"))).toBe(true));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+  };
+
+  it("fails closed when more than one run claims the same approval", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=gate-d&taskKind=approval&tab=approval");
+    stub({ runs: [run("first-run", "gate-d", "FIRST_OUTPUT"), run("second-run", "gate-d", "SECOND_OUTPUT")], decided: [decided("gate-d", "approved", "AMBIGUOUS_RECEIPT")] });
+    render(<App />);
+    expect(await screen.findByText(/more than one run/)).toBeTruthy();
+    await runsAnswered();
+    expect(new URLSearchParams(window.location.search).get("task")).toBe("gate-d");
+    expect(new URLSearchParams(window.location.search).get("taskKind")).toBe("approval");
+    expect(posted()).toHaveLength(0);
+  });
+
+  it.each([
+    ["an email receipt", { ...decided("mail-1", "approved", "MAIL_RECEIPT"), kind: "email_send" }],
+    ["a rejected receipt", decided("mail-1", "rejected", "MAIL_RECEIPT")],
+  ])("keeps %s when a stale run names its approval id", async (_label, receipt) => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=mail-1&taskKind=approval&tab=approval");
+    stub({ runs: [{ ...run("stale-run", "mail-1", "STALE_OUTPUT"), task: "STALE_RUN" }], decided: [receipt] });
+    render(<App />);
+    await screen.findByRole("dialog", { name: "Work inspector: MAIL_RECEIPT" });
+    await runsAnswered();
+    expect(new URLSearchParams(window.location.search).get("task")).toBe("mail-1");
+    expect(screen.queryByRole("dialog", { name: "Work inspector: STALE_RUN" })).toBeNull();
+  });
+
+  it("resolves an already-loaded linked run when Back or Forward restores a receipt inside Work", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=gate-e&taskKind=approval&tab=approval");
+    stub({ runs: [run("run-f", "gate-f", "RUN_F_OUTPUT")], decided: [decided("gate-e", "rejected", "RECEIPT_E"), decided("gate-f", "approved", "SAME_TEXT_TASK")] });
+    render(<App />);
+    await screen.findByRole("dialog", { name: "Work inspector: RECEIPT_E" });
+    await runsAnswered();
+    const answered = vi.mocked(fetch).mock.calls.length;
+    await act(async () => {
+      window.history.pushState(null, "", "/work/?view=board&task=gate-f&taskKind=approval&tab=approval");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("task")).toBe("run-f"));
+    expect(vi.mocked(fetch).mock.calls.slice(answered).some(([url]) => String(url).startsWith("/api/runs"))).toBe(false);
+    expect(posted()).toHaveLength(0);
+  });
+
+  it("shows a queued decision as queued on the Work receipt", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=gate-q&taskKind=approval&tab=approval");
+    stub({ approvals: [{ approvalId: "gate-q", threadKey: "fixture-thread", task: "QUEUED_RECEIPT", repoUrl: "https://github.com/fixture/repo", createdAt: 1, kind: "run", status: "pending" }], decision: { result: "queued", code: "repo_claim_queued" } });
+    render(<App />);
+    const inspector = await screen.findByRole("dialog", { name: "Work inspector: QUEUED_RECEIPT" });
+    fireEvent.click(within(inspector).getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(posted()).toHaveLength(1));
+    expect(await within(inspector).findByText(/queued behind another run/)).toBeTruthy();
+    expect(within(inspector).queryByText(/sandbox starting/)).toBeNull();
   });
 
   it("replaces an unknown receipt link without leaking a title or adding history", async () => {

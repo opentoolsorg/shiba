@@ -709,6 +709,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // The first sync rewrites a legacy /app/ URL in place (query kept for any reader); later view changes are history steps.
   const router = useRouter();
   const workSearchReplace = useRef(false);
+  // Back/Forward inside Work restores a selector without changing any loaded data.
+  const [workLocationTick, setWorkLocationTick] = useState(0);
+  // What the server answered for decisions taken here, so a receipt never claims more than it recorded.
+  const [storedDecisionReceipts, setStoredDecisionReceipts] = useState<Record<string, { kind?: string; result: string }>>({});
   const applyWorkSelection = useCallback((state: WorkSearchState, mode: "push" | "replace") => {
     const search = new URLSearchParams(window.location.search);
     search.delete("run");
@@ -832,6 +836,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   useEffect(() => {
     const onPop = () => {
       historyTraversal.current = true;
+      setWorkLocationTick((tick) => tick + 1);
       const view = viewFromUrl();
       setWorkViewMode(workViewFromUrl());
       setMainView(view ?? DEFAULT_VIEW);
@@ -1475,17 +1480,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       mainView === "diff" || mainView === "work",
       privateDataEnabled,
     );
-  // An approval receipt resolves to its own linked run from the URL alone, so a
-  // refresh, Back or a fresh tab lands where the original decision did. Exact
-  // approvalId match only: no substitute run, and nothing to replay.
-  useEffect(() => {
-    if (mainView !== "work" || !privateDataEnabled) return;
-    const state = parseWorkSearch(new URLSearchParams(window.location.search));
-    if (!state.task || state.taskKind === "run" || state.taskKind === "session") return;
-    const linked = retainedRuns.find((item) => item.approval?.approvalId === state.task);
-    if (!linked) return;
-    applyWorkSelection({ view: state.view, task: linked.runId, taskKind: "run", tab: "steps" }, "replace");
-  }, [mainView, retainedRuns, privateDataEnabled, applyWorkSelection]);
   useEffect(() => {
     if (!privateDataEnabled) {
       setTaskHistoryItems([]); setTaskHistoryError(null); setTaskHistoryLoading(false);
@@ -1535,6 +1529,25 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     error: storedApprovalsError,
     settled: storedApprovalsSettled,
   } = useApprovalsState(refreshToken, approvalsEnabled, workspaceLive);
+  // An approval receipt resolves to its own linked run from the URL alone, so a
+  // refresh, Back or a fresh tab lands where the original decision did. Exact
+  // approvalId match only: no substitute run, and nothing to replay.
+  useEffect(() => {
+    if (mainView !== "work" || !privateDataEnabled) return;
+    const state = parseWorkSearch(new URLSearchParams(window.location.search));
+    if (!state.task || state.taskKind === "run" || state.taskKind === "session") return;
+    // Only an approved run-kind receipt can be superseded by its run, and only
+    // when exactly one retained run claims it; anything else stays on the receipt.
+    const local = storedDecisionReceipts[state.task];
+    const recorded = storedApprovals.find((item) => item.approvalId === state.task) ??
+      decidedStoredApprovals.find((item) => item.approvalId === state.task);
+    const kind = local ? local.kind : recorded?.kind;
+    const approved = local ? local.result !== "rejected" : recorded ? recorded.status === "approved" : true;
+    if (!approved || (kind !== undefined && kind !== "run")) return;
+    const linked = retainedRuns.filter((item) => item.approval?.approvalId === state.task);
+    if (linked.length !== 1) return;
+    applyWorkSelection({ view: state.view, task: linked[0]!.runId, taskKind: "run", tab: "steps" }, "replace");
+  }, [mainView, retainedRuns, storedApprovals, decidedStoredApprovals, storedDecisionReceipts, workLocationTick, privateDataEnabled, applyWorkSelection]);
   const reviewAfterPublishById = useMemo(() => {
     const map: Record<string, boolean> = {};
     for (const approval of storedApprovals) {
@@ -1690,6 +1703,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       }
       return changed ? next : current;
     });
+    setStoredDecisionReceipts((current) =>
+      Object.keys(current).every(keep) ? current : Object.fromEntries(Object.entries(current).filter(([id]) => keep(id))),
+    );
   }, [storedApprovals, decidedStoredApprovals]);
 
   // Decide a DO-state approval pointer: POST resolves it in place — the
@@ -1743,6 +1759,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         }
         // The receipt stays in the URL; the linked run is resolved from it on
         // every render, so no in-memory handoff can be lost to a refresh.
+        setStoredDecisionReceipts((current) => ({
+          ...current,
+          [approvalId]: { kind: approval.kind, result: body.result ?? (approved ? "approved" : "rejected") },
+        }));
         setApprovalAnnouncement(
           approved
             ? body.result === "queued"
@@ -3305,6 +3325,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   onDecideStoredApproval={decideStoredApproval}
                   claimConflicts={claimConflicts}
                   approvalDecisions={{ ...decisions, ...storedDecisions }}
+                  approvalDecisionResults={Object.fromEntries(Object.entries(storedDecisionReceipts).map(([id, receipt]) => [id, receipt.result]))}
+                  runsError={runsError}
                   peekSessionId={selectedSessionId}
                   peekNotice={notice}
                   renderPeekContent={(task, tab) => {

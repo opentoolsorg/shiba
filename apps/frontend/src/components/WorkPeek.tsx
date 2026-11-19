@@ -27,6 +27,9 @@ export interface WorkPeekProps {
   decisions?: Record<string, boolean>;
   /** False while the runs owner is still fetching full payloads; a summary is not a missing diff. */
   diffReady?: boolean;
+  diffError?: string | null;
+  /** Server answers for decisions taken here; `queued` must never read as started. */
+  decisionResults?: Record<string, string>;
   onDecideApproval?: (id: string, approved: boolean) => void;
   onDecideStoredApproval?: (approval: StoredApproval, approved: boolean, claimAction?: "queue" | "new_branch" | "cancel") => void;
   claimConflict?: { actorId: string; branch: string; repo: string; runId: string } | null;
@@ -69,7 +72,14 @@ export function WorkPeek(props: WorkPeekProps) {
   const content =
     custom ??
     (tab === "approval" ? (
-      serverDecided ? (
+      storedApproval && props.decisionResults?.[task.id] === "queued" ? (
+        <div className="flex flex-col gap-3">
+          <p role="status">Approved — queued behind another run on this branch. It has not started yet.</p>
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words border border-[var(--border-1)] p-3 font-mono text-xs">
+            {JSON.stringify(storedApproval.payload ?? { repoUrl: storedApproval.repoUrl, task: storedApproval.task }, null, 2)}
+          </pre>
+        </div>
+      ) : serverDecided ? (
         <div className="flex flex-col gap-3">
           <DecidedApprovalRow approval={storedApproval} />
           <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words border border-[var(--border-1)] p-3 font-mono text-xs">
@@ -116,6 +126,8 @@ export function WorkPeek(props: WorkPeekProps) {
         <DiffViewer diff={diff} />
       ) : !run ? (
         <p role="status">No run is linked to this item, so no diff was captured for it.</p>
+      ) : props.diffError ? (
+        <p role="alert">Run details could not be loaded: {props.diffError}</p>
       ) : !diffReady ? (
         <p role="status">Loading the retained diff…</p>
       ) : run.hasDiff ? (
@@ -123,8 +135,14 @@ export function WorkPeek(props: WorkPeekProps) {
           A diff is retained for this run, but its patch is not in the loaded payload. Open the
           full thread to inspect it.
         </p>
-      ) : (
+      ) : run.status === "running" || run.status === "pending" ? (
+        <p role="status">This run is still in progress. Its patch appears here when it finishes.</p>
+      ) : run.status === "completed" ? (
         <p role="status">This run finished without changing any files.</p>
+      ) : (
+        <p role="status">
+          This run ended as {statusLabel(run.status).toLowerCase()} without a captured patch.
+        </p>
       )
     ) : tab === "output" ? (
       run ? (

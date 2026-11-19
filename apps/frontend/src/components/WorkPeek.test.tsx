@@ -385,6 +385,18 @@ describe("WorkPeek diff states", () => {
     peek({ run: { ...base, hasDiff: false } });
     expect(screen.getByText("This run finished without changing any files.")).toBeTruthy();
   });
+  it("does not call an unfinished or failed run a no-change outcome", () => {
+    peek({ run: { ...base, status: "running" } });
+    expect(screen.getByText(/still in progress/)).toBeTruthy();
+    cleanup();
+    peek({ run: { ...base, status: "error" } });
+    expect(screen.getByText(/without a captured patch/)).toBeTruthy();
+    expect(screen.queryByText(/without changing any files/)).toBeNull();
+  });
+  it("reports a failed run load instead of an empty diff", () => {
+    peek({ run: { ...base, hasDiff: true }, diffError: "Runs request failed: 503" });
+    expect(screen.getByText("Run details could not be loaded: Runs request failed: 503")).toBeTruthy();
+  });
   it("says when no run is linked", () => {
     peek({ task: { ...task, kind: "approval" } });
     expect(screen.getByText(/No run is linked to this item/)).toBeTruthy();

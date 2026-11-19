@@ -22,6 +22,8 @@ import { WorkTimelineView } from "./WorkTimelineView";
 
 export type WorkViewMode = WorkHeaderViewMode;
 
+const ambiguityNotice = "This approval is claimed by more than one run, so Work won't open either one. Compare them from the board.";
+
 export interface WorkTask {
   id: string;
   kind: WorkTaskKind;
@@ -87,6 +89,10 @@ export interface WorkViewProps {
   onDecideStoredApproval?: WorkPeekProps["onDecideStoredApproval"];
   claimConflicts?: Record<string, { actorId: string; branch: string; repo: string; runId: string }>;
   approvalDecisions?: Record<string, boolean>;
+  /** Server answers for decisions taken here (`approved`, `queued`, `rejected`). */
+  approvalDecisionResults?: Record<string, string>;
+  /** The runs owner's load error, so the inspector never mistakes a failed load for no diff. */
+  runsError?: string | null;
   /** Scope used by existing deliverable links; never guessed from a run id. */
   peekSessionId?: string;
   /** Existing app feedback must remain visible above the modal's inert background. */
@@ -324,6 +330,10 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
     };
   }, [decidedApprovals, props.selection.task, props.selection.taskKind]);
   const selected = selectedTask ?? decidedReceipt;
+  // Two runs claiming one approval is evidence of nothing: show the receipt, open neither.
+  const ambiguousRun =
+    props.selection.taskKind !== "run" && props.selection.taskKind !== "session" && Boolean(props.selection.task) &&
+    runs.filter((item) => item.approval?.approvalId === props.selection.task).length > 1;
   // A decision taken in this session is itself a receipt: the approval leaves
   // the pending queue before its run exists, so the selection must survive
   // that gap instead of being cleared as unknown.
@@ -457,6 +467,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
         onViewChange={setView}
         className="border-b border-zinc-200 dark:border-zinc-800"
       />
+      {ambiguousRun && !selected ? <div role="status" className="border-b border-[var(--border-1)] px-4 py-2 text-xs">{ambiguityNotice}</div> : null}
       {unavailable ? <div role="status" className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2 text-xs">
         <p>That item isn't available in this workspace. It may belong to another workspace or have been removed.</p>
         <button type="button" className={viewButtonClass} onClick={() => setUnavailable(false)}>Dismiss</button>
@@ -594,9 +605,11 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
       onOpenFull={onSelectTask ? () => onSelectTask(selected.id, selected.kind) : undefined}
       onReviewApproval={onReviewApproval ? () => onReviewApproval(selected.id) : undefined}
       sessionId={props.peekSessionId}
-      notice={props.peekNotice}
+      notice={ambiguousRun ? ambiguityNotice : props.peekNotice}
       decisions={props.approvalDecisions}
+      decisionResults={props.approvalDecisionResults}
       diffReady={props.runsDetailReady !== false}
+      diffError={props.runsError}
       onDecideApproval={props.onDecideApproval}
       onDecideStoredApproval={props.onDecideStoredApproval}
       claimConflict={selected.kind === "approval" ? props.claimConflicts?.[selected.id] ?? null : null}
