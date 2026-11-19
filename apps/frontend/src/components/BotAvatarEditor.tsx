@@ -109,10 +109,18 @@ export function BotAvatarEditor({ name, current, busy = false, error = null, onS
       if (!focusable.length) return;
       const first = focusable[0]!;
       const last = focusable[focusable.length - 1]!;
-      if (event.shiftKey && document.activeElement === first) {
+      const active = document.activeElement as HTMLElement | null;
+      // Focus may also be on the page behind the dialog; the trap pulls it back
+      // in rather than letting Tab walk on from wherever it happens to be.
+      if (!active || !dialog.current.contains(active)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
+      if (event.shiftKey && active === first) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && active === last) {
         event.preventDefault();
         first.focus();
       }
