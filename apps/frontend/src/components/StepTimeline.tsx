@@ -17,7 +17,9 @@ import { memo, type CSSProperties } from "react";
 import { LoaderCircle, ShieldCheck, Wrench, type LucideIcon } from "lucide-react";
 import { ApprovalCard } from "./ApprovalCard";
 import { RetainedDraftCard } from "./RetainedDraftCard";
+import { SearchSourcesCard, searchSources } from "./SearchSourcesCard";
 import { generatedVideoSource, VideoArtifactPlayer } from "./VideoArtifactPlayer";
+import { ShibaMark } from "./ShibaMark";
 import { Tooltip } from "./Tooltip";
 import {
   formatToolOutput,
@@ -49,13 +51,7 @@ function partText(part: ToolPart): string | null {
 
 function RailIcon({ kind }: { kind: "tool" | "text" | "approval" }) {
   if (kind === "text") {
-    return (
-      <img
-        src="/assets/mascot/pet-logo.png"
-        alt=""
-        className="w-4 h-4 rounded-full bg-white object-contain"
-      />
-    );
+    return <ShibaMark className="size-4" decorative />;
   }
   if (kind === "approval") {
     return <ShieldCheck className="w-3 h-3" strokeWidth={2} aria-hidden="true" />;
@@ -83,11 +79,7 @@ export function StepTimeline({
   if (messages.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--panel)]/40 px-6 text-center animate-enter">
-        <img
-          src="/assets/mascot/shiba-sticker-hero.webp"
-          alt="Shiba illustration mascot"
-          className="w-56 h-auto max-h-40 rounded-[var(--radius-button)] shadow-[var(--sh-overlay)] border border-[var(--primary)]/30 mb-3 object-cover"
-        />
+        <ShibaMark className="mb-3 size-28" decorative />
         <h2 className="font-sans text-3xl text-[var(--fg)] mb-1">
           Delegate the next task.
         </h2>
@@ -140,11 +132,7 @@ export function StepTimeline({
         <li className="flex flex-col items-start">
           <div className="relative pl-9">
             <span className="absolute left-0 top-0.5 w-6 h-6 rounded-[var(--radius-button)] bg-[var(--panel)] border border-[var(--primary)]/40 flex items-center justify-center">
-              <img
-                src="/assets/mascot/pet-logo.png"
-                alt=""
-                className="w-4 h-4 rounded-full bg-white object-contain animate-bounce"
-              />
+              <ShibaMark className="size-4" decorative />
             </span>
             <div className="bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] p-4 text-xs text-[var(--muted-foreground-2)] flex items-center gap-2 w-fit">
               <LoaderCircle className="w-3.5 h-3.5 animate-spin text-[var(--primary)]" aria-hidden="true" />
@@ -239,6 +227,8 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
               ? getToolOutput(part) : null;
             const videoSource = toolDisplayName(part) === "generate_video" && state === "complete"
               ? generatedVideoSource(getToolOutput(part)) : null;
+            const lookupOutput = state === "complete" && searchSources(toolDisplayName(part), getToolOutput(part))
+              ? getToolOutput(part) : null;
             const callId = getToolCallId(part);
             // Build the gate card from the tool part itself; the
             // pendingApprovals join is only a decided-state lookup.
@@ -278,7 +268,7 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
                     {rejected ? "Rejected" : state}
                   </span>
                 </div>
-                {videoSource ? <VideoArtifactPlayer src={videoSource} /> : retainedDraft ? <RetainedDraftCard output={retainedDraft} /> : output !== null && output !== "" ? (
+                {videoSource ? <VideoArtifactPlayer src={videoSource} /> : retainedDraft ? <RetainedDraftCard output={retainedDraft} /> : lookupOutput ? <SearchSourcesCard tool={toolDisplayName(part)} output={lookupOutput} /> : output !== null && output !== "" ? (
                   <details className="max-w-[92%] md:max-w-[85%] group">
                     <summary className="cursor-pointer text-[11px] font-mono text-[var(--muted-foreground-2)] hover:text-[var(--fg)] transition-colors select-none">
                       Output

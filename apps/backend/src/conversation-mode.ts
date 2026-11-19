@@ -22,6 +22,20 @@ export function isChatOnlyTurn(messages: readonly unknown[] | undefined): boolea
   return false;
 }
 
+/** Read-only lookups a Chat user can switch on for one message; nothing here acts or spends beyond the search budget. */
+export const CHAT_OPT_IN_TOOLS = ["web_search", "knowledge_search"] as const;
+export type ChatOptInTool = (typeof CHAT_OPT_IN_TOOLS)[number];
+
+/** The lookups the latest Chat user turn explicitly opted into; empty for Work turns and unmarked Chat turns. */
+export function chatOptInTools(messages: readonly unknown[] | undefined): ChatOptInTool[] {
+  if (!isChatOnlyTurn(messages)) return [];
+  const latest = [...(messages ?? [])].reverse().find((message) => typeof message === "object" && message !== null &&
+    (message as { role?: unknown }).role === "user") as { metadata?: { shibaChatTools?: unknown } } | undefined;
+  const requested = latest?.metadata?.shibaChatTools;
+  if (!Array.isArray(requested)) return [];
+  return CHAT_OPT_IN_TOOLS.filter((name) => requested.includes(name));
+}
+
 /** Chat turns get no registered tools; work turns keep the existing gated tool set. */
 export function toolsForConversationMode<T extends Record<string, unknown>>(
   mode: ConversationMode,

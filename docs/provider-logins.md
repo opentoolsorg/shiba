@@ -164,3 +164,39 @@ Copilot **API access token**, rather than a GitHub personal access token;
 short-lived tokens must be replaced when they expire. TODO: add Copilot
 OAuth device sign-in and refresh in a follow-up. There is no browser sign-in
 button for this card yet.
+
+## Kimi Code and Meta Muse plan keys
+
+Two more personal lanes cover assistants people already pay for. Both run
+through OpenCode ACP with a placeholder key in the sandbox; the Worker attaches
+the saved key at egress, so neither needs `AI_GATEWAY_TOKEN`.
+
+| Card | Paste | Host the key reaches | Default model |
+|---|---|---|---|
+| Kimi Code | An API key from the [Kimi Code Console](https://www.kimi.com/code/console). Usage draws on your Kimi membership quota. | `api.kimi.ai` (`/coding/v1`, OpenAI-compatible) | `kimi-code/k3.1-pro` |
+| Meta Muse | A Meta Model API key from the Model API dashboard. | `api.meta.ai` (`/v1`, OpenAI-compatible) | `meta/muse-spark-1.3` |
+
+Kimi keys issued for the China region use `api.kimi.com`, which this lane does
+not reach. Devin has no model endpoint that a sandbox harness can call, so it
+has no card here.
+
+## More personal API-key lanes
+
+Five more providers run through OpenCode ACP with the same shape: paste a key
+on Providers, the Worker attaches it at egress for that user's runs, the
+sandbox holds only a placeholder. None of them needs `AI_GATEWAY_TOKEN`.
+
+| Card | Paste | Host | Default model |
+|---|---|---|---|
+| DeepSeek | DeepSeek platform key | `api.deepseek.com` | `deepseek/deepseek-flash` |
+| Z.ai (GLM) | Z.ai platform key | `api.z.ai` (`/api/paas/v4`) | `zai/glm-5.3` |
+| MiniMax | MiniMax platform key | `api.minimax.io` | `minimax/MiniMax-M3` |
+| Qwen (Model Studio) | DashScope key, international region | `dashscope-intl.aliyuncs.com` (`/compatible-mode/v1`) | `qwen/qwen3-coder-plus` |
+| Mistral | La Plateforme key | `api.mistral.ai` | `mistral/devstral-medium-latest` |
+
+Defaults are only a starting point — the composer's model id decides what the
+run asks for. A saved DeepSeek platform key wins on `api.deepseek.com`, and an
+OpenCode Go key still authenticates that host when no platform key is stored.
+Keys for the China-region DashScope, Kimi, or Z.ai domains are not reached by
+these lanes; each lane is pinned to one host so egress cannot be pointed
+somewhere else.

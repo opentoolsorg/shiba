@@ -17,6 +17,7 @@ export interface RankedChunk {
   workspaceId: string;
   scope: "personal" | "workspace";
   createdBy: string;
+  sourceName: string;
 }
 
 async function embedQuery(env: Env, query: string): Promise<number[]> {
@@ -43,8 +44,25 @@ async function vectorCandidates(env: Env, workspaceId: string, vector: number[])
   });
 }
 
+/** Quotes each word so user punctuation (quotes, colons, hyphens) can never become FTS5 syntax. */
+export function ftsMatchExpression(query: string): string | null {
+  const terms = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [])].slice(0, 16);
+  return terms.length ? terms.map((term) => `"${term}"`).join(" OR ") : null;
+}
+
 async function ftsCandidates(env: Env, workspaceId: string, query: string): Promise<RankedChunk[]> {
-  return currentChunks(env, workspaceId, "knowledge_fts MATCH ?", [query], true);
+  const match = ftsMatchExpression(query);
+  return match ? currentChunks(env, workspaceId, "knowledge_fts MATCH ?", [match], true) : [];
+}
+
+/** Semantic ranking is optional: without Workers AI or Vectorize, search degrades to keyword-only. */
+async function semanticCandidates(env: Env, workspaceId: string, query: string): Promise<RankedChunk[]> {
+  if (!env.AI || !env.MEMORY_VECTORS) return [];
+  try {
+    return await vectorCandidates(env, workspaceId, await embedQuery(env, query));
+  } catch {
+    return [];
+  }
 }
 
 async function currentChunks(
@@ -56,7 +74,8 @@ async function currentChunks(
 ): Promise<RankedChunk[]> {
   const rows = await env.AGENT_AUDIT.prepare(
     `SELECT kc.id AS chunk_id, kc.source_kind, kc.source_id, kc.ordinal, kc.text, kc.workspace_id,
-            COALESCE(f.scope, n.scope) AS scope, COALESCE(f.created_by, n.created_by) AS created_by
+            COALESCE(f.scope, n.scope) AS scope, COALESCE(f.created_by, n.created_by) AS created_by,
+            COALESCE(f.name, n.title) AS source_name
      FROM knowledge_chunks kc
      ${fts ? "JOIN knowledge_fts ON kc.id = knowledge_fts.chunk_id" : ""}
      LEFT JOIN files f ON kc.source_kind = 'file' AND f.id = kc.source_id
@@ -67,7 +86,7 @@ async function currentChunks(
      ${fts ? `ORDER BY bm25(knowledge_fts) LIMIT ${FTS_TOP_K}` : ""}`,
   ).bind(...values, workspaceId).all<{
     chunk_id: string; source_kind: string; source_id: string; ordinal: number; text: string;
-    workspace_id: string; scope: string; created_by: string;
+    workspace_id: string; scope: string; created_by: string; source_name: string | null;
   }>();
   return rows.results.map((row) => ({
     chunkId: row.chunk_id,
@@ -78,6 +97,7 @@ async function currentChunks(
     workspaceId: row.workspace_id,
     scope: row.scope === "workspace" ? "workspace" : "personal",
     createdBy: row.created_by,
+    sourceName: row.source_name ?? "",
   }));
 }
 
@@ -104,9 +124,8 @@ export async function hybridKnowledgeSearch(
 ): Promise<KnowledgeSearchHit[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
-  const vector = await embedQuery(env, trimmed);
   const [vectorList, ftsList] = await Promise.all([
-    vectorCandidates(env, workspaceId, vector),
+    semanticCandidates(env, workspaceId, trimmed),
     ftsCandidates(env, workspaceId, trimmed),
   ]);
   const fused = reciprocalRankFusion([vectorList, ftsList]);
@@ -130,6 +149,8 @@ export async function hybridKnowledgeSearch(
       chunkId,
       sourceKind: chunk.sourceKind,
       sourceId: chunk.sourceId,
+      sourceName: chunk.sourceName,
+      scope: chunk.scope,
       ordinal: chunk.ordinal,
       text: chunk.text,
       score,

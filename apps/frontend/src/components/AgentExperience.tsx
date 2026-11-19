@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, MessageSquare, PanelLeft, PanelRight, Plus, Users, X } from "lucide-react";
-import type { AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
+import type { AgentAvatarChoice, AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
 import type { CustomAgentWire } from "./CustomAgentsView";
 import type { WebThread } from "../agent-threads";
 import { threadAgentId } from "../agent-threads";
@@ -30,9 +30,9 @@ export function employeeExamples(agent?: CustomAgentWire): readonly string[] {
   }
 }
 
-export function AgentAvatar({ name, slug, role, agentId, mascotPreset, look, large = false, size = large ? 112 : 40 }: { name: string; slug?: string; role?: EmployeeRole; agentId?: string; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; large?: boolean; size?: number }) {
+export function AgentAvatar({ name, slug, role, agentId, mascotPreset, look, avatar, large = false, size = large ? 112 : 40 }: { name: string; slug?: string; role?: EmployeeRole; agentId?: string; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; avatar?: AgentAvatarChoice; large?: boolean; size?: number }) {
   if (slug === undefined) return <span className="inline-flex shrink-0" style={{ width: size, height: size }}><ShibaMark className="size-full" decorative /></span>;
-  return <BaseAvatar id={agentId ?? slug} name={name} mascotPreset={mascotPreset} look={look} role={role ?? employeeRole(slug)} size={size} decorative />;
+  return <BaseAvatar id={agentId ?? slug} name={name} mascotPreset={mascotPreset} look={look} avatar={avatar} role={role ?? employeeRole(slug)} size={size} decorative />;
 }
 
 export function AgentSidebar({ agents, threads, selectedId, onOpenThread, onNewThread, onManage }: {
@@ -53,7 +53,7 @@ export function AgentSidebar({ agents, threads, selectedId, onOpenThread, onNewT
       const children = threads.filter((thread) => row.agent ? threadAgentId(thread) === row.id : !threadAgentId(thread) || !agents.some((agent) => agent.id === threadAgentId(thread)));
       return <div key={row.id}>
         <div className="flex items-center">
-          <button type="button" className={`${quietButton} min-w-0 flex-1 justify-start gap-2 text-left text-[13px]`} onClick={() => { const latest = [...children].sort((a, b) => b.updatedAt - a.updatedAt)[0]; if (latest) onOpenThread(latest.id); else onNewThread(row.agent); }}><AgentAvatar agentId={row.agent?.id} name={row.name} mascotPreset={row.agent?.config.mascotPreset} look={row.agent?.config.look} slug={row.agent?.slug} role={employeeRole(row.agent?.slug, row.agent?.config.roleTemplateId)} size={28} /><span className="truncate">{row.name}</span></button>
+          <button type="button" className={`${quietButton} min-w-0 flex-1 justify-start gap-2 text-left text-[13px]`} onClick={() => { const latest = [...children].sort((a, b) => b.updatedAt - a.updatedAt)[0]; if (latest) onOpenThread(latest.id); else onNewThread(row.agent); }}><AgentAvatar agentId={row.agent?.id} name={row.name} mascotPreset={row.agent?.config.mascotPreset} avatar={row.agent?.config.avatar} look={row.agent?.config.look} slug={row.agent?.slug} role={employeeRole(row.agent?.slug, row.agent?.config.roleTemplateId)} size={28} /><span className="truncate">{row.name}</span></button>
           <button type="button" className={quietButton} aria-label={`New thread with ${row.name}`} onClick={() => onNewThread(row.agent)}><Plus aria-hidden="true" className="size-4" /></button>
           <button type="button" className={quietButton} aria-label={`${isExpanded ? "Collapse" : "Expand"} ${row.name} threads`} aria-expanded={isExpanded} aria-controls={`${id}-${row.id}`} onClick={() => setExpanded((current) => ({ ...current, [row.id]: !isExpanded }))}>{isExpanded ? <ChevronDown aria-hidden="true" className="size-3.5" /> : <ChevronRight aria-hidden="true" className="size-3.5" />}</button>
         </div>
@@ -166,7 +166,7 @@ export function AgentDetailsPanel({
         <X aria-hidden="true" className="size-4" />
       </button>
       <div className="flex flex-col items-center gap-3 py-5 text-center">
-        <AgentAvatar agentId={agent?.id} name={name} mascotPreset={agent?.config.mascotPreset} look={agent?.config.look} slug={agent?.slug} role={role} large />
+        <AgentAvatar agentId={agent?.id} name={name} mascotPreset={agent?.config.mascotPreset} look={agent?.config.look} avatar={agent?.config.avatar} slug={agent?.slug} role={role} large />
         <h2 className="text-lg font-medium tracking-tight">{name}</h2>
         <p className="text-xs font-medium text-[var(--muted-foreground-2)]">
           {ownerName ? `${ownerName} · ` : ""}

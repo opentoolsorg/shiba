@@ -5,9 +5,9 @@ import { CommandDialog } from "../ui/command-menu";
 import { BotRow, botOptionName } from "./BotRow";
 import { detectPlatform, detectStandalone, jumpEventMatches, jumpKeyAria, jumpKeyLabel } from "./jump-keys";
 import { pushRecent, readRecents } from "./palette-recents";
-import { ChatResult, TaskResult } from "./ResultRow";
+import { ChatResult, KnowledgeResult, TaskResult } from "./ResultRow";
 import { usePaletteBots, type PaletteBot } from "./usePaletteBots";
-import { usePaletteSearch, type PaletteChatHit, type PaletteTaskHit } from "./usePaletteSearch";
+import { usePaletteSearch, type PaletteChatHit, type PaletteKnowledgeHit, type PaletteTaskHit } from "./usePaletteSearch";
 
 export interface PaletteAction { id: string; label: string; hint?: string; run: () => void }
 export interface PaletteSetting { id: string; label: string }
@@ -33,7 +33,7 @@ function nextSlot(bots: PaletteBot[], bot: PaletteBot): number {
 
 export function CommandPalette({
   open, onClose, workspaceId, roomThreadOpen, needsYouCount, settings, extraActions = [],
-  onNewTask, onNewChannel, onOpenBot, onOpenChat, onOpenTask, onOpenSettings, onOpenNeedsYou,
+  onNewTask, onNewChannel, onOpenBot, onOpenChat, onOpenTask, onOpenKnowledge, onOpenSettings, onOpenNeedsYou,
   onToggleTheme, onOpenShortcuts, onInsertAgentMention, onSearchAll, onMessageAbout,
 }: {
   open: boolean;
@@ -48,6 +48,7 @@ export function CommandPalette({
   onOpenBot: (bot: PaletteBot, focusComposer: boolean) => void;
   onOpenChat: (hit: PaletteChatHit) => void;
   onOpenTask: (hit: PaletteTaskHit) => void;
+  onOpenKnowledge?: (hit: PaletteKnowledgeHit) => void;
   onOpenSettings: (sectionId: string) => void;
   onOpenNeedsYou: () => void;
   onToggleTheme: () => void;
@@ -140,7 +141,7 @@ export function CommandPalette({
   const visibleSettings = trimmed ? settings.filter((item) => matches(trimmed, item.label)) : [];
   const visibleActions = actions.filter((item) => !trimmed || matches(trimmed, item.label));
   const recentRows = trimmed ? [] : recents;
-  const count = (pick ? visibleBots.length : visibleBots.length + (trimmed ? search.chats.length + search.tasks.length : 0) + visibleSettings.length + visibleActions.length + recentRows.length);
+  const count = (pick ? visibleBots.length : visibleBots.length + (trimmed ? search.chats.length + search.tasks.length + search.knowledge.length : 0) + visibleSettings.length + visibleActions.length + recentRows.length);
   useEffect(() => {
     const timer = window.setTimeout(() => setLive(`${count} results`), 500);
     return () => window.clearTimeout(timer);
@@ -158,7 +159,7 @@ export function CommandPalette({
     next.click();
   };
 
-  const empty = trimmed.length >= 2 && !pick && !search.loading && visibleBots.length + visibleSettings.length + visibleActions.length + search.chats.length + search.tasks.length === 0;
+  const empty = trimmed.length >= 2 && !pick && !search.loading && visibleBots.length + visibleSettings.length + visibleActions.length + search.chats.length + search.tasks.length + search.knowledge.length === 0;
 
   return (
     <CommandDialog open={open} onClose={onClose} wide label="Search">
@@ -178,6 +179,9 @@ export function CommandPalette({
           </Group> : null}
           {!pick && trimmed ? <Group id="palette-tasks" title="Tasks" show={search.tasks.length > 0} force>
             {search.tasks.map((hit) => <Command.Item key={hit.taskId} forceMount value={`task ${hit.taskId}`} data-group="tasks" className={itemClass} onSelect={() => { remember(`task:${hit.taskId}`); onOpenTask(hit); onClose(); }}><TaskResult hit={hit} /></Command.Item>)}
+          </Group> : null}
+          {!pick && trimmed ? <Group id="palette-knowledge" title="Files & notes" show={search.knowledge.length > 0} force>
+            {search.knowledge.map((hit) => <Command.Item key={hit.chunkId} forceMount value={`knowledge ${hit.chunkId}`} data-group="knowledge" className={itemClass} onSelect={() => { onOpenKnowledge?.(hit); onClose(); }}><KnowledgeResult hit={hit} query={trimmed} /></Command.Item>)}
           </Group> : null}
           {!pick ? <Group id="palette-settings" title="Settings" show={visibleSettings.length > 0}>
             {visibleSettings.map((item) => <Command.Item key={item.id} value={`settings ${item.label}`} data-group="settings" className={itemClass} onSelect={() => { remember(`settings:${item.id}`); onOpenSettings(item.id); onClose(); }}>{item.label}</Command.Item>)}
