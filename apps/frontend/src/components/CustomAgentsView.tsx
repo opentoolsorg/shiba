@@ -6,11 +6,12 @@ import { LoadErrorState } from "./LoadErrorState";
 import { EmptyState, SkeletonLines, StatusNotice } from "./surface";
 import { agentThreads, type WebThread } from "../agent-threads";
 import { formatTimeAgo } from "../ui-helpers";
-import { AGENT_MASCOT_ACCS, AGENT_MASCOT_EYES, AGENT_MASCOT_SHAPES, CUSTOM_AGENT_MASCOT_PRESETS, defaultLookFor, formLook, normalizeMascotColor, sanitizeCustomAgentSlug, type CustomAgentConfig, type CustomAgentRoleTemplateId } from "@shiba/shared";
+import { AGENT_MASCOT_ACCS, AGENT_MASCOT_EYES, AGENT_MASCOT_SHAPES, CUSTOM_AGENT_MASCOT_PRESETS, defaultLookFor, formLook, normalizeMascotColor, sanitizeCustomAgentSlug, type CustomAgentConfig, type CustomAgentRoleTemplateId, type AgentAvatarChoice } from "@shiba/shared";
 import { AgentLookStyler } from "./AgentLookStyler";
 import { codingModelOptions, type ConnectionOption } from "../live-status";
 import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTemplate } from "../employee-templates";
 import { AgentAvatar as MascotAvatar } from "./AgentAvatar";
+import { BotAvatarEditor } from "./BotAvatarEditor";
 import { AgentTemplatesCatalog } from "./AgentTemplatesCatalog";
 import { AgentAvatar } from "./AgentExperience";
 import type { AgentTemplate, EmployeeAccessLevel } from "@shiba/shared";
@@ -153,6 +154,9 @@ function ScopedCustomAgentsView({
   const [form, setForm] = useState(() => readRoleDraft(draftScope));
   const [draftStorageAvailable, setDraftStorageAvailable] = useState(true);
   const [expectedVersion, setExpectedVersion] = useState<number | undefined>(undefined);
+  const [avatarEditorFor, setAvatarEditorFor] = useState<CustomAgentWire | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
   const [startingAgentId, setStartingAgentId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [editingConfig, setEditingConfig] = useState<CustomAgentConfig | null>(null);
@@ -321,6 +325,39 @@ function ScopedCustomAgentsView({
     if (agent) { setSelectedAgentId(agent.id); startEdit(agent); }
     onInitialAgentApplied?.();
   }, [initialAgentId, agents, onInitialAgentApplied, callerLevels, workspaceId]);
+
+  /** Avatar saves only the avatar: it patches the bot's own saved version, so a
+   *  half-filled form can never ride along, and a version conflict is reported. */
+  async function saveAvatar(agent: CustomAgentWire, choice: AgentAvatarChoice) {
+    setAvatarBusy(true);
+    setAvatarError(null);
+    try {
+      const response = await fetch(`/api/custom-agents/${encodeURIComponent(agent.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) },
+        body: JSON.stringify({ config: { ...agent.config, avatar: choice }, expectedVersion: agent.version }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string; agent?: CustomAgentWire };
+      if (response.status === 409) {
+        setAvatarError("This bot changed since you opened it. Reload the latest version, then pick the avatar again.");
+        return;
+      }
+      if (!response.ok || !body.agent) {
+        setAvatarError(body.error ?? `Could not save the avatar (${response.status}).`);
+        return;
+      }
+      const saved = body.agent;
+      setAgents((current) => (current ?? []).map((entry) => (entry.id === saved.id ? saved : entry)));
+      setSelectedAgentId(saved.id);
+      setAvatarEditorFor(null);
+      setNotice({ tone: "ok", text: "Avatar updated." });
+      refresh();
+    } catch {
+      setAvatarError("Could not reach the workspace. Try again.");
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
 
   const saveAgent = async () => {
     if (!isActive() || savingAgent.current || busy) return;
@@ -537,8 +574,8 @@ function ScopedCustomAgentsView({
             <section ref={profileSection} tabIndex={-1} aria-label={`${selectedAgent.config.name} overview`} className="border border-[var(--line)] bg-[var(--card)] p-4">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex min-w-0 items-center gap-3">
-                  <AgentAvatar agentId={selectedAgent.id} name={selectedAgent.config.name} mascotPreset={selectedAgent.config.mascotPreset} look={selectedAgent.config.look} slug={selectedAgent.slug} role={employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId)} large />
-                  <div className="min-w-0"><p className="font-mono text-[10px] uppercase text-[var(--ink-2)]">Saved profile · v{selectedAgent.version}</p><h2 className="break-words font-serif text-xl">{selectedAgent.config.name}</h2><p className="text-xs text-[var(--ink-2)]">{employeeRoleLabel(employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId))}</p></div>
+                  <AgentAvatar agentId={selectedAgent.id} name={selectedAgent.config.name} mascotPreset={selectedAgent.config.mascotPreset} look={selectedAgent.config.look} avatar={selectedAgent.config.avatar} slug={selectedAgent.slug} role={employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId)} large />
+                  <div className="min-w-0"><p className="font-mono text-[10px] uppercase text-[var(--ink-2)]">Saved profile · v{selectedAgent.version}</p><h2 className="break-words font-serif text-xl">{selectedAgent.config.name}</h2><p className="text-xs text-[var(--ink-2)]">{employeeRoleLabel(employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId))}</p><button type="button" disabled={!canManage(selectedAgent.id)} onClick={() => { setAvatarError(null); setAvatarEditorFor(selectedAgent); }} className="mt-1 min-h-9 border border-[var(--line)] px-2 text-[11px] disabled:opacity-50">Edit avatar</button></div>
                 </div>
                 <button type="button" className="min-h-11 border border-[var(--line)] px-3 text-xs" onClick={() => { setSelectedAgentId(null); profileTrigger.current?.focus(); }}>Close profile</button>
               </div>
@@ -556,6 +593,16 @@ function ScopedCustomAgentsView({
             </section>
           ) : null}
           {loadError ? <LoadErrorState message={loadError} onRetry={refresh} /> : null}
+      {avatarEditorFor ? (
+        <BotAvatarEditor
+          name={avatarEditorFor.config.name}
+          current={avatarEditorFor.config.avatar}
+          busy={avatarBusy}
+          error={avatarError}
+          onCancel={() => { setAvatarEditorFor(null); setAvatarError(null); }}
+          onSave={(choice) => void saveAvatar(avatarEditorFor, choice)}
+        />
+      ) : null}
 
           {agents === null && !loadError ? (
             <div role="status" aria-busy="true" aria-label="Loading bots">
@@ -584,7 +631,7 @@ function ScopedCustomAgentsView({
                   className="flex min-w-0 flex-col justify-between gap-4 border border-[var(--line)] bg-[var(--card)] p-4 shadow-[2px_2px_0_var(--paper-shadow)]"
                 >
                   <div className="min-w-0">
-                    <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} look={agent.config.look} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))}</span></div>
+                    <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} look={agent.config.look} avatar={agent.config.avatar} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))}</span></div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button type="button" onClick={(event) => { profileTrigger.current = event.currentTarget; focusProfile.current = true; setSelectedAgentId(agent.id); }} aria-label={`View profile ${agent.config.name}`}
                         className="min-h-11 break-words text-left font-serif text-xl text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]">{agent.config.name}</button>

@@ -997,6 +997,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         slug: agent.slug,
         emoji: agent.config.emoji,
         mascotPreset: agent.config.mascotPreset,
+        avatar: agent.config.avatar,
         look: agent.config.look,
         roleTemplateId: agent.config.roleTemplateId,
         expectedDeliverables: agent.config.expectedDeliverables,
@@ -2819,8 +2820,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   };
   const activeEmployee = customAgentRecords.find((profile) => profile.id === customAgentId);
   const employeeName = activeEmployee?.config.name ?? "Shiba";
-  const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, look: activeEmployee?.config.look, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
-  const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, mascotPreset: record.config.mascotPreset, look: record.config.look, role: employeeRole(record.slug, record.config.roleTemplateId) }));
+  const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, look: activeEmployee?.config.look, avatar: activeEmployee?.config.avatar, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
+  const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, mascotPreset: record.config.mascotPreset, look: record.config.look, avatar: record.config.avatar, role: employeeRole(record.slug, record.config.roleTemplateId) }));
   const showEmployeeOnboarding = !teamWorkspaceId && !restrictedTeamMember && !employeeOnboardingDismissed && !threadsLoading && !customAgentsLoading && !customAgentsError && sessionApiAvailable && customAgentRecords.length === 0 && webSessions.every((session) => session.id === "default") && sessions.every((session) => session.id === "default") && !threadHasWork;
 
   const activeSandboxCount = useMemo(() => {
@@ -3313,6 +3314,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 emoji: profile.config.emoji,
                 defaultRepoUrl: profile.config.defaultRepoUrl,
                 mascotPreset: profile.config.mascotPreset,
+                avatar: profile.config.avatar,
                 look: profile.config.look,
                 role: employeeRole(profile.slug, profile.config.roleTemplateId),
               }))}

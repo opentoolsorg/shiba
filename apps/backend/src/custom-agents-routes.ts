@@ -15,6 +15,7 @@ import { resolveHarness } from "./harness/index.js";
 import { resolveUserId } from "./request-auth.js";
 import { recordEmployeeBundleProfileOwner } from "./employee-bundles-store.js";
 import { visibleEmployees } from "./governance/employee-access.js";
+import { getFile } from "./files/files-store.js";
 
 function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number]) {
   return {
@@ -27,6 +28,18 @@ function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number
     updatedAt: record.updatedAt,
     ...(record.archivedAt !== undefined ? { archivedAt: record.archivedAt } : {}),
   };
+}
+
+
+/**
+ * A stored file id is a claim about which portrait to draw, never a grant:
+ * resolve it in the caller's workspace and accept only a raster image there.
+ * A missing workspace, a foreign file or a non-image all fail the same way.
+ */
+export async function avatarFileUsable(env: Env, fileId: string, workspaceId: string | undefined): Promise<boolean> {
+  if (!workspaceId) return false;
+  const file = await getFile(env, fileId);
+  return Boolean(file && file.workspaceId === workspaceId && ["image/png", "image/jpeg", "image/webp"].includes(file.mime));
 }
 
 export async function handleCustomAgents(request: Request, env: Env): Promise<Response | null> {
@@ -102,6 +115,12 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     }
     const parsed = decodeCreateCustomAgent(body);
     if (!parsed) return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+    if (parsed.config.avatar?.kind === "upload") {
+      const workspaceId = auth.workspace?.workspaceId ?? /^team:(ws_[a-f0-9]{24})$/.exec(auth.orgId)?.[1];
+      if (!await avatarFileUsable(env, parsed.config.avatar.fileId, workspaceId)) {
+        return Response.json({ ok: false, error: "avatar_file_unavailable", detail: "That avatar image is not a PNG, JPEG or WebP stored in this workspace." }, { status: 400 });
+      }
+    }
     if (parsed.config.toolScopes?.length) {
       return Response.json({ ok: false, error: "unsupported_tool_scopes", detail: "Custom tool scopes are not enforced yet. Use the deployment tool policy." }, { status: 400 });
     }
@@ -143,6 +162,12 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     }
     const parsed = decodeUpdateCustomAgent(body);
     if (!parsed) return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+    if (parsed.config.avatar?.kind === "upload") {
+      const workspaceId = auth.workspace?.workspaceId ?? /^team:(ws_[a-f0-9]{24})$/.exec(auth.orgId)?.[1];
+      if (!await avatarFileUsable(env, parsed.config.avatar.fileId, workspaceId)) {
+        return Response.json({ ok: false, error: "avatar_file_unavailable", detail: "That avatar image is not a PNG, JPEG or WebP stored in this workspace." }, { status: 400 });
+      }
+    }
     if (parsed.config.toolScopes?.length) {
       return Response.json({ ok: false, error: "unsupported_tool_scopes", detail: "Custom tool scopes are not enforced yet. Clear legacy scopes explicitly before saving; existing stored configuration was not changed." }, { status: 400 });
     }
