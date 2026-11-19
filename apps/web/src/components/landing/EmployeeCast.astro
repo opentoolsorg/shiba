@@ -6,7 +6,7 @@ const roles = [
   { t: 'Product', kind: 'Custom role example', mascot: 'product', d: 'Turn customer evidence into a product brief your team can discuss.', a: 'Product brief', b: 'Scope and acceptance checks' },
   { t: 'Design', kind: 'Custom role example', mascot: 'design', d: 'Map a user flow and draft interface copy before you build.', a: 'Design specification', b: 'States and accessibility checks' },
   { t: 'Engineering', kind: 'Built-in template', mascot: 'engineering', d: 'Make a focused code change and report the checks run.', a: 'Code changes and tests', b: 'Review handoff' },
-  { t: 'QA & Testing', kind: 'Custom role example', mascot: 'engineering', d: 'Check a feature and document what passed, failed, or needs another look.', a: 'Test report', b: 'Reproduction steps' },
+  { t: 'QA & Testing', kind: 'Custom role example', mascot: 'qa', d: 'Check a feature and document what passed, failed, or needs another look.', a: 'Test report', b: 'Reproduction steps' },
   { t: 'Operations', kind: 'Built-in template', mascot: 'operations', d: 'Turn a recurring process into a checklist someone can follow.', a: 'Operating runbook', b: 'Readiness and recovery steps' },
   { t: 'Your custom role', kind: 'Custom role', mascot: 'custom', d: 'Give an employee instructions for the work your team repeats.', a: 'Your working brief', b: 'The files you need' },
 ];
@@ -27,7 +27,7 @@ const roles = [
         {
           roles.map((e) => (
             <li class="lp-agent">
-              <img class="lp-agent-avatar" src={`/landing/mascots/${e.mascot}.svg`} alt="" width="260" height="240" loading="lazy" decoding="async" />
+              <img class="lp-agent-avatar" src={`/landing/mascots/${e.mascot}.svg`} alt="" width="48" height="58" loading="lazy" decoding="async" />
               <div class="lp-agent-body">
                 <h3>{e.t} <span class="lp-template-label">{e.kind}</span></h3>
                 <p>{e.d}</p>
