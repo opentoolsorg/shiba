@@ -79,10 +79,12 @@ async function fixture() {
   for (const email of [ALICE, BOB]) {
     const invitation = await createTeamWorkspaceInvitation(env, workspace.workspaceId, OWNER, { email, role: "member" });
     const registered = (await native(req("/api/auth/sign-up/email", "POST", { name: email, email, password: "fixture-member-password", callbackURL: "/app/" }, { "x-shiba-workspace-invitation": invitation.token })))!;
-    expect(registered.status).toBe(200); cookies.set(email, cookie(registered));
+    expect(registered.status).toBe(200);
     const mail = send.mock.calls.at(-1)?.[0] as { text?: string };
     const verification = mail.text?.match(/https:\/\/\S+/)?.[0]; if (!verification) throw new Error("Fixture verification URL missing.");
     expect((await native(new Request(verification)))?.status).toBe(302);
+    const signedIn = (await native(req("/api/auth/sign-in/email", "POST", { email, password: "fixture-member-password" })))!;
+    expect(signedIn.status).toBe(200); cookies.set(email, cookie(signedIn));
     await acceptTeamWorkspaceInvitation(env, email, invitation.token);
   }
   const headers = (email = ALICE) => ({ cookie: cookies.get(email)!, "X-Shiba-Workspace": workspace.workspaceId });
