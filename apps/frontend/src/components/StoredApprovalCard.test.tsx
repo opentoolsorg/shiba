@@ -19,6 +19,13 @@ const approval: StoredApproval = {
 };
 
 describe("StoredApprovalCard", () => {
+  it.each([{ computer: true }, { payload: { computer: true } }])("names the frozen cloud computer opt-in: %j", (fields) => {
+    const { rerender } = render(<StoredApprovalCard approval={{ ...approval, ...fields }} decided={false} onDecide={vi.fn()} />);
+    expect(screen.getByText("Uses a cloud computer")).toBeTruthy();
+    rerender(<StoredApprovalCard approval={approval} decided={false} onDecide={vi.fn()} />);
+    expect(screen.queryByText("Uses a cloud computer")).toBeNull();
+  });
+
   it("shows the frozen deliverable requirements before approving that exact record", () => {
     const frozen: StoredApproval = { ...approval, customAgentVersion: 2, expectedDeliverables: ["marketing/brief.md", "marketing/campaign.md"] };
     const onDecide = vi.fn();

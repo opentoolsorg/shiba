@@ -9,6 +9,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 function Harness({ onSubmit, initialTarget = "local" }: { onSubmit: () => void; initialTarget?: "sandbox" | "local" }) {
   const [target, setTarget] = useState<"sandbox" | "local">(initialTarget);
+  const [computer, setComputer] = useState(false);
   const fleet = useLocalRunTarget({ harness: "opencode", desktopStatus: null });
   return <TaskComposer repoUrl="https://github.com/example/project" task="Fix the parser" baseBranch="main"
     publishPullRequest={false} harness="opencode" busy={false} isSubmitting={false} clearing={false}
@@ -16,6 +17,7 @@ function Harness({ onSubmit, initialTarget = "local" }: { onSubmit: () => void; 
     onRepoUrlChange={vi.fn()} onTaskChange={vi.fn()} onBaseBranchChange={vi.fn()} onPublishPullRequestChange={vi.fn()}
     onHarnessChange={vi.fn()} onSubmit={onSubmit} onClear={vi.fn()}
     runTarget={target} onRunTargetChange={setTarget} localRunAvailable={fleet.localRunAvailable}
+    computer={computer} onComputerChange={setComputer}
     localComputers={fleet.computers} targetMachineId={fleet.targetMachineId}
     onTargetMachineChange={fleet.selectMachine} localComputersLoading={fleet.loading}
     localComputersError={fleet.error} onRefreshLocalComputers={fleet.refresh} />;
@@ -24,6 +26,20 @@ function Harness({ onSubmit, initialTarget = "local" }: { onSubmit: () => void; 
 const computer = (machineId: string) => ({
   machineId, hostname: `Mac ${machineId}`, platform: "darwin-arm64", daemonVersion: "1.0",
   status: "idle", harnesses: ["opencode"], lastHeartbeat: Date.now(),
+});
+
+it("only offers the cloud computer opt-in for Cloud, not a paired computer", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ computers: [computer("only")] })));
+  render(<Harness onSubmit={vi.fn()} initialTarget="sandbox" />);
+  const checkbox = screen.getByRole<HTMLInputElement>("checkbox", { name: /Cloud computer/ });
+  expect(checkbox.checked).toBe(false);
+  fireEvent.click(checkbox);
+  expect(checkbox.checked).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Run on: Cloud" }));
+  const localOption = screen.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ });
+  await waitFor(() => expect(localOption.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(localOption);
+  expect(screen.queryByRole("checkbox", { name: /Cloud computer/ })).toBeNull();
 });
 
 it("requires an explicit paired computer before enabling a Local task", async () => {

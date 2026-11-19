@@ -55,6 +55,7 @@ export function registerRunTools(registry: ToolRegistry, env: Env): void {
           task: args.task,
           baseBranch: args.baseBranch,
           publishPullRequest: args.publishPullRequest,
+          computer: args.computer,
           harness: args.harness,
           codingModel: args.codingModel,
           connectionId: args.connectionId,

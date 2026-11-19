@@ -94,6 +94,22 @@ export const TEST_COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
 export const TEST_EVIDENCE_TAIL_CHARS = 4000;
 export const MAX_PROGRESS_EVENTS = 256;
 
+const RUN_COMPUTER = "/usr/local/bin/shiba-run-computer";
+const RUN_COMPUTER_SCREENSHOT = "/tmp/shiba-run-computer/latest.png";
+const RUN_COMPUTER_MAX_PNG_BYTES = 375_000;
+const RUN_COMPUTER_INSTRUCTIONS = [
+  "This approved run has an ephemeral 1280×800 desktop with a new, empty Chromium profile.",
+  "Use only these shell commands for desktop interaction (single-quote each JSON argument):",
+  `  ${RUN_COMPUTER} tool click '{"x":640,"y":400,"button":"left"}'`,
+  `  ${RUN_COMPUTER} tool type '{"text":"example"}'`,
+  `  ${RUN_COMPUTER} tool key '{"keys":"Ctrl+l Return"}'`,
+  `  ${RUN_COMPUTER} tool scroll '{"dx":0,"dy":120}'`,
+  `  ${RUN_COMPUTER} tool shot '{}'`,
+  `Shot prints the path of the latest PNG (${RUN_COMPUTER_SCREENSHOT}); use your image-reading tool to inspect it if available. Only the latest capture can be saved to private run Outputs.`,
+  "Exit 75 means a human is controlling the desktop. Stop issuing desktop actions and let the human release it; don't bypass or change the lease. Exit 69 means the desktop is unavailable.",
+  "Do not use raw X commands, CDP, remote control ports, or the wrapper's internal commands. Never enter secrets, passwords, tokens, or account credentials. Existing egress and approval restrictions still apply.",
+].join("\n");
+
 /** Largest pending (no-newline-yet) stdout line the stream parser buffers
  * before dropping it. Structured records bigger than this are reported
  * honestly instead of buffered unboundedly or chopped into fake events. */
@@ -131,6 +147,7 @@ export interface SandboxOps {
       journal?: JournalExecutionOptions;
       onJournalFrame?: (frame: JournalFrame) => Promise<void>;
       requiredJournalJobId?: string;
+      activeOnly?: boolean;
     },
   ): Promise<ExecResult>;
   readFile(
@@ -174,6 +191,7 @@ export interface RuntimeAdapter {
        * storage key is receipted as `diff.exported`.
        */
       exportDiff?: (diff: string) => Promise<string>;
+      exportComputerScreenshot?: (screenshotBase64: string) => Promise<void>;
       onTerminal?: (stream: "stdout" | "stderr", data: string) => void;
       onDiff?: (diff: string) => void;
       onDiffPreviewStatus?: (status: "limited" | "unavailable", reason?: string) => void;
@@ -266,6 +284,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       scrub?: (text: string) => string;
       signals?: RunSignal[];
       exportDiff?: (diff: string) => Promise<string>;
+      exportComputerScreenshot?: (screenshotBase64: string) => Promise<void>;
       openAttachment?: (attachment: RunAttachment) => Promise<ReadableStream<Uint8Array>>;
       onTerminal?: (stream: "stdout" | "stderr", data: string) => void;
       onDiff?: (diff: string) => void;
@@ -281,7 +300,13 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
   ): Promise<CodingTaskResult> {
     throwIfAborted(opts?.signal);
     const approvedInput = opts?.approvedInput ?? input;
+    const computer = input.computer === true;
+    if (computer !== (approvedInput.computer === true) || (computer && (input.runtime !== "sandbox" ||
+        input.sandboxProvider !== "cloudflare" || input.orgId?.startsWith("team:") || input.envSealed || opts?.env))) {
+      return failureResult("A desktop requires a private Cloudflare sandbox without run environment variables.", 0, "", opts?.signals ?? []);
+    }
     input = routineTask(withDeliverableInstructions(input));
+    if (computer) input = { ...input, task: `${input.task}\n\n${RUN_COMPUTER_INSTRUCTIONS}` };
     const routineCommands = routineCommandFiles(input);
     const ephemeral = isEphemeralWorkspace(input.executionTarget);
     const workdir = ephemeral ? "/workspace" : `/workspace/${input.sandboxId}`;
@@ -542,6 +567,20 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         return failureResult(`Config write failed: ${shortError(error, scrub)}`, 0, "", signals);
       }
 
+      if (computer) {
+        throwIfAborted(opts?.signal);
+        await emit({ phase: "configure", message: "Starting the approved cloud desktop.", fraction: 0.2 });
+        try {
+          const desktop = await scopedExec(ops, shellJoin([RUN_COMPUTER, "start"]), {
+            cwd: workdir, timeoutMs: 25_000, signal: opts?.signal, allowlist: [[RUN_COMPUTER, "start"]], signals,
+            activeOnly: true,
+          });
+          if (desktop.exitCode !== 0) return failureResult("The approved cloud desktop could not start.", desktop.exitCode, "", signals);
+        } catch {
+          throwIfAborted(opts?.signal);
+          return failureResult("The approved cloud desktop could not start.", 0, "", signals);
+        }
+      }
       await emit({
         phase: "code",
         message: `Running ${this.harness.name} headlessly.`,
@@ -792,6 +831,20 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           output.usage,
         );
       }
+      if (computer && opts?.exportComputerScreenshot) {
+        try {
+          const evidence = await scopedExec(ops, shellJoin([RUN_COMPUTER, "evidence"]), {
+            cwd: workdir, timeoutMs: 8_000, signal: opts.signal, allowlist: [[RUN_COMPUTER, "evidence"]], signals,
+            activeOnly: true, requiredJournalJobId: settlementJournalJobId,
+            maxOutputChars: RUN_COMPUTER_MAX_PNG_BYTES * 4 / 3,
+          });
+          if (!opts.signal?.aborted && evidence.exitCode === 0 && evidence.stdout.startsWith("iVBORw0KGgo")) {
+            await opts.exportComputerScreenshot(evidence.stdout);
+          }
+        } catch {
+          // A run can succeed without taking a screenshot or storing it.
+        }
+      }
       return completed;
     } catch (error) {
       return failureResult(
@@ -917,6 +970,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
     opts?: { signal?: AbortSignal; signals?: RunSignal[]; env?: Record<string, string> },
   ): Promise<CodingTaskResult> {
     const signals = opts?.signals ?? [];
+    if (input.computer === true) return failureResult("A cloud desktop is not available on the local runtime.", 0, "", signals);
     const artifact = input.executionTarget?.kind === "artifact-workspace" ? input.executionTarget : undefined;
     if (input.executionTarget?.kind === "connected-app" || (artifact && (
       input.personalExecution || input.repoUrl || input.publishPullRequest || !artifact.expectedDeliverables.length ||

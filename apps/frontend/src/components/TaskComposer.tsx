@@ -119,6 +119,8 @@ export interface TaskComposerProps {
   reviewAfterPublish?: boolean;
   runSetup?: boolean;
   onRunSetupChange?: (value: boolean) => void;
+  computer?: boolean;
+  onComputerChange?: (value: boolean) => void;
   attachments?: { name: string; size: number }[];
   attachmentsUploading?: boolean;
   onAttachFiles?: (files: File[]) => void;
@@ -329,6 +331,8 @@ export function TaskComposer({
   publishPullRequest,
   reviewAfterPublish = false,
   runSetup = false,
+  computer = false,
+  onComputerChange,
   attachments = [],
   attachmentsUploading = false,
   onAttachFiles,
@@ -1067,6 +1071,25 @@ export function TaskComposer({
           </div>
         ) : null}
       </div>
+
+      {runTarget === "sandbox" && onComputerChange ? (
+        <label className="flex min-h-11 cursor-pointer items-center gap-2 self-start text-xs text-[var(--fg)]">
+          <input
+            type="checkbox"
+            checked={computer}
+            onChange={(event) => onComputerChange(event.target.checked)}
+            aria-labelledby={idFor("cloud-computer-label")}
+            aria-describedby={idFor("cloud-computer-hint")}
+            className="size-4 shrink-0 accent-[var(--primary)]"
+          />
+          <span>
+            <span id={idFor("cloud-computer-label")} className="block font-medium">Cloud computer</span>
+            <span id={idFor("cloud-computer-hint")} className="block text-[var(--muted-foreground-2)]">
+              Watch or take control of a temporary desktop after approval.
+            </span>
+          </span>
+        </label>
+      ) : null}
 
       {executionTargetKind === "artifact-workspace" ? (
         <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)]/60 p-2.5 flex flex-col gap-1.5">

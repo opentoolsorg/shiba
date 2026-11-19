@@ -32,6 +32,7 @@ export interface CloudflareSandboxRpc {
       stream?: boolean;
       onOutput?: (stream: "stdout" | "stderr", chunk: string) => void;
       requiredJournalJobId?: string;
+      activeOnly?: boolean;
     },
   ): Promise<{ stdout?: string; stderr?: string; exitCode?: number }>;
   readFileStream(path: string): Promise<ReadableStream<Uint8Array>>;
@@ -134,10 +135,11 @@ function wrapRpc(
       const execPromise = rpc.exec(command, {
         cwd: opts?.cwd,
         timeout: opts?.timeoutMs ?? settings.defaultTimeoutMs,
-        env: { ...settings.execEnvPassthrough, ...opts?.env },
+        env: { ...(!opts?.activeOnly ? settings.execEnvPassthrough : {}), ...opts?.env },
         stream: opts?.onOutput !== undefined,
         onOutput: opts?.onOutput,
         requiredJournalJobId: opts?.requiredJournalJobId,
+        ...(opts?.activeOnly ? { activeOnly: true } : {}),
       });
       const result = opts?.signal
         ? await raceAbort(execPromise, opts.signal)

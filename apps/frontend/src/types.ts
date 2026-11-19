@@ -159,6 +159,7 @@ export interface VMRun {
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
+  computer?: boolean;
   status: RunStatus;
   createdAt: number;
   updatedAt: number;
@@ -183,6 +184,7 @@ export interface RunProgressRecord {
   status: RunStatus;
   task: string;
   publishPullRequest: boolean;
+  computer?: boolean;
   customAgentVersion?: number;
   pullUrl?: string;
   error?: string;

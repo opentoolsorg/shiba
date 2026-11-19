@@ -6,6 +6,32 @@
 # the Docker Registry v2 API. Later tag changes cannot move it.
 FROM docker.io/cloudflare/sandbox:0.12.9-opencode@sha256:7b84b0163bd93f090504daf2f8e33d74a219a90774802f028adbb5b9de8107b5
 
+# Jammy's chromium package is a Snap launcher, not a usable container browser.
+# Freeze APT selections in Ubuntu's signed snapshot and verify the official
+# Linux amd64 Chrome for Testing build before installing it.
+ARG RUN_COMPUTER_APT_SNAPSHOT=20261105T000000Z
+ARG RUN_COMPUTER_CHROMIUM_VERSION=158.0.8127.36
+ARG RUN_COMPUTER_CHROMIUM_SHA256=dba9cc838e1ce269c33ea68170881127bd15d078fc3ca5891c90802819a4d7c7
+RUN set -eux; \
+    test "$(dpkg --print-architecture)" = amd64; \
+    for suite in jammy jammy-updates jammy-security; do \
+      printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s/ %s main universe\n' "$RUN_COMPUTER_APT_SNAPSHOT" "$suite"; \
+    done > /tmp/shiba-run-computer.list; \
+    apt_snapshot() { apt-get -o Dir::Etc::sourcelist=/tmp/shiba-run-computer.list -o Dir::Etc::sourceparts=- -o Acquire::Retries=3 -o Acquire::https::Timeout=30 "$@"; }; \
+    apt_snapshot update; \
+    apt_snapshot install -y --no-install-recommends \
+      python3 python3-pil unzip xvfb x11-utils openbox xdotool scrot fonts-liberation \
+      libasound2 libatk-bridge2.0-0 libcups2 libdbus-1-3 libgbm1 libglib2.0-0 \
+      libnss3-tools libpango-1.0-0 libxcomposite1 libxdamage1 libxkbcommon0 libxrandr2; \
+    rm -rf /tmp/shiba-run-computer.list /var/lib/apt/lists/*; \
+    curl -fsSL --retry 2 --connect-timeout 15 --max-time 180 -o /tmp/shiba-chromium.zip \
+      "https://storage.googleapis.com/chrome-for-testing-public/${RUN_COMPUTER_CHROMIUM_VERSION}/linux64/chrome-linux64.zip"; \
+    echo "${RUN_COMPUTER_CHROMIUM_SHA256}  /tmp/shiba-chromium.zip" | sha256sum -c -; \
+    unzip -q /tmp/shiba-chromium.zip -d /opt; \
+    rm /tmp/shiba-chromium.zip; \
+    useradd --system --no-create-home shiba-desktop; \
+    command -v Xvfb xdpyinfo openbox xdotool scrot; \
+    /opt/chrome-linux64/chrome --version
 COPY --from=docker.io/cloudflare/sandbox:1.0.1 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
 
 # Workspace analysis tools live in a dedicated Python environment. Agent Reach
@@ -93,13 +119,6 @@ RUN set -eux; \
 COPY scripts/acp-install.sh /usr/local/bin/shiba-acp-install
 RUN chmod +x /usr/local/bin/shiba-acp-install
 
-# Computer-use surface (PLAN-V2-NEXT): xdotool drives the screen input,
-# scrot captures it. The desktop itself (X server, window manager) is a
-# heavier image follow-up — these tools are inert until it lands.
-RUN set -eux; \
-  apt-get update && apt-get install -y --no-install-recommends xdotool scrot && \
-  rm -rf /var/lib/apt/lists/*
-
 # Procoder commit gate — checksum-verified, version-pinned like the harnesses.
 # Available to every sandboxed agent so quality-gate runs can execute
 # `procoder check` inside the container. Bump requires the same T10 pass.
@@ -112,5 +131,8 @@ RUN set -eux; \
   grep " procoder-${p}\$" /tmp/SHA256SUMS | sed "s/procoder-${p}/procoder/" > /tmp/procoder.sum; \
   cd /usr/local/bin && sha256sum -c /tmp/procoder.sum; \
   chmod +x /usr/local/bin/procoder && procoder version
+
+COPY --chmod=0555 scripts/run-computer.py /usr/local/bin/shiba-run-computer
+COPY --chmod=0444 scripts/run-computer.policy.json /etc/opt/chrome_for_testing/policies/managed/shiba.json
 
 EXPOSE 4096

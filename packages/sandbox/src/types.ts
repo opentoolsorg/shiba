@@ -124,6 +124,8 @@ export interface SandboxInstance {
       onJournalFrame?: (frame: JournalFrame) => Promise<void>;
       /** Refuse generic execution unless this completed journal still owns the same native container. */
       requiredJournalJobId?: string;
+      /** Attach only; must not start or restore a stopped container. */
+      activeOnly?: boolean;
       /** Other providers retain their ordinary single-attempt execution behavior. */
       journal?: JournalExecutionOptions;
     },

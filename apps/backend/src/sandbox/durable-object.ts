@@ -211,6 +211,7 @@ export class Sandbox extends DurableObject<Env> {
       stream?: boolean;
       onOutput?: (stream: "stdout" | "stderr", chunk: string) => void;
       requiredJournalJobId?: string;
+      activeOnly?: boolean;
     },
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     if (this.ctx.storage.kv.get(RETIRED_KEY)) throw new Error("This sandbox attempt was retired; execution is refused.");
@@ -223,6 +224,8 @@ export class Sandbox extends DurableObject<Env> {
         throw new Error("The completed execution container is unavailable. Settlement was not restarted.");
       }
       settlementClaim = claim;
+    } else if (options?.activeOnly) {
+      if (!this.#container.running) throw new Error("The approved run container is no longer running.");
     } else {
       await this.#ensureRunning();
     }

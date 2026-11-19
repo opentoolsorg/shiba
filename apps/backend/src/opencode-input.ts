@@ -115,6 +115,7 @@ const codingTaskInputSchema = z.object({
   envOwner: z.string().min(1).max(320).optional(),
   /** T72: the human opted in to running the repo's `.shiba/setup.json` initialize. */
   runSetup: z.boolean().optional(),
+  computer: z.boolean().optional(),
   /** T69: approved files, read from R2 under `attachmentOwner` (the orchestrator name). */
   attachments: z
     .array(z.object({ name: z.string().regex(RUN_ATTACHMENT_NAME), sha256: z.string().regex(/^[a-f0-9]{64}$/), size: z.number().int().nonnegative() }))
@@ -147,6 +148,10 @@ const codingTaskInputWithRouteSchema = codingTaskInputSchema.superRefine((input,
   }
   if (input.route !== undefined && !isApprovedRoute(input.route)) {
     ctx.addIssue({ code: "custom", message: "route must be an ApprovedRoute (connection/model/harness ids only)." });
+  }
+  if (input.computer && (input.runtime !== "sandbox" || input.sandboxProvider !== "cloudflare" ||
+      input.envSealed || input.personalExecution || input.orgId?.startsWith("team:"))) {
+    ctx.addIssue({ code: "custom", message: "A cloud computer requires a private Cloudflare sandbox without run environment variables." });
   }
   if (input.personalExecution) {
     const personal = input.personalExecution;

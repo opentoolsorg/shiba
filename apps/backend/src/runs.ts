@@ -99,6 +99,7 @@ export function createRun(args: OnboardingRunFields & {
   envDigest?: string;
   envSealed?: string;
   runSetup?: boolean;
+  computer?: boolean;
   attachments?: import("@shiba/shared").RunAttachment[];
   subagentBudgetRemaining?: number;
   /** T40: approval evidence stamped at queue time (the resolve path). */
@@ -152,6 +153,7 @@ export function createRun(args: OnboardingRunFields & {
       ...(args.envDigest !== undefined ? { envDigest: args.envDigest } : {}),
       ...(args.envSealed !== undefined ? { envSealed: args.envSealed } : {}),
       ...(args.runSetup === true ? { runSetup: true } : {}),
+      ...(args.computer === true ? { computer: true } : {}),
       ...(args.attachments?.length ? { attachments: args.attachments } : {}),
     },
     ...(args.approval !== undefined ? { approval: args.approval } : {}),
@@ -228,6 +230,7 @@ function commandForStatus(
           ...(run.envDigest !== undefined ? { envDigest: run.envDigest } : {}),
           ...(run.envSealed !== undefined ? { envSealed: run.envSealed } : {}),
           ...(run.runSetup === true ? { runSetup: true } : {}),
+          ...(run.computer === true ? { computer: true } : {}),
         },
         at,
       };

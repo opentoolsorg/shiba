@@ -92,6 +92,7 @@ export interface QueuedRunInput extends OnboardingRunFields {
   envSealed?: string;
   /** T72: approval-hashed opt-in to the repo's setup script. */
   runSetup?: boolean;
+  computer?: boolean;
   attachments?: RunAttachment[];
 }
 
@@ -189,6 +190,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.envNames !== undefined ? { envNames: run.envNames } : {}),
       ...(run.envDigest !== undefined ? { envDigest: run.envDigest } : {}),
       ...(run.runSetup === true ? { runSetup: true } : {}),
+      ...(run.computer === true ? { computer: true } : {}),
       ...(run.sandboxProvider !== undefined ? { sandboxProvider: run.sandboxProvider } : {}),
       ...(run.customAgentId !== undefined ? { customAgentId: run.customAgentId } : {}),
       ...(run.collaborationHandoffId !== undefined ? { collaborationHandoffId: run.collaborationHandoffId } : {}),
@@ -274,6 +276,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.envDigest !== undefined ? { envDigest: command.input.envDigest } : {}),
           ...(command.input.envSealed !== undefined ? { envSealed: command.input.envSealed } : {}),
           ...(command.input.runSetup === true ? { runSetup: true } : {}),
+          ...(command.input.computer === true ? { computer: true } : {}),
           ...(command.input.attachments?.length ? { attachments: command.input.attachments } : {}),
           ...(approval !== undefined ? { approval } : {}),
           status: "pending",
@@ -341,6 +344,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.role === command.input.role &&
           run.envDigest === command.input.envDigest &&
           (run.runSetup === true) === (command.input.runSetup === true) &&
+          (run.computer === true) === (command.input.computer === true) &&
           JSON.stringify(run.attachments ?? []) === JSON.stringify(command.input.attachments ?? []);
         if (sameInput) {
           return { events: [{ type: "run.queued", commandId: command.commandId, at, run, replayed: true }] };

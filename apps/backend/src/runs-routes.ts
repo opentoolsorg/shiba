@@ -19,11 +19,14 @@ import { deliverableStorageKey } from "./run-deliverables.js";
 import { deliverableResponse, deliverableViewOptions } from "./deliverable-response.js";
 import { buildRunProof } from "./run-proof.js";
 import { signInternalRequest } from "./edge-identity.js";
+import { readScreenRequest, SCREEN_INTAKE_PREFIX } from "./screen-control.js";
 
 import {
   isAccessConfigured,
   isAuthorizedRequest,
   isLoopbackRequest,
+  rejectCrossSiteDashboardMutation,
+  requireJsonContentType,
   resolveUserId,
 } from "./request-auth.js";
 import { sealRunEnv } from "./run-env-seal.js";
@@ -212,6 +215,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   const taskPath = /^\/api\/tasks(?:\/[^/]+\/(?:retry|cancel))?$/.test(url.pathname);
   const employeeDraftPath = /^\/api\/employee-drafts(?:\/draft_[a-f0-9]{64}(?:\/(?:download|review))?)?$/.test(url.pathname);
   const proofMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/proof$/);
+  const isScreen = /^\/api\/runs\/[^/]+\/screen$/.test(url.pathname);
   const deliverableMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)$/);
   const artifactActionMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)\/(review|history|revision)$/);
   // The DO serves two-segment subroutes under /api/runs/<id>/: fork, screen.
@@ -255,6 +259,11 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   if (orgAuth.workspace && (request.method !== "POST" || url.pathname !== "/api/runs" || !collaborationHandoffPins.has(request))) {
     return Response.json({ error: "Use the shared room to request and inspect team employee work." }, { status: 403 });
   }
+  if (isScreen) {
+    if (request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405 });
+    const rejected = rejectCrossSiteDashboardMutation(request) ?? requireJsonContentType(request);
+    if (rejected) return rejected;
+  }
   if (employeeDraftPath) {
     const review = url.pathname.endsWith("/review");
     if (request.method !== (review ? "POST" : "GET")) {
@@ -289,6 +298,27 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
     return resolved.error;
   }
   let targetAgentName = resolved.agentName;
+  if (isScreen) {
+    const input = await readScreenRequest(request);
+    if (!input) return Response.json({ error: "Expected a bounded JSON request." }, { status: 400 });
+    const body = JSON.stringify(input);
+    const headers = new Headers(request.headers);
+    headers.delete("content-length");
+    headers.delete(AGENT_PRINCIPAL_HEADER);
+    headers.set(LOCAL_INTAKE_HEADER, SCREEN_INTAKE_PREFIX + resolved.userId);
+    const forward = async (name: string) => {
+      const forwarded = new Request(url, { method: "POST", headers, body });
+      await signInternalRequest(forwarded, env);
+      return (await getAgentByName(env.CodingOrchestrator, name)).fetch(forwarded);
+    };
+    const own = await forward(targetAgentName);
+    if (own.status !== 404 || targetAgentName !== resolved.userId || targetAgentName === ORCHESTRATOR_NAME ||
+        !isApprover(resolved.userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS))) return own;
+    const sharedName = orchestratorNameFor(env, { workspaceId: orgAuth.orgId });
+    const shared = await forward(sharedName);
+    return shared.status === 404 && env.SHIBA_SCOPED_DO === "1" && sharedName !== ORCHESTRATOR_NAME
+      ? forward(ORCHESTRATOR_NAME) : shared;
+  }
   // T68: seal per-run env values for the same DO the follow-up queue/chat lands on;
   // the sealed blob is the only form the values travel in from here.
   if (url.pathname === "/api/runs/env-seal") {

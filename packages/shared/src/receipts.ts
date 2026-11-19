@@ -15,6 +15,7 @@ export const RECEIPT_KINDS = [
   "submit",
   "grade",
   "triage",
+  "computer",
   "error",
 ] as const;
 

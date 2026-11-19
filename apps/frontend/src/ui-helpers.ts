@@ -6,6 +6,7 @@ import {
   getToolPartState,
 } from "@cloudflare/ai-chat/react";
 import { isToolUIPart, type UIMessage } from "ai";
+import type { StoredApproval } from "./types";
 
 export type ToolPart = UIMessage["parts"][number];
 
@@ -15,23 +16,44 @@ export interface PendingApproval {
   approvalId: string;
   tool: string;
   input: unknown;
+  computer?: boolean;
+}
+
+export function storedApprovalUsesCloudComputer(approval: Pick<StoredApproval, "computer" | "payload">): boolean {
+  const { payload } = approval;
+  return approval.computer === true ||
+    (typeof payload === "object" && payload !== null && "computer" in payload && payload.computer === true);
 }
 
 // Mirrors app.tsx: only tool parts sitting in "waiting-approval" with an approval id.
-export function extractPendingApprovals(messages: UIMessage[]): PendingApproval[] {
+export function extractPendingApprovals(
+  messages: UIMessage[],
+  storedApprovals: readonly Pick<StoredApproval, "approvalId" | "computer" | "payload">[] = [],
+): PendingApproval[] {
   const approvals: PendingApproval[] = [];
+  const frozen = new Map(storedApprovals.map((approval) => [approval.approvalId, storedApprovalUsesCloudComputer(approval)]));
+  let composerComputer = false;
   for (const message of messages) {
+    if (message.role === "user") {
+      const metadata = message.metadata as { shibaTask?: { computer?: unknown } } | undefined;
+      composerComputer = metadata?.shibaTask?.computer === true;
+    }
     for (const part of message.parts) {
       if (!isToolUIPart(part)) continue;
       if (getToolPartState(part) !== "waiting-approval") continue;
       const approval = getToolApproval(part);
       if (!approval) continue;
+      const toolCallId = getToolCallId(part);
+      const tool = toolDisplayName(part);
+      const computer = frozen.get(toolCallId) ?? frozen.get(approval.id)
+        ?? (tool === "delegate_coding_task" && composerComputer ? true : undefined);
       approvals.push({
         messageId: message.id,
-        toolCallId: getToolCallId(part),
+        toolCallId,
         approvalId: approval.id,
-        tool: toolDisplayName(part),
+        tool,
         input: getToolInput(part),
+        ...(computer !== undefined ? { computer } : {}),
       });
     }
   }

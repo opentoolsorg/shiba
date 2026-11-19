@@ -453,6 +453,7 @@ export function App(): React.JSX.Element {
   const [publishPullRequest, setPublishPullRequest] = useState(false);
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
   const [runSetup, setRunSetup] = useState(false);
+  const [computerDraftScope, setComputerDraftScope] = useState<string | null>(null);
   const [harness, setHarness] = useState("opencode");
   const taskRouteChosen = useRef(false);
   const [customAgentId, setCustomAgentId] = useState("");
@@ -977,6 +978,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // Per-session composer draft: a scope change loads that scope's draft
   // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
   const composerScope = privateDataEnabled && orchestratorName ? composerDraftScope(orchestratorName, selectedSessionId) : null;
+  const useCloudComputer = runTarget === "sandbox" && computerDraftScope !== null && computerDraftScope === composerScope;
   useEffect(() => {
     setWorkInspectionRequest(undefined);
   }, [orchestratorName, teamWorkspaceId, selectedSessionId]);
@@ -1305,6 +1307,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     await authClient.signOut().catch(() => {});
     firstRunProgressClient.current?.reset();
     setTask(""); setSelectedOnboardingDraftRef(null); setPendingOnboardingDraft(null);
+    setComputerDraftScope(null);
     setWebSessions([]); setSessionRegistryOwner(null);
     setOrchestratorName(null);
     setAuthMode(null);
@@ -1626,7 +1629,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
   const toolRuns = useMemo(() => Object.values(runsById) as ToolRunRecord[], [runsById]);
 
-  const pendingApprovals = useMemo(() => extractPendingApprovals(chat.messages), [chat.messages]);
+  const pendingApprovals = useMemo(
+    () => extractPendingApprovals(chat.messages, storedApprovals),
+    [chat.messages, storedApprovals],
+  );
 
   // A chat-queued approval's DO pointer is the same record — the chat
   // card is the decision surface, so stored pointers already shown as
@@ -1973,6 +1979,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         return;
       }
       const branch = baseBranch.trim() || "main";
+      if (useCloudComputer && (teamWorkspaceId || envVars.some((entry) => entry.name.trim() !== ""))) {
+        setNotice("Cloud computers are only available for private runs without environment variables.");
+        return;
+      }
       const effort =
         reasoningEffort && (HARNESS_REASONING_EFFORTS[harness] ?? []).includes(reasoningEffort)
           ? reasoningEffort
@@ -2024,6 +2034,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
           ...(effort ? { reasoningEffort: effort } : {}),
           publishPullRequest,
+          ...(useCloudComputer ? { computer: true } : {}),
           ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
           ...(selectedCustomAgentId ? { customAgentId: selectedCustomAgentId } : {}),
           ...(projectContextId ? { projectContextId } : {}),
@@ -2075,6 +2086,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           const approvalId = typeof receipt?.approvalId === "string" && receipt.approvalId.trim() ? receipt.approvalId : null;
           if (!approvalId) throw new Error("The server did not return an approval receipt. Retry to recover the same request.");
           runCommand.current = null;
+          if (useCloudComputer) setComputerDraftScope((scope) => scope === draftSession ? null : scope);
           if (executionTargetKind === "repository") saveRepo(normalizedRepoUrl ?? repoUrl.trim(), orchestratorName);
           setNotice(runTarget === "local"
             ? "Queued — approve the run card to execute on this computer."
@@ -2179,6 +2191,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         ...(effort ? [`Reasoning effort: ${effort}`] : []),
         ...(sealedEnv ? [`Environment variables: ${sealedEnv.names.join(", ")}`] : []),
         ...(runSetup ? ["Run repo setup: yes"] : []),
+        ...(useCloudComputer ? ["Cloud computer: yes"] : []),
         ...(attachments.length ? [`Attachments: ${attachments.map((a) => a.name).join(", ")}`] : []),
         ...(connectionId.trim() ? [`Model connection: ${connectionId.trim()}`] : []),
         `Open a pull request with the result: ${publishPullRequest ? "yes" : "no"}`,
@@ -2215,6 +2228,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               ...(effort ? { reasoningEffort: effort } : {}),
               ...(sealedEnv ? { environment: { sealed: sealedEnv.sealed, digest: sealedEnv.digest } } : {}),
               ...(runSetup ? { runSetup: true } : {}),
+              ...(useCloudComputer ? { computer: true } : {}),
               ...(selectedCustomAgentId ? { customAgentId: selectedCustomAgentId } : {}),
               ...(projectContextId ? { projectContextId } : {}),
               ...(attachments.length ? { attachments } : {}),
@@ -2226,6 +2240,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           restoreDraft(draftSession, draft, activeOnboardingRef);
         } else {
           saveRepo(normalizedRepoUrl ?? repoUrl.trim(), orchestratorName);
+          if (useCloudComputer) setComputerDraftScope((scope) => scope === draftSession ? null : scope);
           setEnvVars([]);
           attachmentsGeneration.current += 1;
           attachmentsRef.current = [];
@@ -2257,6 +2272,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       publishPullRequest,
       reviewAfterPublish,
       runSetup,
+      useCloudComputer,
       attachments,
       harness,
       customAgentId,
@@ -2280,6 +2296,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       selectableSkills,
       selectedSkillIds,
       runTarget,
+      teamWorkspaceId,
       executionTargetKind,
       artifactWorkspaceName,
       artifactDeliverables,
@@ -2563,6 +2580,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         task: r.task,
         baseBranch: r.baseBranch,
         publishPullRequest: r.publishPullRequest,
+        ...(r.computer === true ? { computer: true } : {}),
         ...(r.pullUrl !== undefined ? { pullUrl: r.pullUrl } : {}),
         ...(r.reviewAfterPublish !== undefined ? { reviewAfterPublish: r.reviewAfterPublish } : {}),
         ...(r.customAgentVersion !== undefined ? { customAgentVersion: r.customAgentVersion } : {}),
@@ -2583,7 +2601,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       const existing = map.get(tr.runId);
       const completedDiff = extractCompletedDiff(tr);
       if (existing) {
-        existing.status = normalizeRunStatus(tr.status || existing.status);
+        if (!existing.computer) existing.status = normalizeRunStatus(tr.status || existing.status);
         if (!existing.diff?.trim() && completedDiff) existing.diff = completedDiff;
         if (tr.summary) existing.summary = tr.summary;
         if (tr.error) existing.error = tr.error;
@@ -4124,7 +4142,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     </div>
                   ) : (
                   <TaskComposer
-                    onRepeat={privateDataEnabled && !teamWorkspaceId && !appToolsWork && runTarget === "sandbox" ? () => {
+                    onRepeat={privateDataEnabled && !teamWorkspaceId && !appToolsWork && runTarget === "sandbox" && !useCloudComputer ? () => {
                       const normalizedRepoUrl = normalizeRepositoryInput(repoUrl);
                       if (executionTargetKind === "repository" && !normalizedRepoUrl) { setNotice(REPOSITORY_INPUT_ERROR); return; }
                       const deliverables = parseArtifactDeliverables(artifactDeliverables);
@@ -4134,9 +4152,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         : buildExecutionTargetFields({ kind: "artifact-workspace", workspaceName: artifactWorkspaceName, expectedDeliverables: deliverables.data ?? [] });
                       setRepeatSource({ prompt: task.trim(), executionTarget: fields.executionTarget, customAgentId: customAgentId || undefined });
                     } : undefined}
-                    blockedReason={onboardingExecutionIssue}
+                    blockedReason={onboardingExecutionIssue ?? (useCloudComputer && envVars.some((entry) => entry.name.trim() !== "") ? "Remove the environment variables or turn off the cloud computer before sending." : null)}
                     appToolsWork={appToolsWork}
-                    onAppToolsWorkChange={setAppToolsWork}
+                    onAppToolsWorkChange={(value) => {
+                      setAppToolsWork(value);
+                      if (value) setComputerDraftScope(null);
+                    }}
                     appToolsWorkIssue={appToolsWorkIssue(appToolsContext)}
                     onOpenEmployeeTools={() => openView("employee-tools")}
                     repoUrl={repoUrl}
@@ -4171,7 +4192,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     artifactDeliverables={artifactDeliverables}
                     onArtifactDeliverablesChange={setArtifactDeliverables}
                     runTarget={runTarget}
-                    onRunTargetChange={(value) => { taskRouteChosen.current = true; setRunTarget(value); }}
+                    onRunTargetChange={(value) => {
+                      taskRouteChosen.current = true;
+                      setRunTarget(value);
+                      if (value === "local") setComputerDraftScope(null);
+                    }}
+                    computer={useCloudComputer}
+                    onComputerChange={teamWorkspaceId ? undefined : (enabled) => setComputerDraftScope(enabled ? composerScope : null)}
                     localRunAvailable={localRunAvailable}
                     localComputers={localComputers}
                     targetMachineId={selectedLocalMachineId}

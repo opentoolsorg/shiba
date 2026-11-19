@@ -195,6 +195,8 @@ export interface DelegatedRun extends OnboardingRunFields {
   envSealed?: string;
   /** T72: approval-hashed opt-in to the repo's setup script. */
   runSetup?: boolean;
+  /** Approved opt-in to an ephemeral desktop in the run sandbox. */
+  computer?: boolean;
   /** Profile version whose effective instructions and route this run approved. */
   customAgentVersion?: number;
   /** Profile version whose employee app-tool grants this approval permits. */

@@ -1,0 +1,19 @@
+{
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "BackgroundModeEnabled": false,
+  "BrowserSignin": 0,
+  "DnsOverHttpsMode": "off",
+  "ImportAutofillFormData": false,
+  "ImportBookmarks": false,
+  "ImportHistory": false,
+  "ImportHomepage": false,
+  "ImportSavedPasswords": false,
+  "ImportSearchEngine": false,
+  "PasswordManagerEnabled": false,
+  "ProxySettings": { "ProxyMode": "direct" },
+  "QuicAllowed": false,
+  "RemoteDebuggingAllowed": false,
+  "SyncDisabled": true,
+  "WebRtcIPHandling": "disable_non_proxied_udp"
+}
