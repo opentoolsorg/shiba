@@ -46,6 +46,7 @@ describe("web_search batch resilience", () => {
     expect(tavilyCountryName("cz")).toBe("czech republic");
     expect(tavilyCountryName("ba")).toBe("bosnia and herzegovina");
     expect(tavilyCountryName("hk")).toBeUndefined();
+    expect(tavilyCountryName("la")).toBeUndefined();
     expect(tavilyCountryName("xx")).toBeUndefined();
   });
 });
