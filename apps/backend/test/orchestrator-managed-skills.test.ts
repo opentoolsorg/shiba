@@ -144,7 +144,9 @@ describe("actual employee managed-skill wiring", () => {
     const tools = f.instance.getTools();
     expect((await f.instance.beforeTurn({ tools, system: "base" } as never)).instructions).not.toContain("Use concise paragraphs");
     messages.push({ role: "user", id: "chat", metadata: { shibaMode: "chat", shibaSkillPins: f.pins } });
-    expect(f.instance.getTools()).toEqual({});
+    const chatTools = f.instance.getTools();
+    expect(chatTools.web_search).toBeDefined();
+    for (const name of ["run_code", "delegate_coding_task", "list_skills", "get_skill_instructions"]) expect(chatTools[name]).toBeUndefined();
     expect((await f.instance.beforeTurn({ tools, system: "base" } as never)).activeTools).toEqual([]);
   });
 });

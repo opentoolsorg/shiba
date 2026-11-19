@@ -33,6 +33,8 @@ export interface SessionItem {
   updatedAt: number;
   live?: boolean;
   webSession?: boolean;
+  /** The bot this thread belongs to, so a flat thread list still shows ownership. */
+  agent?: { id: string; name: string };
 }
 
 export interface SessionsSidebarProps {
