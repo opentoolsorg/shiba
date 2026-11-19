@@ -5,10 +5,11 @@ export function chatSuggestionsUrl(agentName: string): string {
 }
 
 /** Suggested next prompts for a chat thread; renders nothing until the backend returns some. */
-export function ChatSuggestions({ agentName, refreshKey, hidden = false, onPick }: { agentName: string; refreshKey: string; hidden?: boolean; onPick: (prompt: string) => void }): JSX.Element | null {
+export function ChatSuggestions({ agentName, refreshKey, busy = false, hidden = false, onPick }: { agentName: string; refreshKey: string; busy?: boolean; hidden?: boolean; onPick: (prompt: string) => void }): JSX.Element | null {
   const [loaded, setLoaded] = useState<{ key: string; suggestions: string[] } | null>(null);
   const key = `${agentName}:${refreshKey}`;
   useEffect(() => {
+    if (busy) return;
     const abort = new AbortController();
     fetch(chatSuggestionsUrl(agentName), { method: "POST", credentials: "include", signal: abort.signal, headers: { "Content-Type": "application/json" }, body: "{}" })
       .then(async (response) => response.ok ? await response.json() as { suggestions?: unknown } : {})
@@ -18,9 +19,9 @@ export function ChatSuggestions({ agentName, refreshKey, hidden = false, onPick 
       })
       .catch(() => { if (!abort.signal.aborted) setLoaded({ key, suggestions: [] }); });
     return () => abort.abort();
-  }, [agentName, key]);
+  }, [agentName, key, busy]);
   const suggestions = loaded?.key === key ? loaded.suggestions : [];
-  if (hidden || !suggestions.length) return null;
+  if (busy || hidden || !suggestions.length) return null;
   return (
     <section aria-label="Suggested prompts" className="mx-auto mb-2 flex w-full max-w-3xl flex-wrap gap-2">
       {suggestions.map((suggestion) => (

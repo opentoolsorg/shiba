@@ -1,11 +1,13 @@
 import { generateText, type LanguageModel, type UIMessage } from "ai";
+import { parseSessionAgentName } from "./web-sessions.js";
 
 const MAX_SUGGESTIONS = 3;
 const MAX_SUGGESTION_LENGTH = 140;
 const CACHE_LIMIT = 200;
 const CACHE_TTL_MS = 10 * 60_000;
-const WINDOW_MS = 60 * 60_000;
-const WINDOW_LIMIT = 30;
+/** One account may ask for this many generations per rolling hour, however many threads it owns. */
+export const CHAT_SUGGESTION_LIMIT = 30;
+export const CHAT_SUGGESTION_WINDOW_MS = 60 * 60_000;
 
 const STARTER_INSTRUCTIONS = [
   "Suggest exactly 3 short prompts a person could send to start a conversation with Shiba, an AI coworker that answers questions and plans work.",
@@ -21,37 +23,74 @@ const FOLLOW_UP_INSTRUCTIONS = [
   'Reply with only JSON in this exact shape: {"prompts":["...","...","..."]}',
 ].join(" ");
 
-/** Last suggestions per owner and transcript, so a revisit never pays for the same answer twice. */
+/** Digested keys only, so transcript text never sits in this map beyond the request that produced it. */
 const results = new Map<string, { suggestions: string[]; at: number }>();
-/** Generations per owner in the current window; the disclosure in the UI says suggestions are automatic. */
-const windows = new Map<string, { start: number; count: number }>();
+/** One generation per key at a time: a second tab's simultaneous miss waits instead of paying too. */
+const pending = new Map<string, Promise<string[]>>();
 
-/** Only a browser's own page may ask for suggestions; a cross-site or server-side POST would spend inference for someone else. */
+/** Every web thread an account owns shares one quota; other surfaces reserve under their own agent name. */
+export function chatSuggestionOwner(agentName: string): string {
+  return parseSessionAgentName(agentName)?.userId ?? agentName;
+}
+
+/** Only the browser's own page may ask for suggestions, and only at exactly its own origin. */
 export function isSameOriginRequest(request: Request): boolean {
   const site = request.headers.get("Sec-Fetch-Site");
   if (site && site !== "same-origin" && site !== "none") return false;
   const origin = request.headers.get("Origin");
   if (!origin) return false;
   try {
-    return new URL(origin).host === new URL(request.url).host;
+    return new URL(origin).origin === new URL(request.url).origin;
   } catch {
     return false;
   }
 }
 
-/** Up to three next prompts for a chat thread; any refusal or failure yields an empty list. */
-export async function suggestChatPrompts(
-  tail: UIMessage[],
-  model: () => LanguageModel,
-  owner: string,
-  now = Date.now(),
-): Promise<Response> {
-  const lines = transcriptLines(tail);
-  const key = `${owner}\n${lines.join("\n")}`;
+/**
+ * Up to three next prompts for a chat thread. Any refusal or failure yields an empty list.
+ * `reserve` answers against the account's durable quota before a provider call is made.
+ */
+export async function suggestChatPrompts(input: {
+  tail: UIMessage[];
+  model: () => LanguageModel;
+  owner: string;
+  reserve: () => Promise<boolean>;
+  now?: number;
+}): Promise<Response> {
+  const now = input.now ?? Date.now();
+  const lines = transcriptLines(input.tail);
+  const key = await digest(`${input.owner}\n${lines.join("\n")}`);
+  prune(now);
   const cached = results.get(key);
   if (cached && now - cached.at < CACHE_TTL_MS) return respond(cached.suggestions);
-  if (!spend(owner, now)) return respond([]);
-  let suggestions: string[] = [];
+  const shared = pending.get(key);
+  if (shared) return respond(await shared.catch(() => []));
+  // Registered before the first await inside it, so a second tab's miss joins this one instead of buying another.
+  const generation = (async () => {
+    if (!(await reserveQuota(input.reserve))) return [];
+    const suggestions = await generate(input.model, lines);
+    if (suggestions.length) remember(key, suggestions, now);
+    return suggestions;
+  })();
+  pending.set(key, generation);
+  try {
+    return respond(await generation);
+  } finally {
+    pending.delete(key);
+  }
+}
+
+/** Test seam: quota state lives in the account's Durable Object; only cached answers and coalescing restart here. */
+export function resetChatSuggestionState(): void {
+  results.clear();
+  pending.clear();
+}
+
+function respond(suggestions: string[]): Response {
+  return Response.json({ suggestions }, { headers: { "Cache-Control": "no-store" } });
+}
+
+async function generate(model: () => LanguageModel, lines: string[]): Promise<string[]> {
   try {
     const result = await generateText({
       model: model(),
@@ -59,18 +98,22 @@ export async function suggestChatPrompts(
       prompt: lines.length ? `<conversation>\n${lines.join("\n\n")}\n</conversation>` : "Suggest the starter prompts now.",
       tools: {},
       maxOutputTokens: 300,
+      // The account quota counts provider calls, so the SDK's default retries must not multiply them.
+      maxRetries: 0,
       abortSignal: AbortSignal.timeout(20000),
     });
-    suggestions = parseSuggestions(result.text);
-    if (suggestions.length) remember(key, suggestions, now);
+    return parseSuggestions(result.text);
   } catch {
-    suggestions = [];
+    return [];
   }
-  return respond(suggestions);
 }
 
-function respond(suggestions: string[]): Response {
-  return Response.json({ suggestions }, { headers: { "Cache-Control": "no-store" } });
+async function reserveQuota(reserve: () => Promise<boolean>): Promise<boolean> {
+  try {
+    return await reserve();
+  } catch {
+    return false;
+  }
 }
 
 function transcriptLines(tail: UIMessage[]): string[] {
@@ -80,27 +123,18 @@ function transcriptLines(tail: UIMessage[]): string[] {
     .filter((line) => !line.endsWith(": "));
 }
 
-function spend(owner: string, now: number): boolean {
-  const current = windows.get(owner);
-  if (!current || now - current.start >= WINDOW_MS) {
-    windows.set(owner, { start: now, count: 1 });
-    return true;
-  }
-  if (current.count >= WINDOW_LIMIT) return false;
-  current.count += 1;
-  return true;
+async function digest(value: string): Promise<string> {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function prune(now: number): void {
+  for (const [key, entry] of results) if (now - entry.at >= CACHE_TTL_MS) results.delete(key);
 }
 
 function remember(key: string, suggestions: string[], now: number): void {
-  for (const [existing, entry] of results) if (now - entry.at >= CACHE_TTL_MS) results.delete(existing);
   if (results.size >= CACHE_LIMIT) results.delete(results.keys().next().value as string);
   results.set(key, { suggestions, at: now });
-}
-
-/** Test seam: limits and cached results are per isolate, which is enough to bound one caller's spend. */
-export function resetChatSuggestionLimits(): void {
-  results.clear();
-  windows.clear();
 }
 
 export function parseSuggestions(text: string): string[] {
