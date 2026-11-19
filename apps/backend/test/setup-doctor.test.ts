@@ -194,7 +194,7 @@ describe("personal API-key preflight", () => {
   it.each([
     ["kimi", "kimi-code/k3.1-pro"],
     ["meta", "meta/muse-spark-1.3"],
-    ["deepseek", "deepseek/deepseek-chat"],
+    ["deepseek", "deepseek/deepseek-flash"],
     ["zai", "zai/glm-5.3"],
     ["minimax", "minimax/MiniMax-M3"],
     ["qwen", "qwen/qwen3-coder-plus"],
