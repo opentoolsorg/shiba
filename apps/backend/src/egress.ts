@@ -87,6 +87,20 @@ function applyUserKey(headers: Headers, kind: UserSecretKind, secret: string): v
   }
 }
 
+/**
+ * Paths the personal-key lanes actually use, so a saved key is never attached
+ * to an unrelated endpoint on the same shared host. Hosts absent here (the
+ * DeepSeek host, which the OpenCode Go harness also reaches) stay permissive.
+ */
+const PROVIDER_PATH_PREFIX: Record<string, string> = {
+  "api.kimi.ai": "/coding/v1",
+  "api.meta.ai": "/v1",
+  "api.z.ai": "/api/paas/v4",
+  "api.minimax.io": "/v1",
+  "dashscope-intl.aliyuncs.com": "/compatible-mode/v1",
+  "api.mistral.ai": "/v1",
+};
+
 /** Saved user key: call the provider host directly. The gateway is not involved. */
 async function fetchWithUserKey(
   request: Request,
@@ -95,7 +109,15 @@ async function fetchWithUserKey(
   secret: string,
 ): Promise<Response> {
   const target = new URL(request.url);
-  if (target.protocol !== "https:" || target.hostname !== host) {
+  const prefix = PROVIDER_PATH_PREFIX[host];
+  if (
+    target.protocol !== "https:" ||
+    target.hostname !== host ||
+    target.port !== "" ||
+    target.username !== "" ||
+    target.password !== "" ||
+    (prefix !== undefined && !target.pathname.startsWith(prefix))
+  ) {
     return new Response("Invalid provider destination.", { status: 403 });
   }
   target.search = stripCredentialParams(target.search);
@@ -180,9 +202,12 @@ async function forwardProvider(
     }
   }
   if (kind) {
+    // api.deepseek.com carries two providers' keys: the OpenCode Go harness
+    // lists it as a second egress host (harness/opencode.ts egressHosts), so a
+    // Go run reaches this host with only the OpenCode key saved. The saved
+    // DeepSeek platform key wins when both exist; neither key leaves the
+    // owning user's own record.
     const secret = await readProviderSecretForOrg(env, orgId, kind, providerCredentialUser(ctx)) ??
-      // The OpenCode Go key also authenticates DeepSeek, so a saved platform
-      // key wins but the OpenCode path keeps working for users without one.
       (host === "api.deepseek.com" ? await readProviderSecretForOrg(env, orgId, "opencode", providerCredentialUser(ctx)) : null);
     if (secret) return fetchWithUserKey(request, host, kind, secret);
     if (typeof ctx === "object" && ctx?.initiatorUserId) {

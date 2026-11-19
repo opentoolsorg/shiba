@@ -108,6 +108,28 @@ describe("user provider key egress", () => {
     } finally { globalThis.fetch = original; }
   });
 
+  it("refuses an explicit port and a path outside the lane's prefix even with a saved key", async () => {
+    const kv = new FakeKV();
+    const deployment = env(kv);
+    const secret = crypto.randomUUID();
+    await putUserProviderSecret(deployment, "ada", "kimi", secret);
+    let attached = false;
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => { attached = true; return new Response("ok"); }) as typeof fetch;
+    try {
+      const config = loadOutboundConfig({
+        orgId: "workspace", initiatorUserId: "ada", allowedHosts: ["api.kimi.ai"],
+        outboundByHost: { "api.kimi.ai": { kind: "builtin", host: "api.kimi.ai" } },
+      });
+      const post = (url: string) => dispatchOutboundRequest(new Request(url, { method: "POST", body: "{}" }), deployment, config);
+      expect((await post("https://api.kimi.ai:8443/coding/v1/chat/completions")).status).toBe(403);
+      expect((await post("https://api.kimi.ai/admin/keys")).status).toBe(403);
+      expect(attached).toBe(false);
+      expect((await post("https://api.kimi.ai/coding/v1/chat/completions")).status).toBe(200);
+      expect(attached).toBe(true);
+    } finally { globalThis.fetch = original; }
+  });
+
   it("sends a saved Gemini key to Google and not the gateway", async () => {
     const kv = new FakeKV();
     const deployment = env(kv);
