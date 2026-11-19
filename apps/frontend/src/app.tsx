@@ -1375,9 +1375,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const activeWebSession = visibleWebSessions.find((session) => session.id === selectedSessionId);
   const sessionCustomAgentId = threadAgentId(activeWebSession);
   useEffect(() => {
+    // A bot page owns its bot. Pruning a dead thread resets the session to the
+    // default one, and restoring the selected conversation's bot there would put
+    // Shiba's name and Start action on the recovery surface of the bot the reader
+    // actually opened.
+    if (botPage !== "chat") return;
     // Also restore when the registry arrives after mount, not only on sidebar clicks.
     setCustomAgentId(sessionCustomAgentId);
-  }, [selectedSessionId, sessionCustomAgentId]);
+  }, [selectedSessionId, sessionCustomAgentId, botPage]);
   const builtinTaskDefaults = useRef<{ harness: string; codingModel: string; connectionId: string; repoUrl: string; runTarget: "sandbox" | "local" } | null>(null);
   const applyThreadProfile = useCallback((profile: CustomAgentWire) => {
     taskRouteChosen.current = true;

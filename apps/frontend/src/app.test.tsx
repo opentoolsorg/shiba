@@ -1314,14 +1314,19 @@ describe("bot page without a thread", () => {
 
   it("keeps Engineering as the recovery bot when its named thread was removed", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
-    // Start inside Research's named thread, then open Engineering, whose thread is gone.
+    // Start inside Research's named thread, with its conversation actually on
+    // screen, then open Engineering, whose thread is gone.
     window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
-    mocks.chat.messages = [];
+    mocks.chat.messages = [{ id: "m1", role: "assistant", parts: [{ type: "text", text: "Annual report history" }] }] as never[];
     const request = stubBots(async (path) => {
       if (!path.includes(ENGINEERING_THREAD)) return Response.json({ resumed: true });
       return new Response(JSON.stringify({ error: "Session not found." }), { status: 404, headers: { "Content-Type": "application/json" } });
     }, true);
     render(<App />);
+    // Wait for Research's own conversation and composer, not just the URL.
+    await screen.findByText("Annual report history");
+    await waitFor(() => expect(screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).toContain("Research bot"));
+    expect(await screen.findByTestId("chat-composer")).toBeTruthy();
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
 
     await openBotFromAgentsView(/Engineering bot/);
