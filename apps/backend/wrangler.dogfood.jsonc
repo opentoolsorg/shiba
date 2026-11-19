@@ -23,7 +23,10 @@
   "vars": {
     "MCP_TRUSTED_HOSTS": "",
     "INTEGRATIONS_PROVIDER": "openconnector",
-    "OPEN_CONNECTOR_ENABLED": "1",
+    // Matches wrangler.jsonc: without the OPEN_CONNECTOR service binding or an
+    // OPEN_CONNECTOR_URL, setup status would otherwise report the lane enabled
+    // while every call fails closed.
+    "OPEN_CONNECTOR_ENABLED": "0",
     "SHIBA_PERSONAL_LOCAL_EXECUTION": "0",
     "SHIBA_TEAM_MODEL_SESSIONS": "0",
     "SHIBA_SHARED_COMPUTER": "0",
