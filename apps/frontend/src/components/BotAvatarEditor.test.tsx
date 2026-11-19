@@ -52,6 +52,37 @@ describe("bot avatar editor", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
+  it("cycles Tab inside the dialog and pulls focus back in from the page", async () => {
+    render(<BotAvatarEditor name="Scout" onSave={save()} onCancel={cancel} />);
+    const dialog = screen.getByRole("dialog");
+    const controls = [...dialog.querySelectorAll<HTMLElement>("button")];
+    // happy-dom reports offsetParent as null for everything, so the trap cannot
+    // tell a rendered control from a hidden one without this stub.
+    for (const node of controls) Object.defineProperty(node, "offsetParent", { configurable: true, get: () => dialog });
+    const first = controls[0]!;
+    const last = controls[controls.length - 1]!;
+
+    await waitFor(() => expect(document.activeElement).toBe(first));
+
+    last.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(first);
+
+    first.focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last);
+
+    const behindPage = document.createElement("button");
+    document.body.append(behindPage);
+    behindPage.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(first);
+    behindPage.focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last);
+    behindPage.remove();
+  });
+
   it("shows the server's conflict message and keeps the draft", () => {
     render(<BotAvatarEditor name="Scout" busy={false} error="This bot changed since you opened it. Reload the latest version, then pick the avatar again." onSave={save()} onCancel={cancel} />);
     expect(screen.getByRole("alert").textContent).toContain("changed since you opened it");
