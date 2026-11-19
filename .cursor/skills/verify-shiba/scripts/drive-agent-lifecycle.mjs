@@ -263,7 +263,12 @@ try {
   assert.equal(new URL(reviewRead.url()).searchParams.get("session"), sessionId);
   assert.equal(reviewRead.status(), 200, "Named conversation review must resolve its own run");
   await page.getByTestId("review-findings").waitFor({ state: "hidden" });
-  assert.equal(await page.getByTestId("pr-card").count(), 0, "A run that did not request a pull request must not mount a PR status panel");
+  const prCard = page.getByTestId("pr-card");
+  // The card renders a loading panel while its /pr/status read is in flight and
+  // unmounts once the read resolves without a pull request, so wait for it to
+  // settle before asserting it never stays mounted.
+  await prCard.waitFor({ state: "hidden", timeout: 20_000 }).catch(() => {});
+  assert.equal(await prCard.count(), 0, "A run that did not request a pull request must not mount a PR status panel");
   assert(!/Review:\s*Run(?:\s|_)*not(?:\s|_)*found/i.test(await page.locator("body").innerText()), "A completed named-session run must not show a false review error");
   report.completedPanels = {
     review: { session: sessionId, status: reviewRead.status() },

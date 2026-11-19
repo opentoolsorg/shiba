@@ -212,13 +212,14 @@ async function fixture() {
   } as unknown as DurableObjectNamespace;
   const native = (request: Request) =>
     handleBetterAuth(request, env, { teamMemberPolicyEnabled: true });
-  const registeredOwner = await native(
+  const registeredOwner = await handleBetterAuth(
     req(
       "/api/auth/sign-up/email",
       "POST",
       { name: "Owner", email: OWNER, password: "fixture-owner-password" },
       { "x-shiba-bootstrap-token": "fixture-bootstrap" },
     ),
+    env,
   );
   expect(registeredOwner?.status).toBe(200);
   const ownerCookie = cookie(registeredOwner!);
@@ -264,11 +265,15 @@ async function fixture() {
       ),
     ))!;
     expect(registered.status).toBe(200);
-    cookies.set(email, cookie(registered));
     const mail = send.mock.calls.at(-1)?.[0] as { text?: string };
     const verification = mail.text?.match(/https:\/\/\S+/)?.[0];
     if (!verification) throw new Error("Fixture verification URL missing.");
     expect((await native(new Request(verification)))?.status).toBe(302);
+    const signedIn = (await native(
+      req("/api/auth/sign-in/email", "POST", { email, password: "fixture-member-password" }),
+    ))!;
+    expect(signedIn.status).toBe(200);
+    cookies.set(email, cookie(signedIn));
     await acceptTeamWorkspaceInvitation(env, email, invitation.token);
   }
   const headers = (email = ALICE) => ({

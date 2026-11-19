@@ -335,7 +335,7 @@ export async function forwardClaudeSubscription(
         )
       : undefined;
   const configured = (env as Record<string, unknown>)[secretName];
-  const personal = providerCredentialUser(ctx);
+  const personal = ctx?.initiatorUserId;
   const token = personal ? saved : saved ?? (typeof configured === "string" ? configured : undefined);
   if (!personal && env.AGENT_TOKENS) {
     const instanceId = `claude-sub:${account}`;
