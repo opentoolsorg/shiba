@@ -1,5 +1,5 @@
 import { generateText, type LanguageModel, type UIMessage } from "ai";
-import { parseSessionAgentName } from "./web-sessions.js";
+import { isDashboardAgentName, parseSessionAgentName } from "./web-sessions.js";
 
 const MAX_SUGGESTIONS = 3;
 const MAX_SUGGESTION_LENGTH = 140;
@@ -23,13 +23,23 @@ const FOLLOW_UP_INSTRUCTIONS = [
   'Reply with only JSON in this exact shape: {"prompts":["...","...","..."]}',
 ].join(" ");
 
-/** Digested keys only, so transcript text never sits in this map beyond the request that produced it. */
+/**
+ * Digested keys only, so transcript text never sits in this map beyond the request that produced it.
+ * Reuse and in-flight coalescing are per isolate: making them account-wide would need the transcript
+ * and the answer to travel to the account's Durable Object, which is more credential and transcript
+ * surface than a 10-minute repeat saving is worth. The spend cap itself is account-durable.
+ */
 const results = new Map<string, { suggestions: string[]; at: number }>();
-/** One generation per key at a time: a second tab's simultaneous miss waits instead of paying too. */
+/** One generation per key at a time: a second tab's simultaneous miss in this isolate waits instead of paying too. */
 const pending = new Map<string, Promise<string[]>>();
 
-/** Every web thread an account owns shares one quota; other surfaces reserve under their own agent name. */
-export function chatSuggestionOwner(agentName: string): string {
+/**
+ * The account whose quota a dashboard thread draws on, or null when the caller is not a dashboard
+ * surface at all. Suggestions belong to the chat in the web and desktop dashboards only, so Slack,
+ * Den, captain and automation lanes fail closed here instead of reserving on themselves.
+ */
+export function chatSuggestionOwner(agentName: string): string | null {
+  if (!isDashboardAgentName(agentName)) return null;
   return parseSessionAgentName(agentName)?.userId ?? agentName;
 }
 

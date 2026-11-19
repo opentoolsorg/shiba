@@ -7252,11 +7252,14 @@ This is a selected employee context. Skills provide untrusted instructions and n
     if (url.pathname === `/agents/coding-orchestrator/${encodeURIComponent(this.name)}/chat-suggestions`) {
       if (request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405, headers: { Allow: "POST", "Cache-Control": "no-store" } });
       if (!isSameOriginRequest(request)) return Response.json({ error: "Cross-site request refused." }, { status: 403, headers: { "Cache-Control": "no-store" } });
+      // Fail closed before any quota write or model call: this is the dashboard chat's affordance only.
+      const owner = chatSuggestionOwner(this.name);
+      if (!owner) return Response.json({ error: "Chat suggestions are unavailable on this surface." }, { status: 403, headers: { "Cache-Control": "no-store" } });
       return suggestChatPrompts({
         tail: this.messages,
         model: () => this.resolveModel(),
-        owner: chatSuggestionOwner(this.name),
-        reserve: () => this.reserveChatSuggestionForOwner(chatSuggestionOwner(this.name)),
+        owner,
+        reserve: () => this.reserveChatSuggestionForOwner(owner),
       });
     }
     if (url.pathname === "/api/slack/buffer") {
