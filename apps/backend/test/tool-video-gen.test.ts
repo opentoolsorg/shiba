@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { getFile, insertFileRecord } from "../src/files/files-store.js";
-import { filesBucket } from "../src/knowledge/knowledge-ingestion.js";
 import { createChatAgentMediaTools } from "../src/tools/chat-agent-tools.js";
 import { registerAgentMediaMcpTools } from "../src/tools/register-mcp.js";
 import {
@@ -11,7 +10,6 @@ import {
 import { readUserProviderSecret } from "../src/user-provider-keys.js";
 
 vi.mock("../src/files/files-store.js", () => ({ getFile: vi.fn(), insertFileRecord: vi.fn() }));
-vi.mock("../src/knowledge/knowledge-ingestion.js", () => ({ filesBucket: vi.fn() }));
 vi.mock("../src/user-provider-keys.js", () => ({ readUserProviderSecret: vi.fn() }));
 
 const context = { runId: "chat-1", userId: "owner@example.com", workspaceId: "self-hosted" };
@@ -187,7 +185,7 @@ describe("video job lifecycle", () => {
   it("passes an owned image as bytes rather than accepting an arbitrary URL", async () => {
     const { env, backend } = fixture();
     vi.mocked(getFile).mockResolvedValue({ id: artifactId, workspaceId: context.workspaceId, createdBy: context.userId, mime: "image/png", size: 3 } as never);
-    vi.mocked(filesBucket).mockReturnValue({ get: vi.fn(async () => ({ size: 3, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer })) } as never);
+    Object.assign(env, { FILES: { get: vi.fn(async (key: string) => key === "files/source.png" ? { size: 3, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer } : null) } });
     const result = await generateVideo(env, { ...input, sourceImageArtifactId: artifactId }, context, { backend, wait: async () => {} });
     expect(result.ok).toBe(true);
     expect(backend.start).toHaveBeenCalledWith({ ...input, sourceImageArtifactId: artifactId }, { data: "AQID", mime: "image/png" });
