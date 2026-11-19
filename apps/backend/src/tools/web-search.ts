@@ -100,7 +100,7 @@ const TAVILY_COUNTRIES: Record<string, string> = {
   gh: "ghana", gr: "greece", gt: "guatemala", gn: "guinea", ht: "haiti", hn: "honduras",
   hu: "hungary", is: "iceland", in: "india", id: "indonesia", ir: "iran", iq: "iraq",
   ie: "ireland", il: "israel", it: "italy", jm: "jamaica", jp: "japan", jo: "jordan",
-  kz: "kazakhstan", ke: "kenya", kw: "kuwait", kg: "kyrgyzstan", la: "laos", lv: "latvia",
+  kz: "kazakhstan", ke: "kenya", kw: "kuwait", kg: "kyrgyzstan", lv: "latvia",
   lb: "lebanon", ls: "lesotho", lr: "liberia", ly: "libya", li: "liechtenstein",
   lt: "lithuania", lu: "luxembourg", mg: "madagascar", mw: "malawi", my: "malaysia",
   mv: "maldives", ml: "mali", mt: "malta", mr: "mauritania", mu: "mauritius", mx: "mexico",
