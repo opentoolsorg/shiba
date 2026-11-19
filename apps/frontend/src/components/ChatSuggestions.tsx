@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 
 export function chatSuggestionsUrl(agentName: string): string {
   return `/agents/coding-orchestrator/${encodeURIComponent(agentName)}/chat-suggestions`;
@@ -8,10 +8,13 @@ export function chatSuggestionsUrl(agentName: string): string {
 export function ChatSuggestions({ agentName, refreshKey, busy = false, hidden = false, onPick }: { agentName: string; refreshKey: string; busy?: boolean; hidden?: boolean; onPick: (prompt: string) => void }): JSX.Element | null {
   const [loaded, setLoaded] = useState<{ key: string; suggestions: string[] } | null>(null);
   const key = `${agentName}:${refreshKey}`;
-  const loadedKey = loaded?.key;
+  const requested = useRef<{ key: string; abort: AbortController } | null>(null);
+  useEffect(() => () => { requested.current?.abort.abort(); requested.current = null; }, []);
   useEffect(() => {
-    if (busy || hidden || loadedKey === key) return;
+    if (busy || hidden || requested.current?.key === key) return;
+    requested.current?.abort.abort();
     const abort = new AbortController();
+    requested.current = { key, abort };
     fetch(chatSuggestionsUrl(agentName), { method: "POST", credentials: "include", signal: abort.signal, headers: { "Content-Type": "application/json" }, body: "{}" })
       .then(async (response) => response.ok ? await response.json() as { suggestions?: unknown } : {})
       .then((body) => {
@@ -19,8 +22,7 @@ export function ChatSuggestions({ agentName, refreshKey, busy = false, hidden = 
         if (!abort.signal.aborted) setLoaded({ key, suggestions });
       })
       .catch(() => { if (!abort.signal.aborted) setLoaded({ key, suggestions: [] }); });
-    return () => abort.abort();
-  }, [agentName, key, busy, hidden, loadedKey]);
+  }, [agentName, key, busy, hidden]);
   const suggestions = loaded?.key === key ? loaded.suggestions : [];
   if (busy || hidden || !suggestions.length) return null;
   return (

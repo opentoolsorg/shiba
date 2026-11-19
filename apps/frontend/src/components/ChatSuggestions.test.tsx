@@ -86,6 +86,20 @@ describe("ChatSuggestions", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps one request for a reply when a draft is typed and cleared while it is pending", async () => {
+    let answer: (response: Response) => void = () => {};
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { answer = resolve; }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(<ChatSuggestions agentName="user" refreshKey="a1" onPick={() => {}} />);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    rerender(<ChatSuggestions agentName="user" refreshKey="a1" hidden onPick={() => {}} />);
+    rerender(<ChatSuggestions agentName="user" refreshKey="a1" onPick={() => {}} />);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    answer({ ok: true, json: async () => ({ suggestions: ["Explain this"] }) } as Response);
+    await screen.findByRole("button", { name: "Explain this" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("waits out a live stream or recovery before asking, then asks once", async () => {
     const fetchMock = respond({ suggestions: ["Explain this"] });
     vi.stubGlobal("fetch", fetchMock);
