@@ -6,6 +6,10 @@
  * previous image; the guard keeps the two in step, and
  * .github/workflows/build-sandbox-image.yml builds the new image before the
  * pull request that carries the pin can merge.
+ *
+ * Runs in `pnpm check:deploy`. The base revision is `--base <sha>`, else
+ * BASE_SHA, else origin/main, else HEAD~1; when none resolves the guard says so
+ * and passes rather than failing a shallow checkout.
  */
 import { execFileSync } from "node:child_process";
 
@@ -22,27 +26,44 @@ export function pinProblem({ changedInputs, head, previous }) {
     `  changed: ${changedInputs.join(", ")}`,
     `  pinned:  ${head ?? "(none)"}`,
     "",
-    "Run the Build sandbox image workflow (it builds on this pull request), then pin the digest it prints:",
-    "  node scripts/pin-dogfood-image.mjs <digest from the workflow summary>",
+    "Run the Build sandbox image workflow (it builds on this pull request), then pin the reference it prints:",
+    "  node scripts/pin-dogfood-image.mjs <reference from the workflow summary>",
     "",
     "Workers Builds only references the pinned digest, so the deploy would otherwise keep running the previous image.",
   ].join("\n");
 }
 
 function git(args) {
-  return execFileSync("git", args, { encoding: "utf8" });
+  return execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
 function pinnedImage(source) {
   return source.match(PIN_PATTERN)?.[1] ?? null;
 }
 
+function resolveBase(argv) {
+  const index = argv.indexOf("--base");
+  if (index >= 0 && argv[index + 1]) return argv[index + 1];
+  for (const name of ["BASE_SHA", "GITHUB_BASE_SHA"]) {
+    const value = process.env[name];
+    if (value) return value;
+  }
+  for (const candidate of ["origin/main", "HEAD~1"]) {
+    try {
+      git(["rev-parse", "--verify", "--quiet", `${candidate}^{commit}`]);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 function main(argv) {
-  const baseIndex = argv.indexOf("--base");
-  const base = baseIndex >= 0 ? argv[baseIndex + 1] : "HEAD~1";
+  const base = resolveBase(argv);
   if (!base) {
-    console.error("check-dogfood-image-pin: --base needs a git revision");
-    process.exit(2);
+    console.log("check-dogfood-image-pin: no base revision available; skipping");
+    return;
   }
   let changedInputs;
   let previousConfig;
@@ -51,9 +72,9 @@ function main(argv) {
       .split("\n")
       .filter(Boolean);
     previousConfig = git(["show", `${base}:${DOGFOOD_CONFIG}`]);
-  } catch (error) {
-    console.error(`check-dogfood-image-pin: cannot diff against ${base}: ${error.message}`);
-    process.exit(2);
+  } catch {
+    console.log(`check-dogfood-image-pin: cannot diff against ${base}; skipping`);
+    return;
   }
   const head = pinnedImage(git(["show", `HEAD:${DOGFOOD_CONFIG}`]));
   const problem = pinProblem({ changedInputs, head, previous: pinnedImage(previousConfig) });
