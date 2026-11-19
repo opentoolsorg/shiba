@@ -10,6 +10,33 @@
 # that loads @puppeteer/browsers, so forcing 3.x is inert here.
 # E2: http-cache-semantics@4.3.0 — first release outside the <=4.2.0
 # vulnerable range (GHSA-ch52-4w7c-c8xp), pulled by astro in apps/web.
+# E7: @modelcontextprotocol/sdk@1.32.2 and @modelcontextprotocol/client@2.3.1
+# (GHSA-6qxp-vccf-f47h OAuth credentials sent to a server-chosen
+# authorization server, GHSA-22jm-h49p-29qw, GHSA-46jr-4wx8-v453,
+# GHSA-f897-62hf-6gxq, GHSA-rvq5-wwqv-78pq, GHSA-6prh-2h8m-c8cw). Global for
+# the same single-instance reason as E6; agents@0.23.0 pins the old exact
+# versions as peers, so peerDependencyRules allows the patched lines.
+# E8: tooling pins with no in-range fix. alchemy>@prisma/dev pins hono@4.11.4,
+# @hono/node-server@1.19.9 and valibot@1.2.0, and chevrotain pins
+# lodash@4.17.21: hono ^4.13.16 (GHSA-q5qw-h33p-qvwr, GHSA-88fw-hqm2-52qc and
+# every moderate/low hono advisory below 4.13.16), @hono/node-server ^1.19.18
+# (GHSA-wc8c-qw6v-h7f6, GHSA-92pp-h63x-v22m, GHSA-frvp-7c67-39w9,
+# GHSA-jpvv-r467-5p4w), valibot ^1.4.2 (GHSA-5qjj-4xww-7phc), lodash ^4.18.0
+# (GHSA-r5fr-rjxr-66jc, GHSA-xxjr-mmjv-4gpg). wrangler>miniflare pins
+# undici@7.29.0 and sharp@0.35.4: undici 7.30.2 (GHSA-rfgv-xxqx-mfg5,
+# GHSA-w293-vg96-wgc3, GHSA-xjj6-f33q-929c, GHSA-4w7w-5xrc-9h26,
+# GHSA-2m5v-pch6-74hx, GHSA-qrxm-fqhp-jwvm and the moderate/low undici 7 advisories), sharp 0.35.5
+# (GHSA-wq5f-xc86-pv6w). All of these run only in local dev and deploy
+# tooling, never in the Worker, dashboard or docs bundles.
+# @modelcontextprotocol/sdk>@hono/node-server ^2.1.6 keeps the SDK on the 2.x
+# line (GHSA-rmxm-3fg6-px4f, GHSA-qv5m-9pm6-hqp3, GHSA-jpvv-r467-5p4w have no
+# 1.x fix); otherwise it dedupes onto the @prisma/dev 1.x copy.
+# E9: @cloudflare/sandbox@1.0.1 pins zod@4.6.5 (GHSA-mrhx-c7xc-m3w5, memory
+# exhaustion on oversized arrays). 4.6.6 is the first patched release and is
+# deliberately NOT the workspace's 4.6.7: when sandbox shares the backend's zod
+# copy, esbuild lazily initializes zod/v4/mini and sandbox's top-level
+# z.function() schemas run first, so the Worker fails to boot with
+# "Class is not a constructor". A separate copy keeps the bundle shape main has.
 
 packages:
   - apps/*
@@ -51,6 +78,8 @@ auditConfig:
 peerDependencyRules:
   allowedVersions:
     "agents>@modelcontextprotocol/server": "^2.0.0"
+    "agents>@modelcontextprotocol/client": "^2.0.0"
+    "agents>@modelcontextprotocol/sdk": "^1.30.0"
 
 patchedDependencies:
   brace-expansion@5.0.12: patches/brace-expansion@5.0.12.patch

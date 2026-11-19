@@ -15,7 +15,7 @@ jobs:
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # biome ci: lint-only for now — formatting is adopted incrementally
@@ -36,7 +36,7 @@ jobs:
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -53,6 +53,11 @@ jobs:
       - name: Verify personal native account isolation and daemon controls
         run: pnpm test:personal-daemon
       - run: pnpm build
+      # Boot guard for the bundled Worker: dependency dedupe has twice broken
+      # startup without any unit test noticing (zod initialized after the
+      # sandbox SDK's top-level schemas -> "Class is not a constructor").
+      - name: Verify the Worker boots and serves the dashboard locally
+        run: pnpm selfhost:smoke
       - run: pnpm docs:check
       # Marketing page and SEO assertions run against the generated site.
       # SEO tests skip in the earlier unit step when dist does not exist.
@@ -81,7 +86,7 @@ jobs:
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

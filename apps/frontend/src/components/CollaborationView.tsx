@@ -615,7 +615,9 @@ function ScopedCollaborationView({
     let cancelled = false;
     const load = async () => {
       const epoch = ++roomReadEpoch.current;
-      let selected = activeRoomId;
+      // Read the live selection, like refresh does: a poll that started before
+      // activeRoomId was set must not clear the room this surface is showing.
+      let selected = activeRoomRef.current;
       try {
         if (roomListTab === "saved") {
           const saved = await api<{ saved: SavedMessageRef[] }>("/api/collaboration/saved");
@@ -623,14 +625,14 @@ function ScopedCollaborationView({
           return;
         }
         const loadedRooms = await loadRoomsForTab<{ rooms: Room[] }>(api, roomListTab);
-        if (cancelled || !isCurrentRoomRead(epoch, activeRoomId)) return;
+        if (cancelled || !isCurrentRoomRead(epoch, activeRoomRef.current)) return;
         const availableRooms = loadedRooms.filter((room) => !revokedRooms.current.has(room.roomId));
         setRooms((current) => mergeRoomList(availableRooms, current));
         setTabUnread((current) => ({
           ...current,
           [roomListTab]: availableRooms.reduce((sum, room) => sum + (room.unreadCount ?? 0), 0),
         }));
-        selected = activeRoomId || (revokedRooms.current.size ? "" : availableRooms[0]?.roomId) || "";
+        selected = activeRoomRef.current || (revokedRooms.current.size ? "" : availableRooms[0]?.roomId) || "";
         if (revokedRooms.current.has(selected)) return;
         activeRoomRef.current = selected;
         setActiveRoomId(selected);

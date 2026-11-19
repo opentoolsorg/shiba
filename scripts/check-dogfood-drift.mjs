@@ -75,6 +75,44 @@ function bindingNames(cfg) {
 }
 
 /**
+ * The dogfood Worker was deployed by the declarative `exports` flow (alchemy),
+ * and Cloudflare refuses to revert a Worker to `migrations` (code 100403), so
+ * this config must keep declaring its Durable Object classes in `exports` and
+ * must never carry a `migrations` array again.
+ */
+export function durableObjectProblems(cfg) {
+  const problems = [];
+  if (cfg.migrations !== undefined) {
+    problems.push(
+      "declares \"migrations\"; the deployed Worker uses the declarative exports flow and Cloudflare refuses to revert to migrations (100403). Declare Durable Object classes in \"exports\".",
+    );
+  }
+  const exports = cfg.exports ?? {};
+  if (!Object.keys(exports).length) {
+    problems.push('has no "exports" block; the deployed Worker declares its Durable Object classes there.');
+  }
+  const exported = new Set(
+    Object.entries(exports)
+      .filter(([, entry]) => entry?.type === "durable-object" && (entry.state ?? "created") === "created")
+      .map(([name]) => name),
+  );
+  const bound = new Set((cfg.durable_objects?.bindings ?? []).map((b) => b.class_name));
+  for (const name of bound) {
+    if (!exported.has(name)) problems.push(`binds Durable Object class "${name}" with no live "exports" entry.`);
+  }
+  for (const name of exported) {
+    if (!bound.has(name)) problems.push(`exports Durable Object class "${name}" that no binding references.`);
+  }
+  const containerNames = new Set((cfg.containers ?? []).map((c) => c.name));
+  for (const [name, entry] of Object.entries(exports)) {
+    if (entry?.container !== undefined && !containerNames.has(entry.container)) {
+      problems.push(`exports "${name}" with container "${entry.container}", which is not a containers[] name.`);
+    }
+  }
+  return problems;
+}
+
+/**
  * Workers Builds deploys wrangler.dogfood.jsonc, so a container image it
  * builds there uploads the whole sandbox image (~3.3 GB of layers, one of them
  * 1.72 GB) from inside the build, and the registry upload times out. The image
@@ -134,6 +172,12 @@ function main() {
   if (imageProblems.length) {
     console.error("wrangler.dogfood.jsonc container image drift:");
     for (const problem of imageProblems) console.error(`  ${problem}`);
+    process.exit(1);
+  }
+  const durableProblems = durableObjectProblems(dogfood);
+  if (durableProblems.length) {
+    console.error("wrangler.dogfood.jsonc Durable Object flow drift:");
+    for (const problem of durableProblems) console.error(`  ${problem}`);
     process.exit(1);
   }
   console.log(`dogfood bindings: ${dogfoodNames.size} names aligned with wrangler.jsonc`);

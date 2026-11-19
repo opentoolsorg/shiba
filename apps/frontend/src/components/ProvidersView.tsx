@@ -626,6 +626,16 @@ function ProviderCard({
   );
 }
 
+/** Every card is read field by field during render, so the whole list must be sound. */
+function isProviderCard(value: unknown): value is AcpProviderCard {
+  if (!value || typeof value !== "object") return false;
+  const card = value as Partial<AcpProviderCard>;
+  return typeof card.id === "string" && card.id.length > 0 &&
+    typeof card.label === "string" &&
+    typeof card.connection === "object" && card.connection !== null &&
+    typeof card.connection.phase === "string";
+}
+
 async function postProvider(
   path: string,
   body: Record<string, unknown>,
@@ -640,7 +650,7 @@ async function postProvider(
     throw new Error(payload.error ?? `Request failed (${response.status}).`);
   }
   const payload = (await response.json()) as AcpProvidersSnapshot;
-  if (!Array.isArray(payload.providers)) {
+  if (!Array.isArray(payload.providers) || !payload.providers.every(isProviderCard)) {
     throw new Error("Provider status was not returned.");
   }
   return payload;
@@ -874,6 +884,13 @@ export function ProvidersView({ scope = "personal", embedded = false }: Provider
       .then(async (response) => {
         if (!response.ok) throw new Error(`Providers request failed: ${response.status}`);
         const body = (await response.json()) as AcpProvidersSnapshot;
+        // A body without a usable provider list would reach ProvidersBoard and
+        // throw during render, taking the whole app tree down; fail into the
+        // retry UI instead. Cards are checked field by field because the UI
+        // reads connection.phase off every one of them.
+        if (!body || !Array.isArray(body.providers) || !body.providers.every(isProviderCard)) {
+          throw new Error("Provider status returned an invalid response.");
+        }
         if (ticket !== generation.current) return;
         setSnapshot(body);
         setError(null);

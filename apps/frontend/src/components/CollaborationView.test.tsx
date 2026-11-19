@@ -1251,13 +1251,26 @@ describe("Slack draft room review", () => {
     expect(screen.queryByRole("region", { name: "Review saved team task" })).toBeNull();
   });
   it("hides the saved task preview when its review lease expires", async () => {
-    setupFetch(); const consumed = vi.fn();
-    const teamDraft = { ...draft, source: "team-onboarding" as const, draftTaskId: "draft_12345678-1234-4123-8123-123456789abc", draftTaskVersion: 1, progressRevision: 1, expiresAt: Date.now() + 1500 };
-    render(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={teamDraft} onTaskDraftConsumed={consumed} />);
-    await screen.findByRole("heading", { name: "Shared room" }); fireEvent.click(screen.getByRole("tab", { name: "Work" }));
-    expect(screen.getByRole("region", { name: "Review saved team task" })).toBeTruthy();
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Review saved team task" })).toBeNull(), { timeout: 2500 });
-    expect(consumed).not.toHaveBeenCalled();
+    // The lease hides itself from a timer armed at expiresAt, so drive the
+    // clock: the preview must survive up to the deadline and disappear on the
+    // expiry tick itself, with no other render to force it.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      setupFetch(); const consumed = vi.fn();
+      const teamDraft = { ...draft, source: "team-onboarding" as const, draftTaskId: "draft_12345678-1234-4123-8123-123456789abc", draftTaskVersion: 1, progressRevision: 1 };
+      const view = render(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={teamDraft} onTaskDraftConsumed={consumed} />);
+      await screen.findByRole("heading", { name: "Shared room" }); fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+      const expiresAt = Date.now() + 1_500;
+      view.rerender(<CollaborationView workspaceId={workspaceId} incomingTaskDraft={{ ...teamDraft, expiresAt }} onTaskDraftConsumed={consumed} />);
+      expect(screen.getByRole("region", { name: "Review saved team task" })).toBeTruthy();
+      act(() => { vi.advanceTimersByTime(1_400); });
+      expect(screen.queryByRole("region", { name: "Review saved team task" })).not.toBeNull();
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(screen.queryByRole("region", { name: "Review saved team task" })).toBeNull();
+      expect(consumed).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it("opens Work once when a saved team task reaches a readable room", async () => {
     setupFetch(); const consumed = vi.fn();

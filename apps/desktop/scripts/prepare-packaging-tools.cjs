@@ -2,7 +2,7 @@ const { createRequire } = require("node:module");
 const { realpath, stat } = require("node:fs/promises");
 const path = require("node:path");
 
-const BUILDER_VERSION = "26.15.7";
+const BUILDER_VERSION = "26.18.0";
 const RELEASES = "https://github.com/electron-userland/electron-builder-binaries/releases/download/";
 
 // Metadata from the installed, pinned app-builder-lib/toolsets/7zip and
@@ -20,7 +20,7 @@ function loadToolchain() {
   const builderRequire = createRequire(require.resolve("electron-builder/package.json"));
   const libraryRequire = createRequire(builderRequire.resolve("app-builder-lib/package.json"));
   if (builderRequire("electron-builder/package.json").version !== BUILDER_VERSION || libraryRequire("./package.json").version !== BUILDER_VERSION) {
-    throw new Error("Packaging preflight metadata requires electron-builder/app-builder-lib 26.15.7; review pins before upgrading.");
+    throw new Error("Packaging preflight metadata requires electron-builder/app-builder-lib 26.18.0; review pins before upgrading.");
   }
   return libraryRequire("./out/util/electronGet.js").downloadBuilderToolset;
 }
