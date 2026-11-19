@@ -23,7 +23,10 @@
   "vars": {
     "MCP_TRUSTED_HOSTS": "",
     "INTEGRATIONS_PROVIDER": "openconnector",
-    "OPEN_CONNECTOR_ENABLED": "1",
+    // Matches wrangler.jsonc: without the OPEN_CONNECTOR service binding or an
+    // OPEN_CONNECTOR_URL, setup status would otherwise report the lane enabled
+    // while every call fails closed.
+    "OPEN_CONNECTOR_ENABLED": "0",
     "SHIBA_PERSONAL_LOCAL_EXECUTION": "0",
     "SHIBA_TEAM_MODEL_SESSIONS": "0",
     "SHIBA_SHARED_COMPUTER": "0",
@@ -159,14 +162,19 @@
   "kv_namespaces": [
     {
       "binding": "AGENT_TOKENS",
-      "id": "b218feeb42cf4c3a8000031d5e8bc431"
+      // shiba-agent-tokens-dogfood, the namespace the live dogfood Worker
+      // binds. The previous id did not exist in the account, which failed the
+      // deploy with code 10041 once it stopped failing on the container image.
+      "id": "f6355273e438449e88fc27322cf1482c"
     }
   ],
   "d1_databases": [
     {
       "binding": "AGENT_AUDIT",
       "database_name": "shiba-audit-dogfood",
-      "database_id": "ccd931df-85e2-407c-8f62-22e491684c18",
+      // The id of shiba-audit-dogfood in the account, which is also what the
+      // live dogfood Worker binds; the previous id belonged to no database.
+      "database_id": "c72b5c90-fe85-4703-9116-4d173592c681",
       "migrations_dir": "migrations"
     }
   ],
@@ -278,9 +286,22 @@
       "class_name": "Sandbox",
       "name": "shiba-ai-coworker-sandbox-dogfood",
       "scheduling_policy": "durable_object",
+      // Workers Builds deploys this config on every push, and an image built
+      // there uploads ~3.3 GB of registry layers from inside the build (one
+      // base layer alone is 1.72 GB); the upload stalls on "timeout awaiting
+      // response headers" and the deploy fails. Referencing a digest instead
+      // means the deploy uploads the Worker and no image.
+      //
+      // .github/workflows/build-sandbox-image.yml builds and pushes the image;
+      // `node scripts/pin-dogfood-image.mjs <digest>` moves the pin to what it
+      // published, and scripts/check-dogfood-image-pin.mjs makes a commit that
+      // changes the image inputs move this pin with them. Until that workflow
+      // can push (the Actions token currently gets 403 from the container
+      // registry), the pin is the account's only managed-registry image, which
+      // is what the dogfood Worker already runs.
       "images": {
         "sandbox": {
-          "dockerfile": "./Dockerfile"
+          "image": "registry.cloudflare.com/73cf43cd7ec224111282832dc96b90e2/shiba-ai-coworker-sandbox-pr-188@sha256:494b5af5080a290a6bb2b092d9062d6974cb1fddb4a2b3e8abb27ee4c9fad360"
         }
       }
     }
@@ -382,10 +403,8 @@
       ]
     }
   ],
-  "services": [
-    {
-      "binding": "OPEN_CONNECTOR",
-      "service": "shiba-openconnector-dogfood"
-    }
-  ]
+  // No OPEN_CONNECTOR service binding: shiba-openconnector-dogfood does not
+  // exist in the account, and wrangler.jsonc leaves the same binding commented
+  // out for the HTTP fallback through OPEN_CONNECTOR_URL.
+  "services": []
 }

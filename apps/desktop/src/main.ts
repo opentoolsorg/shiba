@@ -394,9 +394,16 @@ const sessionFetch = (url: string, init?: RequestInit) =>
     ...init,
   });
 
+function appIconPath(): string | null {
+  const icon = path.join(app.getAppPath(), "assets", "icon.png");
+  return fs.existsSync(icon) ? icon : null;
+}
+
 function notify(n: { title: string; body: string }, onClick: () => void): void {
   if (config.notifications === false || !Notification.isSupported()) return;
-  const notification = new Notification({ title: n.title, body: n.body });
+  // Windows and Linux take the notification icon from the payload; macOS uses the app icon.
+  const icon = process.platform === "darwin" ? null : appIconPath();
+  const notification = new Notification({ title: n.title, body: n.body, ...(icon ? { icon } : {}) });
   notification.on("click", onClick);
   notification.show();
 }
@@ -521,15 +528,16 @@ function trayIconPath(): string | null {
   // assets/ ships inside app.asar via electron-builder "files"; getAppPath()
   // returns the asar root packaged and the package dir in dev. Electron's fs
   // reads asar paths transparently, so one path works in both modes.
+  // macOS recolours a template silhouette; Windows and Linux need the colour mark.
   const base = app.getAppPath();
-  const icon = path.join(base, "assets", "trayTemplate.png");
+  const icon = path.join(base, "assets", process.platform === "darwin" ? "trayTemplate.png" : "tray.png");
   return fs.existsSync(icon) ? icon : null;
 }
 
 function setDockIcon(): void {
   if (!isMac || !app.dock) return;
-  const iconPath = path.join(app.getAppPath(), "assets", "icon.png");
-  if (!fs.existsSync(iconPath)) return;
+  const iconPath = appIconPath();
+  if (!iconPath) return;
   const icon = nativeImage.createFromBuffer(fs.readFileSync(iconPath));
   if (!icon.isEmpty()) app.dock.setIcon(icon);
 }
