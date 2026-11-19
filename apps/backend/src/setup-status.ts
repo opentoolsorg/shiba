@@ -3,7 +3,7 @@
  * the onboarding checklist can show live state instead of static steps.
  * Returns presence signals and relevant setting names, never secret values.
  */
-import { getSsoConfig } from "@shiba/auth/better-auth";
+import { getSsoReadiness } from "@shiba/auth/better-auth";
 import type { Env } from "./env.js";
 import { isGitHubPublishConfigured } from "./github-auth.js";
 import { describeRoleModels, type RoleModelStatus } from "./agents/roles.js";
@@ -28,7 +28,8 @@ export interface SetupStatus {
   gateway: { id: string; token: boolean; reachable: "yes" | "unauthorized" | "error" | "unknown" };
   access: { required: boolean };
   betterAuth: { configured: boolean };
-  sso: { enabled: boolean; configured: string[]; missing: string[] };
+  /** `enabled` means the OIDC handler will mount; lists hold setting names only. */
+  sso: { enabled: boolean; configured: string[]; missing: string[]; conflicting: string[] };
   models: { orchestrator: string; coding: string; harness: string; roles: RoleModelStatus[] };
   automations: { enabled: boolean; typeSafe: boolean };
   mailbox: { addressOverride: boolean; sendEnabled: boolean };
@@ -70,8 +71,7 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);
-  const sso = getSsoConfig(env);
-  const ssoSettings = ["SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET"];
+  const sso = getSsoReadiness(env);
   const modelSnapshot = await readModelConfig(env);
   const rolePins = modelSnapshot.policy.rolePins;
   const base: Omit<SetupStatus, "doctor" | "deployment" | "missingSecrets" | "modelRoute" | "toolSetup"> = {
@@ -103,9 +103,10 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
     access: { required: isAccessConfigured(env) },
     betterAuth: { configured: isBetterAuthConfigured(env) },
     sso: {
-      enabled: sso.enabled,
-      configured: ssoSettings.filter(name => !sso.missing.includes(name)),
+      enabled: sso.ready,
+      configured: sso.settings.filter(name => !sso.missing.includes(name) && !sso.conflicting.includes(name)),
       missing: sso.missing,
+      conflicting: sso.conflicting,
     },
     models: {
       orchestrator: env.ORCHESTRATOR_MODEL,
