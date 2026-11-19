@@ -1,22 +1,50 @@
 // @vitest-environment happy-dom
+import { useState, type JSX } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ChatSuggestions, chatSuggestionsUrl } from "./ChatSuggestions";
+import { ChatSuggestions, chatSuggestionsUrl, focusComposerDraft } from "./ChatSuggestions";
+import { ChatMessageComposer } from "./ChatMessageComposer";
 
 const respond = (body: unknown, ok = true) => vi.fn(async () => ({ ok, json: async () => body }) as Response);
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+function Harness({ agentName = "user", refreshKey = "empty", submitted }: { agentName?: string; refreshKey?: string; submitted: (prompt: string) => void }): JSX.Element {
+  const [draft, setDraft] = useState("");
+  return (
+    <>
+      <ChatSuggestions agentName={agentName} refreshKey={refreshKey} hidden={draft.trim() !== ""} onPick={(prompt) => focusComposerDraft(setDraft, prompt)} />
+      <ChatMessageComposer
+        value={draft}
+        onChange={setDraft}
+        onSubmit={(event) => { event.preventDefault(); submitted(draft); }}
+        onStop={() => {}}
+        onRetry={() => {}}
+        busy={false}
+        streaming={false}
+        failed={false}
+      />
+    </>
+  );
+}
+
 describe("ChatSuggestions", () => {
-  it("fetches the thread's suggestions and fills the composer on pick", async () => {
+  it("asks the thread with a same-origin POST and fills the composer without sending", async () => {
     const fetchMock = respond({ suggestions: ["Plan my week", "Draft a launch email"] });
     vi.stubGlobal("fetch", fetchMock);
-    const onPick = vi.fn();
-    render(<ChatSuggestions agentName="web-session:user/1" refreshKey="empty" onPick={onPick} />);
+    const submitted = vi.fn();
+    const { container } = render(<Harness submitted={submitted} />);
     fireEvent.click(await screen.findByRole("button", { name: "Plan my week" }));
-    expect(onPick).toHaveBeenCalledWith("Plan my week");
-    expect(fetchMock).toHaveBeenCalledWith("/agents/coding-orchestrator/web-session%3Auser%2F1/chat-suggestions", expect.objectContaining({ credentials: "include" }));
-    expect(screen.getByRole("group", { name: "Suggested prompts" })).toBeTruthy();
+
+    const textarea = container.querySelector<HTMLTextAreaElement>("[data-testid='chat-composer'] textarea")!;
+    expect(textarea.value).toBe("Plan my week");
+    await waitFor(() => expect(document.activeElement).toBe(textarea));
+    expect(textarea.selectionStart).toBe("Plan my week".length);
+    expect(submitted).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Plan my week" })).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith("/agents/coding-orchestrator/user/chat-suggestions", expect.objectContaining({
+      method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+    }));
   });
 
   it("refetches after a new assistant reply but not when only visibility changes", async () => {
@@ -35,16 +63,18 @@ describe("ChatSuggestions", () => {
   it.each([
     ["an empty list", respond({ suggestions: [] })],
     ["an error status", respond({ error: "nope" }, false)],
+    ["a rate-limited empty list", respond({ suggestions: [] })],
     ["a network failure", vi.fn(async () => { throw new TypeError("offline"); })],
-  ])("renders nothing for %s", async (_label, fetchMock) => {
+  ])("renders nothing and leaves the composer usable for %s", async (_label, fetchMock) => {
     vi.stubGlobal("fetch", fetchMock);
-    const { container } = render(<ChatSuggestions agentName="user" refreshKey="empty" onPick={() => {}} />);
+    const { container } = render(<Harness submitted={() => {}} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(container.innerHTML).toBe("");
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(container.querySelector("[data-testid='chat-composer'] textarea")).not.toBeNull();
   });
 
   it("builds the session agent path", () => {
-    expect(chatSuggestionsUrl("abc")).toBe("/agents/coding-orchestrator/abc/chat-suggestions");
+    expect(chatSuggestionsUrl("web:user/abc")).toBe("/agents/coding-orchestrator/web%3Auser%2Fabc/chat-suggestions");
   });
 });

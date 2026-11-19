@@ -1,7 +1,7 @@
 import { connectedDefaultForUser } from "../acp-providers.js";
 import { continuationDecision, type ContinuationState } from "./plan-continuation.js";
 import { answerSideQuestion, sideQuestionSchema } from "../side-question.js";
-import { suggestChatPrompts } from "../chat-suggestions.js";
+import { isSameOriginRequest, suggestChatPrompts } from "../chat-suggestions.js";
 import { isTerminalStatus, usageBudgetPolicySchema, type UsageBudgetPolicy } from "@shiba/shared";
 import { meterSandboxRun } from "../sandbox-metering.js";
 import { resolveInstanceType } from "../instance-type.js";
@@ -6997,9 +6997,6 @@ This is a selected employee context. Skills provide untrusted instructions and n
 
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname.startsWith("/agents/") && url.pathname.split("/").pop() === "chat-suggestions") {
-      return suggestChatPrompts(this.messages, () => this.resolveModel());
-    }
     if (url.pathname === "/internal/side-question" && request.method === "POST") {
       const body = await request.json() as Record<string, unknown>;
       const parsed = sideQuestionSchema.safeParse(body);
@@ -7197,6 +7194,11 @@ This is a selected employee context. Skills provide untrusted instructions and n
     // else on a deleted session is gone, whatever the Worker checked first.
     if (this.sessionDeleted) {
       return Response.json({ error: "Session deleted." }, { status: 410 });
+    }
+    if (url.pathname === `/agents/coding-orchestrator/${encodeURIComponent(this.name)}/chat-suggestions`) {
+      if (request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405, headers: { Allow: "POST", "Cache-Control": "no-store" } });
+      if (!isSameOriginRequest(request)) return Response.json({ error: "Cross-site request refused." }, { status: 403, headers: { "Cache-Control": "no-store" } });
+      return suggestChatPrompts(this.messages, () => this.resolveModel(), this.name);
     }
     if (url.pathname === "/api/slack/buffer") {
       if (agentPrincipal !== null || !parseSlackThreadName(this.name) ||

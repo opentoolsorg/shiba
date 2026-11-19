@@ -10,7 +10,7 @@ export function ChatSuggestions({ agentName, refreshKey, hidden = false, onPick 
   const key = `${agentName}:${refreshKey}`;
   useEffect(() => {
     const abort = new AbortController();
-    fetch(chatSuggestionsUrl(agentName), { credentials: "include", signal: abort.signal })
+    fetch(chatSuggestionsUrl(agentName), { method: "POST", credentials: "include", signal: abort.signal, headers: { "Content-Type": "application/json" }, body: "{}" })
       .then(async (response) => response.ok ? await response.json() as { suggestions?: unknown } : {})
       .then((body) => {
         const suggestions = Array.isArray(body.suggestions) ? body.suggestions.filter((item): item is string => typeof item === "string" && item.trim() !== "").slice(0, 3) : [];
@@ -22,7 +22,7 @@ export function ChatSuggestions({ agentName, refreshKey, hidden = false, onPick 
   const suggestions = loaded?.key === key ? loaded.suggestions : [];
   if (hidden || !suggestions.length) return null;
   return (
-    <div role="group" aria-label="Suggested prompts" className="mx-auto mb-2 flex w-full max-w-3xl flex-wrap gap-2">
+    <section aria-label="Suggested prompts" className="mx-auto mb-2 flex w-full max-w-3xl flex-wrap gap-2">
       {suggestions.map((suggestion) => (
         <button
           key={suggestion}
@@ -33,6 +33,16 @@ export function ChatSuggestions({ agentName, refreshKey, hidden = false, onPick 
           {suggestion}
         </button>
       ))}
-    </div>
+    </section>
   );
+}
+
+/** Puts a picked prompt in the composer, focused at its end, without sending it. */
+export function focusComposerDraft(setDraft: (prompt: string) => void, prompt: string): void {
+  setDraft(prompt);
+  window.setTimeout(() => {
+    const composer = document.querySelector<HTMLTextAreaElement>("[data-testid='chat-composer'] textarea");
+    composer?.focus();
+    composer?.setSelectionRange(prompt.length, prompt.length);
+  }, 0);
 }
