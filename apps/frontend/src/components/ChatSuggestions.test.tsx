@@ -41,7 +41,7 @@ describe("ChatSuggestions", () => {
     await waitFor(() => expect(document.activeElement).toBe(textarea));
     expect(textarea.selectionStart).toBe("Plan my week".length);
     expect(submitted).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: "Plan my week" })).toBeNull();
+    expect(screen.queryByLabelText("Suggested prompts")).toBeNull();
     expect(fetchMock).toHaveBeenCalledWith("/agents/coding-orchestrator/user/chat-suggestions", expect.objectContaining({
       method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
     }));
@@ -53,7 +53,7 @@ describe("ChatSuggestions", () => {
     const { rerender } = render(<ChatSuggestions agentName="user" refreshKey="a1" onPick={() => {}} />);
     await screen.findByRole("button", { name: "Explain this" });
     rerender(<ChatSuggestions agentName="user" refreshKey="a1" hidden onPick={() => {}} />);
-    expect(screen.queryByRole("group")).toBeNull();
+    expect(screen.queryByLabelText("Suggested prompts")).toBeNull();
     rerender(<ChatSuggestions agentName="user" refreshKey="a1" onPick={() => {}} />);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     rerender(<ChatSuggestions agentName="user" refreshKey="a2" onPick={() => {}} />);
@@ -70,8 +70,20 @@ describe("ChatSuggestions", () => {
     const { container } = render(<Harness submitted={() => {}} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(screen.queryByRole("group")).toBeNull();
+    expect(screen.queryByLabelText("Suggested prompts")).toBeNull();
     expect(container.querySelector("[data-testid='chat-composer'] textarea")).not.toBeNull();
+  });
+
+  it("waits out a live stream or recovery before asking, then asks once", async () => {
+    const fetchMock = respond({ suggestions: ["Explain this"] });
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(<ChatSuggestions agentName="user" refreshKey="a1" busy onPick={() => {}} />);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Suggested prompts")).toBeNull();
+    rerender(<ChatSuggestions agentName="user" refreshKey="a1" busy={false} onPick={() => {}} />);
+    await screen.findByRole("button", { name: "Explain this" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Suggested prompts")).toBeTruthy();
   });
 
   it("builds the session agent path", () => {

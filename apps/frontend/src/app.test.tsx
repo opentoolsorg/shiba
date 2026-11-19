@@ -13,7 +13,7 @@ import { composerDraftScope, readDraft, writeDraft, setSavedLibraryActor } from 
 const mocks = vi.hoisted(() => ({
   suspension: null as Promise<void> | null,
   agent: { identified: true, readyState: 1, connectionError: null, addEventListener: vi.fn(), removeEventListener: vi.fn(), reconnect: vi.fn() },
-  chat: { messages: [], status: "ready", isStreaming: false, setMessages: vi.fn(), sendMessage: vi.fn(), clearHistory: vi.fn() },
+  chat: { messages: [] as unknown[], status: "ready", isStreaming: false, isRecovering: false, setMessages: vi.fn(), sendMessage: vi.fn(), clearHistory: vi.fn() },
   tools: { runsById: {} },
   router: { history: { replace: (path: string) => window.history.replaceState(null, "", path), push: (path: string) => window.history.pushState(null, "", path) } },
 }));
@@ -248,6 +248,22 @@ describe("app Work and Threads routing", () => {
     expect((draft as HTMLTextAreaElement).value).toBe("STRICT_PROMPT_FIXTURE");
     expect(window.location.pathname).toBe("/threads/");
     expect(new URLSearchParams(window.location.search).has("prompt")).toBe(false);
+  });
+
+  it("waits for a recovering turn before asking for chat suggestions", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    mocks.chat.messages = [{ id: "reply-1", role: "assistant", parts: [{ type: "text", text: "Done." }] }] as never;
+    mocks.chat.isRecovering = true;
+    const askedBefore = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/chat-suggestions")).length;
+    const view = render(<App />);
+    await screen.findByRole("textbox", { name: "Task draft" });
+    await act(async () => {});
+    expect(askedBefore()).toBe(0);
+    mocks.chat.isRecovering = false;
+    view.rerender(<App />);
+    await waitFor(() => expect(askedBefore()).toBe(1));
+    mocks.chat.messages = [] as never;
   });
 
   it("reviews the Chat draft in the existing Work composer without submitting it", async () => {

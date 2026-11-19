@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { generateText, type LanguageModel, type UIMessage } from "ai";
 import { getAgentByName } from "agents/routing";
-import { isSameOriginRequest, parseSuggestions, resetChatSuggestionLimits, suggestChatPrompts } from "../src/chat-suggestions.js";
+import {
+  CHAT_SUGGESTION_LIMIT, CHAT_SUGGESTION_WINDOW_MS, chatSuggestionOwner, isSameOriginRequest, parseSuggestions,
+  resetChatSuggestionState, suggestChatPrompts,
+} from "../src/chat-suggestions.js";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
 import { handlers } from "../src/routes/handlers.js";
 import type { RequestContext } from "../src/routes/context.js";
@@ -15,43 +18,48 @@ vi.mock("ai", async (original) => ({ ...await original<typeof import("ai")>(), g
 const model = {} as LanguageModel;
 const message = (id: string, role: "user" | "assistant", text: string) => ({ id, role, parts: [{ type: "text", text }] }) as UIMessage;
 const say = (text: string) => vi.mocked(generateText).mockResolvedValue({ text } as never);
+const suggestions = ["Draft a launch email", "Plan my week", "Explain DNS caching"];
+const allow = () => Promise.resolve(true);
 const originHeaders = { Origin: "https://shiba.test", "Content-Type": "application/json" };
+const suggest = (tail: UIMessage[], extra: { owner?: string; reserve?: () => Promise<boolean>; now?: number } = {}) =>
+  suggestChatPrompts({ tail, model: () => model, owner: extra.owner ?? "owner", reserve: extra.reserve ?? allow, now: extra.now });
 
 function orchestrator(overrides: Record<string, unknown> = {}) {
-  const forbidden = vi.fn(() => { throw new Error("Chat suggestions must not write"); });
+  const forbidden = vi.fn(() => { throw new Error("Chat suggestions must not write runs"); });
   const instance = Object.assign(Object.create(CodingOrchestrator.prototype), {
-    name: "owner", messages: [], resolveModel: vi.fn(() => model),
-    setState: forbidden, saveMessages: forbidden, persistMessages: forbidden, broadcast: forbidden,
+    name: "owner", messages: [], resolveModel: vi.fn(() => model), state: {},
+    setState: vi.fn((next: unknown) => { (instance as unknown as { state: unknown }).state = next; }),
+    saveMessages: forbidden, persistMessages: forbidden, broadcast: forbidden,
     ctx: { storage: { put: forbidden, delete: forbidden, sql: { exec: forbidden } } },
-    env: { AGENT_AUDIT: { prepare: forbidden }, Sandbox: { get: forbidden } },
+    env: { AGENT_AUDIT: { prepare: forbidden }, Sandbox: { get: forbidden }, CodingOrchestrator: { idFromName: (name: string) => name } },
     ...overrides,
   }) as CodingOrchestrator;
   return { instance, forbidden };
 }
 
-const post = (body = "{}", headers: Record<string, string> = originHeaders) =>
-  new Request("https://shiba.test/agents/coding-orchestrator/owner/chat-suggestions", { method: "POST", headers, body });
+const post = (path = "/agents/coding-orchestrator/owner/chat-suggestions", headers: Record<string, string> = originHeaders) =>
+  new Request(`https://shiba.test${path}`, { method: "POST", headers, body: "{}" });
 
 beforeEach(() => {
   vi.clearAllMocks();
-  resetChatSuggestionLimits();
-  say('{"prompts":["Draft a launch email","Plan my week","Explain DNS caching"]}');
+  resetChatSuggestionState();
+  say(`{"prompts":${JSON.stringify(suggestions)}}`);
 });
 
 describe("chat suggestions", () => {
   it("suggests starters on an empty chat through the resolved chat model", async () => {
     const resolve = vi.fn(() => model);
-    const response = await suggestChatPrompts([], resolve, "owner");
+    const response = await suggestChatPrompts({ tail: [], model: resolve, owner: "owner", reserve: allow });
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(await response.json()).toEqual({ suggestions: ["Draft a launch email", "Plan my week", "Explain DNS caching"] });
+    expect(await response.json()).toEqual({ suggestions });
     expect(resolve).toHaveBeenCalledOnce();
-    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({ model, tools: {}, system: expect.stringContaining("start a conversation") }));
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({ model, tools: {}, maxRetries: 0, system: expect.stringContaining("start a conversation") }));
   });
 
   it("suggests follow-ups from the recent transcript without changing it", async () => {
     const tail = [message("1", "user", "How do I rotate a key?"), message("2", "assistant", "Create a new key, then revoke the old one.")];
     const original = JSON.stringify(tail);
-    await suggestChatPrompts(tail, () => model, "owner");
+    await suggest(tail);
     const options = vi.mocked(generateText).mock.calls[0]![0];
     expect(options.system).toContain("follow-up");
     expect(options.prompt).toContain("Person: How do I rotate a key?");
@@ -60,31 +68,41 @@ describe("chat suggestions", () => {
   });
 
   it("reuses the answer for the same transcript instead of paying twice", async () => {
-    const tail = [message("1", "user", "Hi")];
-    expect(await (await suggestChatPrompts(tail, () => model, "owner", 1_000)).json()).toEqual({ suggestions: ["Draft a launch email", "Plan my week", "Explain DNS caching"] });
-    expect(await (await suggestChatPrompts(tail, () => model, "owner", 2_000)).json()).toEqual({ suggestions: ["Draft a launch email", "Plan my week", "Explain DNS caching"] });
+    await suggest([message("1", "user", "Hi")], { now: 1_000 });
+    await suggest([message("1", "user", "Hi")], { now: 2_000 });
     expect(generateText).toHaveBeenCalledOnce();
-    await suggestChatPrompts([message("2", "user", "Different")], () => model, "owner", 3_000);
+    await suggest([message("2", "user", "Different")], { now: 3_000 });
     expect(generateText).toHaveBeenCalledTimes(2);
-    await suggestChatPrompts(tail, () => model, "someone-else", 4_000);
+    await suggest([message("1", "user", "Hi")], { owner: "someone-else", now: 4_000 });
     expect(generateText).toHaveBeenCalledTimes(3);
   });
 
-  it("stops spending after the hourly cap for one owner and leaves other owners alone", async () => {
-    for (let index = 0; index < 30; index += 1) await suggestChatPrompts([message(String(index), "user", `Question ${index}`)], () => model, "owner", 1_000 + index);
-    expect(generateText).toHaveBeenCalledTimes(30);
-    const capped = await suggestChatPrompts([message("last", "user", "One more")], () => model, "owner", 2_000);
-    expect(capped.status).toBe(200);
-    expect(await capped.json()).toEqual({ suggestions: [] });
-    expect(generateText).toHaveBeenCalledTimes(30);
-    await suggestChatPrompts([message("other", "user", "One more")], () => model, "someone-else", 2_000);
-    expect(generateText).toHaveBeenCalledTimes(31);
-    await suggestChatPrompts([message("window", "user", "One more")], () => model, "owner", 1_000 + 60 * 60_000);
-    expect(generateText).toHaveBeenCalledTimes(32);
+  it("shares one generation when the same transcript is asked twice at once", async () => {
+    let release = () => {};
+    vi.mocked(generateText).mockImplementation(() => new Promise((resolve) => {
+      release = () => resolve({ text: `{"prompts":${JSON.stringify(suggestions)}}` } as never);
+    }));
+    const tail = [message("1", "user", "Cold cache")];
+    const first = suggest(tail);
+    const second = suggest(tail);
+    await vi.waitFor(() => expect(generateText).toHaveBeenCalled());
+    release();
+    expect(await (await first).json()).toEqual({ suggestions });
+    expect(await (await second).json()).toEqual({ suggestions });
+    expect(generateText).toHaveBeenCalledOnce();
+  });
+
+  it("asks the account's quota before generating and stays quiet when it refuses", async () => {
+    const reserve = vi.fn(async () => false);
+    const response = await suggest([message("1", "user", "Hi")], { reserve });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ suggestions: [] });
+    expect(reserve).toHaveBeenCalledOnce();
+    expect(generateText).not.toHaveBeenCalled();
   });
 
   it("returns no suggestions when no chat provider resolves", async () => {
-    const response = await suggestChatPrompts([], () => { throw new Error("AI binding is not configured"); }, "owner");
+    const response = await suggestChatPrompts({ tail: [], model: () => { throw new Error("AI binding is not configured"); }, owner: "owner", reserve: allow });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ suggestions: [] });
     expect(generateText).not.toHaveBeenCalled();
@@ -92,7 +110,7 @@ describe("chat suggestions", () => {
 
   it("returns no suggestions and hides provider errors when generation fails", async () => {
     vi.mocked(generateText).mockRejectedValue(new Error("private provider detail"));
-    const response = await suggestChatPrompts([], () => model, "owner");
+    const response = await suggest([], { now: 1 });
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('{"suggestions":[]}');
   });
@@ -109,11 +127,20 @@ describe("chat suggestions", () => {
     ["a same-origin fetch without a site hint", { Origin: "https://shiba.test" }, true],
     ["a cross-site page", { Origin: "https://evil.example", "Sec-Fetch-Site": "cross-site" }, false],
     ["a cross-site site hint with a matching origin", { Origin: "https://shiba.test", "Sec-Fetch-Site": "cross-site" }, false],
+    ["a matching host on another scheme", { Origin: "http://shiba.test" }, false],
+    ["a matching host on another port", { Origin: "https://shiba.test:8443" }, false],
+    ["the literal null origin", { Origin: "null" }, false],
     ["a request with no origin", {}, false],
     ["a malformed origin", { Origin: "not a url" }, false],
   ])("treats %s as %s", (_label, headers, allowed) => {
     const request = new Request("https://shiba.test/agents/coding-orchestrator/owner/chat-suggestions", { method: "POST", headers, body: "{}" });
     expect(isSameOriginRequest(request)).toBe(allowed);
+  });
+
+  it("keys the account to its web threads and leaves other surfaces on their own agent", () => {
+    expect(chatSuggestionOwner("web:owner:11111111-1111-4111-8111-111111111111")).toBe("owner");
+    expect(chatSuggestionOwner("owner")).toBe("owner");
+    expect(chatSuggestionOwner("slack:T1:C1:1.2")).toBe("slack:T1:C1:1.2");
   });
 });
 
@@ -122,43 +149,62 @@ describe("orchestrator chat suggestions route", () => {
     const { instance, forbidden } = orchestrator({ messages: [message("1", "user", "Hello")] });
     const response = await instance.onRequest(post());
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ suggestions: ["Draft a launch email", "Plan my week", "Explain DNS caching"] });
+    expect(await response.json()).toEqual({ suggestions });
     expect(instance.messages).toEqual([message("1", "user", "Hello")]);
     expect(forbidden).not.toHaveBeenCalled();
 
-    const get = await instance.onRequest(new Request("https://shiba.test/agents/coding-orchestrator/owner/chat-suggestions"));
-    expect(get.status).toBe(405);
-    expect(get.headers.get("Allow")).toBe("POST");
-
-    const crossSite = await instance.onRequest(post("{}", { Origin: "https://evil.example" }));
+    expect((await instance.onRequest(new Request("https://shiba.test/agents/coding-orchestrator/owner/chat-suggestions"))).status).toBe(405);
+    const crossSite = await instance.onRequest(post("/agents/coding-orchestrator/owner/chat-suggestions", { Origin: "https://evil.example" }));
     expect(crossSite.status).toBe(403);
     expect(await crossSite.json()).toEqual({ error: "Cross-site request refused." });
-
-    const otherPath = await instance.onRequest(new Request("https://shiba.test/agents/coding-orchestrator/someone-else/chat-suggestions", { method: "POST", headers: originHeaders, body: "{}" }));
-    expect(otherPath.status).not.toBe(200);
+    expect((await instance.onRequest(post("/agents/coding-orchestrator/someone-else/chat-suggestions"))).status).toBe(404);
+    expect((await instance.onRequest(post("/agents/coding-orchestrator/owner/chat-suggestions/"))).status).toBe(404);
   });
 
   it("never calls the model once the session is deleted", async () => {
     const { instance } = orchestrator({ state: { sessionDeletedAt: 1 } });
-    const response = await instance.onRequest(post());
-    expect(response.status).toBe(410);
+    expect((await instance.onRequest(post())).status).toBe(410);
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("counts every web thread of one account against that account's durable quota", async () => {
+    const state: Record<string, unknown> = {};
+    const setState = vi.fn((next: unknown) => { Object.assign(state, next); });
+    const base = orchestrator({ name: "owner", state, setState, messages: [] }).instance;
+    for (let index = 0; index < CHAT_SUGGESTION_LIMIT; index += 1) {
+      expect(await base.onRequest(new Request("https://internal/internal/chat-suggestion-quota", { method: "POST" })).then((r) => r.json())).toEqual({ allowed: true });
+    }
+    expect(await base.onRequest(new Request("https://internal/internal/chat-suggestion-quota", { method: "POST" })).then((r) => r.json())).toEqual({ allowed: false });
+    expect((state as { chatSuggestionQuota: { count: number; start: number } }).chatSuggestionQuota.count).toBe(CHAT_SUGGESTION_LIMIT);
+        const expired = orchestrator({ state: { chatSuggestionQuota: { start: Date.now() - CHAT_SUGGESTION_WINDOW_MS - 1, count: CHAT_SUGGESTION_LIMIT } }, setState: () => {} }).instance;
+    expect(await expired.onRequest(new Request("https://internal/internal/chat-suggestion-quota", { method: "POST" })).then((r) => r.json())).toEqual({ allowed: true });
+  });
+
+  it("reserves a named thread's spend on its account's base session", async () => {
+    const fetchBase = vi.fn(async () => Response.json({ allowed: false }));
+    vi.mocked(getAgentByName).mockResolvedValue({ fetch: fetchBase } as never);
+    const { instance } = orchestrator({ name: "web:owner:11111111-1111-4111-8111-111111111111", messages: [message("1", "user", "Hi")] });
+    const response = await instance.onRequest(post("/agents/coding-orchestrator/web%3Aowner%3A11111111-1111-4111-8111-111111111111/chat-suggestions"));
+    expect(await response.json()).toEqual({ suggestions: [] });
+    expect(getAgentByName).toHaveBeenCalledWith(expect.anything(), "owner");
+    expect(fetchBase).toHaveBeenCalledWith("https://internal/internal/chat-suggestion-quota", { method: "POST" });
     expect(generateText).not.toHaveBeenCalled();
   });
 
   it("serves the caller's own thread through the Worker and refuses another owner", async () => {
-    const fetchThread = vi.fn(async (request: Request) => Response.json({ forwarded: new URL(request.url).pathname, suggestions: [] }));
+    const fetchThread = vi.fn(async (request: Request) => Response.json({ forwarded: new URL(request.url).pathname, method: request.method, suggestions: [] }));
     vi.mocked(getAgentByName).mockResolvedValue({ fetch: fetchThread } as never);
     const env = { CodingOrchestrator: {} } as Env;
-    const context = (path: string, user: string): RequestContext => {
-      const request = new Request(`https://shiba.test${path}`);
+    const context = (path: string, user: string, init: RequestInit = {}): RequestContext => {
+      const request = new Request(`https://shiba.test${path}`, init);
       return { request, env, url: new URL(request.url), identity: async () => user };
     };
-    const own = await handlers.agents(context("/agents/coding-orchestrator/owner/chat-suggestions", "owner"));
+    const own = await handlers.agents(context("/agents/coding-orchestrator/owner/chat-suggestions", "owner", { method: "POST", headers: originHeaders, body: "{}" }));
     expect(own?.status).toBe(200);
-    expect(await own?.json()).toEqual({ forwarded: "/agents/coding-orchestrator/owner/chat-suggestions", suggestions: [] });
+    expect(await own?.json()).toEqual({ forwarded: "/agents/coding-orchestrator/owner/chat-suggestions", method: "POST", suggestions: [] });
     expect(fetchThread).toHaveBeenCalledOnce();
 
-    const foreign = await handlers.agents(context("/agents/coding-orchestrator/someone-else/chat-suggestions", "owner"));
+    const foreign = await handlers.agents(context("/agents/coding-orchestrator/someone-else/chat-suggestions", "owner", { method: "POST", headers: originHeaders, body: "{}" }));
     expect(foreign?.status).toBe(403);
     expect(fetchThread).toHaveBeenCalledOnce();
   });

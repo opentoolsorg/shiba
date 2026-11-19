@@ -2845,6 +2845,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     isSubmitting ||
     clearing ||
     chat.isStreaming ||
+    chat.isRecovering ||
     chat.status === "streaming" ||
     chat.status === "submitted";
 
@@ -3818,7 +3819,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       {chat.messages.length === 0 ? <AgentChatEmptyState agent={chatAgent} /> : null}
                       {privateDataEnabled && chatAgentName && !busy && !chat.error &&
                         (chat.messages.length === 0 || chat.messages.at(-1)?.role === "assistant") ? (
-                        <ChatSuggestions agentName={chatAgentName} refreshKey={chat.messages.at(-1)?.id ?? "empty"} hidden={!composerVisible || task.trim() !== ""} onPick={pickSuggestion} />
+                        <ChatSuggestions agentName={chatAgentName} refreshKey={chat.messages.at(-1)?.id ?? "empty"} busy={busy} hidden={!composerVisible || task.trim() !== ""} onPick={pickSuggestion} />
                       ) : null}
                       <AgentComposerShell
                         agentName={employeeName}
@@ -3830,7 +3831,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         onStop={() => { void chat.stop(); }}
                         onRetry={() => { void chat.regenerate(); }}
                         busy={isSubmitting || clearing || threadLinkPending}
-                        streaming={chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"}
+                        streaming={chat.isStreaming || chat.isRecovering || chat.status === "streaming" || chat.status === "submitted"}
                         failed={Boolean(chat.error)}
                       />
                     </div>
