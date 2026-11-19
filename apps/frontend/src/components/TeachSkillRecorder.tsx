@@ -90,9 +90,9 @@ export function TeachSkillRecorder() {
             <button type="button" className={BUTTON} disabled={session.steps.length === 0} onClick={stop}>Stop and propose draft</button>
             <button type="button" className={BUTTON} onClick={() => setSession({ phase: "idle", notice: "Recording discarded." })}>Cancel recording</button>
           </div>
-          <div className="grid min-w-0 grid-cols-1 gap-2 border-t border-[var(--line)] pt-3 sm:grid-cols-2" role="group" aria-label="Practice actions">
+          <fieldset className="grid min-w-0 grid-cols-1 gap-2 border-t border-[var(--line)] pt-3 sm:grid-cols-2" aria-label="Practice actions">
             {STEP_NAMES.map((step) => <button key={step} type="button" className={`${BUTTON} text-left`} disabled={session.steps.length >= MAX_STEPS} onClick={() => record(step)}>{step}</button>)}
-          </div>
+          </fieldset>
           <p aria-live="polite" className="text-xs leading-relaxed text-[var(--ink-2)]">{lastStep ? STEPS[lastStep][0] : "Choose a practice action to begin. No real requests are opened or sent."}</p>
         </>
       )}
