@@ -64,6 +64,13 @@ export function readToolSetup(env: Env): ToolSetupRow[] {
     { id: "web_search", label: "Web search", ready: webSearchConfigured(env), env: "WEB_SEARCH_API_KEY" },
     { id: "generate_image", label: "Image generation", ready: imageMissing.length === 0, env: imageMissing.join("; ") || "AI; FILES or ARTIFACTS" },
     { id: "browser", label: "Browser", ready: Boolean(env.BROWSER), env: "BROWSER" },
-    { id: "knowledge_search", label: "Knowledge search", ready: Boolean(env.AGENT_AUDIT && env.AI && env.MEMORY_VECTORS), env: "AGENT_AUDIT; AI; MEMORY_VECTORS" },
+    // Keyword search needs only the database; semantic ranking is an optional
+    // upgrade, so the label says so rather than reporting the tool unavailable.
+    {
+      id: "knowledge_search",
+      label: env.AI && env.MEMORY_VECTORS ? "Knowledge search" : "Knowledge search (keyword only)",
+      ready: Boolean(env.AGENT_AUDIT),
+      env: "AGENT_AUDIT",
+    },
   ];
 }
