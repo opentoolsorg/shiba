@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shiba draft</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <h1>Shiba draft</h1>
+      <p class="notice" id="notice" hidden></p>
+      <p class="page" id="page" hidden></p>
+      <label class="field" id="draft-field" hidden>
+        <span>Draft</span>
+        <textarea id="draft" rows="5" maxlength="4000" spellcheck="false"></textarea>
+      </label>
+      <button class="primary" id="open" type="button" hidden>Open draft in Shiba</button>
+      <footer>
+        <span class="destination" id="destination"></span>
+        <button class="link" id="options" type="button">Change destination</button>
+      </footer>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

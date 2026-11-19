@@ -1,0 +1,156 @@
+:root {
+  color-scheme: light dark;
+  --panel-bg: #ffffff;
+  --panel-ink: #14181f;
+  --panel-muted: #5b6573;
+  --panel-line: #d8dde4;
+  --panel-accent: #1f6feb;
+  --panel-error: #b3261e;
+  --panel-ok: #1a6b3c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --panel-bg: #14181f;
+    --panel-ink: #eef1f5;
+    --panel-muted: #9aa4b2;
+    --panel-line: #2b323c;
+    --panel-accent: #63a0ff;
+    --panel-error: #ff8b82;
+    --panel-ok: #63d29a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--panel-bg);
+  color: var(--panel-ink);
+  font:
+    13px / 1.5 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+.panel {
+  width: 340px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panel.wide {
+  width: auto;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.notice {
+  margin: 0;
+  color: var(--panel-muted);
+}
+
+.notice[data-tone="error"] {
+  color: var(--panel-error);
+}
+
+.notice[data-tone="ok"] {
+  color: var(--panel-ok);
+}
+
+.page {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--panel-line);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.hint {
+  margin: 0;
+  color: var(--panel-muted);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field > span {
+  color: var(--panel-muted);
+  font-size: 12px;
+}
+
+textarea,
+input {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--panel-line);
+  border-radius: 6px;
+  background: var(--panel-bg);
+  color: var(--panel-ink);
+  font: inherit;
+  resize: vertical;
+}
+
+button {
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--panel-line);
+  background: transparent;
+  color: var(--panel-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+button.primary {
+  border-color: var(--panel-accent);
+  background: var(--panel-accent);
+  color: #ffffff;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+button.link {
+  padding: 0;
+  border: 0;
+  color: var(--panel-accent);
+  text-align: left;
+}
+
+footer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid var(--panel-line);
+  padding-top: 8px;
+}
+
+.destination {
+  color: var(--panel-muted);
+  overflow-wrap: anywhere;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}

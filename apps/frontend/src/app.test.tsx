@@ -245,7 +245,7 @@ describe("app Work and Threads routing", () => {
     window.history.replaceState(null, "", "/app/?prompt=STRICT_PROMPT_FIXTURE");
     render(<StrictMode><App /></StrictMode>);
     const draft = await screen.findByRole("textbox", { name: "Task draft" });
-    expect((draft as HTMLTextAreaElement).value).toBe("STRICT_PROMPT_FIXTURE");
+    await waitFor(() => expect((draft as HTMLTextAreaElement).value).toBe("STRICT_PROMPT_FIXTURE"));
     expect(window.location.pathname).toBe("/threads/");
     expect(new URLSearchParams(window.location.search).has("prompt")).toBe(false);
   });
@@ -1316,6 +1316,40 @@ describe("bot thread links", () => {
     render(<App />);
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
     expect(window.history.length).toBe(before);
+  });
+
+  it("lands a ?prompt= handoff in the remembered thread's visible composer without sending", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem("shiba:selected-session", RESEARCH_THREAD);
+    writeDraft(composerDraftScope("test-operator", "default"), "Default thread draft");
+    window.history.replaceState(null, "", "/threads/?prompt=https%3A%2F%2Fexample.com%2Fdocs");
+    mocks.chat.messages = [];
+    mocks.chat.sendMessage.mockClear();
+    stubThreads();
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("https://example.com/docs"));
+    expect(new URLSearchParams(window.location.search).has("prompt")).toBe(false);
+    expect(readDraft(composerDraftScope("test-operator", RESEARCH_THREAD))).toBe("https://example.com/docs");
+    expect(readDraft(composerDraftScope("test-operator", "default"))).toBe("Default thread draft");
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch).mock.calls.some(([url, options]) => options?.method === "POST" && /^\/api\/(?:runs|sessions|approvals)/.test(String(url)))).toBe(false);
+  });
+
+  it("adds a ?prompt= handoff below the remembered thread's unsent draft instead of replacing it", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem("shiba:selected-session", RESEARCH_THREAD);
+    writeDraft(composerDraftScope("test-operator", RESEARCH_THREAD), "Unsent research notes");
+    window.history.replaceState(null, "", "/threads/?prompt=https%3A%2F%2Fexample.com%2Fdocs");
+    mocks.chat.messages = [];
+    mocks.chat.sendMessage.mockClear();
+    stubThreads();
+    render(<App />);
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Unsent research notes\n\nhttps://example.com/docs"));
+    expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD);
+    expect(readDraft(composerDraftScope("test-operator", RESEARCH_THREAD))).toBe("Unsent research notes\n\nhttps://example.com/docs");
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch).mock.calls.some(([url, options]) => options?.method === "POST" && /^\/api\/(?:runs|sessions|approvals)/.test(String(url)))).toBe(false);
   });
 
   it("replaces a dead thread link instead of leaving it in history", async () => {

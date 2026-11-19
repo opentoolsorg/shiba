@@ -557,6 +557,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [runTarget, harness, customAgentId, executionTargetKind]);
   const [sessionApiAvailable, setSessionApiAvailable] = useState(false);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  // Whose session list last settled: a ?prompt= handoff waits for this identity's.
+  const [sessionsSettledFor, setSessionsSettledFor] = useState<string | null>(null);
   // The link is unconfirmed until the registry answers, so nothing may be sent yet.
   const threadLinkPending = pendingThreadLink !== null;
   const [webSessions, setWebSessions] = useState<WebThread[]>([]);
@@ -962,18 +964,26 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     if (pending) writeDraft(pending.scope, pending.text, pending.onboardingDraft, pending.ownerId);
   }, []);
   useEffect(() => {
+    // A ?prompt= handoff waits for the session list: a remembered or linked
+    // thread decides which composer it lands in.
+    if (composerScope && initialComposerPrompt.current && sessionsSettledFor !== orchestratorName) return;
     if (draftScope.current !== composerScope) {
       flushDraft(); // the old scope's unwritten keystrokes land before switching
-      const keepCurrentTask = draftScope.current === null && composerScope !== null && task !== "";
+      const handoff = composerScope ? initialComposerPrompt.current : "";
+      const keepCurrentTask = !handoff && draftScope.current === null && composerScope !== null && task !== "";
       draftScope.current = composerScope;
       setRestoredComposerScope(composerScope);
       const quick = quickDraft.current?.scope === composerScope ? quickDraft.current : null;
-      const restored = quick ? quick.text : keepCurrentTask ? task : composerScope ? readDraft(composerScope) || initialComposerPrompt.current : "";
+      const saved = composerScope ? readDraft(composerScope) : "";
+      // The handoff joins an unsent draft below it instead of replacing it.
+      const withHandoff = saved.trim() && saved !== handoff ? `${saved}\n\n${handoff}` : handoff;
+      const restored = quick ? quick.text : handoff ? withHandoff : keepCurrentTask ? task : saved;
       quickDraft.current = null;
       if (composerScope) initialComposerPrompt.current = "";
       selectedOnboardingTaskText.current = restored;
       setTask(restored);
-      setSelectedOnboardingDraftRef(composerScope && !keepCurrentTask ? readDraftReference(composerScope) : null);
+      if (composerScope && handoff) writeDraft(composerScope, restored, null, orchestratorName ?? "");
+      setSelectedOnboardingDraftRef(composerScope && !keepCurrentTask && !handoff ? readDraftReference(composerScope) : null);
       return;
     }
     if (!composerScope) return;
@@ -985,7 +995,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     if (!task.trim()) return flushDraft();
     const timer = window.setTimeout(flushDraft, 300);
     return () => window.clearTimeout(timer);
-  }, [composerScope, task, selectedOnboardingDraftRef, flushDraft]);
+  }, [composerScope, sessionsSettledFor, task, selectedOnboardingDraftRef, flushDraft]);
   // A failed submit restores its text only into the session it came from.
   const restoreDraft = useCallback((scope: string, text: string, reference?: OnboardingDraftRef | null) => {
     if (draftScope.current === scope) {
@@ -1464,6 +1474,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       .finally(() => {
         if (!cancelled) {
           setSessionsLoaded(true);
+          setSessionsSettledFor(orchestratorName);
           setPendingThreadLink(null);
         }
       });

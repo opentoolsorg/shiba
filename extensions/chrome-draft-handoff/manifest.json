@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Shiba draft handoff",
+  "version": "0.1.0",
+  "description": "Open the page you are reading in a Shiba chat draft. Nothing leaves the browser until you click.",
+  "action": {
+    "default_title": "Shiba draft handoff",
+    "default_popup": "popup.html"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "permissions": ["activeTab", "storage"],
+  "minimum_chrome_version": "116"
+}
