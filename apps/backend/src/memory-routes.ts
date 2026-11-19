@@ -11,8 +11,8 @@ import { readMemoryUpload } from "./owner-memory-ingestion.js";
 import { InputError } from "./security.js";
 
 const MEMORY_DO_BASE = "https://internal/internal/memory";
-/** Imported briefs and JSON sources are bounded before the DO ever sees them. */
-const MAX_MEMORY_JSON_BYTES = 64_000;
+/** A pasted brief is small; bound it before the body is buffered. */
+const MAX_CONTEXT_IMPORT_BYTES = 64_000;
 
 export async function handleMemory(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
@@ -64,13 +64,19 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
     } else if (request.method === "POST" || request.method === "PATCH") {
       // Bound at the edge: a JSON source or imported brief is small, and the
       // DO's own byte check only sees the body after it has been buffered.
-      const declared = request.headers.get("content-length");
-      if (declared !== null && /^\d+$/.test(declared) && Number(declared) > MAX_MEMORY_JSON_BYTES) {
-        return Response.json({ error: "This request is too large. Imported context must be at most 40000 bytes." }, { status: 413 });
-      }
-      init.body = await request.text();
-      if (init.body.length > MAX_MEMORY_JSON_BYTES) {
-        return Response.json({ error: "This request is too large. Imported context must be at most 40000 bytes." }, { status: 413 });
+      // Only the import path is capped here: a notes or JSON source write keeps
+      // the DO's own 40,000-byte check, which counts characters, not bytes.
+      if (pathname === "/api/memory/sources/import") {
+        const declared = request.headers.get("content-length");
+        if (declared !== null && /^\d+$/.test(declared) && Number(declared) > MAX_CONTEXT_IMPORT_BYTES) {
+          return Response.json({ error: "This request is too large. Imported context must be at most 40000 bytes." }, { status: 413 });
+        }
+        init.body = await request.text();
+        if (init.body.length > MAX_CONTEXT_IMPORT_BYTES) {
+          return Response.json({ error: "This request is too large. Imported context must be at most 40000 bytes." }, { status: 413 });
+        }
+      } else {
+        init.body = await request.text();
       }
     }
     const response = await stub.fetch(target, init);
