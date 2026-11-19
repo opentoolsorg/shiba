@@ -1,9 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { Env } from "../src/env.js";
 import { createToolRegistry } from "../src/mcp-gateway.js";
 import { registerAgentMediaMcpTools } from "../src/tools/register-mcp.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+
+const DAY_ONE = Date.parse("2026-11-19T10:00:00Z");
+const DAY_TWO = Date.parse("2026-11-20T00:05:00Z");
 
 function fixture() {
   const { database } = customAgentD1();
@@ -19,18 +22,33 @@ function fixture() {
 }
 
 describe("MCP web_search budget key", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
   it("does not publish a caller-controlled budget key", () => {
     const f = fixture();
     expect(Object.keys(f.tool.meta.inputSchema ?? {})).toEqual(["query", "maxResults", "domains", "recency", "country"]);
     vi.unstubAllGlobals();
   });
 
-  it("keys usage by the calling principal, so argument runIds cannot reset it", async () => {
+  it("keys usage by the calling principal and UTC day, so argument runIds cannot reset it", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(DAY_ONE);
     const f = fixture();
     await f.call({ query: "one", runId: "fresh-key-1" });
     await f.call({ query: "two", runId: "fresh-key-2" });
     const rows = await f.database.prepare("SELECT run_id, call_count FROM agent_tool_usage").all<{ run_id: string; call_count: number }>();
-    expect(rows.results).toEqual([{ run_id: "api:ada@example.test", call_count: 2 }]);
+    expect(rows.results).toEqual([{ run_id: "api:ada@example.test:2026-11-19", call_count: 2 }]);
+    vi.unstubAllGlobals();
+  });
+
+  it("refills on the next UTC day rather than staying spent for ever", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(DAY_ONE);
+    const f = fixture();
+    await f.call({ query: ["a", "b", "c", "d", "e"] });
+    await f.call({ query: ["f", "g", "h", "i", "j"] });
+    vi.setSystemTime(DAY_TWO);
+    const refilled = await f.call({ query: "k", runId: "attempted-reset" });
+    expect(JSON.parse(String((refilled.content[0] as { text: string }).text))).toMatchObject({ ok: true });
     vi.unstubAllGlobals();
   });
 

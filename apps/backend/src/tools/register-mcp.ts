@@ -36,9 +36,11 @@ export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): vo
       if (!input.success) return jsonResult({ ok: false, error: input.error.issues[0]?.message ?? "Invalid web search input." });
       // The budget key never comes from tool arguments: a caller could otherwise
       // pass a fresh value per call and spend the operator's search key without limit.
+      // A UTC day is the window, so a long-lived API caller's cap refills on its own.
+      const utcDay = new Date().toISOString().slice(0, 10);
       const budget = await incrementToolUsage(env, {
         orgId,
-        runId: `api:${ctx.principal.principal}`,
+        runId: `api:${ctx.principal.principal}:${utcDay}`,
         toolName: "web_search",
         budgetLimit: DEFAULT_WEB_SEARCH_BUDGET,
         calls: webSearchQueries(input.data).length,
