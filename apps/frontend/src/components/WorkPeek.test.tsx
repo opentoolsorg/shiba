@@ -372,3 +372,25 @@ describe("Work inspector", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 });
+
+describe("WorkPeek diff states", () => {
+  const task = { id: "run-x", kind: "run" as const, title: "Diff states", repo: "", group: "done" as const, stateLabel: "Done", updatedAt: 1 };
+  const base = { runId: "run-x", task: "Diff states", status: "completed", repoUrl: "", sandboxId: "sb", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2 } as RetainedRun;
+  const peek = (props: Partial<Parameters<typeof WorkPeek>[0]>) => render(<WorkPeek task={task} tab="diff" onTabChange={() => {}} onClose={() => {}} {...props} />);
+  it("never presents an unloaded payload as a missing diff", () => {
+    peek({ run: { ...base, hasDiff: true }, diffReady: false });
+    expect(screen.getByText("Loading the retained diff…")).toBeTruthy();
+  });
+  it("says when a loaded run changed no files", () => {
+    peek({ run: { ...base, hasDiff: false } });
+    expect(screen.getByText("This run finished without changing any files.")).toBeTruthy();
+  });
+  it("says when no run is linked", () => {
+    peek({ task: { ...task, kind: "approval" } });
+    expect(screen.getByText(/No run is linked to this item/)).toBeTruthy();
+  });
+  it("renders the exact captured patch", () => {
+    peek({ run: { ...base, diff: "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-old\n+EXACT_CAPTURED_LINE\n" } });
+    expect(screen.getAllByText(/EXACT_CAPTURED_LINE/).length).toBeGreaterThan(0);
+  });
+});

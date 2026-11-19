@@ -1440,3 +1440,62 @@ describe("bot thread links", () => {
     await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
   });
 });
+
+describe("Work approval receipts survive refresh and Back", () => {
+  const run = (runId: string, approvalId: string, summary: string) => ({ runId, task: "SAME_TEXT_TASK", status: "completed", repoUrl: "", sandboxId: "fixture-sandbox", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2, summary, approval: { approvalId } });
+  const decided = (approvalId: string, status: "approved" | "rejected", task: string) => ({ approvalId, threadKey: "fixture-thread", task, repoUrl: "", createdAt: 1, decidedAt: 2, kind: "run", status });
+  function stub(body: { runs?: unknown[]; approvals?: unknown[]; decided?: unknown[] }) {
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/approvals" && !options?.method) return Response.json({ approvals: body.approvals ?? [], decided: body.decided ?? [] });
+      if (path.startsWith("/api/runs") && !options?.method) return Response.json({ runs: body.runs ?? [] });
+      return originalFetch(url, options);
+    }));
+  }
+  const posted = () => vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "POST" && (options.body ? String(options.body).includes("approvalId") : false));
+
+  it("restores an approval receipt to its exact linked run with a replaced entry and no decision POST", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=gate-a&taskKind=approval&tab=approval");
+    const entries = window.history.length;
+    stub({ runs: [run("decoy-run", "gate-b", "DECOY_OUTPUT"), run("linked-run", "gate-a", "LINKED_OUTPUT")], decided: [decided("gate-a", "approved", "SAME_TEXT_TASK")] });
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("task")).toBe("linked-run"));
+    expect(new URLSearchParams(window.location.search).get("taskKind")).toBe("run");
+    expect(window.location.pathname).toBe("/work/");
+    expect(window.history.length).toBe(entries);
+    const inspector = await screen.findByRole("dialog", { name: "Work inspector: SAME_TEXT_TASK" });
+    fireEvent.click(within(inspector).getByRole("tab", { name: "Output" }));
+    expect(await screen.findByText("LINKED_OUTPUT")).toBeTruthy();
+    expect(screen.queryByText("DECOY_OUTPUT")).toBeNull();
+    expect(posted()).toHaveLength(0);
+  });
+
+  it("keeps a decided approval without a run open on its server-recorded outcome", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=gate-c&taskKind=approval&tab=approval");
+    stub({ decided: [decided("gate-c", "rejected", "REJECTED_RECEIPT")] });
+    render(<App />);
+    const inspector = await screen.findByRole("dialog", { name: "Work inspector: REJECTED_RECEIPT" });
+    expect(within(inspector).getAllByText("Rejected").length).toBeGreaterThan(1);
+    expect(within(inspector).queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(within(inspector).queryByText(/sandbox starting/)).toBeNull();
+    expect(new URLSearchParams(window.location.search).get("task")).toBe("gate-c");
+    expect(posted()).toHaveLength(0);
+  });
+
+  it("replaces an unknown receipt link without leaking a title or adding history", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=ghost-gate&taskKind=approval&tab=approval");
+    const entries = window.history.length;
+    stub({ runs: [run("other-run", "other-gate", "OTHER_OUTPUT")] });
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("task")).toBe(false));
+    expect(new URLSearchParams(window.location.search).get("view")).toBe("board");
+    expect(window.history.length).toBe(entries);
+    expect(await screen.findByText(/That item isn't available in this workspace/)).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(posted()).toHaveLength(0);
+  });
+});

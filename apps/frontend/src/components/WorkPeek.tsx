@@ -8,7 +8,7 @@ import { DiffViewer } from "./DiffViewer";
 import { RunDeliverables } from "./RunDeliverables";
 import { RunLivePanel } from "./RunLivePanel";
 import { WorkDetailModal } from "./WorkDetailModal";
-import { StoredApprovalCard } from "./WorkspacePanel";
+import { DecidedApprovalRow, StoredApprovalCard } from "./WorkspacePanel";
 import type { WorkTask } from "./WorkView";
 
 export interface WorkPeekProps {
@@ -25,6 +25,8 @@ export interface WorkPeekProps {
   sessionId?: string;
   notice?: ReactNode;
   decisions?: Record<string, boolean>;
+  /** False while the runs owner is still fetching full payloads; a summary is not a missing diff. */
+  diffReady?: boolean;
   onDecideApproval?: (id: string, approved: boolean) => void;
   onDecideStoredApproval?: (approval: StoredApproval, approved: boolean, claimAction?: "queue" | "new_branch" | "cancel") => void;
   claimConflict?: { actorId: string; branch: string; repo: string; runId: string } | null;
@@ -53,17 +55,28 @@ export function WorkPeek(props: WorkPeekProps) {
     onOpenFull,
     onReviewApproval,
     decisions = {},
+    diffReady = true,
   } = props;
   const id = useId();
   const diff = run ? (extractCompletedDiff(run) ?? run.diff) : undefined;
   const decision = decisions[task.id];
+  // Restored after a refresh, a decided receipt has no local decision: show only
+  // what the server recorded (decision and execution status), never a live card.
+  const serverDecided = storedApproval && storedApproval.status !== "pending" && decision === undefined;
   const custom = props.renderContent?.(task, tab);
   const approval = storedApproval ?? pendingApproval;
   const frozen = storedApproval?.payload ?? pendingApproval?.input;
   const content =
     custom ??
     (tab === "approval" ? (
-      storedApproval && props.onDecideStoredApproval ? (
+      serverDecided ? (
+        <div className="flex flex-col gap-3">
+          <DecidedApprovalRow approval={storedApproval} />
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words border border-[var(--border-1)] p-3 font-mono text-xs">
+            {JSON.stringify(storedApproval.payload ?? { repoUrl: storedApproval.repoUrl, task: storedApproval.task }, null, 2)}
+          </pre>
+        </div>
+      ) : storedApproval && props.onDecideStoredApproval ? (
         <StoredApprovalCard
           approval={storedApproval}
           decided={decision !== undefined || storedApproval.status !== "pending"}
@@ -101,12 +114,17 @@ export function WorkPeek(props: WorkPeekProps) {
     ) : tab === "diff" ? (
       diff ? (
         <DiffViewer diff={diff} />
-      ) : (
-        <p>
-          {run?.hasDiff
-            ? "A diff is retained. Open the full thread to load its details."
-            : "No diff is loaded for this item. Open the full thread to inspect available changes."}
+      ) : !run ? (
+        <p role="status">No run is linked to this item, so no diff was captured for it.</p>
+      ) : !diffReady ? (
+        <p role="status">Loading the retained diff…</p>
+      ) : run.hasDiff ? (
+        <p role="status">
+          A diff is retained for this run, but its patch is not in the loaded payload. Open the
+          full thread to inspect it.
         </p>
+      ) : (
+        <p role="status">This run finished without changing any files.</p>
       )
     ) : tab === "output" ? (
       run ? (
