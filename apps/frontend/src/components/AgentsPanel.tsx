@@ -257,6 +257,7 @@ export function AgentsPanel({
                       id={isDefault ? DEFAULT_AGENT_ID : row.id}
                       name={row.name}
                       mascotPreset={row.agent?.config.mascotPreset}
+                      avatar={row.agent?.config.avatar}
                       look={row.agent?.config.look}
                       role={
                         row.agent

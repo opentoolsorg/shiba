@@ -22,6 +22,24 @@ export const CUSTOM_AGENT_ROLE_TEMPLATE_IDS = [
 export type CustomAgentRoleTemplateId = (typeof CUSTOM_AGENT_ROLE_TEMPLATE_IDS)[number];
 
 import type { AgentMascotLook, CustomAgentMascotPreset } from "./agent-mascot.js";
+import type { AgentAvatarChoice } from "./agent-avatar.js";
+
+export {
+  AGENT_AVATAR_COATS,
+  AGENT_AVATAR_FILE_ID,
+  AGENT_AVATAR_VARIANTS,
+  avatarCoat,
+  avatarLook,
+  avatarVariant,
+  normalizeAgentAvatar,
+  shuffledAvatar,
+  type AgentAvatarChoice,
+  type AgentAvatarCoat,
+  type AgentAvatarUploadChoice,
+  type AgentAvatarVariant,
+  type AgentAvatarVariantChoice,
+  type AgentAvatarVariantId,
+} from "./agent-avatar.js";
 
 export {
   AGENT_MASCOT_ACCS,
@@ -60,6 +78,11 @@ export interface CustomAgentConfig {
   /** The chosen editable role template, retained when the bot is renamed. */
   roleTemplateId?: CustomAgentRoleTemplateId;
   instructions: string;
+  /**
+   * A chosen avatar: a gallery variant at a brand coat, or an uploaded portrait
+   * by file id. Absent means the role mark the bot is seeded with still applies.
+   */
+  avatar?: AgentAvatarChoice;
   /** Optional workspace outputs frozen into each approval. */
   expectedDeliverables?: readonly string[];
   harness: string;
