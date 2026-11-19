@@ -232,4 +232,12 @@ describe("ProvidersView sign-in", () => {
     expect(nav.textContent).toContain("Extensions");
     expect(nav.textContent).toContain("Providers");
   });
+
+  it("shows the retry state instead of crashing when the provider body has no list", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? { org: "self-hosted" } : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));
+    render(<ProvidersView />);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Provider status returned an invalid response.");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
 });
