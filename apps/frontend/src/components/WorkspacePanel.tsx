@@ -85,7 +85,7 @@ export function StoredApprovalCard({
       ...(approval.outputArchive !== undefined ? { outputArchive: approval.outputArchive } : {}),
     } satisfies Record<string, unknown>);
   return (
-    <div tabIndex={-1} data-approval-id={approval.approvalId} aria-label={`${storedApprovalKind(approval)} approval`} className="bg-[var(--bg)] p-4 outline-none">
+    <section tabIndex={-1} data-approval-id={approval.approvalId} aria-label={`${storedApprovalKind(approval)} approval`} className="bg-[var(--bg)] p-4 outline-none">
       <p role="status" className="mb-3 text-xs text-[var(--muted-foreground-2)]">
         {decided && decision !== undefined
           ? decision
@@ -178,7 +178,7 @@ export function StoredApprovalCard({
           {decided && decision === false ? "Rejected" : "Reject"}
         </button>
       </div>
-    </div>
+    </section>
   );
 }
 
