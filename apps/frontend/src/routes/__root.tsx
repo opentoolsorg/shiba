@@ -27,9 +27,9 @@ export const Route = createRootRoute({
         content: "Hire AI employees you own. Approve every move. Shiba runs on your own servers, on Cloudflare or any server you choose.",
       },
       { property: "og:type", content: "website" },
-      { property: "og:image", content: "/assets/mascot/pet-logo.png" },
+      { property: "og:image", content: "/app/icon-512.png" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:image", content: "/assets/mascot/pet-logo.png" },
+      { name: "twitter:image", content: "/app/icon-512.png" },
       { title: "Shiba · Hire AI employees you own" },
     ],
     links: [

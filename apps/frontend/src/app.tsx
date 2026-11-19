@@ -3517,11 +3517,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     </Tooltip>
 
                     <Tooltip content="Shiba Coding Agent" side="bottom">
-                      <img
-                        src="/assets/mascot/pet-logo.png"
-                        alt="Shiba"
-                        className="w-6 h-6 rounded-full bg-white object-contain border border-[var(--primary)]/40 shrink-0 cursor-default"
-                      />
+                      <span className="shrink-0 cursor-default">
+                        <ShibaMark className="size-6" decorative />
+                      </span>
                     </Tooltip>
 <ConversationWorkspaceHeading
                       title={appToolsWork && conversationMode === "work" ? activeWebSession?.name ?? "New app task" : liveSession ? liveSession.title : "New coding task"}
