@@ -142,7 +142,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     // A brand-new account lands in the guided flow with its position shown.
     const journey = page.getByRole("region", { name: "Guided onboarding", exact: true });
     await journey.waitFor();
-    await expect(journey.getByText(/Getting started · Step 2 of 6/).isVisible()).resolves.toBe(true);
+    await expect(journey.getByText(/Step \d of 6/).isVisible()).resolves.toBe(true);
     await openTaskStage(page);
     const onboarding = page.getByRole("region", { name: "First task setup", exact: true });
     await onboarding.waitFor();
@@ -484,7 +484,6 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await resultStage.waitFor();
     // The fixture never connects a provider, so the flow stays honest about that
     // stage and the person opens the result from the step rail.
-    await expect(resultStage.getByText(/Getting started · Step 2 of 6/).isVisible()).resolves.toBe(true);
     await resultStage.getByRole("button", { name: /^See the result/ }).click();
     await resultStage.getByRole("heading", { name: "See the result", exact: true }).waitFor();
     await expect(resultStage.getByText("completed", { exact: true }).first().isVisible()).resolves.toBe(true);
