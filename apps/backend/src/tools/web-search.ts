@@ -79,16 +79,49 @@ export function splitDomains(domains: readonly string[] | undefined): { include:
 
 const RECENCY_DAYS = { day: 1, week: 7, month: 31, year: 366 } as const;
 
-/** Tavily boosts by country name ("united states"), not by an ISO code. */
+/**
+ * Tavily boosts by country name, from a published list whose spellings differ
+ * from ICU's ("turkey" not "türkiye", "czech republic" not "czechia"), and it
+ * rejects anything outside it. Map ISO 3166-1 alpha-2 through this table and
+ * omit the parameter for any code it does not cover.
+ */
+const TAVILY_COUNTRIES: Record<string, string> = {
+  af: "afghanistan", al: "albania", dz: "algeria", ad: "andorra", ao: "angola", ar: "argentina",
+  am: "armenia", au: "australia", at: "austria", az: "azerbaijan", bs: "bahamas", bh: "bahrain",
+  bd: "bangladesh", bb: "barbados", by: "belarus", be: "belgium", bz: "belize", bj: "benin",
+  bt: "bhutan", bo: "bolivia", ba: "bosnia and herzegovina", bw: "botswana", br: "brazil",
+  bn: "brunei", bg: "bulgaria", bf: "burkina faso", bi: "burundi", kh: "cambodia", cm: "cameroon",
+  ca: "canada", cv: "cape verde", cf: "central african republic", td: "chad", cl: "chile",
+  cn: "china", co: "colombia", km: "comoros", cg: "congo", cr: "costa rica", hr: "croatia",
+  cu: "cuba", cy: "cyprus", cz: "czech republic", dk: "denmark", dj: "djibouti",
+  do: "dominican republic", ec: "ecuador", eg: "egypt", sv: "el salvador",
+  gq: "equatorial guinea", er: "eritrea", ee: "estonia", et: "ethiopia", fj: "fiji",
+  fi: "finland", fr: "france", ga: "gabon", gm: "gambia", ge: "georgia", de: "germany",
+  gh: "ghana", gr: "greece", gt: "guatemala", gn: "guinea", ht: "haiti", hn: "honduras",
+  hu: "hungary", is: "iceland", in: "india", id: "indonesia", ir: "iran", iq: "iraq",
+  ie: "ireland", il: "israel", it: "italy", jm: "jamaica", jp: "japan", jo: "jordan",
+  kz: "kazakhstan", ke: "kenya", kw: "kuwait", kg: "kyrgyzstan", la: "laos", lv: "latvia",
+  lb: "lebanon", ls: "lesotho", lr: "liberia", ly: "libya", li: "liechtenstein",
+  lt: "lithuania", lu: "luxembourg", mg: "madagascar", mw: "malawi", my: "malaysia",
+  mv: "maldives", ml: "mali", mt: "malta", mr: "mauritania", mu: "mauritius", mx: "mexico",
+  md: "moldova", mc: "monaco", mn: "mongolia", me: "montenegro", ma: "morocco",
+  mz: "mozambique", mm: "myanmar", na: "namibia", np: "nepal", nl: "netherlands",
+  nz: "new zealand", ni: "nicaragua", ne: "niger", ng: "nigeria", kp: "north korea",
+  mk: "north macedonia", no: "norway", om: "oman", pk: "pakistan", pa: "panama",
+  pg: "papua new guinea", py: "paraguay", pe: "peru", ph: "philippines", pl: "poland",
+  pt: "portugal", qa: "qatar", ro: "romania", ru: "russia", rw: "rwanda",
+  sa: "saudi arabia", sn: "senegal", rs: "serbia", sg: "singapore", sk: "slovakia",
+  si: "slovenia", so: "somalia", za: "south africa", kr: "south korea", ss: "south sudan",
+  es: "spain", lk: "sri lanka", sd: "sudan", se: "sweden", ch: "switzerland", sy: "syria",
+  tw: "taiwan", tj: "tajikistan", tz: "tanzania", th: "thailand", tg: "togo",
+  tt: "trinidad and tobago", tn: "tunisia", tr: "turkey", tm: "turkmenistan", ug: "uganda",
+  ua: "ukraine", ae: "united arab emirates", gb: "united kingdom", us: "united states",
+  uy: "uruguay", uz: "uzbekistan", ve: "venezuela", vn: "vietnam", ye: "yemen",
+  zm: "zambia", zw: "zimbabwe",
+};
+
 export function tavilyCountryName(code: string | undefined): string | undefined {
-  if (!code || !/^[a-z]{2}$/i.test(code)) return undefined;
-  try {
-    const name = new Intl.DisplayNames(["en"], { type: "region" }).of(code.toUpperCase());
-    // ICU answers "Unknown Region" for an unassigned code instead of failing.
-    return name && name !== "Unknown Region" ? name.toLowerCase() : undefined;
-  } catch {
-    return undefined;
-  }
+  return code ? TAVILY_COUNTRIES[code.toLowerCase()] : undefined;
 }
 
 function hostMatches(url: string, domains: readonly string[]): boolean {
