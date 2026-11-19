@@ -1473,7 +1473,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return typeof id === "string" && id.trim() ? id.trim() : null;
   }
 
-  /** The authenticated workspace scope pinned by the dashboard composer. */
   /** One paid-lookup budget window per Chat message, so a busy thread cannot lock itself out. */
   private chatBudgetKey(): string {
     const messages = this.messages ?? [];
@@ -1483,6 +1482,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return `${this.name ?? "chat-session"}:turn:${id}`;
   }
 
+  /** The authenticated workspace scope pinned by the dashboard composer. */
   private employeeToolOrgId(): string {
     return intakeOrgIdForOrchestrator(this.name, this.composerPin() as Record<string, unknown>);
   }
