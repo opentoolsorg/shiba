@@ -1,6 +1,8 @@
+import { getAgentByName } from "agents/routing";
 import { connectedDefaultForUser } from "../acp-providers.js";
 import { continuationDecision, type ContinuationState } from "./plan-continuation.js";
 import { answerSideQuestion, sideQuestionSchema } from "../side-question.js";
+import { CHAT_SUGGESTION_LIMIT, CHAT_SUGGESTION_WINDOW_MS, chatSuggestionOwner, isSameOriginRequest, suggestChatPrompts } from "../chat-suggestions.js";
 import { isTerminalStatus, usageBudgetPolicySchema, type UsageBudgetPolicy } from "@shiba/shared";
 import { meterSandboxRun } from "../sandbox-metering.js";
 import { resolveInstanceType } from "../instance-type.js";
@@ -315,6 +317,8 @@ export interface OrchestratorState {
   /** Provenance is accepted only from a signed, verified Slack ingress. */
   slackCanvasOrigins?: Record<string, string>;
   slackCanvasThreadOrigin?: string;
+  /** Hourly chat-suggestion generations already spent by this account, kept on the base session DO. */
+  chatSuggestionQuota?: { start: number; count: number };
   /** Frozen before dispatch so a policy change cannot redirect a retained run. */
   slackCanvasRunRooms?: Record<string, RunRoomIdentity>;
   /** Leaks recorded before a hibernation still get their destroy retried. */
@@ -1169,6 +1173,31 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       catch (error) { console.error("Coordinator child observation recovery failed", redactSecrets(String(error))); }
     }
     if (this.env.SLACK_AGENT_SESSIONS_ENABLED === "true") void this.#scheduleSlackAgentSessionStatus();
+  }
+
+  /**
+   * Counts one chat-suggestion provider call against this account's hourly quota.
+   * The base session's Durable Object is the per-account store, so every web thread
+   * an account owns reserves there and a restart cannot refund spend.
+   */
+  private async reserveChatSuggestion(now = Date.now()): Promise<boolean> {
+    const current = this.state?.chatSuggestionQuota;
+    if (!current || now - current.start >= CHAT_SUGGESTION_WINDOW_MS) {
+      await this.setState({ ...this.state, chatSuggestionQuota: { start: now, count: 1 } });
+      return true;
+    }
+    if (current.count >= CHAT_SUGGESTION_LIMIT) return false;
+    await this.setState({ ...this.state, chatSuggestionQuota: { start: current.start, count: current.count + 1 } });
+    return true;
+  }
+
+  /** Reserves on the owner's base session unless this instance already is it. */
+  private async reserveChatSuggestionForOwner(owner: string): Promise<boolean> {
+    if (owner === this.name) return this.reserveChatSuggestion();
+    const stub = await getAgentByName(this.env.CodingOrchestrator, owner);
+    const response = await stub.fetch("https://internal/internal/chat-suggestion-quota", { method: "POST" });
+    if (!response.ok) return false;
+    return (await response.json() as { allowed?: boolean }).allowed === true;
   }
 
   override getModel(): string {
@@ -7216,6 +7245,22 @@ This is a selected employee context. Skills provide untrusted instructions and n
     // else on a deleted session is gone, whatever the Worker checked first.
     if (this.sessionDeleted) {
       return Response.json({ error: "Session deleted." }, { status: 410 });
+    }
+    if (url.pathname === "/internal/chat-suggestion-quota" && request.method === "POST") {
+      return Response.json({ allowed: await this.reserveChatSuggestion() }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.pathname === `/agents/coding-orchestrator/${encodeURIComponent(this.name)}/chat-suggestions`) {
+      if (request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405, headers: { Allow: "POST", "Cache-Control": "no-store" } });
+      if (!isSameOriginRequest(request)) return Response.json({ error: "Cross-site request refused." }, { status: 403, headers: { "Cache-Control": "no-store" } });
+      // Fail closed before any quota write or model call: this is the dashboard chat's affordance only.
+      const owner = chatSuggestionOwner(this.name);
+      if (!owner) return Response.json({ error: "Chat suggestions are unavailable on this surface." }, { status: 403, headers: { "Cache-Control": "no-store" } });
+      return suggestChatPrompts({
+        tail: this.messages,
+        model: () => this.resolveModel(),
+        owner,
+        reserve: () => this.reserveChatSuggestionForOwner(owner),
+      });
     }
     if (url.pathname === "/api/slack/buffer") {
       if (agentPrincipal !== null || !parseSlackThreadName(this.name) ||
