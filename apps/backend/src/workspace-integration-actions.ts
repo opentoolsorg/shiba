@@ -83,12 +83,21 @@ export async function discoverWorkspaceActions(env: Env, member: WorkspaceNative
   }
   return { ok: true as const, workspaceId: member.workspaceId, connectionId, actions };
 }
-export async function previewWorkspaceAction(env: Env, member: WorkspaceNativeMember, connectionId: string, input: { employeeId: string; employeeVersion: number; actionId: string; arguments: Record<string, unknown> }, options: { resultAudience?: "requester-private" } = {}) {
+export async function previewWorkspaceAction(env: Env, member: WorkspaceNativeMember, connectionId: string, input: { employeeId: string; employeeVersion: number; actionId: string; arguments: Record<string, unknown> }, options: { resultAudience?: "requester-private"; requireConnected?: boolean } = {}) {
   await assertWorkspaceMemberCurrent(env, member);
   const current = await assertWorkspaceIntegrationGrant(env, { workspaceId: member.workspaceId, actorId: member.userId, employeeId: input.employeeId,
     employeeVersion: input.employeeVersion, connectionId, permission: "execute" });
   assertActionArgumentsAllowed(current.connection.provider_key, input.arguments, input.actionId);
-  const actions = await getIntegrationProvider(env).searchActions({ userId: member.userId, workspaceId: member.workspaceId, toolkitSlug: current.connection.provider_key, actionId: input.actionId, limit: 1 });
+  const provider = getIntegrationProvider(env);
+  if (options.requireConnected) {
+    const connections = await provider.listConnections({ userId: member.userId, workspaceId: member.workspaceId });
+    if (!connections.some((item) => item.id === current.connection.provider_connection_id && item.providerKey === current.connection.provider_key &&
+      item.authorizationFingerprint === current.connection.fingerprint && item.executionReady === true)) {
+      await currentBinding(env, captureBinding(current, ""));
+      throw new WorkspaceIntegrationError("workspace_action_connection_required");
+    }
+  }
+  const actions = await provider.searchActions({ userId: member.userId, workspaceId: member.workspaceId, toolkitSlug: current.connection.provider_key, actionId: input.actionId, limit: 1 });
   if (actions.length !== 1 || actions[0]!.service !== current.connection.provider_key || actions[0]!.id !== input.actionId) throw new WorkspaceIntegrationError("workspace_action_unavailable", 404);
   assertActionInputAllowed(actions[0]!, input.arguments);
   const binding = captureBinding(current, await hashToolArgs(actions[0]!.inputSchema ?? {}), options.resultAudience);
@@ -99,15 +108,18 @@ export async function previewWorkspaceAction(env: Env, member: WorkspaceNativeMe
 
 /** Trusted server options are never accepted by the public HTTP action schema. */
 export async function requestWorkspaceAction(env: Env, member: WorkspaceNativeMember, connectionId: string, input: { employeeId: string; employeeVersion: number; actionId: string; arguments: Record<string, unknown>; requestId: string }, options: {
-  expectedBindingDigest?: string; founderContext?: FounderConnectorActionContext; resultAudience?: "requester-private"; expiresAt?: number;
+  expectedBindingDigest?: string; founderContext?: FounderConnectorActionContext; resultAudience?: "requester-private"; expiresAt?: number; requireConnected?: boolean;
 } = {}) {
-  const preview = await previewWorkspaceAction(env, member, connectionId, input, options);
+  await ensureWorkspaceIntegrationSchema(env);
+  await assertWorkspaceMemberCurrent(env, member);
+  const previous = await env.AGENT_AUDIT.prepare("SELECT * FROM workspace_app_approvals WHERE workspace_id=? AND requester_id=? AND request_id=?")
+    .bind(member.workspaceId, member.userId, input.requestId).first<ActionRow>();
+  if (previous && previous.connection_id !== connectionId) throw new WorkspaceIntegrationError("workspace_action_request_conflict");
+  const preview = await previewWorkspaceAction(env, member, connectionId, input, { ...options, requireConnected: options.requireConnected === true && !previous });
   if (options.expectedBindingDigest && await hashToolArgs(preview.binding) !== options.expectedBindingDigest) throw new WorkspaceIntegrationError("workspace_action_context_changed", 403);
   const binding: ActionBinding = { ...preview.binding, ...(options.founderContext ? { founderContext: options.founderContext } : {}) };
   const inputHash = await hashToolArgs({ binding, actionId: input.actionId, arguments: input.arguments });
   if (options.founderContext && (options.founderContext.requestId !== input.requestId || options.resultAudience !== "requester-private" || !options.expiresAt || options.expiresAt > options.founderContext.expiresAt)) throw new WorkspaceIntegrationError("workspace_action_context_changed", 403);
-  const previous = await env.AGENT_AUDIT.prepare("SELECT * FROM workspace_app_approvals WHERE workspace_id=? AND requester_id=? AND request_id=?")
-    .bind(member.workspaceId, member.userId, input.requestId).first<ActionRow>();
   if (previous) {
     if (previous.input_hash !== inputHash) throw new WorkspaceIntegrationError("workspace_action_request_conflict");
     const context = await founderConnectorActionGuard(binding, previous.id), source = actionGuard(binding);

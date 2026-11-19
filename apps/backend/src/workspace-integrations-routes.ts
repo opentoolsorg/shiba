@@ -135,7 +135,7 @@ async function dispatch(request: Request, env: Env, member: WorkspaceNativeMembe
     if (operation === "actions/request" && request.method === "POST") {
       const input = await parse(request, action);
       if (new TextEncoder().encode(JSON.stringify(input.arguments)).length > 32_000) throw new WorkspaceIntegrationError("workspace_arguments_too_large", 413);
-      const approvalId = await requestWorkspaceAction(env, member, connectionId, input);
+      const approvalId = await requestWorkspaceAction(env, member, connectionId, input, { requireConnected: true });
       return json({ ok: true, workspaceId: member.workspaceId, approvalId }, 202);
     }
   }

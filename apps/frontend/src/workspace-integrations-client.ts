@@ -11,7 +11,7 @@ import { teamWorkspaceHeaders } from "./team-workspaces-client";
 
 const BASE = "/api/workspace-integrations";
 export class WorkspaceIntegrationRequestError extends Error {
-  constructor(public readonly status: number, code?: string) {
+  constructor(public readonly status: number, public readonly code?: string) {
     super(code === "workspace_native_session_required" ? "Workspace app sharing requires a verified email sign-in. This identity is not supported for shared app setup."
       : [401, 403, 404].includes(status)
       ? "Workspace access or permission changed. Refresh before continuing."
@@ -30,7 +30,7 @@ async function request<T extends { workspaceId: string }>(workspaceId: string, p
   });
   if (!response.ok) {
     const failure: unknown = await response.json().catch(() => null);
-    const code = failure && typeof failure === "object" && "error" in failure && failure.error === "workspace_native_session_required" ? failure.error : undefined;
+    const code = failure && typeof failure === "object" && "error" in failure && typeof failure.error === "string" ? failure.error : undefined;
     throw new WorkspaceIntegrationRequestError(response.status, code);
   }
   let parsed: T;

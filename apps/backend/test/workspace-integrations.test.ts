@@ -262,6 +262,41 @@ describe("workspace-shared connections with real route/SQLite and fixture siblin
     expect((await f.call(`/connections/${connection.id}/actions/request`, "POST", { ...input, arguments: { title: "Changed" } })).response.status).toBe(409);
     expect(f.effects).toHaveLength(0);
   });
+  it("resumes a disconnected pre-dispatch request under a fresh grant and never replays its completed write", async () => {
+    const f = await fixture(), { connection } = await f.connect(); await f.grant(connection);
+    const input = { employeeId: f.employee.id, employeeVersion: f.employee.version, actionId: "github.create_issue", arguments: { title: "Original" }, requestId: crypto.randomUUID() };
+    const submit = (id: string) => f.call(`/connections/${id}/actions/request`, "POST", input);
+    const replace = async (old: typeof connection) => {
+      actor.email = OWNER;
+      expect((await f.call(`/connections/${old.id}/disconnect`, "POST", { expectedVersion: old.version })).response.status).toBe(200);
+      return (await f.connect()).connection;
+    };
+    f.accounts.find((row) => row.id === "workspace-upstream-row")!.configured = false;
+    actor.email = MEMBER;
+    expect((await submit(connection.id)).body).toEqual({ error: "workspace_action_connection_required" });
+    expect(f.sqlite.prepare("SELECT id FROM workspace_app_approvals").all()).toHaveLength(0);
+
+    const replacement = await replace(connection);
+    actor.email = MEMBER;
+    expect((await submit(replacement.id)).response.status).toBe(403);
+    await f.grant(replacement); actor.email = MEMBER;
+    const attempts = await Promise.all([submit(replacement.id), submit(replacement.id)]);
+    expect(attempts.map((attempt) => attempt.response.status)).toEqual([202, 202]);
+    const approvalId = attempts[0]!.body.approvalId;
+    expect(attempts[1]!.body.approvalId).toBe(approvalId);
+    expect(attempts[0]!.body.approvals).toEqual([expect.objectContaining({ requesterId: MEMBER, status: "pending", connectionId: replacement.id, actionId: input.actionId, arguments: input.arguments })]);
+    expect(f.effects).toHaveLength(0);
+    actor.email = OWNER;
+    expect((await f.call(`/approvals/${approvalId}/decision`, "POST", { approved: true })).response.status).toBe(200);
+    actor.email = MEMBER;
+    expect((await f.call(`/approvals/${approvalId}/execute`, "POST", {})).response.status).toBe(200);
+
+    const next = await replace(replacement);
+    await f.grant(next); actor.email = MEMBER;
+    expect((await submit(next.id)).body).toEqual({ error: "workspace_action_request_conflict" });
+    expect(f.sqlite.prepare("SELECT status FROM workspace_app_approvals").all()).toEqual([{ status: "completed" }]);
+    expect(f.effects).toHaveLength(1);
+  });
   it("claims concurrent execution once and blocks new account actions while a result is unknown", async () => {
     const f = await fixture(), { connection } = await f.connect(); await f.grant(connection);
     const requested = await f.actionRequest(connection), approvalId = String(requested.body.approvalId);

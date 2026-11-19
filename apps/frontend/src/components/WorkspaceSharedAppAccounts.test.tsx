@@ -20,6 +20,7 @@ const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = n
 function popup() { return { opener: {}, location: { replace: vi.fn() }, close: vi.fn(), closed: false } as unknown as Window; }
 function fixture() {
   let actor = owner, removed = false;
+  let connectionRequired = false;
   let connections: ReturnType<typeof account>[] = [], grants: Array<Record<string, unknown>> = [], approvals: Array<Record<string, unknown>> = [];
   const calls: Array<{ path: string; method: string; body: Record<string, unknown> | undefined; workspace: string | null }> = [];
   const grantDirectory = () => ({ ok: true, workspaceId: workspaceA, connectionId: "shared-hubspot", connectionVersion: 2,
@@ -51,7 +52,8 @@ function fixture() {
       return Response.json({ ok: true, workspaceId, connectionId: "shared-hubspot", actions: [{ id: "fixture.create_note", service: "hubspot", name: "Create fixture note", inputSchema: { type: "object", properties: { title: { type: "string" } } } }] });
     }
     if (url.pathname.endsWith("/actions/request")) {
-      approvals = [{ id: "approval-one", requesterId: actor, employeeId: body?.employeeId, employeeVersion: body?.employeeVersion, employeeName: "Finance", connectionId: "shared-hubspot", connectionVersion: 2, actionId: body?.actionId, arguments: body?.arguments, inputHash: "f".repeat(64), status: "pending", expiresAt: Date.now() + 60_000, result: null, error: null }];
+      if (connectionRequired) return Response.json({ error: "workspace_action_connection_required" }, { status: 409 });
+      approvals = [{ id: "approval-one", requesterId: actor, employeeId: body?.employeeId, employeeVersion: body?.employeeVersion, employeeName: "Finance", connectionId: url.pathname.split("/")[4], connectionVersion: 2, actionId: body?.actionId, arguments: body?.arguments, inputHash: "f".repeat(64), status: "pending", expiresAt: Date.now() + 60_000, result: null, error: null }];
       return Response.json(approvalDirectory("approval-one"));
     }
     if (url.pathname.endsWith("/decision")) { approvals = approvals.map((item) => ({ ...item, status: body?.approved ? "approved" : "denied" })); return Response.json(approvalDirectory("approval-one")); }
@@ -61,11 +63,46 @@ function fixture() {
   });
   const workspaceId = workspaceA;
   vi.stubGlobal("fetch", fetcher);
-  return { calls, fetcher, actor: (value: string) => { actor = value; }, remove: () => { removed = true; }, seed: () => { connections = [account()]; } };
+  return { calls, fetcher, actor: (value: string) => { actor = value; }, remove: () => { removed = true; }, seed: () => { connections = [account()]; },
+    loseConnection: () => { connections = []; connectionRequired = true; },
+    replaceConnection: () => { connections = [account(workspaceA, { id: "new-shared-hubspot", identityLabel: "Replacement CRM fixture" })]; connectionRequired = false; } };
 }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("workspace-shared app fixture flows", () => {
+  it("retains the exact request across account refresh and resumes for review only", async () => {
+    const f = fixture(); f.seed();
+    render(<WorkspaceConnectorsPanel bindingInputs={bindings} workspaceId={workspaceA} actorId={owner} workspaceRole="owner" />);
+    await screen.findByText("Shared CRM fixture");
+    fireEvent.change(screen.getByLabelText("Shared app account"), { target: { value: "shared-hubspot" } });
+    fireEvent.change(await screen.findByLabelText("Employee for this action"), { target: { value: "employee-finance" } });
+    fireEvent.click(screen.getByRole("button", { name: "Find allowed actions" }));
+    fireEvent.change(await screen.findByLabelText("Action"), { target: { value: "fixture.create_note" } });
+    fireEvent.change(screen.getByLabelText("Exact action arguments"), { target: { value: '{"title":"Original"}' } });
+    f.loseConnection();
+    fireEvent.click(screen.getByRole("button", { name: "Request human review" }));
+    const card = await screen.findByRole("region", { name: "Connect an app to resume" });
+    const resume = within(card).getByRole("button", { name: "Resume for human review" }) as HTMLButtonElement;
+    expect(resume.disabled).toBe(true);
+    fireEvent.click(within(card).getByRole("button", { name: "Connect app" }));
+    const catalog = await screen.findByRole("dialog", { name: "Browse integration catalog" });
+    fireEvent.click(within(catalog).getByRole("button", { name: /close/i }));
+    const refresh = screen.getByRole("button", { name: "Refresh workspace accounts" });
+    fireEvent.click(refresh);
+    await screen.findByText(/No workspace-shared accounts are configured/);
+    expect(resume.disabled).toBe(true);
+    f.replaceConnection();
+    fireEvent.click(refresh);
+    await screen.findByText(/Account for review: Replacement CRM fixture/);
+    fireEvent.click(resume);
+    await screen.findByText("Action requested for human review. No external action was executed.");
+    const requests = f.calls.filter(({ path }) => path.endsWith("/actions/request"));
+    expect(requests.map(({ path }) => path.split("/")[4])).toEqual(["shared-hubspot", "new-shared-hubspot"]);
+    expect(requests[1]?.body).toEqual(requests[0]?.body);
+    expect(requests[1]?.body).toMatchObject({ actionId: "fixture.create_note", arguments: { title: "Original" } });
+    expect(f.calls.some(({ path }) => path.endsWith("/execute"))).toBe(false);
+    expect(screen.queryByRole("region", { name: "Connect an app to resume" })).toBeNull();
+  });
   it("clears cached workspace accounts and action data when catalog access is revoked", async () => {
     const f = fixture(); f.seed();
     render(<WorkspaceConnectorsPanel bindingInputs={bindings} workspaceId={workspaceA} actorId={owner} workspaceRole="owner" />);

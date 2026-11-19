@@ -35,6 +35,8 @@ The available tool set is limited by the workspace, signed-in person, access rol
 
 If an action fails after approval, inspect its receipt or error before retrying. An approval records permission, not proof that the vendor accepted the operation. A connection test also does not verify every action the service offers.
 
+In a team's **Manual app actions** panel, a **Connect** card can keep an unsubmitted action open while a workspace manager replaces an unavailable account. Keep the panel open, grant the replacement account to the original requester and employee, then choose **Resume for human review**. This submits the original action and arguments for fresh approval. It does not execute the action or retry an earlier write.
+
 ## Add tools through MCP
 
 **MCP** is a standard for connecting AI tools. Shiba supports configured remote MCP servers and curated presets in a separate setup area.
