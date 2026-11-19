@@ -17,6 +17,7 @@ import { memo, type CSSProperties } from "react";
 import { LoaderCircle, ShieldCheck, Wrench, type LucideIcon } from "lucide-react";
 import { ApprovalCard } from "./ApprovalCard";
 import { RetainedDraftCard } from "./RetainedDraftCard";
+import { SearchSourcesCard, searchSources } from "./SearchSourcesCard";
 import { generatedVideoSource, VideoArtifactPlayer } from "./VideoArtifactPlayer";
 import { ShibaMark } from "./ShibaMark";
 import { Tooltip } from "./Tooltip";
@@ -226,6 +227,8 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
               ? getToolOutput(part) : null;
             const videoSource = toolDisplayName(part) === "generate_video" && state === "complete"
               ? generatedVideoSource(getToolOutput(part)) : null;
+            const lookupOutput = state === "complete" && searchSources(toolDisplayName(part), getToolOutput(part))
+              ? getToolOutput(part) : null;
             const callId = getToolCallId(part);
             // Build the gate card from the tool part itself; the
             // pendingApprovals join is only a decided-state lookup.
@@ -265,7 +268,7 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
                     {rejected ? "Rejected" : state}
                   </span>
                 </div>
-                {videoSource ? <VideoArtifactPlayer src={videoSource} /> : retainedDraft ? <RetainedDraftCard output={retainedDraft} /> : output !== null && output !== "" ? (
+                {videoSource ? <VideoArtifactPlayer src={videoSource} /> : retainedDraft ? <RetainedDraftCard output={retainedDraft} /> : lookupOutput ? <SearchSourcesCard tool={toolDisplayName(part)} output={lookupOutput} /> : output !== null && output !== "" ? (
                   <details className="max-w-[92%] md:max-w-[85%] group">
                     <summary className="cursor-pointer text-[11px] font-mono text-[var(--muted-foreground-2)] hover:text-[var(--fg)] transition-colors select-none">
                       Output
