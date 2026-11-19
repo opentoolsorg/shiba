@@ -63,11 +63,31 @@ it("permits only the duplicate prefixes main already shipped", () => {
       "0061_learning_review.sql", "0061_note_chat.sql",
       "0062_inbound_webhook_receipts.sql", "0062_media_generations.sql",
       "0063_runtime_d1_schema.sql", "0063_workspace_channel_facts.sql",
-      "0064_thread_queue.sql", "0065_scheduled_job_slots.sql",
+      "0064_thread_queue.sql", "0065_scheduled_job_slots.sql", "0066_routine_outcomes.sql",
+      "0068_ui_block_questions.sql", "0069_employee_access.sql",
     ]) writeFileSync(join(directory, file), "");
     expect(run().toString()).toContain("passed");
     writeFileSync(join(directory, "0062_other.sql"), "");
     expect(run).toThrow(/Duplicate migration prefix/);
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
+}, 30_000);
+
+it("keeps 0067 skipped after 0066 shipped", () => {
+  const fixture = mkdtempSync(join(tmpdir(), "shiba-migrations-"));
+  const directory = join(fixture, "apps/backend/migrations");
+  mkdirSync(join(fixture, "apps/backend/src"), { recursive: true });
+  mkdirSync(join(fixture, "packages/auth/src"), { recursive: true });
+  mkdirSync(directory, { recursive: true });
+  const run = () => execFileSync(process.execPath, [script, fixture], { stdio: "pipe" });
+  try {
+    for (const file of [
+      "0060_palette_search.sql", "0061_note_chat.sql", "0062_media_generations.sql",
+      "0063_runtime_d1_schema.sql", "0064_thread_queue.sql", "0065_scheduled_job_slots.sql",
+      "0066_routine_outcomes.sql", "0068_ui_block_questions.sql", "0069_employee_access.sql",
+    ]) writeFileSync(join(directory, file), "");
+    expect(run().toString()).toContain("passed");
+    writeFileSync(join(directory, "0067_late.sql"), "");
+    expect(run).toThrow(/expected 68/);
   } finally { rmSync(fixture, { recursive: true, force: true }); }
 }, 30_000);
 

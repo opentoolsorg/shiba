@@ -22,12 +22,14 @@ check open PRs before reserving the next number.
 identities. The architecture migrations follow as `0063_runtime_d1_schema.sql`,
 `0064_thread_queue.sql`, and `0065_scheduled_job_slots.sql`, in that order.
 
-Main also shipped `0061_learning_review.sql` (a second 0061), and
-`0062_inbound_webhook_receipts.sql` and `0063_workspace_channel_facts.sql` were
-renumbered to 0062/0063 on their own branches, which a merge had already given to
-`0062_media_generations.sql` and `0063_runtime_d1_schema.sql`. Those names stay as
-shipped: renaming a migration a database may already have applied would re-run it.
-The guard accepts those duplicate pairs and nothing else.
+Main also shipped `0061_learning_review.sql` (a second 0061) and `0068`/`0069`
+before `0066_routine_outcomes.sql` filled 0066. `0062_inbound_webhook_receipts.sql`
+and `0063_workspace_channel_facts.sql` were renumbered to 0062/0063 on their own
+branches, which a merge had already given to `0062_media_generations.sql` and
+`0063_runtime_d1_schema.sql`. All of those names stay as shipped: renaming a
+migration a database may already have applied would re-run it. The guard accepts
+those four duplicate pairs and the 0067 gap, and nothing else. 0067 stays skipped
+and is never filled retroactively.
 
 `0063_runtime_d1_schema.sql` captures the former request-time schema, with
 `IF NOT EXISTS` so databases already initialized by older Workers retain data.
