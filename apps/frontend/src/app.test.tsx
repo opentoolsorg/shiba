@@ -1215,8 +1215,10 @@ describe("bot thread links", () => {
     stubThreads();
     render(<App />);
     await screen.findByText("Annual report history");
-    expect(screen.getAllByText("Research bot").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Competitor brief").length).toBeGreaterThan(0);
+    // The bot labels come from the thread registry, not the open transcript;
+    // wait for that surface instead of asserting it the moment chat renders.
+    expect((await screen.findAllByText("Research bot")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Competitor brief")).length).toBeGreaterThan(0);
     expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD);
   });
 
