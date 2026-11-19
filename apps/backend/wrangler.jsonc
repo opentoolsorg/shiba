@@ -34,6 +34,8 @@
     { "pattern": "app.tryshiba.dev", "custom_domain": true },
   ],
   "vars": {
+    // Optional email task intake: set EMAIL_TASK_SENDERS and EMAIL_TASK_EMPLOYEES
+    // as Worker vars. EMAIL_TASK_REPOS can set a default repository per mailbox.
     // Outbound telemetry requires explicit opt-in and operator-supplied destinations.
     "SHIBA_ERROR_REPORTING": "none",
     "SHIBA_ANALYTICS": "none",

@@ -366,6 +366,12 @@ export interface Env {
   TELEGRAM_APPROVERS?: string;
   /** Optional. JSON map `{chatId: "https://github.com/owner/repo"}` for commands without a URL. */
   TELEGRAM_CHAT_REPOS?: string;
+  /** Optional. Exact sender addresses allowed to email task requests; unset = off. */
+  EMAIL_TASK_SENDERS?: string;
+  /** Optional. JSON map of registered mailbox addresses to saved employee IDs or slugs. */
+  EMAIL_TASK_EMPLOYEES?: string;
+  /** Optional. JSON map `{mailbox: "https://github.com/owner/repo"}` for emailed tasks without a URL. */
+  EMAIL_TASK_REPOS?: string;
   /** Optional. Teams bot (Entra app registration) id; with TEAMS_APP_PASSWORD enables POST /api/teams/messages. */
   TEAMS_APP_ID?: string;
   /** Optional. Teams bot client secret; used only for the Bot Framework client-credentials token. */

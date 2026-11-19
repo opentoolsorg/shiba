@@ -317,8 +317,8 @@ describe("teams transport", () => {
 });
 
 describe("channel registry", () => {
-  it("registers slack, discord, telegram and teams and resolves conversation keys to their channel", () => {
-    expect(listChannels().map((c) => c.id).sort()).toEqual(["discord", "slack", "teams", "telegram"]);
+  it("registers slack, discord, telegram, teams and email and resolves conversation keys to their channel", () => {
+    expect(listChannels().map((c) => c.id).sort()).toEqual(["discord", "email", "slack", "teams", "telegram"]);
     expect(channelForConversationKey(`teams:${TEAMS_CONVERSATION}`)).toBe(teamsChannel);
     expect(getChannel("slack")).toBe(slackChannel);
     expect(channelForConversationKey("slack:T1:C1:1.2")).toBe(slackChannel);

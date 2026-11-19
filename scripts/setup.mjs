@@ -117,6 +117,9 @@ for (const [name, hint] of [
   ["ACP_REGISTRY_JSON", "pinned ACP registry.json snapshot (optional; needed only when the lane is on)"],
   ["TELEGRAM_APPROVERS", "Telegram approver user ids, comma-separated (optional)"],
   ["TELEGRAM_CHAT_REPOS", "Telegram chat→repo map (optional)"],
+  ["EMAIL_TASK_SENDERS", "exact sender addresses allowed to email tasks (optional)"],
+  ["EMAIL_TASK_EMPLOYEES", "email mailbox→saved employee ID or slug map (optional)"],
+  ["EMAIL_TASK_REPOS", "email mailbox→repo map (optional)"],
   ["DISCORD_APPROVERS", "Discord approver user ids, comma-separated (optional)"],
   ["DISCORD_CHANNEL_REPOS", "Discord channel→repo map (optional)"],
 ]) {
