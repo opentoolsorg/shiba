@@ -17,6 +17,8 @@ export interface WebSearchResponse {
   provider?: WebSearchProvider;
   queries?: string[];
   results?: WebSearchResult[];
+  /** Per-query failures in a batch; the other queries' results are still returned. */
+  errors?: Array<{ query: string; error: string }>;
   error?: string;
   unavailableReason?: string;
 }
@@ -77,6 +79,18 @@ export function splitDomains(domains: readonly string[] | undefined): { include:
 
 const RECENCY_DAYS = { day: 1, week: 7, month: 31, year: 366 } as const;
 
+/** Tavily boosts by country name ("united states"), not by an ISO code. */
+export function tavilyCountryName(code: string | undefined): string | undefined {
+  if (!code || !/^[a-z]{2}$/i.test(code)) return undefined;
+  try {
+    const name = new Intl.DisplayNames(["en"], { type: "region" }).of(code.toUpperCase());
+    // ICU answers "Unknown Region" for an unassigned code instead of failing.
+    return name && name !== "Unknown Region" ? name.toLowerCase() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function hostMatches(url: string, domains: readonly string[]): boolean {
   let host: string;
   try { host = new URL(url).hostname.toLowerCase(); } catch { return false; }
@@ -100,7 +114,7 @@ async function searchTavily(apiKey: string, query: string, options: SearchOption
       ...(domains.include.length ? { include_domains: domains.include } : {}),
       ...(domains.exclude.length ? { exclude_domains: domains.exclude } : {}),
       ...(options.recency ? { time_range: options.recency } : {}),
-      ...(options.country ? { country: options.country.toLowerCase() } : {}),
+      ...(tavilyCountryName(options.country) ? { country: tavilyCountryName(options.country) } : {}),
     }),
   });
   if (!response.ok) throw new Error(`Tavily search failed (${response.status}).`);
@@ -183,8 +197,17 @@ export async function runWebSearch(
   const maxResults = parsed.data.maxResults ?? MAX_RESULTS;
   const domains = splitDomains(parsed.data.domains);
   try {
-    const batches = await Promise.all(queries.map(async (query) =>
+    const settled = await Promise.allSettled(queries.map(async (query) =>
       (await PROVIDERS[provider](apiKey, query, parsed.data, maxResults)).slice(0, maxResults).map((row) => ({ ...row, query }))));
+    const scrub = (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      return redactSecrets(message.split(apiKey).join("[redacted]"));
+    };
+    // One failed query must not discard the rest of the batch it was charged for.
+    const errors = settled.flatMap((outcome, index) =>
+      outcome.status === "rejected" ? [{ query: queries[index]!, error: scrub(outcome.reason) }] : []);
+    const batches = settled.flatMap((outcome) => outcome.status === "fulfilled" ? [outcome.value] : []);
+    if (!batches.length) return { ok: false, provider, queries, error: errors[0]?.error ?? "Web search failed.", errors };
     const seen = new Set<string>();
     const results = batches.flat().filter((row) => {
       if (!row.url.startsWith("https://") || seen.has(row.url)) return false;
@@ -193,7 +216,7 @@ export async function runWebSearch(
       seen.add(row.url);
       return true;
     });
-    return { ok: true, provider, queries, results };
+    return { ok: true, provider, queries, results, ...(errors.length ? { errors } : {}) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { ok: false, provider, error: redactSecrets(message.split(apiKey).join("[redacted]")) };

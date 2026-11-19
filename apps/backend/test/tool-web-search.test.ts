@@ -56,7 +56,7 @@ describe("web_search parity inputs", () => {
       { query: "llm evals", domains: ["arxiv.org", "-reddit.com"], recency: "week", country: "us", maxResults: 3 });
     vi.unstubAllGlobals();
     const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
-    expect(body).toMatchObject({ query: "llm evals", max_results: 3, include_domains: ["arxiv.org"], exclude_domains: ["reddit.com"], time_range: "week", country: "us" });
+    expect(body).toMatchObject({ query: "llm evals", max_results: 3, include_domains: ["arxiv.org"], exclude_domains: ["reddit.com"], time_range: "week", country: "united states" });
   });
 
   it("maps filters onto Exa and Brave requests", async () => {
