@@ -97,7 +97,7 @@ const faqs = [
       <div class="lp-shell hero-inner" data-motion="hero">
         <p class="hero-pill"><span class="hero-pill-tag">AGPL-3.0</span> Open source · runs on your servers</p>
         <h1 id="home-title" class="hero-title">
-          Meet <img class="hero-mark" src="/landing/shiba-logo.webp" alt="" width="512" height="512" /> Shiba
+          Meet <img class="hero-mark" src="/landing/shiba-portrait.webp" alt="" width="128" height="128" /> Shiba
         </h1>
         <p class="hero-lead">
           AI employees for marketing, coding, design and QA. They run on
@@ -105,21 +105,16 @@ const faqs = [
           can work in your repository, and wait for your approval before anything runs.
         </p>
         <div class="hero-actions">
-          <a class="lp-btn lp-btn-primary" href={appUrl}>Open the app</a>
-          <a class="lp-btn lp-btn-secondary" href={repoUrl} target="_blank" rel="noopener noreferrer">Star on GitHub <span aria-hidden="true">↗</span></a>
+          <a class="lp-btn lp-btn-primary" href="/docs/self-hosting/">Self-host Shiba <span aria-hidden="true">→</span></a>
+          <a class="lp-btn lp-btn-secondary" href={appUrl}>Open the app</a>
         </div>
-        <p class="hero-note">Free to self-host. Hosting and model usage are yours. <a href="/docs/self-hosting/">Self-host Shiba <span aria-hidden="true">→</span></a></p>
+        <p class="hero-note">Free software. You pay for hosting and model usage.</p>
       </div>
     </section>
 
     <section id="dashboard" class="stage" aria-label="Shiba dashboard">
       <div class="lp-shell">
         <div class="stage-band" data-motion="reveal">
-          <div class="stage-stickers" aria-hidden="true">
-            <img src="/assets/mascot/shiba-sticker-climbing.webp" alt="" width="512" height="512" loading="lazy" decoding="async" />
-            <img src="/assets/mascot/shiba-sticker-sunglasses.webp" alt="" width="512" height="512" loading="lazy" decoding="async" />
-            <img src="/assets/mascot/shiba-sticker-riding.webp" alt="" width="512" height="512" loading="lazy" decoding="async" />
-          </div>
           <ThemedScreenshot>
             <div slot="titlebar" class="window-bar">
               <span>Shiba · Agents</span>
@@ -310,11 +305,11 @@ const faqs = [
 
     <section id="cta" class="cta" aria-labelledby="cta-title">
       <div class="lp-shell cta-inner" data-motion="reveal">
-        <h2 id="cta-title" class="cta-title">Meet your first <img class="cta-mark" src="/landing/shiba-logo.webp" alt="" width="512" height="512" loading="lazy" decoding="async" /> employee.</h2>
+        <h2 id="cta-title" class="cta-title">Start with one task.</h2>
         <p class="cta-lead">Free to self-host. Your servers, your repository, your approval.</p>
         <div class="hero-actions">
-          <a class="lp-btn lp-btn-primary" href={appUrl}>Open the app</a>
-          <a class="lp-btn lp-btn-secondary" href="/docs/self-hosting/">Self-hosting guide</a>
+          <a class="lp-btn lp-btn-primary" href="/docs/self-hosting/">Self-host Shiba</a>
+          <a class="lp-btn lp-btn-secondary" href={appUrl}>Open the app</a>
           <a class="lp-btn lp-btn-secondary" href={repoUrl} target="_blank" rel="noopener noreferrer">View on GitHub <span aria-hidden="true">↗</span></a>
         </div>
       </div>
@@ -411,13 +406,8 @@ const faqs = [
     letter-spacing: -0.06em;
   }
   .hero-mark {
-    width: 0.78em;
-    height: 0.78em;
-    padding: 0.06em;
-    border: 2px solid var(--lp-ink);
-    background: var(--logo-paper);
-    box-shadow: 3px 3px 0 var(--paper-shadow);
-    transform: rotate(-4deg);
+    width: 0.88em;
+    height: auto;
   }
   .hero-lead {
     max-width: 740px;
@@ -439,27 +429,16 @@ const faqs = [
     color: var(--lp-ink2);
     font: 500 13px/1.5 var(--lp-font-mono);
   }
-  .hero-note a { color: var(--lp-ink); text-underline-offset: 3px; }
-
   /* Product stage */
   .stage { padding: 0 0 40px; }
   .stage-band {
-    position: relative;
-    padding: clamp(40px, 5vw, 64px) clamp(12px, 3.5vw, 48px) 12px;
+    padding: clamp(12px, 3vw, 36px) clamp(12px, 3vw, 36px) 12px;
     border: 1px solid var(--line-2);
     background-color: var(--panel-2);
     background-image: radial-gradient(var(--paper-dot) 1.2px, transparent 1.4px);
     background-size: 14px 14px;
     overflow: hidden;
   }
-  .stage-stickers {
-    position: absolute;
-    top: 6px;
-    right: clamp(24px, 6vw, 96px);
-    display: flex;
-    gap: 4px;
-  }
-  .stage-stickers img { width: clamp(44px, 5vw, 72px); height: auto; }
   .window-bar {
     display: flex;
     align-items: center;
@@ -806,17 +785,6 @@ const faqs = [
     line-height: 1;
     letter-spacing: -0.055em;
     text-wrap: balance;
-  }
-  .cta-mark {
-    display: inline-block;
-    width: 0.8em;
-    height: 0.8em;
-    vertical-align: -0.1em;
-    padding: 0.05em;
-    border: 2px solid var(--lp-ink);
-    background: var(--logo-paper);
-    box-shadow: 2px 2px 0 var(--paper-shadow);
-    transform: rotate(4deg);
   }
   .cta-lead { max-width: 520px; margin: 0 auto 32px; color: var(--lp-ink2); font-size: 18px; }
 
