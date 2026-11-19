@@ -10,7 +10,7 @@ import { AgentMascot } from "./AgentMascot";
  */
 export const SHIBA_BRAND_LOOK: AgentMascotLook = { shape: "pointed", color: "#c4a574", eyes: "happy", acc: "none" };
 
-export function ShibaMark({ className = "size-14", decorative = false }: { className?: string; decorative?: boolean }): JSX.Element {
+export function ShibaMark({ className = "size-14", decorative = false, label = "Shiba" }: { className?: string; decorative?: boolean; label?: string }): JSX.Element {
   const classes = `${className} inline-flex shrink-0`;
   if (decorative) {
     return (
@@ -20,7 +20,7 @@ export function ShibaMark({ className = "size-14", decorative = false }: { class
     );
   }
   return (
-    <span role="img" aria-label="Shiba" className={classes}>
+    <span role="img" aria-label={label} className={classes}>
       <AgentMascot look={SHIBA_BRAND_LOOK} />
     </span>
   );
