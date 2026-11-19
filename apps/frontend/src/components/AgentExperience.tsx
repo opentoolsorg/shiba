@@ -47,12 +47,14 @@ export function AgentAvatar({ name, slug, role, agentId, mascotPreset, look, ava
  * been messaged, so the surface shows that bot and one action: it never borrows
  * the previous bot's conversation, title editor, drafts or composer.
  */
-export function BotThreadlessState({ name, slug, role, agentId, mascotPreset, look, avatar, busy = false, state = "empty", onStart }: {
+export function BotThreadlessState({ name, slug, role, agentId, mascotPreset, look, avatar, busy = false, state = "empty", message, onStart }: {
   name: string; slug?: string; role?: EmployeeRole; agentId?: string;
   mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; avatar?: AgentAvatarChoice;
   busy?: boolean;
   /** `pending` is inert while the bot's thread opens; `unavailable` says it did not open. */
   state?: "empty" | "pending" | "unavailable";
+  /** A specific reason to show instead of the generic body. */
+  message?: string;
   onStart: () => void;
 }) {
   const text = state === "pending"
@@ -64,7 +66,7 @@ export function BotThreadlessState({ name, slug, role, agentId, mascotPreset, lo
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center" aria-busy={state === "pending"}>
       <AgentAvatar agentId={agentId} name={name} mascotPreset={mascotPreset} avatar={avatar} look={look} slug={slug} role={role} large />
       <h2 className="text-base font-medium text-[var(--fg)]">{text.heading}</h2>
-      <p className="max-w-md text-sm leading-relaxed text-[var(--muted-foreground-2)]">{text.body}</p>
+      <p className="max-w-md text-sm leading-relaxed text-[var(--muted-foreground-2)]">{message ?? text.body}</p>
       {state === "pending" ? (
         <p role="status" className="text-[11px] text-[var(--muted-foreground-2)]">Loading…</p>
       ) : (

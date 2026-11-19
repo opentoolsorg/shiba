@@ -1312,6 +1312,23 @@ describe("bot page without a thread", () => {
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
   });
 
+  it("keeps the bot it opened when its thread has been removed", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    mocks.chat.messages = [];
+    stubBots(async () => new Response(JSON.stringify({ error: "Session not found." }), { status: 404, headers: { "Content-Type": "application/json" } }));
+    render(<App />);
+
+    await openBotFromAgentsView(/Research bot/);
+
+    await screen.findByRole("heading", { name: /Research bot's thread could not be opened/ });
+    expect(screen.getByText(/That thread was removed from this workspace/)).toBeTruthy();
+    // The page keeps its bot and offers the one usable action.
+    expect(screen.getByRole("button", { name: "Start a thread with Research bot" })).toBeTruthy();
+    expect(screen.queryByTestId("chat-composer")).toBeNull();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+  });
+
   it("does not call a superseded resume a failure", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
@@ -1372,6 +1389,44 @@ describe("bot run outputs across a thread switch", () => {
     publishPullRequest: false, generation: 1, status: "completed", createdAt: 1, updatedAt: 2,
     customAgentId: research.id, deliverables: [{ path: "reports/first.md", bytes: 10, mediaType: "text/markdown" }],
   };
+
+  it("never runs the unscoped 405 fallback for a session already left", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${THREAD_A}`);
+    mocks.chat.messages = [];
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const originalFetch = fetch;
+    const runsRequests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const parsed = new URL(String(url), "http://localhost");
+      if (parsed.pathname === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
+      if (parsed.pathname === "/api/custom-agents" && options?.method !== "POST") return Response.json({ agents: [research] });
+      if (parsed.pathname === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: [threadA, threadB], defaultSessionId: "default" });
+      if (/^\/api\/sessions\/[^/]+\/resume$/.test(parsed.pathname)) return Response.json({ resumed: true });
+      if (parsed.pathname === "/api/agents") return Response.json({ agents: [] });
+      if (parsed.pathname === "/api/approvals") return Response.json({ approvals: [], decided: [] });
+      if (parsed.pathname.startsWith("/api/runs")) {
+        runsRequests.push(parsed.pathname + parsed.search);
+        // The first session answers 405 only after the second one is selected.
+        if (parsed.searchParams.get("session") === THREAD_A) { await held; return new Response(null, { status: 405 }); }
+        return Response.json({ runs: [] });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_A));
+
+    fireEvent.click(await screen.findByRole("button", { name: /Second brief/ }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_B));
+    const before = runsRequests.length;
+    await act(async () => { release?.(); await held; });
+    await act(async () => { await Promise.resolve(); });
+
+    // The abandoned session's 405 must not send an unscoped read for this scope.
+    const after = runsRequests.slice(before);
+    expect(after.filter((path) => !path.includes("session="))).toHaveLength(0);
+  });
 
   it("keeps the previous thread's file on its own session while the next read is pending", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");

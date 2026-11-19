@@ -198,6 +198,9 @@ function useRetainedRuns(
             }
             return;
           }
+          // Only the scope still on screen may fall back to an unscoped read;
+          // a stale 405 must not pull the default store into a newer selection.
+          if (cancelled) return;
           sessionScoped = false;
           url = runsListUrl(sessionId, false, fullDetail);
           response = await fetch(url);
@@ -458,6 +461,8 @@ export function App(): React.JSX.Element {
   // the bot and one Start action, and the previous bot's thread chrome, composer
   // and draft stay off screen.
   const [botPage, setBotPage] = useState<"chat" | "pending" | "empty" | "unavailable">("chat");
+  /** Why this bot page has no conversation, when the reason is more specific than "no thread". */
+  const [botPageMessage, setBotPageMessage] = useState<string | null>(null);
   // Every selection takes a ticket; an answer that arrives after a newer
   // selection threw its ticket away is dropped.
   const sessionSelectionSeq = useRef(0);
@@ -2743,7 +2748,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const liveSession = sessions.find((session) => session.id === selectedSessionId) ?? sessions[0];
 
   const handleSelectSession = useCallback(
-    async (id: string): Promise<"ok" | "failed" | "superseded"> => {
+    async (id: string, intent: "bot" | "thread" = "thread"): Promise<"ok" | "failed" | "superseded"> => {
       if (!privateDataEnabled) return "failed";
       const selectionScope = activeSurfaceScopeRef.current;
       const selectionTicket = ++sessionSelectionSeq.current;
@@ -2775,7 +2780,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               setMobileSessionsOpen(false);
               setSelectedRunId(null);
               setMainView("threads");
-              setNotice("That session no longer exists — it was removed from the list.");
+              if (intent === "bot") {
+                // The page keeps the bot it was opened from; only the thread it
+                // pointed at is gone, so the panel explains that and offers Start.
+                setBotPageMessage("That thread was removed from this workspace. Start a new one with this bot.");
+              } else {
+                setNotice("That session no longer exists — it was removed from the list.");
+              }
               return "failed";
             }
             // Older backends lack the resume route: degrade to local selection
@@ -2803,6 +2814,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setMobileSessionsOpen(false);
       setSelectedRunId(null);
       setBotPage("chat");
+      setBotPageMessage(null);
       setMainView("threads");
       return "ok";
     },
@@ -2889,6 +2901,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       writeRememberedSessionId(session.id);
       setSelectedRunId(null);
       setBotPage("chat");
+      setBotPageMessage(null);
       setCustomAgentId(profile.id);
       applyThreadProfile(profile);
       setNotice(null);
@@ -2933,7 +2946,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       // Nothing from the previous bot stays actionable while its session opens:
       // a failed or slow resume must not leave another bot's composer live here.
       setBotPage("pending");
-      const opening = handleSelectSession(latest.id);
+      setBotPageMessage(null);
+      const opening = handleSelectSession(latest.id, "bot");
       const ticket = sessionSelectionSeq.current;
       void opening.then((result) => {
         // A newer selection owns the surface; it decides what shows.
@@ -3654,6 +3668,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     avatar={chatAgent.avatar}
                     busy={threadLinkPending}
                     state={botPage}
+                    message={botPageMessage ?? undefined}
                     onStart={() => void startSidebarAgentThread(activeEmployee)}
                   />
                 ) : (
