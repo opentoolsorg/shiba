@@ -118,9 +118,8 @@ function main() {
   const dogfood = load(dogfoodPath);
   const mainNames = bindingNames(main);
   const dogfoodNames = bindingNames(dogfood);
-  const DOGFOOD_EXTRA = new Set(["OPEN_CONNECTOR"]);
   const missing = [...mainNames].filter((n) => !dogfoodNames.has(n)).sort();
-  const extra = [...dogfoodNames].filter((n) => !mainNames.has(n) && !DOGFOOD_EXTRA.has(n)).sort();
+  const extra = [...dogfoodNames].filter((n) => !mainNames.has(n)).sort();
   if (missing.length || extra.length) {
     console.error("wrangler.dogfood.jsonc drift:");
     if (missing.length) console.error("  missing bindings:", missing.join(", "));
