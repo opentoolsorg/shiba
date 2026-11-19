@@ -1182,3 +1182,238 @@ describe("first-run setup reminders", () => {
     expect(screen.queryByRole("dialog", { name: "Your first task is waiting" })).toBeNull();
   });
 });
+
+describe("bot thread links", () => {
+  const research = { id: "cag-research", orgId: "self-hosted", slug: "research", version: 1, config: { name: "Research bot", instructions: "Write briefs.", harness: "opencode" } };
+  const engineering = { id: "cag-engineering", orgId: "self-hosted", slug: "engineering", version: 1, config: { name: "Engineering bot", instructions: "Review code.", harness: "opencode" } };
+  const RESEARCH_THREAD = "11111111-1111-4111-8111-111111111111";
+  const ENGINEERING_THREAD = "22222222-2222-4222-8222-222222222222";
+  const threads = [
+    { id: RESEARCH_THREAD, name: "Competitor brief", agentName: `web:test-operator:${RESEARCH_THREAD}`, createdAt: 3, updatedAt: 3, metadata: { customAgentId: research.id } },
+    { id: ENGINEERING_THREAD, name: "Flaky test triage", agentName: `web:test-operator:${ENGINEERING_THREAD}`, createdAt: 2, updatedAt: 2, metadata: { customAgentId: engineering.id } },
+  ];
+  function stubThreads(sessions = threads) {
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
+      if (path === "/api/custom-agents" && options?.method !== "POST") return Response.json({ agents: [research, engineering] });
+      if (path === "/api/sessions" && options?.method === "POST") return Response.json({ status: 201, session: { id: "44444444-4444-4444-8444-444444444444", name: "Research bot", agentName: "web:test-operator:44444444-4444-4444-8444-444444444444", createdAt: 4, updatedAt: 4, metadata: { customAgentId: research.id } } });
+      if (path === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions, defaultSessionId: "default" });
+      if (/^\/api\/sessions\/[^/]+\/resume$/.test(path)) return Response.json({ session: sessions.find((item) => path.includes(item.id)) ?? null, resumed: true });
+      if (path === "/api/agents") return Response.json({ agents: [] });
+      if (path === "/api/approvals") return Response.json({ approvals: [], decided: [] });
+      if (path.startsWith("/api/runs")) return Response.json({ runs: [] });
+      return originalFetch(url, options);
+    }));
+  }
+
+  it("reopens a linked thread with its bot identity and history, keeping the link", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [{ id: "m1", role: "assistant", parts: [{ type: "text", text: "Annual report history" }] }] as never[];
+    stubThreads();
+    render(<App />);
+    await screen.findByText("Annual report history");
+    expect(screen.getAllByText("Research bot").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Competitor brief").length).toBeGreaterThan(0);
+    expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD);
+  });
+
+  it("switches bots through the thread list and rewrites the link with the thread's own bot", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    stubThreads();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Flaky test triage/ }));
+    await waitFor(() => expect(screen.getAllByText("Flaky test triage").length).toBeGreaterThan(1));
+    const crumbs = screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent ?? "").join(" ");
+    expect(crumbs).toContain("Engineering bot");
+    expect(crumbs).not.toContain("Research bot");
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
+  });
+
+  it("falls back to the default session when the link names a thread this viewer cannot list", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/?session=33333333-3333-4333-8333-333333333333");
+    mocks.chat.messages = [];
+    stubThreads();
+    render(<App />);
+    expect(await screen.findByText(/That thread isn't available to you/)).toBeTruthy();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+  });
+
+  it("records a bot thread created from the bot's own row in the address bar", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/custom-agents/");
+    mocks.chat.messages = [];
+    stubThreads();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "New thread with Research bot" }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe("44444444-4444-4444-8444-444444444444"));
+    expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ name: "Research bot", metadata: { customAgentId: research.id } }),
+    }));
+  });
+
+  it("walks back and forward across bot threads, including the selector-less default session", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    mocks.chat.messages = [];
+    stubThreads();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Flaky test triage/ }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
+    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+
+    await act(async () => { window.history.back(); });
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
+    expect(screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).toContain("Engineering bot");
+
+    await act(async () => { window.history.back(); });
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+    const defaultCrumbs = screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ");
+    expect(defaultCrumbs).not.toContain("Research bot");
+
+    await act(async () => { window.history.forward(); });
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
+    expect(screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).toContain("Engineering bot");
+  });
+
+  it("restores a remembered thread by replacing the entry instead of adding one", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem("shiba:selected-session", RESEARCH_THREAD);
+    window.history.replaceState(null, "", "/threads/");
+    mocks.chat.messages = [];
+    stubThreads();
+    const before = window.history.length;
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+    expect(window.history.length).toBe(before);
+  });
+
+  it("replaces a dead thread link instead of leaving it in history", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/?session=33333333-3333-4333-8333-333333333333");
+    mocks.chat.messages = [];
+    stubThreads();
+    const before = window.history.length;
+    render(<App />);
+    await screen.findByText(/That thread isn't available to you/);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+    expect(window.history.length).toBe(before);
+  });
+
+  it("rewrites a dead thread reached with Back in place, leaving Forward intact", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    mocks.chat.messages = [];
+    // The research thread is gone from this viewer's registry: deleted, or
+    // another workspace's. The engineering thread is live.
+    stubThreads(threads.filter((thread) => thread.id !== RESEARCH_THREAD));
+    window.history.replaceState(null, "", "/threads/?session=" + ENGINEERING_THREAD);
+    window.history.pushState(null, "", "/threads/?session=" + RESEARCH_THREAD);
+    window.history.pushState(null, "", "/threads/?session=" + ENGINEERING_THREAD);
+    render(<App />);
+    await waitFor(() => expect(screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).toContain("Engineering bot"));
+
+    const pushed = vi.spyOn(window.history, "pushState");
+    await act(async () => { window.history.back(); });
+    await screen.findByText(/That thread isn't available to you/);
+    expect(new URLSearchParams(window.location.search).has("session")).toBe(false);
+    expect(screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).not.toContain("Engineering bot");
+    // Rewriting the dead entry in place is what preserves the Forward entry: a
+    // push would spend it. (happy-dom drops the Forward stack on any replace, so
+    // this asserts the write the browser honours rather than a forward() walk.)
+    expect(pushed).not.toHaveBeenCalled();
+    pushed.mockRestore();
+  });
+
+  it("recovers an unreadable thread selector reached with Back", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    mocks.chat.messages = [];
+    stubThreads();
+    window.history.replaceState(null, "", "/threads/");
+    render(<App />);
+    await act(async () => {});
+    await act(async () => {
+      window.history.pushState(null, "", "/threads/?session=not-a-thread");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await screen.findByText(/That thread isn't available to you/);
+    expect(new URLSearchParams(window.location.search).has("session")).toBe(false);
+  });
+
+  it("leaves a shared room link intact and never attaches a private thread to it", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const workspaceId = `ws_${"a".repeat(24)}`;
+    window.history.replaceState(null, "", `/threads/?workspace=${workspaceId}&room=room_${"b".repeat(24)}`);
+    mocks.chat.messages = [];
+    stubThreads();
+    render(<App />);
+    await act(async () => {});
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("room")).toBe(`room_${"b".repeat(24)}`);
+    expect(params.get("workspace")).toBe(workspaceId);
+    expect(params.has("session")).toBe(false);
+  });
+
+  it("keeps an unconfirmed link in the address bar and opens it once the registry answers", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/sessions" && options?.method !== "POST") return pending;
+      if (String(url) === "/api/custom-agents" && options?.method !== "POST") return Response.json({ agents: [research, engineering] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await act(async () => {});
+    // The followed link is not rewritten before the registry answers.
+    expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD);
+    await act(async () => { finish(Response.json({ sessions: threads, defaultSessionId: "default" })); });
+    await waitFor(() => expect(screen.getAllByText("Research bot").length).toBeGreaterThan(0));
+    expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD);
+  });
+
+  it("keeps a shared room's address when Back returns to it", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const workspaceId = `ws_${"a".repeat(24)}`;
+    const roomId = `room_${"b".repeat(24)}`;
+    window.history.replaceState(null, "", `/threads/?workspace=${workspaceId}&room=${roomId}`);
+    mocks.chat.messages = [];
+    stubThreads();
+    render(<App />);
+    await act(async () => {});
+    await act(async () => { window.history.pushState(null, "", "/team/"); });
+    await act(async () => { window.history.back(); });
+    await waitFor(() => expect(window.location.pathname).toBe("/threads/"));
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("room")).toBe(roomId);
+    expect(params.get("workspace")).toBe(workspaceId);
+  });
+
+  it("drops the private thread selector inside a team workspace", async () => {
+    const id = `ws_${"a".repeat(24)}`;
+    const actor = "owner@example.com";
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actor)}`, id);
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    stubThreads();
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/whoami") return Response.json({ agent: actor, auth: "better-auth" });
+      if (String(url) === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId: id, name: "Design team", version: 1, createdAt: 1,
+        membership: { workspaceId: id, userId: actor, role: "owner", version: 1, joinedAt: 1 } }] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+  });
+});

@@ -60,7 +60,7 @@ function groupName(value: unknown): string {
     typeof value !== "string" ||
     !value.trim() ||
     value.trim().length > 80 ||
-    [...value].some((char) => char.charCodeAt(0) < 0x20)
+    /\p{Cc}/u.test(value)
   ) {
     throw new GovernanceError("Group name must contain 1–80 characters.");
   }
