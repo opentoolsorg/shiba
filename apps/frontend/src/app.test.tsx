@@ -1132,11 +1132,16 @@ describe("first-run setup reminders", () => {
     expect(screen.queryByRole("dialog", { name: "Your first task is waiting" })).toBeNull();
   });
 
-  it("hides reminders while the first task screen auto-opens", async () => {
+  it("hides reminders while the guided first-result flow auto-opens", async () => {
     window.history.replaceState(null, "", "/threads/");
     installProgress({ dismissedAt: null });
     render(<App />);
-    await screen.findByRole("region", { name: "First task setup" });
+    const journey = await screen.findByRole("region", { name: "Guided onboarding" });
+    expect(journey.textContent).toContain("Getting started");
+    // A signed-in account already owns its personal workspace, so the flow opens
+    // on the first unfinished stage rather than re-asking for it.
+    expect(journey.textContent).toContain("Step 2 of 6");
+    expect(journey.querySelector('[aria-current="step"]')?.textContent).toContain("Connect a provider");
     expect(screen.queryByRole("region", { name: "Setup reminder" })).toBeNull();
     expect(screen.queryByRole("dialog", { name: "Your first task is waiting" })).toBeNull();
   });
