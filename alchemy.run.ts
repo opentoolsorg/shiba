@@ -205,6 +205,7 @@ export const Worker = Cloudflare.Worker("Worker", {
     OPEN_CONNECTOR_READ_VERSION_ID: "",
     OPEN_CONNECTOR_READ_MANIFEST_SHA256: "",
     SLACK_INSTALLATIONS_ENABLED: "false",
+    SHIBA_CHANNEL_OUTPUT_DELIVERY: "1",
     SLACK_COWORKER_PRIVATE_STATUS_ENABLED: "false",
     SLACK_OAUTH_APP_ID: "",
     SLACK_OAUTH_CLIENT_ID: "",
@@ -343,6 +344,10 @@ export const Worker = Cloudflare.Worker("Worker", {
   SLACK_IMPORT_WORKFLOW: Cloudflare.Workflow("SlackImportWorkflow", {
     className: "SlackImportWorkflow",
     workflowName: `shiba-slack-import${resSuffix}`,
+  }),
+  SLACK_MEDIA_WORKFLOW: Cloudflare.Workflow("SlackMediaWorkflow", {
+    className: "SlackMediaWorkflow",
+    workflowName: `shiba-slack-media${resSuffix}`,
   }),
   AUTOMATION_RUN_WORKFLOW: Cloudflare.Workflow("AutomationRunWorkflow", {
     className: "AutomationRunWorkflow",
@@ -509,6 +514,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "OPEN_CONNECTOR_READ_VERSION_ID",
       "OPEN_CONNECTOR_READ_MANIFEST_SHA256",
       "SLACK_INSTALLATIONS_ENABLED",
+      "SHIBA_CHANNEL_OUTPUT_DELIVERY",
       "SLACK_COWORKER_PRIVATE_STATUS_ENABLED",
       "SLACK_OAUTH_APP_ID",
       "SLACK_OAUTH_CLIENT_ID",

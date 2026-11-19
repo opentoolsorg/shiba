@@ -37,6 +37,7 @@ import {
   chatEmployeeQueueExtras,
   resolveChatEmployeeFromText,
 } from "./chat-employee.js";
+import { requestSlackMedia } from "./slack-media-output.js";
 
 import { isSlackMessageTimestamp, signSlackBufferRequest, type BufferedSlackMessage } from "./slack-turn-buffer.js";
 
@@ -80,6 +81,7 @@ interface AppMentionEvent {
   ts?: string;
   thread_ts?: string;
   channel?: string;
+  channel_type?: string;
 }
 
 function sameThreadMessage(left: SlackThreadMessage, right: SlackThreadMessage): boolean {
@@ -327,6 +329,10 @@ export async function handleSlackEvent(
     try { await sendMessage(input); }
     catch (error) { console.error("Slack message post failed", redactSecrets(String(error))); }
   };
+  if ((!reply || event.channel_type === "im") && teamId && await requestSlackMedia(env, {
+    id: body.event_id, threadName: buildSlackThreadName(teamId, channelId, threadTs),
+    slackUserId: userId, text: stripMentionMarkersKeepLines(mentionText),
+  })) return;
   let continuation: SlackContinuationTarget | null = null;
   const ackOnly = Boolean(event.thread_ts) && isSlackAcknowledgmentOnly(mentionText);
   let threadMessages = [incoming];

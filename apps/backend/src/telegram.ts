@@ -77,6 +77,7 @@ async function handleMessage(message: InboundMessage, env: Env, adapter: Channel
   const reply = (body: { text: string; reply_markup?: unknown }) =>
     adapter.post({
       placeId: chatId,
+      ...(message.threadId ? { threadId: message.threadId } : {}),
       replyToMessageId: message.messageId,
       text: body.text,
       ...(body.reply_markup ? { native: { reply_markup: body.reply_markup } } : {}),
@@ -125,7 +126,7 @@ async function handleMessage(message: InboundMessage, env: Env, adapter: Channel
   // Telegram's message cap is 4096; a task over the card limit posts in full
   // right after the card so Approve never signs off on hidden text.
   for (const chunk of chatTaskChunks(parsed.task, CARD_TASK_LIMIT, 3900)) {
-    await adapter.post({ placeId: chatId, text: chunk });
+    await adapter.post({ placeId: chatId, ...(message.threadId ? { threadId: message.threadId } : {}), text: chunk });
   }
 }
 

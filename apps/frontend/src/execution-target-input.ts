@@ -50,5 +50,7 @@ export const OUTPUT_QUICK_PICKS = [
   { label: "Report (Markdown)", path: "report.md" },
   { label: "Dashboard (HTML)", path: "dashboard.html" },
   { label: "Spreadsheet (CSV)", path: "data.csv" },
+  { label: "Spreadsheet (XLSX)", path: "data.xlsx" },
+  { label: "Document (DOCX)", path: "report.docx" },
   { label: "PDF", path: "report.pdf" },
 ] as const;

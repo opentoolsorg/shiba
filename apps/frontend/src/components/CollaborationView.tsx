@@ -89,6 +89,7 @@ interface Message {
   sourceArtifactRefs?: Array<{
     index: number;
     path: string;
+    bytes?: number;
     artifactId?: string;
     version?: number;
     sha256?: string;
@@ -1475,6 +1476,7 @@ function ScopedCollaborationView({
                               <DeliverablePreview
                                 src={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/shared-deliverables/${encodeURIComponent(item.messageId)}${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`}
                                 path={item.sourceArtifactRefs[0].path}
+                                bytes={item.sourceArtifactRefs[0].bytes}
                                 downloadHref={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/shared-deliverables/${encodeURIComponent(item.messageId)}${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`}
                               />
                             </div>

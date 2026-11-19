@@ -35,7 +35,7 @@ import { ChatGptAuth } from "./chatgpt-auth-do.js";
 import { UserProviderOAuth } from "./user-provider-oauth-do.js";
 import { ConversationRoom } from "./conversation-room-do.js";
 import { WorkspaceEvents } from "./platform/workspace-events-do.js";
-import { SlackImportWorkflow, AutomationRunWorkflow } from "./platform/workflows.js";
+import { SlackImportWorkflow, AutomationRunWorkflow, SlackMediaWorkflow } from "./platform/workflows.js";
 import { dispatchQueueBatch } from "./platform/queues.js";
 // Rarely-hit route and cron handlers (founder-*, report/slack coworker, v1,
 // collaboration, team-model, first-run seed, inbound email) are loaded with
@@ -64,6 +64,7 @@ export {
   WorkspaceEvents,
   SlackImportWorkflow,
   AutomationRunWorkflow,
+  SlackMediaWorkflow,
 };
 export { assertLiveCodingModel } from "./coding-model.js";
 // Kept public for consumers that import the auth surface from the entry.

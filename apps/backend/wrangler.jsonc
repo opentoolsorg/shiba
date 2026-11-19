@@ -64,6 +64,7 @@
     "OPEN_CONNECTOR_READ_VERSION_ID": "",
     "OPEN_CONNECTOR_READ_MANIFEST_SHA256": "",
     "SLACK_INSTALLATIONS_ENABLED": "false",
+    "SHIBA_CHANNEL_OUTPUT_DELIVERY": "1",
     "SLACK_COWORKER_PRIVATE_STATUS_ENABLED": "false",
     "SLACK_OAUTH_APP_ID": "",
     "SLACK_OAUTH_CLIENT_ID": "",
@@ -250,6 +251,7 @@
   },
   "workflows": [
     { "binding": "SLACK_IMPORT_WORKFLOW", "name": "shiba-slack-import", "class_name": "SlackImportWorkflow" },
+    { "binding": "SLACK_MEDIA_WORKFLOW", "name": "shiba-slack-media", "class_name": "SlackMediaWorkflow" },
     { "binding": "AUTOMATION_RUN_WORKFLOW", "name": "shiba-automation-run", "class_name": "AutomationRunWorkflow" },
   ],
   // Megaplan T8: bge-base-en-v1.5 embeddings of banked facts, keyed by
