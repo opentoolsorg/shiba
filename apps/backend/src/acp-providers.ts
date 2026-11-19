@@ -256,7 +256,7 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
   },
   {
     id: "minimax", label: "MiniMax",
-    blurb: "MiniMax platform key for the M-series models. Keys and M Plan subscription keys both work here.",
+    blurb: "MiniMax platform key for the M-series models, attached at egress. A pay-as-you-go API key is what this lane expects.",
     adapter: "opencode-acp", packageName: "opencode-ai", license: "see package",
     harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
     defaultModel: "minimax/MiniMax-M3", docsUrl: "https://platform.minimax.io/docs/api-reference/api-overview", oauth: false, subscription: null, credentialEnv: [],
