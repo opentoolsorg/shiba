@@ -645,7 +645,7 @@ for (const name of alchemySet) {
 // signature route missing from the bypass list 403s at the edge. The
 // exemption evidence includes the modules reached by the entry's ordered
 // auth dispatch, including the extracted artifact-download handler.
-const indexText = ["src/index.ts", "src/request-auth.ts", "src/mcp-routes.ts", "src/routes/handlers.ts"]
+const indexText = ["src/index.ts", "src/request-auth.ts", "src/public-routes.ts", "src/mcp-routes.ts", "src/routes/handlers.ts"]
   .map((rel) => {
     const p = resolve(wranglerDir, rel);
     try {
@@ -662,6 +662,8 @@ const literalsIn = (text, name) => {
 };
 const bypassPaths = literalsIn(alchemyText, "ACCESS_BYPASS_PATHS");
 const signaturePaths = new Set(literalsIn(indexText, "SIGNATURE_AUTHENTICATED"));
+const chatCompletionsPath = "/api/v1/chat/completions";
+const hasChatCompletionsRule = /isOrgApiPath\s*\(/.test(indexText) && indexText.includes(`path === "${chatCompletionsPath}"`);
 const hasMcpRule = /isMcpPath\s*\(/.test(indexText);
 const hasLocalRuntimeRule = /isLocalRuntimePath\s*\(/.test(indexText);
 const hasAutomationRule = /parseAutomationWebhookPath\s*\(/.test(indexText);
@@ -675,7 +677,11 @@ for (const path of bypassPaths) {
   if (path === "/api/automations/*/trigger" && hasAutomationRule) continue;
   if (path === "/api/hooks/*" && /hooks/.test(indexText) && hasAutomationRule) continue;
   if (path === "/api/waitlist" && hasPublicWaitlistRule) continue;
+  if (path === chatCompletionsPath && hasChatCompletionsRule) continue;
   drift.push(`ACCESS_BYPASS_PATHS "${path}" has no Worker auth exemption in apps/backend/src/index.ts`);
+}
+if (hasChatCompletionsRule && !bypassPaths.includes(chatCompletionsPath)) {
+  drift.push(`${chatCompletionsPath} is missing from ACCESS_BYPASS_PATHS — API clients cannot reach Worker authentication`);
 }
 for (const path of signaturePaths) {
   if (!bypassPaths.includes(path)) {

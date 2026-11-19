@@ -1,4 +1,4 @@
-import { generateText, type LanguageModel, type ModelMessage, type UIMessage } from "ai";
+import { generateText, type FinishReason, type LanguageModel, type ModelMessage, type UIMessage } from "ai";
 import { z } from "zod";
 
 const boundedText = z.string().trim().min(1).max(4000);
@@ -7,6 +7,10 @@ export const sideQuestionSchema = z.object({
   threadId: z.string().min(1).max(128),
   earlier: z.array(z.object({ question: boundedText, answer: z.string().max(16000) })).max(20).default([]),
 });
+
+export function generateEmployeeChat(model: LanguageModel, instructions: string, messages: ModelMessage[]): Promise<{ text: string; finishReason: FinishReason }> {
+  return generateText({ model, system: instructions, messages, tools: {}, maxOutputTokens: 2048, abortSignal: AbortSignal.timeout(60000) });
+}
 
 export async function answerSideQuestion(
   input: z.infer<typeof sideQuestionSchema>,
@@ -19,7 +23,7 @@ export async function answerSideQuestion(
   for (const pair of input.earlier) messages.push({ role: "user", content: pair.question }, { role: "assistant", content: pair.answer });
   messages.push({ role: "user", content: input.question });
   try {
-    const result = await generateText({ model: model(), system: instructions || "You are Shiba, a helpful conversational assistant.", messages, tools: {}, maxOutputTokens: 2048, abortSignal: AbortSignal.timeout(60000) });
+    const result = await generateEmployeeChat(model(), instructions || "You are Shiba, a helpful conversational assistant.", messages);
     return Response.json({ answer: result.text }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const busy = isProviderBusy(error);

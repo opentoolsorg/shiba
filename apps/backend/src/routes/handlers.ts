@@ -485,6 +485,9 @@ export const handlers = {
     const { request, env } = context;
     return handleSwarm(request, env);
   },
+  async chatCompletions({ request, env }: RequestContext): Promise<Response> {
+    return (await import("../v1/chat-completions.js")).handleChatCompletions(request, env);
+  },
   async v1Response(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
     return (await import("../v1-routes.js")).handleV1(request, env);

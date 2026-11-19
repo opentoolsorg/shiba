@@ -20,6 +20,8 @@ Phase boundaries preserve precedence: `capability` runs before identity verifica
 | shell-head | ingress | `HEAD` | `^(?:/(?:docs\|blog\|why-shiba\|privacy\|terms\|waitlist\|welcome)(?:/\|$)\|/(?:slack-canvas\|signin\|login\|\|work\|dashboard\|tasks\|threads\|activity\|analytics\|diff\|approvals\|swarm\|collaboration\|team\|agents\|inbox\|memory\|files\|notes\|projects\|outputs\|automations\|providers\|employee-tools\|integrations\|skills\|spaces\|custom-agents\|remote\|settings)/?$\|/auth/(?:forgot\|reset)/?$\|/spaces/[^/]+/?$\|/share/[cf]/[^/]+/?$)` | public | Read-only marketing redirect or dashboard shell; no private API data. |
 | share-read | ingress | `GET` | `^(?:/share/[cf]/[^/]+\|/api/share/file/[^/]+)$` | public | Token capability read; unknown/expired tokens fail closed. |
 | share-early-management | ingress | `*` | `^/api/share$` | session | Management retains its own session verification. |
+| employeeAccessResponse | authenticated | `*` | `^/api/governance/employees/[^/]+/access/?$` | session |  |
+| observabilityResponse | authenticated | `*` | `^/api/observability$` | session |  |
 | outputArchiveResponse | authenticated | `*` | `^/api/run-output-archives(?:/\|$)` | session |  |
 | slackInstallationResponse | authenticated | `*` | `^/api/slack/installations(?:/\|$)` | session |  |
 | slackCoworkerResponse | authenticated | `*` | `^/api/slack/coworker(?:/\|$)` | session |  |
@@ -27,11 +29,13 @@ Phase boundaries preserve precedence: `capability` runs before identity verifica
 | workspaceIntegrationResponse | authenticated | `*` | `^/api/workspace-integrations(?:/\|$)` | session |  |
 | personalExecutionResponse | authenticated | `*` | `^/api/personal-execution(?:/\|$)` | session |  |
 | teamModelResponse | authenticated | `*` | `^/api/team-model-sessions(?:/\|$)` | session |  |
+| learningResponse | authenticated | `*` | `^/api/learning(?:/\|$)` | session |  |
 | workResponse | authenticated | `*` | `^/api/(?:needs-you$\|workspaces/[^/]+/work)` | session |  |
 | primaryBotResponse | authenticated | `*` | `^/api/workspaces/[^/]+/primary-bot` | session |  |
 | searchResponse | authenticated | `*` | `^/api/search$` | session |  |
 | paletteResponse | authenticated | `*` | `^/api/palette/` | session |  |
 | askUserResponse | authenticated | `*` | `^/api/runs/[^/]+/ask-user/` | session |  |
+| uiBlockResponse | authenticated | `*` | `^/api/runs/[^/]+/ui-blocks(?:/\|$)` | session |  |
 | workspaceResponse | authenticated | `*` | `^/api/workspaces(?:/\|$)` | session |  |
 | governanceResponse | authenticated | `*` | `^/api/governance` | session |  |
 | share-late | authenticated | `*` | `^/api/share$` | session | Second legacy share invocation after ingress policies. |
@@ -84,6 +88,7 @@ Phase boundaries preserve precedence: `capability` runs before identity verifica
 | notificationsResponse | authenticated | `*` | `^/api/workspace-notifications(?:/\|$)` | session |  |
 | slackImportResponse | authenticated | `*` | `^/api/slack-import(?:/\|$)` | session |  |
 | computersResponse | authenticated | `*` | `^/api/computers(?:/\|$)` | session |  |
+| chat-completions | authenticated | `*` | `^/api/v1/chat/completions$` | bearer | Text-only employee chat with a self-hosted API write key. |
 | sandboxResponse | model | `*` | `^/` | session | SDK inspects request and returns null when not applicable. |
 | denResponse | model | `*` | `^/api/(?:dens\|captains)/` | session |  |
 | slackCanvasResponse | model | `*` | `^/api/slack-canvas(?:/websocket)?$` | access |  |
@@ -108,6 +113,7 @@ Phase boundaries preserve precedence: `capability` runs before identity verifica
 | sandboxRouteResponse | model | `*` | `^/api/sandboxes/` | session |  |
 | telegramResponse | model | `*` | `^/api/telegram/webhook$` | signature | Telegram shared header secret. |
 | discordResponse | model | `*` | `^/api/discord/interactions$` | signature |  |
+| teamsResponse | model | `*` | `^/api/teams/messages$` | signature | Bot Framework JWT verified inside handler. |
 | managedSlackResponse | model | `*` | `^/api/slack/(?:events\|command\|interact)$` | signature |  |
 | slackEventsResponse | model | `*` | `^/api/slack/events$` | signature |  |
 | slackResponse | model | `*` | `^/api/slack/command$` | signature |  |

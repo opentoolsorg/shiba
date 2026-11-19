@@ -106,6 +106,7 @@ export const ROUTES: readonly RouteEntry[] = [
   route("notificationsResponse", "authenticated", "*", "^/api/workspace-notifications(?:/|$)", "session", handlers.notificationsResponse),
   route("slackImportResponse", "authenticated", "*", "^/api/slack-import(?:/|$)", "session", handlers.slackImportResponse),
   route("computersResponse", "authenticated", "*", "^/api/computers(?:/|$)", "session", handlers.computersResponse),
+  route("chat-completions", "authenticated", "*", "^/api/v1/chat/completions$", "bearer", handlers.chatCompletions, "Text-only employee chat with a self-hosted API write key."),
   route("sandboxResponse", "model", "*", "^/", "session", handlers.sandboxResponse, "SDK inspects request and returns null when not applicable."),
   route("denResponse", "model", "*", "^/api/(?:dens|captains)/", "session", handlers.denResponse),
   route("slackCanvasResponse", "model", "*", "^/api/slack-canvas(?:/websocket)?$", "access", handlers.slackCanvasResponse),

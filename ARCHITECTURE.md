@@ -42,6 +42,7 @@ gateway is stateless (`createMcpHandler` per request), not a DO. Work happens in
    Cron (5 min)  ────► │  automations trigger sweep                      │
    GitHub  ──────────► │  /api/github/webhook  signature-verified        │
    MCP clients  ─────► │  /mcp  bearer token  (OAuth: planned, T29)      │
+   Chat clients ─────► │  /api/v1/chat/completions  scoped bearer key   │
    Agents (WS)  ─────► │  /agents/*, /internal/*                         │
                         └────────────────────┬───────────────────────────┘
                                              ▼

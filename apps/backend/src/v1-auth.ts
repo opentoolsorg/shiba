@@ -45,26 +45,19 @@ async function resolveBearerRecord(env: Env, bearer: string): Promise<TokenRecor
 
 const DASHBOARD_API_SCOPES = [...API_KEY_SCOPES] as Scope[];
 
-export async function authorizeV1Request(request: Request, env: Env): Promise<V1Principal | null> {
+export async function authorizeV1ApiKey(request: Request, env: Env): Promise<V1Principal | Response> {
   const bearer = bearerToken(request);
+  const record = bearer && await resolveBearerRecord(env, bearer);
+  if (!record || record.kind !== "api_key" ||
+    !record.scopes.some((scope) => (API_KEY_SCOPES as readonly string[]).includes(scope))) return v1Unauthorized();
+  if (await apiKeyRateLimited(env, record, request)) return v1TooManyRequests();
+  return { principal: record.principal, orgId: orgIdForRecord(record), scopes: record.scopes, apiKey: record };
+}
+
+export async function authorizeV1Request(request: Request, env: Env): Promise<V1Principal | null> {
   if (request.headers.has("authorization")) {
-    if (bearer === null) return null;
-    const record = await resolveBearerRecord(env, bearer);
-    if (!record || record.kind !== "api_key") {
-      return null;
-    }
-    if (!record.scopes.some((scope) => (API_KEY_SCOPES as readonly string[]).includes(scope))) {
-      return null;
-    }
-    if (await apiKeyRateLimited(env, record, request)) {
-      return null;
-    }
-    return {
-      principal: record.principal,
-      orgId: orgIdForRecord(record),
-      scopes: record.scopes,
-      apiKey: record,
-    };
+    const result = await authorizeV1ApiKey(request, env);
+    return result instanceof Response ? null : result;
   }
   if (!(await isAuthorizedRequest(request, env))) {
     return null;

@@ -122,6 +122,7 @@ export const ACCESS_BYPASS_PATHS = [
   // shared-secret token (sentry-webhook-routes.ts) and cannot complete an
   // Access login — same machine-caller class as the GitHub webhook.
   "/api/sentry/webhook",
+  "/api/v1/chat/completions",
   "/mcp",
   "/mcp/*",
   "/api/local/*",

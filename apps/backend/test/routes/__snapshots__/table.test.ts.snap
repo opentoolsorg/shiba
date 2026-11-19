@@ -79,6 +79,7 @@ collaborationResponse | authenticated | * | ^/api/collaboration(?:/|$) | session
 notificationsResponse | authenticated | * | ^/api/workspace-notifications(?:/|$) | session |
 slackImportResponse | authenticated | * | ^/api/slack-import(?:/|$) | session |
 computersResponse | authenticated | * | ^/api/computers(?:/|$) | session |
+chat-completions | authenticated | * | ^/api/v1/chat/completions$ | bearer | Text-only employee chat with a self-hosted API write key.
 sandboxResponse | model | * | ^/ | session | SDK inspects request and returns null when not applicable.
 denResponse | model | * | ^/api/(?:dens|captains)/ | session |
 slackCanvasResponse | model | * | ^/api/slack-canvas(?:/websocket)?$ | access |
