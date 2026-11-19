@@ -341,7 +341,7 @@ describe("opencode config and argv", () => {
   it.each([
     ["kimi-code/k3.1-pro", "kimi-code", "https://api.kimi.ai/coding/v1", "k3.1-pro"],
     ["meta/muse-spark-1.3", "meta", "https://api.meta.ai/v1", "muse-spark-1.3"],
-    ["deepseek/deepseek-chat", "deepseek", "https://api.deepseek.com/v1", "deepseek-chat"],
+    ["deepseek/deepseek-flash", "deepseek", "https://api.deepseek.com", "deepseek-flash"],
     ["zai/glm-5.3", "zai", "https://api.z.ai/api/paas/v4", "glm-5.3"],
     ["minimax/MiniMax-M3", "minimax", "https://api.minimax.io/v1", "MiniMax-M3"],
     ["qwen/qwen3-coder-plus", "qwen", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen3-coder-plus"],

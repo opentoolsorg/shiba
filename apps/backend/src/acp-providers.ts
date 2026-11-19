@@ -245,7 +245,7 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     blurb: "DeepSeek platform key. OpenCode talks to api.deepseek.com; egress attaches the key and the sandbox only sees a placeholder.",
     adapter: "opencode-acp", packageName: "opencode-ai", license: "see package",
     harness: "opencode-acp", protocol: "acp", spawn: ACP_LANES["opencode-acp"].spec.spawn,
-    defaultModel: "deepseek/deepseek-chat", docsUrl: "https://platform.deepseek.com/api_keys", oauth: false, subscription: null, credentialEnv: [],
+    defaultModel: "deepseek/deepseek-flash", docsUrl: "https://platform.deepseek.com/api_keys", oauth: false, subscription: null, credentialEnv: [],
   },
   {
     id: "zai", label: "Z.ai (GLM)",

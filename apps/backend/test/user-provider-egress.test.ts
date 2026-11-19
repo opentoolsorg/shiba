@@ -73,7 +73,7 @@ describe("user provider key egress", () => {
   it.each([
     ["kimi", "api.kimi.ai", "/coding/v1/chat/completions"],
     ["meta", "api.meta.ai", "/v1/chat/completions"],
-    ["deepseek", "api.deepseek.com", "/v1/chat/completions"],
+    ["deepseek", "api.deepseek.com", "/chat/completions"],
     ["zai", "api.z.ai", "/api/paas/v4/chat/completions"],
     ["minimax", "api.minimax.io", "/v1/chat/completions"],
     ["qwen", "dashscope-intl.aliyuncs.com", "/compatible-mode/v1/chat/completions"],
