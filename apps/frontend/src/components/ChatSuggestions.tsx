@@ -14,14 +14,24 @@ export function ChatSuggestions({ agentName, refreshKey, busy = false, hidden = 
     if (busy || hidden || requested.current?.key === key) return;
     requested.current?.abort.abort();
     const abort = new AbortController();
-    requested.current = { key, abort };
-    fetch(chatSuggestionsUrl(agentName), { method: "POST", credentials: "include", signal: abort.signal, headers: { "Content-Type": "application/json" }, body: "{}" })
-      .then(async (response) => response.ok ? await response.json() as { suggestions?: unknown } : {})
-      .then((body) => {
-        const suggestions = Array.isArray(body.suggestions) ? body.suggestions.filter((item): item is string => typeof item === "string" && item.trim() !== "").slice(0, 3) : [];
-        if (!abort.signal.aborted) setLoaded({ key, suggestions });
-      })
-      .catch(() => { if (!abort.signal.aborted) setLoaded({ key, suggestions: [] }); });
+    const request = { key, abort };
+    requested.current = request;
+    let sent = false;
+    const timer = window.setTimeout(() => {
+      sent = true;
+      fetch(chatSuggestionsUrl(agentName), { method: "POST", credentials: "include", signal: abort.signal, headers: { "Content-Type": "application/json" }, body: "{}" })
+        .then(async (response) => response.ok ? await response.json() as { suggestions?: unknown } : {})
+        .then((body) => {
+          const suggestions = Array.isArray(body.suggestions) ? body.suggestions.filter((item): item is string => typeof item === "string" && item.trim() !== "").slice(0, 3) : [];
+          if (!abort.signal.aborted) setLoaded({ key, suggestions });
+        })
+        .catch(() => { if (!abort.signal.aborted) setLoaded({ key, suggestions: [] }); });
+    }, 0);
+    return () => {
+      if (sent) return;
+      window.clearTimeout(timer);
+      if (requested.current === request) requested.current = null;
+    };
   }, [agentName, key, busy, hidden]);
   const suggestions = loaded?.key === key ? loaded.suggestions : [];
   if (busy || hidden || !suggestions.length) return null;
