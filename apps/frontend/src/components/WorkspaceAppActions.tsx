@@ -12,9 +12,9 @@ const canonical = (value: unknown): string => JSON.stringify(value && typeof val
 type ActionInput = Parameters<typeof requestWorkspaceAppAction>[2];
 type BlockedAction = { workspaceId: string; actorId: string; providerKey: string; unavailableConnectionId: string; input: ActionInput };
 
-export function WorkspaceAppActions({ workspaceId, actorId, canManage, connections, isCurrent, onAccessLost, onConnect }: {
+export function WorkspaceAppActions({ workspaceId, actorId, canManage, connections, isCurrent, onAccessLost, onConnect, onConnectionRequired }: {
   workspaceId: string; actorId?: string | null; canManage: boolean; connections: WorkspaceIntegrationConnection[];
-  isCurrent: () => boolean; onAccessLost: () => void; onConnect?: () => void;
+  isCurrent: () => boolean; onAccessLost: () => void; onConnect?: () => void; onConnectionRequired?: () => void;
 }): JSX.Element | null {
   const employees = useCustomAgentOptions(Boolean(actorId), workspaceId, actorId ?? undefined);
   const [connectionId, setConnectionId] = useState(""), [employeeId, setEmployeeId] = useState(""), [query, setQuery] = useState("");
@@ -75,6 +75,7 @@ export function WorkspaceAppActions({ workspaceId, actorId, canManage, connectio
         if (!active()) return;
         if (cause instanceof WorkspaceIntegrationRequestError && cause.status === 409 && cause.code === "workspace_action_connection_required") {
           setBlocked({ ...request, unavailableConnectionId: connection.id });
+          onConnectionRequired?.();
           return;
         }
         if (resuming && cause instanceof WorkspaceIntegrationRequestError && cause.status === 403 && cause.code === "workspace_connection_grant_missing") {
