@@ -15,6 +15,38 @@ const report = {
 };
 
 describe("run deliverables", () => {
+  it("requires confirmation and restores the same public link after remount before revoking it", async () => {
+    const link = `/share/p/${"a".repeat(64)}`;
+    let path: string | null = null;
+    const requests: Array<[string, string | null]> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (!url.includes("/publication?session=one")) return Response.json({ versions: [] });
+      const method = init?.method ?? "GET";
+      requests.push([method, new Headers(init?.headers).get("If-Match")]);
+      if (method === "POST") path = link;
+      if (method === "DELETE") path = null;
+      return Response.json({ path });
+    }));
+    const tree = <RunDeliverables runId="run" sessionId="one" status="completed"
+      deliverables={[{ ...report, path: "report.html", mediaType: "text/html" }]} />;
+    const first = render(tree);
+    fireEvent.click(await screen.findByRole("button", { name: "Publish version…" }));
+    expect(screen.getByText(/Anyone with the link/)).toBeTruthy();
+    expect(requests).toEqual([["GET", null]]);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("link", { name: "Open public link" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Publish version…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish public link" }));
+    expect((await screen.findByRole("link", { name: "Open public link" })).getAttribute("href")).toBe(link);
+    first.unmount();
+    render(tree);
+    expect((await screen.findByRole("link", { name: "Open public link" })).getAttribute("href")).toBe(link);
+    fireEvent.click(screen.getByRole("button", { name: "Revoke public link" }));
+    await screen.findByText("Public link revoked.");
+    expect(screen.queryByRole("link", { name: "Open public link" })).toBeNull();
+    expect(requests).toEqual([["GET", null], ["POST", `"${report.sha256}"`], ["GET", null], ["DELETE", `"${"a".repeat(64)}"`]]);
+  });
+
   it("uses a new revision command after adopting a conflicting saved review, preserving the local draft", async () => {
     const artifact = { ...report, artifactId: "artifact_0123456789abcdef0123456789abcdef", version: 2,
       review: { status: "changes_requested" as const, revision: 1, updatedAt: 10, note: "Original request" } };

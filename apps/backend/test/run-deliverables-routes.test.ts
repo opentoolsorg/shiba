@@ -5,6 +5,9 @@ import { persistRunDeliverables, verifyExpectedDeliverables, deliverableStorageK
 import type { Env } from "../src/env.js";
 import { createApiKey } from "../src/agent-tokens.js";
 import { authorizeV1Request } from "../src/v1-auth.js";
+import { handleShare } from "../src/share-routes.js";
+import { revokeSessionDeliverablePublications } from "../src/published-deliverables.js";
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const state = vi.hoisted(() => ({
   runs: new Map<string, Record<string, unknown>>(), sessions: new Map<string, string[]>(),
@@ -45,6 +48,7 @@ vi.mock("agents/routing", () => ({
       return Response.json({ ok: true, deliverable: target.deliverables[Number(action[2])] });
     }
     const runId = decodeURIComponent(url.pathname.split("/").pop()!);
+    if (typeof request !== "string" && request.method !== "GET") return Response.json({ error: "Method not allowed." }, { status: 405 });
     const run = state.runs.get(actor+"|"+runId);
     return run ? Response.json({ run }) : Response.json({ error: "Run not found." }, { status: 404 });
   } }),
@@ -83,6 +87,85 @@ function request(path = "/api/runs/same-run/deliverables/0", user = "owner-a", m
     "X-Agent-Principal": "spoofed-owner", "X-Shiba-Intake": "forged",
   } });
 }
+
+describe("published deliverable snapshots", () => {
+  it.each(["html", "pdf"])("keeps a completed %s version private until publish, then serves the snapshot until revoked", async (extension) => {
+    const { database, sqlite } = customAgentD1();
+    try {
+      env.AGENT_AUDIT = database;
+      env.ATTACHMENTS = {
+        ...env.ATTACHMENTS, put: async (key: string, bytes: ArrayBuffer) => {
+          objects.set(key, new Uint8Array(bytes));
+          return { key };
+        },
+        delete: async (keys: string | string[]) => { for (const key of [keys].flat()) objects.delete(key); },
+      } as R2Bucket;
+      const path = `report.${extension}`;
+      const content = extension === "html" ? "<h1>Synthetic report</h1><script>document.body.remove()</script>" : "%PDF-1.4\n%%EOF\n";
+      const original = new TextEncoder().encode(content);
+      const sha256 = Buffer.from(await crypto.subtle.digest("SHA-256", original)).toString("hex");
+      const sessionName = buildSessionAgentName("owner-a", SESSION);
+      const run = { status: "completed", sandboxId: "synthetic", expectedDeliverables: [path], deliverables: [{ path, sha256, bytes: original.length }] };
+      state.sessions.set("owner-a", [SESSION]);
+      state.runs.set(`${sessionName}|same-run`, run);
+      state.runs.set("owner-b|same-run", run);
+      const source = deliverableStorageKey(run.sandboxId, sha256, 0);
+      objects.set(source, original);
+      const endpoint = "/api/runs/same-run/deliverables/0/publication";
+      const manage = (method: string, match = sha256, owner = "owner-a", origin = "https://dashboard.test", authenticated = true) => {
+        const req = request(endpoint + (owner === "owner-a" ? `?session=${SESSION}` : ""), owner, method, authenticated);
+        req.headers.set("Origin", origin);
+        req.headers.set("If-Match", `"${match}"`);
+        return handleRuns(req, env);
+      };
+      const view = (link: string) => handleShare(new Request("https://dashboard.test" + link), env);
+      expect(await (await manage("GET"))?.json()).toEqual({ path: null });
+      expect((await view(`/share/p/${"0".repeat(64)}`))?.status).toBe(404);
+      expect((await manage("POST", sha256, "owner-a", "https://elsewhere.test"))?.status).toBe(403);
+      expect((await manage("POST", sha256, "owner-a", "https://dashboard.test", false))?.status).toBe(401);
+      expect((await manage("POST", "0".repeat(64)))?.status).toBe(409);
+      run.status = "running";
+      expect((await manage("POST"))?.status).toBe(404);
+      run.status = "completed";
+      state.sessionMetadata.set(`owner-a|${SESSION}`, { teamWorkspaceId: "ws_fixture" });
+      expect((await manage("POST"))?.status).toBe(404);
+      state.sessionMetadata.clear();
+      objects.set(source, new Uint8Array(original.length));
+      expect((await manage("POST"))?.status).toBe(409);
+      objects.set(source, original);
+      const results = await Promise.all([manage("POST"), manage("POST")]);
+      expect(results.map((res) => res?.status).sort()).toEqual([200, 201]);
+      const { path: link } = await results[0]!.json() as { path: string };
+      expect(await results[1]!.json()).toEqual({ path: link });
+      expect(await (await manage("GET"))?.json()).toEqual({ path: link });
+      expect((await manage("DELETE", link.split("/").pop(), "owner-b"))?.status).toBe(409);
+      objects.set(source, new Uint8Array(original.length));
+      const published = await view(link + "?print=1");
+      expect(published?.status).toBe(200);
+      expect(published?.headers.get("cache-control")).toBe("no-store");
+      expect(published?.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(published?.headers.get("content-disposition")).toMatch(/^inline/);
+      expect(published?.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+      if (extension === "html") {
+        expect(published?.headers.get("content-security-policy")).toContain("sandbox;");
+        expect(published?.headers.get("content-security-policy")).not.toContain("allow-scripts");
+      }
+      expect(await published?.text()).toBe(content);
+      expect((await manage("DELETE", link.split("/").pop()))?.status).toBe(200);
+      expect((await view(link))?.status).toBe(404);
+      objects.set(source, original);
+      const republished = await (await manage("POST"))?.json() as { path: string };
+      expect(republished.path).not.toBe(link);
+      expect((await manage("DELETE", link.split("/").pop()))?.status).toBe(409);
+      await revokeSessionDeliverablePublications(env, sessionName);
+      expect((await view(republished.path))?.status).toBe(404);
+      expect((await manage("POST"))?.status).toBe(409);
+      expect([...objects.keys()]).toEqual([source]);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
 
 describe("authenticated artifact mutations and internal draft forwarding", () => {
   it("keeps explicit credential organization checks on new intake and team selectors", async () => {

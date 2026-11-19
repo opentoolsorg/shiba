@@ -17,6 +17,7 @@ import { COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID } from "./collaboration-store.js"
 import { isRestrictedTeamMember } from "./team-member-auth.js";
 import { deliverableStorageKey } from "./run-deliverables.js";
 import { deliverableResponse, deliverableViewOptions } from "./deliverable-response.js";
+import { isPublishableDeliverable, manageDeliverablePublication, verifiedDeliverableBytes } from "./published-deliverables.js";
 import { buildRunProof } from "./run-proof.js";
 import { signInternalRequest } from "./edge-identity.js";
 
@@ -212,7 +213,8 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   const taskPath = /^\/api\/tasks(?:\/[^/]+\/(?:retry|cancel))?$/.test(url.pathname);
   const employeeDraftPath = /^\/api\/employee-drafts(?:\/draft_[a-f0-9]{64}(?:\/(?:download|review))?)?$/.test(url.pathname);
   const proofMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/proof$/);
-  const deliverableMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)$/);
+  const deliverableMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)(\/publication)?$/);
+  const publication = !!deliverableMatch?.[3];
   const artifactActionMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)\/(review|history|revision)$/);
   // The DO serves two-segment subroutes under /api/runs/<id>/: fork, screen.
   if (
@@ -261,12 +263,13 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
       return Response.json({ error: "Method not allowed." }, { status: 405 });
     }
   }
-  if (request.method === "POST" && (employeeDraftPath || artifactActionMatch)) {
+  if ((request.method === "POST" && (employeeDraftPath || artifactActionMatch)) ||
+      (publication && request.method !== "GET")) {
     if (request.headers.get("origin") !== url.origin) {
       return Response.json({ error: "Same-origin request required." }, { status: 403 });
     }
   }
-  if ((isSpine || proofMatch || deliverableMatch || artifactActionMatch?.[3] === "history") && request.method !== "GET") {
+  if ((isSpine || proofMatch || (deliverableMatch && !publication) || artifactActionMatch?.[3] === "history") && request.method !== "GET") {
     return Response.json({ error: "Method not allowed." }, { status: 405 });
   }
   if ((artifactActionMatch?.[3] === "review" || artifactActionMatch?.[3] === "revision") && request.method !== "POST") {
@@ -504,25 +507,34 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
     }
     // The verified owning session resolves the manifest. Never search other
     // sessions or fall back to the shared run registry for a download.
-    const lookup = new Request(new URL(`/api/runs/${encodeURIComponent(runId)}`, request.url), rewritten);
+    const lookup = new Request(new URL(`/api/runs/${encodeURIComponent(runId)}`, request.url), {
+      method: "GET", headers: rewritten.headers,
+    });
+    lookup.headers.delete("content-length");
     await signInternalRequest(lookup, env);
     const found = await stub.fetch(lookup);
     if (!found.ok) return found;
     const { run } = await found.json() as { run?: {
-      status?: string; sandboxId?: string; expectedDeliverables?: string[];
+      status?: string; sandboxId?: string; expectedDeliverables?: string[]; collaborationHandoffId?: string;
       deliverables?: { path: string; mediaType: string; bytes: number; sha256: string }[];
     } };
     const item = run?.deliverables?.[index];
     if (isTeamScopedRecord(run) || run?.status !== "completed" || !run.sandboxId || !item || run.expectedDeliverables?.[index] !== item.path || !isSafeDeliverablePath(item.path) || !Number.isInteger(item.bytes) || item.bytes < 1 || item.bytes > deliverableByteLimit(item.path) || !/^[a-f0-9]{64}$/.test(item.sha256)) {
       return Response.json({ error: "Deliverable not found." }, { status: 404 });
     }
+    const publicationScope = [targetAgentName, runId, index] as const;
+    if (publication) {
+      if (run.collaborationHandoffId || !isPublishableDeliverable(item.path)) {
+        return Response.json({ error: "Deliverable not found." }, { status: 404 });
+      }
+      if (request.method !== "POST") return manageDeliverablePublication(env, request, publicationScope);
+    }
     if (!env.ATTACHMENTS) return Response.json({ error: "Deliverable storage is unavailable." }, { status: 503 });
     const object = await env.ATTACHMENTS.get(deliverableStorageKey(run.sandboxId, item.sha256, index));
     if (!object) return Response.json({ error: "Deliverable not found." }, { status: 404 });
-    if (object.size !== item.bytes) return Response.json({ error: "Deliverable integrity check failed." }, { status: 409 });
-    const body = await object.arrayBuffer();
-    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", body)), (byte) => byte.toString(16).padStart(2, "0")).join("");
-    if (body.byteLength !== item.bytes || hash !== item.sha256) return Response.json({ error: "Deliverable integrity check failed." }, { status: 409 });
+    const body = await verifiedDeliverableBytes(object, item);
+    if (!body) return Response.json({ error: "Deliverable integrity check failed." }, { status: 409 });
+    if (publication) return manageDeliverablePublication(env, request, publicationScope, item, body);
     return deliverableResponse(item.path, body, deliverableViewOptions(url));
   }
   const response = await stub.fetch(rewritten);

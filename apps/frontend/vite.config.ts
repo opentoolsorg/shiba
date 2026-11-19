@@ -44,6 +44,7 @@ export default defineConfig({
     // Same-origin in prod; in dev the Worker runs on 8788 (8787 is often taken).
     proxy: {
       "/api": { target: "http://localhost:8788", ws: true },
+      "/share/p/": { target: "http://localhost:8788" },
       "/agents": { target: "http://localhost:8788", ws: true },
     },
     open: "/",

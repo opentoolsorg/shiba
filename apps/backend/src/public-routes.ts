@@ -22,7 +22,7 @@ export function isPublicRequest(request: Request): boolean {
     // edge Access gate is misconfigured; the handler still verifies the
     // shared secret before queueing anything.
     || (request.method === "POST" && path === "/api/sentry/webhook")
-    || (request.method === "GET" && /^\/share\/[cf]\/[^/]+$/.test(path))
+    || (request.method === "GET" && /^\/share\/[cfp]\/[^/]+$/.test(path))
     || (request.method === "GET" && /^\/api\/share\/file\/[^/]+$/.test(path));
 }
 

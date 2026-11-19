@@ -14,6 +14,7 @@ import { isRestrictedTeamMember } from "./team-member-auth.js";
 import { redactSecrets } from "./security.js";
 import { runRoomName } from "./run-room-events.js";
 import { revokeRoomOutputArchives } from "./run-output-archive-reservations.js";
+import { revokeSessionDeliverablePublications } from "./published-deliverables.js";
 import {
   buildSessionAgentName,
   createWebSession,
@@ -480,6 +481,7 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
         // A deleted private session cannot leave a retained output read path.
         // D1 is authoritative for every archive response, including in-flight reads.
         await revokeRoomOutputArchives(env, userId.trim().toLowerCase(), sessionId);
+        await revokeSessionDeliverablePublications(env, sessionAgentName);
         const response = await stub.fetch(
           `https://internal/internal/web-sessions/${encodeURIComponent(sessionId)}`,
           { method: "DELETE" },

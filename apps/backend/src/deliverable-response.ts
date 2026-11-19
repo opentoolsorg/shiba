@@ -5,6 +5,7 @@ export const HTML_DELIVERABLE_CSP =
   "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'none'; frame-ancestors 'self'";
 // The sandbox directive keeps a directly opened URL in an opaque origin, same as the iframe.
 const HTML_SANDBOX_CSP = `${HTML_DELIVERABLE_CSP}; sandbox allow-scripts allow-modals`;
+const PUBLISHED_HTML_CSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const PRINT_SCRIPT = '<script>addEventListener("load",()=>setTimeout(()=>print(),300))</script>';
 
 export interface DeliverableViewOptions {
@@ -12,6 +13,7 @@ export interface DeliverableViewOptions {
   inline?: boolean;
   /** Append a print trigger to html so "Save as PDF" works from a sandboxed tab. */
   print?: boolean;
+  published?: boolean;
 }
 
 export function deliverableViewOptions(url: URL): DeliverableViewOptions {
@@ -25,13 +27,13 @@ export function deliverableResponse(path: string, body: ArrayBuffer, options: De
   const viewable = isHtml || extension === "pdf";
   const inline = options.inline === true && viewable;
   let payload: ArrayBuffer | Uint8Array = body;
-  if (isHtml && inline && options.print) payload = new TextEncoder().encode(new TextDecoder().decode(body) + PRINT_SCRIPT);
+  if (isHtml && inline && options.print && !options.published) payload = new TextEncoder().encode(new TextDecoder().decode(body) + PRINT_SCRIPT);
   const headers = new Headers(extra);
   headers.set("content-type", deliverableMediaType(path)!);
   headers.set("content-disposition", `${inline ? "inline" : "attachment"}; filename="${path.split("/").pop()!}"`);
   headers.set("content-length", String(payload.byteLength));
   headers.set("x-content-type-options", "nosniff");
-  if (isHtml) headers.set("content-security-policy", HTML_SANDBOX_CSP);
-  else if (extension === "pdf") headers.set("content-security-policy", "frame-ancestors 'self'");
+  if (isHtml) headers.set("content-security-policy", options.published ? PUBLISHED_HTML_CSP : HTML_SANDBOX_CSP);
+  else if (extension === "pdf") headers.set("content-security-policy", options.published ? "frame-ancestors 'none'" : "frame-ancestors 'self'");
   return new Response(payload as BodyInit, { headers });
 }

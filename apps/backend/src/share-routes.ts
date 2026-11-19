@@ -4,6 +4,7 @@ import { GovernanceError } from "./governance/governance-store.js";
 import { createShareLink, resolveShareLinkByToken } from "./governance/share-links-store.js";
 import { isAuthorizedRequest, requireJsonContentType, resolveUserId } from "./request-auth.js";
 import { normalizeTeamWorkspaceEmail } from "./team-workspaces-store.js";
+import { readPublishedDeliverable } from "./published-deliverables.js";
 
 const json = (value: unknown, status = 200) =>
   Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -11,6 +12,8 @@ const json = (value: unknown, status = 200) =>
 export async function handleShare(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   const path = url.pathname;
+  const published = path.match(/^\/share\/p\/([^/]+)$/)?.[1];
+  if (published && request.method === "GET") return readPublishedDeliverable(env, published);
 
   const publicChat = path.match(/^\/share\/c\/([^/]+)$/);
   const publicFile = path.match(/^\/share\/f\/([^/]+)$/);

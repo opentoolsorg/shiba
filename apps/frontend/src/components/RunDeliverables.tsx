@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type JSX } from "react";
 import type { RunDeliverable, RunStatus } from "@shiba/shared";
 import { VideoArtifactPlayer } from "./VideoArtifactPlayer";
 import { DeliverablePreview } from "./DeliverablePreview";
+import { DeliverablePublication } from "./DeliverablePublication";
 
 interface ArtifactVersion {
   runId: string;
@@ -298,6 +299,9 @@ function ArtifactDetails({
         Download {filePath}
       </a>
       {completed && <DeliverablePreview src={href} path={filePath} downloadHref={href} />}
+      {completed && /\.(html|pdf)$/i.test(filePath) && (
+        <DeliverablePublication key={href} endpoint={artifactRoute(runId, index, "publication", sessionId)} sha256={file.sha256} />
+      )}
       {completed && (
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           {rooms === null ? (
