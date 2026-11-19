@@ -12,7 +12,7 @@ import { AgentAvatar as BaseAvatar } from "./AgentAvatar";
 import { ShibaMark } from "./ShibaMark";
 import { ViewHeader, viewButtonClass } from "./ui/ViewChrome";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
-import { BotNotice, BotTabList, QUIET_BUTTON, type BotNoticeTone, type BotPanelTab } from "./bot/BotPanel";
+import { BotNotice, BotTabList, QUIET_BUTTON, type BotNoticeTone, type BotPanelTab, type BotRunsScope } from "./bot/BotPanel";
 import { BotDetailsTab, type BotModelEdit } from "./bot/BotDetailsTab";
 import { BotLibraryTab, type BotRunOutput } from "./bot/BotLibraryTab";
 import { BotComputerTab, type BotRunRow } from "./bot/BotComputerTab";
@@ -40,6 +40,30 @@ export function employeeExamples(agent?: CustomAgentWire): readonly string[] {
 export function AgentAvatar({ name, slug, role, agentId, mascotPreset, look, avatar, large = false, size = large ? 112 : 40 }: { name: string; slug?: string; role?: EmployeeRole; agentId?: string; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; avatar?: AgentAvatarChoice; large?: boolean; size?: number }) {
   if (slug === undefined) return <span className="inline-flex shrink-0" style={{ width: size, height: size }}><ShibaMark className="size-full" decorative /></span>;
   return <BaseAvatar id={agentId ?? slug} name={name} mascotPreset={mascotPreset} look={look} avatar={avatar} role={role ?? employeeRole(slug)} size={size} decorative />;
+}
+
+/**
+ * A bot page with no thread behind it. The panel is open on a bot that has never
+ * been messaged, so the surface shows that bot and one action: it never borrows
+ * the previous bot's conversation, title editor, drafts or composer.
+ */
+export function BotThreadlessState({ name, slug, role, agentId, mascotPreset, look, avatar, busy = false, onStart }: {
+  name: string; slug?: string; role?: EmployeeRole; agentId?: string;
+  mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; avatar?: AgentAvatarChoice;
+  busy?: boolean; onStart: () => void;
+}) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+      <AgentAvatar agentId={agentId} name={name} mascotPreset={mascotPreset} avatar={avatar} look={look} slug={slug} role={role} large />
+      <h2 className="text-base font-medium text-[var(--fg)]">{name} has no thread yet</h2>
+      <p className="max-w-md text-sm leading-relaxed text-[var(--muted-foreground-2)]">
+        Details, Library and Computer show what this bot is and what it has done. A thread is where you give it work to start.
+      </p>
+      <button type="button" disabled={busy} onClick={onStart} className={viewButtonClass}>
+        Start a thread with {name}
+      </button>
+    </div>
+  );
 }
 
 export function AgentSidebar({ agents, threads, selectedId, onOpenThread, onNewThread, onManage, onOpenAgent }: {
@@ -180,6 +204,8 @@ export interface AgentDetailsPanelProps {
   pendingApprovals?: number;
   /** Captured files from those runs. */
   runOutputs?: readonly BotRunOutput[];
+  /** Which conversation the run lists cover, and whether that read has landed. */
+  runsScope?: BotRunsScope;
   onOpenRun?: (runId: string) => void;
   onOpenApprovals?: () => void;
   onManageTools?: () => void;
@@ -238,6 +264,7 @@ export function AgentDetailsPanel({
   runs = [],
   pendingApprovals = 0,
   runOutputs = [],
+  runsScope,
   onOpenRun,
   onOpenApprovals,
   onManageTools,
@@ -391,6 +418,7 @@ export function AgentDetailsPanel({
               setDeliverables([...paths]);
             } : undefined}
             runs={runOutputs}
+            runsScope={runsScope}
             onOpenRun={onOpenRun}
             onLibraryNotice={setLibraryNotice}
           />
@@ -401,6 +429,7 @@ export function AgentDetailsPanel({
             configuredSandbox={agent?.config.sandboxProvider}
             connectionId={agent?.config.connectionId}
             runs={runs}
+            runsScope={runsScope}
             pendingApprovals={pendingApprovals}
             onOpenRun={onOpenRun}
             onOpenApprovals={onOpenApprovals}

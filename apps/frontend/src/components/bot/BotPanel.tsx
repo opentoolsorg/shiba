@@ -49,6 +49,25 @@ export function Disclosure({ label, summary, id, open, onOpenChange, children }:
 
 export type BotPanelTab = "details" | "library" | "computer";
 
+/**
+ * What the panel's run and output lists actually cover. `state` keeps a read
+ * that has not landed apart from a verified empty one, and the thread fields
+ * say which conversation the rows came from: the dashboard reads runs per
+ * session, so a bot's other threads are not in this list.
+ */
+export interface BotRunsScope {
+  state: "loading" | "error" | "ready";
+  threadName?: string;
+  otherThreadCount: number;
+}
+
+/** The sentence that names the narrower coverage, or null when it is the whole bot. */
+export function botRunsScopeNote(scope: BotRunsScope | undefined): string | null {
+  if (!scope || scope.otherThreadCount === 0) return null;
+  const threads = scope.otherThreadCount === 1 ? "1 other thread" : `${scope.otherThreadCount} other threads`;
+  return `This bot's ${threads} keep their own runs; open one to see them.`;
+}
+
 export const BOT_TABS: readonly { id: BotPanelTab; label: string }[] = [
   { id: "details", label: "Details" },
   { id: "library", label: "Library" },

@@ -37,7 +37,8 @@ import { SkillsView } from "./components/SkillsView";
 import { SpacesView } from "./components/SpacesView";
 import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from "./components/CustomAgentsView";
 import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
-import { AgentDetailsPanel, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
+import { AgentDetailsPanel, BotThreadlessState, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
+import type { BotRunsScope } from "./components/bot/BotPanel";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
 import { saveBotConfig, saveBotDeliverables, type BotConfigEdit } from "./bot-library";
@@ -444,6 +445,13 @@ export function App(): React.JSX.Element {
   const taskRouteChosen = useRef(false);
   const [customAgentId, setCustomAgentId] = useState("");
   const [agentDetailsOpen, setAgentDetailsOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1280);
+  // A bot page can be open with no thread behind it. That is its own state: the
+  // surface shows the bot and one Start action, and the previous bot's thread
+  // chrome, composer and draft stay off screen.
+  const [botPageOnly, setBotPageOnly] = useState(false);
+  // Every selection takes a ticket; an answer that arrives after a newer
+  // selection threw its ticket away is dropped.
+  const sessionSelectionSeq = useRef(0);
   const [employeeOnboardingDismissed, setEmployeeOnboardingDismissed] = useState(() => {
     try { return localStorage.getItem(ONBOARDING_DISMISSED_KEY) === "true"; } catch { return false; }
   });
@@ -820,7 +828,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       // Query state belongs to the view that set it, so a view change starts
       // clean — except when the browser itself restored the query.
       const kept = traversing || first || !viewChanged ? window.location.search : "";
-      const query = withThreadLink(kept, shared ? null : selectedSessionId);
+      // A bot page with no thread has no conversation to point at, so it keeps no
+      // session selector in the address.
+      const query = withThreadLink(kept, shared || botPageOnly ? null : selectedSessionId);
       const path = query ? `${base}?${query}` : base;
       const push = !traversing && ((viewChanged && !first) || threadUrlMode.current === "push");
       threadUrlMode.current = "replace";
@@ -834,7 +844,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     if (window.location.pathname === base) return;
     if (first) router.history.replace(base + window.location.search + window.location.hash);
     else router.history.push(base);
-  }, [mainView, settingsSection, selectedSessionId, teamWorkspaceId, threadLinkPending, router]);
+  }, [mainView, settingsSection, selectedSessionId, botPageOnly, teamWorkspaceId, threadLinkPending, router]);
 
   useEffect(() => {
     const onPop = () => {
@@ -2719,6 +2729,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     async (id: string) => {
       if (!privateDataEnabled) return;
       const selectionScope = activeSurfaceScopeRef.current;
+      const selectionTicket = ++sessionSelectionSeq.current;
       const session = visibleWebSessions.find((item) => item.id === id);
       if (!session && id !== "default") {
         // A run row is not a chat session: inspect it without disturbing the
@@ -2763,12 +2774,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         }
       }
       if (activeSurfaceScopeRef.current !== selectionScope) return;
+      // A newer click already owns the surface; this reply is stale.
+      if (selectionTicket !== sessionSelectionSeq.current) return;
       pushThreadUrl();
       setSelectedSessionId(id);
       writeRememberedSessionId(id);
       setCustomAgentId(threadAgentId(session));
       setMobileSessionsOpen(false);
       setSelectedRunId(null);
+      setBotPageOnly(false);
       setMainView("threads");
     },
     [visibleWebSessions, privateDataEnabled, pushThreadUrl],
@@ -2853,6 +2867,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setSelectedSessionId(session.id);
       writeRememberedSessionId(session.id);
       setSelectedRunId(null);
+      setBotPageOnly(false);
       setCustomAgentId(profile.id);
       applyThreadProfile(profile);
       setNotice(null);
@@ -2884,13 +2899,24 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const openBotPanel = useCallback((agentId?: string) => {
     if (teamWorkspaceId) { openView("custom-agents"); return; }
     const profile = agentId ? customAgentRecordsRef.current.find((item) => item.id === agentId) : undefined;
-    setCustomAgentId(profile?.id ?? "");
-    setAgentDetailsOpen(true);
-    setMainView("threads");
     const latest = visibleWebSessions
       .filter((session) => (profile ? threadAgentId(session) === profile.id : !threadAgentId(session)))
       .sort((a, b) => b.updatedAt - a.updatedAt)[0];
-    if (latest) void handleSelectSession(latest.id);
+    // Fence any reply still in flight for the conversation on screen: it must not
+    // land on the bot page that is opening now.
+    sessionSelectionSeq.current += 1;
+    setCustomAgentId(profile?.id ?? "");
+    setAgentDetailsOpen(true);
+    setMainView("threads");
+    if (latest) {
+      setBotPageOnly(false);
+      void handleSelectSession(latest.id);
+    } else {
+      // No thread is this bot's own state, not a reason to keep the last bot's
+      // thread selected with its title editor and composer pointed at it.
+      setBotPageOnly(true);
+      setSelectedRunId(null);
+    }
   }, [handleSelectSession, openView, teamWorkspaceId, visibleWebSessions]);
   const setupEmployee = async (template: EmployeeTemplate) => {
     const setupScope = activeSurfaceScopeRef.current;
@@ -2936,11 +2962,25 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const botRunRows = useMemo(() => botRuns.slice(0, 8).map((run) => ({
     runId: run.runId, status: run.status, task: run.task, createdAt: run.createdAt, updatedAt: run.updatedAt,
   })), [botRuns]);
+  // Runs are stored per session and the deliverable route reads only the session
+  // it is given, so every captured file carries the conversation that owns it.
   const botRunOutputs = useMemo(() => botRuns.flatMap((run) => (run.deliverables ?? []).map((file, index) => ({
     runId: run.runId, runStatus: run.status, runCreatedAt: run.createdAt, path: file.path, index,
+    sessionId: selectedSessionId,
     ...(file.bytes !== undefined ? { bytes: file.bytes } : {}),
     ...(file.mediaType !== undefined ? { mediaType: file.mediaType } : {}),
-  }))), [botRuns]);
+  }))), [botRuns, selectedSessionId]);
+  // This bot's other threads, which the run list cannot see: the dashboard reads
+  // runs per session, so the panel names that narrower coverage instead of
+  // calling one thread's runs the bot's whole history.
+  const botRunsScope = useMemo<BotRunsScope>(() => {
+    const threads = visibleWebSessions.filter((session) => customAgentId ? threadAgentId(session) === customAgentId : !threadAgentId(session));
+    return {
+      state: runsError ? "error" : listSettled ? "ready" : "loading",
+      ...(selectedSessionId !== "default" && activeWebSession && !botPageOnly ? { threadName: activeWebSession.name || "this thread" } : {}),
+      otherThreadCount: Math.max(0, threads.length - 1),
+    };
+  }, [visibleWebSessions, customAgentId, runsError, listSettled, selectedSessionId, activeWebSession, botPageOnly]);
   const botPendingApprovals = useMemo(
     () => visibleStoredApprovals.filter((approval) => (customAgentId ? approval.customAgentId === customAgentId : !approval.customAgentId)).length,
     [visibleStoredApprovals, customAgentId],
@@ -3570,6 +3610,20 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 className="flex min-h-full min-w-0 flex-1 shrink-0 flex-col overflow-hidden bg-[var(--bg)] xl:min-h-0"
                 aria-busy={busy}
               >
+                {botPageOnly ? (
+                  <BotThreadlessState
+                    name={chatAgent.name}
+                    slug={activeEmployee?.slug}
+                    role={chatAgent.role}
+                    agentId={chatAgent.id}
+                    mascotPreset={chatAgent.mascotPreset}
+                    look={chatAgent.look}
+                    avatar={chatAgent.avatar}
+                    busy={threadLinkPending}
+                    onStart={() => void startSidebarAgentThread(activeEmployee)}
+                  />
+                ) : (
+                  <>
                 <AgentChatHeader
                   sideQuestion={sessionCustomAgentId && selectedSessionId !== "default" && !teamWorkspaceId ? { employeeId: sessionCustomAgentId, threadId: selectedSessionId } : undefined}
                   agent={chatAgent}
@@ -4076,6 +4130,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   />
                   )}
                 </div>
+                  </>
+                )}
               </main>
               {agentDetailsOpen ? (
                 <AgentDetailsPanel
@@ -4097,6 +4153,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   runs={botRunRows}
                   pendingApprovals={botPendingApprovals}
                   runOutputs={botRunOutputs}
+                  runsScope={botRunsScope}
                   onOpenRun={(runId) => { setSelectedRunId(runId); setMainView("analytics"); }}
                   onOpenApprovals={() => setMainView("approvals")}
                   onManageTools={activeEmployee ? () => { setInitialEmployeeId(activeEmployee.id); openView("employee-tools"); } : undefined}

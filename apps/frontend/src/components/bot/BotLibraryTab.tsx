@@ -6,17 +6,31 @@ import { botFileDownloadPath, previewLimitation, type BotLibraryLink } from "../
 import { listAttachableFiles, readBotLibraryLink, type AuthorizedBotFile } from "../../bot-files";
 import { DeliverablePreview } from "../DeliverablePreview";
 import { VideoArtifactPlayer } from "../VideoArtifactPlayer";
-import { BotSectionState, FIELD_CLASS, QUIET_BUTTON, formatBytes, type BotNoticeTone } from "./BotPanel";
+import { BotSectionState, FIELD_CLASS, QUIET_BUTTON, botRunsScopeNote, formatBytes, type BotNoticeTone, type BotRunsScope } from "./BotPanel";
 
 /** One captured file from a run this bot started. */
 export interface BotRunOutput {
   runId: string;
   runStatus: RunStatus;
   runCreatedAt: number;
+  /**
+   * The conversation that owns the run. Runs are stored per session and the
+   * route reads only the requested one, so a link without it cannot reach a
+   * file captured in a named thread.
+   */
+  sessionId: string;
   path: string;
   index: number;
   bytes?: number;
   mediaType?: string;
+}
+
+/** Retained deliverable URL, carrying the owning session when it is not the default one. */
+export function botRunOutputPath(output: Pick<BotRunOutput, "runId" | "index" | "sessionId">): string {
+  const route = `/api/runs/${encodeURIComponent(output.runId)}/deliverables/${output.index}`;
+  return output.sessionId && output.sessionId !== "default"
+    ? `${route}?${new URLSearchParams({ session: output.sessionId })}`
+    : route;
 }
 
 const previewKind = (name: string, mime?: string): "text" | "image" | "video" | "embed" | null => {
@@ -49,6 +63,7 @@ export function BotLibraryTab({
   deliverables,
   onDeliverablesSave,
   runs,
+  runsScope,
   onOpenRun,
   onLibraryNotice,
 }: {
@@ -58,6 +73,8 @@ export function BotLibraryTab({
   deliverables: readonly string[];
   onDeliverablesSave: ((paths: readonly string[]) => Promise<void>) | undefined;
   runs: readonly BotRunOutput[];
+  /** Which conversation these outputs were read from, and whether the read landed. */
+  runsScope?: BotRunsScope;
   onOpenRun?: (runId: string) => void;
   onLibraryNotice: (notice: { tone: BotNoticeTone; text: string } | null) => void;
 }) {
@@ -233,10 +250,16 @@ export function BotLibraryTab({
           <p className="font-mono text-[10px] text-[var(--muted-foreground-2)]">{runs.length} captured</p>
         </div>
         <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
-          Files captured from runs this bot started. They are read from the run that produced them, not from this bot.
+          Files captured from runs this bot started{runsScope?.threadName ? ` in ${runsScope.threadName}` : ""}. They are read from the run that produced them, not from this bot.
         </p>
         {runGroups.length === 0 ? (
-          <BotSectionState>No captured output yet. A completed run lists its captured files here.</BotSectionState>
+          <BotSectionState>
+            {runsScope?.state === "loading"
+              ? "Loading this bot's captured files…"
+              : runsScope?.state === "error"
+                ? "This bot's runs could not be read just now, so nothing is listed. Reload to try again."
+                : `No captured output${runsScope?.threadName ? ` in ${runsScope.threadName}` : ""} yet. A completed run lists its captured files here.`}
+          </BotSectionState>
         ) : (
           <ul aria-label="Bot run outputs" className="flex flex-col gap-2">
             {runGroups.map(([runId, outputs]) => {
@@ -249,7 +272,7 @@ export function BotLibraryTab({
                   </div>
                   <ul className="mt-1 flex flex-col gap-1">
                     {outputs.map((output) => {
-                      const src = `/api/runs/${encodeURIComponent(output.runId)}/deliverables/${output.index}`;
+                      const src = botRunOutputPath(output);
                       const name = output.path.split("/").pop() || output.path;
                       const key = `${output.runId}:${output.index}`;
                       return (
@@ -286,6 +309,7 @@ export function BotLibraryTab({
             })}
           </ul>
         )}
+        {botRunsScopeNote(runsScope) ? <BotSectionState>{botRunsScopeNote(runsScope)}</BotSectionState> : null}
       </section>
 
       <BotDeliverablesSection

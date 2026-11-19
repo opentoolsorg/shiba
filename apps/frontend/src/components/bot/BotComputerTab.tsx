@@ -1,5 +1,5 @@
 import type { RunStatus } from "@shiba/shared";
-import { BotSectionState } from "./BotPanel";
+import { BotSectionState, botRunsScopeNote, type BotRunsScope } from "./BotPanel";
 
 export interface BotPairedComputer {
   machineId: string;
@@ -55,6 +55,7 @@ export function BotComputerTab({
   configuredSandbox,
   connectionId,
   runs,
+  runsScope,
   pendingApprovals = 0,
   onOpenRun,
   onOpenApprovals,
@@ -64,6 +65,8 @@ export function BotComputerTab({
   configuredSandbox?: string;
   connectionId?: string;
   runs: readonly BotRunRow[];
+  /** Which conversation these runs were read from, and whether the read landed. */
+  runsScope?: BotRunsScope;
   /** Queued tasks for this bot that are waiting on a person, from the approval queue. */
   pendingApprovals?: number;
   onOpenRun?: (runId: string) => void;
@@ -151,8 +154,17 @@ export function BotComputerTab({
           <h3 id="bot-computer-runs" className="text-xs font-medium text-[var(--muted-foreground-2)]">Approved runs</h3>
           <p className="font-mono text-[10px] text-[var(--muted-foreground-2)]">{runs.length} recent</p>
         </div>
+        {runsScope?.threadName ? (
+          <p className="text-[11px] text-[var(--muted-foreground-2)]">Runs started in {runsScope.threadName}.</p>
+        ) : null}
         {runs.length === 0 ? (
-          <BotSectionState>No run from this bot yet. Queue a task and it waits for approval before anything starts.</BotSectionState>
+          <BotSectionState>
+            {runsScope?.state === "loading"
+              ? "Loading this bot's runs…"
+              : runsScope?.state === "error"
+                ? "This bot's runs could not be read just now. Reload to try again."
+                : `No run from this bot${runsScope?.threadName ? ` in ${runsScope.threadName}` : ""} yet. Queue a task and it waits for approval before anything starts.`}
+          </BotSectionState>
         ) : (
           <ul aria-label="Approved runs" className="flex flex-col gap-1.5">
             {runs.slice(0, 6).map((run) => (
@@ -171,6 +183,7 @@ export function BotComputerTab({
             ))}
           </ul>
         )}
+        {botRunsScopeNote(runsScope) ? <BotSectionState>{botRunsScopeNote(runsScope)}</BotSectionState> : null}
         {waiting > 0 ? (
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted-foreground-2)]">
             <span>{waiting} task{waiting === 1 ? "" : "s"} waiting for approval.</span>

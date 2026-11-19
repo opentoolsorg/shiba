@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentConversationEmpty, AgentDetailsPanel, AgentPageHeader, AgentSidebar, EmployeeOnboarding, createEmployeeAgent, employeeExamples } from "./AgentExperience";
+import { AgentConversationEmpty, AgentDetailsPanel, AgentPageHeader, AgentSidebar, BotThreadlessState, EmployeeOnboarding, createEmployeeAgent, employeeExamples } from "./AgentExperience";
 import type { CustomAgentWire } from "./CustomAgentsView";
 import { EMPLOYEE_TEMPLATES } from "../employee-templates";
 
@@ -552,5 +552,77 @@ describe("bot panel workflows", () => {
     render(<AgentDetailsPanel agent={undefined} directoryLoading onClose={vi.fn()} onEdit={vi.fn()} />);
     expect(screen.getByRole("status").textContent).toBe("Loading this bot…");
     expect(screen.queryByRole("button", { name: "Edit description" })).toBeNull();
+  });
+});
+
+describe("threadless bot page", () => {
+  it("shows that bot's own empty surface with one action and no previous conversation", () => {
+    const onStart = vi.fn();
+    render(<BotThreadlessState name="Engineering bot" onStart={onStart} />);
+    expect(screen.getByRole("heading", { name: "Engineering bot has no thread yet" })).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Start a thread with Engineering bot" }));
+    expect(onStart).toHaveBeenCalledOnce();
+  });
+});
+
+describe("bot run scope", () => {
+  const openTab = (name: "Library" | "Computer") => fireEvent.click(screen.getByRole("tab", { name }));
+
+  it("names the thread its runs came from and the threads it cannot see", () => {
+    render(
+      <AgentDetailsPanel
+        agent={agent}
+        onClose={vi.fn()}
+        onEdit={vi.fn()}
+        runsScope={{ state: "ready", threadName: "Competitor brief", otherThreadCount: 2 }}
+        runs={[{ runId: "run-1", status: "completed", task: "Write the brief", createdAt: 1, updatedAt: 2 }]}
+      />,
+    );
+    openTab("Computer");
+    expect(screen.getByText("Runs started in Competitor brief.")).toBeTruthy();
+    expect(screen.getByText(/This bot's 2 other threads keep their own runs/)).toBeTruthy();
+  });
+
+  it("keeps a read that has not landed apart from a verified empty one", () => {
+    const panel = (state: "loading" | "error" | "ready") => (
+      <AgentDetailsPanel agent={agent} onClose={vi.fn()} onEdit={vi.fn()} runsScope={{ state, otherThreadCount: 0 }} />
+    );
+    const { rerender } = render(panel("loading"));
+    openTab("Computer");
+    expect(screen.getByText("Loading this bot's runs…")).toBeTruthy();
+    rerender(panel("error"));
+    expect(screen.getByText(/could not be read just now/)).toBeTruthy();
+    rerender(panel("ready"));
+    expect(screen.getByText(/No run from this bot yet/)).toBeTruthy();
+  });
+
+  it("carries the owning session on a captured file link", () => {
+    render(
+      <AgentDetailsPanel
+        agent={agent}
+        onClose={vi.fn()}
+        onEdit={vi.fn()}
+        runsScope={{ state: "ready", threadName: "Competitor brief", otherThreadCount: 0 }}
+        runOutputs={[{ runId: "run-9", runStatus: "completed", runCreatedAt: 1, sessionId: "named-thread", path: "reports/brief.md", index: 2 }]}
+      />,
+    );
+    openTab("Library");
+    const link = screen.getByRole("link", { name: "Download reports/brief.md" });
+    expect(link.getAttribute("href")).toBe("/api/runs/run-9/deliverables/2?session=named-thread");
+    expect(screen.getByText(/Files captured from runs this bot started in Competitor brief/)).toBeTruthy();
+  });
+
+  it("leaves the default session out of the link, which needs no selector", () => {
+    render(
+      <AgentDetailsPanel
+        agent={agent}
+        onClose={vi.fn()}
+        onEdit={vi.fn()}
+        runOutputs={[{ runId: "run-9", runStatus: "completed", runCreatedAt: 1, sessionId: "default", path: "reports/brief.md", index: 0 }]}
+      />,
+    );
+    openTab("Library");
+    expect(screen.getByRole("link", { name: "Download reports/brief.md" }).getAttribute("href")).toBe("/api/runs/run-9/deliverables/0");
   });
 });

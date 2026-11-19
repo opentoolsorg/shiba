@@ -1204,6 +1204,86 @@ describe("first-run setup reminders", () => {
   });
 });
 
+describe("bot page without a thread", () => {
+  const research = { id: "cag-research", orgId: "self-hosted", slug: "research", version: 1, config: { name: "Research bot", instructions: "Write briefs.", harness: "opencode" } };
+  const engineering = { id: "cag-engineering", orgId: "self-hosted", slug: "engineering", version: 1, config: { name: "Engineering bot", instructions: "Review code.", harness: "opencode" } };
+  const RESEARCH_THREAD = "11111111-1111-4111-8111-111111111111";
+  const researchThread = { id: RESEARCH_THREAD, name: "Competitor brief", agentName: `web:test-operator:${RESEARCH_THREAD}`, createdAt: 3, updatedAt: 3, metadata: { customAgentId: research.id } };
+
+  /** Two bots; only Research has a thread. `resume` lets a test hold the reply. */
+  function stubBots(resume?: () => Promise<Response>) {
+    const originalFetch = fetch;
+    const request = vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
+      if (path === "/api/custom-agents" && options?.method !== "POST") return Response.json({ agents: [research, engineering] });
+      if (path === "/api/sessions" && options?.method === "POST") return Response.json({ status: 201, session: { id: "55555555-5555-4555-8555-555555555555", name: "Engineering bot", agentName: "web:test-operator:55555555-5555-4555-8555-555555555555", createdAt: 5, updatedAt: 5, metadata: { customAgentId: engineering.id } } });
+      if (path === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: [researchThread], defaultSessionId: "default" });
+      if (/^\/api\/sessions\/[^/]+\/resume$/.test(path)) return resume ? resume() : Response.json({ session: researchThread, resumed: true });
+      if (path === "/api/agents") return Response.json({ agents: [] });
+      if (path === "/api/approvals") return Response.json({ approvals: [], decided: [] });
+      if (path.startsWith("/api/runs")) return Response.json({ runs: [] });
+      return originalFetch(url, options);
+    });
+    vi.stubGlobal("fetch", request);
+    return request;
+  }
+
+  /** A bot's page is reachable from the Agents view, where every bot is listed. */
+  async function openBotFromAgentsView(name: RegExp) {
+    await act(async () => {
+      window.history.pushState(null, "", "/custom-agents/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    const row = await screen.findAllByRole("button", { name });
+    fireEvent.click(row[0]!);
+  }
+
+  it("opens a threadless bot without borrowing the previous bot's thread", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    const request = stubBots();
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+
+    await openBotFromAgentsView(/Engineering bot/);
+
+    await screen.findByRole("heading", { name: "Engineering bot has no thread yet" });
+    expect(screen.queryByTestId("task-composer")).toBeNull();
+    expect(screen.queryByLabelText(/Thread name|Rename thread/i)).toBeNull();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+
+    fireEvent.click(screen.getByRole("button", { name: "Start a thread with Engineering bot" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ name: "Engineering bot", metadata: { customAgentId: engineering.id } }),
+    })));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe("55555555-5555-4555-8555-555555555555"));
+    expect(screen.queryByRole("heading", { name: "Engineering bot has no thread yet" })).toBeNull();
+  });
+
+  it("drops a resume reply that lands after a newer bot was opened", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    mocks.chat.messages = [];
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    stubBots(async () => { await held; return Response.json({ session: researchThread, resumed: true }); });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
+    await openBotFromAgentsView(/Engineering bot/);
+    await screen.findByRole("heading", { name: "Engineering bot has no thread yet" });
+
+    await act(async () => { release?.(); await held; });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(screen.getByRole("heading", { name: "Engineering bot has no thread yet" })).toBeTruthy();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+    expect(screen.queryAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).not.toContain("Research bot");
+  });
+});
+
 describe("bot thread links", () => {
   const research = { id: "cag-research", orgId: "self-hosted", slug: "research", version: 1, config: { name: "Research bot", instructions: "Write briefs.", harness: "opencode" } };
   const engineering = { id: "cag-engineering", orgId: "self-hosted", slug: "engineering", version: 1, config: { name: "Engineering bot", instructions: "Review code.", harness: "opencode" } };
