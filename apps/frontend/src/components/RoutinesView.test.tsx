@@ -17,7 +17,7 @@ describe("routine cadence", () => {
 });
 
 it("shows a webhook endpoint, rotates and hides a once-only secret, and revokes", async () => {
-  const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({ hookSecret: "whsec_once" })).mockResolvedValueOnce(Response.json({ ok: true }));
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => Response.json(url.endsWith("/hook-secret") ? init?.method === "POST" ? { hookSecret: "whsec_once" } : { ok: true } : { runs: [] }));
   vi.stubGlobal("fetch", fetchMock);
   render(<RoutinesList routines={[{ id: "hook", prompt: "Review event", enabled: true, triggers: [{ kind: "webhook" }] }]} onChanged={vi.fn()} />);
   expect(screen.getByText(/\/api\/hooks\/hook/)).toBeTruthy();
@@ -30,7 +30,7 @@ it("shows a webhook endpoint, rotates and hides a once-only secret, and revokes"
 });
 
 it("reports secret management failures", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Secret storage unavailable" }, { status: 503 })));
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/hook-secret") ? Response.json({ error: "Secret storage unavailable" }, { status: 503 }) : Response.json({ runs: [] })));
   render(<RoutinesList routines={[{ id: "hook", prompt: "Review event", enabled: true, triggers: [{ kind: "webhook" }] }]} onChanged={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Rotate secret" }));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Secret storage unavailable");
