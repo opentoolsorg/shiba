@@ -29,6 +29,8 @@ function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number
   };
 }
 
+
+
 export async function handleCustomAgents(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/custom-agents")) return null;
@@ -102,6 +104,9 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     }
     const parsed = decodeCreateCustomAgent(body);
     if (!parsed) return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+    if (parsed.config.avatar?.kind === "upload") {
+      return Response.json({ ok: false, error: "avatar_upload_unavailable", detail: "Uploaded avatars need a re-encode step that this deployment does not run yet. Choose a shape and coat instead." }, { status: 400 });
+    }
     if (parsed.config.toolScopes?.length) {
       return Response.json({ ok: false, error: "unsupported_tool_scopes", detail: "Custom tool scopes are not enforced yet. Use the deployment tool policy." }, { status: 400 });
     }
@@ -143,6 +148,9 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     }
     const parsed = decodeUpdateCustomAgent(body);
     if (!parsed) return Response.json({ ok: false, error: "invalid_body" }, { status: 400 });
+    if (parsed.config.avatar?.kind === "upload") {
+      return Response.json({ ok: false, error: "avatar_upload_unavailable", detail: "Uploaded avatars need a re-encode step that this deployment does not run yet. Choose a shape and coat instead." }, { status: 400 });
+    }
     if (parsed.config.toolScopes?.length) {
       return Response.json({ ok: false, error: "unsupported_tool_scopes", detail: "Custom tool scopes are not enforced yet. Clear legacy scopes explicitly before saving; existing stored configuration was not changed." }, { status: 400 });
     }

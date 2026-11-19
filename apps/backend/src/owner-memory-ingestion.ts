@@ -1,3 +1,29 @@
+import { redactSecrets } from "@shiba/shared";
+
+/**
+ * Looser than the shared gate on purpose: imported context is quoted prose from
+ * another assistant, never re-stored verbatim as a credential record, so
+ * over-redaction costs a sentence while under-redaction leaks a key into task
+ * prompts. The shared patterns stay strict because six callers reject text
+ * whenever redaction changes it.
+ */
+const IMPORT_SECRET_PATTERNS: RegExp[] = [
+  // Legacy short keys, e.g. sk-abc12345.
+  /sk-[A-Za-z0-9]{8,}/g,
+  // "password: hunter2", "client_secret = abc", "API key: ...".
+  /(?<![A-Za-z0-9])(?:password|passwd|passphrase|secret|token|credentials?|api[_-]?key)s?\s*[:=]\s*["']?[^\s"',;]{6,}/gi,
+  // JSON form in a pasted config block.
+  /"(?:password|passwd|secret|token|api[_-]?key|client_secret)"\s*:\s*"[^"]*"/gi,
+];
+
+export function redactContextImportText(text: string): string {
+  let out = redactSecrets(text);
+  for (const pattern of IMPORT_SECRET_PATTERNS) {
+    pattern.lastIndex = 0;
+    out = out.replace(pattern, "[redacted]");
+  }
+  return out;
+}
 import { InputError } from "./security.js";
 
 export const MAX_MEMORY_UPLOAD_BYTES = 40_000;
@@ -22,6 +48,32 @@ export function validateMemoryText(bytes: Uint8Array): string {
     throw new InputError("Only plain TXT or Markdown without binary content or active markup is supported. PDF, Office, archives, HTML and SVG are unsupported.");
   }
   return text.replace(/\r\n/g, "\n");
+}
+
+export const CONTEXT_IMPORT_ASSISTANTS = { chatgpt: "ChatGPT", claude: "Claude", gemini: "Gemini", other: "another assistant" } as const;
+export type ContextImportAssistant = keyof typeof CONTEXT_IMPORT_ASSISTANTS;
+
+/**
+ * A pasted context brief from another assistant becomes a versioned Markdown
+ * source. Secret-shaped strings are redacted first, because recalled memory
+ * reaches task prompts and so the sandbox.
+ */
+export async function contextImportUpload(body: unknown, nowMs = Date.now()) {
+  const { assistant, content } = (body ?? {}) as { assistant?: unknown; content?: unknown };
+  if (typeof assistant !== "string" || !Object.hasOwn(CONTEXT_IMPORT_ASSISTANTS, assistant)) {
+    throw new InputError("assistant must be chatgpt, claude, gemini, or other.");
+  }
+  if (typeof content !== "string" || !content.trim()) throw new InputError("Paste the assistant's reply before saving.");
+  const label = CONTEXT_IMPORT_ASSISTANTS[assistant as ContextImportAssistant];
+  const date = new Date(nowMs).toISOString().slice(0, 10);
+  const cleaned = redactContextImportText(content.trim());
+  const redacted = cleaned.split("[redacted]").length - content.trim().split("[redacted]").length;
+  const bytes = new TextEncoder().encode(`# Context imported from ${label}\n\nImported on ${date}. Facts the assistant inferred may be wrong; review before relying on them.\n\n${cleaned}\n`);
+  return {
+    title: `Context from ${label}`,
+    redacted,
+    upload: { filename: `context-from-${assistant}-${date}.md`, mediaType: "text/markdown", bytes, content: validateMemoryText(bytes), sha256: await memoryContentHash(bytes) },
+  };
 }
 
 /** Bounds the stream itself; Content-Length is only an additional consistency check. */

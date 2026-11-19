@@ -1,5 +1,6 @@
 import { type FormEvent, type JSX, type KeyboardEvent, type ReactNode, type RefObject, useRef } from "react";
-import { ArrowUp, AtSign, LoaderCircle, Mic, Plus, Square } from "lucide-react";
+import { ArrowUp, AtSign, BookOpen, Globe2, LoaderCircle, Mic, Plus, Square } from "lucide-react";
+import type { ChatLookupId, ChatLookupOption } from "../chat-lookups";
 import { useVoiceInput } from "../hooks/useVoiceInput";
 
 export function ChatMessageComposer({
@@ -18,6 +19,8 @@ export function ChatMessageComposer({
   mentionOpen,
   textareaRef,
   onPrepareWork,
+  lookups = [],
+  onToggleLookup,
   children,
 }: {
   value: string;
@@ -36,6 +39,9 @@ export function ChatMessageComposer({
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   /** Opens the existing Work editor with this same draft; never submits or approves it. */
   onPrepareWork?: () => void;
+  /** Read-only lookups (web, knowledge) the next Chat message may use; off unless the person turns them on. */
+  lookups?: readonly ChatLookupOption[];
+  onToggleLookup?: (id: ChatLookupId) => void;
   children?: ReactNode;
 }): JSX.Element {
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -105,13 +111,44 @@ export function ChatMessageComposer({
             >
               <AtSign aria-hidden="true" className="size-4" />
             </button>
+            {onToggleLookup && lookups.length ? (
+              <div role="group" aria-label="Lookups for this message" className="flex items-center gap-1.5">
+                {lookups.map((lookup) => {
+                  const Icon = lookup.id === "web_search" ? Globe2 : BookOpen;
+                  return (
+                    <button
+                      key={lookup.id}
+                      type="button"
+                      aria-pressed={lookup.on}
+                      disabled={!lookup.available || streaming}
+                      title={lookup.available
+                        ? `${lookup.on ? "Turn off" : "Turn on"} the ${lookup.label.toLowerCase()} lookup.${
+                          lookup.id === "knowledge_search" ? " It searches your personal files and notes." : ""
+                        } It stays on for later Chat messages until you turn it off.`
+                        : lookup.unavailableReason}
+                      onClick={() => onToggleLookup(lookup.id)}
+                      className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-50 ${
+                        lookup.on
+                          ? "border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]"
+                          : "border-[var(--border-1)] text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)] hover:text-[var(--fg)]"
+                      }`}
+                    >
+                      <Icon aria-hidden="true" className="size-3.5" />
+                      {lookup.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
             <span className="text-[10px] font-mono text-[var(--muted-foreground-3)] ml-1">
               {streaming ? (
                 <span role="status" aria-live="polite" className="inline-flex items-center gap-1.5">
                   <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
                   SHIBA IS RESPONDING
                 </span>
-              ) : "CHAT MODE · MEDIA TOOLS ON"}
+              ) : lookups.some((lookup) => lookup.on)
+                ? `CHAT MODE · ${lookups.filter((lookup) => lookup.on).map((lookup) => lookup.label.toUpperCase()).join(" + ")} LOOKUP`
+                : "CHAT MODE"}
             </span>
           </div>
           <div className="flex items-center gap-2">
