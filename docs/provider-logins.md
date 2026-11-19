@@ -190,7 +190,7 @@ sandbox holds only a placeholder. None of them needs `AI_GATEWAY_TOKEN`.
 |---|---|---|---|
 | DeepSeek | DeepSeek platform key | `api.deepseek.com` | `deepseek/deepseek-flash` |
 | Z.ai (GLM) | Z.ai platform key | `api.z.ai` (`/api/paas/v4`) | `zai/glm-5.3` |
-| MiniMax | MiniMax platform or M Plan key | `api.minimax.io` | `minimax/MiniMax-M3` |
+| MiniMax | MiniMax platform key | `api.minimax.io` | `minimax/MiniMax-M3` |
 | Qwen (Model Studio) | DashScope key, international region | `dashscope-intl.aliyuncs.com` (`/compatible-mode/v1`) | `qwen/qwen3-coder-plus` |
 | Mistral | La Plateforme key | `api.mistral.ai` | `mistral/devstral-medium-latest` |
 
