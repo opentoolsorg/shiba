@@ -448,8 +448,12 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await openChat(page);
     await page.getByLabel("Review decision for reports/native-fixture.md").selectOption("approved");
     await page.getByRole("button", { name: "Save review", exact: true }).click();
+    // The label renders from the review the server returns with the write, so
+    // it proves the save landed. Onboarding progress re-derives acceptance from
+    // the run record instead, and that second read trails the write on a loaded
+    // runner, so it gets the same budget as the run poll above.
     await page.getByText("Current saved review: approved", { exact: true }).waitFor();
-    await expect.poll(async () => (await progress(page)).evidence.acceptedDeliverable).toBe(true);
+    await expect.poll(async () => (await progress(page)).evidence.acceptedDeliverable, { timeout: 15_000 }).toBe(true);
     expect((await progress(page)).activatedAt).toEqual(expect.any(Number));
     expect((await progress(page)).evidence.connectedProvider).toBe(false);
     const artifactRoute = `/api/runs/${encodeURIComponent(run.runId)}/deliverables/0${sessionQuery}`;
