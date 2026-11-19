@@ -156,8 +156,12 @@ function useRetainedRuns(
   sessionApiAvailable: boolean,
   fullDetail: boolean,
   enabled: boolean,
-): { runs: RetainedRun[]; error: string | null; detailReady: boolean; listSettled: boolean } {
+): { runs: RetainedRun[]; error: string | null; detailReady: boolean; listSettled: boolean; runsSession: string | null } {
   const [runs, setRuns] = useState<RetainedRun[]>([]);
+  // The session whose answer produced the rows on screen. Rows stay visible
+  // while a new scope loads, so anything that builds a URL from a run must read
+  // this rather than the newly selected session.
+  const [runsSession, setRunsSession] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [listSettled, setListSettled] = useState(false);
   // True once a full-payload response has landed while fullDetail was on.
@@ -168,6 +172,7 @@ function useRetainedRuns(
   useEffect(() => {
     if (!enabled) {
       setRuns([]); setError(null); setDetailReady(false);
+      setRunsSession(null);
       setListSettled(true);
       return;
     }
@@ -186,6 +191,7 @@ function useRetainedRuns(
           if (await isSessionNotFoundBody(response)) {
             if (!cancelled) {
               setRuns([]);
+              setRunsSession(sessionId);
               setError(null);
               setDetailReady(fullDetail);
               setListSettled(true);
@@ -200,6 +206,8 @@ function useRetainedRuns(
         const body = (await response.json()) as { runs?: RetainedRun[] };
         if (!cancelled) {
           setRuns(Array.isArray(body.runs) ? body.runs : []);
+          // An unscoped answer is the default session's own store.
+          setRunsSession(sessionScoped ? sessionId : DEFAULT_THREAD_ID);
           setError(null);
           setDetailReady(fullDetail);
           setListSettled(true);
@@ -217,7 +225,7 @@ function useRetainedRuns(
     };
   }, [refreshToken, sessionId, sessionApiAvailable, fullDetail, enabled]);
 
-  return { runs: enabled ? runs : [], error: enabled ? error : null, detailReady: enabled && detailReady, listSettled };
+  return { runs: enabled ? runs : [], error: enabled ? error : null, detailReady: enabled && detailReady, listSettled, runsSession: enabled ? runsSession : null };
 }
 
 
@@ -445,10 +453,11 @@ export function App(): React.JSX.Element {
   const taskRouteChosen = useRef(false);
   const [customAgentId, setCustomAgentId] = useState("");
   const [agentDetailsOpen, setAgentDetailsOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1280);
-  // A bot page can be open with no thread behind it. That is its own state: the
-  // surface shows the bot and one Start action, and the previous bot's thread
-  // chrome, composer and draft stay off screen.
-  const [botPageOnly, setBotPageOnly] = useState(false);
+  // A bot page can be open without its conversation: the bot has no thread yet,
+  // or its thread did not answer. Both are their own states — the surface shows
+  // the bot and one Start action, and the previous bot's thread chrome, composer
+  // and draft stay off screen.
+  const [botPage, setBotPage] = useState<"chat" | "empty" | "unavailable">("chat");
   // Every selection takes a ticket; an answer that arrives after a newer
   // selection threw its ticket away is dropped.
   const sessionSelectionSeq = useRef(0);
@@ -830,7 +839,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       const kept = traversing || first || !viewChanged ? window.location.search : "";
       // A bot page with no thread has no conversation to point at, so it keeps no
       // session selector in the address.
-      const query = withThreadLink(kept, shared || botPageOnly ? null : selectedSessionId);
+      const query = withThreadLink(kept, shared || botPage !== "chat" ? null : selectedSessionId);
       const path = query ? `${base}?${query}` : base;
       const push = !traversing && ((viewChanged && !first) || threadUrlMode.current === "push");
       threadUrlMode.current = "replace";
@@ -844,7 +853,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     if (window.location.pathname === base) return;
     if (first) router.history.replace(base + window.location.search + window.location.hash);
     else router.history.push(base);
-  }, [mainView, settingsSection, selectedSessionId, botPageOnly, teamWorkspaceId, threadLinkPending, router]);
+  }, [mainView, settingsSection, selectedSessionId, botPage, teamWorkspaceId, threadLinkPending, router]);
 
   useEffect(() => {
     const onPop = () => {
@@ -1496,7 +1505,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     };
   }, [privateDataEnabled, orchestratorName]);
   // Inspectors need the retained details; other surfaces use the summary projection.
-  const { runs: retainedRuns, error: runsError, detailReady: runsDetailReady, listSettled } =
+  const { runs: retainedRuns, error: runsError, detailReady: runsDetailReady, listSettled, runsSession } =
     useRetainedRuns(
       refreshToken,
       selectedSessionId,
@@ -2726,8 +2735,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const liveSession = sessions.find((session) => session.id === selectedSessionId) ?? sessions[0];
 
   const handleSelectSession = useCallback(
-    async (id: string) => {
-      if (!privateDataEnabled) return;
+    async (id: string): Promise<boolean> => {
+      if (!privateDataEnabled) return false;
       const selectionScope = activeSurfaceScopeRef.current;
       const selectionTicket = ++sessionSelectionSeq.current;
       const session = visibleWebSessions.find((item) => item.id === id);
@@ -2737,17 +2746,18 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         setSelectedRunId(id);
         setMobileSessionsOpen(false);
         setMainView("analytics");
-        return;
+        return false;
       }
       if (session && id !== "default") {
         try {
           const response = await fetch(`/api/sessions/${encodeURIComponent(id)}/resume`, {
             method: "POST",
           });
-          if (activeSurfaceScopeRef.current !== selectionScope) return;
+          if (activeSurfaceScopeRef.current !== selectionScope) return false;
           if (response.status === 404 || response.status === 405) {
             if (response.status === 404 && (await isSessionNotFoundBody(response))) {
-              if (activeSurfaceScopeRef.current !== selectionScope) return;
+              if (activeSurfaceScopeRef.current !== selectionScope) return false;
+              if (selectionTicket !== sessionSelectionSeq.current) return false;
               // Real session-not-found: the API is healthy, this item is stale.
               // Prune it and land on the default session — don't mark the
               // sessions API unavailable or select the dead session.
@@ -2758,32 +2768,33 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               setSelectedRunId(null);
               setMainView("threads");
               setNotice("That session no longer exists — it was removed from the list.");
-              return;
+              return false;
             }
             // Older backends lack the resume route: degrade to local selection
             // instead of blocking the switch.
-            if (activeSurfaceScopeRef.current !== selectionScope) return;
+            if (activeSurfaceScopeRef.current !== selectionScope) return false;
             setSessionApiAvailable(false);
           } else if (!response.ok) {
             throw new Error(`Could not resume session: ${response.status}`);
           }
         } catch (error) {
-          if (activeSurfaceScopeRef.current !== selectionScope) return;
+          if (activeSurfaceScopeRef.current !== selectionScope) return false;
           setNotice(error instanceof Error ? error.message : String(error));
-          return;
+          return false;
         }
       }
-      if (activeSurfaceScopeRef.current !== selectionScope) return;
+      if (activeSurfaceScopeRef.current !== selectionScope) return false;
       // A newer click already owns the surface; this reply is stale.
-      if (selectionTicket !== sessionSelectionSeq.current) return;
+      if (selectionTicket !== sessionSelectionSeq.current) return false;
       pushThreadUrl();
       setSelectedSessionId(id);
       writeRememberedSessionId(id);
       setCustomAgentId(threadAgentId(session));
       setMobileSessionsOpen(false);
       setSelectedRunId(null);
-      setBotPageOnly(false);
+      setBotPage("chat");
       setMainView("threads");
+      return true;
     },
     [visibleWebSessions, privateDataEnabled, pushThreadUrl],
   );
@@ -2867,7 +2878,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setSelectedSessionId(session.id);
       writeRememberedSessionId(session.id);
       setSelectedRunId(null);
-      setBotPageOnly(false);
+      setBotPage("chat");
       setCustomAgentId(profile.id);
       applyThreadProfile(profile);
       setNotice(null);
@@ -2909,12 +2920,16 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     setAgentDetailsOpen(true);
     setMainView("threads");
     if (latest) {
-      setBotPageOnly(false);
-      void handleSelectSession(latest.id);
+      setBotPage("chat");
+      // The session and the bot commit together: a failed resume must not leave
+      // the previous bot's composer live under this bot's name.
+      void handleSelectSession(latest.id).then((opened) => {
+        if (!opened) setBotPage("unavailable");
+      });
     } else {
       // No thread is this bot's own state, not a reason to keep the last bot's
       // thread selected with its title editor and composer pointed at it.
-      setBotPageOnly(true);
+      setBotPage("empty");
       setSelectedRunId(null);
     }
   }, [handleSelectSession, openView, teamWorkspaceId, visibleWebSessions]);
@@ -2962,25 +2977,30 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const botRunRows = useMemo(() => botRuns.slice(0, 8).map((run) => ({
     runId: run.runId, status: run.status, task: run.task, createdAt: run.createdAt, updatedAt: run.updatedAt,
   })), [botRuns]);
+  // Rows stay on screen while the next scope loads, so a run's link must carry
+  // the session its own answer came from — not the one just selected.
+  const runsSourceSession = runsSession ?? selectedSessionId;
+  const runsStale = runsSession !== null && runsSession !== selectedSessionId;
   // Runs are stored per session and the deliverable route reads only the session
   // it is given, so every captured file carries the conversation that owns it.
   const botRunOutputs = useMemo(() => botRuns.flatMap((run) => (run.deliverables ?? []).map((file, index) => ({
     runId: run.runId, runStatus: run.status, runCreatedAt: run.createdAt, path: file.path, index,
-    sessionId: selectedSessionId,
+    sessionId: runsSourceSession,
     ...(file.bytes !== undefined ? { bytes: file.bytes } : {}),
     ...(file.mediaType !== undefined ? { mediaType: file.mediaType } : {}),
-  }))), [botRuns, selectedSessionId]);
+  }))), [botRuns, runsSourceSession]);
   // This bot's other threads, which the run list cannot see: the dashboard reads
   // runs per session, so the panel names that narrower coverage instead of
   // calling one thread's runs the bot's whole history.
   const botRunsScope = useMemo<BotRunsScope>(() => {
     const threads = visibleWebSessions.filter((session) => customAgentId ? threadAgentId(session) === customAgentId : !threadAgentId(session));
     return {
-      state: runsError ? "error" : listSettled ? "ready" : "loading",
-      ...(selectedSessionId !== "default" && activeWebSession && !botPageOnly ? { threadName: activeWebSession.name || "this thread" } : {}),
+      // A retained list from the previous session is not this session's answer.
+      state: runsStale ? "loading" : runsError ? "error" : listSettled ? "ready" : "loading",
+      ...(selectedSessionId !== "default" && activeWebSession && botPage === "chat" ? { threadName: activeWebSession.name || "this thread" } : {}),
       otherThreadCount: Math.max(0, threads.length - 1),
     };
-  }, [visibleWebSessions, customAgentId, runsError, listSettled, selectedSessionId, activeWebSession, botPageOnly]);
+  }, [visibleWebSessions, customAgentId, runsStale, runsError, listSettled, selectedSessionId, activeWebSession, botPage]);
   const botPendingApprovals = useMemo(
     () => visibleStoredApprovals.filter((approval) => (customAgentId ? approval.customAgentId === customAgentId : !approval.customAgentId)).length,
     [visibleStoredApprovals, customAgentId],
@@ -3610,7 +3630,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 className="flex min-h-full min-w-0 flex-1 shrink-0 flex-col overflow-hidden bg-[var(--bg)] xl:min-h-0"
                 aria-busy={busy}
               >
-                {botPageOnly ? (
+                {botPage !== "chat" ? (
                   <BotThreadlessState
                     name={chatAgent.name}
                     slug={activeEmployee?.slug}
@@ -3620,6 +3640,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     look={chatAgent.look}
                     avatar={chatAgent.avatar}
                     busy={threadLinkPending}
+                    unavailable={botPage === "unavailable"}
                     onStart={() => void startSidebarAgentThread(activeEmployee)}
                   />
                 ) : (
@@ -4150,9 +4171,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     loading: localComputersLoading,
                     error: localComputersError,
                   }}
-                  runs={botRunRows}
+                  runs={runsStale ? [] : botRunRows}
                   pendingApprovals={botPendingApprovals}
-                  runOutputs={botRunOutputs}
+                  runOutputs={runsStale ? [] : botRunOutputs}
                   runsScope={botRunsScope}
                   onOpenRun={(runId) => { setSelectedRunId(runId); setMainView("analytics"); }}
                   onOpenApprovals={() => setMainView("approvals")}

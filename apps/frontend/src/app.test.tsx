@@ -1208,17 +1208,19 @@ describe("bot page without a thread", () => {
   const research = { id: "cag-research", orgId: "self-hosted", slug: "research", version: 1, config: { name: "Research bot", instructions: "Write briefs.", harness: "opencode" } };
   const engineering = { id: "cag-engineering", orgId: "self-hosted", slug: "engineering", version: 1, config: { name: "Engineering bot", instructions: "Review code.", harness: "opencode" } };
   const RESEARCH_THREAD = "11111111-1111-4111-8111-111111111111";
+  const ENGINEERING_THREAD = "22222222-2222-4222-8222-222222222222";
   const researchThread = { id: RESEARCH_THREAD, name: "Competitor brief", agentName: `web:test-operator:${RESEARCH_THREAD}`, createdAt: 3, updatedAt: 3, metadata: { customAgentId: research.id } };
+  const engineeringThreadRecord = { id: ENGINEERING_THREAD, name: "Flaky test triage", agentName: `web:test-operator:${ENGINEERING_THREAD}`, createdAt: 2, updatedAt: 2, metadata: { customAgentId: engineering.id } };
 
-  /** Two bots; only Research has a thread. `resume` lets a test hold the reply. */
-  function stubBots(resume?: () => Promise<Response>) {
+  /** Two bots; Research always has a thread, Engineering only when asked. */
+  function stubBots(resume?: () => Promise<Response>, engineeringThread?: boolean) {
     const originalFetch = fetch;
     const request = vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
       const path = String(url);
       if (path === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
       if (path === "/api/custom-agents" && options?.method !== "POST") return Response.json({ agents: [research, engineering] });
       if (path === "/api/sessions" && options?.method === "POST") return Response.json({ status: 201, session: { id: "55555555-5555-4555-8555-555555555555", name: "Engineering bot", agentName: "web:test-operator:55555555-5555-4555-8555-555555555555", createdAt: 5, updatedAt: 5, metadata: { customAgentId: engineering.id } } });
-      if (path === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: [researchThread], defaultSessionId: "default" });
+      if (path === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: engineeringThread ? [researchThread, engineeringThreadRecord] : [researchThread], defaultSessionId: "default" });
       if (/^\/api\/sessions\/[^/]+\/resume$/.test(path)) return resume ? resume() : Response.json({ session: researchThread, resumed: true });
       if (path === "/api/agents") return Response.json({ agents: [] });
       if (path === "/api/approvals") return Response.json({ approvals: [], decided: [] });
@@ -1263,6 +1265,22 @@ describe("bot page without a thread", () => {
     expect(screen.queryByRole("heading", { name: "Engineering bot has no thread yet" })).toBeNull();
   });
 
+  it("does not leave the previous bot's composer live when a bot's thread fails to resume", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    stubBots(async () => new Response(JSON.stringify({ error: "Session service unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } }), true);
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+
+    await openBotFromAgentsView(/Engineering bot/);
+
+    await screen.findByRole("heading", { name: /Engineering bot's thread could not be opened/ });
+    // The bot and its session commit together: no Research composer survives under this bot.
+    expect(screen.queryByTestId("task-composer")).toBeNull();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+  });
+
   it("drops a resume reply that lands after a newer bot was opened", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/threads/");
@@ -1281,6 +1299,68 @@ describe("bot page without a thread", () => {
     expect(screen.getByRole("heading", { name: "Engineering bot has no thread yet" })).toBeTruthy();
     await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
     expect(screen.queryAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).not.toContain("Research bot");
+  });
+});
+
+describe("bot run outputs across a thread switch", () => {
+  const research = { id: "cag-research", orgId: "self-hosted", slug: "research", version: 1, config: { name: "Research bot", instructions: "Write briefs.", harness: "opencode" } };
+  const THREAD_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const THREAD_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const threadA = { id: THREAD_A, name: "First brief", agentName: `web:test-operator:${THREAD_A}`, createdAt: 9, updatedAt: 9, metadata: { customAgentId: research.id } };
+  const threadB = { id: THREAD_B, name: "Second brief", agentName: `web:test-operator:${THREAD_B}`, createdAt: 5, updatedAt: 5, metadata: { customAgentId: research.id } };
+  const finishedRun = {
+    runId: "run-a", sandboxId: "sandbox-1", repoUrl: "", task: "Write the brief", baseBranch: "main",
+    publishPullRequest: false, generation: 1, status: "completed", createdAt: 1, updatedAt: 2,
+    customAgentId: research.id, deliverables: [{ path: "reports/first.md", bytes: 10, mediaType: "text/markdown" }],
+  };
+
+  it("keeps the previous thread's file on its own session while the next read is pending", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${THREAD_A}`);
+    mocks.chat.messages = [];
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const raw = String(url);
+      const parsed = new URL(raw, "http://localhost");
+      if (parsed.pathname === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
+      if (parsed.pathname === "/api/custom-agents" && options?.method !== "POST") return Response.json({ agents: [research] });
+      if (parsed.pathname === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: [threadA, threadB], defaultSessionId: "default" });
+      if (/^\/api\/sessions\/[^/]+\/resume$/.test(parsed.pathname)) return Response.json({ resumed: true });
+      if (parsed.pathname === "/api/agents") return Response.json({ agents: [] });
+      if (parsed.pathname === "/api/approvals") return Response.json({ approvals: [], decided: [] });
+      if (parsed.pathname.startsWith("/api/runs")) {
+        // Hold the second thread's answer so the switch is observed mid-flight.
+        if (parsed.searchParams.get("session") === THREAD_B) { await held; return Response.json({ runs: [] }); }
+        return Response.json({ runs: [finishedRun] });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_A));
+
+    await act(async () => {
+      window.history.pushState(null, "", "/custom-agents/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    fireEvent.click((await screen.findAllByRole("button", { name: /Research bot/ }))[0]!);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_A));
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Library" }));
+    const panel = within(await screen.findByRole("tabpanel", { name: "Library" }));
+    const link = await panel.findByRole("link", { name: "Download reports/first.md" });
+    expect(link.getAttribute("href")).toBe(`/api/runs/run-a/deliverables/0?session=${THREAD_A}`);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Second brief/ }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_B));
+
+    // The held answer means the old file is still in memory; it must not be
+    // relabelled with the session that has not answered yet.
+    await panel.findByText(/Loading this bot's captured files/);
+    expect(panel.queryByRole("link", { name: "Download reports/first.md" })).toBeNull();
+
+    await act(async () => { release?.(); await held; });
   });
 });
 
