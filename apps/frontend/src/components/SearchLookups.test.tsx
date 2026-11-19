@@ -52,10 +52,13 @@ describe("ChatMessageComposer lookups", () => {
   });
 
   it("describes the toggle as staying on, not as a one-message choice", () => {
-    render(<ChatMessageComposer {...props} streaming={false} lookups={chatLookupOptions(setup, ["web_search"])} onToggleLookup={vi.fn()} />);
+    const ready = [setup[0]!, { ...setup[1]!, ready: true }];
+    render(<ChatMessageComposer {...props} streaming={false} lookups={chatLookupOptions(ready, ["web_search"])} onToggleLookup={vi.fn()} />);
     const web = screen.getByRole("button", { name: "Web" });
     expect(web.title).toBe("Turn off the web lookup. It stays on for later Chat messages until you turn it off.");
     expect(web.title).not.toContain("for this message");
+    expect(screen.getByRole("button", { name: "Knowledge" }).title)
+      .toBe("Turn on the knowledge lookup. It searches your personal files and notes. It stays on for later Chat messages until you turn it off.");
   });
 
   it("renders no lookup controls without a toggle handler", () => {

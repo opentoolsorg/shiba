@@ -1,7 +1,7 @@
 import { connectedDefaultForUser } from "../acp-providers.js";
 import { continuationDecision, type ContinuationState } from "./plan-continuation.js";
 import { answerSideQuestion, sideQuestionSchema } from "../side-question.js";
-import { isTeamWorkspaceId, isTerminalStatus, usageBudgetPolicySchema, type UsageBudgetPolicy } from "@shiba/shared";
+import { isTerminalStatus, usageBudgetPolicySchema, type UsageBudgetPolicy } from "@shiba/shared";
 import { meterSandboxRun } from "../sandbox-metering.js";
 import { resolveInstanceType } from "../instance-type.js";
 import { canStart as usageBudgetCanStart, evaluateUsageBudget, runOverLimit, type BudgetMeter } from "../usage-budget.js";
@@ -1353,7 +1353,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...createChatAgentMediaTools(this.env, {
           runId,
           orgId: this.employeeToolOrgId(),
-          workspaceId: this.chatLookupWorkspace(),
           budgetKey: this.chatBudgetKey(),
           userId: initiatorUserIdFromOrchestratorName(this.name),
           onClose: () => void closeBrowserSession(runId),
@@ -1475,18 +1474,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   /** The authenticated workspace scope pinned by the dashboard composer. */
-  /**
-   * The workspace Chat file and note search may read. Sessions carry the
-   * workspace the Worker verified when it created them; anything else is the
-   * deployment scope, so a missing or malformed pin narrows rather than widens.
-   */
-  private chatLookupWorkspace(): string {
-    const parsed = parseSessionAgentName(this.name ?? "");
-    const session = parsed ? this.storedWebSessions.find((entry) => entry.id === parsed.sessionId) : undefined;
-    const pinned = session?.metadata?.teamWorkspaceId;
-    return isTeamWorkspaceId(pinned) ? pinned : DASHBOARD_ORG_ID;
-  }
-
   /** One paid-lookup budget window per Chat message, so a busy thread cannot lock itself out. */
   private chatBudgetKey(): string {
     const messages = this.messages ?? [];
