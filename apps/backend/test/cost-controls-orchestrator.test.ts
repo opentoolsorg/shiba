@@ -416,3 +416,84 @@ describe("orchestrator credit ledger", () => {
     expect(instance.state.runs[0]?.status).toBe("completed");
   });
 });
+
+describe("orchestrator credit cutoff", () => {
+  function plainDb(accountCreatedAt: number | null) {
+    const state = { debits: new Map<string, number>(), pending: new Map<string, number>() };
+    const rows = (sql: string, params: unknown[]) => {
+      if (sql.includes("workspace_billing_accounts")) return accountCreatedAt === null ? null : { owner: String(params[0]), stripe_customer_id: null, created_at: accountCreatedAt };
+      if (sql.includes("kind='refund') AS total")) return { total: 0 };
+      if (sql.includes("FROM workspace_billing_pending")) {
+        const subject = String(params[0]);
+        return { total: [...state.pending].filter(([key]) => key.startsWith(subject + "/")).reduce((sum, [, amount]) => sum + amount, 0) };
+      }
+      if (sql.includes("FROM workspace_billing_debits WHERE subject=? AND kind='run'")) return { total: [...state.debits.values()].reduce((sum, amount) => sum + amount, 0) };
+      return null;
+    };
+    const db = {
+      state,
+      prepare: (sql: string) => {
+        const bound: unknown[] = [];
+        const call = {
+          bind: (...params: unknown[]) => { bound.length = 0; bound.push(...params); return call; },
+          run: async () => {
+            if (sql.includes("INSERT OR IGNORE INTO workspace_billing_debits")) {
+              const [entryId, , runId, amount] = bound as [string, string, string, number];
+              if (state.debits.has(entryId)) return { meta: { changes: 0 } };
+              state.debits.set(entryId, amount);
+              void runId;
+              return { meta: { changes: 1 } };
+            }
+            if (sql.includes("INSERT OR REPLACE INTO workspace_billing_pending")) {
+              const [subject, runId, amount] = bound as [string, string, number];
+              state.pending.set(subject + "/" + runId, amount);
+              return { meta: { changes: 1 } };
+            }
+            if (sql.includes("DELETE FROM workspace_billing_pending")) {
+              const [subject, runId] = bound as [string, string];
+              state.pending.delete(subject + "/" + runId);
+              return { meta: { changes: 1 } };
+            }
+            return { meta: { changes: 0 } };
+          },
+          first: async () => rows(sql, bound),
+          all: async () => ({ results: sql.includes("SELECT run_id FROM workspace_billing_debits") ? [...state.debits.keys()].map((id) => ({ run_id: id.split("_").at(-1) })) : [] }),
+        };
+        return call;
+      },
+    };
+    return db;
+  }
+  function instanceFor(runs: DelegatedRun[], db: ReturnType<typeof plainDb>) {
+    const instance = host({ runs });
+    instance.env = { INSTANCE_TYPE: "basic", STRIPE_SECRET_KEY: "sk_test_1", STRIPE_WEBHOOK_SECRET: "whsec_1", AGENT_AUDIT: db } as unknown as typeof instance.env;
+    return instance as unknown as { state: OrchestratorState; settleCreditDebits(now: number): Promise<boolean> };
+  }
+  const runAt = (runId: string, createdAt: number, extra: Partial<DelegatedRun> = {}): DelegatedRun => ({
+    ...createRun({ runId, sandboxId: "s-" + runId, repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false, now: createdAt }),
+    status: "completed", queuedBy: "owner@example.test", usage: { costUsd: 1 }, ...extra,
+  });
+
+  it("applies the cutoff to every run, not only the first one it sees for a payer", async () => {
+    const db = plainDb(5_000);
+    const instance = instanceFor([runAt("new", 6_000), runAt("old-a", 1_000), runAt("old-b", 2_000)], db);
+    await instance.settleCreditDebits(10_000);
+    expect([...db.state.debits.keys()].map((id) => id.split("_").at(-1))).toEqual(["new"]);
+  });
+
+  it("charges nothing for a payer who has no account yet", async () => {
+    const db = plainDb(null);
+    const instance = instanceFor([runAt("a", 6_000), runAt("b", 7_000)], db);
+    await instance.settleCreditDebits(10_000);
+    expect(db.state.debits.size).toBe(0);
+  });
+
+  it("charges a run queued before billing when it dispatched after it", async () => {
+    const db = plainDb(5_000);
+    const queuedEarly: DelegatedRun = runAt("late-dispatch", 1_000, { signals: [{ kind: "sandbox.ready", at: 7_000 }] });
+    const neverStarted = runAt("never-started", 1_000);
+    const instance = instanceFor([queuedEarly, neverStarted], db);
+    await instance.settleCreditDebits(10_000);
+    expect([...db.state.debits.keys()].map((id) => id.split("_").at(-1))).toEqual(["late-dispatch"]);
+  });
+});

@@ -16,6 +16,8 @@ export type BillingEnv = Pick<Env, "AGENT_AUDIT" | "STRIPE_SECRET_KEY" | "STRIPE
 
 const STRIPE_API = "https://api.stripe.com/v1";
 const MICRO = 1_000_000;
+/** How long a published in-flight cost stays believable without a sweep. */
+export const PENDING_TTL_MS = 7_200_000;
 export const CREDITS_EXHAUSTED_MESSAGE = "Stopped because this workspace is out of prepaid credits. Add credits in Analytics → Workspace credits.";
 
 export function missingBillingConfig(env: Pick<Env, "STRIPE_SECRET_KEY" | "STRIPE_WEBHOOK_SECRET">): string[] {
@@ -161,16 +163,26 @@ export async function findTopUp(db: D1Database, by: { sessionId: string } | { pa
  */
 export async function recordRefund(db: D1Database, input: { subject: string; paymentIntentId: string; refundedSoFarMicroUsd: number; now?: number }): Promise<number> {
   const now = input.now ?? Date.now();
-  const recorded = await db.prepare("SELECT COALESCE(SUM(amount_micro_usd), 0) AS total FROM workspace_billing_debits WHERE subject=? AND kind='refund' AND run_id LIKE ?")
-    .bind(input.subject, `${input.paymentIntentId}:%`).first<{ total: number }>();
-  const delta = input.refundedSoFarMicroUsd - (recorded?.total ?? 0);
-  if (delta <= 0) return 0;
-  const inserted = await db.prepare("INSERT OR IGNORE INTO workspace_billing_debits (entry_id, subject, run_id, amount_micro_usd, kind, recorded_at) VALUES (?, ?, ?, ?, 'refund', ?)")
-    .bind(`refund_${input.paymentIntentId}_${input.refundedSoFarMicroUsd}`, input.subject, `${input.paymentIntentId}:${input.refundedSoFarMicroUsd}`, delta, now).run();
+  const ledgerRunId = `${input.paymentIntentId}:${input.refundedSoFarMicroUsd}`;
+  // The difference is computed inside the insert, so two events racing on the
+  // same payment cannot both subtract the same credits.
+  const inserted = await db.prepare(`INSERT OR IGNORE INTO workspace_billing_debits (entry_id, subject, run_id, amount_micro_usd, kind, recorded_at)
+    SELECT ?, ?, ?, delta, 'refund', ?
+    FROM (SELECT ? - COALESCE((SELECT SUM(amount_micro_usd) FROM workspace_billing_debits WHERE subject=? AND kind='refund' AND run_id LIKE ? ESCAPE '\\'), 0) AS delta)
+    WHERE delta > 0`)
+    .bind(`refund_${ledgerRunId}`, input.subject, ledgerRunId, now,
+      input.refundedSoFarMicroUsd, input.subject, `${escapeLike(input.paymentIntentId)}:%`).run();
   if (inserted.meta.changes !== 1) return 0;
+  const removed = await db.prepare("SELECT amount_micro_usd AS amount FROM workspace_billing_debits WHERE entry_id=?")
+    .bind(`refund_${ledgerRunId}`).first<{ amount: number }>();
   await db.prepare("UPDATE workspace_billing_topups SET refunded_micro_usd = ? WHERE owner=? AND stripe_payment_intent_id=? AND status='succeeded'")
     .bind(input.refundedSoFarMicroUsd, input.subject, input.paymentIntentId).run();
-  return delta;
+  return removed?.amount ?? 0;
+}
+
+/** `_` and `%` are LIKE wildcards; a Stripe id must be matched literally. */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -193,9 +205,14 @@ export async function creditedMicroUsd(db: D1Database, subject: string): Promise
   return row?.total ?? 0;
 }
 
-/** Live cost of runs still executing, per account rather than per thread. */
-export async function pendingMicroUsd(db: D1Database, subject: string): Promise<number> {
-  const row = await db.prepare("SELECT COALESCE(SUM(amount_micro_usd), 0) AS total FROM workspace_billing_pending WHERE subject=?").bind(subject).first<{ total: number }>();
+/**
+ * Live cost of runs still executing, per account rather than per thread. Rows
+ * past the time limit are ignored here as well as swept, so a store that dies
+ * mid-run cannot hold its account at zero forever.
+ */
+export async function pendingMicroUsd(db: D1Database, subject: string, now = Date.now(), ttlMs = PENDING_TTL_MS): Promise<number> {
+  const row = await db.prepare("SELECT COALESCE(SUM(amount_micro_usd), 0) AS total FROM workspace_billing_pending WHERE subject=? AND updated_at>=?")
+    .bind(subject, now - ttlMs).first<{ total: number }>();
   return row?.total ?? 0;
 }
 
@@ -203,7 +220,7 @@ export async function pendingMicroUsd(db: D1Database, subject: string): Promise<
  * Publishes the live cost of this store's executing runs for its account.
  * Rows expire so a store that dies mid-run cannot hold a balance down forever.
  */
-export async function syncPendingSpend(db: D1Database, subject: string, entries: { runId: string; amountMicroUsd: number }[], now = Date.now(), ttlMs = 7_200_000): Promise<void> {
+export async function syncPendingSpend(db: D1Database, subject: string, entries: { runId: string; amountMicroUsd: number }[], now = Date.now(), ttlMs = PENDING_TTL_MS): Promise<void> {
   await db.prepare("DELETE FROM workspace_billing_pending WHERE subject=? AND updated_at<?").bind(subject, now - ttlMs).run();
   for (const entry of entries) {
     await db.prepare("INSERT OR REPLACE INTO workspace_billing_pending (subject, run_id, amount_micro_usd, updated_at) VALUES (?, ?, ?, ?)")
@@ -238,6 +255,20 @@ async function listTopUps(db: D1Database, subject: string): Promise<WorkspaceTop
 }
 
 /**
+ * When a run actually started working: the latest point a sandbox was ready or
+ * a harness started, falling back to when it was queued. Billing compares this
+ * to its own start, so work queued before billing but dispatched after is
+ * charged.
+ */
+export function runStartedAt(run: Pick<DelegatedRun, "createdAt" | "signals">): number {
+  let started = run.createdAt;
+  for (const signal of run.signals ?? []) {
+    if ((signal.kind === "sandbox.ready" || signal.kind === "harness.started") && signal.at > started) started = signal.at;
+  }
+  return started;
+}
+
+/**
  * What one run costs the deployment: metered compute always, and model spend
  * unless a plan subscription or a paired local daemon carried it.
  */
@@ -264,7 +295,7 @@ export async function readCreditState(env: BillingEnv, subject: string, now: num
   void storeName;
   const creditedUsd = await creditedMicroUsd(env.AGENT_AUDIT, subject) / MICRO;
   const spentUsd = await debitedMicroUsd(env.AGENT_AUDIT, subject) / MICRO;
-  const pending = await pendingMicroUsd(env.AGENT_AUDIT, subject) / MICRO;
+  const pending = await pendingMicroUsd(env.AGENT_AUDIT, subject, now) / MICRO;
   const balanceUsd = creditedUsd - spentUsd - pending;
   return { creditedUsd, spentUsd, pendingUsd: pending, balanceUsd, exhausted: balanceUsd <= 0, since: account.created_at };
 }

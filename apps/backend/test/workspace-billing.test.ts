@@ -275,3 +275,40 @@ describe("team workspace credits", () => {
     expect(await creditedMicroUsd(db, "team:" + workspaceId)).toBe(50_000_000);
   });
 });
+
+describe("ledger edges", () => {
+  it("ignores in-flight cost older than the time limit", async () => {
+    const subject = personalBillingSubject("stale@example.test").key;
+    await seedAccount(subject, null);
+    await seedPaidTopUp(subject, "cs_stale", 1_000_000);
+    const now = Date.now();
+    await db.prepare("INSERT INTO workspace_billing_pending (subject, run_id, amount_micro_usd, updated_at) VALUES (?, ?, ?, ?)")
+      .bind(subject, "run-gone", 5_000_000, now - 8_000_000).run();
+    await db.prepare("INSERT INTO workspace_billing_pending (subject, run_id, amount_micro_usd, updated_at) VALUES (?, ?, ?, ?)")
+      .bind(subject, "run-live", 200_000, now).run();
+    expect(await readCreditState(env(), subject, now)).toMatchObject({ balanceUsd: 0.8, exhausted: false });
+    await db.prepare("DELETE FROM workspace_billing_pending").run();
+  });
+
+  it("matches a payment id literally, not through LIKE wildcards", async () => {
+    const subject = personalBillingSubject("wildcard@example.test").key;
+    await seedAccount(subject, "cus_wildcard");
+    await seedPaidTopUp(subject, "cs_refund", 2_000_000);
+    // A neighbouring id that an unescaped '_' would also match.
+    await db.prepare("INSERT INTO workspace_billing_topups (id, owner, amount_micro_usd, status, created_at, public_id, stripe_session_id, stripe_payment_intent_id) VALUES ('cs_other', ?, 4000000, 'succeeded', 1, 'top_other', 'cs_other', 'pics_refund')")
+      .bind(subject).run();
+    const refund = { id: "evt_r", type: "charge.refunded", data: { object: { payment_intent: "pi_cs_refund", amount_refunded: 200 } } };
+    expect(await (await webhook(refund)).json()).toMatchObject({ removedMicroUsd: 2_000_000 });
+    expect(await creditedMicroUsd(db, subject)).toBe(4_000_000);
+    // The neighbouring payment is untouched by that refund.
+    const other = { id: "evt_r2", type: "charge.refunded", data: { object: { payment_intent: "pics_refund", amount_refunded: 100 } } };
+    expect(await (await webhook(other)).json()).toMatchObject({ removedMicroUsd: 1_000_000 });
+    expect(await creditedMicroUsd(db, subject)).toBe(3_000_000);
+  });
+
+  it("answers a logged 500 when our session arrives without a subject", async () => {
+    const response = await webhook({ id: "evt_ns", type: "checkout.session.completed", data: { object: {
+      id: "cs_no_subject", amount_total: 500, payment_status: "paid", customer: "cus_owner", metadata: { kind: "shiba_workspace_credits" } } } });
+    expect(response.status).toBe(500);
+  });
+});

@@ -142,7 +142,11 @@ interface RefundChargeObject {
  * else is logged and answered non-2xx so it reaches Stripe's retries.
  */
 async function reconcilePaidSession(env: Env, session: CheckoutSessionObject, sessionId: string, amountMicroUsd: number, paymentIntentId: string | null): Promise<boolean> {
-  const subject = session.metadata!.shiba_subject as string;
+  const subject = session.metadata?.shiba_subject;
+  if (typeof subject !== "string" || subject.trim() === "") {
+    logStructured("error", { event: "billing.unmatched_paid_session", detail: `session=${sessionId} reason=missing_subject` });
+    return false;
+  }
   // Signed metadata alone proves nothing: the session must belong to the
   // customer this Worker already recorded for that subject, or it is not ours.
   const account = await readBillingAccount(env.AGENT_AUDIT, subject.slice(0, 256));

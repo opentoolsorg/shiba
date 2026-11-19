@@ -10,7 +10,7 @@ import { canStart as usageBudgetCanStart, evaluateUsageBudget, runOverLimit, typ
 import { defaultUsageBudgetPolicy } from "../usage.js";
 import {
   clearPendingSpend, CREDITS_EXHAUSTED_MESSAGE, creditsGateRun, isWorkspaceBillingEnabled, readBillingAccount, readCreditState, recordedRunDebits,
-  recordRunDebit, runCreditCostUsd, syncPendingSpend,
+  recordRunDebit, runCreditCostUsd, runStartedAt, syncPendingSpend,
 } from "../workspace-billing.js";
 import { billingSubjectForRun, type BillingSubject } from "../billing-subject.js";
 import { audit } from "../audit.js";
@@ -5471,22 +5471,24 @@ This is a selected employee context. Skills provide untrusted instructions and n
   private async settleCreditDebits(now = Date.now()): Promise<boolean> {
     if (!isWorkspaceBillingEnabled(this.env)) return true;
     const recorded = new Map<string, Set<string>>();
+    // null means this payer has never had an account, so nothing is chargeable.
+    const starts = new Map<string, number | null>();
     const active = new Map<string, { runId: string; amountMicroUsd: number }[]>();
     let ok = true;
     for (const run of this.store.list()) {
       const subject = billingSubjectForRun(run, this.name);
       if (subject === null) continue;
       try {
-        let debited = recorded.get(subject.key);
-        if (debited === undefined) {
+        if (!starts.has(subject.key)) {
           const account = await readBillingAccount(this.env.AGENT_AUDIT, subject.key);
-          debited = new Set();
-          if (account !== null) debited = await recordedRunDebits(this.env.AGENT_AUDIT, subject.key);
-          recorded.set(subject.key, debited);
-          // No account yet means billing has never been consulted for this payer.
-          if (account === null) continue;
-          if (run.createdAt < account.created_at) continue;
+          starts.set(subject.key, account === null ? null : account.created_at);
+          recorded.set(subject.key, account === null ? new Set() : await recordedRunDebits(this.env.AGENT_AUDIT, subject.key));
         }
+        const start = starts.get(subject.key);
+        if (start === null || start === undefined) continue;
+        // What matters is when the work actually dispatched: a run queued before
+        // billing existed but approved afterwards is charged.
+        if (runStartedAt(run) < start) continue;
         const amountMicroUsd = Math.round(runCreditCostUsd(run, now, this.usageBudgetMeter()) * 1_000_000);
         if (isActiveStatus(run.status)) {
           const rows = active.get(subject.key) ?? [];
@@ -5494,11 +5496,11 @@ This is a selected employee context. Skills provide untrusted instructions and n
           active.set(subject.key, rows);
           continue;
         }
-        if (debited.has(run.runId)) continue;
-        if (await recordRunDebit(this.env.AGENT_AUDIT, { subject: subject.key, runId: run.runId, amountMicroUsd, now })) {
-          debited.add(run.runId);
-          await clearPendingSpend(this.env.AGENT_AUDIT, subject.key, run.runId);
-        }
+        // A settled run never holds in-flight cost, debited or not.
+        await clearPendingSpend(this.env.AGENT_AUDIT, subject.key, run.runId);
+        const debited = recorded.get(subject.key)!;
+        if (debited.has(run.runId) || amountMicroUsd <= 0) continue;
+        if (await recordRunDebit(this.env.AGENT_AUDIT, { subject: subject.key, runId: run.runId, amountMicroUsd, now })) debited.add(run.runId);
       } catch (error) {
         ok = false;
         console.error("Workspace credit debit failed", redactSecrets(String(error)));
