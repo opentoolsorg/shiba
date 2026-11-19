@@ -253,17 +253,22 @@ describe("app Work and Threads routing", () => {
   it("waits for a recovering turn before asking for chat suggestions", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/threads/");
+    const previous = { messages: mocks.chat.messages, isRecovering: mocks.chat.isRecovering };
     mocks.chat.messages = [{ id: "reply-1", role: "assistant", parts: [{ type: "text", text: "Done." }] }] as never;
     mocks.chat.isRecovering = true;
     const askedBefore = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/chat-suggestions")).length;
-    const view = render(<App />);
-    await screen.findByRole("textbox", { name: "Task draft" });
-    await act(async () => {});
-    expect(askedBefore()).toBe(0);
-    mocks.chat.isRecovering = false;
-    view.rerender(<App />);
-    await waitFor(() => expect(askedBefore()).toBe(1));
-    mocks.chat.messages = [] as never;
+    try {
+      const view = render(<App />);
+      await screen.findByRole("textbox", { name: "Task draft" });
+      await act(async () => {});
+      expect(askedBefore()).toBe(0);
+      mocks.chat.isRecovering = false;
+      view.rerender(<App />);
+      await waitFor(() => expect(askedBefore()).toBe(1));
+    } finally {
+      mocks.chat.messages = previous.messages;
+      mocks.chat.isRecovering = previous.isRecovering;
+    }
   });
 
   it("reviews the Chat draft in the existing Work composer without submitting it", async () => {
