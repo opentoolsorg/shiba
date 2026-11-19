@@ -536,6 +536,10 @@ describe("account-scoped employee directory", () => {
     expect(screen.queryByText("Old employee")).toBeNull();
     expect(screen.queryByDisplayValue("Old private draft")).toBeNull();
     await screen.findByText("Current account employee");
+    // Let the fresh scope's own list request settle before counting, or a
+    // unrelated in-flight refresh makes the final assertion race.
+    await waitFor(() => expect(fetcher.mock.calls.length).toBeGreaterThan(0));
+    await new Promise((resolve) => setTimeout(resolve, 50));
     const count = fetcher.mock.calls.length;
     await act(async () => { pending.resolve(Response.json({ agent: scopedAgent("Old saved employee"), ok: true })); });
     expect(screen.queryByText("Old saved employee")).toBeNull();
