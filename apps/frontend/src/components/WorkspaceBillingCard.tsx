@@ -115,9 +115,9 @@ function BillingBody({ billing, sessionId, sessionApiAvailable }: { billing: Wor
         </button>
       </div>
 
-      <div className="flex flex-col gap-2 border-t border-[#e4e4e7] pt-3 dark:border-zinc-800">
-        <span id="top-up-label" className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">Add credits</span>
-        <div className="flex flex-wrap items-center gap-2" aria-labelledby="top-up-label">
+      <fieldset className="flex flex-col gap-2 border-t border-[#e4e4e7] pt-3 dark:border-zinc-800">
+        <legend className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">Add credits</legend>
+        <div className="flex flex-wrap items-center gap-2">
           {PRESETS.map((preset) => (
             <button key={preset} type="button" aria-pressed={amount === String(preset)} onClick={() => setAmount(String(preset))}
               className={`${viewButtonClass} min-w-16 tabular-nums ${amount === String(preset) ? "border-zinc-900 dark:border-zinc-100" : ""}`}>
@@ -137,7 +137,7 @@ function BillingBody({ billing, sessionId, sessionApiAvailable }: { billing: Wor
           Whole dollars from {usd(billing.limits.minUsd)} to {usd(billing.limits.maxUsd)}. Credits cover computer time and models this deployment pays for; your own provider keys and plan subscriptions aren&apos;t charged.
         </p>
         {error !== null ? <p className="text-[11px] text-rose-600 dark:text-rose-400">Couldn&apos;t open Stripe: {error}</p> : null}
-      </div>
+      </fieldset>
 
       {billing.topUps.length > 0 ? (
         <div className="border-t border-[#e4e4e7] pt-3 dark:border-zinc-800">
