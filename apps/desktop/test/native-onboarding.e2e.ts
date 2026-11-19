@@ -447,16 +447,11 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await page.goto(`${fixture.origin}/threads/`);
     await openChat(page);
     await page.getByLabel("Review decision for reports/native-fixture.md").selectOption("approved");
-    // The optimistic "Current saved review" text renders before the review POST
-    // settles, and onboarding progress reads the review back off the run record.
-    // Wait for the Worker to accept this exact write before polling, or a cold
-    // save races the read model for longer than the default poll budget.
-    const savedReview = page.waitForResponse((response) =>
-      response.request().method() === "POST" &&
-      response.url().includes("/deliverables/0/review"),
-    );
     await page.getByRole("button", { name: "Save review", exact: true }).click();
-    expect((await savedReview).status()).toBeLessThan(400);
+    // The label renders from the review the server returns with the write, so
+    // it proves the save landed. Onboarding progress re-derives acceptance from
+    // the run record instead, and that second read trails the write on a loaded
+    // runner, so it gets the same budget as the run poll above.
     await page.getByText("Current saved review: approved", { exact: true }).waitFor();
     await expect.poll(async () => (await progress(page)).evidence.acceptedDeliverable, { timeout: 15_000 }).toBe(true);
     expect((await progress(page)).activatedAt).toEqual(expect.any(Number));

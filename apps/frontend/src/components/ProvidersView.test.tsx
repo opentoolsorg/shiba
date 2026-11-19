@@ -240,4 +240,13 @@ describe("ProvidersView sign-in", () => {
     expect(alert.textContent).toContain("Provider status returned an invalid response.");
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
+
+  it("shows the retry state instead of crashing on a provider card with no connection", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? { org: "self-hosted", defaultProviderId: null, providers: [{}] } : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));
+    render(<ProvidersView />);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Provider status returned an invalid response.");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy());
+  });
 });
