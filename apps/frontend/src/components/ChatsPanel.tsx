@@ -1,5 +1,6 @@
 import { useMemo, useState, type JSX } from "react";
 import { Bell, Hash, MessageSquare, Plus, Search, X } from "lucide-react";
+import { AgentAvatar } from "./AgentAvatar";
 import {
   ContextPanel,
   PanelGroup,
@@ -53,6 +54,8 @@ export interface ChatsPanelProps {
   onSearchClick?: () => void;
   /** Set to false when the app has no real team rooms, channels or activity to list. */
   showWorkspaceGroups?: boolean;
+  /** The thread registry is still loading, so an empty list is not "no threads". */
+  loading?: boolean;
   className?: string;
 }
 
@@ -85,6 +88,7 @@ export function ChatsPanel({
   onSelectActivity,
   onSearchClick,
   showWorkspaceGroups = true,
+  loading = false,
   className = "",
 }: ChatsPanelProps): JSX.Element {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -105,7 +109,8 @@ export function ChatsPanel({
     return sessions.filter(
       (s) =>
         s.title.toLowerCase().includes(normalizedQuery) ||
-        s.repoName.toLowerCase().includes(normalizedQuery),
+        s.repoName.toLowerCase().includes(normalizedQuery) ||
+        (s.agent?.name.toLowerCase().includes(normalizedQuery) ?? false),
     );
   }, [sessions, normalizedQuery]);
 
@@ -186,7 +191,7 @@ export function ChatsPanel({
       {scope === "personal" ? (
         <PanelGroup
           label="Recents"
-          emptyText={normalizedQuery ? "No chats match your search" : "No personal chats yet"}
+          emptyText={normalizedQuery ? "No chats match your search" : loading ? "Loading threads…" : "No personal chats yet"}
           action={
             onNewChat ? (
               <PanelIconButton label="New chat" onClick={onNewChat}>
@@ -213,8 +218,16 @@ export function ChatsPanel({
                   className={`size-1.5 rounded-full shrink-0 ${statusDotClass(session)}`}
                   aria-hidden="true"
                 />
-                <span className="min-w-0 flex-1 truncate text-[13px] leading-tight">
-                  {session.title || "Untitled session"}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] leading-tight">
+                    {session.title || "Untitled session"}
+                  </span>
+                  {session.agent ? (
+                    <span className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-tight opacity-80">
+                      <AgentAvatar id={session.agent.id} name={session.agent.name} size={14} decorative />
+                      <span className="truncate">{session.agent.name}</span>
+                    </span>
+                  ) : null}
                 </span>
               </button>
             );
