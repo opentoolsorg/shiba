@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { containerImageProblems } from "./check-dogfood-drift.mjs";
+import { containerImageProblems, durableObjectProblems } from "./check-dogfood-drift.mjs";
 import { pinImage, pinnedReference } from "./pin-dogfood-image.mjs";
 import { pinProblem } from "./check-dogfood-image-pin.mjs";
 
@@ -63,4 +63,37 @@ test("pin-dogfood-image replaces the repository and digest of a full reference",
   assert.throws(() => pinImage(source, "latest"), /not a managed-registry image reference/);
   assert.throws(() => pinImage(source, "docker.io/library/node:22"), /not a managed-registry image reference/);
   assert.throws(() => pinImage("{}", nextDigest), /no managed-registry image pin/);
+});
+
+test("the dogfood config must use the declarative exports flow", () => {
+  const bindings = [{ name: "Sandbox", class_name: "Sandbox" }];
+  const containers = [{ name: "sandbox-app" }];
+  const exportsBlock = { Sandbox: { type: "durable-object", storage: "sqlite", container: "sandbox-app" } };
+  const base = { durable_objects: { bindings }, containers };
+
+  assert.deepEqual(durableObjectProblems({ ...base, exports: exportsBlock }), []);
+
+  assert.match(
+    durableObjectProblems({ ...base, exports: exportsBlock, migrations: [{ tag: "v1" }] })[0],
+    /refuses to revert to migrations \(100403\)/,
+  );
+  assert.match(durableObjectProblems(base)[0], /has no "exports" block/);
+  assert.match(
+    durableObjectProblems({ ...base, exports: { Other: { type: "durable-object", storage: "sqlite" } } }).join("\n"),
+    /binds Durable Object class "Sandbox" with no live "exports" entry/,
+  );
+  assert.match(
+    durableObjectProblems({
+      ...base,
+      exports: { ...exportsBlock, Extra: { type: "durable-object", storage: "sqlite" } },
+    }).join("\n"),
+    /exports Durable Object class "Extra" that no binding references/,
+  );
+  assert.match(
+    durableObjectProblems({
+      ...base,
+      exports: { Sandbox: { type: "durable-object", storage: "sqlite", container: "missing-app" } },
+    }).join("\n"),
+    /is not a containers\[\] name/,
+  );
 });
