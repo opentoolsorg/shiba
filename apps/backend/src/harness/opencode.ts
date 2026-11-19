@@ -25,7 +25,23 @@ import {
 import type { RunUsage } from "@shiba/shared";
 
 /** OpenCode is multi-provider; the gateway decides which are actually reachable. */
-export const OPENCODE_PROVIDERS = ["google", "anthropic", "openai", "xai", "opencode-go", "openrouter", "groq", "github-copilot"] as const;
+export const OPENCODE_PROVIDERS = ["google", "anthropic", "openai", "xai", "opencode-go", "openrouter", "groq", "github-copilot", "kimi-code", "meta",
+  "deepseek", "zai", "minimax", "qwen", "mistral"] as const;
+
+/**
+ * Providers OpenCode reaches through @ai-sdk/openai-compatible. The base URL
+ * names the real host so egress can match it; the key stays a placeholder.
+ */
+const OPENAI_COMPATIBLE_PROVIDERS: Partial<Record<string, { name: string; baseURL: string }>> = {
+  "github-copilot": { name: "GitHub Copilot", baseURL: "https://api.githubcopilot.com" },
+  "kimi-code": { name: "Kimi Code", baseURL: "https://api.kimi.ai/coding/v1" },
+  meta: { name: "Meta Model API", baseURL: "https://api.meta.ai/v1" },
+  deepseek: { name: "DeepSeek", baseURL: "https://api.deepseek.com" },
+  zai: { name: "Z.ai", baseURL: "https://api.z.ai/api/paas/v4" },
+  minimax: { name: "MiniMax", baseURL: "https://api.minimax.io/v1" },
+  qwen: { name: "Qwen (DashScope)", baseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1" },
+  mistral: { name: "Mistral", baseURL: "https://api.mistral.ai/v1" },
+};
 
 /** Thrown when a streamed OpenCode event line is malformed. */
 export class OpenCodeEventError extends Error {}
@@ -120,6 +136,7 @@ function summarizeUnknown(record: Record<string, unknown>): string {
 export function buildOpencodeConfig(input: CodingTaskInput): Record<string, unknown> {
   const model = input.codingModel;
   const provider = assertSupportedModel("opencode", OPENCODE_PROVIDERS, model);
+  const compatible = OPENAI_COMPATIBLE_PROVIDERS[provider];
   return {
     $schema: "https://opencode.ai/config.json",
     model,
@@ -128,13 +145,13 @@ export function buildOpencodeConfig(input: CodingTaskInput): Record<string, unkn
     autoupdate: false,
     provider: {
       [provider]: {
-        ...(provider === "github-copilot" ? {
-          npm: "@ai-sdk/openai-compatible", name: "GitHub Copilot",
-          models: { [model.slice(model.indexOf("/") + 1)]: { name: "Copilot" } },
+        ...(compatible ? {
+          npm: "@ai-sdk/openai-compatible", name: compatible.name,
+          models: { [model.slice(model.indexOf("/") + 1)]: { name: compatible.name } },
         } : {}),
         options: {
           apiKey: DUMMY_PROVIDER_KEY,
-          ...(provider === "github-copilot" ? { baseURL: "https://api.githubcopilot.com" } : {}),
+          ...(compatible ? { baseURL: compatible.baseURL } : {}),
         },
       },
     },

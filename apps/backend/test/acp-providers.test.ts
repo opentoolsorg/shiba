@@ -79,7 +79,8 @@ describe("provider registry", () => {
       "codex",
       "gemini",
       "grok",
-      "cursor", "openai", "anthropic", "openrouter", "groq", "copilot",
+      "cursor", "openai", "anthropic", "openrouter", "groq", "copilot", "kimi", "meta",
+      "deepseek", "zai", "minimax", "qwen", "mistral",
     ]);
     for (const provider of ACP_PROVIDER_REGISTRY) {
       if (provider.protocol === "acp") {
@@ -120,7 +121,7 @@ describe("GET /api/providers", () => {
   it("still lists providers when the connection store is missing", async () => {
     const response = await handleAcpProviders(request("/api/providers"), {} as Env);
     const body = await snapshot(response);
-    expect(body.providers).toHaveLength(10);
+    expect(body.providers).toHaveLength(17);
   });
 });
 

@@ -172,6 +172,44 @@ describe("redactSecrets", () => {
     expect(redactSecrets("hello world")).toBe("hello world");
   });
 
+  it.each([
+    ["Anthropic key", "key sk-ant-api03-abcdefghijklmnopqrstuvwxyz", "sk-ant-api03"],
+    ["OpenAI project key", "OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwx", "sk-proj-"],
+    ["OpenRouter key", "openrouter sk-or-v1-abcdefghijklmnopqrstuvwxyz", "sk-or-v1-"],
+    ["Stripe live key", "stripe sk_live_abcdefgh12345678", "sk_live_"],
+    ["Stripe restricted key", "stripe rk_test_abcdefgh12345678", "rk_test_"],
+    ["AWS access key", "aws AKIAIOSFODNN7EXAMPLE", "AKIAIOSFODNN7EXAMPLE"],
+    ["AWS temporary key", "aws ASIAIOSFODNN7EXAMPLE", "ASIAIOSFODNN7EXAMPLE"],
+    ["AWS secret", "aws_secret_access_key = wJalrXUtnFEMIK7MDENGbPxRfiCY", "wJalrXUtnFEMIK7MDENGbPxRfiCY"],
+    ["GitLab token", "gitlab glpat-abcdefghij0123456789", "glpat-"],
+    ["Slack webhook", "hook https://hooks.slack.com/services/T000/B000/abcdefghijkl", "hooks.slack.com/services"],
+    ["connection URL", "postgres://appuser:s3cretpass@db.internal:5432/app", "s3cretpass"],
+  ])("redacts a %s", (_shape, text, leaked) => {
+    const redacted = redactSecrets(text);
+    expect(redacted).not.toContain(leaked);
+    expect(redacted).toContain("[redacted]");
+  });
+
+  it("removes a PEM private key block whole and keeps a connection URL host", () => {
+    const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----";
+    const redacted = redactSecrets("deploy with\n" + pem + "\nthen postgres://app:pw@db.internal:5432/app");
+    expect(redacted).not.toContain("MIIEowIBAAKCAQEA");
+    expect(redacted).toContain("postgres://[redacted]@db.internal:5432/app");
+  });
+
+  it.each([
+    "Tokens: 1,914,427 across 16 runs",
+    "max_tokens=16384000",
+    "risk-free-rate-of-return",
+    "password: must-be-12-chars-or-longer",
+    "the api_key field is required in the payload",
+    "Bearer auth is supported but no header is set",
+    "see https://api.example.com/v1/models for the list",
+    "total_tokens: 16384",
+  ])("leaves benign text unchanged: %s", (text) => {
+    expect(redactSecrets(text)).toBe(text);
+  });
+
   it("redacts shiba bearer tokens (shk/shb/sho)", () => {
     const shk = `shk_${"a".repeat(16)}_${"b".repeat(48)}`;
     const shb = `shb_${"c".repeat(16)}_${"d".repeat(48)}`;
