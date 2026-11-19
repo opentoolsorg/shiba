@@ -3,6 +3,7 @@ import {
   Archive,
   Check,
   ChevronRight,
+  Download,
   Eye,
   Loader2,
   Pencil,
@@ -23,7 +24,10 @@ import {
   archiveExtensionSkill,
   createExtensionSkill,
   deleteExtensionSkill,
+  downloadExtensionSkill,
+  fetchExtensionSkillCatalog,
   fetchExtensionSkills,
+  importExtensionSkill,
   moveExtensionSkill,
   restoreExtensionSkill,
   updateExtensionSkill,
@@ -35,6 +39,7 @@ const VIEWS: Array<{ id: ExtensionSkillView; label: string }> = [
   { id: "workspace", label: "Workspace" },
   { id: "archived", label: "Archived" },
 ];
+const FOLDER_CONTROL = "min-h-11 rounded-md border border-[#e4e4e7] px-3 text-xs font-medium hover:bg-[#f4f4f5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800";
 
 interface FormValues {
   name: string;
@@ -71,6 +76,11 @@ export function ExtensionSkillsView({
   const [query, setQuery] = useState("");
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalog, setCatalog] = useState<Awaited<ReturnType<typeof fetchExtensionSkillCatalog>> | null>(null);
+  const folderPicker = useRef<HTMLInputElement>(null);
+  const filePicker = useRef<HTMLInputElement>(null);
   const loadGeneration = useRef(0);
   const controller = useRef(new AbortController());
   const requestScope = () => ({ workspaceId, signal: controller.current.signal });
@@ -190,6 +200,35 @@ export function ExtensionSkillsView({
   };
 
   const canCreate = view !== "archived" && canManage;
+  const importFiles = async (input: HTMLInputElement) => {
+    const files = Array.from(input.files ?? []);
+    input.value = "";
+    if (!files.length || !canCreate || importing) return;
+    const options = requestScope();
+    setImporting(true);
+    setMutationError(null);
+    setNotice(null);
+    try {
+      await importExtensionSkill(files, view === "workspace" ? "workspace" : "personal", options);
+      await load();
+      setNotice("Skill imported disabled. Review its instructions before enabling.");
+    } catch (cause) {
+      if (options.signal.aborted) return;
+      clearRevoked(cause);
+      setMutationError(cause instanceof Error ? cause.message : "Skill folder could not be imported.");
+    } finally { setImporting(false); }
+  };
+  const toggleCatalog = async () => {
+    setCatalogOpen(!catalogOpen);
+    if (catalogOpen || catalog) return;
+    setMutationError(null);
+    try { setCatalog(await fetchExtensionSkillCatalog(requestScope())); }
+    catch (cause) {
+      clearRevoked(cause);
+      setCatalogOpen(false);
+      setMutationError(cause instanceof Error ? cause.message : "Skill catalog could not be loaded.");
+    }
+  };
   const scopeCrumb = scope === "workspace" || view === "workspace" ? "Workspace" : "Personal";
   const crumbs = [scopeCrumb, "Extensions", "Skills"];
 
@@ -242,13 +281,14 @@ export function ExtensionSkillsView({
         </div>
       </header>
 
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#e4e4e7] px-4 py-2.5 dark:border-zinc-800">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[#e4e4e7] px-4 py-2.5 dark:border-zinc-800">
         <div role="tablist" aria-label="Skill scope" className="flex items-center gap-0.5 rounded-md bg-[#f4f4f5] p-0.5 dark:bg-zinc-800/80">
           {VIEWS.map((item) => (
             <button
               key={item.id}
               type="button"
               role="tab"
+              disabled={importing}
               aria-selected={view === item.id}
               className={`flex min-h-11 items-center rounded px-3 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${
                 view === item.id
@@ -280,6 +320,28 @@ export function ExtensionSkillsView({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+          <div className="flex flex-wrap gap-2">
+            {canCreate ? <>
+              <input ref={folderPicker} type="file" {...{ webkitdirectory: "" }} hidden onChange={(event) => void importFiles(event.currentTarget)} />
+              <input ref={filePicker} type="file" accept=".md" hidden onChange={(event) => void importFiles(event.currentTarget)} />
+              <button type="button" className={FOLDER_CONTROL} disabled={importing} onClick={() => folderPicker.current?.click()}>{importing ? "Importing…" : "Import folder"}</button>
+              <button type="button" className={FOLDER_CONTROL} disabled={importing} onClick={() => filePicker.current?.click()}>Import SKILL.md</button>
+            </> : null}
+            <button type="button" className={FOLDER_CONTROL} aria-expanded={catalogOpen} onClick={() => void toggleCatalog()}>{catalogOpen ? "Close catalog" : "Browse catalog"}</button>
+          </div>
+          {catalogOpen ? (
+            <section aria-label="Skill catalog" className="rounded-lg border border-[#e4e4e7] p-3.5 dark:border-zinc-800">
+              <h2 className="text-sm font-semibold">Skill catalog</h2>
+              <p className="mt-1 text-xs text-[#71717a] dark:text-zinc-400">Curated templates are available as drafts in Run-attached skills.</p>
+              {catalog ? <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                {catalog.map((entry) => <li key={entry.slug} className="rounded border border-[#e4e4e7] p-2.5 text-xs dark:border-zinc-800">
+                  <h3 className="font-semibold">{entry.name}</h3>
+                  <p className="mt-1 text-[#71717a] dark:text-zinc-400">{entry.summary}</p>
+                  <p className="mt-1 text-[#71717a] dark:text-zinc-400">{entry.tags.join(" · ")}</p>
+                </li>)}
+              </ul> : <p role="status" className="mt-2 text-xs">Loading catalog…</p>}
+            </section>
+          ) : null}
           <aside aria-label="Using skills with employees" className="rounded-lg border border-[#e4e4e7] bg-[#fafafa] p-3.5 text-xs text-[#71717a] dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-400">
             <p className="font-medium text-[#0a0a0a] dark:text-zinc-100">Skills for your employees</p>
             <p className="mt-1">
@@ -288,6 +350,7 @@ export function ExtensionSkillsView({
             <p className="mt-1.5">
               Review instructions before enabling them. Skills provide guidance; app connections, tool grants and human approvals are configured separately. For an approved coding run, use Run-attached skills to review, activate and pin a specific version.
             </p>
+            <p className="mt-1.5">Folder imports start disabled. Files in scripts, references and assets are kept for export and aren’t run or sent to employees.</p>
           </aside>
 
           {notice ? <p role="status" className="text-xs font-medium text-emerald-600 dark:text-emerald-400">{notice}</p> : null}
@@ -340,6 +403,10 @@ export function ExtensionSkillsView({
                     setDialog({ mode: "edit", skill });
                   }}
                   onToggle={(event) => void toggle(skill, event)}
+                  onDownload={() => void downloadExtensionSkill(skill._id, requestScope()).catch((cause) => {
+                    clearRevoked(cause);
+                    setMutationError(cause instanceof Error ? cause.message : "Skill folder could not be downloaded.");
+                  })}
                 />
               ))}
             </ul>
@@ -370,11 +437,13 @@ function SkillCard({
   busy,
   onEdit,
   onToggle,
+  onDownload,
 }: {
   skill: ExtensionSkillRecord;
   busy: boolean;
   onEdit: () => void;
   onToggle: (event: MouseEvent<HTMLButtonElement>) => void;
+  onDownload: () => void;
 }): JSX.Element {
   const archivedScope = skill.archivedAt !== undefined ? skill.archivedFromScope ?? skill.scope ?? "personal" : skill.scope ?? "personal";
   const scopeLabel = skill.archivedAt !== undefined ? `Archived · ${archivedScope}` : archivedScope === "workspace" ? "Workspace" : "Personal";
@@ -410,6 +479,9 @@ function SkillCard({
           {skill.version > 1 ? ` · v${skill.version}` : ""}
         </span>
         <div className="flex shrink-0 items-center gap-1">
+          <button type="button" aria-label={`Download folder for ${skill.name}`} title="Download skill folder" onClick={onDownload} className="flex min-h-11 min-w-11 items-center justify-center rounded text-[#71717a] hover:bg-[#f4f4f5] dark:text-zinc-400 dark:hover:bg-zinc-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">
+            <Download className="size-4" />
+          </button>
           {skill.archivedAt === undefined && skill.permissions?.canEdit !== false ? (
             <button
               type="button"

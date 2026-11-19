@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { strFromU8, unzipSync } from "fflate";
 import type { V1Principal } from "../src/v1-auth.js";
 import type { Env } from "../src/env.js";
 import { handleV1 } from "../src/v1-routes.js";
@@ -21,8 +22,73 @@ const fixture = () => {
 };
 
 const base = "/api/v1/extensions/skills";
+const skillMd = "---\r\nname: Round trip\r\ndescription: >-\r\n  Folded description\r\nmetadata:\r\n  author: fixture\r\n---\r\n\r\nUse the reference.\r\n";
+const folder = {
+  folder: "round-trip",
+  scope: "personal",
+  enabled: true,
+  files: [
+    { path: "SKILL.md", base64: Buffer.from(skillMd).toString("base64") },
+    { path: "scripts/example.sh", base64: "ZWNobyB0ZXN0Cg==" },
+    { path: "assets/binary.dat", base64: "AP8=" },
+  ],
+};
 
 describe("extension skills routes", () => {
+  it("imports inert files as a disabled skill and exports bytes and metadata only to readers", async () => {
+    const f = fixture();
+    const imported = await f.send(`${base}/import`, "POST", folder);
+    expect(imported?.status).toBe(201);
+    const { id } = await imported!.json() as { id: string };
+    const detail = await (await f.send(`${base}/${id}`))?.json();
+    expect(detail).toMatchObject({ name: "Round trip", description: "Folded description", instructions: "\r\nUse the reference.\r\n", enabled: false });
+    expect(detail).not.toHaveProperty("folderJson");
+    expect(await (await f.send(`${base}/${id}/instructions`))?.json()).toBeNull();
+    const download = async () => {
+      const response = (await f.send(`${base}/${id}/folder`))!;
+      expect(response.headers.get("content-disposition")).toMatch(/^attachment;/);
+      return unzipSync(new Uint8Array(await response.arrayBuffer()));
+    };
+    const files = await download();
+    expect(Object.keys(files).sort()).toEqual(["round-trip/SKILL.md", "round-trip/assets/binary.dat", "round-trip/scripts/example.sh"]);
+    expect(strFromU8(files["round-trip/SKILL.md"]!)).toBe(skillMd);
+    expect(Array.from(files["round-trip/assets/binary.dat"]!)).toEqual([0, 255]);
+    expect((await f.send(`${base}/${id}`, "PATCH", { description: "Updated", instructions: "New instructions." }))?.status).toBe(200);
+    const updated = strFromU8((await download())["round-trip/SKILL.md"]!);
+    const second = await f.send(`${base}/import`, "POST", { ...folder, files: [{ path: "SKILL.md", base64: Buffer.from(updated).toString("base64") }] });
+    expect(second?.status).toBe(201);
+    const secondId = (await second!.json() as { id: string }).id;
+    expect(await (await f.send(`${base}/${secondId}`))?.json()).toMatchObject({ description: "Updated", instructions: "New instructions." });
+    expect(updated).toContain("author: fixture");
+    expect(updated.endsWith("New instructions.")).toBe(true);
+    f.setPrincipal({ principal: "bob", orgId: "workspace-1", scopes: ["api:read"] });
+    expect((await f.send(`${base}/${id}/folder`))?.status).toBe(404);
+    expect((await f.send(`${base}/import`, "POST", folder))?.status).toBe(403);
+  });
+
+  it("rejects malformed, conflicting, oversized and cross-origin uploads without creating records", async () => {
+    const f = fixture();
+    const send = (files: typeof folder.files) => f.send(`${base}/import`, "POST", { ...folder, files });
+    for (const path of ["scripts/../outside", "/assets/file", "assets/CON.txt", "scripts/a\\b", "other/file", "scripts/.hidden"]) {
+      expect((await send([folder.files[0]!, { path, base64: "" }]))?.status).toBe(400);
+    }
+    expect((await send([...folder.files, { path: "scripts/Example.sh", base64: "" }]))?.status).toBe(400);
+    expect((await send([...folder.files, { path: "scripts/example.sh/nested", base64: "" }]))?.status).toBe(400);
+    expect((await send(folder.files.slice(1)))?.status).toBe(400);
+    expect((await send([{ path: "SKILL.md", base64: Buffer.from("---\nname: a\nname: b\ndescription: c\n---\n").toString("base64") }]))?.status).toBe(400);
+    expect((await send([{ path: "SKILL.md", base64: Buffer.alloc(65537).toString("base64") }]))?.status).toBe(413);
+    expect((await f.send(`${base}/import`, "POST", { ...folder, padding: " ".repeat(800_000) }))?.status).toBe(413);
+    expect((await f.send(`${base}/import`, "POST", folder, "https://outside.test"))?.status).toBe(403);
+    expect(await (await f.send(base))?.json()).toEqual([]);
+  });
+
+  it("lists only curated catalog metadata and does not install skills", async () => {
+    const f = fixture();
+    f.setPrincipal({ principal: "alice", orgId: "workspace-1", scopes: ["api:read"] });
+    const { skills } = await (await f.send(`${base}/catalog`))!.json() as { skills: unknown[] };
+    expect(skills).toContainEqual({ slug: "pr-review-checklist", name: "PR review checklist", summary: expect.any(String), tags: ["review", "github"] });
+    expect(await (await f.send(base))?.json()).toEqual([]);
+  });
   it("creates, lists by scope, edits with versions, toggles, archives, and restores", async () => {
     const f = fixture();
     const create = await f.send(base, "POST", {

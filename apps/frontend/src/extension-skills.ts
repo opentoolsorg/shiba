@@ -13,7 +13,7 @@ export class ExtensionSkillRequestError extends Error {
 
 const BASE = "/api/v1/extensions/skills";
 
-async function requestJson<T>(url: string, init?: RequestInit, scope: ExtensionSkillRequestScope = {}): Promise<T> {
+async function request(url: string, init?: RequestInit, scope: ExtensionSkillRequestScope = {}): Promise<Response> {
   const headers = new Headers(init?.headers);
   if (scope.workspaceId) headers.set("X-Shiba-Workspace", scope.workspaceId);
   const response = await fetch(url, {
@@ -23,14 +23,59 @@ async function requestJson<T>(url: string, init?: RequestInit, scope: ExtensionS
     headers,
     ...(scope.signal ? { signal: scope.signal } : {}),
   });
-  const body = await response.json().catch(() => null) as T | { error?: string } | null;
   if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: string } | null;
     const message = typeof body === "object" && body !== null && "error" in body && typeof body.error === "string"
       ? body.error
       : `Skills request failed (${response.status}).`;
     throw new ExtensionSkillRequestError(message, response.status);
   }
-  return body as T;
+  return response;
+}
+
+async function requestJson<T>(url: string, init?: RequestInit, scope?: ExtensionSkillRequestScope): Promise<T> {
+  return (await request(url, init, scope)).json().catch(() => null) as Promise<T>;
+}
+
+export async function importExtensionSkill(selection: File[], scope: ExtensionSkillScope, options: ExtensionSkillRequestScope): Promise<void> {
+  if (!selection.length || selection.length > 64 || selection.reduce((size, file) => size + file.size, 0) > 512 * 1024) {
+    throw new Error("Choose up to 64 files totaling no more than 512 KiB.");
+  }
+  const folder = selection[0]?.webkitRelativePath.split("/")[0] || "skill";
+  const files = await Promise.all(selection.map(async (file) => {
+    const relative = file.webkitRelativePath;
+    if (relative && !relative.startsWith(`${folder}/`)) throw new Error("Choose one skill folder.");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 8192) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+    }
+    return { path: relative ? relative.slice(folder.length + 1) : file.name, base64: btoa(binary) };
+  }));
+  await requestJson(`${BASE}/import`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ folder, files, scope }),
+  }, options);
+}
+
+export async function downloadExtensionSkill(id: string, scope: ExtensionSkillRequestScope): Promise<void> {
+  const response = await request(`${BASE}/${encodeURIComponent(id)}/folder`, undefined, scope);
+  if (response.headers.get("content-type") !== "application/zip") throw new Error("Skill folder could not be downloaded.");
+  const blob = await response.blob();
+  scope.signal?.throwIfAborted();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "skill-folder.zip";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export async function fetchExtensionSkillCatalog(scope: ExtensionSkillRequestScope) {
+  const body = await requestJson<{ skills?: Array<{ slug: string; name: string; summary: string; tags: string[] }> }>(`${BASE}/catalog`, undefined, scope);
+  if (!Array.isArray(body?.skills)) throw new Error("Skill catalog could not be loaded.");
+  return body.skills;
 }
 
 export async function fetchExtensionSkills(view: ExtensionSkillView, scope: ExtensionSkillRequestScope = {}): Promise<ExtensionSkillRecord[]> {

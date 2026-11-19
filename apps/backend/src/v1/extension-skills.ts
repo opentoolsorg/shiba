@@ -10,10 +10,13 @@ import type { V1Context } from "./context.js";
 import { rejectCrossOriginMutation, rejectNonJsonMutation } from "../dashboard-mutation.js";
 import { resolveOrgForApiRequest, type ResolvedOrgAuth } from "../org-request-auth.js";
 import { skillTeamGrant, withCurrentSkillAuthority } from "../team-skill-authority.js";
+import { readSkillFolder, skillFolderDownload, SkillFolderError } from "../skill-library/folder.js";
+import { listLibrarySkills } from "../skill-library/index.js";
 import {
   archiveExtensionSkill,
   createExtensionSkill,
   getExtensionSkill,
+  getExtensionSkillFolder,
   getExtensionSkillInstructions,
   listExtensionSkillDirectory,
   listExtensionSkills,
@@ -94,7 +97,7 @@ async function handleSkillRoutes(ctx: V1Context, teamAuth: ResolvedOrgAuth | nul
       const originBlock = rejectCrossOriginMutation(request);
       if (originBlock) return originBlock;
     }
-    const bodyBearing = (pathname === BASE && request.method === "POST")
+    const bodyBearing = ((pathname === BASE || pathname === `${BASE}/import`) && request.method === "POST")
       || request.method === "PATCH"
       || (pathname.endsWith("/scope") && request.method === "POST");
     if (bodyBearing) {
@@ -114,6 +117,25 @@ async function handleSkillRoutes(ctx: V1Context, teamAuth: ResolvedOrgAuth | nul
   // Shiba's authenticated org is the current workspace boundary. Callers cannot
   // select a different workspace through query/body input.
   const workspaceId = orgId;
+
+  if (pathname === `${BASE}/catalog`) {
+    if (request.method !== "GET") return Response.json({ error: "Method not allowed." }, { status: 405 });
+    const skills = listLibrarySkills().map(({ slug, name, summary, tags }) => ({ slug, name, summary, tags }));
+    return Response.json({ skills }, { headers: { "cache-control": "no-store" } });
+  }
+
+  if (pathname === `${BASE}/import`) {
+    if (request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405 });
+    if (team && !canManageWorkspace) return Response.json({ error: "Unauthorized." }, { status: 403 });
+    let folder: Awaited<ReturnType<typeof readSkillFolder>>;
+    try { folder = await readSkillFolder(request); }
+    catch (error) {
+      if (!(error instanceof SkillFolderError)) throw error;
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    const id = await createExtensionSkill(env, orgId, userId, { ...folder, workspaceId, enabled: false }, Date.now(), { teamGrant });
+    return Response.json({ id }, { status: 201, headers: { "cache-control": "no-store" } });
+  }
 
   if (pathname === BASE) {
     if (request.method === "GET") {
@@ -154,11 +176,17 @@ async function handleSkillRoutes(ctx: V1Context, teamAuth: ResolvedOrgAuth | nul
     return Response.json(directory, { headers: { "cache-control": "no-store" } });
   }
 
-  const match = pathname.match(/^\/api\/v1\/extensions\/skills\/([^/]+)(?:\/(instructions|scope|archive|restore))?$/);
+  const match = pathname.match(/^\/api\/v1\/extensions\/skills\/([^/]+)(?:\/(instructions|scope|archive|restore|folder))?$/);
   if (!match) return Response.json({ error: "Not found." }, { status: 404 });
   const id = decodeSkillId(match[1]!);
   if (!id) return badRequest("Invalid skill id.");
   const action = match[2];
+
+  if (action === "folder") {
+    if (request.method !== "GET") return Response.json({ error: "Method not allowed." }, { status: 405 });
+    const result = await getExtensionSkillFolder(env, orgId, userId, id, workspaceId);
+    return result ? skillFolderDownload(result.skill, result.folderJson) : Response.json({ error: "Not found." }, { status: 404 });
+  }
 
   if (action === "instructions") {
     if (request.method !== "GET") return Response.json({ error: "Method not allowed." }, { status: 405 });

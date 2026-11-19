@@ -23,6 +23,21 @@ const makeSkill = (overrides: Partial<ExtensionSkillRecord> = {}): ExtensionSkil
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("ExtensionSkillsView", () => {
+  it("browses the curated catalog on demand without installing a skill", async () => {
+    const path = "/api/v1/extensions/skills/catalog";
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input) === path
+      ? Response.json({ skills: [{ slug: "qa", name: "QA plan", summary: "Plan a smoke test.", tags: ["qa"] }] })
+      : Response.json([]));
+    vi.stubGlobal("fetch", fetcher);
+    render(<ExtensionSkillsView />);
+    await screen.findByText("No skills yet");
+    expect(fetcher.mock.calls.some(([url]) => url === path)).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Browse catalog" }));
+    const catalog = screen.getByRole("region", { name: "Skill catalog" });
+    expect(await within(catalog).findByText("QA plan")).toBeTruthy();
+    expect(within(catalog).queryByRole("button")).toBeNull();
+  });
+
   it("contains forward and reverse keyboard focus, then restores the opening control", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
     render(<ExtensionSkillsView />);

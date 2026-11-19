@@ -156,6 +156,9 @@ importers:
       workers-ai-provider:
         specifier: 4.0.0
         version: 4.0.0(@ai-sdk/anthropic@4.0.61(zod@4.3.2))(@ai-sdk/openai@4.0.73(zod@4.3.2))(@ai-sdk/provider@4.0.15)(ai@7.0.102(patch_hash=8cfaf6e5a40d601aaf28f227567b40b03f6c2297ecc3a8c1be40268b821cee63)(zod@4.3.2))
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
       zod:
         specifier: 4.3.2
         version: 4.3.2

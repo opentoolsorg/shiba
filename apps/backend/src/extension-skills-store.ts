@@ -149,11 +149,20 @@ export async function getExtensionSkillInstructions(
   return { _id: skill._id, name: skill.name, instructions: skill.instructions, version: skill.version };
 }
 
+export async function getExtensionSkillFolder(env: ExtensionSkillsEnv, orgId: string, userId: string, id: string, workspaceId: string) {
+  const row = await env.AGENT_AUDIT.prepare(`SELECT ${COLUMNS}, folder_json FROM org_extension_skills WHERE org_id = ? AND workspace_id = ? AND id = ?`)
+    .bind(orgId, workspaceId, id).first<Record<string, unknown>>();
+  if (!row) return null;
+  const skill = skillFromRow(row);
+  if (!skill || !readableBy(skill, userId)) return null;
+  return { skill, folderJson: typeof row.folder_json === "string" ? row.folder_json : null };
+}
+
 export async function createExtensionSkill(
   env: ExtensionSkillsEnv,
   orgId: string,
   userId: string,
-  input: { name: string; description: string; instructions: string; enabled?: boolean; workspaceId?: string; scope?: ExtensionSkillScope },
+  input: { name: string; description: string; instructions: string; enabled?: boolean; workspaceId?: string; scope?: ExtensionSkillScope; folderJson?: string },
   now = Date.now(),
   options: MutationOptions = {},
 ): Promise<string> {
@@ -162,11 +171,12 @@ export async function createExtensionSkill(
   const guard = teamSkillWriteGuard(orgId, userId, options.teamGrant);
   const result = await env.AGENT_AUDIT.prepare(
     `INSERT INTO org_extension_skills
-      (id, org_id, owner_id, workspace_id, scope, name, description, instructions, enabled, version, created_at, updated_at)
-     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ? WHERE 1 = 1${guard.sql}`,
+      (id, org_id, owner_id, workspace_id, scope, name, description, instructions, enabled, version, created_at, updated_at${input.folderJson === undefined ? "" : ", folder_json"})
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?${input.folderJson === undefined ? "" : ", ?"} WHERE 1 = 1${guard.sql}`,
   ).bind(
     id, orgId, userId, input.workspaceId ?? null, input.scope ?? "personal", input.name, input.description,
-    input.instructions, input.enabled === undefined ? null : input.enabled ? 1 : 0, now, now, ...guard.values,
+    input.instructions, input.enabled === undefined ? null : input.enabled ? 1 : 0, now, now,
+    ...(input.folderJson === undefined ? [] : [input.folderJson]), ...guard.values,
   ).run();
   if (result.meta?.changes !== 1) throw new Error("workspace_authority_changed");
   return id;
