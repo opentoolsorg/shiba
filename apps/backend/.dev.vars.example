@@ -118,6 +118,20 @@
 # DISCORD_CHANNEL_REPOS=
 # DISCORD_AGENT_HARNESS=
 
+# --- Teams -------------------------------------------------------------------
+
+# TEAMS_APP_ID + TEAMS_APP_PASSWORD (Entra app registration) enable
+# POST /api/teams/messages. TEAMS_APPROVERS empty means nobody can approve.
+# TEAMS_APP_ID=
+# TEAMS_APP_PASSWORD=
+# Tenant id for a single-tenant bot; unset = multi-tenant.
+# TEAMS_APP_TENANT_ID=
+# TEAMS_SERVICE_URL=
+# TEAMS_APPROVERS=
+# JSON map {conversationId: "https://github.com/owner/repo"}.
+# TEAMS_CHANNEL_REPOS=
+# TEAMS_AGENT_HARNESS=
+
 # --- Optional sandbox providers (@shiba/sandbox) -----------------------------
 
 # E2B_API_KEY=
