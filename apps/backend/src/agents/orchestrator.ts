@@ -1354,6 +1354,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           runId,
           orgId: this.employeeToolOrgId(),
           workspaceId: this.chatLookupWorkspace(),
+          budgetKey: this.chatBudgetKey(),
           userId: initiatorUserIdFromOrchestratorName(this.name),
           onClose: () => void closeBrowserSession(runId),
         }),
@@ -1484,6 +1485,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const session = parsed ? this.storedWebSessions.find((entry) => entry.id === parsed.sessionId) : undefined;
     const pinned = session?.metadata?.teamWorkspaceId;
     return isTeamWorkspaceId(pinned) ? pinned : DASHBOARD_ORG_ID;
+  }
+
+  /** One paid-lookup budget window per Chat message, so a busy thread cannot lock itself out. */
+  private chatBudgetKey(): string {
+    const messages = this.messages ?? [];
+    const latest = [...messages].reverse().find((message) =>
+      typeof message === "object" && message !== null && (message as { role?: unknown }).role === "user") as { id?: unknown } | undefined;
+    const id = typeof latest?.id === "string" && latest.id.trim() ? latest.id.trim() : `n${messages.length}`;
+    return `${this.name ?? "chat-session"}:turn:${id}`;
   }
 
   private employeeToolOrgId(): string {
