@@ -9,6 +9,7 @@ import { generateImage } from "../tools/image-gen.js";
 import { imageModels, imageAspectRatios, imageInputSchema } from "../tools/image-models.js";
 import { videoCapabilityForUser, videoModes } from "../tools/video-gen.js";
 import type { MediaGeneration } from "../tools/media-store.js";
+import { GENERATED_DOCUMENT_PREFIX } from "../tools/document-gen.js";
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: {
   "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
@@ -23,7 +24,10 @@ export interface OutputItem {
   downloadPath: string;
   createdAt: number;
   media?: MediaGeneration & { label: string };
+  documentKind?: "report" | "page";
 }
+
+const GENERATED_DOCUMENT_SQL = `f.r2_key GLOB '${GENERATED_DOCUMENT_PREFIX}*' AND f.mime IN ('text/markdown','text/html')`;
 
 export async function handleKnowledgeOutputs(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
@@ -53,7 +57,7 @@ export async function handleKnowledgeOutputs(request: Request, env: Env): Promis
 
   if (url.pathname === "/api/outputs" && request.method === "GET") {
     const type = url.searchParams.get("type");
-    if (type && !["image", "video", "archive", "output"].includes(type)) return json({ error: "Unknown output type." }, 400);
+    if (type && !["image", "video", "document", "archive", "output"].includes(type)) return json({ error: "Unknown output type." }, 400);
     const items: OutputItem[] = [];
     if (env.AGENT_AUDIT) {
       const archives = await env.AGENT_AUDIT.prepare(
@@ -74,11 +78,11 @@ export async function handleKnowledgeOutputs(request: Request, env: Env): Promis
     }
     if (env.AGENT_AUDIT && type !== "archive") {
       const files = await env.AGENT_AUDIT.prepare(
-        `SELECT f.id, f.name, f.mime, f.size, f.updated_at, m.kind AS media_kind, m.mode, m.model, m.prompt, m.aspect_ratio, m.width, m.height, m.duration_seconds, m.source_file_ids
+        `SELECT f.id, f.name, f.mime, f.size, f.updated_at, f.r2_key, m.kind AS media_kind, m.mode, m.model, m.prompt, m.aspect_ratio, m.width, m.height, m.duration_seconds, m.source_file_ids
          FROM files f LEFT JOIN media_generations m ON m.file_id=f.id AND m.workspace_id=f.workspace_id
-         WHERE f.workspace_id=? AND f.archived_at IS NULL AND (f.mime LIKE 'image/%' OR f.mime='video/mp4') AND (f.scope='workspace' OR f.created_by=?)
-         AND (? IS NULL OR ?='output' OR (?='image' AND f.mime LIKE 'image/%') OR (?='video' AND f.mime='video/mp4')) ORDER BY f.updated_at DESC LIMIT 40`,
-      ).bind(workspaceId, userId, type, type, type, type).all<{ id: string; name: string; mime: string; size: number; updated_at: number; media_kind: "image" | "video" | null; mode: string; model: string; prompt: string; aspect_ratio: string; width: number | null; height: number | null; duration_seconds: number | null; source_file_ids: string }>();
+         WHERE f.workspace_id=? AND f.archived_at IS NULL AND (f.mime LIKE 'image/%' OR f.mime='video/mp4' OR (${GENERATED_DOCUMENT_SQL})) AND (f.scope='workspace' OR f.created_by=?)
+         AND (? IS NULL OR ?='output' OR (?='image' AND f.mime LIKE 'image/%') OR (?='video' AND f.mime='video/mp4') OR (?='document' AND ${GENERATED_DOCUMENT_SQL})) ORDER BY f.updated_at DESC LIMIT 40`,
+      ).bind(workspaceId, userId, type, type, type, type, type).all<{ id: string; name: string; mime: string; size: number; updated_at: number; r2_key: string; media_kind: "image" | "video" | null; mode: string; model: string; prompt: string; aspect_ratio: string; width: number | null; height: number | null; duration_seconds: number | null; source_file_ids: string }>();
       for (const row of files.results) {
         items.push({
           id: row.id,
@@ -88,6 +92,7 @@ export async function handleKnowledgeOutputs(request: Request, env: Env): Promis
           bytes: row.size,
           downloadPath: `/api/files/${row.id}/download`,
           createdAt: row.updated_at,
+          ...(row.r2_key.startsWith(GENERATED_DOCUMENT_PREFIX) && (row.mime === "text/markdown" || row.mime === "text/html") ? { documentKind: row.mime === "text/html" ? "page" as const : "report" as const } : {}),
           ...(row.media_kind ? { media: { kind: row.media_kind, mode: row.mode, model: row.model, label: imageModels.find((model) => model.id === row.model)?.label ?? "Video studio", prompt: row.prompt, aspectRatio: row.aspect_ratio,
             width: row.width ?? undefined, height: row.height ?? undefined, durationSeconds: row.duration_seconds ?? undefined, sourceIds: JSON.parse(row.source_file_ids) as string[] } } : {}),
         });

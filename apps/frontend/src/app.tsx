@@ -76,6 +76,7 @@ import { AgentChatEmptyState } from "./components/AgentChatEmptyState";
 import { ChatSuggestions, focusComposerDraft } from "./components/ChatSuggestions";
 import { AgentChatHeader } from "./components/AgentChatHeader";
 import { AgentComposerShell } from "./components/AgentComposerShell";
+import type { ChatCreateChoice } from "./components/ChatMessageComposer";
 import {
   readConversationMode,
   readRememberedSessionId,
@@ -1805,7 +1806,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   );
 
   const submitTask = useCallback(
-    async (event?: React.FormEvent, options?: { forceWork?: boolean; customAgentId?: string }) => {
+    async (event?: React.FormEvent, options?: { forceWork?: boolean; customAgentId?: string; create?: ChatCreateChoice }) => {
       if (threadLinkPending) return;
       const selectedCustomAgentId = options?.customAgentId ?? customAgentId;
       if (event) event.preventDefault();
@@ -1845,6 +1846,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               metadata: {
                 shibaMode: "chat",
                 shibaRoomViewerId: realtimeViewerId,
+                ...(options?.create ? { shibaChatCreate: options.create } : {}),
                 ...(selectedChatLookups(chatLookupsRef.current).length ? { shibaChatTools: selectedChatLookups(chatLookupsRef.current) } : {}),
               },
             });
@@ -1855,6 +1857,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           }
           // The failed user turn remains in the transcript; retrying it must
           // regenerate that turn rather than append a duplicate user message.
+          return true;
         } catch (error) {
           restoreDraft(draftSession, draft, activeOnboardingRef);
           setNotice(`Message could not be sent: ${error instanceof Error ? error.message : String(error)}`);
@@ -2407,9 +2410,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        if (e.defaultPrevented) return;
         if (!isSubmitting && !attachmentsUploading && hasComposerInput({ task, repoUrl, executionTargetKind, conversationMode, appToolsWork })) {
           e.preventDefault();
-          submitTask();
+          const chatForm = document.forms.namedItem("chat-message-composer");
+          if (chatForm) chatForm.requestSubmit();
+          else submitTask();
         }
         return;
       }
@@ -3429,7 +3435,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               route={{ harness, codingModel, connectionId, runTarget }}
               onOpenModels={() => { setSettingsSection("models"); setMainView("settings"); }}
               onOpenProviders={() => { setSettingsSection("providers"); setMainView("settings"); }}
-              onSubmit={(event, agentId) => submitTask(event, { forceWork: true, customAgentId: agentId })}
+              onSubmit={async (event, agentId) => { await submitTask(event, { forceWork: true, customAgentId: agentId }); }}
               onOpenRun={(runId) => { void handleSelectSession(runId); }}
               onOpenApproval={() => setMainView("approvals")}
               onToggleAgents={toggleSessionsCollapsed}
@@ -3849,7 +3855,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   className={
                     chat.messages.length === 0 && !reviewThreadId
                       ? "flex-1 flex flex-col min-h-0"
-                      : "border-t border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
+                      : `border-t border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0 ${conversationMode === "chat" ? "max-h-[50dvh] overflow-y-auto sm:max-h-none sm:overflow-visible" : ""}`
                   }
                 >
                   {conversationMode === "chat" ? (
@@ -3897,15 +3903,16 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         <ChatSuggestions agentName={chatAgentName} refreshKey={chat.messages.at(-1)?.id ?? "empty"} busy={busy} hidden={!composerVisible || task.trim() !== ""} onPick={pickSuggestion} />
                       ) : null}
                       <AgentComposerShell
+                        key={composerScope}
                         agentName={employeeName}
                         agents={mentionableAgents}
                         value={composerVisible ? task : ""}
                         onChange={setTask}
                         onPrepareWork={() => setConversationMode("work")}
-                        onSubmit={submitTask}
+                        onSubmit={(event, create) => submitTask(event, { create })}
                         onStop={() => { void chat.stop(); }}
                         onRetry={() => { void chat.regenerate(); }}
-                        busy={isSubmitting || clearing || threadLinkPending}
+                        busy={!composerVisible || isSubmitting || clearing || threadLinkPending}
                         streaming={chat.isStreaming || chat.isRecovering || chat.status === "streaming" || chat.status === "submitted"}
                         failed={Boolean(chat.error)}
                         lookups={chatLookups}

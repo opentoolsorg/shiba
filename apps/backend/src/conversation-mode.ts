@@ -36,6 +36,19 @@ export function chatOptInTools(messages: readonly unknown[] | undefined): ChatOp
   return CHAT_OPT_IN_TOOLS.filter((name) => requested.includes(name));
 }
 
+/** One generation a Chat user can pick for a single message; each maps to exactly one tool. */
+export const CHAT_CREATE_TOOLS = { image: "generate_image", video: "generate_video", report: "generate_report", page: "generate_page" } as const;
+export type ChatCreateTool = (typeof CHAT_CREATE_TOOLS)[keyof typeof CHAT_CREATE_TOOLS];
+
+/** The generation tool the latest Chat user turn explicitly chose, or null. */
+export function chatCreateTool(messages: readonly unknown[] | undefined): ChatCreateTool | null {
+  if (!isChatOnlyTurn(messages)) return null;
+  const latest = [...(messages ?? [])].reverse().find((message) => typeof message === "object" && message !== null &&
+    (message as { role?: unknown }).role === "user") as { metadata?: { shibaChatCreate?: unknown } } | undefined;
+  const choice = latest?.metadata?.shibaChatCreate;
+  return typeof choice === "string" && Object.hasOwn(CHAT_CREATE_TOOLS, choice) ? CHAT_CREATE_TOOLS[choice as keyof typeof CHAT_CREATE_TOOLS] : null;
+}
+
 /** Chat turns get no registered tools; work turns keep the existing gated tool set. */
 export function toolsForConversationMode<T extends Record<string, unknown>>(
   mode: ConversationMode,

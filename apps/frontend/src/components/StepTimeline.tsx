@@ -17,6 +17,7 @@ import { memo, type CSSProperties } from "react";
 import { LoaderCircle, ShieldCheck, Wrench, type LucideIcon } from "lucide-react";
 import { ApprovalCard } from "./ApprovalCard";
 import { RetainedDraftCard } from "./RetainedDraftCard";
+import { GeneratedDocumentCard, GeneratedImageCard } from "./GeneratedDocumentCard";
 import { SearchSourcesCard, searchSources } from "./SearchSourcesCard";
 import { generatedVideoSource, VideoArtifactPlayer } from "./VideoArtifactPlayer";
 import { ShibaMark } from "./ShibaMark";
@@ -222,12 +223,16 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
             const approval = getToolApproval(part);
             const rejected = approval?.approved === false;
             const waiting = state === "waiting-approval";
-            const output = renderToolOutput(part);
-            const retainedDraft = toolDisplayName(part) === "employee_retain_draft" && state === "complete"
+            const tool = toolDisplayName(part);
+            const retainedDraft = tool === "employee_retain_draft" && state === "complete"
               ? getToolOutput(part) : null;
-            const videoSource = toolDisplayName(part) === "generate_video" && state === "complete"
+            const videoSource = tool === "generate_video" && state === "complete"
               ? generatedVideoSource(getToolOutput(part)) : null;
-            const lookupOutput = state === "complete" && searchSources(toolDisplayName(part), getToolOutput(part))
+            const documentKind = state === "complete" && (tool === "generate_report" || tool === "generate_page")
+              ? tool === "generate_report" ? "report" : "page" : null;
+            const generatedImage = state === "complete" && tool === "generate_image";
+            const output = documentKind || generatedImage ? null : renderToolOutput(part);
+            const lookupOutput = state === "complete" && searchSources(tool, getToolOutput(part))
               ? getToolOutput(part) : null;
             const callId = getToolCallId(part);
             // Build the gate card from the tool part itself; the
@@ -239,7 +244,7 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
                     messageId: message.id,
                     toolCallId: callId,
                     approvalId,
-                    tool: toolDisplayName(part),
+                    tool,
                     input: getToolInput(part),
                   }
                 : undefined;
@@ -257,7 +262,7 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
                 </span>
                 <div className="flex flex-wrap items-center gap-2 bg-[var(--panel)]/70 p-2.5 rounded-[var(--radius-button)] border border-[var(--border-1)] font-mono text-xs w-fit max-w-full">
                   <span className="text-[var(--primary)] font-semibold bg-[var(--card)] px-2 py-0.5 rounded-[var(--radius-button)]">
-                    Ran {toolDisplayName(part)}
+                    Ran {tool}
                   </span>
                   <span
                     className={`text-[11px] font-semibold px-2 py-0.5 rounded-[var(--radius-button)] border ${statusChipClass(
@@ -268,7 +273,7 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
                     {rejected ? "Rejected" : state}
                   </span>
                 </div>
-                {videoSource ? <VideoArtifactPlayer src={videoSource} /> : retainedDraft ? <RetainedDraftCard output={retainedDraft} /> : lookupOutput ? <SearchSourcesCard tool={toolDisplayName(part)} output={lookupOutput} /> : output !== null && output !== "" ? (
+                {documentKind ? <GeneratedDocumentCard kind={documentKind} output={getToolOutput(part)} /> : generatedImage ? <GeneratedImageCard output={getToolOutput(part)} prompt={(getToolInput(part) as { prompt?: unknown } | undefined)?.prompt} /> : videoSource ? <VideoArtifactPlayer src={videoSource} /> : retainedDraft ? <RetainedDraftCard output={retainedDraft} /> : lookupOutput ? <SearchSourcesCard tool={tool} output={lookupOutput} /> : output !== null && output !== "" ? (
                   <details className="max-w-[92%] md:max-w-[85%] group">
                     <summary className="cursor-pointer text-[11px] font-mono text-[var(--muted-foreground-2)] hover:text-[var(--fg)] transition-colors select-none">
                       Output

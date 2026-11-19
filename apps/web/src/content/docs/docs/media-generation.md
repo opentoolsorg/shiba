@@ -1,9 +1,26 @@
 ---
-title: Images, videos, and Outputs
-description: Media generation models, shapes, source artifacts, and authenticated output routes.
+title: Images, videos, reports, pages, and Outputs
+description: What Chat can create, media models and shapes, generated documents, and authenticated output routes.
 ---
 
-Outputs brings together images, videos, and downloadable run archives. Generated media belongs to its signed-in creator, with personal file access and generation details saved alongside the file. Download URLs are authenticated Worker routes, not public storage URLs.
+Outputs brings together images, videos, reports, web pages, and downloadable run archives. Generated media belongs to its signed-in creator, with personal file access and generation details saved alongside the file. Download URLs are authenticated Worker routes, not public storage URLs.
+
+## Choosing what Chat creates
+
+Chat never generates on its own. In the Chat composer, open **Create** and pick **Image**, **Video**, **Report**, or **Page** for the message you are about to send. That choice switches on exactly one generation tool for that one message; the next message starts with nothing chosen. **Web** and **Knowledge** lookups stay separate, so a report can use search results when you switch Web on too. With nothing chosen, Chat answers in text only.
+
+Examples:
+
+- **Report** with **Web** on: "Write a two-page brief on heat pump adoption in Europe since 2022, with sources."
+- **Page**: "A one-page launch announcement for our spring workshop, with a schedule table and a sign-up note."
+
+## Reports and pages
+
+A report is Markdown the assistant writes and saves with the sources it actually used, listed at the end and cited as [1], [2]. Chat shows the title and source count; **Read report** opens the full text and **Download** saves the `.md` file.
+
+A page is one self-contained static HTML document. The saver refuses scripts, event handlers, forms, frames, external stylesheets, fonts, and remote images (`data:` images are allowed), and adds a restrictive content policy to the saved file. Chat and Outputs show the page in a sandboxed preview that cannot run scripts or reach the dashboard; **Download** saves the `.html` file.
+
+Both are private files of the signed-in user, up to 128 KB each, and appear in Outputs under **Documents**. Writing them makes no extra model or provider call beyond the chat reply itself, and needs no approval. Unlike run deliverables, they do not expire with run archives.
 
 ## Images
 
@@ -41,10 +58,11 @@ Omitting mode defaults to text-to-video, except legacy requests containing a sou
 
 These routes use the same signed-in identity and workspace resolution as Outputs:
 
-- `GET /api/outputs?type=image|video|archive|output`: list accessible items, newest first. Omit type for all items. `output` includes both media types. Optional `media` contains kind, mode, model, label, prompt, aspectRatio, width, height, durationSeconds, and sourceIds. Older uploaded files may not have generation metadata.
+- `GET /api/outputs?type=image|video|document|archive|output`: list accessible items, newest first. Omit type for all items. `output` includes media and generated documents; `document` lists only reports and pages generated in Chat (ordinary uploaded Markdown or HTML is not included) and each carries `documentKind` `report` or `page`. Optional `media` contains kind, mode, model, label, prompt, aspectRatio, width, height, durationSeconds, and sourceIds. Older uploaded files may not have generation metadata.
 - `GET /api/outputs/media-options`: image model labels and dimension support, image aspect ratios, and per-user video enablement with available modes/shapes. Disabled options are omitted from the lists.
 - `POST /api/outputs/images`: JSON `{ "prompt": "A coastal town", "model": "@cf/leonardo/lucid-origin", "aspectRatio": "16:9" }`. Model and shape are optional. Success (201) includes artifactId and downloadPath.
-- `GET /api/files/:id/download`: authenticated inline media, suitable for an image or video preview, with private/no-store caching. Browser download links can request saving the file.
+- `GET /api/files/:id/download`: authenticated inline media, suitable for an image or video preview, with private/no-store caching. HTML, SVG, XML, and Markdown files always download as attachments under a sandboxing content policy.
+- `GET /api/files/:id/preview`: a Chat-generated page only, served inline under `Content-Security-Policy: sandbox` with scripts, network access, forms, and framing by other sites blocked.
 
 Migration `0062_media_generations.sql` adds file-linked generation provenance. Failed registration removes metadata and the file row before removing private bytes. If the database is unavailable during cleanup, bytes remain private rather than deleting a possibly referenced object.
 

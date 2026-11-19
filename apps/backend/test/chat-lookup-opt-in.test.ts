@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
-import { chatOptInTools } from "../src/conversation-mode.js";
+import { chatCreateTool, chatOptInTools } from "../src/conversation-mode.js";
 import { createChatAgentMediaTools } from "../src/tools/chat-agent-tools.js";
 import { insertFileRecord } from "../src/files/files-store.js";
 import { runIngestionJob } from "../src/knowledge/knowledge-ingestion.js";
@@ -57,6 +57,76 @@ describe("chat lookup opt-in", () => {
     const unavailable = await (tools.knowledge_search as { execute: (input: unknown, options: unknown) => Promise<unknown> })
       .execute({ query: "launch" }, { toolCallId: "t", messages: [] });
     expect(unavailable).toMatchObject({ ok: false, unavailable: true });
+  });
+});
+
+describe("chat create choice", () => {
+  const registered = { web_search: {}, knowledge_search: {}, browser_open: {}, browser_click: {}, generate_image: {}, generate_video: {}, generate_report: {}, generate_page: {} };
+
+  it("reads only an allowlisted choice on the latest explicit Chat turn", () => {
+    expect(chatCreateTool(chat({ shibaChatCreate: "report" }))).toBe("generate_report");
+    expect(chatCreateTool(chat({ shibaChatCreate: "page" }))).toBe("generate_page");
+    expect(chatCreateTool(chat({ shibaChatCreate: "video" }))).toBe("generate_video");
+    expect(chatCreateTool(chat({ shibaChatCreate: "image" }))).toBe("generate_image");
+    for (const forged of ["generate_report", "browser_click", "toString", "__proto__", ["report"], true]) expect(chatCreateTool(chat({ shibaChatCreate: forged }))).toBeNull();
+    expect(chatCreateTool([{ role: "user", metadata: { shibaMode: "work", shibaChatCreate: "report" } }])).toBeNull();
+    expect(chatCreateTool([{ role: "user", metadata: { shibaChatCreate: "report" } }])).toBeNull();
+    expect(chatCreateTool([...chat({ shibaChatCreate: "report" }), { role: "assistant", parts: [] }, ...chat({})])).toBeNull();
+  });
+
+  it.each([
+    ["image", "generate_image"], ["video", "generate_video"], ["report", "generate_report"], ["page", "generate_page"],
+  ])("activates exactly one generation tool for an explicit %s choice and lets the prompt use it", async (choice, tool) => {
+    const instance = host(chat({ shibaChatCreate: choice }));
+    expect((await instance.beforeTurn({ tools: registered, system: "base" } as never)).activeTools).toEqual([tool]);
+    const prompt = instance.getSystemPrompt();
+    expect(prompt).toContain(`Chat mode with ${tool} switched on`);
+    expect(prompt).toContain(`Call ${tool} at most once`);
+    expect(prompt).not.toContain("do not use tools");
+  });
+
+  it("combines a choice with opted-in lookups without widening either", async () => {
+    const instance = host(chat({ shibaChatTools: ["web_search", "browser_click"], shibaChatCreate: "report" }));
+    expect((await instance.beforeTurn({ tools: registered, system: "base" } as never)).activeTools).toEqual(["web_search", "generate_report"]);
+    expect(instance.getSystemPrompt()).toContain("web_search and generate_report switched on");
+  });
+
+  it("leaves lookups and plain Chat unchanged when nothing is chosen", async () => {
+    const lookups = host(chat({ shibaChatTools: ["knowledge_search"] }));
+    expect((await lookups.beforeTurn({ tools: registered, system: "base" } as never)).activeTools).toEqual(["knowledge_search"]);
+    expect(lookups.getSystemPrompt()).not.toMatch(/generate_/);
+    const plain = host(chat({}));
+    expect((await plain.beforeTurn({ tools: registered, system: "base" } as never)).activeTools).toEqual([]);
+    expect(plain.getSystemPrompt()).toContain("do not use tools");
+  });
+
+  it("activates nothing when the chosen tool is not registered this turn", async () => {
+    const instance = host(chat({ shibaChatCreate: "video" }));
+    expect((await instance.beforeTurn({ tools: { generate_image: {}, generate_report: {} }, system: "base" } as never)).activeTools).toEqual([]);
+  });
+
+  it("keeps the paid video behind human approval when a person chooses Video", async () => {
+    const env = {
+      SHIBA_VIDEO_GENERATION: "1", SHIBA_VIDEO_BACKEND: "google",
+      ARTIFACTS: {}, FILES: {}, AGENT_AUDIT: {}, AGENT_TOKENS: {}, MODEL_CREDENTIAL_KEY: "test-storage-key",
+    } as unknown as Env;
+    const instance = Object.assign(Object.create(CodingOrchestrator.prototype) as object, {
+      env, name: buildSessionAgentName("ada@example.test", "11111111-1111-4111-8111-111111111111"),
+      messages: chat({ shibaChatCreate: "video" }), state: {}, employeeToolProfileId: () => undefined,
+    }) as unknown as CodingOrchestrator;
+    const tools = instance.getTools() as Record<string, { needsApproval?: unknown }>;
+    expect((await instance.beforeTurn({ tools, system: "base" } as never)).activeTools).toEqual(["generate_video"]);
+    expect(tools.generate_video?.needsApproval).toBe(true);
+    expect(tools.generate_report?.needsApproval).toBeUndefined();
+  });
+
+  it("registers report and page writers only for a signed-in user with file storage", () => {
+    const storage = { FILES: {}, AGENT_AUDIT: {} } as unknown as Env;
+    expect(createChatAgentMediaTools(storage, { runId: "r" })).not.toHaveProperty("generate_report");
+    expect(createChatAgentMediaTools({ AGENT_AUDIT: {} } as unknown as Env, { runId: "r", userId: "ada@example.test" })).not.toHaveProperty("generate_page");
+    const tools = createChatAgentMediaTools(storage, { runId: "r", userId: "ada@example.test" });
+    expect(tools).toHaveProperty("generate_report");
+    expect(tools).toHaveProperty("generate_page");
   });
 });
 
