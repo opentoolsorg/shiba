@@ -73,6 +73,7 @@ import { ConversationWorkspaceHeading } from "./components/ConversationWorkspace
 import { ConversationRoomPresence, RemoteAgentStream } from "./components/ConversationRoomPresence";
 import { ConversationModeSwitch } from "./components/ConversationModeSwitch";
 import { AgentChatEmptyState } from "./components/AgentChatEmptyState";
+import { ChatSuggestions, focusComposerDraft } from "./components/ChatSuggestions";
 import { AgentChatHeader } from "./components/AgentChatHeader";
 import { AgentComposerShell } from "./components/AgentComposerShell";
 import {
@@ -2856,8 +2857,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     isSubmitting ||
     clearing ||
     chat.isStreaming ||
+    chat.isRecovering ||
     chat.status === "streaming" ||
     chat.status === "submitted";
+
+  const pickSuggestion = (prompt: string) => focusComposerDraft(setTask, prompt);
 
   if (orchestratorName === null && identityIssue === null) {
     return <SessionPending onRetry={retryIdentity} />;
@@ -3824,6 +3828,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         : "shrink-0 px-3 sm:px-5 xl:px-8 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
                     }>
                       {chat.messages.length === 0 ? <AgentChatEmptyState agent={chatAgent} /> : null}
+                      {privateDataEnabled && chatAgentName && !busy && !chat.error &&
+                        (chat.messages.length === 0 || chat.messages.at(-1)?.role === "assistant") ? (
+                        <ChatSuggestions agentName={chatAgentName} refreshKey={chat.messages.at(-1)?.id ?? "empty"} busy={busy} hidden={!composerVisible || task.trim() !== ""} onPick={pickSuggestion} />
+                      ) : null}
                       <AgentComposerShell
                         agentName={employeeName}
                         agents={mentionableAgents}
@@ -3834,7 +3842,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         onStop={() => { void chat.stop(); }}
                         onRetry={() => { void chat.regenerate(); }}
                         busy={isSubmitting || clearing || threadLinkPending}
-                        streaming={chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"}
+                        streaming={chat.isStreaming || chat.isRecovering || chat.status === "streaming" || chat.status === "submitted"}
                         failed={Boolean(chat.error)}
                         lookups={chatLookups}
                         onToggleLookup={(id) => setChatLookupIds((current) => current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id])}
