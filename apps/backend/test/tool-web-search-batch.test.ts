@@ -37,7 +37,15 @@ describe("web_search batch resilience", () => {
     vi.unstubAllGlobals();
     expect(bodies[0]?.country).toBe("united states");
     expect(bodies[1]).not.toHaveProperty("country");
-    expect(tavilyCountryName("gb")).toBe("united kingdom");
+    expect(tavilyCountryName("GB")).toBe("united kingdom");
     expect(tavilyCountryName(undefined)).toBeUndefined();
+  });
+
+  it("sends Tavily's published spelling and drops countries it does not list", () => {
+    expect(tavilyCountryName("tr")).toBe("turkey");
+    expect(tavilyCountryName("cz")).toBe("czech republic");
+    expect(tavilyCountryName("ba")).toBe("bosnia and herzegovina");
+    expect(tavilyCountryName("hk")).toBeUndefined();
+    expect(tavilyCountryName("xx")).toBeUndefined();
   });
 });
