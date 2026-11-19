@@ -358,11 +358,7 @@ describe("OpenCodeAgent response boundary", () => {
     const token = "opaque-installation-credential";
     const secret = "ghp_1234567890abcdef";
     mocks.run.mockImplementation(async (_ops, _input, emit) => {
-      // 64 frames of ~5KB overshoot both caps many times over: progress stops at
-      // its 20,000-character budget (ten 2,000-character frames) and the rendered
-      // text at its own cap, so this exercises the same bounding as 1,000 frames
-      // for a sixteenth of the sequential awaits.
-      for (let i = 0; i < 64; i++) await emit({ phase: "code", message: `${secret} ${token} ${"x".repeat(5000)}`, fraction: 0.5 });
+      for (let i = 0; i < 1000; i++) await emit({ phase: "code", message: `${secret} ${token} ${"x".repeat(5000)}`, fraction: 0.5 });
       return { ...RESULT, summary: `${secret} ${token}`, diff: `${"x".repeat(40_000)}${secret} ${token}`,
         stderrTail: secret, files: [{ path: "private", content: "RAW_FILE_MUST_NOT_LEAVE", encoding: "utf8" }] };
     });
