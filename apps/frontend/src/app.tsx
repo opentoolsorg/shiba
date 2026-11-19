@@ -3,7 +3,7 @@ import { routineSourceFromRun, type RoutineSource } from "./routines";
 import { AppShell, AppAreaSidebar } from "./layouts/AppShell";
 import { pathForView, readNavigationView } from "./app-navigation";
 import { connectedTaskDefault } from "./supported-task-routes";
-import { updateWorkSearch, type WorkSearchState } from "./work-search";
+import { parseWorkSearch, updateWorkSearch, type WorkSearchState } from "./work-search";
 /**
  * Complete End-to-End Shiba Dashboard.
  * Approval-gated coding tasks delegated to isolated Cloudflare Sandbox containers running OpenCode.
@@ -665,7 +665,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   );
   const [workViewMode, setWorkViewMode] = useState<WorkViewMode>(workViewFromUrl);
   const [workInspectionRequest, setWorkInspectionRequest] = useState<WorkSearchState>();
-  const [awaitingWorkRun, setAwaitingWorkRun] = useState<{ approvalId: string; scope: string }>();
   useEffect(() => {
     if (mainView !== "work") setWorkInspectionRequest(undefined);
   }, [mainView]);
@@ -709,19 +708,41 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
   // The first sync rewrites a legacy /app/ URL in place (query kept for any reader); later view changes are history steps.
   const router = useRouter();
-  const inspectWork = useCallback((task: string, taskKind: "approval" | "run", tab: "approval" | "steps") => {
-    const state: WorkSearchState = { view: "board", task, taskKind, tab };
+  const workSearchReplace = useRef(false);
+  // Back/Forward inside Work restores a selector without changing any loaded data.
+  const [workLocationTick, setWorkLocationTick] = useState(0);
+  // What the server answered for decisions taken here, so a receipt never claims more than it recorded.
+  const [storedDecisionReceipts, setStoredDecisionReceipts] = useState<Record<string, { kind?: string; result: string }>>({});
+  const applyWorkSelection = useCallback((state: WorkSearchState, mode: "push" | "replace") => {
     const search = new URLSearchParams(window.location.search);
     search.delete("run");
     search.delete("prompt");
     const query = updateWorkSearch(search, state).toString();
-    // Put the receipt in the URL before the route changes: a route remount must
-    // restore the same inspector rather than depend on transient React state.
-    router.history.push(`${pathForView("work")}?${query}${window.location.hash}`);
-    setWorkViewMode("board");
+    // The receipt belongs in the URL before the route changes: a route remount
+    // restores the same inspector instead of depending on transient React state.
+    const target = `${pathForView("work")}?${query}${window.location.hash}`;
+    // A replace (bridge or fallback) lands through Work's own URL writer, so the
+    // address never names an inspector the screen has not switched to yet.
+    if (mode === "replace") workSearchReplace.current = true;
+    else if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== target) router.history.push(target);
+    setWorkViewMode(state.view);
     setWorkInspectionRequest(state);
-    setMainView("work");
   }, [router]);
+  const writeWorkSearch = useCallback((state: WorkSearchState, restore: boolean) => {
+    const query = updateWorkSearch(new URLSearchParams(window.location.search), state).toString();
+    // TanStack may still be flushing a handoff from Threads;
+    // Work search always belongs to the canonical Work path.
+    const target = `${pathForView("work")}${query ? `?${query}` : ""}${window.location.hash}`;
+    if (target === `${window.location.pathname}${window.location.search}${window.location.hash}`) return;
+    const replace = restore || workSearchReplace.current;
+    workSearchReplace.current = false;
+    if (replace) router.history.replace(target);
+    else router.history.push(target);
+  }, [router]);
+  const inspectWork = useCallback((task: string, taskKind: "approval" | "run", tab: "approval" | "steps") => {
+    applyWorkSelection({ view: "board", task, taskKind, tab }, "push");
+    setMainView("work");
+  }, [applyWorkSelection]);
 
   const submitFailed = useRef(false);
   const submitInFlight = useRef(false);
@@ -815,6 +836,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   useEffect(() => {
     const onPop = () => {
       historyTraversal.current = true;
+      setWorkLocationTick((tick) => tick + 1);
       const view = viewFromUrl();
       setWorkViewMode(workViewFromUrl());
       setMainView(view ?? DEFAULT_VIEW);
@@ -928,7 +950,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const composerScope = privateDataEnabled && orchestratorName ? composerDraftScope(orchestratorName, selectedSessionId) : null;
   useEffect(() => {
     setWorkInspectionRequest(undefined);
-    setAwaitingWorkRun(undefined);
   }, [orchestratorName, teamWorkspaceId, selectedSessionId]);
   const quickDraft = useRef<{ scope: string; text: string } | null>(null);
   const draftScope = useRef<string | null>(null);
@@ -1460,17 +1481,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       privateDataEnabled,
     );
   useEffect(() => {
-    if (!awaitingWorkRun) return;
-    if (!privateDataEnabled || composerScope !== awaitingWorkRun.scope || mainView !== "work") {
-      setAwaitingWorkRun(undefined);
-      return;
-    }
-    const run = retainedRuns.find((item) => item.approval?.approvalId === awaitingWorkRun.approvalId);
-    if (!run) return;
-    setAwaitingWorkRun(undefined);
-    inspectWork(run.runId, "run", "steps");
-  }, [awaitingWorkRun, retainedRuns, composerScope, privateDataEnabled, mainView, inspectWork]);
-  useEffect(() => {
     if (!privateDataEnabled) {
       setTaskHistoryItems([]); setTaskHistoryError(null); setTaskHistoryLoading(false);
       return;
@@ -1517,7 +1527,31 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     approvals: storedApprovals,
     decided: decidedStoredApprovals,
     error: storedApprovalsError,
+    settled: storedApprovalsSettled,
+    loaded: storedApprovalsLoaded,
   } = useApprovalsState(refreshToken, approvalsEnabled, workspaceLive);
+  // An approval receipt resolves to its own linked run from the URL alone, so a
+  // refresh, Back or a fresh tab lands where the original decision did. Exact
+  // approvalId match only: no substitute run, and nothing to replay.
+  useEffect(() => {
+    if (mainView !== "work" || !privateDataEnabled) return;
+    const state = parseWorkSearch(new URLSearchParams(window.location.search));
+    if (!state.task || state.taskKind === "run" || state.taskKind === "session") return;
+    // Only an approved run-kind receipt can be superseded by its run, and only
+    // when exactly one retained run claims it; anything else stays on the receipt.
+    // Run-only evidence waits for a successful approvals read: until then the
+    // receipt's kind and outcome are unknown, not absent.
+    const local = storedDecisionReceipts[state.task];
+    if (!local && !storedApprovalsLoaded) return;
+    const recorded = storedApprovals.find((item) => item.approvalId === state.task) ??
+      decidedStoredApprovals.find((item) => item.approvalId === state.task);
+    const kind = local ? local.kind : recorded?.kind;
+    const approved = local ? local.result !== "rejected" : recorded ? recorded.status === "approved" : true;
+    if (!approved || (kind !== undefined && kind !== "run")) return;
+    const linked = retainedRuns.filter((item) => item.approval?.approvalId === state.task);
+    if (linked.length !== 1) return;
+    applyWorkSelection({ view: state.view, task: linked[0]!.runId, taskKind: "run", tab: "steps" }, "replace");
+  }, [mainView, retainedRuns, storedApprovals, decidedStoredApprovals, storedDecisionReceipts, storedApprovalsLoaded, workLocationTick, privateDataEnabled, applyWorkSelection]);
   const reviewAfterPublishById = useMemo(() => {
     const map: Record<string, boolean> = {};
     for (const approval of storedApprovals) {
@@ -1645,17 +1679,27 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
   const [storedDecisions, setStoredDecisions] = useState<Record<string, boolean>>({});
 
-  // Drop decision bookkeeping for stored approvals that left the list.
+  // Drop decision bookkeeping for stored approvals that left the list, but
+  // never forget the receipt on screen: its linked run may not exist yet, and
+  // forgetting it would clear the inspector and re-open the decision.
   useEffect(() => {
-    const waiting = new Set(storedApprovals.map((approval) => approval.approvalId));
+    const known = new Set([
+      ...storedApprovals.map((approval) => approval.approvalId),
+      ...decidedStoredApprovals.map((approval) => approval.approvalId),
+    ]);
+    const onScreen =
+      typeof window !== "undefined"
+        ? parseWorkSearch(new URLSearchParams(window.location.search)).task
+        : null;
+    const keep = (id: string) => known.has(id) || id === onScreen;
     for (const id of Array.from(decidedStoredRef.current)) {
-      if (!waiting.has(id)) decidedStoredRef.current.delete(id);
+      if (!keep(id)) decidedStoredRef.current.delete(id);
     }
     setStoredDecisions((current) => {
       const next: Record<string, boolean> = {};
       let changed = false;
       for (const [id, approved] of Object.entries(current)) {
-        if (waiting.has(id)) {
+        if (keep(id)) {
           next[id] = approved;
         } else {
           changed = true;
@@ -1663,15 +1707,16 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       }
       return changed ? next : current;
     });
-  }, [storedApprovals]);
+    setStoredDecisionReceipts((current) =>
+      Object.keys(current).every(keep) ? current : Object.fromEntries(Object.entries(current).filter(([id]) => keep(id))),
+    );
+  }, [storedApprovals, decidedStoredApprovals]);
 
   // Decide a DO-state approval pointer: POST resolves it in place — the
   // frozen payload executes or the queued draft is released.
   const [claimConflicts, setClaimConflicts] = useState<Record<string, { actorId: string; branch: string; repo: string; runId: string }>>({});
   const decideStoredApproval = useCallback(
     async (approval: StoredApproval, approved: boolean, claimAction?: "queue" | "new_branch" | "cancel") => {
-      const decisionScope = draftScope.current;
-      const decisionSurface = activeSurfaceScopeRef.current;
       const approvalId = approval.approvalId;
       if (!claimAction && decidedStoredRef.current.has(approvalId)) return;
       decidedStoredRef.current.add(approvalId);
@@ -1716,12 +1761,18 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         if (body.result === "unknown") {
           throw new Error("The approval is gone — it expired or was already decided elsewhere.");
         }
-        if (approved && body.result === "approved" && (approval.kind === undefined || approval.kind === "run") &&
-          decisionScope && draftScope.current === decisionScope && activeSurfaceScopeRef.current === decisionSurface && currentNavigation.current.view === "work") {
-          setAwaitingWorkRun({ approvalId, scope: decisionScope });
-        }
+        // The receipt stays in the URL; the linked run is resolved from it on
+        // every render, so no in-memory handoff can be lost to a refresh.
+        setStoredDecisionReceipts((current) => ({
+          ...current,
+          [approvalId]: { kind: approval.kind, result: body.result ?? (approved ? "approved" : "rejected") },
+        }));
         setApprovalAnnouncement(
-          approved ? "Approved — the request is executing." : "Rejected — nothing will execute.",
+          approved
+            ? body.result === "queued"
+              ? "Approved — the request is queued behind another run on this branch."
+              : "Approved — the request is executing."
+            : "Rejected — nothing will execute.",
         );
         setNotice(null);
       } catch (decisionError) {
@@ -3268,12 +3319,18 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   runs={retainedRuns}
                   sessions={sessions}
                   storedApprovals={visibleStoredApprovals}
+                  decidedApprovals={decidedStoredApprovals}
+                  runsDetailReady={runsDetailReady}
+                  selectionResolved={storedApprovalsSettled && listSettled}
+                  onMissingSelection={() => applyWorkSelection({ view: workViewMode, task: null, tab: "steps" }, "replace")}
                   pendingApprovals={pendingApprovals}
                   requestedState={workInspectionRequest}
                   onDecideApproval={decideApproval}
                   onDecideStoredApproval={decideStoredApproval}
                   claimConflicts={claimConflicts}
                   approvalDecisions={{ ...decisions, ...storedDecisions }}
+                  approvalDecisionResults={Object.fromEntries(Object.entries(storedDecisionReceipts).map(([id, receipt]) => [id, receipt.result]))}
+                  runsError={runsError}
                   peekSessionId={selectedSessionId}
                   peekNotice={notice}
                   renderPeekContent={(task, tab) => {
@@ -3286,13 +3343,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       onDecideApproval={decideApproval} reviewAfterPublishById={reviewAfterPublishById} />
                       {chatAgentName ? <UiBlockQuestions key={chatAgentName} runId={chatAgentName} sessionId={selectedSessionId} /> : null}</>;
                   }}
-                  onSearchChange={(state) => {
-                    const query = updateWorkSearch(new URLSearchParams(window.location.search), state).toString();
-                    // TanStack may still be flushing a handoff from Threads;
-                    // Work search always belongs to the canonical Work path.
-                    const target = `${pathForView("work")}${query ? `?${query}` : ""}${window.location.hash}`;
-                    if (target !== `${window.location.pathname}${window.location.search}${window.location.hash}`) router.history.push(target);
-                  }}
+                  onSearchChange={(state) => writeWorkSearch(state, false)}
+                  onSearchRestore={(state) => writeWorkSearch(state, true)}
                   onSelectTask={(id, kind) => {
                     if (kind === "approval") { setMainView("approvals"); return; }
                     void handleSelectSession(id);
@@ -3309,8 +3361,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     setTask(taskText);
                     return true;
                   }}
-                  onReviewApproval={() => {
-                    setMainView("approvals");
+                  onReviewApproval={(approvalId) => {
+                    // Stay in Work: the review is a tab on the same receipt.
+                    applyWorkSelection({ view: workViewMode, task: approvalId, taskKind: "approval", tab: "approval" }, "push");
                   }}
                 />
               </div>
@@ -3988,6 +4041,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 (allRuns.some((run) => run.runId === selectedSessionId) ? selectedSessionId : null)
               }
               onSelectRun={(id) => setSelectedRunId(id)}
+              onOpenInWork={(runId) => {
+                applyWorkSelection({ view: "board", task: runId, taskKind: "run", tab: "diff" }, "push");
+                setMainView("work");
+              }}
               loading={!runsDetailReady}
               error={runsError}
               liveHarness
@@ -4006,6 +4063,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               orchestratorName={orchestratorName}
               onRefresh={refreshRuns}
               reviewAfterPublishById={reviewAfterPublishById}
+              onOpenInWork={(approval) => {
+                applyWorkSelection({ view: "board", task: approval.approvalId, taskKind: "approval", tab: "approval" }, "push");
+                setMainView("work");
+              }}
               liveHarness
             />
           ) : mainView === "memory" ? (
@@ -4218,7 +4279,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             onOpenChat={(hit) => { setSharedRoomId(hit.roomId); openView("threads"); }}
             onOpenTask={(hit) => {
               const next = updateWorkSearch(new URLSearchParams(window.location.search), { view: "list", task: hit.taskId, taskKind: "run", tab: "steps" });
-              window.history.pushState(null, "", `/work?${next.toString()}`);
+              router.history.push(`${pathForView("work")}?${next.toString()}`);
               openView("work");
             }}
             onOpenKnowledge={() => openView("files")}
@@ -4230,7 +4291,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             onSearchAll={(q) => {
               const next = new URLSearchParams(window.location.search);
               next.set("q", q);
-              window.history.pushState(null, "", `/work?${next.toString()}`);
+              router.history.push(`${pathForView("work")}?${next.toString()}`);
               openView("work");
             }}
             onMessageAbout={(bot, q) => {

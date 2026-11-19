@@ -8,7 +8,7 @@ import { DiffViewer } from "./DiffViewer";
 import { RunDeliverables } from "./RunDeliverables";
 import { RunLivePanel } from "./RunLivePanel";
 import { WorkDetailModal } from "./WorkDetailModal";
-import { StoredApprovalCard } from "./WorkspacePanel";
+import { DecidedApprovalRow, StoredApprovalCard } from "./WorkspacePanel";
 import type { WorkTask } from "./WorkView";
 
 export interface WorkPeekProps {
@@ -25,6 +25,11 @@ export interface WorkPeekProps {
   sessionId?: string;
   notice?: ReactNode;
   decisions?: Record<string, boolean>;
+  /** False while the runs owner is still fetching full payloads; a summary is not a missing diff. */
+  diffReady?: boolean;
+  diffError?: string | null;
+  /** Server answers for decisions taken here; `queued` must never read as started. */
+  decisionResults?: Record<string, string>;
   onDecideApproval?: (id: string, approved: boolean) => void;
   onDecideStoredApproval?: (approval: StoredApproval, approved: boolean, claimAction?: "queue" | "new_branch" | "cancel") => void;
   claimConflict?: { actorId: string; branch: string; repo: string; runId: string } | null;
@@ -53,17 +58,35 @@ export function WorkPeek(props: WorkPeekProps) {
     onOpenFull,
     onReviewApproval,
     decisions = {},
+    diffReady = true,
   } = props;
   const id = useId();
   const diff = run ? (extractCompletedDiff(run) ?? run.diff) : undefined;
   const decision = decisions[task.id];
+  // Restored after a refresh, a decided receipt has no local decision: show only
+  // what the server recorded (decision and execution status), never a live card.
+  const serverDecided = storedApproval && storedApproval.status !== "pending" && decision === undefined;
   const custom = props.renderContent?.(task, tab);
   const approval = storedApproval ?? pendingApproval;
   const frozen = storedApproval?.payload ?? pendingApproval?.input;
   const content =
     custom ??
     (tab === "approval" ? (
-      storedApproval && props.onDecideStoredApproval ? (
+      storedApproval && props.decisionResults?.[task.id] === "queued" ? (
+        <div className="flex flex-col gap-3">
+          <p role="status">Approved — queued behind another run on this branch. It has not started yet.</p>
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words border border-[var(--border-1)] p-3 font-mono text-xs">
+            {JSON.stringify(storedApproval.payload ?? { repoUrl: storedApproval.repoUrl, task: storedApproval.task }, null, 2)}
+          </pre>
+        </div>
+      ) : serverDecided ? (
+        <div className="flex flex-col gap-3">
+          <DecidedApprovalRow approval={storedApproval} />
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words border border-[var(--border-1)] p-3 font-mono text-xs">
+            {JSON.stringify(storedApproval.payload ?? { repoUrl: storedApproval.repoUrl, task: storedApproval.task }, null, 2)}
+          </pre>
+        </div>
+      ) : storedApproval && props.onDecideStoredApproval ? (
         <StoredApprovalCard
           approval={storedApproval}
           decided={decision !== undefined || storedApproval.status !== "pending"}
@@ -101,11 +124,24 @@ export function WorkPeek(props: WorkPeekProps) {
     ) : tab === "diff" ? (
       diff ? (
         <DiffViewer diff={diff} />
+      ) : !run ? (
+        <p role="status">No run is linked to this item, so no diff was captured for it.</p>
+      ) : props.diffError ? (
+        <p role="alert">Run details could not be loaded: {props.diffError}</p>
+      ) : !diffReady ? (
+        <p role="status">Loading the retained diff…</p>
+      ) : run.hasDiff ? (
+        <p role="status">
+          A diff is retained for this run, but its patch is not in the loaded payload. Open the
+          full thread to inspect it.
+        </p>
+      ) : run.status === "running" || run.status === "pending" ? (
+        <p role="status">This run is still in progress. Its patch appears here when it finishes.</p>
+      ) : run.status === "completed" ? (
+        <p role="status">No repository patch was captured for this run.</p>
       ) : (
-        <p>
-          {run?.hasDiff
-            ? "A diff is retained. Open the full thread to load its details."
-            : "No diff is loaded for this item. Open the full thread to inspect available changes."}
+        <p role="status">
+          This run ended as {statusLabel(run.status).toLowerCase()} without a captured patch.
         </p>
       )
     ) : tab === "output" ? (

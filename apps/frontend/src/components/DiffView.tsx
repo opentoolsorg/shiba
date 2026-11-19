@@ -20,6 +20,8 @@ export interface DiffViewProps {
   selectedRunId?: string | null;
   sessionId?: string;
   onSelectRun?: (runId: string) => void;
+  /** Exact Work receipt URL for this run; /diff/ carries no selection key. */
+  onOpenInWork?: (runId: string) => void;
   /** Full run payload still loading — empty/"no diff" claims are premature. */
   loading?: boolean;
   error?: string | null;
@@ -46,6 +48,7 @@ export function DiffView({
   selectedRunId,
   sessionId,
   onSelectRun,
+  onOpenInWork,
   loading = false,
   error = null,
   liveHarness = false,
@@ -214,6 +217,15 @@ export function DiffView({
               <div className="text-right text-xs font-mono text-[#71717a] dark:text-zinc-400">
                 <div>Run ID: {activeRun.runId}</div>
                 <div>{formatTimeAgo(activeRun.createdAt)}</div>
+                {onOpenInWork ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenInWork(activeRun.runId)}
+                    className="mt-1 min-h-11 rounded px-2 font-sans text-xs underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+                  >
+                    Open in Work
+                  </button>
+                ) : null}
               </div>
             </div>
 
