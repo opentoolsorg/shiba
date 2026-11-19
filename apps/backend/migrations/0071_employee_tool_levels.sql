@@ -10,6 +10,13 @@ CREATE TABLE IF NOT EXISTS employee_tool_levels (
 
 ALTER TABLE employee_tool_approvals ADD COLUMN level_at_decision TEXT;
 ALTER TABLE employee_tool_approvals ADD COLUMN level_at_execution TEXT;
+ALTER TABLE employee_tool_approvals ADD COLUMN read_request_id TEXT NOT NULL DEFAULT '';
+
+DROP INDEX employee_tool_approval_active_payload_v2;
+CREATE UNIQUE INDEX employee_tool_approval_active_payload_v3
+    ON employee_tool_approvals(org_id, employee_id, employee_version, actor_id, IFNULL(execution_context_id, ''), capability_id, action,
+      argument_digest, IFNULL(resource_id, ''), connection_generation, read_request_id)
+    WHERE status IN ('pending','approved');
 
 CREATE INDEX IF NOT EXISTS employee_tool_approvals_decided
     ON employee_tool_approvals(org_id, employee_id, capability_id, status, decided_at DESC);

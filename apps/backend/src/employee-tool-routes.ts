@@ -409,7 +409,8 @@ async function callEmployeeTool(request: Request, env: Env, employeeId: string):
   if (!body || typeof body.tool !== "string" || typeof body.args !== "object" || body.args === null || Array.isArray(body.args)) {
     return jsonError("invalid_employee_tool_call", 400);
   }
-  return dispatchEmployeeToolForPrincipal(env, employeeId, principal, body.tool, body.args as Record<string, unknown>);
+  if (body.readRequestId !== undefined && typeof body.readRequestId !== "string") return jsonError("invalid_read_request_id", 400);
+  return dispatchEmployeeToolForPrincipal(env, employeeId, principal, body.tool, body.args as Record<string, unknown>, undefined, undefined, undefined, body.readRequestId);
 }
 
 /** Worker-only dispatch for an already vouched external or employee-run identity. */
@@ -422,6 +423,7 @@ export async function dispatchEmployeeToolForPrincipal(
   executionContextId?: string,
   beforeDispatch?: () => Promise<void>,
   signal?: AbortSignal,
+  readRequestId?: string,
 ): Promise<Response> {
   signal?.throwIfAborted();
   if (principal.kind !== "agent" || principal.revoked || !principal.orgId || !principal.principal) {
@@ -433,6 +435,9 @@ export async function dispatchEmployeeToolForPrincipal(
   if (!Object.hasOwn(EMPLOYEE_TOOL_ACTIONS, toolNameRaw)) return jsonError("unsupported_employee_tool_action", 400);
   const toolName = toolNameRaw as keyof typeof EMPLOYEE_TOOL_ACTIONS;
   const action = EMPLOYEE_TOOL_ACTIONS[toolName];
+  if (readRequestId !== undefined && (action.risk !== "read" || !/^[A-Za-z0-9_-]{1,96}$/.test(readRequestId))) {
+    return jsonError("invalid_read_request_id", 400);
+  }
   if (toolName.startsWith("integrations.") && !integrationToolInput(toolName, args)) return jsonError("invalid_integration_tool_input", 400);
   if (toolName === "integrations.execute") {
     try { assertActionArgumentsAllowed(String(args.toolkitSlug), args.arguments as Record<string, unknown>, String(args.toolSlug)); }
@@ -530,6 +535,7 @@ export async function dispatchEmployeeToolForPrincipal(
       capabilityId: id, action: toolName, argumentDigest, resourceId,
       connectionGeneration: connection.generation, now: Date.now(),
       ...(executionContextId ? { executionContextId } : {}),
+      ...(readRequestId ? { readRequestId } : {}),
     });
     if (level === "ask" && (!saved || saved.status === "denied" || saved.status === "expired")) {
       await beforeDispatch?.();
@@ -540,6 +546,7 @@ export async function dispatchEmployeeToolForPrincipal(
         ...(executionContextId ? { executionContextId } : {}),
         ...(connection.accountId ? { accountId: connection.accountId } : {}), argumentDigest,
         payload: args, policyVersion: connection.policyVersion, expiresAt: Date.now() + APPROVAL_TTL_MS,
+        ...(readRequestId ? { readRequestId } : {}),
       });
       const { notifyEmployeeToolApprovalInChat } = await import("./chat-employee.js");
       await notifyEmployeeToolApprovalInChat(env, {

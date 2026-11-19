@@ -335,24 +335,24 @@ const APPROVAL_SELECT = `SELECT * FROM employee_tool_approvals`;
 
 export async function requestEmployeeActionApproval(
   env: AuditEnv,
-  input: Omit<EmployeeApprovalRecord, "approvalId" | "status" | "createdAt" | "decidedBy" | "decidedAt"> & { now?: number },
+  input: Omit<EmployeeApprovalRecord, "approvalId" | "status" | "createdAt" | "decidedBy" | "decidedAt"> & { now?: number; readRequestId?: string },
 ): Promise<EmployeeApprovalRecord> {
   const now = input.now ?? Date.now();
   const approvalId = `eap-${randomHex(16)}`;
   await env.AGENT_AUDIT.prepare(`INSERT OR IGNORE INTO employee_tool_approvals
     (approval_id, org_id, employee_id, employee_version, actor_id, execution_context_id, connection_id, connection_generation,
      capability_kind, capability_id, action, resource_id, account_id, argument_digest, payload_json,
-     policy_version, status, created_at, expires_at, employee_context_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`)
+     policy_version, status, created_at, expires_at, employee_context_json, read_request_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`)
     .bind(approvalId, input.orgId, input.employeeId, input.employeeVersion, input.actorId, input.executionContextId ?? null, input.connectionId,
       input.connectionGeneration, input.capability.kind, input.capability.id, input.action, input.resourceId ?? null,
       input.accountId ?? null, input.argumentDigest, JSON.stringify(input.payload), input.policyVersion, now, input.expiresAt,
-      input.employeeContext ? JSON.stringify(input.employeeContext) : null).run();
+      input.employeeContext ? JSON.stringify(input.employeeContext) : null, input.readRequestId ?? "").run();
   const row = await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT}
     WHERE org_id = ? AND employee_id = ? AND employee_version = ? AND actor_id = ? AND execution_context_id IS ? AND capability_id = ? AND action = ?
-      AND argument_digest = ? AND resource_id IS ? AND connection_generation = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`)
+      AND argument_digest = ? AND resource_id IS ? AND connection_generation = ? AND read_request_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`)
     .bind(input.orgId, input.employeeId, input.employeeVersion, input.actorId, input.executionContextId ?? null, input.capability.id,
-      input.action, input.argumentDigest, input.resourceId ?? null, input.connectionGeneration).first<Record<string, unknown>>();
+      input.action, input.argumentDigest, input.resourceId ?? null, input.connectionGeneration, input.readRequestId ?? "").first<Record<string, unknown>>();
   const result = row && approvalFromRow(row);
   if (!result) throw new Error("Could not persist employee action approval.");
   return result;
@@ -392,15 +392,15 @@ export async function findEmployeeActionApproval(
   input: {
     orgId: string; employeeId: string; employeeVersion: number; actorId: string;
     capabilityId: string; action: string; argumentDigest: string; resourceId: string;
-    connectionGeneration: number; executionContextId?: string; now?: number;
+    connectionGeneration: number; executionContextId?: string; now?: number; readRequestId?: string;
   },
 ): Promise<EmployeeApprovalRecord | null> {
   const row = await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT}
     WHERE org_id = ? AND employee_id = ? AND employee_version = ? AND actor_id = ? AND IFNULL(execution_context_id, '') = ? AND capability_id = ?
-      AND action = ? AND argument_digest = ? AND resource_id = ? AND connection_generation = ?
+      AND action = ? AND argument_digest = ? AND resource_id = ? AND connection_generation = ? AND read_request_id = ?
     ORDER BY created_at DESC LIMIT 1`)
     .bind(input.orgId, input.employeeId, input.employeeVersion, input.actorId, input.executionContextId ?? "", input.capabilityId,
-      input.action, input.argumentDigest, input.resourceId, input.connectionGeneration).first<Record<string, unknown>>();
+      input.action, input.argumentDigest, input.resourceId, input.connectionGeneration, input.readRequestId ?? "").first<Record<string, unknown>>();
   if (!row) return null;
   const approval = approvalFromRow(row);
   if (!approval) return null;

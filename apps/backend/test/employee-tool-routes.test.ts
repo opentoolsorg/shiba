@@ -83,10 +83,10 @@ function policyRequest(employeeId: string, body: unknown, expectedVersion = 1) {
   });
 }
 
-function callRequest(employeeId: string, tool: string, args: Record<string, unknown>) {
+function callRequest(employeeId: string, tool: string, args: Record<string, unknown>, readRequestId?: string) {
   return new Request(`https://x/api/employee-tools/${employeeId}/call`, {
     method: "POST", headers: { authorization: "Bearer shb_test", "content-type": "application/json" },
-    body: JSON.stringify({ tool, args }),
+    body: JSON.stringify({ tool, args, readRequestId }),
   });
 }
 
@@ -693,6 +693,26 @@ describe("employee tool local workflow", () => {
       authState.dashboard = true;
       const history = await handleEmployeeTools(new Request("https://x/api/employee-tools/approvals?view=history", { headers: owner }), env_);
       expect(await history?.json()).toMatchObject({ approvals: expect.arrayContaining([expect.objectContaining({ approvalId: approvalIds[1], levelAtDecision: "ask", levelAtExecution: "auto" })]) });
+    });
+
+    it("replays the same Ask read and requests fresh consent for a distinct read of the same resource", async () => {
+      const employeeId = await scout();
+      expect((await setLevel(employeeId, "mcp:shiba:run_status", "ask"))?.status).toBe(200);
+      authState.dashboard = false;
+      const read = (id: string) => handleEmployeeTools(callRequest(employeeId, "run_status", { runId: "run-1" }, id), env_);
+      const first = await (await read("check-1"))!.json() as { approvalId: string };
+      expect(await (await read("check-1"))?.json()).toMatchObject({ approvalId: first.approvalId, status: "pending_approval" });
+      authState.dashboard = true;
+      expect((await decide(employeeId, first.approvalId))?.status).toBe(200);
+      authState.dashboard = false;
+      expect((await read("check-1"))?.status).toBe(200);
+      expect(await (await read("check-1"))?.json()).toMatchObject({ result: { _meta: { "com.shiba/invocation": { replayed: true } } } });
+      const next = await read("check-2");
+      expect(next?.status).toBe(202);
+      expect((await next!.json() as { approvalId: string }).approvalId).not.toBe(first.approvalId);
+      const write = await handleEmployeeTools(callRequest(employeeId, "queue_run", { repoUrl: "https://github.com/acme/demo", task: "x" }, "check-2"), env_);
+      expect(await write?.json()).toMatchObject({ error: "invalid_read_request_id" });
+      expect(orchestrator.requests).toHaveLength(1);
     });
 
     it("refuses Always approve for a tool that cannot run on Auto", async () => {

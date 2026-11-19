@@ -123,10 +123,14 @@ describe("EmployeeToolPolicyView", () => {
     await screen.findByText("Read run status is now Auto.");
     expect(writes[0]).toEqual({ url: "/api/employee-tools/employee-1/levels", body: { capabilityId: "mcp:shiba:run_status", level: "auto" } });
     expect(screen.queryByText(/approved this 2 times/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Approve and always allow" })).toBeNull();
+    const readGroup = screen.getByRole("radiogroup", { name: "Approval level for Read run status" });
+    fireEvent.click(readGroup.querySelector("button")!);
+    await screen.findByText("Read run status is now Ask.");
     expect(screen.getAllByRole("button", { name: "Approve and always allow" })).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Approve and always allow" }));
     await screen.findByText(/run_status now runs on Auto/);
-    expect(writes[1]).toEqual({ url: "/api/employee-tools/approvals/eap-1", body: { employeeId: "employee-1", approved: true, alwaysApprove: true } });
+    expect(writes[2]).toEqual({ url: "/api/employee-tools/approvals/eap-1", body: { employeeId: "employee-1", approved: true, alwaysApprove: true } });
     expect(screen.getByText("Approval history")).toBeTruthy();
     expect(screen.getByText("Ask → Auto")).toBeTruthy();
   });

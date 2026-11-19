@@ -21,7 +21,9 @@ Write approvals are bound to employee ID/version, actor, exact payload, resource
 
 Each native action has an Ask / Auto / Off level per employee, stored in `employee_tool_levels` (migration `0071`) and set with `PUT /api/employee-tools/:id/levels` by an authenticated person with manage access (API keys and agent tokens are refused). Reads default to Auto and writes to Ask. Off refuses dispatch with `employee_tool_off` and removes the action from the run catalog. Ask on a read sends it through the same exact-payload approval and one-shot claim as a write. `queue_run`, `integrations.execute` and `send_email` allow only Ask and Off; a stored level that is no longer allowed is read as Ask. The mailbox send and sandbox start approvals remain separate.
 
-`GET /policy` returns `levels` with each action's allowed levels, its default, and `suggestStanding` once two one-time approvals were decided in 14 days. A decision with `alwaysApprove: true` approves the call and sets the tool to Auto when Auto is allowed and the decider can manage the employee. `GET /api/employee-tools/approvals?view=history` lists decided approvals visible to their requester, decider, or a dashboard approver, with `levelAtDecision` and `levelAtExecution`.
+`GET /policy` returns `levels` with each action's allowed levels, its default, and `suggestStanding` once two one-time approvals were decided in 14 days. A decision with `alwaysApprove: true` approves the call and sets the tool to Auto when Auto is allowed and the decider can manage the employee. `GET /api/employee-tools/approvals?view=history` lists decisions visible to the same audience as the original request, with `levelAtDecision` and `levelAtExecution`.
+
+For Ask reads, pass a new `readRequestId` (1–96 letters, digits, underscores or hyphens) to `tool_call` or the employee `/call` endpoint when making a distinct read with identical arguments. Reuse that ID when retrying the same request. The ID separates approval requests; it never supplies consent, and writes reject it.
 
 ## Local verification
 
