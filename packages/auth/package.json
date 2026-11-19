@@ -21,6 +21,6 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260916.1",
-    "vitest": "5.0.1"
+    "vitest": "5.0.5"
   }
 }

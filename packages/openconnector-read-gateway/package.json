@@ -8,5 +8,5 @@
   "types": "./src/index.ts",
   "exports": { ".": "./src/index.ts", "./operator-runtime": "./src/operator-runtime.ts" },
   "scripts": { "typecheck": "tsc -b", "test": "vitest run", "lint": "eslint src test" },
-  "devDependencies": { "vitest": "5.0.1" }
+  "devDependencies": { "vitest": "5.0.5" }
 }

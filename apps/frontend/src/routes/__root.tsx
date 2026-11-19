@@ -27,8 +27,9 @@ export const Route = createRootRoute({
         content: "Hire AI employees you own. Approve every move. Shiba runs on your own servers, on Cloudflare or any server you choose.",
       },
       { property: "og:type", content: "website" },
-      // /app/* is served from the ASSETS binding ahead of the Worker, so this
-      // path answers a link previewer without a session.
+      // The ASSETS binding answers /app/* ahead of the Worker's own gate, but a
+      // host fronted by Cloudflare Access (ACCESS_EMAILS set) gates it at the
+      // edge too, so only an unproxied deployment serves this to a previewer.
       { property: "og:image", content: "/app/icon-512.png" },
       { property: "og:image:width", content: "512" },
       { property: "og:image:height", content: "512" },

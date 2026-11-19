@@ -18,19 +18,19 @@
     "@iconify-json/ph": "^1.2.2",
     "@readme/httpsnippet": "11.4.0",
     "@scalar/openapi-parser": "0.28.12",
-    "astro": "^7.3.2",
+    "astro": "^7.4.13",
     "clsx": "^2.1.1",
     "openapi-sampler": "1.7.4",
     "react": "^19.3.0",
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.10",
-    "@tailwindcss/vite": "^4.3.4",
+    "@astrojs/check": "^0.9.12",
+    "@tailwindcss/vite": "^4.3.5",
     "@types/react": "19.2.18",
-    "autoprefixer": "^10.6.1",
+    "autoprefixer": "^10.6.2",
     "pagefind": "^1.6.0",
-    "postcss": "^8.5.28",
+    "postcss": "^8.5.33",
     "tailwindcss": "^4.3.4",
     "typescript": "5.9.3"
   }
