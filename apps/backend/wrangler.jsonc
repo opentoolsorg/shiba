@@ -206,6 +206,7 @@
       { "name": "Spaces", "class_name": "Spaces" },
       { "name": "ConversationRoom", "class_name": "ConversationRoom" },
       { "name": "WorkspaceEvents", "class_name": "WorkspaceEvents" },
+      { "name": "BrowserSession", "class_name": "BrowserSession" },
     ],
   },
   // Email attachment bodies >256KB go here, keyed `emailId/partId`
@@ -302,5 +303,6 @@
     { "tag": "v14", "new_sqlite_classes": ["Spaces"] },
     { "tag": "v15", "new_sqlite_classes": ["ConversationRoom"] },
     { "tag": "v16", "new_sqlite_classes": ["WorkspaceEvents"] },
+    { "tag": "v17", "new_sqlite_classes": ["BrowserSession"] },
   ],
 }

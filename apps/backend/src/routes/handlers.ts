@@ -173,6 +173,10 @@ export const handlers = {
     const { request, env } = context;
     return handleWorkspaceIntegrations(request, env);
   },
+  async browserResponse({ env, request, url }: RequestContext): Promise<Response> {
+    const { handleBrowserLogins, handleBrowserSession } = await import("../tools/browser-routes.js");
+    return url.pathname === "/api/sessions/browser" ? handleBrowserSession(request, env) : handleBrowserLogins(request, env);
+  },
   async personalExecutionResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
     return handlePersonalExecution(request, env);

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { StrictMode, Suspense, type FormEvent } from "react";
+import { StrictMode, Suspense, type ComponentProps, type FormEvent } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app";
 import { deriveOnboardingStatus } from "@shiba/shared";
@@ -49,7 +49,17 @@ vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChang
   <button type="button" onClick={() => onHarnessChange?.("claude-code")}>Choose Claude API</button>
   <button type="submit" disabled={isSubmitting}>Queue fixture task</button>
 </form> }));
-vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value, onChange, onPrepareWork }: { value: string; onChange?: (value: string) => void; onPrepareWork?: () => void }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} onChange={(event) => onChange?.(event.target.value)} />{onPrepareWork ? <button type="button" onClick={onPrepareWork}>Review as work</button> : null}</div> }));
+vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({
+  value, onChange, onPrepareWork, onSubmit, lookups, onToggleLookup,
+}: ComponentProps<typeof import("./components/ChatMessageComposer").ChatMessageComposer>) => (
+  <form data-testid="chat-composer" onSubmit={onSubmit}>
+    <textarea aria-label="Task draft" value={value} onChange={(event) => onChange(event.target.value)} />
+    {onPrepareWork ? <button type="button" onClick={onPrepareWork}>Review as work</button> : null}
+    {lookups?.filter((lookup) => lookup.id === "browser").map((lookup) => (
+      <button key={lookup.id} type="button" aria-pressed={lookup.on} onClick={() => onToggleLookup?.(lookup.id)}>Toggle fixture browser</button>
+    ))}
+  </form>
+) }));
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/work/");
@@ -176,6 +186,35 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
+  it("mounts the browser only in Chat and sends its tool marker only after opt-in", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/sessions/browser") return Response.json({ state: "none" });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    try {
+      expect(await screen.findByRole("region", { name: "Browser" })).toBeTruthy();
+      await screen.findByText("No session");
+      const draft = screen.getByRole("textbox", { name: "Task draft" });
+      fireEvent.change(draft, { target: { value: "Summarize the public site." } });
+      await act(async () => fireEvent.submit(screen.getByTestId("chat-composer")));
+      expect(mocks.chat.sendMessage.mock.calls.at(-1)?.[0]?.metadata).not.toHaveProperty("shibaChatTools");
+      fireEvent.click(screen.getByRole("button", { name: "Toggle fixture browser" }));
+      fireEvent.change(draft, { target: { value: "Open the public site." } });
+      await act(async () => fireEvent.submit(screen.getByTestId("chat-composer")));
+      expect(mocks.chat.sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+        text: "Open the public site.", metadata: expect.objectContaining({ shibaMode: "chat", shibaChatTools: ["browser"] }),
+      }));
+      fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+      expect(screen.queryByRole("region", { name: "Browser" })).toBeNull();
+    } finally {
+      mocks.chat.sendMessage.mockClear();
+    }
+  });
+
   it("opens the returned approval from Chat and follows its server-linked run after approval", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/threads/");

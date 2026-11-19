@@ -27,6 +27,7 @@ Phase boundaries preserve precedence: `capability` runs before identity verifica
 | slackCoworkerResponse | authenticated | `*` | `^/api/slack/coworker(?:/\|$)` | session |  |
 | sharedComputerResponse | authenticated | `*` | `^/api/shared-computers(?:/\|$)` | session |  |
 | workspaceIntegrationResponse | authenticated | `*` | `^/api/workspace-integrations(?:/\|$)` | session |  |
+| browserResponse | authenticated | `*` | `^/api/(?:sessions/browser\|browser-logins(?:/[^/]+)?)$` | session |  |
 | personalExecutionResponse | authenticated | `*` | `^/api/personal-execution(?:/\|$)` | session |  |
 | teamModelResponse | authenticated | `*` | `^/api/team-model-sessions(?:/\|$)` | session |  |
 | learningResponse | authenticated | `*` | `^/api/learning(?:/\|$)` | session |  |

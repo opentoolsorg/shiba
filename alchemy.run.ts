@@ -290,6 +290,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     WorkspaceEvents: Cloudflare.DurableObject<WorkspaceEvents>("WorkspaceEvents", {
       className: "WorkspaceEvents",
     }),
+    BrowserSession: Cloudflare.DurableObject("BrowserSession", {
+      className: "BrowserSession",
+    }),
 
     // Megaplan stores — wrangler keeps `__PENDING__` ids until the resources
     // are created; alchemy provisions them on first deploy.

@@ -23,7 +23,7 @@ export function isChatOnlyTurn(messages: readonly unknown[] | undefined): boolea
 }
 
 /** Read-only lookups a Chat user can switch on for one message; nothing here acts or spends beyond the search budget. */
-export const CHAT_OPT_IN_TOOLS = ["web_search", "knowledge_search"] as const;
+export const CHAT_OPT_IN_TOOLS = ["web_search", "knowledge_search", "browser"] as const;
 export type ChatOptInTool = (typeof CHAT_OPT_IN_TOOLS)[number];
 
 /** The lookups the latest Chat user turn explicitly opted into; empty for Work turns and unmarked Chat turns. */

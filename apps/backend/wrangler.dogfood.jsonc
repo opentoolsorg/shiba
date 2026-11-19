@@ -143,6 +143,10 @@
       {
         "name": "WorkspaceEvents",
         "class_name": "WorkspaceEvents"
+      },
+      {
+        "name": "BrowserSession",
+        "class_name": "BrowserSession"
       }
     ]
   },
@@ -321,7 +325,8 @@
     "Spaces": { "type": "durable-object", "storage": "sqlite" },
     "UserProviderOAuth": { "type": "durable-object", "storage": "sqlite" },
     "Waitlist": { "type": "durable-object", "storage": "sqlite" },
-    "WorkspaceEvents": { "type": "durable-object", "storage": "sqlite" }
+    "WorkspaceEvents": { "type": "durable-object", "storage": "sqlite" },
+    "BrowserSession": { "type": "durable-object", "storage": "sqlite" }
   },
   // No OPEN_CONNECTOR service binding: shiba-openconnector-dogfood does not
   // exist in the account, and wrangler.jsonc leaves the same binding commented

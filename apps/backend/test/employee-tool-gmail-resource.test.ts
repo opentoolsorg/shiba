@@ -228,7 +228,7 @@ describe("employee-run Gmail selected-resource policy", () => {
     if (goal) expect((await turn()).instructions).toContain("SELECTED ONBOARDING SOURCES");
     const workMessages = instance.messages;
     Object.assign(instance, { messages: [{ role: "user", metadata: { shibaMode: "chat", shibaWorkTarget: "app-tools" } }] });
-    expect(Object.keys(instance.getTools()).sort()).toEqual(["browser_click", "browser_close", "browser_open", "browser_read", "browser_screenshot", "browser_type", "generate_image", "knowledge_search", "web_search"]);
+    expect(Object.keys(instance.getTools()).sort()).toEqual(["browser_click", "browser_close", "browser_open", "browser_read", "browser_screenshot", "browser_sign_in", "browser_type", "generate_image", "knowledge_search", "web_search"]);
     expect((await turn()).activeTools).toEqual([]);
     Object.assign(instance, { messages: workMessages });
     sessionState.available = false;

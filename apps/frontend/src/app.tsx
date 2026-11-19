@@ -92,6 +92,7 @@ import { DiffView } from "./components/DiffView";
 import { ApprovalsView } from "./components/ApprovalsView";
 import { InboxTab } from "./components/InboxTab";
 import { IntegrationsView } from "./components/IntegrationsView";
+import { BrowserPanel } from "./components/BrowserPanel";
 import { MemoryTab } from "./components/MemoryTab";
 import { FilesView } from "./components/knowledge/FilesView";
 import { NotesEditor } from "./components/knowledge/NotesEditor";
@@ -1094,6 +1095,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const [launchBlocked, setLaunchBlocked] = useState(false);
   const [toolSetup, setToolSetup] = useState<SetupStatus["toolSetup"] | null>(null);
   const [chatLookupIds, setChatLookupIds] = useState<ChatLookupId[]>([]);
+  useEffect(() => {
+    setChatLookupIds((current) => current.includes("browser") ? current.filter((id) => id !== "browser") : current);
+  }, [orchestratorName, selectedSessionId]);
   const chatLookups = useMemo(() => chatLookupOptions(toolSetup ?? null, chatLookupIds), [toolSetup, chatLookupIds]);
   // The lookup toggles must not change the submit callback's identity after mount:
   // StrictMode render retries restore the composer draft against it.
@@ -1696,11 +1700,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       if (decidedRef.current.has(approvalId)) return;
       decidedRef.current.add(approvalId);
       setDecisions((current) => ({ ...current, [approvalId]: approved }));
-      const videoGeneration = pendingApprovals.some((item) => item.approvalId === approvalId && item.tool === "generate_video");
+      const tool = pendingApprovals.find((item) => item.approvalId === approvalId)?.tool;
       try {
         await chat.addToolApprovalResponse({ id: approvalId, approved });
         setApprovalAnnouncement(
-          videoGeneration ? `Video generation ${approved ? "approved. Paid provider generation is now permitted." : "rejected. No video will be generated."}` : `Task ${approved ? "approved" : "rejected"}. ${
+          tool === "browser_sign_in" ? (approved ? "Saved sign-in approved for this browser." : "Saved sign-in rejected. No saved credentials will be used.") :
+          tool === "generate_video" ? `Video generation ${approved ? "approved. Paid provider generation is now permitted." : "rejected. No video will be generated."}` : `Task ${approved ? "approved" : "rejected"}. ${
             approved
               ? "Sandbox execution is now permitted."
               : "No sandbox will start for this tool call."
@@ -2618,6 +2623,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [allRuns, reviewThreadId]);
 
   const threadHasWork = chat.messages.length > 0 || reviewThreadId !== null;
+  const pendingApprovalCount = pendingApprovals.length + visibleStoredApprovals.length;
+  const hasSignInApproval = pendingApprovals.some((approval) => approval.tool === "browser_sign_in");
   // Model-by-purpose config: connections + the coding-purpose suggestion list.
   const modelConfig = useModelConfig(signedIn && workspaceAuthorityReady && !restrictedTeamMember);
   const agentsDirectory = useAgentsDirectory(signedIn && workspaceAuthorityReady && !restrictedTeamMember);
@@ -3662,7 +3669,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
               {/* CENTER: conversation timeline + composer */}
               <main
-                className="flex min-h-full min-w-0 flex-1 shrink-0 flex-col overflow-hidden bg-[var(--bg)] xl:min-h-0"
+                className="group/thread flex min-h-full min-w-0 flex-1 shrink-0 flex-col overflow-hidden bg-[var(--bg)] xl:min-h-0"
                 aria-busy={busy}
               >
                 {botPage !== "chat" ? (
@@ -3832,7 +3839,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 </div>
 
                 {/* PENDING APPROVALS STRIP */}
-                {pendingApprovals.length + visibleStoredApprovals.length > 0 ||
+                {pendingApprovalCount > 0 ||
                 approvalAnnouncement ? (
                   <div className="bg-[var(--card)] border-b border-[var(--border-1)] px-3 sm:px-5 xl:px-6 py-3 flex items-center justify-between gap-3 shadow-[var(--sh-card)] z-10 shrink-0">
                     <p
@@ -3840,12 +3847,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       role="status"
                       aria-live="polite"
                     >
-                      {pendingApprovals.length + visibleStoredApprovals.length > 0 ? (
+                      {pendingApprovalCount > 0 ? (
                         <span className="flex items-center gap-2 text-[var(--warning-fg)]">
                           <span className="w-2.5 h-2.5 rounded-full bg-[var(--warning-fg)] animate-pulse" />
-                          {pendingApprovals.length + visibleStoredApprovals.length} task
-                          {pendingApprovals.length + visibleStoredApprovals.length === 1 ? "" : "s"}{" "}
-                          waiting for your approval.
+                          {hasSignInApproval && pendingApprovalCount === 1
+                            ? "Saved sign-in waiting for your approval."
+                            : `${pendingApprovalCount} ${hasSignInApproval ? "request" : "task"}${pendingApprovalCount === 1 ? "" : "s"} waiting for your approval.`}
                         </span>
                       ) : (
                         <span className="text-[var(--success-fg)] flex items-center gap-2">
@@ -3970,7 +3977,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
                 {/* TIMELINE (scrollable) — hidden on the empty-state hero */}
                 <div
-                  className={`flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${threadHasWork ? "" : "hidden"}`}
+                  className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${threadHasWork ? "" : "hidden"}`}
                 >
                   {conversationMode === "chat" ? <RemoteAgentStream stream={realtimeRemoteStream} /> : null}
                   {privateDataEnabled && chatAgentName && conversationMode !== "chat" ? <UiBlockQuestions key={chatAgentName} runId={chatAgentName} sessionId={selectedSessionId} /> : null}
@@ -4015,6 +4022,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     </div>
                   ) : null}
                 </div>
+
+                {privateDataEnabled && !threadLinkPending && conversationMode === "chat" ? (
+                  <BrowserPanel key={orchestratorName} sessionId={selectedSessionId} />
+                ) : null}
 
                 {/* COMPOSER — hero when the session is empty, docked once the run is going */}
                 <div
@@ -4063,7 +4074,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         ? "flex-1 min-h-0 flex flex-col items-center [justify-content:safe_center] overflow-y-auto gap-5 px-3 sm:px-5 xl:px-8 py-5"
                         : "shrink-0 px-3 sm:px-5 xl:px-8 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
                     }>
-                      {chat.messages.length === 0 ? <AgentChatEmptyState agent={chatAgent} /> : null}
+                      {chat.messages.length === 0 ? (
+                        <div className="contents group-has-[[data-browser-expanded]]/thread:hidden"><AgentChatEmptyState agent={chatAgent} /></div>
+                      ) : null}
                       {privateDataEnabled && chatAgentName && !busy && !chat.error &&
                         (chat.messages.length === 0 || chat.messages.at(-1)?.role === "assistant") ? (
                         <ChatSuggestions agentName={chatAgentName} refreshKey={chat.messages.at(-1)?.id ?? "empty"} busy={busy} hidden={!composerVisible || task.trim() !== ""} onPick={pickSuggestion} />

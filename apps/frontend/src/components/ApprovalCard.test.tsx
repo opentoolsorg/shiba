@@ -10,6 +10,20 @@ const approval = {
 };
 
 describe("ApprovalCard", () => {
+  it("shows saved login metadata only and never describes sign-in as a sandbox action", () => {
+    const decide = vi.fn();
+    const signIn = { ...approval, tool: "browser_sign_in", input: { loginId: "fixture-login-id", label: "Example Portal", password: "fixture-not-for-display" } };
+    const { rerender } = render(<ApprovalCard approval={signIn} decided={false} onDecideApproval={decide} />);
+    expect(screen.getByText("Confirm saved sign-in")).toBeTruthy();
+    expect(screen.getByText("Example Portal")).toBeTruthy();
+    expect(screen.getByText("fixture-login-id")).toBeTruthy();
+    expect(screen.queryByText(/fixture-not-for-display|sandbox/)).toBeNull();
+    expect(decide).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(decide).toHaveBeenCalledWith("approval-1", true);
+    rerender(<ApprovalCard approval={signIn} decided decision onDecideApproval={decide} />);
+    expect(screen.getByRole("status").textContent).toBe("Approved — saved sign-in permitted");
+  });
   it("explains the paid provider action and preserves its frozen inputs", () => {
     const videoApproval = { ...approval, tool: "generate_video", input: { prompt: "A bird in flight", duration: 8 } };
     const { rerender } = render(<ApprovalCard approval={videoApproval} decided={false} onDecideApproval={vi.fn()} />);
