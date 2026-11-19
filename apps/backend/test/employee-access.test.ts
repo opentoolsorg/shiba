@@ -230,11 +230,50 @@ describe("employee access", () => {
     const { env, employee, workspaceId, set, auth } = await fixture(); auth(owner);
     const url = `https://app.test/api/governance/employees/${employee.id}/access`;
     const response = await handleEmployeeAccess(new Request(url), env);
-    expect(await response!.json()).toEqual({ level: "manage", grants: [] });
+    expect(await response!.json()).toEqual({ level: "manage", grants: [], canManageIncomingDelegation: true });
     expect((await handleEmployeeAccess(new Request(url, { method: "PUT", headers: { "Content-Type": "application/json", Origin: "https://app.test" }, body: "null" }), env))?.status).toBe(400);
     await set("everyone", "*", "view"); auth();
     expect((await handleEmployeeAccess(new Request(url, { method: "PUT", headers: { "X-Shiba-Workspace": workspaceId }, body: "{}" }), env))?.status).toBe(403);
     vi.mocked(resolveOrgForApiRequest).mockResolvedValue({ orgId: "self-hosted", principal: null });
     expect(await enforceEmployeeRouteAccess(new Request(`https://app.test/api/custom-agents/${employee.id}`), env)).toBeNull();
+  });
+  it("keeps the incoming list default-deny, workspace-bound, revisioned and auditable", async () => {
+    const { auth, env, employee, sqlite, workspaceId } = await fixture();
+    auth(owner);
+    const config = { name: "Research", instructions: "Summarize", harness: "opencode" };
+    const source = await createCustomAgent({ AGENT_AUDIT: env.AGENT_AUDIT! }, employee.orgId, "research", config);
+    const otherWorkspace = await createTeamWorkspace(env, owner, { name: "Other" });
+    const outside = await createCustomAgent({ AGENT_AUDIT: env.AGENT_AUDIT! }, `team:${otherWorkspace.workspaceId}`, "research", config);
+    const route = (body?: unknown, headers?: Record<string, string>, id = employee.id) => handleEmployeeAccess(new Request(
+      `https://app.test/api/governance/employees/${id}/access?policy=incoming-delegation`, {
+        method: body === undefined ? "GET" : "PUT",
+        headers: { "Content-Type": "application/json", Origin: "https://app.test", ...headers },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }), env);
+    const update = (expectedRevision: number, ...allowedEmployeeIds: string[]) => ({ expectedRevision, allowedEmployeeIds });
+    expect(await (await route())?.json()).toEqual({ revision: 0, candidates: [{ id: source.id, name: "Research" }], allowedEmployeeIds: [] });
+    expect((await route(undefined, undefined, outside.id))?.status).toBe(404);
+    for (const payload of [update(0, outside.id), update(0, employee.id), update(0, source.id, source.id), { ...update(0), approvalId: "not-transferable" }]) {
+      expect((await route(payload))?.status).toBe(400);
+    }
+    expect((await route(update(0, source.id), { Origin: "https://elsewhere.test" }))?.status).toBe(403);
+    expect((await route(undefined, { Authorization: "Bearer not-a-human-session" }))?.status).toBe(403);
+    auth();
+    expect((await route())?.status).toBe(403);
+    expect((await route(update(0, source.id)))?.status).toBe(403);
+    auth(owner);
+    const writes = await Promise.all([route(update(0, source.id)), route(update(0, source.id))]);
+    expect(writes.map((item) => item?.status).sort()).toEqual([200, 409]);
+    expect(await (await route())?.json()).toMatchObject({ revision: 1, allowedEmployeeIds: [source.id] });
+    expect(await (await route(update(1)))?.json()).toMatchObject({ revision: 2, allowedEmployeeIds: [] });
+    expect((await route(update(0, source.id)))?.status).toBe(409);
+    const audit = sqlite.prepare("SELECT principal, detail FROM audit_log WHERE tool='employee.delegation_access.changed' ORDER BY json_extract(detail, '$.revision')").all();
+    expect(audit.map((row) => [row.principal, JSON.parse(String(row.detail))])).toEqual([
+      [owner, { workspaceId, employeeId: employee.id, revision: 1, before: [], after: [source.id] }],
+      [owner, { workspaceId, employeeId: employee.id, revision: 2, before: [source.id], after: [] }],
+    ]);
+    sqlite.prepare("UPDATE team_workspace_memberships SET version=version+1 WHERE workspace_id=? AND user_id=?").run(workspaceId, owner);
+    expect((await route(update(2, source.id)))?.status).toBe(409);
+    expect(await (await route())?.json()).toMatchObject({ revision: 2, allowedEmployeeIds: [] });
   });
 });

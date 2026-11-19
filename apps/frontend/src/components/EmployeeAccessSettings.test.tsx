@@ -53,6 +53,27 @@ describe("EmployeeAccessSettings", () => {
     expect(await screen.findByText(/Your access: view/)).toBeTruthy();
     expect(screen.queryByRole("combobox")).toBeNull();
   });
+  it("saves only explicitly selected incoming callers using the loaded revision", async () => {
+    const writes: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
+      if (input.endsWith("/groups")) return Response.json({ groups: [] });
+      if (input.startsWith("/api/workspaces/")) return Response.json({ workspace: { members: [] } });
+      if (!input.includes("policy=incoming-delegation")) return Response.json({ level: "manage", grants: [], canManageIncomingDelegation: true });
+      const candidates = [{ id: "research", name: "Research" }];
+      const update = init?.method === "PUT";
+      if (update) writes.push(JSON.parse(String(init.body)));
+      return Response.json({ revision: update ? 1 : 0, candidates, allowedEmployeeIds: update ? ["research"] : [] });
+    }));
+    render(<EmployeeAccessSettings workspaceId={workspaceId} employeeId="finance" />);
+    const research = await screen.findByRole("checkbox", { name: "Research" }) as HTMLInputElement;
+    const save = screen.getByRole("button", { name: "Save incoming access" }) as HTMLButtonElement;
+    expect(research.checked).toBe(false);
+    expect(save.disabled).toBe(true);
+    fireEvent.click(research);
+    fireEvent.click(save);
+    await screen.findByText("Incoming access saved.");
+    expect(writes).toEqual([{ expectedRevision: 0, allowedEmployeeIds: ["research"] }]);
+  });
   it("reports failed access loads without presenting controls", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Not found." }, { status: 404 })));
     render(<EmployeeAccessSettings workspaceId={workspaceId} employeeId="employee" />);

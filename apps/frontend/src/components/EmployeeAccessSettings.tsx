@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from "react";
-import type { EmployeeAccessGrant, EmployeeAccessLevel, EmployeeAccessSettings as Settings } from "@shiba/shared";
+import type { EmployeeAccessGrant, EmployeeAccessLevel, EmployeeAccessSettings as Settings, EmployeeDelegationAccessSettings } from "@shiba/shared";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
 
 const levels: EmployeeAccessLevel[] = ["none", "view", "chat", "manage"];
@@ -67,5 +67,67 @@ export function EmployeeAccessSettings({ workspaceId, employeeId, onAccessChange
         </select>
       </label>;
     })}</div> : null}
+    {settings?.canManageIncomingDelegation ? <IncomingDelegationAccess key={`${workspaceId}:${employeeId}`} workspaceId={workspaceId} endpoint={`${endpoint}?policy=incoming-delegation`} /> : null}
   </section>;
+}
+
+function IncomingDelegationAccess({ workspaceId, endpoint }: { workspaceId: string; endpoint: string }): JSX.Element {
+  const [policy, setPolicy] = useState<EmployeeDelegationAccessSettings | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch(endpoint, { headers: teamWorkspaceHeaders(workspaceId), signal: controller.signal })
+      .then(read<EmployeeDelegationAccessSettings>)
+      .then((next) => {
+        if (controller.signal.aborted) return;
+        setPolicy(next);
+        setSelected(next.allowedEmployeeIds);
+      }).catch((cause: unknown) => {
+        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Incoming access unavailable.");
+      });
+    return () => controller.abort();
+  }, [endpoint, workspaceId]);
+
+  async function save() {
+    if (!policy) return;
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const next = await read<EmployeeDelegationAccessSettings>(await fetch(endpoint, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) },
+        body: JSON.stringify({ expectedRevision: policy.revision, allowedEmployeeIds: selected }),
+      }));
+      setPolicy(next);
+      setSelected(next.allowedEmployeeIds);
+      setSaved(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Incoming access unavailable.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const dirty = !!policy && (selected.length !== policy.allowedEmployeeIds.length || selected.some((id) => !policy.allowedEmployeeIds.includes(id)));
+  return <fieldset className="mt-4 min-w-0 border-t border-[var(--line)]">
+    <legend className="pr-2 text-sm font-medium">Incoming delegation</legend>
+    <p className="mt-1 text-xs text-[var(--ink-2)]">Only selected employees would be allowed to request a handoff. With none selected, all requests are blocked. Delegated execution is not available yet.</p>
+    {error ? <p role="alert" className="mt-2 text-xs">{error}</p> : null}
+    {!policy && !error ? <p role="status" className="mt-2 text-xs">Loading incoming access…</p> : null}
+    {policy && !policy.candidates.length ? <p className="mt-2 text-xs">No other active employees in this workspace.</p> : null}
+    {policy?.candidates.map(({ id, name }) => <label key={id} className="flex min-h-11 items-center gap-2 text-xs">
+      <input type="checkbox" checked={selected.includes(id)} disabled={busy || (selected.length >= 32 && !selected.includes(id))} onChange={(event) => {
+        setSaved(false);
+        setSelected(event.target.checked ? [...selected, id] : selected.filter((value) => value !== id));
+      }} />
+      <span className="min-w-0 break-words">{name}</span>
+    </label>)}
+    {policy ? <button type="button" className={`${field} mt-2 disabled:opacity-50`} disabled={!dirty || busy} onClick={() => void save()}>Save incoming access</button> : null}
+    {saved ? <p role="status" className="mt-2 text-xs">Incoming access saved.</p> : null}
+  </fieldset>;
 }

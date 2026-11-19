@@ -11,6 +11,13 @@ export interface EmployeeAccessGrant {
 export interface EmployeeAccessSettings {
   level: EmployeeAccessLevel;
   grants: EmployeeAccessGrant[];
+  canManageIncomingDelegation?: boolean;
+}
+
+export interface EmployeeDelegationAccessSettings {
+  revision: number;
+  candidates: { id: string; name: string }[];
+  allowedEmployeeIds: string[];
 }
 
 /** Resource kinds WS05–WS08 integrate against. */

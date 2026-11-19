@@ -4,9 +4,11 @@ import { requireJsonContentType, requireSameOriginBrowserMutation, resolveUserId
 import { getCustomAgentById } from "../custom-agents-store.js";
 import { GovernanceError } from "./governance-store.js";
 import { employeeAccessDenial, listEmployeeAccess, resolveEmployeeAccess, setEmployeeAccess } from "./employee-access.js";
+import { employeeDelegationAccess } from "./employee-delegation-access.js";
 
 export async function handleEmployeeAccess(request: Request, env: Env): Promise<Response | null> {
-  const match = /^\/api\/governance\/employees\/([^/]+)\/access\/?$/.exec(new URL(request.url).pathname);
+  const url = new URL(request.url);
+  const match = /^\/api\/governance\/employees\/([^/]+)\/access\/?$/.exec(url.pathname);
   if (!match) return null;
   const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
   if (request.headers.has("authorization")) return json({ error: "Human workspace session required." }, 403);
@@ -23,6 +25,16 @@ export async function handleEmployeeAccess(request: Request, env: Env): Promise<
     const denied = employeeAccessDenial(level, request.method === "GET" ? "view" : "manage");
     if (denied) return denied;
     if (!await getCustomAgentById({ AGENT_AUDIT: env.AGENT_AUDIT }, auth.orgId, employeeId)) return json({ error: "Not found." }, 404);
+    const canManageIncomingDelegation = auth.workspace.role === "owner" || auth.workspace.role === "admin";
+    if (url.searchParams.get("policy") === "incoming-delegation") {
+      if (!canManageIncomingDelegation) return json({ error: "Workspace owner or admin permission is required." }, 403);
+      const scope = { workspaceId, employeeId, actorId: auth.workspace.userId, membershipVersion: auth.workspace.version };
+      if (request.method === "GET") return json(await employeeDelegationAccess(env.AGENT_AUDIT, scope));
+      if (request.method !== "PUT") return json({ error: "Method not allowed." }, 405);
+      const block = requireSameOriginBrowserMutation(request) ?? requireJsonContentType(request);
+      if (block) return block;
+      return json(await employeeDelegationAccess(env.AGENT_AUDIT, scope, await request.json().catch(() => null)));
+    }
     if (request.method === "PUT") {
       const block = requireSameOriginBrowserMutation(request) ?? requireJsonContentType(request);
       if (block) return block;
@@ -30,7 +42,7 @@ export async function handleEmployeeAccess(request: Request, env: Env): Promise<
       if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "JSON object required." }, 400);
       await setEmployeeAccess(env, workspaceId, employeeId, userId, body as Record<string, unknown>);
     } else if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
-    return json({ level, grants: level === "manage" ? await listEmployeeAccess(env, workspaceId, employeeId) : [] });
+    return json({ level, grants: level === "manage" ? await listEmployeeAccess(env, workspaceId, employeeId) : [], ...(canManageIncomingDelegation ? { canManageIncomingDelegation: true } : {}) });
   } catch (error) {
     if (error instanceof GovernanceError) return json({ error: error.message }, error.status);
     return json({ error: "Employee access unavailable." }, 503);
