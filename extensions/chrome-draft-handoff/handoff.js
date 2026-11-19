@@ -83,10 +83,19 @@ export function normalizeDestination(raw) {
     return { ok: false, reason: "credentials-not-allowed" };
   }
   if (url.hostname === "") return { ok: false, reason: "malformed" };
-  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") {
-    return { ok: false, reason: "origin-only" };
-  }
+  // The parser repairs spellings such as `https:host` or `/dir/..`; the
+  // typed text itself must already be a bare origin.
+  const typed = raw.trim();
+  if (!/^https?:\/\//i.test(typed)) return { ok: false, reason: "malformed" };
+  if (!/^https?:\/\/[^/?#\\]+\/?$/i.test(typed)) return { ok: false, reason: "origin-only" };
   return { ok: true, origin: url.origin };
+}
+
+/** Clips at the dashboard's limit without splitting a surrogate pair, which would make the address unencodable. */
+function clipDraft(text) {
+  if (text.length <= DRAFT_LIMIT) return text;
+  const clipped = text.slice(0, DRAFT_LIMIT);
+  return /[\uD800-\uDBFF]$/.test(clipped) ? clipped.slice(0, -1) : clipped;
 }
 
 /** The draft address, or null when the destination is invalid or the draft is blank. */
@@ -95,7 +104,7 @@ export function handoffUrl(origin, draft) {
   if (!destination.ok) return null;
   const text = typeof draft === "string" ? draft.trim() : "";
   if (text === "") return null;
-  return `${destination.origin}${HANDOFF_PATH}?prompt=${encodeURIComponent(text.slice(0, DRAFT_LIMIT))}`;
+  return `${destination.origin}${HANDOFF_PATH}?prompt=${encodeURIComponent(clipDraft(text))}`;
 }
 
 /** The prompt a handoff address carries, decoded, for the popup's own checks and the tests. */

@@ -10,8 +10,11 @@ when you click.
 2. The popup shows the address it is willing to send — scheme, host and path.
    Credentials, query and fragment are gone.
 3. The draft starts as that address and you may edit it.
-4. You click **Open draft in Shiba**, and the dashboard opens with the draft in
-   the composer, unsent. Sending it is your decision, in the composer, as usual.
+4. You click **Open draft in Shiba**, and the dashboard opens the thread it
+   would restore anyway (a linked or remembered thread, else the default one)
+   with the draft in that thread's composer, unsent. An unsent draft already
+   there is kept, with the handoff below it. Sending is your decision, in the
+   composer, as usual.
 
 The handoff is the dashboard's existing deep link: `/threads/?prompt=<draft>`.
 The Threads route prefills the composer from `?prompt=`, strips the parameter

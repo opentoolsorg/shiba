@@ -141,6 +141,48 @@ test("handoffUrl caps the draft at the dashboard's 4000-character limit", () => 
   assert.equal(new URL(url).searchParams.get("prompt").length, DRAFT_LIMIT);
 });
 
+test("handoffUrl never splits a character at the limit", () => {
+  const draft = `${"x".repeat(DRAFT_LIMIT - 1)}😀 tail`;
+  const url = handoffUrl("https://shiba.example.com", draft);
+  assert.notEqual(url, null);
+  assert.equal(new URL(url).searchParams.get("prompt"), "x".repeat(DRAFT_LIMIT - 1));
+  const exact = `${"x".repeat(DRAFT_LIMIT - 2)}😀`;
+  assert.equal(
+    new URL(handoffUrl("https://shiba.example.com", exact)).searchParams.get("prompt"),
+    exact,
+  );
+});
+
+test("the popup draft field stops at the dashboard limit", () => {
+  assert.match(
+    read("popup.html"),
+    new RegExp(`<textarea id="draft"[^>]*maxlength="${DRAFT_LIMIT}"`),
+  );
+});
+
+test("normalizeDestination refuses spellings the URL parser would repair", () => {
+  assert.deepEqual(normalizeDestination("https:shiba.example.com"), {
+    ok: false,
+    reason: "malformed",
+  });
+  assert.deepEqual(normalizeDestination("https:/shiba.example.com"), {
+    ok: false,
+    reason: "malformed",
+  });
+  assert.deepEqual(normalizeDestination("https://shiba.example.com/dir/.."), {
+    ok: false,
+    reason: "origin-only",
+  });
+  assert.deepEqual(normalizeDestination("https://shiba.example.com//"), {
+    ok: false,
+    reason: "origin-only",
+  });
+  assert.deepEqual(normalizeDestination("https://shiba.example.com\\path"), {
+    ok: false,
+    reason: "origin-only",
+  });
+});
+
 test("handoffUrl refuses a blank draft or an invalid destination", () => {
   assert.equal(handoffUrl("https://shiba.example.com", ""), null);
   assert.equal(handoffUrl("https://shiba.example.com", "   \n "), null);
