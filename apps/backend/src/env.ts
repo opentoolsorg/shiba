@@ -628,6 +628,8 @@ export interface Env {
   FILES_MAX_UPLOAD_BYTES?: string;
   /** Optional deployment OIDC sign-in; enabled only with the value "1". */
   SHIBA_SSO_ENABLED?: string;
+  /** Optional issuer preset ("google-workspace"); conflicts with a different SSO_OIDC_ISSUER. */
+  SSO_OIDC_PRESET?: string;
   SSO_OIDC_ISSUER?: string;
   SSO_OIDC_CLIENT_ID?: string;
   /** Worker-only identity provider secret. */

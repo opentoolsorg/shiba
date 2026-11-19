@@ -147,6 +147,23 @@ export function enabledBetterAuthProviderIds(env: BetterAuthLaneEnv): string[] {
   return isBetterAuthConfigured(env) ? [...Object.keys(socialProviders(env)), ...(getSsoConfig(env).enabled ? ["sso"] : [])] : [];
 }
 
+/**
+ * SSO readiness as the request path sees it: the OIDC handler mounts only when
+ * the flag and settings are valid and the auth lane itself is configured with
+ * its secret and store. Reports setting names, never values.
+ */
+export function getSsoReadiness(env: BetterAuthLaneEnv) {
+  const sso = getSsoConfig(env);
+  const lane = [...(isBetterAuthConfigured(env) ? [] : ["BETTER_AUTH_SECRET"]), ...(env.AGENT_AUDIT ? [] : ["AGENT_AUDIT"])];
+  return {
+    ready: sso.enabled && lane.length === 0,
+    preset: sso.preset,
+    settings: [...sso.settings, "BETTER_AUTH_SECRET", "AGENT_AUDIT"],
+    missing: [...sso.missing, ...lane],
+    conflicting: sso.conflicting,
+  };
+}
+
 export function bootstrapRequirements(env: BetterAuthLaneEnv): {
   requiresToken: boolean;
   requiresOwnerEmail: boolean;
@@ -486,7 +503,7 @@ export async function handleBetterAuth(
     const enabled = enabledBetterAuthProviderIds(env);
     const sso = getSsoConfig(env);
     return Response.json({ providers: { google: enabled.includes("google"), slack: enabled.includes("slack") },
-      sso: { enabled: sso.enabled, displayName: sso.displayName } }, {
+      sso: { enabled: getSsoReadiness(env).ready, displayName: sso.displayName } }, {
       headers: { "Cache-Control": "no-store" },
     });
   }

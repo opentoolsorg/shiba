@@ -14,10 +14,11 @@ Configure these environment settings on the backend Worker. Store the client sec
 | `BETTER_AUTH_SECRET` | Enables the built-in auth lane; at least 32 characters. |
 | `BETTER_AUTH_URL` | Canonical public dashboard URL, such as `https://shiba.example.com`. |
 | `SHIBA_SSO_ENABLED` | Set to `1` to enable OIDC sign-in. |
-| `SSO_OIDC_ISSUER` | HTTPS issuer URL, without the discovery document suffix. |
+| `SSO_OIDC_ISSUER` | HTTPS issuer URL, without the discovery document suffix. Required unless you use a preset. |
+| `SSO_OIDC_PRESET` | Optional issuer preset. `google-workspace` uses `https://accounts.google.com`. Leave unset for a manual issuer. |
 | `SSO_OIDC_CLIENT_ID` | Client ID issued for the Shiba application. |
 | `SSO_OIDC_CLIENT_SECRET` | Client secret issued for the Shiba application. |
-| `SSO_OIDC_DISPLAY_NAME` | Optional button name; defaults to `Company SSO`. |
+| `SSO_OIDC_DISPLAY_NAME` | Optional button name; defaults to `Company SSO`, or `Google Workspace` with that preset. |
 | `SSO_ALLOWED_DOMAINS` | Comma-separated exact email domains, such as `example.com,subsidiary.example.com`. |
 
 Register the following redirect URI with the identity provider, replacing the origin with `BETTER_AUTH_URL`:
@@ -26,7 +27,9 @@ Register the following redirect URI with the identity provider, replacing the or
 https://shiba.example.com/api/auth/callback/sso
 ```
 
-Discovery uses `<SSO_OIDC_ISSUER>/.well-known/openid-configuration`. A disabled flag or incomplete settings hides the sign-in button. `/api/setup/status` reports an `sso` entry with configured and missing setting names; it never returns credential values. When the flag is on, the setup doctor also reports incomplete configuration.
+Discovery uses `<issuer>/.well-known/openid-configuration`. A disabled flag or incomplete settings hides the sign-in button. Setting `SSO_OIDC_PRESET` together with any non-blank `SSO_OIDC_ISSUER` other than the preset's issuer is rejected as a conflict, and an unknown preset is treated as invalid; either way SSO stays off.
+
+`/api/setup/status` reports an `sso` entry with `configured`, `missing`, and `conflicting` setting names; it never returns credential values. `sso.enabled` is true only when the sign-in handler will actually mount, which also needs `BETTER_AUTH_SECRET` (at least 32 characters) and the `AGENT_AUDIT` database binding, so those names appear in `missing` when absent. When the flag is on, the setup doctor reports the same readiness, and the sign-in button appears only when it is ready.
 
 ## Account and workspace policy
 
@@ -48,7 +51,7 @@ Create an OIDC **Web Application**, enable the authorization code grant, and ass
 
 ### Google Workspace
 
-Create a web application OAuth client in Google Cloud, add the redirect URI, and configure the consent screen for your organization's users. Set `SSO_OIDC_ISSUER=https://accounts.google.com`, then supply the client ID and secret. Set `SSO_ALLOWED_DOMAINS` to your Workspace email domains; selecting an internal consent screen alone does not replace Shiba's domain check. See [Google's OIDC guide](https://developers.google.com/identity/openid-connect/openid-connect).
+Create a web application OAuth client in Google Cloud, add the redirect URI, and configure the consent screen for your organization's users. Set `SSO_OIDC_PRESET=google-workspace` and leave `SSO_OIDC_ISSUER` unset (setting it to `https://accounts.google.com` manually also works), then supply the client ID and secret. Set `SSO_ALLOWED_DOMAINS` to your Workspace email domains; selecting an internal consent screen alone does not replace Shiba's domain check. See [Google's OIDC guide](https://developers.google.com/identity/openid-connect/openid-connect).
 
 ### Microsoft Entra
 

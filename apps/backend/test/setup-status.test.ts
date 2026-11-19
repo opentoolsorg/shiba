@@ -150,6 +150,41 @@ describe("GET /api/setup/status subscription diagnostics", () => {
 });
 
 describe("readSetupStatus SSO diagnostics", () => {
+  const authSecret = "private-auth-secret-".padEnd(40, "x");
+  const oidc = { SHIBA_SSO_ENABLED: "1", SSO_OIDC_CLIENT_ID: "private-client-id", SSO_OIDC_CLIENT_SECRET: "private-client-secret" };
+
+  it("does not report SSO ready when the auth lane cannot mount it", async () => {
+    const status = await readSetupStatus(setupStatusEnv({ ...oidc, SSO_OIDC_ISSUER: "https://identity.example.test", AGENT_AUDIT: {} as never }), false);
+    expect(status.sso).toMatchObject({ enabled: false, missing: ["BETTER_AUTH_SECRET"] });
+    const finding = status.doctor.findings.find(row => row.id === "sso.config");
+    expect(finding).toMatchObject({ severity: "warn", message: expect.stringContaining("BETTER_AUTH_SECRET") });
+    const short = await readSetupStatus(setupStatusEnv({ ...oidc, SSO_OIDC_ISSUER: "https://identity.example.test",
+      BETTER_AUTH_SECRET: "too-short-secret", AGENT_AUDIT: {} as never }), false);
+    expect(short.sso).toMatchObject({ enabled: false, missing: ["BETTER_AUTH_SECRET"] });
+    expect(JSON.stringify(short)).not.toContain("too-short-secret");
+  });
+
+  it("reports the Google Workspace preset as ready by setting name", async () => {
+    const status = await readSetupStatus(setupStatusEnv({ ...oidc, SSO_OIDC_PRESET: "google-workspace",
+      BETTER_AUTH_SECRET: authSecret, AGENT_AUDIT: {} as never }), false);
+    expect(status.sso).toEqual({ enabled: true,
+      configured: ["SSO_OIDC_PRESET", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET", "BETTER_AUTH_SECRET", "AGENT_AUDIT"],
+      missing: [], conflicting: [] });
+    expect(status.doctor.findings.find(row => row.id === "sso.config")).toMatchObject({
+      severity: "ok", message: expect.stringContaining("google-workspace") });
+    for (const value of [authSecret, "private-client-id", "private-client-secret"]) expect(JSON.stringify(status)).not.toContain(value);
+  });
+
+  it("reports a preset and a different explicit issuer as conflicting", async () => {
+    const status = await readSetupStatus(setupStatusEnv({ ...oidc, SSO_OIDC_PRESET: "google-workspace",
+      SSO_OIDC_ISSUER: "https://identity.example.test", BETTER_AUTH_SECRET: authSecret, AGENT_AUDIT: {} as never }), false);
+    expect(status.sso).toMatchObject({ enabled: false, missing: [], conflicting: ["SSO_OIDC_PRESET", "SSO_OIDC_ISSUER"],
+      configured: ["SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET", "BETTER_AUTH_SECRET", "AGENT_AUDIT"] });
+    expect(status.doctor.findings.find(row => row.id === "sso.config")).toMatchObject({
+      severity: "warn", message: expect.stringContaining("Conflicting: SSO_OIDC_PRESET, SSO_OIDC_ISSUER") });
+    expect(JSON.stringify(status)).not.toContain("identity.example.test");
+  });
+
   it("keeps SSO disabled by default", async () => {
     const status = await readSetupStatus(setupStatusEnv(), false);
     expect(status.sso.enabled).toBe(false);
@@ -173,10 +208,12 @@ describe("readSetupStatus SSO diagnostics", () => {
       SSO_OIDC_CLIENT_ID: "private-client-id", SSO_OIDC_CLIENT_SECRET: "private-client-secret",
       SSO_ALLOWED_DOMAINS: "example.test",
     };
-    const status = await readSetupStatus(setupStatusEnv(configured), false);
+    const status = await readSetupStatus(setupStatusEnv({ ...configured, BETTER_AUTH_SECRET: authSecret, AGENT_AUDIT: {} as never }), false);
     expect(status.sso).toEqual({ enabled: true,
-      configured: ["SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET"], missing: [],
+      configured: ["SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET", "BETTER_AUTH_SECRET", "AGENT_AUDIT"],
+      missing: [], conflicting: [],
     });
+    expect(JSON.stringify(status)).not.toContain(authSecret);
     expect(status.doctor.findings.find(row => row.id === "sso.config")).toMatchObject({ severity: "ok" });
     for (const name of ["SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET"] as const) {
       expect(JSON.stringify(status)).not.toContain(configured[name]);
