@@ -8,6 +8,7 @@ import {
   DESKTOP_CHANNELS,
   encodeHandshake,
   HANDSHAKE_ARG,
+  MAX_DEPLOYMENT_URL_CHARS,
   parseHandshake,
   SETUP_CHANNELS,
 } from "../src/bridge-contract.js";
@@ -36,6 +37,9 @@ describe("handshake", () => {
       [encodeHandshake({ ...handshake, origin: "" })],
       [encodeHandshake({ ...handshake, origin: "file:///etc/passwd" })],
       [encodeHandshake({ ...handshake, origin: "https://user:pw@app.tryshiba.dev" })],
+      [encodeHandshake({ ...handshake, origin: `https://${"a".repeat(MAX_DEPLOYMENT_URL_CHARS)}.example` })],
+      [encodeHandshake({ ...handshake, origin: "https://exa\0mple.dev" })],
+      [encodeHandshake({ ...handshake, origin: "//app.tryshiba.dev/app" })],
       [encodeHandshake({ ...handshake, appVersion: "" })],
       [encodeHandshake({ ...handshake, appVersion: "x".repeat(65) })],
       [encodeHandshake({ ...handshake, platform: "" })],

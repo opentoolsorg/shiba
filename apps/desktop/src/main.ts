@@ -84,7 +84,6 @@ let shutdownStarted = false;
 let desktopActions: ReturnType<typeof registerDesktopIpc> | null = null;
 const pendingLinks: string[] = process.argv.filter((arg) => arg.startsWith("shiba:"));
 
-const log = (line: string) => mainLog?.line(line);
 const logEvent = (fields: Parameters<NonNullable<Logger["event"]>>[0]) => mainLog?.event(fields);
 /** One bridge-wide concurrency ceiling; pairing and shell handlers share it. */
 const bounds = createIpcBounds();
@@ -419,7 +418,7 @@ function buildPoller(): void {
         showWindow,
         loadURL: loadAppUrl,
         notify,
-        log: (...args) => log(args.map(String).join(" ")),
+        onError: () => logEvent({ event: "approvals-poll", state: "failed" }),
       })
     : null;
 }
@@ -455,8 +454,8 @@ async function disconnectLocal(): Promise<void> {
         buttons: ["OK"],
       });
     }
-  } catch (error) {
-    log(`disconnect failed: ${String(error)}`);
+  } catch {
+    logEvent({ event: "disconnect", state: "failed" });
   }
 }
 
@@ -504,7 +503,7 @@ function onTraySelect(id: string): void {
     case "logs":
       return void shell.openPath(path.join(app.getPath("userData"), "logs"));
     case "updates":
-      return void checkForUpdates().catch((e) => log(`update check failed: ${String(e)}`));
+      return void checkForUpdates().catch(() => logEvent({ event: "update-check", state: "failed" }));
     case "quit":
       app.quit();
       return;
@@ -575,7 +574,7 @@ function registerIpc(): void {
       return runRoot;
     },
     readLocalConfig,
-    log,
+    event: (fields) => logEvent(fields),
     bounds,
   });
   registerShellIpc({
@@ -632,13 +631,13 @@ async function initIntegrations(): Promise<void> {
   buildPoller();
   const icon = trayIconPath();
   if (icon) tray = createTray(icon, onTraySelect);
-  else log("tray icon missing; running without a tray item");
+  else logEvent({ event: "tray", state: "missing" });
   refreshTray();
   applyLoginItem();
   startUpdater({
     isPackaged: app.isPackaged,
     checkForUpdatesAndNotify: checkForUpdates,
-    log: (...a) => log(a.map(String).join(" ")),
+    onError: () => logEvent({ event: "update-check", state: "failed" }),
   });
   powerMonitor.on("suspend", () => poller?.stop());
   powerMonitor.on("resume", () => {
@@ -679,8 +678,8 @@ function registerProtocol(): void {
   if (!app.isPackaged) return;
   try {
     app.setAsDefaultProtocolClient("shiba");
-  } catch (error) {
-    log(`protocol registration failed: ${error instanceof Error ? error.message : String(error)}`);
+  } catch {
+    logEvent({ event: "protocol-register", state: "failed" });
   }
 }
 

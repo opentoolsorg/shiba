@@ -29,11 +29,16 @@ function boundedText(value: unknown, max: number): string | null {
   return value.includes("\0") ? null : value;
 }
 
-/** Origin string with no credentials and a web protocol; anything else is refused. */
+/**
+ * Origin string with no credentials and a web protocol. The bounds are the
+ * contract's: maxDeploymentUrlChars (2048), no NUL byte — a value main would
+ * refuse must never reach a page here (test/preload-gate.e2e.ts pins parity).
+ */
 function absoluteOrigin(value: unknown): string | null {
-  if (typeof value !== "string" || value.length === 0 || value.length > 2048) return null;
+  const text = boundedText(value, 2048);
+  if (!text) return null;
   try {
-    const url = new URL(value);
+    const url = new URL(text);
     if (url.username || url.password) return null;
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
     return url.origin;
