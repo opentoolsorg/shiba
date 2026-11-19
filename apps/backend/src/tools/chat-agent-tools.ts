@@ -5,15 +5,23 @@ import { browserClick, browserOpen, browserRead, browserScreenshot, browserType 
 import { generateVideo, videoCapability, videoInputSchema } from "./video-gen.js";
 import { generateImage } from "./image-gen.js";
 import { imageInputSchema } from "./image-models.js";
-import { runWebSearch, webSearchConfigured } from "./web-search.js";
+import { WEB_SEARCH_DESCRIPTION, runWebSearch, webSearchConfigured, webSearchInputSchema, webSearchQueries } from "./web-search.js";
 import { DEFAULT_WEB_SEARCH_BUDGET, incrementToolUsage } from "./tool-usage-store.js";
 import { selectorRequiresSubmitApproval } from "./browser-url.js";
+import { knowledgeSearchToolArgsSchema } from "@shiba/shared";
+import { knowledgeSearchConfigured } from "../knowledge/knowledge-tool.js";
+import { hybridKnowledgeSearch } from "../knowledge/knowledge-search.js";
 import { closeBrowserSession } from "./browser-sessions.js";
 
 export interface ChatAgentToolsContext {
   runId: string;
   orgId?: string;
   userId?: string;
+  /**
+   * Budget window for paid lookups. The caller passes one per user message:
+   * a thread-wide key would let two batches exhaust search for its lifetime.
+   */
+  budgetKey?: string;
   onClose?: () => void;
 }
 
@@ -22,20 +30,38 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
   const orgId = ctx.orgId ?? "self-hosted";
   const runId = ctx.runId;
   const userId = ctx.userId;
+  const budgetKey = ctx.budgetKey ?? runId;
 
   return {
     web_search: tool({
-      description: "Search the public web. Returns title, URL, and snippet for each result.",
-      inputSchema: z.object({ query: z.string().min(1).max(500) }),
-      execute: async ({ query }) => {
+      description: WEB_SEARCH_DESCRIPTION,
+      inputSchema: webSearchInputSchema,
+      execute: async (input) => {
         if (!webSearchConfigured(env)) {
           return { ok: false, unavailable: true, message: "Web search is not configured on this deployment." };
         }
-        const budget = await incrementToolUsage(env, { orgId, runId, toolName: "web_search", budgetLimit: DEFAULT_WEB_SEARCH_BUDGET });
-        if (!budget.allowed) return { ok: false, error: "Web search budget exceeded for this conversation." };
-        return runWebSearch(env, query);
+        const budget = await incrementToolUsage(env, {
+          orgId, runId: budgetKey, toolName: "web_search", budgetLimit: DEFAULT_WEB_SEARCH_BUDGET, calls: webSearchQueries(input).length,
+        });
+        if (!budget.allowed) return { ok: false, error: "Web search budget exceeded for this message." };
+        return runWebSearch(env, input);
       },
     }),
+    ...(userId ? {
+      knowledge_search: tool({
+        // Chat runs in the deployment's own scope: a dashboard session's files and
+        // notes are personal to their owner, so say that instead of implying team access.
+        description: "Search the user's own files and notes (their personal scope, never a team workspace). " +
+          "Returns ranked passages with the source name; cite it when you use a passage.",
+        inputSchema: knowledgeSearchToolArgsSchema,
+        execute: async ({ query, limit }) => {
+          if (!knowledgeSearchConfigured(env)) {
+            return { ok: false, unavailable: true, message: "Knowledge search is not provisioned on this deployment." };
+          }
+          return { ok: true, query, hits: await hybridKnowledgeSearch(env, userId, orgId.replace(/^team:/, ""), query, limit ?? 8) };
+        },
+      }),
+    } : {}),
     browser_open: tool({
       description: "Open a URL in a browser session tied to this chat run.",
       inputSchema: z.object({ url: z.string().url() }),

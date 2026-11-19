@@ -87,6 +87,20 @@ function applyUserKey(headers: Headers, kind: UserSecretKind, secret: string): v
   }
 }
 
+/**
+ * Paths the personal-key lanes actually use, so a saved key is never attached
+ * to an unrelated endpoint on the same shared host. Hosts absent here (the
+ * DeepSeek host, which the OpenCode Go harness also reaches) stay permissive.
+ */
+const PROVIDER_PATH_PREFIX: Record<string, string> = {
+  "api.kimi.ai": "/coding/v1",
+  "api.meta.ai": "/v1",
+  "api.z.ai": "/api/paas/v4",
+  "api.minimax.io": "/v1",
+  "dashscope-intl.aliyuncs.com": "/compatible-mode/v1",
+  "api.mistral.ai": "/v1",
+};
+
 /** Saved user key: call the provider host directly. The gateway is not involved. */
 async function fetchWithUserKey(
   request: Request,
@@ -95,7 +109,15 @@ async function fetchWithUserKey(
   secret: string,
 ): Promise<Response> {
   const target = new URL(request.url);
-  if (target.protocol !== "https:" || target.hostname !== host) {
+  const prefix = PROVIDER_PATH_PREFIX[host];
+  if (
+    target.protocol !== "https:" ||
+    target.hostname !== host ||
+    target.port !== "" ||
+    target.username !== "" ||
+    target.password !== "" ||
+    (prefix !== undefined && !target.pathname.startsWith(prefix))
+  ) {
     return new Response("Invalid provider destination.", { status: 403 });
   }
   target.search = stripCredentialParams(target.search);
@@ -180,7 +202,13 @@ async function forwardProvider(
     }
   }
   if (kind) {
-    const secret = await readProviderSecretForOrg(env, orgId, kind, providerCredentialUser(ctx));
+    // api.deepseek.com carries two providers' keys: the OpenCode Go harness
+    // lists it as a second egress host (harness/opencode.ts egressHosts), so a
+    // Go run reaches this host with only the OpenCode key saved. The saved
+    // DeepSeek platform key wins when both exist; neither key leaves the
+    // owning user's own record.
+    const secret = await readProviderSecretForOrg(env, orgId, kind, providerCredentialUser(ctx)) ??
+      (host === "api.deepseek.com" ? await readProviderSecretForOrg(env, orgId, "opencode", providerCredentialUser(ctx)) : null);
     if (secret) return fetchWithUserKey(request, host, kind, secret);
     if (typeof ctx === "object" && ctx?.initiatorUserId) {
       return new Response("Connect this provider in Settings → Providers.", { status: 503 });
@@ -188,7 +216,8 @@ async function forwardProvider(
   }
   const slug = GATEWAY_PROVIDERS[host];
   if (!slug) {
-    if (["api.deepseek.com", "openrouter.ai", "api.groq.com", "api.githubcopilot.com"].includes(host)) {
+    if (["api.deepseek.com", "openrouter.ai", "api.groq.com", "api.githubcopilot.com", "api.kimi.ai", "api.meta.ai",
+      "api.z.ai", "api.minimax.io", "dashscope-intl.aliyuncs.com", "api.mistral.ai"].includes(host)) {
       return new Response("No saved key for this provider. Paste one on the Providers page.", { status: 503 });
     }
     return new Response("Invalid provider destination.", { status: 403 });
@@ -303,6 +332,30 @@ export function forwardGroq(request: Request, env: EgressEnv, ctx?: OutboundHand
 export function forwardCopilot(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
   return forwardProvider(request, env, "api.githubcopilot.com", ctx);
 }
+/** Kimi Code plan key (Kimi Code Console); usage draws on the member's plan quota. */
+export function forwardKimi(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "api.kimi.ai", ctx);
+}
+/** Meta Model API key for the Muse models. */
+export function forwardMeta(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "api.meta.ai", ctx);
+}
+/** Z.ai platform key (GLM models, OpenAI-compatible paas/v4 surface). */
+export function forwardZai(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "api.z.ai", ctx);
+}
+/** MiniMax platform key. */
+export function forwardMiniMax(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "api.minimax.io", ctx);
+}
+/** Alibaba Model Studio (DashScope international, OpenAI-compatible mode). */
+export function forwardQwen(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "dashscope-intl.aliyuncs.com", ctx);
+}
+/** Mistral La Plateforme. */
+export function forwardMistral(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "api.mistral.ai", ctx);
+}
 
 /**
  * T48 — the claude-subscription egress branch. The container holds only a
@@ -335,7 +388,7 @@ export async function forwardClaudeSubscription(
         )
       : undefined;
   const configured = (env as Record<string, unknown>)[secretName];
-  const personal = providerCredentialUser(ctx);
+  const personal = ctx?.initiatorUserId;
   const token = personal ? saved : saved ?? (typeof configured === "string" ? configured : undefined);
   if (!personal && env.AGENT_TOKENS) {
     const instanceId = `claude-sub:${account}`;

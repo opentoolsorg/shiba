@@ -1,5 +1,7 @@
 import { Result, Schema } from "effect";
 import {
+  AGENT_AVATAR_COATS,
+  AGENT_AVATAR_VARIANTS,
   CUSTOM_AGENT_APPROVAL_POLICIES,
   AGENT_MASCOT_ACCS,
   AGENT_MASCOT_EYES,
@@ -23,6 +25,17 @@ export const CustomAgentConfigSchema = Schema.Struct({
     eyes: Schema.Literals(AGENT_MASCOT_EYES),
     acc: Schema.Literals(AGENT_MASCOT_ACCS),
   })),
+  avatar: Schema.optional(Schema.Union([
+    Schema.Struct({
+      kind: Schema.Literal("variant"),
+      variant: Schema.Literals(AGENT_AVATAR_VARIANTS.map((variant) => variant.id)),
+      color: Schema.Literals(AGENT_AVATAR_COATS),
+    }),
+    Schema.Struct({
+      kind: Schema.Literal("upload"),
+      fileId: Schema.String.check(Schema.makeFilter((value: string) => /^file_[A-Za-z0-9]{4,64}$/.test(value) || "An avatar upload must name a stored file id.")),
+    }),
+  ])),
   roleTemplateId: Schema.optional(Schema.Literals(CUSTOM_AGENT_ROLE_TEMPLATE_IDS)),
   instructions: Bounded(32_000),
   expectedDeliverables: Schema.optional(Schema.Array(Bounded(240)).check(

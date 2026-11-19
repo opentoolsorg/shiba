@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>Shiba</title>
+  <path fill="#c4a574" d="M17 31 23.5 6 33 28ZM47 31 40.5 6 31 28ZM32 23c9 5 17 11 17 19 0 10-7.5 16.5-17 16.5S15 52 15 42c0-8 8-14 17-19z"/>
+  <g fill="#c4a574"><circle cx="22" cy="30" r="3.1"/><circle cx="32" cy="26" r="3.5"/><circle cx="42" cy="30" r="3.1"/><circle cx="17.5" cy="42" r="2.5"/><circle cx="46.5" cy="42" r="2.5"/></g>
+  <path fill="#947544" d="M21.2 27 24 12 29.2 25.5ZM42.8 27 40 12 34.8 25.5Z"/>
+  <rect x="18" y="31" width="28" height="15" rx="6" fill="#14161c"/>
+  <rect x="20" y="32.4" width="24" height="3.2" rx="1.6" fill="#2c3548"/>
+  <path d="M22.6 39.4Q25 36.2 27.4 39.4M36.6 39.4Q39 36.2 41.4 39.4" fill="none" stroke="#f4fffc" stroke-width="1.5" stroke-linecap="round"/>
+</svg>

@@ -150,7 +150,7 @@ describe("provider validation (T23 fixes B11)", () => {
   it("refuses a provider the selected harness cannot drive, naming what it supports", () => {
     expect(() => claudeCodeHarness.egressHosts("openai/gpt-5")).toThrow(/supports anthropic/);
     expect(() => codexHarness.egressHosts("anthropic/claude-opus-5")).toThrow(/supports openai/);
-    expect(() => opencodeHarness.egressHosts("mistral/large")).toThrow(/supports google, anthropic, openai, xai/);
+    expect(() => opencodeHarness.egressHosts("bard/large")).toThrow(/supports google, anthropic, openai, xai/);
   });
 });
 

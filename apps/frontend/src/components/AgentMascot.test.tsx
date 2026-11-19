@@ -27,6 +27,18 @@ describe("AgentMascot", () => {
     expect(container.querySelector('[data-part="fluff"]')).toBeTruthy();
   });
 
+  it("rims a dark coat so it does not vanish on a dark card", () => {
+    const dark = render(<AgentMascot look={mascotLookForPreset("sunglasses")} />).container;
+    const darkHead = dark.querySelector("svg > *:not([data-part])") ?? dark.querySelector("polygon");
+    expect(darkHead?.getAttribute("stroke")).toMatch(/^rgba\(244,255,252,0\.38\)$/);
+    for (const ear of dark.querySelectorAll('[data-part="ears"] path')) {
+      expect(ear.getAttribute("stroke")).toMatch(/^rgba\(244,255,252,0\.38\)$/);
+    }
+    cleanup();
+    const light = render(<AgentMascot look={mascotLookForPreset("hero")} />).container;
+    expect(light.querySelector('[data-part="ears"] path')?.getAttribute("stroke")).toBeNull();
+  });
+
   it("omits the accessory mark when the look has none", () => {
     const { container } = render(<AgentMascot look={mascotLookForPreset("hero")} />);
     expect(container.querySelector('[data-part="accessory"]')).toBeNull();

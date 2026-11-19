@@ -67,8 +67,16 @@ describe("deploy config wiring", () => {
   });
 
   // P7 #6: flags missing from wrangler vars are wiped on every wrangler deploy.
+  // d301d04 deliberately ships codex-subscription registered: the ROLE_MODEL_MAP
+  // orchestrator pin routes through it.
+  it("registers SHIBA_CODEX_SUBSCRIPTION enabled in wrangler vars, alchemy env and configVars", () => {
+    expect(WRANGLER).toContain(`"SHIBA_CODEX_SUBSCRIPTION": "1"`);
+    expect(ALCHEMY).toContain(`SHIBA_CODEX_SUBSCRIPTION: "1"`);
+    expect(block(ALCHEMY, "...configVars([")).toContain(`"SHIBA_CODEX_SUBSCRIPTION"`);
+    expect(WRANGLER).toMatch(/"ROLE_MODEL_MAP": ".*codex-subscription/);
+  });
+
   it.each([
-    "SHIBA_CODEX_SUBSCRIPTION",
     "SHIBA_CURSOR_SUBSCRIPTION",
     "SHIBA_ANTIGRAVITY_SUBSCRIPTION",
   ])("registers %s dark in wrangler vars, alchemy env and configVars", (flag) => {

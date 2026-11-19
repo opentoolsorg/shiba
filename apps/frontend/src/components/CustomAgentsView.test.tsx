@@ -536,6 +536,16 @@ describe("account-scoped employee directory", () => {
     expect(screen.queryByText("Old employee")).toBeNull();
     expect(screen.queryByDisplayValue("Old private draft")).toBeNull();
     await screen.findByText("Current account employee");
+    // Wait until the fresh scope's own requests stop arriving: counting while a
+    // refresh is still in flight makes the final "no extra request" assertion
+    // flaky in both directions.
+    let observed = 0;
+    await waitFor(() => {
+      const calls = fetcher.mock.calls.length;
+      const grew = calls !== observed;
+      observed = calls;
+      expect(grew).toBe(false);
+    });
     const count = fetcher.mock.calls.length;
     await act(async () => { pending.resolve(Response.json({ agent: scopedAgent("Old saved employee"), ok: true })); });
     expect(screen.queryByText("Old saved employee")).toBeNull();
@@ -545,5 +555,45 @@ describe("account-scoped employee directory", () => {
     expect(fetcher).toHaveBeenCalledTimes(count);
     const mutation = fetcher.mock.calls.find(([, init]) => init?.method);
     expect(new Headers(mutation?.[1]?.headers).get("X-Shiba-Workspace")).toBe(scopeWorkspace);
+  });
+
+  it("keeps the avatar editor open across a version conflict so the same draft can be saved again", async () => {
+    let version = 1;
+    let avatar: CustomAgentWire["config"]["avatar"];
+    let patches = 0;
+    const agent = (): CustomAgentWire => ({ id: "finance", slug: "finance", version, config: { name: "Finance", instructions: "Finance tasks", harness: "opencode", ...(avatar ? { avatar } : {}) } });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/access")) return Response.json({ level: "manage", grants: [] });
+      if (url.endsWith("/groups")) return Response.json({ groups: [] });
+      if (url.endsWith("/primary-bot")) return Response.json({ actorId: null });
+      if (url.startsWith("/api/workspaces/") && !url.includes("custom-agents")) return Response.json({ workspace: { members: [] } });
+      if (url === "/api/custom-agents" || url.startsWith("/api/custom-agents?")) return Response.json({ agents: [agent()] });
+      if (url.endsWith("/finance") && (init?.method ?? "GET") === "PATCH") {
+        patches += 1;
+        if (patches === 1) return Response.json({ error: "version_conflict" }, { status: 409 });
+        const sent = JSON.parse(String(init?.body)) as { config: CustomAgentWire["config"] };
+        avatar = sent.config.avatar;
+        version += 1;
+        return Response.json({ agent: agent() });
+      }
+      if (url.endsWith("/finance")) { version += 1; return Response.json({ agent: agent() }); }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    render(<CustomAgentsView workspaceId={`ws_${"b".repeat(24)}`} onStartThread={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "View profile Finance" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit avatar" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Coat 3" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save avatar" }));
+
+    const alert = await within(await screen.findByRole("dialog")).findByRole("alert");
+    expect(alert.textContent).toContain("This bot changed since you opened it");
+    expect(alert.textContent).toContain("save again");
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save avatar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(patches).toBe(2);
+    expect(avatar).toMatchObject({ kind: "variant" });
   });
 });

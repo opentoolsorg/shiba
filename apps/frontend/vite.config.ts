@@ -9,11 +9,25 @@ const rootDir = fileURLToPath(new URL(".", import.meta.url));
 
 // PWA shell files live in public/app/ but must land in <outDir>/app/; the
 // single publicDir (../web/public) can't cover both.
-const PWA_SHELL_FILES = ["manifest.webmanifest", "apple-touch-icon.png", "icon-192.png"];
+const PWA_SHELL_FILES = [
+  "manifest.webmanifest",
+  "apple-touch-icon.png",
+  "icon-192.png",
+  "icon-512.png",
+  "icon-maskable-512.png",
+  "favicon.svg",
+  "favicon-32x32.png",
+  "favicon.ico",
+];
 const PWA_MIME: Record<string, string> = {
   "manifest.webmanifest": "application/manifest+json",
   "apple-touch-icon.png": "image/png",
   "icon-192.png": "image/png",
+  "icon-512.png": "image/png",
+  "icon-maskable-512.png": "image/png",
+  "favicon.svg": "image/svg+xml",
+  "favicon-32x32.png": "image/png",
+  "favicon.ico": "image/x-icon",
 };
 
 export default defineConfig({
