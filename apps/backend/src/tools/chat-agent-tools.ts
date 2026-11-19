@@ -8,15 +8,22 @@ import { imageInputSchema } from "./image-models.js";
 import { WEB_SEARCH_DESCRIPTION, runWebSearch, webSearchConfigured, webSearchInputSchema, webSearchQueries } from "./web-search.js";
 import { DEFAULT_WEB_SEARCH_BUDGET, incrementToolUsage } from "./tool-usage-store.js";
 import { selectorRequiresSubmitApproval } from "./browser-url.js";
-import { knowledgeSearchToolArgsSchema } from "@shiba/shared";
+import { isTeamWorkspaceId, knowledgeSearchToolArgsSchema } from "@shiba/shared";
 import { KNOWLEDGE_SEARCH_DESCRIPTION, knowledgeSearchConfigured } from "../knowledge/knowledge-tool.js";
 import { hybridKnowledgeSearch } from "../knowledge/knowledge-search.js";
+import { getTeamWorkspaceMembership } from "../team-workspaces-store.js";
 import { closeBrowserSession } from "./browser-sessions.js";
 
 export interface ChatAgentToolsContext {
   runId: string;
   orgId?: string;
   userId?: string;
+  /**
+   * The workspace a Chat lookup may read. Files and notes live under the
+   * viewer's team workspace, not the deployment-wide org id, so the caller
+   * passes the session's server-assigned pin. Absent means the deployment scope.
+   */
+  workspaceId?: string;
   onClose?: () => void;
 }
 
@@ -25,6 +32,7 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
   const orgId = ctx.orgId ?? "self-hosted";
   const runId = ctx.runId;
   const userId = ctx.userId;
+  const knowledgeWorkspaceId = ctx.workspaceId ?? orgId.replace(/^team:/, "");
 
   return {
     web_search: tool({
@@ -49,7 +57,10 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
           if (!knowledgeSearchConfigured(env)) {
             return { ok: false, unavailable: true, message: "Knowledge search is not provisioned on this deployment." };
           }
-          return { ok: true, query, hits: await hybridKnowledgeSearch(env, userId, orgId.replace(/^team:/, ""), query, limit ?? 8) };
+          if (isTeamWorkspaceId(knowledgeWorkspaceId) && !(await getTeamWorkspaceMembership(env, knowledgeWorkspaceId, userId))) {
+            return { ok: false, forbidden: true, message: "Knowledge search is not available in this workspace." };
+          }
+          return { ok: true, query, hits: await hybridKnowledgeSearch(env, userId, knowledgeWorkspaceId, query, limit ?? 8) };
         },
       }),
     } : {}),
