@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Shiba</title>
   <rect width="512" height="512" rx="90" fill="#f6f4ed"/>
   <rect x="3.584" y="3.584" width="504.832" height="504.832" rx="86.416" fill="none" stroke="#0000a8" stroke-opacity="0.14" stroke-width="7.168"/>
   <g transform="translate(39.608 36.226) scale(6.76226)">
