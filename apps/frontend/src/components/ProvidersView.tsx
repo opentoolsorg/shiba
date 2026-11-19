@@ -117,6 +117,11 @@ const PASTE_KEY_LABEL: Record<string, string> = {
   copilot: "GitHub Copilot token",
   kimi: "Kimi Code API key",
   meta: "Meta Model API key",
+  deepseek: "DeepSeek API key",
+  zai: "Z.ai API key",
+  minimax: "MiniMax API key",
+  qwen: "DashScope API key",
+  mistral: "Mistral API key",
 };
 
 function WaitingSignIn({

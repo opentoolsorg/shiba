@@ -180,7 +180,10 @@ async function forwardProvider(
     }
   }
   if (kind) {
-    const secret = await readProviderSecretForOrg(env, orgId, kind, providerCredentialUser(ctx));
+    const secret = await readProviderSecretForOrg(env, orgId, kind, providerCredentialUser(ctx)) ??
+      // The OpenCode Go key also authenticates DeepSeek, so a saved platform
+      // key wins but the OpenCode path keeps working for users without one.
+      (host === "api.deepseek.com" ? await readProviderSecretForOrg(env, orgId, "opencode", providerCredentialUser(ctx)) : null);
     if (secret) return fetchWithUserKey(request, host, kind, secret);
     if (typeof ctx === "object" && ctx?.initiatorUserId) {
       return new Response("Connect this provider in Settings → Providers.", { status: 503 });
@@ -188,7 +191,8 @@ async function forwardProvider(
   }
   const slug = GATEWAY_PROVIDERS[host];
   if (!slug) {
-    if (["api.deepseek.com", "openrouter.ai", "api.groq.com", "api.githubcopilot.com", "api.kimi.ai", "api.meta.ai"].includes(host)) {
+    if (["api.deepseek.com", "openrouter.ai", "api.groq.com", "api.githubcopilot.com", "api.kimi.ai", "api.meta.ai",
+      "api.z.ai", "api.minimax.io", "dashscope-intl.aliyuncs.com", "api.mistral.ai"].includes(host)) {
       return new Response("No saved key for this provider. Paste one on the Providers page.", { status: 503 });
     }
     return new Response("Invalid provider destination.", { status: 403 });
@@ -310,6 +314,22 @@ export function forwardKimi(request: Request, env: EgressEnv, ctx?: OutboundHand
 /** Meta Model API key for the Muse models. */
 export function forwardMeta(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
   return forwardProvider(request, env, "api.meta.ai", ctx);
+}
+/** Z.ai platform key (GLM models, OpenAI-compatible paas/v4 surface). */
+export function forwardZai(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "api.z.ai", ctx);
+}
+/** MiniMax platform key. */
+export function forwardMiniMax(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "api.minimax.io", ctx);
+}
+/** Alibaba Model Studio (DashScope international, OpenAI-compatible mode). */
+export function forwardQwen(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "dashscope-intl.aliyuncs.com", ctx);
+}
+/** Mistral La Plateforme. */
+export function forwardMistral(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  return forwardProvider(request, env, "api.mistral.ai", ctx);
 }
 
 /**

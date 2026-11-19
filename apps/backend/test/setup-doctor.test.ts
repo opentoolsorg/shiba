@@ -194,6 +194,11 @@ describe("personal API-key preflight", () => {
   it.each([
     ["kimi", "kimi-code/k3.1-pro"],
     ["meta", "meta/muse-spark-1.3"],
+    ["deepseek", "deepseek/deepseek-chat"],
+    ["zai", "zai/glm-5.3"],
+    ["minimax", "minimax/MiniMax-M3"],
+    ["qwen", "qwen/qwen3-coder-plus"],
+    ["mistral", "mistral/devstral-medium-latest"],
   ] as const)("runs the %s plan lane without AI_GATEWAY_TOKEN once its key is saved", async (kind, model) => {
     const records = new Map<string, string>();
     const configured = env({ AI_GATEWAY_TOKEN: "", MODEL_CREDENTIAL_KEY: "ab".repeat(32),

@@ -341,6 +341,11 @@ describe("opencode config and argv", () => {
   it.each([
     ["kimi-code/k3.1-pro", "kimi-code", "https://api.kimi.ai/coding/v1", "k3.1-pro"],
     ["meta/muse-spark-1.3", "meta", "https://api.meta.ai/v1", "muse-spark-1.3"],
+    ["deepseek/deepseek-chat", "deepseek", "https://api.deepseek.com/v1", "deepseek-chat"],
+    ["zai/glm-5.3", "zai", "https://api.z.ai/api/paas/v4", "glm-5.3"],
+    ["minimax/MiniMax-M3", "minimax", "https://api.minimax.io/v1", "MiniMax-M3"],
+    ["qwen/qwen3-coder-plus", "qwen", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen3-coder-plus"],
+    ["mistral/devstral-medium-latest", "mistral", "https://api.mistral.ai/v1", "devstral-medium-latest"],
   ])("points %s at its plan host with only the placeholder key", (codingModel, provider, baseURL, model) => {
     const config = buildOpencodeConfig({ ...INPUT, codingModel });
     expect(config.enabled_providers).toEqual([provider]);
@@ -351,7 +356,7 @@ describe("opencode config and argv", () => {
   });
 
   it("refuses a provider the harness cannot drive, and a model with no provider", () => {
-    expect(() => buildOpencodeConfig({ ...INPUT, codingModel: "mistral/large" }))
+    expect(() => buildOpencodeConfig({ ...INPUT, codingModel: "bard/large" }))
       .toThrow(/supports google, anthropic, openai/);
     expect(() => buildOpencodeConfig({ ...INPUT, codingModel: "gemini-3.5-flash-lite" }))
       .toThrow(/expected "provider\/model"/);

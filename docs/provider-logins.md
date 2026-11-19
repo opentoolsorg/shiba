@@ -179,3 +179,24 @@ the saved key at egress, so neither needs `AI_GATEWAY_TOKEN`.
 Kimi keys issued for the China region use `api.kimi.com`, which this lane does
 not reach. Devin has no model endpoint that a sandbox harness can call, so it
 has no card here.
+
+## More personal API-key lanes
+
+Five more providers run through OpenCode ACP with the same shape: paste a key
+on Providers, the Worker attaches it at egress for that user's runs, the
+sandbox holds only a placeholder. None of them needs `AI_GATEWAY_TOKEN`.
+
+| Card | Paste | Host | Default model |
+|---|---|---|---|
+| DeepSeek | DeepSeek platform key | `api.deepseek.com` | `deepseek/deepseek-chat` |
+| Z.ai (GLM) | Z.ai platform key | `api.z.ai` (`/api/paas/v4`) | `zai/glm-5.3` |
+| MiniMax | MiniMax platform or M Plan key | `api.minimax.io` | `minimax/MiniMax-M3` |
+| Qwen (Model Studio) | DashScope key, international region | `dashscope-intl.aliyuncs.com` (`/compatible-mode/v1`) | `qwen/qwen3-coder-plus` |
+| Mistral | La Plateforme key | `api.mistral.ai` | `mistral/devstral-medium-latest` |
+
+Defaults are only a starting point — the composer's model id decides what the
+run asks for. A saved DeepSeek platform key wins on `api.deepseek.com`, and an
+OpenCode Go key still authenticates that host when no platform key is stored.
+Keys for the China-region DashScope, Kimi, or Z.ai domains are not reached by
+these lanes; each lane is pinned to one host so egress cannot be pointed
+somewhere else.

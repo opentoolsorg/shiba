@@ -25,7 +25,8 @@ import {
 import type { RunUsage } from "@shiba/shared";
 
 /** OpenCode is multi-provider; the gateway decides which are actually reachable. */
-export const OPENCODE_PROVIDERS = ["google", "anthropic", "openai", "xai", "opencode-go", "openrouter", "groq", "github-copilot", "kimi-code", "meta"] as const;
+export const OPENCODE_PROVIDERS = ["google", "anthropic", "openai", "xai", "opencode-go", "openrouter", "groq", "github-copilot", "kimi-code", "meta",
+  "deepseek", "zai", "minimax", "qwen", "mistral"] as const;
 
 /**
  * Providers OpenCode reaches through @ai-sdk/openai-compatible. The base URL
@@ -35,6 +36,11 @@ const OPENAI_COMPATIBLE_PROVIDERS: Partial<Record<string, { name: string; baseUR
   "github-copilot": { name: "GitHub Copilot", baseURL: "https://api.githubcopilot.com" },
   "kimi-code": { name: "Kimi Code", baseURL: "https://api.kimi.ai/coding/v1" },
   meta: { name: "Meta Model API", baseURL: "https://api.meta.ai/v1" },
+  deepseek: { name: "DeepSeek", baseURL: "https://api.deepseek.com/v1" },
+  zai: { name: "Z.ai", baseURL: "https://api.z.ai/api/paas/v4" },
+  minimax: { name: "MiniMax", baseURL: "https://api.minimax.io/v1" },
+  qwen: { name: "Qwen (DashScope)", baseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1" },
+  mistral: { name: "Mistral", baseURL: "https://api.mistral.ai/v1" },
 };
 
 /** Thrown when a streamed OpenCode event line is malformed. */
