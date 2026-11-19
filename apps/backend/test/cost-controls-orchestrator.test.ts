@@ -249,7 +249,7 @@ describe("orchestrator prepaid credits", () => {
     instance.env = { INSTANCE_TYPE: "basic", ...(creditedMicroUsd === null ? {} : {
       STRIPE_SECRET_KEY: "sk_test_1", STRIPE_WEBHOOK_SECRET: "whsec_1", AGENT_AUDIT: creditDb(creditedMicroUsd),
     }) } as unknown as typeof instance.env;
-    return instance as unknown as CodingOrchestrator & {
+    return instance as unknown as {
       state: OrchestratorState;
       enforceUsageBudget(now: number): Promise<void>;
       gateRunOnUsageBudget(run: DelegatedRun, record: unknown): Promise<boolean>;

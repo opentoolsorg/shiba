@@ -117,7 +117,7 @@ function BillingBody({ billing, sessionId, sessionApiAvailable }: { billing: Wor
 
       <div className="flex flex-col gap-2 border-t border-[#e4e4e7] pt-3 dark:border-zinc-800">
         <span id="top-up-label" className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">Add credits</span>
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-labelledby="top-up-label">
+        <div className="flex flex-wrap items-center gap-2" aria-labelledby="top-up-label">
           {PRESETS.map((preset) => (
             <button key={preset} type="button" aria-pressed={amount === String(preset)} onClick={() => setAmount(String(preset))}
               className={`${viewButtonClass} min-w-16 tabular-nums ${amount === String(preset) ? "border-zinc-900 dark:border-zinc-100" : ""}`}>
