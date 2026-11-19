@@ -16,10 +16,17 @@ export async function selectRepositoryTask(page) {
   return repository;
 }
 
+const setupNudgeHandled = new WeakSet();
+
 /** Follow the desktop rail and contextual panels used by the shared dashboard. */
 export async function openAppView(page, view) {
   const inspectorClose = page.getByRole("button", { name: "Close task", exact: true });
   if (await inspectorClose.isVisible()) await inspectorClose.click();
+  if (!setupNudgeHandled.has(page)) {
+    setupNudgeHandled.add(page);
+    await page.addLocatorHandler(page.getByRole("dialog", { name: "Your first task is waiting", exact: true }),
+      (dialog) => dialog.getByRole("button", { name: "Not now", exact: true }).click());
+  }
   const rail = page.getByRole("navigation", { name: "Workspace areas", exact: true }).filter({ visible: true }).first();
   if (["Agents", "Chats", "Work"].includes(view)) {
     const area = { Agents: "Team", Chats: "Chat", Work: "Work" }[view];

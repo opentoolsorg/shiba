@@ -1251,13 +1251,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   private currentContinuation(): ContinuationState | undefined {
     const user = (this.messages ?? []).filter((message) => message.role === "user").at(-1);
     if (!user) return undefined;
-    const saved = this.state.planContinuation;
+    const saved = this.state?.planContinuation;
     return saved && (saved.requestId === user.id || saved.messageIds.includes(user.id))
       ? saved : { requestId: user.id, messageIds: [], count: 0, plan: [] };
   }
 
   private queuePlanContinuation(result: ChatResponseResult): void {
-    if (this.sessionDeleted || this.state.personalExecutionOnly || isChatOnlyTurn(this.messages)) return;
+    if (this.sessionDeleted || this.state?.personalExecutionOnly || isChatOnlyTurn(this.messages)) return;
     const saved = this.currentContinuation();
     if (!saved || saved.lastResponseId === result.message.id) return;
     const user = (this.messages ?? []).filter((message) => message.role === "user").at(-1);
@@ -1403,7 +1403,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ...specialistTools,
       delegate_task: createDelegateTaskTool(specialistTools, this.specialistTurn.budget,
         (input) => this.queueSlackRun({ ...input, publishPullRequest: false, role: "fixer", threadKey: this.name }, MAX_APPROVED_TASK_CHARS, undefined,
-          this.state.slackCanvasThreadOrigin === this.name ? this.name : undefined),
+          this.state?.slackCanvasThreadOrigin === this.name ? this.name : undefined),
         () => this.setState({ ...this.state, specialistBudget: { turnId, remaining: this.specialistTurn?.budget.remaining ?? 0 } })),
       delegate_coding_task: delegate,
       ...(codeOwner ? createExtensionSkillAgentTools(this.env, this.employeeToolOrgId(), codeOwner) : {}),
