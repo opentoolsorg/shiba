@@ -5,6 +5,7 @@ import type { JSX } from "react";
 import { Ban, Check } from "lucide-react";
 import type { PendingApproval } from "../ui-helpers";
 import { Tooltip } from "./Tooltip";
+import { ShibaMark } from "./ShibaMark";
 
 export interface ApprovalCardProps {
   approval: PendingApproval;
@@ -44,11 +45,9 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
       <div className="flex items-center justify-between gap-3">
         <div className="font-mono font-bold text-sm text-[var(--fg)] flex items-center gap-2 min-w-0">
           <Tooltip content="Nothing runs until you approve" side="bottom">
-            <img
-              src="/assets/mascot/pet-logo.png"
-              alt="Shiba Guard"
-              className="w-5 h-5 rounded-full bg-[var(--card)] object-contain border border-[var(--warning)]/50 shrink-0 cursor-default"
-            />
+            <span className="shrink-0 cursor-default">
+              <ShibaMark className="size-5" decorative />
+            </span>
           </Tooltip>
           <span className="truncate">{approval.tool}</span>
         </div>
