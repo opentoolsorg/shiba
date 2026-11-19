@@ -1,6 +1,17 @@
 name: Build sandbox image
 
+# Workers Builds deploys apps/backend/wrangler.dogfood.jsonc, and the sandbox
+# image is far too large to push from inside that build (~3.3 GB of layers,
+# one of them 1.72 GB), so the deploy only references a digest. This workflow
+# produces that digest. It also runs on pull requests that change the image, so
+# the image exists before the pin that references it can merge; `pnpm
+# check:deploy` holds that pin in step with these inputs.
+
 on:
+  pull_request:
+    paths:
+      - apps/backend/Dockerfile
+      - apps/backend/scripts/acp-install.sh
   push:
     branches: [main]
     paths:
@@ -12,18 +23,44 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # A newer push to the same pull request supersedes the build it replaces.
+  group: sandbox-image-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-push:
+    # Fork pull requests reach no secrets; the image is built in-repo only.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     outputs:
       digest: ${{ steps.image.outputs.digest }}
+      reference: ${{ steps.image.outputs.reference }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+      - name: Decide whether the sandbox image inputs changed
+        id: inputs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -z "$BASE_SHA" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --quiet "$BASE_SHA...HEAD" -- apps/backend/Dockerfile apps/backend/scripts/acp-install.sh; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Sandbox image inputs unchanged against ${BASE_SHA}; no rebuild."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Build and push sandbox image to Cloudflare registry
         id: image
+        if: steps.inputs.outputs.changed == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -36,13 +73,27 @@ jobs:
             apps/backend
           ref="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${tag}"
           image=$(docker image inspect --format '{{join .RepoDigests "\n"}}' "$ref" \
-            | grep -E "^registry[.]cloudflare[.]com/${CLOUDFLARE_ACCOUNT_ID}/shiba-ai-coworker-sandbox-dogfood@sha256:[a-f0-9]{64}$")
+            | grep -E "^registry[.]cloudflare[.]com/${CLOUDFLARE_ACCOUNT_ID}/shiba-ai-coworker-sandbox-dogfood@sha256:[a-f0-9]{64}$" \
+            | head -1)
           test -n "$image"
           echo "digest=${image##*@}" >> "$GITHUB_OUTPUT"
+          echo "reference=$image" >> "$GITHUB_OUTPUT"
           echo "$image"
+      - name: Report the reference to pin
+        if: steps.inputs.outputs.changed == 'true'
+        env:
+          REFERENCE: ${{ steps.image.outputs.reference }}
+        run: |
           {
             echo '### Dogfood sandbox image'
             echo "Source commit: ${GITHUB_SHA}"
-            echo "\`$image\`"
-            echo 'Pin this digest in apps/backend/wrangler.dogfood.jsonc before deploying the Worker.'
+            echo "\`$REFERENCE\`"
+            echo ''
+            echo 'Point the Worker deploy at it (Workers Builds only references this digest):'
+            echo ''
+            echo '```sh'
+            echo "node scripts/pin-dogfood-image.mjs $REFERENCE"
+            echo '```'
+            echo ''
+            echo '`pnpm check:deploy` fails until apps/backend/wrangler.dogfood.jsonc pins it.'
           } >> "$GITHUB_STEP_SUMMARY"

@@ -6,6 +6,7 @@ import { readDraft, writeDraft } from "../saved";
 import type { AppNavView } from "./AppNavRail";
 import type { CustomAgentWire } from "./CustomAgentsView";
 import type { MemorySource } from "./MemorySourcesView";
+import { AssistantContextImport } from "./AssistantContextImport";
 import type { FirstRunProgressSnapshot } from "./FirstRunWizard";
 
 const QUESTIONS: Record<OutcomeStepId, { label: string; question: string; field?: keyof OnboardingDraft; choices: string[] }> = {
@@ -231,6 +232,10 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
               {!sourcesLoading && !sourcesError && sources.length === 0 ? <p>No uploaded sources yet.</p> : null}
               {sources.map((source) => <label key={source.id} className="flex items-start gap-2 break-words"><input type="checkbox" checked={draft.sourceIds.includes(source.id)} disabled={busy || Boolean(pending) || !sourceReady(source)} onChange={(event) => { void perform({ action: "save-draft", draftTask: { sourceIds: event.target.checked ? [...draft.sourceIds, source.id] : draft.sourceIds.filter((id) => id !== source.id) } }, "Update selected sources"); }} /><span>{source.title} · {sourceReady(source) ? `v${source.version} · ready` : source.disabledAt !== null ? "disabled" : source.expiresAt !== null && source.expiresAt <= Date.now() ? "expired" : "not available as a versioned source"}</span></label>)}
               {draft.sourceIds.filter((id) => !sources.some((source) => source.id === id && sourceReady(source))).map((id, index) => <div key={id} className="flex items-center gap-2"><span>Selected source {index + 1} unavailable</span><button type="button" disabled={busy || Boolean(pending)} onClick={() => { void perform({ action: "save-draft", draftTask: { sourceIds: draft.sourceIds.filter((item) => item !== id) } }, "Remove unavailable source"); }} className={BUTTON}>Remove unavailable source {index + 1}</button></div>)}
+              <AssistantContextImport disabled={busy || Boolean(pending)} onImported={async (source) => {
+                setSources((current) => [source, ...current.filter((item) => item.id !== source.id)]);
+                await perform({ action: "save-draft", draftTask: { sourceIds: [...new Set([...latestDraft.current.sourceIds, source.id])] } }, `Use ${source.title}`);
+              }} />
               <div className="flex flex-wrap gap-2"><button type="button" disabled={sourcesLoading || busy} onClick={() => setSourceAttempt((attempt) => attempt + 1)} className={BUTTON}>Refresh private sources</button><button type="button" disabled={busy || Boolean(pending)} onClick={() => { void leave("memory"); }} className={BUTTON}>Upload or manage sources, then return</button></div>
             </section> : null}
             {step === "connections" ? <>

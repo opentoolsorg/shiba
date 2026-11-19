@@ -1,4 +1,5 @@
-export const ACP_PROVIDER_IDS = ["claude", "codex", "gemini", "grok", "cursor", "openai", "anthropic", "openrouter", "groq", "copilot"] as const;
+export const ACP_PROVIDER_IDS = ["claude", "codex", "gemini", "grok", "cursor", "openai", "anthropic", "openrouter", "groq", "copilot", "kimi", "meta",
+  "deepseek", "zai", "minimax", "qwen", "mistral"] as const;
 export type AcpProviderId = (typeof ACP_PROVIDER_IDS)[number];
 
 export interface AcpProviderCapabilities {

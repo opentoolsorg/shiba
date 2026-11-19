@@ -1,6 +1,6 @@
 import type { JSX } from "react";
 import { AgentAvatar } from "../AgentAvatar";
-import type { PaletteChatHit, PaletteTaskHit } from "./usePaletteSearch";
+import type { PaletteChatHit, PaletteKnowledgeHit, PaletteTaskHit } from "./usePaletteSearch";
 
 function relative(at: number): string {
   const minutes = Math.floor(Math.max(0, Date.now() - at) / 60000);
@@ -52,6 +52,18 @@ export function TaskResult({ hit }: { hit: PaletteTaskHit }): JSX.Element {
       <span className="min-w-0 flex-1 truncate text-sm text-[var(--fg)]">{hit.title}</span>
       {status ? <span className="rounded-full border border-[var(--border-1)] px-2 py-0.5 text-[10px]">{status}</span> : null}
       {hit.ownerId ? <AgentAvatar id={hit.ownerId} name={hit.ownerId} size={28} decorative /> : null}
+    </span>
+  );
+}
+
+export function KnowledgeResult({ hit, query }: { hit: PaletteKnowledgeHit; query: string }): JSX.Element {
+  return (
+    <span className="flex min-h-11 w-full items-center gap-3">
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm text-[var(--fg)]">{hit.sourceName || (hit.sourceKind === "note" ? "Untitled note" : "Untitled file")}</span>
+        <span className="block truncate text-xs text-[var(--muted-foreground-2)]"><MarkedSnippet text={hit.snippet} query={query} /></span>
+      </span>
+      <span className="rounded-full border border-[var(--border-1)] px-2 py-0.5 text-[10px]">{hit.sourceKind === "note" ? "Note" : "File"}</span>
     </span>
   );
 }

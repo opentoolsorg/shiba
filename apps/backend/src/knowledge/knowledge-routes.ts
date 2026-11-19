@@ -10,7 +10,7 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
 export async function handleKnowledge(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== "/api/knowledge/search") return null;
-  if (!env.AGENT_AUDIT || !env.MEMORY_VECTORS) return json({ error: "Knowledge search is unavailable." }, 503);
+  if (!env.AGENT_AUDIT) return json({ error: "Knowledge search is unavailable." }, 503);
   if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
   const { userId, authorized } = await resolveRequestIdentity(request, env);
   if (!authorized) return json({ error: "Authentication required." }, 401);

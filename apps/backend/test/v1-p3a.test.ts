@@ -32,7 +32,7 @@ function makeDo() {
     transaction: async (callback: (transaction: typeof storageApi) => Promise<unknown>) => callback(storageApi),
   } } as unknown as DurableObjectState;
   return new Automations(state, { CodingOrchestrator: {}, AUTOMATIONS_ENABLED: "true", AI: {}, ORCHESTRATOR_MODEL: "@cf/test/model",
-    GITHUB_TOKEN: "t" } as unknown as Env);
+    GITHUB_TOKEN: "t", MODEL_CREDENTIAL_KEY: "ab".repeat(32) } as unknown as Env);
 }
 
 function fixture(path: string, method = "GET", body?: unknown, env: Partial<Env> = { GITHUB_TOKEN: "t" }, headers: Record<string, string> = {}) {

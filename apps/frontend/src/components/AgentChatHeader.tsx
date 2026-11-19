@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useId, useRef, useState } from "react";
 import { ChevronRight, MoreHorizontal, PanelRight, Users } from "lucide-react";
-import type { AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
+import type { AgentAvatarChoice, AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
 import type { EmployeeRole } from "../employee-templates";
 import { AgentAvatar } from "./AgentAvatar";
 import { SideQuestion } from "./SideQuestion";
@@ -22,8 +22,9 @@ export function AgentChatHeader({
   workspaceLabel = "Workspace",
   onOpenAgents,
   sideQuestion,
+  thread,
 }: {
-  agent: { id: string; name: string; role?: EmployeeRole; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook };
+  agent: { id: string; name: string; role?: EmployeeRole; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; avatar?: AgentAvatarChoice };
   participants: readonly AgentChatParticipant[];
   panelOpen: boolean;
   onTogglePanel: () => void;
@@ -31,6 +32,8 @@ export function AgentChatHeader({
   workspaceLabel?: string;
   onOpenAgents?: () => void;
   sideQuestion?: { employeeId: string; threadId: string };
+  /** The open thread, so a reloaded or linked conversation says which one it is. */
+  thread?: { name: string; state?: "idle" | "working" | "waiting" };
 }): JSX.Element {
   const [open, setOpen] = useState<OpenMenu>(null);
   const rootRef = useRef<HTMLElement>(null);
@@ -69,10 +72,33 @@ export function AgentChatHeader({
             ) : "Agents"}
           </li>
           <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
-          <li aria-current="page" className="flex min-w-0 items-center gap-2 font-medium text-[var(--fg)]">
-            <AgentAvatar id={agent.id} name={agent.name} mascotPreset={agent.mascotPreset} look={agent.look} role={agent.role} size={20} decorative />
-            <span className="truncate">{agent.name}</span>
-          </li>
+          {thread ? (
+            <li className="shrink-0">
+              <span className="flex items-center gap-2">
+                <AgentAvatar id={agent.id} name={agent.name} mascotPreset={agent.mascotPreset} look={agent.look} avatar={agent.avatar} role={agent.role} size={20} decorative />
+                <span className="max-w-24 truncate sm:max-w-40">{agent.name}</span>
+              </span>
+            </li>
+          ) : null}
+          {thread ? (
+            <>
+              <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
+              <li aria-current="page" className="flex min-w-0 items-center gap-2 font-medium text-[var(--fg)]">
+                <span className="truncate">{thread.name || "Untitled thread"}</span>
+                {thread.state && thread.state !== "idle" ? (
+                  <span className={`flex shrink-0 items-center gap-1 border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] ${thread.state === "working" ? "border-[var(--navy)] text-[var(--navy)]" : "border-[var(--pending)] text-[var(--pending)]"}`}>
+                    <span aria-hidden="true" className={`size-1.5 ${thread.state === "working" ? "bg-[var(--navy)]" : "bg-[var(--pending-bg)]"}`} />
+                    {thread.state === "working" ? "Working" : "Needs you"}
+                  </span>
+                ) : null}
+              </li>
+            </>
+          ) : (
+            <li aria-current="page" className="flex min-w-0 items-center gap-2 font-medium text-[var(--fg)]">
+              <AgentAvatar id={agent.id} name={agent.name} mascotPreset={agent.mascotPreset} look={agent.look} avatar={agent.avatar} role={agent.role} size={20} decorative />
+              <span className="truncate">{agent.name}</span>
+            </li>
+          )}
         </ol>
       </nav>
       <div className="flex shrink-0 items-center gap-1">

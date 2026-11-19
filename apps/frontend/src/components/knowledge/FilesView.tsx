@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
-import { FolderPlus, Upload } from "lucide-react";
-import type { KnowledgeFile, KnowledgeScope } from "@shiba/shared";
+import { FolderPlus, Search, Upload } from "lucide-react";
+import type { KnowledgeFile, KnowledgeScope, KnowledgeSearchHit } from "@shiba/shared";
+import { MarkedSnippet } from "../palette/ResultRow";
 import { uploadFile } from "../../files-upload-client";
 import { LoadErrorState } from "../LoadErrorState";
 import { MainCard } from "../ui/ContextPanel";
@@ -9,7 +10,8 @@ export function FilesView(): JSX.Element {
   const [scope, setScope] = useState<KnowledgeScope>("personal");
   const [files, setFiles] = useState<KnowledgeFile[]>([]);
   const [query, setQuery] = useState("");
-  const [searchHits, setSearchHits] = useState<Array<{ sourceId: string; text: string }>>([]);
+  const [searchHits, setSearchHits] = useState<KnowledgeSearchHit[] | null>(null);
+  const [searching, setSearching] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [folders, setFolders] = useState<Array<{ id: string; name: string }>>([]);
   const [folderId, setFolderId] = useState("");
@@ -76,10 +78,15 @@ export function FilesView(): JSX.Element {
 
   async function runSearch() {
     if (!query.trim()) return;
-    const response = await fetch(`/api/knowledge/search?q=${encodeURIComponent(query)}`, { credentials: "same-origin", cache: "no-store" });
-    const body = await response.json() as { hits?: Array<{ sourceId: string; text: string }>; error?: string };
-    if (!response.ok) throw new Error(body.error ?? "Search failed.");
-    setSearchHits(body.hits ?? []);
+    setSearching(true);
+    try {
+      const response = await fetch(`/api/knowledge/search?q=${encodeURIComponent(query.trim())}`, { credentials: "same-origin", cache: "no-store" });
+      const body = await response.json() as { hits?: KnowledgeSearchHit[]; error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Search failed.");
+      setSearchHits(body.hits ?? []);
+    } finally {
+      setSearching(false);
+    }
   }
 
   async function uploadFiles(selected: FileList | File[]) {
@@ -148,10 +155,36 @@ export function FilesView(): JSX.Element {
             <FolderPlus size={14} /> Folder
           </button>
         </div>
-        <div className="flex flex-wrap gap-2 pb-4">
-          <input className="min-w-[12rem] flex-1 border border-[var(--border-1)] bg-[var(--card)] px-2 py-1 text-sm" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search knowledge" />
-          <button type="button" className="rounded border border-[var(--border-1)] px-3 py-1 text-sm" onClick={() => void runSearch().catch((err: unknown) => setError(err instanceof Error ? err.message : "Search failed."))}>Search</button>
-        </div>
+        <form role="search" aria-label="Search knowledge" className="flex flex-wrap gap-2 pb-4" onSubmit={(e) => {
+          e.preventDefault();
+          void runSearch().catch((err: unknown) => setError(err instanceof Error ? err.message : "Search failed."));
+        }}>
+          <input type="search" aria-label="Search files and notes" className="min-w-[12rem] flex-1 border border-[var(--border-1)] bg-[var(--card)] px-2 py-1 text-sm" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search inside files and notes" />
+          <button type="submit" className="inline-flex items-center gap-1 rounded border border-[var(--border-1)] px-3 py-1 text-sm disabled:opacity-50" disabled={searching || !query.trim()}>
+            <Search size={14} aria-hidden="true" /> {searching ? "Searching…" : "Search"}
+          </button>
+        </form>
+        {searchHits ? (
+          <section aria-label="Knowledge search results" aria-live="polite" className="mb-4 border border-[var(--border-1)] bg-[var(--card)]">
+            <header className="flex items-center justify-between border-b border-[var(--border-1)] px-3 py-2 text-xs text-[var(--muted-foreground-2)]">
+              <span>Matches for <span className="font-medium text-[var(--fg)]">{query.trim()}</span></span>
+              <span className="tabular-nums">{searchHits.length} {searchHits.length === 1 ? "passage" : "passages"}</span>
+            </header>
+            {searchHits.length ? (
+              <ol className="divide-y divide-[var(--border-1)] text-sm">
+                {searchHits.map((hit) => (
+                  <li key={hit.chunkId} className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate font-medium">{hit.sourceName || (hit.sourceKind === "note" ? "Untitled note" : "Untitled file")}</span>
+                      <span className="shrink-0 rounded bg-[var(--panel)] px-2 py-0.5 text-xs text-[var(--muted-foreground-2)]">{hit.sourceKind === "note" ? "Note" : "File"}{hit.scope ? ` · ${hit.scope === "workspace" ? "Workspace" : "Personal"}` : ""}</span>
+                    </div>
+                    <p className="mt-1 line-clamp-3 text-[var(--muted-foreground-1)]"><MarkedSnippet text={hit.text.slice(0, 600)} query={query} /></p>
+                  </li>
+                ))}
+              </ol>
+            ) : <p className="px-3 py-3 text-sm text-[var(--muted-foreground-2)]">No passages match. Files appear here once their ingestion state is done.</p>}
+          </section>
+        ) : null}
         {error ? <LoadErrorState message={error} onRetry={() => void load().catch((err: unknown) => setError(err instanceof Error ? err.message : "Files failed to load."))} /> : null}
         <section aria-label="File list" onDragOver={(e) => e.preventDefault()} onDrop={(e) => {
           e.preventDefault();
@@ -174,12 +207,6 @@ export function FilesView(): JSX.Element {
             ))}
           </ul>
         </section>
-        {searchHits.length ? (
-          <section className="mt-4 border-t border-[var(--border-1)] pt-3 text-sm">
-            <h3 className="mb-2 font-medium">Search results</h3>
-            <ul className="space-y-2">{searchHits.map((hit) => <li key={`${hit.sourceId}:${hit.text.slice(0, 24)}`} className="text-[var(--muted-foreground-1)]">{hit.text}</li>)}</ul>
-          </section>
-        ) : null}
       </MainCard>
     </div>
   );

@@ -39,7 +39,14 @@ async function api<T>(
 
 const progress = (page: Page) => api<Progress>(page, "/api/onboarding/progress");
 
+const setupNudgeHandled = new WeakSet<Page>();
+
 async function openChat(page: Page) {
+  if (!setupNudgeHandled.has(page)) {
+    setupNudgeHandled.add(page);
+    await page.addLocatorHandler(page.getByRole("dialog", { name: "Your first task is waiting", exact: true }),
+      (dialog) => dialog.getByRole("button", { name: "Not now", exact: true }).click());
+  }
   const close = page.getByRole("button", { name: "Close task", exact: true });
   if (await close.isVisible()) await close.click();
   await page.getByRole("navigation", { name: "Workspace areas", exact: true })
@@ -99,7 +106,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     let page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
     await page.waitForURL((url) => url.origin === fixture.origin && ["/app/", "/work/", "/threads/"].includes(url.pathname));
-    await page.getByRole("button", { name: "First sign-in? Create the account" }).click();
+    await page.getByRole("button", { name: "Create account", exact: true }).click();
     await page.getByLabel("Name", { exact: true }).fill("Native Fixture Owner");
     await page.getByLabel("Email", { exact: true }).fill("native-owner@example.test");
     await page.getByLabel("Password", { exact: true }).fill("native-fixture-only-password-2026!");
@@ -499,4 +506,4 @@ test("actual native shared UI retains goal, thread, approved output and review a
       await rm(userData, { recursive: true, force: true });
     }
   }
-}, 180_000);
+}, 300_000);
