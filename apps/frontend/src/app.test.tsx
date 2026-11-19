@@ -1312,21 +1312,30 @@ describe("bot page without a thread", () => {
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
   });
 
-  it("keeps the bot it opened when its thread has been removed", async () => {
+  it("keeps Engineering as the recovery bot when its named thread was removed", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
-    window.history.replaceState(null, "", "/threads/");
+    // Start inside Research's named thread, then open Engineering, whose thread is gone.
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
     mocks.chat.messages = [];
-    stubBots(async () => new Response(JSON.stringify({ error: "Session not found." }), { status: 404, headers: { "Content-Type": "application/json" } }));
+    const request = stubBots(async (path) => {
+      if (!path.includes(ENGINEERING_THREAD)) return Response.json({ resumed: true });
+      return new Response(JSON.stringify({ error: "Session not found." }), { status: 404, headers: { "Content-Type": "application/json" } });
+    }, true);
     render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
 
-    await openBotFromAgentsView(/Research bot/);
+    await openBotFromAgentsView(/Engineering bot/);
 
-    await screen.findByRole("heading", { name: /Research bot's thread could not be opened/ });
+    await screen.findByRole("heading", { name: /Engineering bot's thread could not be opened/ });
     expect(screen.getByText(/That thread was removed from this workspace/)).toBeTruthy();
-    // The page keeps its bot and offers the one usable action.
-    expect(screen.getByRole("button", { name: "Start a thread with Research bot" })).toBeTruthy();
     expect(screen.queryByTestId("chat-composer")).toBeNull();
     await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+
+    fireEvent.click(screen.getByRole("button", { name: "Start a thread with Engineering bot" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ name: "Engineering bot", metadata: { customAgentId: engineering.id } }),
+    })));
   });
 
   it("does not call a superseded resume a failure", async () => {
@@ -1390,7 +1399,7 @@ describe("bot run outputs across a thread switch", () => {
     customAgentId: research.id, deliverables: [{ path: "reports/first.md", bytes: 10, mediaType: "text/markdown" }],
   };
 
-  it("never runs the unscoped 405 fallback for a session already left", async () => {
+  it("ignores a 405 resume that lands after the first thread was selected again", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", `/threads/?session=${THREAD_A}`);
     mocks.chat.messages = [];
@@ -1403,13 +1412,17 @@ describe("bot run outputs across a thread switch", () => {
       if (parsed.pathname === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
       if (parsed.pathname === "/api/custom-agents" && options?.method !== "POST") return Response.json({ agents: [research] });
       if (parsed.pathname === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: [threadA, threadB], defaultSessionId: "default" });
-      if (/^\/api\/sessions\/[^/]+\/resume$/.test(parsed.pathname)) return Response.json({ resumed: true });
+      if (/^\/api\/sessions\/[^/]+\/resume$/.test(parsed.pathname)) {
+        // The second thread's resume is held, then answers 405 (route unsupported);
+        // the first thread's succeeds at once.
+        if (!parsed.pathname.includes(THREAD_B)) return Response.json({ resumed: true });
+        await held;
+        return new Response(null, { status: 405 });
+      }
       if (parsed.pathname === "/api/agents") return Response.json({ agents: [] });
       if (parsed.pathname === "/api/approvals") return Response.json({ approvals: [], decided: [] });
       if (parsed.pathname.startsWith("/api/runs")) {
         runsRequests.push(parsed.pathname + parsed.search);
-        // The first session answers 405 only after the second one is selected.
-        if (parsed.searchParams.get("session") === THREAD_A) { await held; return new Response(null, { status: 405 }); }
         return Response.json({ runs: [] });
       }
       return originalFetch(url, options);
@@ -1417,15 +1430,22 @@ describe("bot run outputs across a thread switch", () => {
     render(<App />);
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_A));
 
+    // Switch to the second thread (its resume hangs), then back to the first.
     fireEvent.click(await screen.findByRole("button", { name: /Second brief/ }));
-    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_B));
+    fireEvent.click(await screen.findByRole("button", { name: /First brief/ }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_A));
+    expect(await screen.findByTestId("chat-composer")).toBeTruthy();
+
     const before = runsRequests.length;
     await act(async () => { release?.(); await held; });
     await act(async () => { await Promise.resolve(); });
 
-    // The abandoned session's 405 must not send an unscoped read for this scope.
+    // The abandoned resume's 405 must not switch session scoping off behind the
+    // thread now on screen: that would send the next read to the default store.
     const after = runsRequests.slice(before);
     expect(after.filter((path) => !path.includes("session="))).toHaveLength(0);
+    expect(screen.queryByText(/does not support session-scoped runs/)).toBeNull();
+    expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_A);
   });
 
   it("keeps the previous thread's file on its own session while the next read is pending", async () => {

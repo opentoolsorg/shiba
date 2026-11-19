@@ -2790,8 +2790,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               return "failed";
             }
             // Older backends lack the resume route: degrade to local selection
-            // instead of blocking the switch.
+            // instead of blocking the switch — but only for the selection still on
+            // screen. A stale 405 must not switch session scoping off, which would
+            // send the next read for the current session to the default store.
             if (activeSurfaceScopeRef.current !== selectionScope) return "superseded";
+            if (selectionTicket !== sessionSelectionSeq.current) return "superseded";
             setSessionApiAvailable(false);
           } else if (!response.ok) {
             throw new Error(`Could not resume session: ${response.status}`);
