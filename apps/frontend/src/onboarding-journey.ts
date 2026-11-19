@@ -103,16 +103,19 @@ function stepDone(id: JourneyStepId, input: JourneyInput): boolean {
       // Approval is granted once a run exists for the draft, whatever it ended as.
       return input.run !== "none" && input.run !== "awaiting-approval";
     case "result":
-      return input.run === "completed" || input.activated;
+      // A finished run is not the end of setup: the person still records the
+      // review, and only that completes the flow.
+      return input.activated;
   }
 }
 
 function stepSummary(id: JourneyStepId, input: JourneyInput): string {
   if (stepDone(id, input)) {
     if (id === "approval" && input.run === "running") return "Approved · run in progress";
-    if (id === "result") return input.activated ? "Result reviewed" : "Result ready";
+    if (id === "result") return "Result reviewed";
     return COPY[id].done;
   }
+  if (id === "result" && input.run === "completed") return "Result ready · review not recorded";
   if (id === "approval" && input.run === "awaiting-approval") return "Waiting for your approval";
   if (id === "result" && input.run === "failed") return "The run failed; read its output before retrying";
   return "Not set up yet";

@@ -34,9 +34,12 @@ export interface JourneyProviderState {
   ready: boolean;
   /** Readiness has not been answered yet; the stage says so instead of guessing. */
   pending?: boolean;
+  /** The readiness read failed. A retry is offered instead of claiming "not connected". */
+  error?: boolean;
   label: string | null;
   findings: { severity: string; message: string; fix?: string }[];
   onOpenProviders: () => void;
+  onRecheck: () => void;
 }
 
 export interface JourneyEmployee {
@@ -76,9 +79,11 @@ export interface OnboardingJourneyProps {
   selectedEmployeeId: string | null;
   onSelectEmployee: (employee: JourneyEmployee) => Promise<void>;
   onCreateEmployee: (templateId: EmployeeTemplate["id"]) => void;
-  approvals: JourneyApproval[];
-  decisions: Record<string, boolean>;
-  onDecideApproval: (approval: JourneyApproval, approved: boolean) => void;
+  /** The approval opened by the saved draft, matched on the server-issued draft id. */
+  approval: JourneyApproval | null;
+  /** Pending approvals that are not this draft's; never offered as a decision here. */
+  otherApprovalCount: number;
+  onReviewApproval: (approval: JourneyApproval) => void;
   onOpenApprovals: () => void;
   draftPrepared: boolean;
   onSendForApproval: () => void;
@@ -140,7 +145,7 @@ function StageActions({ children }: { children: ReactNode }): JSX.Element {
 }
 
 export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
-  const { status, stage: stageId, workspace, provider, employees, approvals, decisions, run } = props;
+  const { status, stage: stageId, workspace, provider, employees, approval, run } = props;
   const [workspaceName, setWorkspaceName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -149,15 +154,30 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
   // rail never claims a position the person is not looking at.
   const stageIndex = status.steps.findIndex((step) => step.id === stage.id) + 1;
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const taskStageRef = useRef<HTMLDivElement>(null);
   const openedStage = useRef<string | null>(null);
   const statusId = useId();
   // A keyboard or screen-reader user lands in the new stage instead of at the
   // top of the page; the first render keeps focus where the person put it.
+  // The task stage is the existing draft component, so its own heading is the
+  // landing point rather than a frame heading.
   useEffect(() => {
     if (openedStage.current === stage.id) return;
     const first = openedStage.current === null;
     openedStage.current = stage.id;
-    if (!first) headingRef.current?.focus();
+    if (first) return;
+    if (stage.id === "task") {
+      const container = taskStageRef.current;
+      const heading = container?.querySelector<HTMLElement>("h1, h2, h3");
+      if (heading) {
+        if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+        heading.focus();
+        if (document.activeElement === heading) return;
+      }
+      container?.querySelector<HTMLElement>("button, a[href], input, textarea, select")?.focus();
+      return;
+    }
+    headingRef.current?.focus();
   }, [stage.id]);
 
   const runStage = (next: JourneyStepId) => props.onSelectStage(next);
@@ -191,7 +211,6 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
 
   const activeEmployees = employees.filter((employee) => employee.id);
   const selectedEmployee = activeEmployees.find((employee) => employee.id === props.selectedEmployeeId);
-  const openApprovals = approvals.filter((approval) => decisions[approval.approvalId] === undefined);
 
   // A completed journey still shows its result when the person opens that
   // stage; the summary panel replaces the other stages only.
@@ -262,15 +281,21 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
       headingRef={headingRef}
       title="Connect a provider"
       blurb="Shiba runs work through a connected plan, an API key, or this deployment's own gateway. Readiness is reported by the deployment, not assumed here."
-      action={<StatusChip tone={provider.ready ? "ready" : "waiting"}>{provider.pending ? "Checking" : provider.ready ? "Ready" : "Not connected"}</StatusChip>}
+      action={
+        <StatusChip tone={provider.ready ? "ready" : "waiting"}>
+          {provider.pending ? "Checking" : provider.error ? "Unknown" : provider.ready ? "Ready" : "Not connected"}
+        </StatusChip>
+      }
     >
       <div className={CARD}>
         <p aria-busy={provider.pending ? "true" : undefined} className="text-sm leading-relaxed text-[var(--fg)]">
           {provider.pending
             ? "Checking what this deployment can run work on…"
-            : provider.ready
-              ? `This account can run work${provider.label ? ` via ${provider.label}` : ""}.`
-              : "No provider is ready yet. Connect a plan or enter a key on the Providers screen, then come back here."}
+            : provider.error
+              ? "This deployment's readiness could not be read. Retry before deciding whether work can run."
+              : provider.ready
+                ? `This account can run work${provider.label ? ` via ${provider.label}` : ""}.`
+                : "No provider is ready yet. Connect a plan or enter a key on the Providers screen, then come back here."}
         </p>
         {provider.findings.length ? (
           <ul className="mt-3 flex flex-col gap-2 text-xs text-[var(--muted-foreground-2)]">
@@ -281,12 +306,23 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
             ))}
           </ul>
         ) : null}
-        <button type="button" onClick={provider.onOpenProviders} className={`${BUTTON} mt-3`}>Open Providers</button>
+        {provider.error ? (
+          <button type="button" onClick={provider.onRecheck} className={`${BUTTON} mt-3`}>Retry the readiness check</button>
+        ) : null}
         <p className="mt-3 text-xs text-[var(--muted-foreground-2)]">Keys are entered on the Providers screen. Onboarding never asks for or stores a provider credential, and the sandbox only ever sees a placeholder.</p>
       </div>
       <StageActions>
-        <button type="button" onClick={() => runStage("employee")} className={PRIMARY}>Continue to employees</button>
-        <button type="button" onClick={provider.onOpenProviders} className={BUTTON}>Connect a provider now</button>
+        {provider.ready ? (
+          <>
+            <button type="button" onClick={() => runStage("employee")} className={PRIMARY}>Continue to employees</button>
+            <button type="button" onClick={provider.onOpenProviders} className={BUTTON}>Open Providers</button>
+          </>
+        ) : (
+          <>
+            <button type="button" onClick={provider.onOpenProviders} className={PRIMARY}>Connect a provider</button>
+            <button type="button" onClick={() => runStage("employee")} className={BUTTON}>Continue without a provider</button>
+          </>
+        )}
       </StageActions>
     </Stage>
   ) : stage.id === "employee" ? (
@@ -336,8 +372,8 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
     <Stage
       headingRef={headingRef}
       title="Approve the run"
-      blurb="Sending the saved draft creates an approval. Nothing starts — no sandbox, no repository access — until you approve it here or in the queue."
-      action={<StatusChip tone={run && run.status !== "pending" ? "ready" : openApprovals.length ? "waiting" : "waiting"}>{run ? "Approved" : openApprovals.length ? "Needs you" : "Not sent"}</StatusChip>}
+      blurb="Sending the saved draft creates an approval. Nothing starts — no sandbox, no repository access — until you approve it, and that decision is taken in Work where the frozen route and evidence are shown."
+      action={<StatusChip tone={run ? "ready" : approval ? "waiting" : "waiting"}>{run ? "Approved" : approval ? "Needs you" : "Not sent"}</StatusChip>}
     >
       {run ? (
         <div className={`${CARD} text-sm text-[var(--fg)]`}>
@@ -345,23 +381,13 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
           <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">{run.status === "completed" ? "The run finished. Open the result." : run.status === "failed" || run.status === "error" ? "The run reported an error. Read its output in the run inspector." : "Progress is reported in the run inspector and in Threads."}</p>
           <button type="button" className={`${BUTTON} mt-3`} onClick={props.onOpenRun}>Open the run</button>
         </div>
-      ) : openApprovals.length ? (
-        <div className="flex flex-col gap-2">
-          {openApprovals.map((approval) => (
-            <div key={approval.approvalId} className={CARD}>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--warning-fg)]">Needs approval</p>
-              <p className="mt-1 break-words text-sm text-[var(--fg)]">{approval.task ?? approval.tool ?? "Queued work"}</p>
-              {approval.repoUrl ? <p className="mt-1 break-all font-mono text-[11px] text-[var(--muted-foreground-2)]">{approval.repoUrl}</p> : null}
-              {decisions[approval.approvalId] !== undefined ? (
-                <p role="status" className="mt-2 text-xs text-[var(--muted-foreground-2)]">{decisions[approval.approvalId] ? "Approved" : "Rejected"}</p>
-              ) : (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button type="button" onClick={() => props.onDecideApproval(approval, true)} className={PRIMARY}>Approve and start</button>
-                  <button type="button" onClick={() => props.onDecideApproval(approval, false)} className={BUTTON}>Reject</button>
-                </div>
-              )}
-            </div>
-          ))}
+      ) : approval ? (
+        <div className={CARD}>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--warning-fg)]">Needs your decision</p>
+          <p className="mt-1 break-words text-sm text-[var(--fg)]">{approval.task ?? approval.tool ?? "Queued work"}</p>
+          {approval.repoUrl ? <p className="mt-1 break-all font-mono text-[11px] text-[var(--muted-foreground-2)]">{approval.repoUrl}</p> : null}
+          <p className="mt-2 text-xs text-[var(--muted-foreground-2)]">Approving opens the same review you get in the approval queue: the exact route, the evidence, and branch handling when the repository conflicts. Choosing not to approve here leaves the queue untouched.</p>
+          <button type="button" onClick={() => props.onReviewApproval(approval)} className={`${PRIMARY} mt-3`}>Review and approve this run</button>
         </div>
       ) : props.draftPrepared ? (
         <div className={CARD}>
@@ -374,6 +400,11 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
           <button type="button" onClick={props.onOpenDraft} className={`${BUTTON} mt-3`}>Draft the first task</button>
         </div>
       )}
+      {!approval && props.otherApprovalCount ? (
+        <p className="text-xs text-[var(--muted-foreground-2)]">
+          {props.otherApprovalCount === 1 ? "One other approval is waiting." : `${props.otherApprovalCount} other approvals are waiting.`} They belong to other work and are not decided here.
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-2 text-xs">
         <button type="button" onClick={props.onOpenApprovals} className="min-h-9 text-[var(--primary)] underline">Open the approval queue</button>
         {run ? <button type="button" onClick={() => runStage("result")} className="min-h-9 text-[var(--primary)] underline">See the result</button> : null}
@@ -406,8 +437,19 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
             </div>
           </dl>
           <StageActions>
-            <button type="button" onClick={props.onOpenReview} className={PRIMARY}>Record your review</button>
-            <button type="button" onClick={props.onOpenRun} className={BUTTON}>Open the run</button>
+            {run.status === "completed" ? (
+              <>
+                <button type="button" onClick={props.onOpenReview} className={PRIMARY}>Record your review</button>
+                <button type="button" onClick={props.onOpenRun} className={BUTTON}>Open the run</button>
+              </>
+            ) : (
+              <>
+                <button type="button" onClick={props.onOpenRun} className={PRIMARY}>
+                  {run.status === "failed" || run.status === "error" ? "Open the run and read the error" : "Open the run for progress"}
+                </button>
+                <button type="button" onClick={() => runStage("approval")} className={BUTTON}>Back to approval</button>
+              </>
+            )}
           </StageActions>
         </div>
       ) : (
@@ -444,7 +486,7 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
             />
           ))}
         </div>
-        <nav aria-label="Onboarding steps" aria-describedby={statusId} className="mx-auto mt-3 flex w-full max-w-3xl flex-wrap gap-1.5">
+        <nav aria-label="Onboarding steps" aria-describedby={statusId} className="shiba-journey-rail mx-auto mt-3 flex w-full max-w-3xl flex-wrap gap-1.5 xl:max-w-5xl">
           {status.steps.map((step, index) => {
             const current = step.id === stage.id;
             return (
@@ -453,7 +495,7 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
                 type="button"
                 aria-current={current ? "step" : undefined}
                 onClick={() => props.onSelectStage(step.id)}
-                className={`flex min-h-11 shrink-0 items-center gap-2 rounded-[var(--radius-button)] border px-3 text-xs transition-colors duration-150 motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] ${
+                className={`shiba-journey-step flex min-h-11 shrink-0 items-center gap-2 rounded-[var(--radius-button)] border px-3 text-xs transition-colors duration-150 motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] ${
                   current
                     ? "border-[var(--primary)] bg-[var(--secondary)] font-semibold text-[var(--fg)]"
                     : step.state === "done"
@@ -473,7 +515,7 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
                 >
                   {step.state === "done" ? "✓" : index + 1}
                 </span>
-                <span>{step.label}</span>
+                <span className="shiba-journey-step-label">{step.label}</span>
                 <span className="sr-only"> — {step.summary}</span>
               </button>
             );
@@ -481,7 +523,9 @@ export function OnboardingJourney(props: OnboardingJourneyProps): JSX.Element {
         </nav>
       </header>
       {stage.id === "task" && !status.complete ? (
-        props.taskStage
+        <div ref={taskStageRef} className="flex min-h-0 flex-1 flex-col">
+          {props.taskStage}
+        </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl px-4 py-5">{body}</div>

@@ -45,12 +45,16 @@ describe("deriveJourney", () => {
     });
   });
 
-  it("completes on a run result and keeps the review as the last unfinished thing", () => {
+  it("keeps a finished result open until the person records the review", () => {
     const prepared = { ...EMPTY, workspaceReady: true, providerReady: true, employeeReady: true, taskPrepared: true };
     const resulted = deriveJourney({ ...prepared, run: "completed" });
-    expect(resulted.complete).toBe(true);
-    expect(resulted.steps[5]).toMatchObject({ id: "result", state: "done", summary: "Result ready" });
-    expect(deriveJourney({ ...prepared, run: "completed", activated: true }).steps[5]).toMatchObject({ summary: "Result reviewed" });
+    // A finished run is not a finished setup: the review is still owed.
+    expect(resulted.complete).toBe(false);
+    expect(resulted.current).toBe("result");
+    expect(resulted.steps[5]).toMatchObject({ id: "result", state: "current", summary: "Result ready · review not recorded" });
+    const reviewed = deriveJourney({ ...prepared, run: "completed", activated: true });
+    expect(reviewed.complete).toBe(true);
+    expect(reviewed.steps[5]).toMatchObject({ state: "done", summary: "Result reviewed" });
   });
 
   it("keeps a failed run at the result stage instead of claiming success", () => {
@@ -61,7 +65,7 @@ describe("deriveJourney", () => {
 
   it("never reports complete while a required stage is unfinished", () => {
     const status = deriveJourney({ ...EMPTY, workspaceReady: true, providerReady: true, employeeReady: true, taskPrepared: true, run: "completed", activated: false });
-    expect(status.complete).toBe(true);
+    expect(status.complete).toBe(false);
     expect(deriveJourney({ ...EMPTY, workspaceReady: true, providerReady: false }).complete).toBe(false);
   });
 

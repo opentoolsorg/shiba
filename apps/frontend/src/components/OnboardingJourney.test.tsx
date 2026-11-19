@@ -34,14 +34,14 @@ function props(overrides: Partial<OnboardingJourneyProps> = {}): OnboardingJourn
       onSelect: vi.fn(),
       onCreate: vi.fn(async () => {}),
     },
-    provider: { ready: false, label: null, findings: [], onOpenProviders: vi.fn() },
+    provider: { ready: false, error: false, label: null, findings: [], onOpenProviders: vi.fn(), onRecheck: vi.fn() },
     employees: [],
     selectedEmployeeId: null,
     onSelectEmployee: vi.fn(async () => {}),
     onCreateEmployee: vi.fn(),
-    approvals: [],
-    decisions: {},
-    onDecideApproval: vi.fn(),
+    approval: null,
+    otherApprovalCount: 0,
+    onReviewApproval: vi.fn(),
     onOpenApprovals: vi.fn(),
     draftPrepared: false,
     onSendForApproval: vi.fn(),
@@ -69,14 +69,14 @@ describe("OnboardingJourney", () => {
       <OnboardingJourney
         {...props({
           status: journey(),
-          provider: { ready: false, label: null, findings: [{ severity: "error", message: "No model route is ready.", fix: "Connect a provider in Providers." }], onOpenProviders },
+          provider: { ready: false, error: false, label: null, findings: [{ severity: "error", message: "No model route is ready.", fix: "Connect a provider in Providers." }], onOpenProviders, onRecheck: vi.fn() },
         })}
       />,
     );
     expect(screen.getByRole("button", { name: /Choose a workspace — Workspace ready/ })).toBeTruthy();
     expect(screen.getByText("No model route is ready. Connect a provider in Providers.")).toBeTruthy();
     expect(screen.getByText(/Onboarding never asks for or stores a provider credential/)).toBeTruthy();
-    fireEvent.click(screen.getAllByRole("button", { name: "Open Providers" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Connect a provider" }));
     expect(onOpenProviders).toHaveBeenCalled();
   });
 
@@ -105,17 +105,73 @@ describe("OnboardingJourney", () => {
     await waitFor(() => expect(onSelectEmployee).toHaveBeenCalledWith(expect.objectContaining({ id: "employee_1", version: 3 })));
   });
 
-  it("forwards the person's approval decision, and only theirs", () => {
-    const onDecideApproval = vi.fn();
+  it("hands the linked approval to the Work review surface and never decides it here", () => {
+    const onReviewApproval = vi.fn();
     const approval = { approvalId: "approval_1", task: "Draft the brief", repoUrl: "https://github.com/opentoolsorg/shiba", threadKey: "thread" };
     render(
       <OnboardingJourney
-        {...props({ status: journey({ taskPrepared: true }), stage: "approval", approvals: [approval], onDecideApproval })}
+        {...props({ status: journey({ taskPrepared: true }), stage: "approval", approval, onReviewApproval })}
       />,
     );
-    expect(onDecideApproval).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Approve and start" }));
-    expect(onDecideApproval).toHaveBeenCalledWith(expect.objectContaining({ approvalId: "approval_1" }), true);
+    expect(screen.queryByRole("button", { name: "Approve and start" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review and approve this run" }));
+    expect(onReviewApproval).toHaveBeenCalledWith(expect.objectContaining({ approvalId: "approval_1" }));
+  });
+
+  it("never offers an unrelated pending approval as this flow's decision", () => {
+    const onReviewApproval = vi.fn();
+    const onOpenApprovals = vi.fn();
+    render(
+      <OnboardingJourney
+        {...props({ status: journey({ taskPrepared: true }), stage: "approval", draftPrepared: true, approval: null, otherApprovalCount: 1, onReviewApproval, onOpenApprovals })}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Send the saved draft" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Review and approve this run" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Approve and start" })).toBeNull();
+    expect(screen.getByText(/One other approval is waiting\. They belong to other work/)).toBeTruthy();
+  });
+
+  it("treats a failed readiness read as unknown and offers a retry", () => {
+    const onRecheck = vi.fn();
+    render(
+      <OnboardingJourney
+        {...props({ provider: { ready: false, error: true, label: null, findings: [], onOpenProviders: vi.fn(), onRecheck } })}
+      />,
+    );
+    expect(screen.getByText(/readiness could not be read/)).toBeTruthy();
+    expect(screen.queryByText(/No provider is ready yet/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry the readiness check" }));
+    expect(onRecheck).toHaveBeenCalled();
+  });
+
+  it("makes connecting the primary action until a provider is ready", () => {
+    const onOpenProviders = vi.fn();
+    const { rerender } = render(
+      <OnboardingJourney {...props({ provider: { ready: false, error: false, label: null, findings: [], onOpenProviders, onRecheck: vi.fn() } })} />,
+    );
+    expect(screen.getByRole("button", { name: "Connect a provider" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue without a provider" })).toBeTruthy();
+    rerender(
+      <OnboardingJourney {...props({ provider: { ready: true, error: false, label: "Codex plan", findings: [], onOpenProviders, onRecheck: vi.fn() } })} />,
+    );
+    expect(screen.getByRole("button", { name: "Continue to employees" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Continue without a provider" })).toBeNull();
+  });
+
+  it("moves focus into the task stage's own heading", () => {
+    const status = journey({ providerReady: true, employeeReady: true, taskPrepared: true });
+    const { rerender } = render(
+      <OnboardingJourney
+        {...props({ status, stage: "result", taskStage: <section><h1>What would you like to do first?</h1></section> })}
+      />,
+    );
+    rerender(
+      <OnboardingJourney
+        {...props({ status, stage: "task", taskStage: <section><h1>What would you like to do first?</h1></section> })}
+      />,
+    );
+    expect(document.activeElement?.textContent).toBe("What would you like to do first?");
   });
 
   it("shows the run's result and files, and reports a failure as one", () => {
@@ -130,7 +186,10 @@ describe("OnboardingJourney", () => {
     );
     expect(screen.getByText("Brief written")).toBeTruthy();
     expect(screen.getByText("reports/brief.md · 42 B")).toBeTruthy();
-    expect(screen.getByText(/Setup complete/)).toBeTruthy();
+    // A finished run still needs the person's review, so setup is not complete.
+    expect(screen.queryByText(/Setup complete/)).toBeNull();
+    expect(screen.getByText(/Result ready · review not recorded/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Record your review" })).toBeTruthy();
 
     rerender(
       <OnboardingJourney
@@ -143,6 +202,29 @@ describe("OnboardingJourney", () => {
     );
     expect(screen.getByText("Harness exited 1")).toBeTruthy();
     expect(screen.queryByText("Brief written")).toBeNull();
+  });
+
+  it("completes only after the review is recorded, and offers the run on a failure", () => {
+    const { rerender } = render(
+      <OnboardingJourney
+        {...props({
+          status: journey({ providerReady: true, employeeReady: true, taskPrepared: true, run: "completed", activated: true }),
+          stage: "result",
+        })}
+      />,
+    );
+    expect(screen.getByText(/Setup complete/)).toBeTruthy();
+    rerender(
+      <OnboardingJourney
+        {...props({
+          status: journey({ providerReady: true, employeeReady: true, taskPrepared: true, run: "failed" }),
+          stage: "result",
+          run: { runId: "run_2", status: "error", error: "Harness exited 1" },
+        })}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Record your review" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open the run and read the error" })).toBeTruthy();
   });
 
   it("renders the saved task draft inside the flow for the task stage", () => {

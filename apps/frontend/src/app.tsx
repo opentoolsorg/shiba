@@ -1080,9 +1080,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const [providerReadiness, setProviderReadiness] = useState<{
     ready: boolean;
     pending: boolean;
+    /** The read failed; the guide offers a retry instead of claiming "not connected". */
+    error: boolean;
     label: string | null;
     findings: { severity: string; message: string; fix?: string }[];
-  }>({ ready: false, pending: true, label: null, findings: [] });
+  }>({ ready: false, pending: true, error: false, label: null, findings: [] });
+  // Bumped when something outside this render can change readiness: a provider
+  // screen mutation, the guide reopening, or the window regaining focus.
+  const [providerReadinessRevision, setProviderReadinessRevision] = useState(0);
+  const refreshProviderReadiness = useCallback(() => setProviderReadinessRevision((value) => value + 1), []);
   // Which guided-journey stage the person is looking at; null follows the
   // derived resume point, so a satisfied stage is never re-asked.
   const [journeyStage, setJourneyStage] = useState<JourneyStepId | null>(null);
@@ -1092,14 +1098,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       return;
     }
     let cancelled = false;
-    void Promise.all([
-      fetch("/api/setup/status", { credentials: "same-origin" }).then((response) =>
-        response.ok ? response.json() : null,
-      ),
-      fetch("/api/providers", { credentials: "same-origin" }).then((response) =>
-        response.ok ? response.json() : null,
-      ),
-    ])
+    const read = (path: string) =>
+      fetch(path, { credentials: "same-origin", cache: "no-store" }).then((response) => {
+        if (!response.ok) throw new Error(`${path} answered ${response.status}`);
+        return response.json() as Promise<unknown>;
+      });
+    void Promise.all([read("/api/setup/status"), read("/api/providers")])
       .then(([setup, providers]) => {
         if (cancelled) return;
         setToolSetup((setup as SetupStatus | null)?.toolSetup ?? null);
@@ -1123,6 +1127,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         setProviderReadiness({
           ready: gateway || Boolean(connectedProvider),
           pending: false,
+          error: false,
           label: connectedProvider?.label ?? (gateway ? "this deployment's gateway" : null),
           findings,
         });
@@ -1133,15 +1138,30 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         }
       })
       .catch(() => {
+        // A failed read says so; it never passes for "no provider configured" and
+        // never silently keeps an older answer as if it were current.
         if (!cancelled) {
-          setLaunchBlocked(false);
-          setProviderReadiness((previous) => ({ ...previous, pending: false }));
+          setProviderReadiness((previous) => ({ ...previous, pending: false, error: true }));
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [privateDataEnabled]);
+  }, [privateDataEnabled, providerReadinessRevision]);
+  // Readiness can change in another tab or in a provider flow this view does not
+  // own, so a returning window re-asks instead of trusting the first answer.
+  useEffect(() => {
+    if (!privateDataEnabled) return;
+    const recheck = () => {
+      if (document.visibilityState === "visible") refreshProviderReadiness();
+    };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, [privateDataEnabled, refreshProviderReadiness]);
   // Header setup pill: count deployment-proven steps only after whoami.
   useEffect(() => {
     if (showOnboardingModal || !privateDataEnabled) return;
@@ -1158,6 +1178,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // First-run progress belongs to the authenticated account; activation also
   // requires an explicitly approved artifact, not just setup dismissal/run completion.
   const [showFirstRun, setShowFirstRun] = useState(false);
+  // Completed work this account already has outside onboarding means it is not a
+  // first-run account. The runs read settles after the progress read, so the
+  // answer is remembered and applied when it lands.
+  const returningWorkRef = useRef(false);
+  // Only a guide that opened itself is closed by a later runs read; a guide the
+  // person opened from the rail or the account menu is theirs to keep open.
+  const journeyAutoOpened = useRef(false);
   const [showLegacyFirstRun, setShowLegacyFirstRun] = useState(false);
   const [storedFirstRunProgress, setFirstRunProgress] = useState<FirstRunProgressSnapshot | null>(null);
   const [firstRunProgressOwner, setFirstRunProgressOwner] = useState<string | null>(null);
@@ -1195,11 +1222,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const dismissFirstRunProgress = useCallback((currentStep: FirstRunStepId) => updateFirstRunProgress({ action: "dismiss", currentStep }), [updateFirstRunProgress]);
   const dismissOutcomeSetup = useCallback(() => updateFirstRunProgress({ action: "dismiss" }), [updateFirstRunProgress]);
   const openFirstRun = useCallback(() => {
+    journeyAutoOpened.current = false;
+    refreshProviderReadiness();
     setMainView("threads");
     setJourneyStage(null);
     if (authMode === "better-auth") setShowFirstRun(true);
     else setShowLegacyFirstRun(true);
-  }, [authMode]);
+  }, [authMode, refreshProviderReadiness]);
   const canonicalOnboardingDraft = firstRunProgress?.draftTask;
   const preparedOnboardingSelection: SelectedOnboardingDraft | null = firstRunProgress?.draftTaskId && canonicalOnboardingDraft?.preparedAt
     ? { draftTaskId: firstRunProgress.draftTaskId, version: canonicalOnboardingDraft.version, draftTask: canonicalOnboardingDraft } : null;
@@ -1284,13 +1313,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       if (!cancelled && progress) {
         // A prepared draft does not end the flow: the journey resumes at approval
         // and result. Only a recorded deliverable review or an explicit dismissal
-        // stops it opening.
-        const show = progress.activatedAt === null && progress.dismissedAt === null;
+        // stops it opening, and so does a completed run this account already has
+        // outside onboarding — that check needs the runs read, which may land later.
+        const show = progress.activatedAt === null && progress.dismissedAt === null && !returningWorkRef.current;
         const autoOpened = show && navigation === currentNavigation.current && navigation.view === "threads";
         setNudgeSession((session) => session?.owner === orchestratorName ? {
           ...session, popupPending: !autoOpened && !readNudgeFlag(orchestratorName, "popup-shown"),
         } : session);
         if (navigation === currentNavigation.current && navigation.view === "threads") {
+          journeyAutoOpened.current = show;
           setShowFirstRun(show);
         }
       }
@@ -1531,6 +1562,22 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       mainView === "diff" || mainView === "work",
       privateDataEnabled,
     );
+  const legacyWorkSettled = listSettled && retainedRuns.some((candidate) => !candidate.draftTaskId && candidate.status === "completed");
+  returningWorkRef.current = returningWorkRef.current || legacyWorkSettled;
+  // A late runs read closes a guide that opened itself, never one the person
+  // opened or navigated in.
+  useEffect(() => {
+    if (!listSettled) return;
+    const opens = shouldOpenJourney({
+      activated: firstRunProgress?.activatedAt != null,
+      dismissed: firstRunProgress?.dismissedAt != null,
+      hasSettledRun: legacyWorkSettled,
+    });
+    if (opens) return;
+    if (!journeyAutoOpened.current) return;
+    journeyAutoOpened.current = false;
+    setShowFirstRun(false);
+  }, [listSettled, legacyWorkSettled, firstRunProgress?.activatedAt, firstRunProgress?.dismissedAt]);
   useEffect(() => {
     if (!privateDataEnabled) {
       setTaskHistoryItems([]); setTaskHistoryError(null); setTaskHistoryLoading(false);
@@ -3102,10 +3149,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // so a reload or relaunch resumes in place and a satisfied stage is skipped.
   const journeyDraft = firstRunProgress?.draftTask ?? null;
   const journeyDraftText = journeyDraft?.preparedAt ? onboardingTaskText(journeyDraft) : "";
-  const journeyApprovals: StoredApproval[] = visibleStoredApprovals;
-  const journeyApproval = journeyDraftText
-    ? journeyApprovals.find((approval) => approval.task === journeyDraftText)
-    : undefined;
+  // The guided approval is the one the server issued for this draft, matched on
+  // the draft id the approval was frozen with. Task text is only the fallback for
+  // approvals queued before that id was recorded, and unrelated pending approvals
+  // are never presented as this flow's decision.
+  const journeyApproval: StoredApproval | null = firstRunProgress?.draftTaskId
+    ? visibleStoredApprovals.find((approval) => approval.draftTaskId === firstRunProgress.draftTaskId) ??
+      (journeyDraftText ? visibleStoredApprovals.find((approval) => !approval.draftTaskId && approval.task === journeyDraftText) ?? null : null)
+    : null;
+  const journeyOtherApprovalCount = visibleStoredApprovals.filter((approval) => approval.approvalId !== journeyApproval?.approvalId).length;
   const journeyRunRecord = firstRunProgress?.draftTaskId
     ? retainedRuns.find((candidate) => candidate.draftTaskId === firstRunProgress.draftTaskId) ?? null
     : null;
@@ -3168,12 +3220,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       },
     });
   };
-  const joinJourney = shouldOpenJourney({
-    activated: firstRunProgress?.activatedAt != null,
-    dismissed: firstRunProgress?.dismissedAt != null,
-    hasSettledRun: retainedRuns.some((candidate) => !candidate.draftTaskId && candidate.status === "completed"),
-  });
-
   return (
     <AppShell activeView={mainView} onNavigate={openView} pendingApprovalCount={teamWorkspaceId ? 0 : pendingApprovals.length + visibleStoredApprovals.length}>
       {/* LEFT: app navigation rail (lg+; phones use the sheet below) */}
@@ -3417,21 +3463,36 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 pending: providerReadiness.pending,
                 label: providerReadiness.label,
                 findings: providerReadiness.findings,
+                error: providerReadiness.error,
                 onOpenProviders: () => { setShowFirstRun(false); openView("providers"); },
+                onRecheck: refreshProviderReadiness,
               }}
               employees={journeyEmployees}
               selectedEmployeeId={journeyDraft?.employeeId ?? null}
               onSelectEmployee={selectJourneyEmployee}
               onCreateEmployee={(templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); }}
-              approvals={journeyApprovals}
-              decisions={storedDecisions}
-              onDecideApproval={(approval, approved) => { void decideStoredApproval(approval as unknown as StoredApproval, approved); }}
+              approval={journeyApproval ? { approvalId: journeyApproval.approvalId, task: journeyApproval.task, repoUrl: journeyApproval.repoUrl } : null}
+              otherApprovalCount={journeyOtherApprovalCount}
+              onReviewApproval={(approval) => {
+                // The decision is taken on the existing approval surface, so the
+                // guide steps aside and the person lands on that surface rather
+                // than at the top of a new view.
+                setShowFirstRun(false);
+                inspectWork(approval.approvalId, "approval", "approval");
+                let frames = 0;
+                const land = () => {
+                  const card = document.querySelector<HTMLElement>(`[data-approval-id="${CSS.escape(approval.approvalId)}"]`);
+                  if (card) card.focus();
+                  else if (frames++ < 20) window.requestAnimationFrame(land);
+                };
+                window.requestAnimationFrame(land);
+              }}
               onOpenApprovals={() => { setShowFirstRun(false); openView("approvals"); }}
               draftPrepared={Boolean(journeyDraft?.preparedAt && firstRunProgress?.draftTaskId)}
               onSendForApproval={() => { if (preparedOnboardingSelection) applyOnboardingDraft(preparedOnboardingSelection, true); }}
               onOpenDraft={() => setJourneyStage("task")}
               run={journeyRun}
-              onOpenRun={() => { if (journeyRun) inspectWork(journeyRun.runId, "run", "steps"); }}
+              onOpenRun={() => { if (journeyRun) { setShowFirstRun(false); inspectWork(journeyRun.runId, "run", "steps"); } }}
               onOpenReview={() => { setShowFirstRun(false); openView("threads"); }}
               taskStage={
                 <ConversationalOnboarding key={`${orchestratorName ?? "pending"}:task`} progress={firstRunProgress}
@@ -4295,7 +4356,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onSelectWorkspace={(id) => { roomRoute.clear(); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }} onChanged={() => { void teamDirectory.refresh(); }}
               onOpenChat={() => openView("threads")} onOpenWork={() => openView("work")} onOpenApps={() => openView("integrations")} />
           ) : mainView === "providers" ? (
-            restrictedTeamMember ? <section className="m-4 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal provider setup unavailable"><h1 className="text-xl font-medium">Personal provider setup needs an explicit account grant</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">Your invitation gives you team collaboration access. Connecting Claude or Codex and launching employee execution are unavailable for invited accounts until an owned provider and its billing permissions are verified. A deployment operator can request approved work and share its results in your team room.</p><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">Your account will not fall back to a deployment credential. You can continue using shared chat, selected context, workspace membership and permitted employee recipes.</p></section> : <ProvidersView />
+            restrictedTeamMember ? <section className="m-4 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal provider setup unavailable"><h1 className="text-xl font-medium">Personal provider setup needs an explicit account grant</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">Your invitation gives you team collaboration access. Connecting Claude or Codex and launching employee execution are unavailable for invited accounts until an owned provider and its billing permissions are verified. A deployment operator can request approved work and share its results in your team room.</p><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">Your account will not fall back to a deployment credential. You can continue using shared chat, selected context, workspace membership and permitted employee recipes.</p></section> : <ProvidersView onProviderStateChanged={refreshProviderReadiness} />
           ) : mainView === "skills" ? (
             <SkillsView key={`${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} actorId={orchestratorName ?? undefined} workspaceRole={teamWorkspace?.membership.role} />
           ) : mainView === "spaces" ? (
