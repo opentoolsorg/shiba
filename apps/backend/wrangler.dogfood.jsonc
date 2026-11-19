@@ -159,14 +159,19 @@
   "kv_namespaces": [
     {
       "binding": "AGENT_TOKENS",
-      "id": "b218feeb42cf4c3a8000031d5e8bc431"
+      // shiba-agent-tokens-dogfood, the namespace the live dogfood Worker
+      // binds. The previous id did not exist in the account, which failed the
+      // deploy with code 10041 once it stopped failing on the container image.
+      "id": "f6355273e438449e88fc27322cf1482c"
     }
   ],
   "d1_databases": [
     {
       "binding": "AGENT_AUDIT",
       "database_name": "shiba-audit-dogfood",
-      "database_id": "ccd931df-85e2-407c-8f62-22e491684c18",
+      // The id of shiba-audit-dogfood in the account, which is also what the
+      // live dogfood Worker binds; the previous id belonged to no database.
+      "database_id": "c72b5c90-fe85-4703-9116-4d173592c681",
       "migrations_dir": "migrations"
     }
   ],
@@ -395,10 +400,8 @@
       ]
     }
   ],
-  "services": [
-    {
-      "binding": "OPEN_CONNECTOR",
-      "service": "shiba-openconnector-dogfood"
-    }
-  ]
+  // No OPEN_CONNECTOR service binding: shiba-openconnector-dogfood does not
+  // exist in the account, and wrangler.jsonc leaves the same binding commented
+  // out for the HTTP fallback through OPEN_CONNECTOR_URL.
+  "services": []
 }
