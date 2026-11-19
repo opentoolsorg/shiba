@@ -45,6 +45,10 @@ export interface AgentsPanelProps {
   onOpenCatalog?: () => void;
   ownerName?: string;
   workspaceName?: string;
+  /** The bot registry is still loading; rows appear as placeholders rather than an empty Shiba row. */
+  loading?: boolean;
+  /** The bot registry failed, so an empty list is not the same as "no bots". */
+  error?: string | null;
   className?: string;
 }
 
@@ -74,6 +78,8 @@ export function AgentsPanel({
   onNewAgent,
   ownerName,
   workspaceName,
+  loading = false,
+  error = null,
   className = "",
 }: AgentsPanelProps): JSX.Element {
   const listId = useId();
@@ -192,7 +198,26 @@ export function AgentsPanel({
       ) : null}
 
       <div className="flex flex-1 flex-col overflow-y-auto">
-        {rows.length === 0 ? (
+        {loading && agents.length === 0 ? (
+          <ul aria-label="Loading bots" aria-busy="true" className="flex flex-col gap-1 px-2 py-1">
+            {[0, 1, 2].map((row) => (
+              <li key={row} className="flex items-center gap-2.5 py-1.5" aria-hidden="true">
+                <span className="size-7 shrink-0 animate-pulse bg-[#e4e4e7] dark:bg-zinc-800" />
+                <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <span className="h-2.5 w-24 animate-pulse bg-[#e4e4e7] dark:bg-zinc-800" />
+                  <span className="h-2 w-16 animate-pulse bg-[#f4f4f5] dark:bg-zinc-800/60" />
+                </span>
+              </li>
+            ))}
+            <li className="sr-only">Loading bots…</li>
+          </ul>
+        ) : null}
+        {error && agents.length === 0 ? (
+          <p role="alert" className="px-2 py-2 text-[12px] text-[#b91c1c] dark:text-red-400">
+            Bots couldn’t load: {error}
+          </p>
+        ) : null}
+        {rows.length === 0 && !loading && !error ? (
           <p className="px-2 py-3 text-center text-[12px] text-[#71717a] dark:text-zinc-500">
             No matching agents
           </p>
@@ -285,6 +310,11 @@ export function AgentsPanel({
                     onClick={() => setExpanded((prev) => ({ ...prev, [row.id]: !isExpanded }))}
                     className={rowAction}
                   >
+                    {!isExpanded && row.threads.length > 0 ? (
+                      <span className="text-[10px] tabular-nums" aria-hidden="true">
+                        {row.threads.length}
+                      </span>
+                    ) : null}
                     <ChevronRight
                       className={`size-3.5 motion-safe:transition-transform motion-safe:duration-150 ${isExpanded ? "rotate-90" : ""}`}
                       strokeWidth={2}
