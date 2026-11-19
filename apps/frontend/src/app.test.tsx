@@ -1735,14 +1735,14 @@ describe("bot thread links", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Show details panel" }));
     fireEvent.click(await screen.findByRole("tab", { name: "Library" }));
-    fireEvent.change(screen.getByLabelText("Add a required output"), { target: { value: "brief.md" } });
+    fireEvent.change(await screen.findByLabelText("Add a required output"), { target: { value: "brief.md" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(saves).toHaveLength(1));
 
     // The second edit runs before any list refetch: it must still send the
     // version the first save returned, or the server refuses it as stale.
     await act(async () => {});
-    fireEvent.change(screen.getByLabelText("Add a required output"), { target: { value: "summary.md" } });
+    fireEvent.change(await screen.findByLabelText("Add a required output"), { target: { value: "summary.md" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(saves).toHaveLength(2));
     expect(saves[0]).toEqual({ expectedVersion: 1, expected: ["brief.md"] });

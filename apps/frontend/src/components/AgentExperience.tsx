@@ -1,9 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, MessageSquare, PanelLeft, PanelRight, Plus, Users, X } from "lucide-react";
-import type { AgentAvatarChoice, AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
 import { botLibraryFileIds, type BotConfigEdit } from "../bot-library";
 import { defaultAgentToolRows, botToolRows, type BotToolPolicy } from "../bot-tools";
-import type { AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
+import type { AgentAvatarChoice, AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
 import type { CustomAgentWire } from "./CustomAgentsView";
 import type { WebThread } from "../agent-threads";
 import { threadAgentId } from "../agent-threads";
