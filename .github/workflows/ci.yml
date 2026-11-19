@@ -49,7 +49,12 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm lint:imports
-      - run: pnpm test
+      # Two concurrent workspace suites oversubscribe a 4-core runner (peak load
+      # ~5-6 against 4 cores) and cost more wall clock than the same suites run
+      # one at a time with their own worker counts unchanged: 5m49s at peak load
+      # 3.5, against 6m04s and 6m12s at peak load 5.0 and 5.9. The per-workspace
+      # worker settings are untouched; only turbo's task concurrency changes.
+      - run: pnpm test:serial
       - name: Verify personal native account isolation and daemon controls
         run: pnpm test:personal-daemon
       - run: pnpm build
