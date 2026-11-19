@@ -19,9 +19,19 @@ export interface PaletteTaskHit {
   ownerId?: string | null;
 }
 
+export interface PaletteKnowledgeHit {
+  chunkId: string;
+  sourceKind: "file" | "note";
+  sourceId: string;
+  sourceName: string;
+  scope?: "personal" | "workspace";
+  snippet: string;
+}
+
 export function usePaletteSearch(workspaceId: string | null, query: string, open: boolean) {
   const [chats, setChats] = useState<PaletteChatHit[]>([]);
   const [tasks, setTasks] = useState<PaletteTaskHit[]>([]);
+  const [knowledge, setKnowledge] = useState<PaletteKnowledgeHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [skeleton, setSkeleton] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
@@ -30,7 +40,7 @@ export function usePaletteSearch(workspaceId: string | null, query: string, open
   useEffect(() => {
     const trimmed = query.trim();
     if (!open || !workspaceId || trimmed.length < 2) {
-      setChats([]); setTasks([]); setLoading(false); setSkeleton(false); setUnavailable(false);
+      setChats([]); setTasks([]); setKnowledge([]); setLoading(false); setSkeleton(false); setUnavailable(false);
       return;
     }
     const id = ++seq.current;
@@ -39,18 +49,19 @@ export function usePaletteSearch(workspaceId: string | null, query: string, open
     setSkeleton(false);
     const timer = window.setTimeout(() => {
       const bones = window.setTimeout(() => { if (seq.current === id) setSkeleton(true); }, 150);
-      void fetch(`/api/search?q=${encodeURIComponent(trimmed)}&types=chats,tasks`, {
+      void fetch(`/api/search?q=${encodeURIComponent(trimmed)}&types=chats,tasks,knowledge`, {
         credentials: "same-origin",
         headers: teamWorkspaceHeaders(workspaceId),
         signal: ctrl.signal,
       }).then(async (response) => {
         if (seq.current !== id) return;
-        if (response.status === 503) { setUnavailable(true); setChats([]); setTasks([]); return; }
+        if (response.status === 503) { setUnavailable(true); setChats([]); setTasks([]); setKnowledge([]); return; }
         setUnavailable(false);
         if (!response.ok) return;
-        const body = await response.json() as { chats?: PaletteChatHit[]; tasks?: PaletteTaskHit[] };
+        const body = await response.json() as { chats?: PaletteChatHit[]; tasks?: PaletteTaskHit[]; knowledge?: PaletteKnowledgeHit[] };
         setChats(body.chats ?? []);
         setTasks(body.tasks ?? []);
+        setKnowledge(body.knowledge ?? []);
       }).catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
         if (seq.current !== id) return;
@@ -62,5 +73,5 @@ export function usePaletteSearch(workspaceId: string | null, query: string, open
     return () => { seq.current += 1; ctrl.abort(); window.clearTimeout(timer); };
   }, [open, query, workspaceId]);
 
-  return { chats, tasks, loading, skeleton, unavailable };
+  return { chats, tasks, knowledge, loading, skeleton, unavailable };
 }
