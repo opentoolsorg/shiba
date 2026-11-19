@@ -1,6 +1,17 @@
 name: Build sandbox image
 
+# Workers Builds deploys apps/backend/wrangler.dogfood.jsonc, and the sandbox
+# image is far too large to push from inside that build (~3.3 GB of layers,
+# one of them 1.72 GB), so the deploy only references a digest. This workflow
+# produces that digest. It also runs on pull requests that touch the image, so
+# the image exists before the pin that references it can merge.
+
 on:
+  pull_request:
+    paths:
+      - apps/backend/Dockerfile
+      - apps/backend/scripts/acp-install.sh
+      - .github/workflows/build-sandbox-image.yml
   push:
     branches: [main]
     paths:
@@ -12,16 +23,30 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sandbox-image-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-push:
+    # Fork pull requests reach no secrets; the image is built in-repo only.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     outputs:
       digest: ${{ steps.image.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The pin guard diffs against the pull request's base commit.
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+      - name: Require the dogfood pin to move with the image inputs
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/check-dogfood-image-pin.mjs --base "$BASE_SHA"
       - name: Build and push sandbox image to Cloudflare registry
         id: image
         env:
@@ -36,13 +61,25 @@ jobs:
             apps/backend
           ref="registry.cloudflare.com/${CLOUDFLARE_ACCOUNT_ID}/${tag}"
           image=$(docker image inspect --format '{{join .RepoDigests "\n"}}' "$ref" \
-            | grep -E "^registry[.]cloudflare[.]com/${CLOUDFLARE_ACCOUNT_ID}/shiba-ai-coworker-sandbox-dogfood@sha256:[a-f0-9]{64}$")
+            | grep -E "^registry[.]cloudflare[.]com/${CLOUDFLARE_ACCOUNT_ID}/shiba-ai-coworker-sandbox-dogfood@sha256:[a-f0-9]{64}$" \
+            | head -1)
           test -n "$image"
           echo "digest=${image##*@}" >> "$GITHUB_OUTPUT"
+          echo "reference=$image" >> "$GITHUB_OUTPUT"
           echo "$image"
+      - name: Report the digest to pin
+        env:
+          REFERENCE: ${{ steps.image.outputs.reference }}
+          PINNED: ${{ steps.image.outputs.digest }}
+        run: |
           {
             echo '### Dogfood sandbox image'
             echo "Source commit: ${GITHUB_SHA}"
-            echo "\`$image\`"
-            echo 'Pin this digest in apps/backend/wrangler.dogfood.jsonc before deploying the Worker.'
+            echo "\`$REFERENCE\`"
+            echo ''
+            echo 'Point the Worker deploy at it (Workers Builds only references this digest):'
+            echo ''
+            echo '```sh'
+            echo "node scripts/pin-dogfood-image.mjs ${PINNED}"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
