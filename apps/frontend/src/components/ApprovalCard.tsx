@@ -46,7 +46,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
         <div className="font-mono font-bold text-sm text-[var(--fg)] flex items-center gap-2 min-w-0">
           <Tooltip content="Nothing runs until you approve" side="bottom">
             <span className="shrink-0 cursor-default">
-              <ShibaMark className="size-5" decorative />
+              <ShibaMark className="size-5" label="Shiba Guard" />
             </span>
           </Tooltip>
           <span className="truncate">{approval.tool}</span>
