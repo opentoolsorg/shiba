@@ -113,7 +113,7 @@ function defaultResolver(env: Env): ResolveOrchestrator {
 export async function queueChatRun(
   env: Env,
   input: {
-    platform: ChatPlatform;
+    platform: ChatPlatform | "email";
     threadKey: string;
     repoUrl: string;
     task: string;
