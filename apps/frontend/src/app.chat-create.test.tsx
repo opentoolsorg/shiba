@@ -58,14 +58,14 @@ it("sends exactly one Create choice, leaves it out by default, and keeps lookup 
   const metadata = { shibaMode: "chat", shibaRoomViewerId: "viewer" };
   expect(await send("Just chatting")).toEqual({ text: "Just chatting", metadata });
   expect(within(picker).getAllByRole("option").map((option) => option.textContent)).toEqual(["Create: None", "Image", "Video", "Report", "Page"]);
-  const lookups = within(screen.getByRole("group", { name: "Lookups for this message" }));
+  const lookups = within(screen.getByRole("group", { name: "Tools for this message" }));
   fireEvent.click(lookups.getByRole("button", { name: "Web" }));
   fireEvent.click(lookups.getByRole("button", { name: "Knowledge" }));
   const withLookups = { ...metadata, shibaChatTools: ["web_search", "knowledge_search"] };
   for (const choice of ["image", "video", "report", "page"]) {
     fireEvent.change(picker, { target: { value: choice } });
     expect(await send("Make this")).toEqual({ text: "Make this", metadata: { ...withLookups, shibaChatCreate: choice } });
-    expect(picker).toHaveProperty("value", "");
+    await waitFor(() => expect(picker).toHaveProperty("value", ""));
   }
   expect(await send("Continue")).toEqual({ text: "Continue", metadata: withLookups });
   fireEvent.change(picker, { target: { value: "page" } });
@@ -108,7 +108,7 @@ it("keeps the choice with a rejected draft and consumes it on the successful ret
   expect(picker).toHaveProperty("value", "report");
   expect(mocks.chat.sendMessage.mock.lastCall?.[0].metadata.shibaChatCreate).toBe("report");
   expect((await send(draft)).metadata.shibaChatCreate).toBe("report");
-  expect(picker).toHaveProperty("value", "");
+  await waitFor(() => expect(picker).toHaveProperty("value", ""));
 });
 
 it("does not take an unsent Create choice into another conversation", async () => {

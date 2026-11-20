@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState, type JSX, type FormEvent } from "react";
+import { useEffect, useReducer, useState, type JSX, type FormEvent } from "react";
 import { Download, FileArchive, FileText, MessageSquare, PanelsTopLeft } from "lucide-react";
 import { DocumentActions, isDocumentArtifactId, type GeneratedDocument } from "../GeneratedDocumentCard";
 import { LoadErrorState } from "../LoadErrorState";
