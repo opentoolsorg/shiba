@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { INTEGRATION_CATALOG, setupRequiredCatalog } from "@shiba/shared";
 import { IntegrationsView } from "./IntegrationsView";
 import { META_ACTOR, META_WORKSPACE, metaScope } from "../founder-meta-fixtures";
+import { slackInstallationFixture } from "../slack-installations-fixtures";
 
 afterEach(() => {
   cleanup();
@@ -93,6 +94,30 @@ function stubIntegrationsFetch(setup = defaultSetup(), unconfigured = false) {
 }
 
 describe("IntegrationsView native catalog", () => {
+  it.each([
+    ["pending-review", "Check for a pending installation below", "pending"],
+    ["cancelled", "Slack authorization was cancelled", "revoked"],
+  ] as const)("shows the %s return hint without granting activation or reconnect", async (result, hint, status) => {
+    const currentUrl = window.location.href;
+    window.history.replaceState(null, "", `/integrations/?slackInstall=${result}#slack-installations`);
+    const state = slackInstallationFixture(META_WORKSPACE, META_ACTOR);
+    if (status === "revoked") {
+      Object.assign(state.installations[0]!, { state: "revoked", canActivate: false, canRevoke: false, canRefresh: false });
+    }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => String(input) === "/api/slack/installations"
+      ? Response.json(state) : Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(<IntegrationsView actorId={META_ACTOR} workspaceId={META_WORKSPACE} workspaceRole="owner" />);
+      expect(screen.getByText(new RegExp(hint))).toBeTruthy();
+      expect(await screen.findByText(`T123 · ${status}`)).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Prepare Slack authorization" }).hasAttribute("disabled")).toBe(true);
+      expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/slack/installations")))
+        .toEqual([["/api/slack/installations", expect.objectContaining({ method: "GET" })]]);
+    } finally {
+      window.history.replaceState(null, "", currentUrl);
+    }
+  });
   it("shows the setup card and the featured apps with Needs setup chips when unconfigured", async () => {
     stubIntegrationsFetch(defaultSetup(), true);
     render(<IntegrationsView />);

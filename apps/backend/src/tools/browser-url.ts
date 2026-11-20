@@ -1,9 +1,10 @@
 function isPrivateIpv4(part: number[]): boolean {
   if (part.length !== 4) return false;
-  if (part[0] === 10) return true;
+  if (part[0] === 0 || part[0] === 10 || (part[0] ?? 0) >= 224) return true;
   if (part[0] === 127) return true;
   if (part[0] === 169 && part[1] === 254) return true;
   const second = part[1];
+  if (part[0] === 100 && second !== undefined && second >= 64 && second <= 127) return true;
   if (part[0] === 172 && second !== undefined && second >= 16 && second <= 31) return true;
   if (part[0] === 192 && part[1] === 168) return true;
   return false;
@@ -20,7 +21,8 @@ export function assertPublicBrowserUrl(raw: string): URL {
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw new Error("Only http(s) URLs are allowed.");
   }
-  const host = url.hostname.toLowerCase();
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (url.username || url.password || host.includes("*")) throw new Error("Only explicit, credential-free hosts are allowed.");
   if (host === "localhost" || host.endsWith(".localhost") || host === "0.0.0.0") {
     throw new Error("Local hosts are not allowed.");
   }
@@ -31,7 +33,7 @@ export function assertPublicBrowserUrl(raw: string): URL {
   if (parts.every((n) => Number.isInteger(n))) {
     if (isPrivateIpv4(parts)) throw new Error("Private network hosts are not allowed.");
   }
-  if (host === "metadata.google.internal" || host === "169.254.169.254") {
+  if (host.endsWith(".internal") || host.endsWith(".local") || !host.includes(".")) {
     throw new Error("Metadata hosts are not allowed.");
   }
   return url;

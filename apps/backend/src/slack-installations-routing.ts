@@ -1,6 +1,10 @@
 import { verifySlackRequest } from "./slack.js";
 import { activeSlackInstallationForTeam, recordSlackInstallationRevocation, slackTeamHasInstallationOrRevocation, type SlackInstallationEnv } from "./slack-installations-store.js";
 import { observeSlackCoworkerChallenge, confirmSlackCoworkerOnSlack, intakeSlackCoworkerEvent, invalidateSlackCoworkerMessage } from "./slack-coworker-store.js";
+import { channelOutputsEnabled } from "./channel-output-delivery.js";
+import { isApprover, parseApproverAllowlist, type ExecutionContextLike } from "./slack-approval.js";
+import { confirmSlackVideo, isSlackMediaCommand, requestSlackMedia, SLACK_VIDEO_APPROVE_ACTION } from "./slack-media-output.js";
+import { buildSlackThreadName } from "./slack-thread.js";
 
 const paths = new Set(["/api/slack/events", "/api/slack/command", "/api/slack/interact"]);
 const slackId = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
@@ -24,7 +28,7 @@ async function boundedRaw(request: Request): Promise<string> {
   } finally { await reader?.cancel().catch(() => {}); }
 }
 /** Gates all callback effects before legacy handlers. An installation is never native/provider/billing authority. */
-export async function handleMultiInstallationSlackCallback(request: Request, env: SlackInstallationEnv): Promise<Response | null> {
+export async function handleMultiInstallationSlackCallback(request: Request, env: SlackInstallationEnv, ctx?: ExecutionContextLike): Promise<Response | null> {
   const path = new URL(request.url).pathname;
   if (!paths.has(path)) return null;
   const enabled = env.SLACK_INSTALLATIONS_ENABLED?.trim() === "true";
@@ -75,7 +79,20 @@ export async function handleMultiInstallationSlackCallback(request: Request, env
     !await slackTeamHasInstallationOrRevocation(env, appId, teamId)) return null;
   if (!installation) return path === "/api/slack/events" ? new Response("", { status: 200 }) : json({ response_type: "ephemeral", text: "This Slack installation is unavailable. A native workspace owner must review its configuration." });
   if (path === "/api/slack/events" && payload.type === "event_callback" && slackId(payload.event_id) && event) {
-    const incoming = event as { type?: unknown; subtype?: unknown; channel?: unknown; deleted_ts?: unknown; message?: { ts?: unknown }; user?: unknown; ts?: unknown; thread_ts?: unknown; text?: unknown; bot_id?: unknown };
+    const incoming = event as { type?: unknown; subtype?: unknown; channel?: unknown; channel_type?: unknown; deleted_ts?: unknown; message?: { ts?: unknown }; user?: unknown; ts?: unknown; thread_ts?: unknown; text?: unknown; bot_id?: unknown };
+    const mediaText = typeof incoming.text === "string" ? incoming.text.replace(/<@[A-Z0-9]+>/gi, " ").trim() : "";
+    if (channelOutputsEnabled(env) && isSlackMediaCommand(mediaText) &&
+        (incoming.type === "app_mention" || (incoming.type === "message" && incoming.channel_type === "im")) &&
+        !incoming.subtype && !incoming.bot_id && slackId(incoming.user) && incoming.user !== installation.botUserId &&
+        slackId(incoming.channel) && typeof (incoming.thread_ts ?? incoming.ts) === "string") {
+      try {
+        const threadName = buildSlackThreadName(teamId, incoming.channel, String(incoming.thread_ts ?? incoming.ts));
+        const job = requestSlackMedia(env, { id: payload.event_id, threadName, slackUserId: incoming.user, text: mediaText }, installation).catch(() => undefined);
+        if (ctx) ctx.waitUntil(job);
+        else await job;
+      } catch { /* Ignore malformed thread metadata. */ }
+      return new Response("", { status: 200 });
+    }
     try {
       if (incoming.type === "message" && (incoming.subtype === "message_changed" || incoming.subtype === "message_deleted") && typeof incoming.channel === "string") {
         const ts = incoming.subtype === "message_deleted" ? incoming.deleted_ts : incoming.message?.ts;
@@ -101,12 +118,28 @@ export async function handleMultiInstallationSlackCallback(request: Request, env
   if (path === "/api/slack/interact" && payload.type === "block_actions") {
     const user = payload.user as { id?: unknown } | undefined;
     const actions = payload.actions;
+    if (slackId(user?.id) && Array.isArray(actions) && actions.length === 1 && actions[0]?.action_id === SLACK_VIDEO_APPROVE_ACTION) {
+      const channel = payload.channel as { id?: unknown } | undefined;
+      const message = payload.message as { thread_ts?: unknown } | undefined;
+      let started = false;
+      if (isApprover(user.id, parseApproverAllowlist(env.SLACK_APPROVERS)) &&
+          slackId(channel?.id) && typeof message?.thread_ts === "string" && slackId(actions[0].value)) {
+        try {
+          started = await confirmSlackVideo(env, {
+            id: actions[0].value, threadName: buildSlackThreadName(teamId, channel.id, message.thread_ts), slackUserId: user.id,
+          }, installation);
+        } catch { /* Do not disclose delivery or provider errors. */ }
+      }
+      return json({ response_type: "ephemeral", text: started
+        ? "Video generation queued in this thread."
+        : "This video request expired, is not yours, or could not be started." });
+    }
     if (slackId(user?.id) && Array.isArray(actions) && actions.length === 1 && ["shiba_link_accept", "shiba_link_reject"].includes(actions[0]?.action_id) && typeof actions[0]?.value === "string") {
       try { await confirmSlackCoworkerOnSlack(env, installation, actions[0].value, user.id, actions[0].action_id === "shiba_link_accept"); } catch { return json({ error: "slack_coworker_storage_unavailable" }, 503); }
       return json({ response_type: "ephemeral", replace_original: true, text: "Return to Shiba to complete the identity review." });
     }
   }
   // Installing a bot does not map a Slack author to a native person, source grant or payer.
-  // Buffer/model execution is intentionally closed until that distinct contract exists.
+  // General buffer/model execution is intentionally closed until that distinct contract exists.
   return path === "/api/slack/events" ? new Response("", { status: 200 }) : json({ response_type: "ephemeral", text: "Slack coworker execution is unavailable: link the requesting native account and explicitly grant its provider/billing scope first. Installing the bot does not grant execution." });
 }

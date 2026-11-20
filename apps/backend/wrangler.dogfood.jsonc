@@ -42,6 +42,7 @@
     "OPEN_CONNECTOR_READ_VERSION_ID": "",
     "OPEN_CONNECTOR_READ_MANIFEST_SHA256": "",
     "SLACK_INSTALLATIONS_ENABLED": "false",
+    "SHIBA_CHANNEL_OUTPUT_DELIVERY": "1",
     "SLACK_COWORKER_PRIVATE_STATUS_ENABLED": "false",
     "SLACK_OAUTH_APP_ID": "",
     "SLACK_OAUTH_CLIENT_ID": "",
@@ -147,6 +148,10 @@
       {
         "name": "DISCORD_GATEWAY",
         "class_name": "DiscordGateway"
+      },
+      {
+        "name": "BrowserSession",
+        "class_name": "BrowserSession"
       }
     ]
   },
@@ -270,6 +275,11 @@
       "class_name": "SlackImportWorkflow"
     },
     {
+      "binding": "SLACK_MEDIA_WORKFLOW",
+      "name": "shiba-slack-media-dogfood",
+      "class_name": "SlackMediaWorkflow"
+    },
+    {
       "binding": "AUTOMATION_RUN_WORKFLOW",
       "name": "shiba-automation-run-dogfood",
       "class_name": "AutomationRunWorkflow"
@@ -326,7 +336,8 @@
     "Spaces": { "type": "durable-object", "storage": "sqlite" },
     "UserProviderOAuth": { "type": "durable-object", "storage": "sqlite" },
     "Waitlist": { "type": "durable-object", "storage": "sqlite" },
-    "WorkspaceEvents": { "type": "durable-object", "storage": "sqlite" }
+    "WorkspaceEvents": { "type": "durable-object", "storage": "sqlite" },
+    "BrowserSession": { "type": "durable-object", "storage": "sqlite" }
   },
   // No OPEN_CONNECTOR service binding: shiba-openconnector-dogfood does not
   // exist in the account, and wrangler.jsonc leaves the same binding commented

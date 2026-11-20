@@ -4,11 +4,16 @@ import { teamsTransport } from "../src/channels/teams/index.js";
 import type { Env } from "../src/env.js";
 import type { ChannelAdapter, ChannelEditInput, ChannelPostInput, ChannelTransport } from "../src/ports/channel/index.js";
 import { clearSeenTeamsActivities, handleTeamsMessages, TEAMS_MESSAGES_PATH, type TeamsDeps } from "../src/teams.js";
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const APPROVAL_ID = "11111111-2222-4333-8444-555555555555";
 const CONVERSATION = "19:abc@thread.tacv2";
 const REPO = "https://github.com/acme/app";
-const env = { TEAMS_APP_ID: "app-1", TEAMS_APP_PASSWORD: "pw", TEAMS_APPROVERS: "aad-ana" } as Env;
+const APP = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const TENANT = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+const WORKSPACE = "ws_cccccccccccccccccccccccc";
+let env: Env;
+let fixture: ReturnType<typeof customAgentD1>;
 
 const acceptAll: ChannelTransport = { ...teamsTransport, verify: async () => ({ ok: true }) };
 
@@ -19,7 +24,7 @@ function activity(extra: Record<string, unknown>) {
     serviceUrl: "https://smba.trafficmanager.net/teams/",
     channelId: "msteams",
     from: { id: "29:ana", aadObjectId: "aad-ana", name: "Ana" },
-    conversation: { id: CONVERSATION, conversationType: "channel" },
+    conversation: { id: CONVERSATION, conversationType: "channel", tenantId: TENANT },
     recipient: { id: "28:bot", name: "Shiba" },
     ...extra,
   };
@@ -72,7 +77,12 @@ const post = (body: unknown, path = TEAMS_MESSAGES_PATH) =>
   new Request(`https://shiba.example${path}`, { method: "POST", body: JSON.stringify(body) });
 
 describe("handleTeamsMessages", () => {
-  beforeEach(() => clearSeenTeamsActivities());
+  beforeEach(() => {
+    clearSeenTeamsActivities();
+    fixture = customAgentD1();
+    fixture.sqlite.prepare("INSERT INTO teams_connections VALUES (?, ?, ?, 'fixture-generation')").run(WORKSPACE, APP, TENANT);
+    env = { AGENT_AUDIT: fixture.database, TEAMS_APP_ID: APP, TEAMS_APP_PASSWORD: "pw", TEAMS_APP_TENANT_ID: TENANT, TEAMS_WORKSPACE_ID: WORKSPACE, TEAMS_APPROVERS: "aad-ana" } as Env;
+  });
 
   it("ignores other paths and methods", async () => {
     expect(await handleTeamsMessages(post({}, "/api/other"), env)).toBeNull();
@@ -89,7 +99,7 @@ describe("handleTeamsMessages", () => {
     const { deps, posts, runBodies, resolveOrchestrator } = makeDeps();
     const response = await handleTeamsMessages(post(activity(mention(`${REPO} fix the build`))), env, undefined, deps);
     expect(response?.status).toBe(200);
-    expect(resolveOrchestrator).toHaveBeenCalledWith(`teams:${CONVERSATION}`);
+    expect(resolveOrchestrator).toHaveBeenCalledWith(expect.stringMatching(/^teams:task-[0-9a-f]{64}$/));
     expect(runBodies[0]).toMatchObject({ repoUrl: REPO, task: "fix the build", source: "teams" });
     const card = posts[0]!;
     expect(card.replyToMessageId).toBe("act-1");
@@ -115,10 +125,11 @@ describe("handleTeamsMessages", () => {
 
   it("lets an approver decide and updates the card", async () => {
     const { deps, approvalBodies, edits } = makeDeps();
+    await handleTeamsMessages(post(activity(mention(`${REPO} fix it`))), env, undefined, deps);
     await handleTeamsMessages(post(activity({ id: "act-3", replyToId: "act-2", value: { shiba: `approve:${APPROVAL_ID}`, card: "Approval requested" } })), env, undefined, deps);
     expect(approvalBodies[0]).toMatchObject({ approvalId: APPROVAL_ID, approved: true, decidedBy: "teams:aad-ana" });
     expect(edits[0]).toMatchObject({ ref: { placeId: CONVERSATION, messageId: "act-2" } });
-    expect(edits[0]!.text).toContain("Approval requested");
+    expect(edits[0]!.text).toContain("Approved by Ana");
   });
 
   it("refuses a decision from someone off the approver list", async () => {

@@ -40,3 +40,28 @@ describe("optional employee role provenance", () => {
     expect(decodeUpdateCustomAgent({ config: { ...config, roleTemplateId }, expectedVersion: 1 })).toBeNull();
   });
 });
+
+describe("bot library links", () => {
+  const id = (suffix: string) => `file_${suffix.padEnd(16, "0")}`;
+
+  it("persists knowledge file ids so a bot's Library survives the config round trip", () => {
+    const libraryFileIds = [id("a"), id("b")];
+    expect(decodeUpdateCustomAgent({ config: { ...config, libraryFileIds }, expectedVersion: 2 }))
+      .toEqual({ config: { ...config, libraryFileIds }, expectedVersion: 2 });
+  });
+
+  it("drops the field when a bot has no linked files", () => {
+    expect(decodeUpdateCustomAgent({ config, expectedVersion: 1 })).toEqual({ config, expectedVersion: 1 });
+  });
+
+  it.each([
+    ["a path instead of an id", ["../etc/passwd"]],
+    ["a URL", ["https://example.test/secret.pdf"]],
+    ["an empty id", [""]],
+    ["a duplicate", [id("a"), id("a")]],
+    ["more than the cap", Array.from({ length: 9 }, (_, index) => `file_${String(index).padEnd(16, "0")}`)],
+    ["a bare string", id("a")],
+  ])("rejects %s", (_label, libraryFileIds) => {
+    expect(decodeUpdateCustomAgent({ config: { ...config, libraryFileIds }, expectedVersion: 1 })).toBeNull();
+  });
+});

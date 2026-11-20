@@ -108,6 +108,12 @@
 # Optional harness override, falls back to AGENT_HARNESS.
 # TELEGRAM_AGENT_HARNESS=
 
+# Email task intake. Empty EMAIL_TASK_SENDERS means email never queues work.
+# EMAIL_TASK_SENDERS=alice@example.com,bob@example.com
+# EMAIL_TASK_EMPLOYEES={"dev@your-company.example":"engineering"}
+# JSON map {mailbox: "https://github.com/owner/repo"} for emailed tasks without a URL.
+# EMAIL_TASK_REPOS=
+
 # --- Discord -----------------------------------------------------------------
 
 # DISCORD_APPROVERS empty means nobody can approve.
@@ -127,13 +133,12 @@
 
 # --- Teams -------------------------------------------------------------------
 
-# TEAMS_APP_ID + TEAMS_APP_PASSWORD (Entra app registration) enable
-# POST /api/teams/messages. TEAMS_APPROVERS empty means nobody can approve.
+# Register a single-tenant Azure Bot; enable the connection as the native workspace owner.
 # TEAMS_APP_ID=
 # TEAMS_APP_PASSWORD=
-# Tenant id for a single-tenant bot; unset = multi-tenant.
 # TEAMS_APP_TENANT_ID=
-# TEAMS_SERVICE_URL=
+# TEAMS_WORKSPACE_ID=
+# Comma-separated Entra user object IDs; empty means nobody can approve.
 # TEAMS_APPROVERS=
 # JSON map {conversationId: "https://github.com/owner/repo"}.
 # TEAMS_CHANNEL_REPOS=

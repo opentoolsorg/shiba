@@ -103,9 +103,10 @@ export function createSlackAdapter(input: { token: string; fetch?: typeof fetch 
       const slot = await get("files.getUploadURLExternal", { filename: upload.filename, length: String(upload.data.byteLength) });
       const uploadUrl = asString(slot.upload_url);
       const fileId = asString(slot.file_id);
-      if (!uploadUrl.startsWith("https://") || !fileId) throw new Error("Slack files.getUploadURLExternal returned no upload slot.");
+      if (!/^https:\/\/files\.slack\.com\/upload\//.test(uploadUrl) || !fileId) throw new Error("Slack files.getUploadURLExternal returned no upload slot.");
       const sent = await channelFetch(fetchImpl, "Slack file upload", uploadUrl, {
         method: "POST",
+        redirect: "error",
         headers: { "Content-Type": upload.contentType },
         body: upload.data,
       });

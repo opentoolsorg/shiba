@@ -206,6 +206,7 @@ export const Worker = Cloudflare.Worker("Worker", {
     OPEN_CONNECTOR_READ_VERSION_ID: "",
     OPEN_CONNECTOR_READ_MANIFEST_SHA256: "",
     SLACK_INSTALLATIONS_ENABLED: "false",
+    SHIBA_CHANNEL_OUTPUT_DELIVERY: "1",
     SLACK_COWORKER_PRIVATE_STATUS_ENABLED: "false",
     SLACK_OAUTH_APP_ID: "",
     SLACK_OAUTH_CLIENT_ID: "",
@@ -294,6 +295,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     DISCORD_GATEWAY: Cloudflare.DurableObject<DiscordGateway>("DiscordGateway", {
       className: "DiscordGateway",
     }),
+    BrowserSession: Cloudflare.DurableObject("BrowserSession", {
+      className: "BrowserSession",
+    }),
 
     // Megaplan stores — wrangler keeps `__PENDING__` ids until the resources
     // are created; alchemy provisions them on first deploy.
@@ -347,6 +351,10 @@ export const Worker = Cloudflare.Worker("Worker", {
   SLACK_IMPORT_WORKFLOW: Cloudflare.Workflow("SlackImportWorkflow", {
     className: "SlackImportWorkflow",
     workflowName: `shiba-slack-import${resSuffix}`,
+  }),
+  SLACK_MEDIA_WORKFLOW: Cloudflare.Workflow("SlackMediaWorkflow", {
+    className: "SlackMediaWorkflow",
+    workflowName: `shiba-slack-media${resSuffix}`,
   }),
   AUTOMATION_RUN_WORKFLOW: Cloudflare.Workflow("AutomationRunWorkflow", {
     className: "AutomationRunWorkflow",
@@ -517,6 +525,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "OPEN_CONNECTOR_READ_VERSION_ID",
       "OPEN_CONNECTOR_READ_MANIFEST_SHA256",
       "SLACK_INSTALLATIONS_ENABLED",
+      "SHIBA_CHANNEL_OUTPUT_DELIVERY",
       "SLACK_COWORKER_PRIVATE_STATUS_ENABLED",
       "SLACK_OAUTH_APP_ID",
       "SLACK_OAUTH_CLIENT_ID",
@@ -549,13 +558,16 @@ export const Worker = Cloudflare.Worker("Worker", {
       "TELEGRAM_APPROVERS",
       "TELEGRAM_CHAT_REPOS",
       "TELEGRAM_AGENT_HARNESS",
+      "EMAIL_TASK_SENDERS",
+      "EMAIL_TASK_EMPLOYEES",
+      "EMAIL_TASK_REPOS",
       "DISCORD_APPROVERS",
       "DISCORD_CHANNEL_REPOS",
       "DISCORD_AGENT_HARNESS",
       "TEAMS_APPROVERS",
       "TEAMS_CHANNEL_REPOS",
       "TEAMS_APP_TENANT_ID",
-      "TEAMS_SERVICE_URL",
+      "TEAMS_WORKSPACE_ID",
       "TEAMS_AGENT_HARNESS",
       "GMAIL_CLIENT_ID",
       "BETTER_AUTH_VERIFICATION_FROM",

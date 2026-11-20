@@ -3,6 +3,7 @@
  * exist. A new platform is one ChannelDefinition added here.
  */
 import { discordChannel } from "../../channels/discord/index.js";
+import { emailChannel } from "../../channels/email/index.js";
 import { slackChannel } from "../../channels/slack/index.js";
 import { teamsChannel } from "../../channels/teams/index.js";
 import { telegramChannel } from "../../channels/telegram/index.js";
@@ -14,6 +15,7 @@ const CHANNELS: Readonly<Record<ChannelId, ChannelDefinition>> = {
   discord: discordChannel,
   telegram: telegramChannel,
   teams: teamsChannel,
+  email: emailChannel,
 };
 
 export function listChannels(): ChannelDefinition[] {
