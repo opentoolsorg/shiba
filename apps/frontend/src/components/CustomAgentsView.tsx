@@ -642,7 +642,7 @@ function ScopedCustomAgentsView({
                     <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} look={agent.config.look} avatar={agent.config.avatar} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))}</span></div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button type="button" onClick={(event) => { profileTrigger.current = event.currentTarget; focusProfile.current = true; setSelectedAgentId(agent.id); }} aria-label={`View profile ${agent.config.name}`}
-                        className="min-h-11 break-words text-left font-serif text-xl text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]">{agent.config.name}</button>
+                        className="min-h-11 min-w-0 max-w-full text-left font-serif text-xl text-[var(--ink)] [overflow-wrap:anywhere] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]">{agent.config.name}</button>
                       <span className="break-all text-[11px] font-mono text-[var(--muted-foreground-2)]">
                         {agent.slug}
                         {` · v${agent.version}`}

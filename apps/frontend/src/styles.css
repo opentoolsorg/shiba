@@ -366,7 +366,7 @@ select:focus-visible,
   animation: enter-slide-x var(--dur-fast) var(--ease-out) both;
 }
 
-.employee-directory :is(button, input, select) {
+.employee-directory :is(button, input, select):not(.sr-only) {
   min-height: 44px;
 }
 
@@ -414,7 +414,7 @@ select:focus-visible,
 .agent-catalog-tools p { margin-top: 4px; font-size: 12px; color: var(--muted-foreground-2); }
 .agent-search { display: flex; gap: 8px; align-items: center; min-height: 44px; border: 1px solid var(--border-1); border-radius: 10px; padding: 0 12px; background: var(--card); color: var(--muted-foreground-2); }
 .agent-search input { width: 190px; min-width: 0; border: 0; background: transparent; color: var(--fg); outline-offset: 4px; font-size: 12px; }
-.agent-filter-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 24px; }
+.agent-filter-row { position: relative; display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 24px; }
 .agent-filter-row button { min-height: 40px; border: 1px solid transparent; padding: 8px 13px; border-radius: 999px; color: var(--muted-foreground-1); font-size: 12px; text-transform: capitalize; }
 .agent-filter-row button[aria-pressed="true"] { background: var(--primary); color: var(--primary-text); }
 .agent-filter-row button:hover:not([aria-pressed="true"]) { background: var(--secondary); }

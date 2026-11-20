@@ -79,7 +79,7 @@ export function OutputsView(): JSX.Element {
   }
 
   return (
-    <div className="p-4">
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
       <MainCard>
         <header className="mb-3">
           <h1 className="text-lg font-medium">Outputs</h1>
@@ -91,7 +91,7 @@ export function OutputsView(): JSX.Element {
             <textarea required maxLength={2000} value={prompt} onChange={(event) => setPrompt(event.target.value)} className="mt-1 block min-h-24 w-full border border-[var(--border-1)] bg-[var(--card)] p-2" placeholder="A quiet coastal town at sunrise…" />
           </label>
           <div className="flex flex-wrap items-end gap-3">
-            <label className="text-sm">Style<select value={model} onChange={(event) => setModel(event.target.value)} className="mt-1 block min-h-11 border border-[var(--border-1)] bg-[var(--card)] px-3">
+            <label className="min-w-0 max-w-full text-sm">Style<select value={model} onChange={(event) => setModel(event.target.value)} className="mt-1 block min-h-11 max-w-full border border-[var(--border-1)] bg-[var(--card)] px-3">
               <option value="">Choose for me</option>
               {options.imageModels.filter((item) => aspectRatio === "1:1" || item.supportsDimensions).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
             </select></label>
@@ -165,8 +165,8 @@ function OutputTile({ item, documentsOnly }: { item: OutputItem; documentsOnly: 
     <li className="flex min-w-0 flex-col border border-[var(--border-1)] bg-[var(--card)]">
       <div className="flex min-h-40 items-center justify-center border-b border-[var(--border-1)] bg-[var(--panel-2)]">{preview}</div>
       <div className="flex flex-1 flex-col gap-2 p-4">
-        <p className="truncate font-medium">{item.title}</p>
-        <p className="text-xs text-[var(--muted-foreground-2)]">{label}</p>
+        <p className="font-medium [overflow-wrap:anywhere]">{item.title}</p>
+        <p className="text-xs text-[var(--muted-foreground-2)] [overflow-wrap:anywhere]">{label}</p>
         {!isDocument && item.media?.prompt && <details><summary className="cursor-pointer truncate" title="Expand description">{item.media.prompt}</summary><p className="mt-2 whitespace-pre-wrap break-words">{item.media.prompt}</p></details>}
         <time dateTime={date.toISOString()} className="text-xs text-[var(--muted-foreground-2)]">{date.toLocaleDateString()}</time>
         {actions && <div className="mt-auto">{actions}</div>}

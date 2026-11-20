@@ -422,13 +422,15 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
             type="button"
             onClick={() => props.onOpenPeek(task)}
             aria-haspopup="dialog"
-            className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded px-3 text-left hover:bg-[var(--card-hover)] focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+            className="grid min-h-11 min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded px-3 py-2 text-left hover:bg-[var(--card-hover)] focus-visible:outline-2 focus-visible:outline-[var(--ring)] sm:flex"
           >
             <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${dotClass}`} />
-            <span className="min-w-0 flex-1 text-[13px] text-[var(--fg)]">{task.title}</span>
-            {task.routine ? <span title={`Routine: ${task.routine.name}`} className="rounded border border-[var(--border-1)] px-2 py-0.5 text-[11px]">Routine · {routineCadence(task.routine.schedule, task.routine.timezone)}</span> : null}
-            {task.repo ? <span className="shrink-0 font-mono text-xs text-[var(--muted-foreground-2)]">{task.repo}</span> : null}
-            <span className="rounded-full bg-[var(--section)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-1)]">{task.stateLabel}</span>
+            <span className="min-w-0 flex-1 text-[13px] text-[var(--fg)] [overflow-wrap:anywhere]">{task.title}</span>
+            <span className="col-start-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 sm:justify-end">
+              {task.routine ? <span title={`Routine: ${task.routine.name}`} className="rounded border border-[var(--border-1)] px-2 py-0.5 text-[11px]">Routine · {routineCadence(task.routine.schedule, task.routine.timezone)}</span> : null}
+              {task.repo ? <span className="min-w-0 font-mono text-xs text-[var(--muted-foreground-2)] [overflow-wrap:anywhere]">{task.repo}</span> : null}
+              <span className="rounded-full bg-[var(--section)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-1)]">{task.stateLabel}</span>
+            </span>
           </button>
           {task.group === "needs-approval" && task.rawStatus !== "needs-provider" && onReviewApproval ? (
             <button type="button" onClick={() => props.onOpenPeek(task, "approval")} className={viewButtonClass}>

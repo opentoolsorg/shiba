@@ -1036,12 +1036,12 @@ function RepositoriesSection(): JSX.Element {
             onChange={(event) => { setDraft(event.target.value); setError(null); }}
             placeholder="owner/repo or full GitHub URL"
             aria-label="New repository URL"
-            className="flex-1 bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors"
+            className="min-h-11 min-w-0 flex-1 bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors sm:min-h-0 touch:min-h-11"
           />
           <button
             type="button"
             onClick={add}
-            className="text-[11px] bg-[var(--primary-soft)] hover:bg-[var(--primary-soft)] border border-[var(--primary)]/15 text-[var(--primary)] font-medium py-1.5 px-3 rounded-[var(--radius-button)] transition-colors shrink-0"
+            className="min-h-11 text-[11px] bg-[var(--primary-soft)] hover:bg-[var(--primary-soft)] border border-[var(--primary)]/15 text-[var(--primary)] font-medium py-1.5 px-3 rounded-[var(--radius-button)] transition-colors shrink-0 sm:min-h-0 touch:min-h-11"
           >
             Save repo
           </button>
