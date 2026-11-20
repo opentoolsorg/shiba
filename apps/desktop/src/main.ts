@@ -27,7 +27,7 @@ import { dashboardCspReportOnly } from "./csp.js";
 import { parseDeepLink } from "./deep-link.js";
 import { createIpcBounds } from "./ipc-guard.js";
 import { createDashboardTrust, createSetupTrust } from "./ipc-trust.js";
-import { dashboardPath, resolveConfiguredOrigin } from "./launch.js";
+import { HOSTED_ORIGIN, dashboardPath, resolveConfiguredOrigin } from "./launch.js";
 import type { Logger } from "./logs.js";
 import { createLogger } from "./logs.js";
 import { DEFAULT_AUTH_HOSTS, isSafeAppPath, parseDeploymentUrl } from "./navigation.js";
@@ -140,6 +140,8 @@ function loadSetup(error?: string): void {
   if (error) params.set("error", error);
   const origin = configuredOrigin();
   if (origin) params.set("url", origin);
+  // The page offers the hosted product by name; the origin stays defined here.
+  params.set("hosted", HOSTED_ORIGIN);
   const query = params.toString();
   void mainWindow.loadURL(`${SETUP_URL}${query ? `?${query}` : ""}`);
 }

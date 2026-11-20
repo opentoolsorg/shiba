@@ -21,20 +21,43 @@ function runSetup(result: unknown): Page {
       state.error = value;
     },
   };
-  const input = { value: "", disabled: false };
+  const input = {
+    value: "",
+    disabled: false,
+    required: false,
+    setAttribute: (_name: string, _value: string) => {},
+    focus: () => {},
+    addEventListener: () => {},
+  };
+  const choice = { checked: false, removeAttribute: () => {}, setAttribute: () => {}, addEventListener: () => {} };
+  const hosted = { ...choice, checked: true };
+  const selfHosted = { ...choice };
+  const fields = { hidden: true };
+  const hostedUrl = { textContent: "" };
   const button = { disabled: false };
   let submit: ((event: { preventDefault(): void }) => Promise<void>) | null = null;
   const form = {
     addEventListener: (_name: string, handler: never) => {
       submit = handler;
     },
+    querySelector: () => button,
+  };
+  const elements: Record<string, unknown> = {
+    error,
+    form,
+    hosted,
+    "self-hosted": selfHosted,
+    "self-hosted-fields": fields,
+    url: input,
+    "hosted-url": hostedUrl,
   };
   const context = {
     URLSearchParams,
-    location: { search: "" },
+    URL,
+    location: { search: "?hosted=https://app.tryshiba.dev" },
     window: { shibaSetup: { setUrl: async () => result } },
     document: {
-      getElementById: (id: string) => (id === "error" ? error : id === "url" ? input : form),
+      getElementById: (id: string) => elements[id] ?? null,
       querySelector: () => button,
     },
   };

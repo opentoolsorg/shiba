@@ -862,9 +862,15 @@ export function ProvidersBoard({
 export interface ProvidersViewProps {
   embedded?: boolean;
   scope?: Scope;
+  /**
+   * A connection, key, verification, or default-route change landed. Readiness
+   * lives outside this view, so the owner re-asks instead of keeping a stale
+   * answer for the rest of the session.
+   */
+  onProviderStateChanged?: () => void;
 }
 
-export function ProvidersView({ scope = "personal", embedded = false }: ProvidersViewProps = {}): JSX.Element {
+export function ProvidersView({ scope = "personal", embedded = false, onProviderStateChanged }: ProvidersViewProps = {}): JSX.Element {
   const [snapshot, setSnapshot] = useState<AcpProvidersSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -914,6 +920,7 @@ export function ProvidersView({ scope = "personal", embedded = false }: Provider
         const next = await work();
         if (ticket !== generation.current) return;
         setSnapshot(next);
+        onProviderStateChanged?.();
       } catch (err) {
         if (ticket !== generation.current) return;
         setActionError(err instanceof Error ? err.message : String(err));
@@ -924,7 +931,7 @@ export function ProvidersView({ scope = "personal", embedded = false }: Provider
         }
       }
     },
-    [],
+    [onProviderStateChanged],
   );
 
   return (

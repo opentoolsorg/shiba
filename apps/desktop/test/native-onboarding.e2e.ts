@@ -68,7 +68,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
   const userData = await mkdtemp(path.join(tmpdir(), "shiba-native-onboarding-"));
   let app: ElectronApplication | undefined;
   const nativeLogs: string[] = [];
-  const launch = async () => {
+  const launch = async (overrides: Record<string, string> = {}) => {
     const native = await electron.launch({
       chromiumSandbox: true,
       args: ["test/electron-bootstrap.cjs"],
@@ -81,6 +81,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
         SHIBA_DESKTOP_URL: fixture.origin,
         SHIBA_DESKTOP_TEST_USER_DATA: userData,
         SHIBA_LOCAL_RUN_ROOT: path.join(userData, "daemon"),
+        ...overrides,
       },
     });
     native.process().stderr?.on("data", (chunk: Buffer) => {
@@ -97,14 +98,39 @@ test("actual native shared UI retains goal, thread, approved output and review a
   const acceptance =
     "Return a concise brief using supplied facts and identify every missing source.";
   const threadName = "Native fixture retained thread";
+  // The guided journey opens at the first unfinished stage. The fixture never
+  // connects a provider, so the task stage is reached from the step rail.
+  async function openTaskStage(page: Page) {
+    const journey = page.getByRole("region", { name: "Guided onboarding", exact: true });
+    if (!(await journey.isVisible().catch(() => false))) {
+      // The chat's draft footer opens the same flow when it is not already up.
+      const review = page.getByRole("button", { name: "Review setup draft", exact: true });
+      if (await review.isVisible().catch(() => false)) await review.click();
+    }
+    await journey.waitFor({ state: "visible", timeout: 15_000 });
+    await journey.getByRole("button", { name: /^Draft your first task/ }).click();
+    await page.getByRole("region", { name: "First task setup", exact: true }).waitFor();
+  }
   async function answer(page: Page, label: string, value: string) {
     await page.getByRole("textbox", { name: `Your answer: ${label}`, exact: true }).fill(value);
     await page.getByRole("button", { name: "Send answer", exact: true }).click();
   }
   try {
-    app = await launch();
+    // First launch: the launcher asks hosted or self-hosted before it opens a
+    // dashboard, and refuses a plain-http server address.
+    app = await launch({ SHIBA_DESKTOP_SETUP: "1", SHIBA_DESKTOP_URL: "" });
     let page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
+    await page.waitForURL(/setup\.html/);
+    await expect(page.locator("#hosted").isChecked()).resolves.toBe(true);
+    await page.locator("#self-hosted").check();
+    await page.locator("input#url").fill("http://insecure.example");
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(page.getByRole("alert").textContent()).resolves.toContain("https://");
+    await page.locator("input#url").fill(fixture.origin);
+    const opened = app.waitForEvent("window");
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    page = await opened;
     await page.waitForURL((url) => url.origin === fixture.origin && ["/app/", "/work/", "/threads/"].includes(url.pathname));
     await page.getByRole("button", { name: "Create account", exact: true }).click();
     await page.getByLabel("Name", { exact: true }).fill("Native Fixture Owner");
@@ -113,6 +139,11 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await page.getByRole("button", { name: "Create account", exact: true }).click();
     await page.getByRole("navigation", { name: "Workspace areas", exact: true }).waitFor();
     await page.goto(`${fixture.origin}/threads/`);
+    // A brand-new account lands in the guided flow with its position shown.
+    const journey = page.getByRole("region", { name: "Guided onboarding", exact: true });
+    await journey.waitFor();
+    await expect(journey.getByText(/Step \d of 6/).isVisible()).resolves.toBe(true);
+    await openTaskStage(page);
     const onboarding = page.getByRole("region", { name: "First task setup", exact: true });
     await onboarding.waitFor();
     await page.getByRole("button", { name: /^Start a coding task/ }).click();
@@ -134,6 +165,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
     page.setDefaultTimeout(15_000);
     await page.waitForURL((url) => url.origin === fixture.origin && ["/app/", "/work/", "/threads/"].includes(url.pathname));
     await page.goto(`${fixture.origin}/threads/`);
+    // The relaunch reopens the guided flow where the account left it.
+    await openTaskStage(page);
     expect(await api<{ agent: string; auth: string }>(page, "/api/whoami")).toEqual(identity);
     expect(await actorDraft(page, identity.agent, "audience")).toMatchObject({ text: audience });
     await expect
@@ -247,7 +280,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     if (!employee) throw new Error("Fixture employee was not persisted");
     await page.goto(`${fixture.origin}/threads/`);
     await openChat(page);
-    await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
+    await openTaskStage(page);
     await page.getByRole("button", { name: "Edit employee", exact: true }).click();
     await page.getByText("Use an existing employee", { exact: true }).click();
     await page
@@ -445,6 +478,17 @@ test("actual native shared UI retains goal, thread, approved output and review a
       .toBeTruthy();
     if (!run) throw new Error("Native fixture run did not complete");
     await page.goto(`${fixture.origin}/threads/`);
+    // The completed run is the flow's own result stage: it shows the run and
+    // hands the person to the thread to record their review.
+    const resultStage = page.getByRole("region", { name: "Guided onboarding", exact: true });
+    await resultStage.waitFor();
+    // The fixture never connects a provider, so the flow stays honest about that
+    // stage and the person opens the result from the step rail.
+    await resultStage.getByRole("button", { name: /^See the result/ }).click();
+    await resultStage.getByRole("heading", { name: "See the result", exact: true }).waitFor();
+    await resultStage.getByText("Deliverables", { exact: true }).waitFor();
+    await expect(resultStage.getByText("reports/native-fixture.md", { exact: false }).first().isVisible()).resolves.toBe(true);
+    await resultStage.getByRole("button", { name: "Record your review", exact: true }).click();
     await openChat(page);
     await page.getByLabel("Review decision for reports/native-fixture.md").selectOption("approved");
     await page.getByRole("button", { name: "Save review", exact: true }).click();
